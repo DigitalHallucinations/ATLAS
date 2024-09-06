@@ -5,7 +5,8 @@ from ATLAS.persona_manager import PersonaManager
 
 class ATLAS:
     def __init__(self):
-        self.config_manager = ConfigManager
+        # Instantiate ConfigManager properly
+        self.config_manager = ConfigManager()
         self.logger = self.config_manager.logger
         self.persona_path = "/home/bib/Projects/LB/modules/Personas"
         self.user = "bib"  # Example user, adjust as needed
@@ -20,7 +21,8 @@ class ATLAS:
     def load_persona(self, persona):
         """Delegate loading persona to PersonaManager."""
         self.logger.info(f"Loading persona: {persona}")
-        self.persona_manager.updater(persona, self.user)
+        self.persona_manager.updater(persona)
+
 
     def log_history(self):
         """Example of handling history-related functionality."""

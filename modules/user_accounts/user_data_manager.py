@@ -77,7 +77,7 @@ class UserDataManager:
         Args:
             user (str): The username of the user.
         """
-        self.config_manager = ConfigManager
+        self.config_manager = ConfigManager()
         self.logger = self.config_manager.logger
         SystemInfo.set_logger(self.logger)
         self.user = user

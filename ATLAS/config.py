@@ -9,9 +9,13 @@ from dotenv import load_dotenv
 class ConfigManager:
     def __init__(self):
         load_dotenv()
+        self.logger = self.setup_logger('config_manager') 
         self.config = self._load_env_config()
-        self.logging_config = self._load_logging_config()
-        self.logger = self.setup_logger('config_manager')
+        self.logging_config = self._load_logging_config()  
+
+        # Update the logger level after loading the logging config
+        log_level = self.get_log_level()
+        self.logger.setLevel(log_level)
 
         # Derive other paths from APP_ROOT
         self.config['LOG_FILE_PATH'] = os.path.join(self.config['APP_ROOT'], 'logs', 'application.log')
@@ -34,10 +38,6 @@ class ConfigManager:
             'APP_ROOT': os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         }
         
-        if not config['OPENAI_API_KEY']:
-            self.logger.error("OpenAI API key not found in environment variables")
-            raise ValueError("OpenAI API key not found in environment variables")
-        
         return config
 
     def _load_logging_config(self):
@@ -46,19 +46,18 @@ class ConfigManager:
             with open(config_path, 'r') as file:
                 return yaml.safe_load(file)
         except FileNotFoundError:
-            self.logger.error(f"Logging config file not found at {config_path}")
+            self.logger.warning(f"Logging config file not found at {config_path}, using default logging config.")
             return {"log_level": "INFO", "console_enabled": True}  # Default configuration
         except yaml.YAMLError as e:
             self.logger.error(f"Error parsing logging config file: {e}")
             return {"log_level": "INFO", "console_enabled": True}  # Default configuration
 
     def get_config(self, key: str, default: Any = None) -> Any:
-        value = self.config.get(key, default)
-        return value
+        return self.config.get(key, default)
 
     def get_log_level(self):
-        log_level = self.logging_config.get('log_level', 'INFO').upper()
-        return getattr(logging, log_level, logging.INFO)
+        # Safely access logging_config after it's loaded
+        return getattr(logging, self.logging_config.get('log_level', 'INFO').upper(), logging.INFO)
 
     def get_model_cache_dir(self):
         return self.get_config('MODEL_CACHE_DIR')
@@ -71,47 +70,35 @@ class ConfigManager:
 
     def setup_logger(self, name):
         logger = logging.getLogger(name)
-        log_level = self.get_log_level()
-        logger.setLevel(log_level)
+        # Set default log level before logging_config is loaded
+        logger.setLevel(logging.INFO)
 
         if not logger.hasHandlers():
-            formatter = logging.Formatter(self.logging_config.get('log_format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             
             # Console handler
-            if self.logging_config.get('console_enabled', True):
-                console_handler = logging.StreamHandler()
-                console_handler.setLevel(self.logging_config.get('console_log_level', log_level))
-                console_handler.setFormatter(formatter)
-                logger.addHandler(console_handler)
-
-            # File handler
-            if self.logging_config.get('file_log_level'):
-                file_handler = logging.FileHandler(self.logging_config.get('log_file', 'CSSLM.log'))
-                file_handler.setLevel(self.logging_config.get('file_log_level', log_level))
-                file_handler.setFormatter(formatter)
-                logger.addHandler(file_handler)
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.INFO)  # Default console level
+            console_handler.setFormatter(formatter)
+            logger.addHandler(console_handler)
 
         return logger
 
     def set_log_level(self, level):
         self.config['LOG_LEVEL'] = level
         log_level = getattr(logging, level.upper())
-        # Set for root logger
         logging.getLogger().setLevel(log_level)
-        # Set for all existing loggers
-        for logger_name in logging.root.manager.loggerDict:
-            logging.getLogger(logger_name).setLevel(log_level)
         self.logger.info(f"Log level set to {level}")
-    
+
     def get_openai_api_key(self):
         return self.get_config('OPENAI_API_KEY')
-    
+
     def get_mistral_api_key(self):
         return self.get_config('MISTRAL_API_KEY')
-    
+
     def get_huggingface_api_key(self):
         return self.get_config('HUGGINGFACE_API_KEY')
-    
+
     def get_google_api_key(self):
         return self.get_config('GOOGLE_API_KEY')
 

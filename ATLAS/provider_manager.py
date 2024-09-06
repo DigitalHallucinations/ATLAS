@@ -10,7 +10,7 @@ from modules.Providers.Grok.grok_generate_response import GrokGenerator
   
 class ProviderManager:
     def __init__(self):
-        self.config_manager = ConfigManager
+        self.config_manager = ConfigManager()
         self.logger = self.config_manager.logger
         self.model_manager = ModelManager(self.config_manager)
         self.current_llm_provider = self.config_manager.get_default_provider()

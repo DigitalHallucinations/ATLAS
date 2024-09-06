@@ -7,7 +7,7 @@ from ATLAS.config import ConfigManager
 
 class ModelManager:
     def __init__(self):
-        self.config_manager = ConfigManager
+        self.config_manager = ConfigManager()
         self.logger = self.config_manager.logger
         self.current_model = None
         self.current_provider = None

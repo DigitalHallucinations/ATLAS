@@ -1,4 +1,4 @@
-# SCOUT\persona_manager.py
+# ATLAS\persona_manager.py
 
 import os
 import json
@@ -23,12 +23,12 @@ class PersonaManager:
     def __init__(self, master, user: str):
         self.master = master
         self.user = user
-        self.config_manager = ConfigManager
+        self.config_manager = ConfigManager()
         self.logger = self.config_manager.logger
         self.persona_base_path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'Personas')
         self.persona_names: List[str] = self.load_persona_names(self.persona_base_path)
         self.personas: Dict[str, dict] = {}  # Cache for loaded personas
-        self.default_persona_name = "SCOUT"
+        self.default_persona_name = "ATLAS"
         self.current_persona = None
         self.current_system_prompt = None
 
