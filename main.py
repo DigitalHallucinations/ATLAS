@@ -1,4 +1,4 @@
-from UI.side_bar import Sidebar
+from UI.sidebar import Sidebar
 from gi.repository import Gtk
 
 if __name__ == "__main__":

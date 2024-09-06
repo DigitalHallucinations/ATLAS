@@ -25,10 +25,19 @@ ATLAS
 │   └── user.png
 ├── LB_treeview.txt
 ├── UI
-│   └── side_bar.py
+│   └── sidebar.py
 ├── main.py
 ├── modules
 │   ├── Personas
+│   │   ├── ATLAS
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   ├── Persona
+│   │   │   │   └── ATLAS.json
+│   │   │   ├── Toolbox
+│   │   │   │   ├── functions.json
+│   │   │   │   └── maps.py
+│   │   │   └── Workspace
 │   │   ├── CleverBot
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
@@ -100,15 +109,6 @@ ATLAS
 │   │   │   │   └── maps.py
 │   │   │   ├── Workspace
 │   │   │   └── functions.json
-│   │   ├── SCOUT
-│   │   │   ├── Memory
-│   │   │   │   └── .keep
-│   │   │   ├── Persona
-│   │   │   │   └── SCOUT.json
-│   │   │   ├── Toolbox
-│   │   │   │   ├── functions.json
-│   │   │   │   └── maps.py
-│   │   │   └── Workspace
 │   │   ├── WeatherGenius
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
@@ -193,3 +193,4 @@ ATLAS
 │       │   └── bib.json
 │       └── user_template
 └── requirements.txt
+

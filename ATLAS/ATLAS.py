@@ -1,9 +1,9 @@
-# Atlas/Atlas.py
+# ATLAS/ATLAS.py
 
-from Atlas.config import ConfigManager
-from Atlas.persona_manager import PersonaManager
+from ATLAS.config import ConfigManager
+from ATLAS.persona_manager import PersonaManager
 
-class Atlas:
+class ATLAS:
     def __init__(self):
         self.config_manager = ConfigManager
         self.logger = self.config_manager.logger

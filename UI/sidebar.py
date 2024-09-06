@@ -1,4 +1,4 @@
-# UI/side_bar.py
+# UI/sidebar.py
 
 import gi
 gi.require_version('Gtk', '3.0')
