@@ -4,14 +4,14 @@ import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf
-from SCOUT.SCOUT import SCOUT
+from ATLAS.ATLAS import ATLAS
 
 class Sidebar(Gtk.Window):
     def __init__(self):
         Gtk.Window.__init__(self, title="Sidebar")
         
-        # SCOUT instance 
-        self.SCOUT = SCOUT()
+        # ATLAS instance 
+        self.ATLAS = ATLAS()
 
         # Set window properties to span the full screen height
         display = Gdk.Display.get_default()
@@ -101,7 +101,7 @@ class Sidebar(Gtk.Window):
         print("Providers menu clicked")
 
     def handle_history_button(self, widget):
-        self.SCOUT.log_history()
+        self.ATLAS.log_history()
 
     def show_chat_page(self, widget):
         print("Chat page clicked")
@@ -119,7 +119,7 @@ class Sidebar(Gtk.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         persona_window.add(box)
 
-        persona_names = self.SCOUT.get_persona_names()
+        persona_names = self.ATLAS.get_persona_names()
 
         for persona in persona_names:
             # Create a horizontal box to hold the label and the settings icon
@@ -133,7 +133,7 @@ class Sidebar(Gtk.Window):
             # Add a click event to load the persona when the label is clicked
             label_event_box = Gtk.EventBox()
             label_event_box.add(label)
-            label_event_box.connect("button-press-event", lambda widget, event, persona=persona: self.SCOUT.load_persona(persona))
+            label_event_box.connect("button-press-event", lambda widget, event, persona=persona: self.ATLAS.load_persona(persona))
 
             # Create the settings icon
             settings_icon_path = "Icons/settings.png"  # Path to your settings icon

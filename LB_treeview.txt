@@ -1,6 +1,13 @@
-LB
+ATLAS
 ├── .env
 ├── .gitignore
+├── ATLAS
+│   ├── ATLAS.py
+│   ├── ToolManager.py
+│   ├── config.py
+│   ├── model_manager.py
+│   ├── persona_manager.py
+│   └── provider_manager.py
 ├── Icons
 │   ├── agent.png
 │   ├── anthropic.png
@@ -17,12 +24,6 @@ LB
 │   ├── settings.png
 │   └── user.png
 ├── LB_treeview.txt
-├── SCOUT
-│   ├── SCOUT.py
-│   ├── config.py
-│   ├── model_manager.py
-│   ├── persona_manager.py
-│   └── provider_manager.py
 ├── UI
 │   └── side_bar.py
 ├── main.py
@@ -168,12 +169,27 @@ LB
 │   │   └── OpenAI
 │   │       ├── OA_gen_response.py
 │   │       └── O_models.json
+│   ├── Tools
+│   │   ├── Base_Tools
+│   │   │   ├── Google_search.py
+│   │   │   ├── __init_.py
+│   │   │   └── time.py
+│   │   ├── __init__.py
+│   │   ├── location_services
+│   │   │   ├── geocode.py
+│   │   │   ├── ip_api.py
+│   │   │   ├── location_functions.json
+│   │   │   └── location_maps.py
+│   │   ├── tool_event_system.py
+│   │   └── tool_maps
+│   │       ├── functions.json
+│   │       └── maps.py
 │   ├── config
 │   │   └── logging_config.yaml
 │   └── user_accounts
 │       ├── user_account_db.py
 │       ├── user_data_manager.py
-│       └── user_profiles
-│           ├── bib.json
-│           └── user_template
+│       ├── user_profiles
+│       │   └── bib.json
+│       └── user_template
 └── requirements.txt

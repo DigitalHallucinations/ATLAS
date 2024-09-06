@@ -3,8 +3,8 @@
 from typing import List, Dict, Union, AsyncIterator
 import time
 import traceback
-from SCOUT.model_manager import ModelManager
-from SCOUT.config import ConfigManager
+from ATLAS.model_manager import ModelManager
+from ATLAS.config import ConfigManager
 from modules.Providers.HuggingFace.HF_gen_response import HuggingFaceGenerator
 from modules.Providers.Grok.grok_generate_response import GrokGenerator
   

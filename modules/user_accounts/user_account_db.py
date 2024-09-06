@@ -1,13 +1,14 @@
 
 import sqlite3
 import os
-from modules.logging.logger import setup_logger
+from ATLAS.config import ConfigManager
 
-logger = setup_logger('convo_manager.py')
 
 class UserAccountDatabase:
     def __init__(self, db_name="User.db"):
-        
+        self.config_manager = ConfigManager
+        self.logger = self.config_manager.logger
+
         root_dir = os.path.dirname(os.path.abspath(__file__)) 
         user_profiles_dir = os.path.join(root_dir, 'user_profiles')  
 
@@ -62,11 +63,11 @@ class UserAccountDatabase:
 
     def close_connection(self):
         """Close the connection to the SQLite database."""
-        logger.info("Closing UA database connection.")
+        self.logger.info("Closing UA database connection.")
         try:
             self.conn.close()
         except sqlite3.Error as e:
-            logger.info(f"Error closing connection: {e}")
+            self.logger.info(f"Error closing connection: {e}")
             raise 
 
     def update_user(self, username, password=None, email=None, name=None, dob=None):

@@ -1,4 +1,4 @@
-#src/config/logging_config.yaml ### NEW ###
+# modules/config/logging_config.yaml ### NEW ###
 
 log_level: INFO
 file_log_level: INFO

@@ -1,9 +1,9 @@
-# SCOUT/SCOUT.py
+# Atlas/Atlas.py
 
-from SCOUT.config import ConfigManager
-from SCOUT.persona_manager import PersonaManager
+from Atlas.config import ConfigManager
+from Atlas.persona_manager import PersonaManager
 
-class SCOUT:
+class Atlas:
     def __init__(self):
         self.config_manager = ConfigManager
         self.logger = self.config_manager.logger

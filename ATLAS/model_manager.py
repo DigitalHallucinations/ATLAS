@@ -3,7 +3,7 @@
 import json
 import os
 from typing import Dict, List, Tuple
-from SCOUT.config import ConfigManager
+from ATLAS.config import ConfigManager
 
 class ModelManager:
     def __init__(self):

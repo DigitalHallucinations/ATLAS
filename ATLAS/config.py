@@ -3,9 +3,7 @@
 import logging
 import os
 import yaml
-import aiofiles
-import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 from dotenv import load_dotenv
 
 class ConfigManager:
@@ -14,9 +12,6 @@ class ConfigManager:
         self.config = self._load_env_config()
         self.logging_config = self._load_logging_config()
         self.logger = self.setup_logger('config_manager')
-        #self.logger.info("Initializing ConfigManager")
-        
-        #self.logger.info("ConfigManager initialization completed")
 
         # Derive other paths from APP_ROOT
         self.config['LOG_FILE_PATH'] = os.path.join(self.config['APP_ROOT'], 'logs', 'application.log')
@@ -59,7 +54,6 @@ class ConfigManager:
 
     def get_config(self, key: str, default: Any = None) -> Any:
         value = self.config.get(key, default)
-        # self.logger.debug(f"Retrieved config value for {key}: {value}")
         return value
 
     def get_log_level(self):
@@ -126,57 +120,3 @@ class ConfigManager:
 
     def get_app_root(self):
         return self.get_config('APP_ROOT')
-
-    def ensure_directories_exist(self):
-        directories = [
-            self.get_app_root(),
-            self.get_model_cache_dir(),
-            os.path.dirname(self.get_config('LOG_FILE_PATH'))
-        ]
-        for directory in directories:
-            os.makedirs(directory, exist_ok=True)
-
-    def update_config(self, key: str, value: Any) -> None:
-        # self.logger.debug(f"Updating config: {key} = {value}")
-        self.config[key] = value
-        config_path = os.path.join(self.get_app_root(), 'config', 'config.yaml')
-        with open(config_path, 'w') as file:
-            yaml.dump(self.config, file)
-        # self.logger.debug(f"Updated config saved to {config_path}")
-
-    def update_logging_config(self, console_enabled: bool):
-        """
-        Update the logging configuration to enable or disable console logging.
-
-        Args:
-            console_enabled (bool): Whether to enable console logging.
-        """
-        self.logging_config['console_enabled'] = console_enabled
-        
-        # Update all existing loggers
-        for logger_name in logging.root.manager.loggerDict:
-            logger = logging.getLogger(logger_name)
-            self._update_logger_handlers(logger)
-
-        self.logger.info(f"Console logging {'enabled' if console_enabled else 'disabled'}")
-
-    def _update_logger_handlers(self, logger):
-        """
-        Update the handlers of a given logger based on the current configuration.
-        """
-        # Remove existing console handlers
-        logger.handlers = [h for h in logger.handlers if not isinstance(h, logging.StreamHandler)]
-
-        # Add console handler if enabled
-        if self.logging_config.get('console_enabled', True):
-            console_handler = logging.StreamHandler()
-            console_handler.setLevel(self.logging_config.get('console_log_level', logger.level))
-            formatter = logging.Formatter(self.logging_config.get('log_format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-            console_handler.setFormatter(formatter)
-            logger.addHandler(console_handler)    
-
-    def __str__(self) -> str:
-        return f"ConfigManager(APP_ROOT={self.get_app_root()})"
-
-    def __repr__(self) -> str:
-        return self.__str__()

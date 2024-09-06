@@ -3,9 +3,9 @@
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import List, Dict, Union, AsyncIterator
-from modules.config import ConfigManager
-from modules.Tools.ToolManager import load_function_map_from_current_persona, load_functions_from_json, use_tool
-from SCOUT.model_manager import ModelManager  
+from ATLAS.config import ConfigManager
+from ATLAS.ToolManager import load_function_map_from_current_persona, load_functions_from_json, use_tool
+from ATLAS.model_manager import ModelManager  
 
 class OpenAIGenerator:
     def __init__(self, config_manager: ConfigManager):

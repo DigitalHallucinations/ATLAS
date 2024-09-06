@@ -4,7 +4,7 @@ import os
 import json
 from typing import List, Optional, Dict
 from modules.user_accounts.user_data_manager import UserDataManager
-from SCOUT.config import ConfigManager
+from ATLAS.config import ConfigManager
 
 
 class PersonaManager:

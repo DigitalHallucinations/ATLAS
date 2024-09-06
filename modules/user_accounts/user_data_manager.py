@@ -4,11 +4,16 @@ import os
 import json
 import re
 import subprocess
-from modules.logging.logger import setup_logger
-
-logger = setup_logger('user_data_manager.py')
+from ATLAS.config import ConfigManager
 
 class SystemInfo:
+    logger = None
+
+    @staticmethod
+    def set_logger(logger_instance):
+        """Sets the logger for the SystemInfo class."""
+        SystemInfo.logger = logger_instance
+
     @staticmethod
     def run_command(command):
         """Runs a system command and returns the output."""
@@ -16,7 +21,8 @@ class SystemInfo:
             result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=True)
             return result.stdout
         except Exception as e:
-            logger.error(f"Error running command '{command}': {e}")
+            if SystemInfo.logger:
+                SystemInfo.logger.error(f"Error running command '{command}': {e}")
             return ""
 
     @staticmethod
@@ -24,6 +30,7 @@ class SystemInfo:
         """Gets basic system information using the 'systeminfo' command."""
         output = SystemInfo.run_command("systeminfo")
         return output
+
 
     @staticmethod
     def get_cpu_info():
@@ -70,11 +77,14 @@ class UserDataManager:
         Args:
             user (str): The username of the user.
         """
+        self.config_manager = ConfigManager
+        self.logger = self.config_manager.logger
+        SystemInfo.set_logger(self.logger)
         self.user = user
         self.profile = self.get_profile_text()
         self.emr = self.get_emr()
         self.system_info = self.get_system_info()
-        #logger.info(f"UDM instantiated with user: {self.user}, {self.profile}")
+        
 
     def get_profile(self):
         """
@@ -83,7 +93,7 @@ class UserDataManager:
         Returns:
             dict: The user's profile as a dictionary.
         """
-        logger.info("Entering get_profile() method")
+        self.logger.info("Entering get_profile() method")
         try:
             profile_path = os.path.join(
                 os.path.dirname(__file__), '..', '..', 'modules', 'user_accounts', 'user_profiles',
@@ -91,16 +101,16 @@ class UserDataManager:
             )
 
             if not os.path.exists(profile_path):
-                logger.error(f"Profile file does not exist: {profile_path}")
+                self.logger.error(f"Profile file does not exist: {profile_path}")
                 return {}
 
             with open(profile_path, 'r', encoding='utf-8') as file:
                 profile = json.load(file)
-                logger.info("Profile found")
+                self.logger.info("Profile found")
                 return profile
 
         except Exception as e:
-            logger.error(f"Error loading profile: {e}")
+            self.logger.error(f"Error loading profile: {e}")
             return {}
         
     def format_profile_as_text(self, profile_json):
@@ -113,7 +123,7 @@ class UserDataManager:
         Returns:
             str: The formatted profile as a string.
         """
-        logger.info("Formatting profile.")
+        self.logger.info("Formatting profile.")
         profile_lines = []
         for key, value in profile_json.items():
             line = f"{key}: {value}"
@@ -127,7 +137,7 @@ class UserDataManager:
         Returns:
             str: The user's profile as a formatted string.
         """
-        logger.info("Entering get_profile_text() method")
+        self.logger.info("Entering get_profile_text() method")
         profile_json = self.get_profile()
         return self.format_profile_as_text(profile_json)
     
@@ -138,16 +148,16 @@ class UserDataManager:
         Returns:
             str: The user's EMR as a string.
         """
-        logger.info("Getting EMR.")
+        self.logger.info("Getting EMR.")
         EMR_path = os.path.join(
             os.path.dirname(__file__), '..', '..', 'modules', 'user_accounts', 'user_profiles',
             f"{self.user}_emr.txt"
         )
 
-        logger.info(f"EMR path: {EMR_path}")
+        self.logger.info(f"EMR path: {EMR_path}")
 
         if not os.path.exists(EMR_path):
-            logger.error(f"EMR file does not exist: {EMR_path}")
+            self.logger.error(f"EMR file does not exist: {EMR_path}")
             return ""
         
         try:
@@ -157,7 +167,7 @@ class UserDataManager:
                 EMR = re.sub(r'\s+', ' ', EMR)
                 return EMR.strip()
         except Exception as e:
-            logger.error(f"Error loading EMR: {e}")
+            self.logger.error(f"Error loading EMR: {e}")
             return ""
 
     def get_system_info(self):
@@ -174,12 +184,12 @@ class UserDataManager:
             detailed_info = SystemInfo.get_detailed_system_info()
             formatted_info = ""
             for category, info in detailed_info.items():
-                logger.debug(f"Retrieving {category} information:")
-                logger.debug(info)
+                self.logger.debug(f"Retrieving {category} information:")
+                self.logger.debug(info)
                 formatted_info += f"--- {category} ---\n{info}\n"
-            logger.info("System information retrieved successfully.")
+            self.logger.info("System information retrieved successfully.")
             self._system_info = formatted_info
             return self._system_info
         except Exception as e:
-            logger.error(f"Error retrieving system information: {e}")
+            self.logger.error(f"Error retrieving system information: {e}")
             return "System information not available"
