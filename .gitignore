@@ -1,0 +1,33 @@
+# Ignore .env file
+.env
+
+# Ignore env directory
+env/
+
+# Ignore all .log files
+*.log
+
+# Ignore mp3, mp4, and wav audio/video files in assets
+/assets/tts_mp3/*.mp3
+/assets/avatar_videos/*.mp4
+*output.wav
+
+# Ignore all SQLite database files and associated temporary files
+*.db
+*.db-shm
+*.db-wal
+
+# Ignore Python bytecode files
+*.pyc
+*.cpython-310.pyc
+
+# Ignore Python cache directories
+__pycache__/
+
+# Ignore all Workspace directories under any module
+*/Workspace/
+
+# Ignore user profile files (JSON, text, and database files) in user_profiles
+/modules/user_accounts/user_profiles/*
+
+

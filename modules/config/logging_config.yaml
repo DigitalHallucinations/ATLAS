@@ -1,0 +1,10 @@
+#src/config/logging_config.yaml ### NEW ###
+
+log_level: INFO
+file_log_level: INFO
+console_log_level: WARNING
+console_enabled: true
+log_format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+log_file: SCOUT3.log
+max_file_size: 52428800  # 50 MB
+backup_count: 5

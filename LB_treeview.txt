@@ -1,0 +1,179 @@
+LB
+├── .env
+├── .gitignore
+├── Icons
+│   ├── agent.png
+│   ├── anthropic.png
+│   ├── chat.png
+│   ├── google.png
+│   ├── history.png
+│   ├── huggingface.png
+│   ├── microphone.png
+│   ├── microphone_grn.png
+│   ├── mistral.png
+│   ├── openai.png
+│   ├── power_button.png
+│   ├── providers.png
+│   ├── settings.png
+│   └── user.png
+├── LB_treeview.txt
+├── SCOUT
+│   ├── SCOUT.py
+│   ├── config.py
+│   ├── model_manager.py
+│   ├── persona_manager.py
+│   └── provider_manager.py
+├── UI
+│   └── side_bar.py
+├── main.py
+├── modules
+│   ├── Personas
+│   │   ├── CleverBot
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   ├── Persona
+│   │   │   │   └── Cleverbot.json
+│   │   │   ├── Toolbox
+│   │   │   │   ├── functions.json
+│   │   │   │   └── maps.py
+│   │   │   └── Workspace
+│   │   ├── CodeGenius
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   ├── Persona
+│   │   │   │   └── CodeGenius.json
+│   │   │   ├── Toolbox
+│   │   │   │   ├── Tools
+│   │   │   │   │   ├── DOCS.md
+│   │   │   │   │   └── GitHub
+│   │   │   │   │       ├── Docs
+│   │   │   │   │       │   └── GitHub_Client.md
+│   │   │   │   │       ├── functions.json
+│   │   │   │   │       └── github_client.py
+│   │   │   │   ├── functions.json
+│   │   │   │   └── maps.py
+│   │   │   ├── Tools.txt
+│   │   │   └── Workspace
+│   │   ├── DocGenius
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   ├── Persona
+│   │   │   │   └── DocGenius.json
+│   │   │   ├── Toolbox
+│   │   │   │   ├── functions.json
+│   │   │   │   └── maps.py
+│   │   │   └── Workspace
+│   │   ├── Einstein
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   ├── Persona
+│   │   │   │   └── Einstein.json
+│   │   │   ├── Toolbox
+│   │   │   │   ├── functions.json
+│   │   │   │   └── maps.py
+│   │   │   └── Workspace
+│   │   ├── MEDIC
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   ├── Persona
+│   │   │   │   └── MEDIC.json
+│   │   │   └── Toolbox
+│   │   │       ├── functions.json
+│   │   │       └── maps.py
+│   │   ├── Nikola Tesla
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   ├── Persona
+│   │   │   │   └── Nikola Tesla.json
+│   │   │   ├── Toolbox
+│   │   │   │   ├── functions.json
+│   │   │   │   └── maps.py
+│   │   │   └── Workspace
+│   │   ├── ResumeGenius
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   ├── Persona
+│   │   │   │   └── ResumeGenius.json
+│   │   │   ├── Toolbox
+│   │   │   │   ├── functions.json
+│   │   │   │   └── maps.py
+│   │   │   ├── Workspace
+│   │   │   └── functions.json
+│   │   ├── SCOUT
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   ├── Persona
+│   │   │   │   └── SCOUT.json
+│   │   │   ├── Toolbox
+│   │   │   │   ├── functions.json
+│   │   │   │   └── maps.py
+│   │   │   └── Workspace
+│   │   ├── WeatherGenius
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   ├── Persona
+│   │   │   │   └── WeatherGenius.json
+│   │   │   ├── Toolbox
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── daily_summary.py
+│   │   │   │   ├── functions.json
+│   │   │   │   ├── historical_weather.py
+│   │   │   │   ├── maps.py
+│   │   │   │   ├── weather.py
+│   │   │   │   ├── weather_history.py
+│   │   │   │   └── weather_vizualization.py
+│   │   │   ├── Tools.txt
+│   │   │   └── Workspace
+│   │   ├── WebDev
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   ├── Persona
+│   │   │   │   └── WebDev.json
+│   │   │   ├── Toolbox
+│   │   │   │   ├── Tools
+│   │   │   │   │   ├── DOCS.md
+│   │   │   │   │   └── GitHub
+│   │   │   │   │       ├── Docs
+│   │   │   │   │       │   └── GitHub_Client.md
+│   │   │   │   │       ├── functions.json
+│   │   │   │   │       └── github_client.py
+│   │   │   │   ├── functions.json
+│   │   │   │   └── maps.py
+│   │   │   ├── Tools.txt
+│   │   │   └── Workspace
+│   │   └── genius
+│   │       ├── Memory
+│   │       │   └── .keep
+│   │       ├── Persona
+│   │       │   └── Genius.json
+│   │       ├── Toolbox
+│   │       │   ├── functions.json
+│   │       │   └── maps.py
+│   │       ├── Workspace
+│   │       └── functions.json
+│   ├── Providers
+│   │   ├── Anthropic
+│   │   │   ├── A_models.json
+│   │   │   └── Anthropic_gen_response.py
+│   │   ├── Google
+│   │   │   ├── GG_gen_response.py
+│   │   │   └── G_models.json
+│   │   ├── Grok
+│   │   │   └── grok_generate_response.py
+│   │   ├── HuggingFace
+│   │   │   └── HF_gen_response.py
+│   │   ├── Mistral
+│   │   │   ├── M_models.json
+│   │   │   └── Mistral_gen_response.py
+│   │   └── OpenAI
+│   │       ├── OA_gen_response.py
+│   │       └── O_models.json
+│   ├── config
+│   │   └── logging_config.yaml
+│   └── user_accounts
+│       ├── user_account_db.py
+│       ├── user_data_manager.py
+│       └── user_profiles
+│           ├── bib.json
+│           └── user_template
+└── requirements.txt
