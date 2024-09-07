@@ -89,6 +89,7 @@ class PersonaManager:
         """Retrieve the persona by name, loading it from disk if necessary."""
         return self.load_persona(persona_name)
 
+
     def updater(self, selected_persona_name: str):
         """Update the current persona and manage conversation ID."""
         self.logger.info(f"Attempting to update persona to {selected_persona_name}.")
@@ -104,12 +105,16 @@ class PersonaManager:
         self.master.system_name = selected_persona_name
         self.master.system_name_tag = selected_persona_name
 
+
+        # uncomment when database is integrated
+        """
         if hasattr(self.master, 'database'):
             self.master.database.generate_new_conversation_id()
             self.logger.info(f"Conversation ID updated due to persona change to {selected_persona_name}")
         else:
             self.logger.warning("ConversationHistory instance not found in master.")
-        
+        """
+
         self.logger.info(f"Persona switched to {selected_persona_name} with new system prompt.")
 
     def build_system_prompt(self, persona: dict) -> str:
@@ -154,6 +159,20 @@ class PersonaManager:
             personalized_content = personalized_content.replace(placeholder, data)
 
         return personalized_content
+    
+    def update_persona(self, persona):
+        """Update the persona settings and save them to the corresponding file."""
+        persona_name = persona.get("name")
+        persona_folder = os.path.join(self.persona_base_path, persona_name, 'Persona')
+        json_file = os.path.join(persona_folder, f'{persona_name}.json')
+
+        try:
+            with open(json_file, 'w', encoding='utf-8') as file:
+                json.dump({"persona": [persona]}, file, indent=4)
+            self.logger.info(f"Persona {persona_name} updated successfully.")
+        except OSError as e:
+            self.logger.error(f"Error saving persona {persona_name}: {e}")
+
 
     def show_message(self, role: str, message: str):
         """Display a message using the chat component, if available."""

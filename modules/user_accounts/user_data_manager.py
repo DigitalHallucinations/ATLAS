@@ -1,10 +1,12 @@
 # modules/user_accounts/user_data_manager.py
 
 import os
-import json
 import re
+import json
+import platform
 import subprocess
 from ATLAS.config import ConfigManager
+
 
 class SystemInfo:
     logger = None
@@ -27,34 +29,49 @@ class SystemInfo:
 
     @staticmethod
     def get_basic_info():
-        """Gets basic system information using the 'systeminfo' command."""
-        output = SystemInfo.run_command("systeminfo")
+        """Gets basic system information based on the OS."""
+        if platform.system() == "Windows":
+            output = SystemInfo.run_command("systeminfo")
+        else:
+            output = SystemInfo.run_command("hostnamectl")
         return output
-
 
     @staticmethod
     def get_cpu_info():
-        """Gets CPU information using the 'wmic cpu get' command."""
-        output = SystemInfo.run_command("wmic cpu get name,NumberOfCores,NumberOfLogicalProcessors /format:list")
+        """Gets CPU information based on the OS."""
+        if platform.system() == "Windows":
+            output = SystemInfo.run_command("wmic cpu get name,NumberOfCores,NumberOfLogicalProcessors /format:list")
+        else:
+            output = SystemInfo.run_command("lscpu")
         return output
 
     @staticmethod
     def get_memory_info():
-        """Gets memory information using the 'wmic MemoryChip' command."""
-        output = SystemInfo.run_command("wmic MemoryChip get Capacity /format:list")
-        total_memory = sum([int(re.search(r'Capacity=(\d+)', line).group(1)) for line in output.splitlines() if "Capacity" in line])
-        return f"Total Physical Memory: {total_memory / (1024**3):.2f} GB"
+        """Gets memory information based on the OS."""
+        if platform.system() == "Windows":
+            output = SystemInfo.run_command("wmic MemoryChip get Capacity /format:list")
+            total_memory = sum([int(re.search(r'Capacity=(\d+)', line).group(1)) for line in output.splitlines() if "Capacity" in line])
+            return f"Total Physical Memory: {total_memory / (1024**3):.2f} GB"
+        else:
+            output = SystemInfo.run_command("free -h")
+        return output
 
     @staticmethod
     def get_disk_info():
-        """Gets disk information using the 'wmic diskdrive' command."""
-        output = SystemInfo.run_command("wmic diskdrive get model,size /format:list")
+        """Gets disk information based on the OS."""
+        if platform.system() == "Windows":
+            output = SystemInfo.run_command("wmic diskdrive get model,size /format:list")
+        else:
+            output = SystemInfo.run_command("lsblk")
         return output
 
     @staticmethod
     def get_network_info():
-        """Gets network configuration using the 'ipconfig /all' command."""
-        output = SystemInfo.run_command("ipconfig /all")
+        """Gets network configuration based on the OS."""
+        if platform.system() == "Windows":
+            output = SystemInfo.run_command("ipconfig /all")
+        else:
+            output = SystemInfo.run_command("ip addr")
         return output
 
     @staticmethod
@@ -68,6 +85,7 @@ class SystemInfo:
             "Network Info": SystemInfo.get_network_info(),
         }
         return info
+
 
 class UserDataManager:
     def __init__(self, user):
