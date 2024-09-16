@@ -37,8 +37,9 @@ class ConfigManager:
             'ANTHROPIC_API_KEY': os.getenv('ANTHROPIC_API_KEY'),
             'APP_ROOT': os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         }
-        
+        self.logger.info(f"APP_ROOT is set to: {config['APP_ROOT']}")
         return config
+
 
     def _load_logging_config(self):
         config_path = os.path.join(self.get_app_root(), 'config', 'logging_config.yaml')

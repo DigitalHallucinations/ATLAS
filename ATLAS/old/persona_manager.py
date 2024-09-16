@@ -119,9 +119,9 @@ class PersonaManager:
 
     def build_system_prompt(self, persona: dict) -> str:
         """
-        Builds the system prompt using user-specific information,
+        Builds the system prompt using user-specific information, 
         including the EMR only for medical personas and profile only if enabled.
-
+        
         Args:
             persona (dict): The persona data to personalize.
 
@@ -153,24 +153,15 @@ class PersonaManager:
             user_data["<<emr>>"] = "EMR not available for this persona"
 
         # Only add sysinfo if the persona is a sys_admin_persona
-        if persona.get("sys_info_enabled") == "True":
-            self.logger.info(f"Adding system info to persona: {persona['name']}")
+        if persona.get("Sys_admin_persona") == "True":
+            self.logger.info(f"Adding system info to sys_admin_persona: {persona['name']}")
             user_data["<<sysinfo>>"] = user_data_manager.get_system_info()
         else:
-            self.logger.info(f"System info not added for persona: {persona['name']}")
+            self.logger.info(f"System info not added for non-sys_admin_persona: {persona['name']}")
             user_data["<<sysinfo>>"] = "System info not available for this persona"
 
-        # Assemble the system prompt from the content parts
-        content = persona.get("content", {})
-        parts = [
-            content.get("start_locked", "").strip(),
-            content.get("editable_content", "").strip(),
-            content.get("end_locked", "").strip(),
-        ]
-        # Filter out empty strings and join with spaces
-        personalized_content = ' '.join(filter(None, parts))
-
-        # Replace placeholders in the assembled content with user data
+        # Replace placeholders in persona content with user data
+        personalized_content = persona["content"]
         for placeholder, data in user_data.items():
             personalized_content = personalized_content.replace(placeholder, data)
 
