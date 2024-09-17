@@ -5,7 +5,7 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf
 from ATLAS.ATLAS import ATLAS
-from UI.persona_management import PersonaManagement
+from UI.Persona_manager.persona_management import PersonaManagement
 
 class Sidebar(Gtk.Window):
     def __init__(self):
