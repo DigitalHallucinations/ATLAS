@@ -13,98 +13,90 @@ class PersonaTypeTab:
     def build_ui(self):
         self.type_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
 
-        # Switches
+        # Create a notebook to hold tabs for main switches and each persona type
+        self.sub_notebook = Gtk.Notebook()
+        self.type_box.pack_start(self.sub_notebook, True, True, 0)
+
+        # Create the main switches tab
+        self.create_main_switches_tab()
+
+        # Create individual tabs for each persona type
+        self.create_medical_persona_tab()
+        self.create_educational_persona_tab()
+        self.create_fitness_trainer_tab()
+        self.create_language_practice_tab()
+
+    def get_widget(self):
+        return self.type_box
+
+    def create_main_switches_tab(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(10)
+
+        # Switches for each persona type
         self.sys_info_switch = Gtk.Switch()
         self.sys_info_switch.set_active(self.persona.get("sys_info_enabled", "False") == "True")
+        self.sys_info_switch.connect("notify::active", self.on_sys_info_switch_toggled)
+
         self.agent_switch = Gtk.Switch()
         self.agent_switch.set_active(self.persona.get("Agent", "False") == "True")
+        self.agent_switch.connect("notify::active", self.on_agent_switch_toggled)
+
         self.user_profile_switch = Gtk.Switch()
         self.user_profile_switch.set_active(self.persona.get("user_profile_enabled", "False") == "True")
+        self.user_profile_switch.connect("notify::active", self.on_user_profile_switch_toggled)
+
         self.medical_persona_switch = Gtk.Switch()
         self.medical_persona_switch.set_active(self.persona.get("medical_persona", "False") == "True")
+        self.medical_persona_switch.connect("notify::active", self.on_medical_persona_switch_toggled)
+
         self.educational_persona_switch = Gtk.Switch()
         self.educational_persona_switch.set_active(self.persona.get("educational_persona_enabled", "False") == "True")
+        self.educational_persona_switch.connect("notify::active", self.on_educational_persona_switch_toggled)
+
         self.fitness_trainer_switch = Gtk.Switch()
         self.fitness_trainer_switch.set_active(self.persona.get("fitness_trainer_enabled", "False") == "True")
+        self.fitness_trainer_switch.connect("notify::active", self.on_fitness_trainer_switch_toggled)
+
         self.language_practice_switch = Gtk.Switch()
         self.language_practice_switch.set_active(self.persona.get("language_practice_enabled", "False") == "True")
+        self.language_practice_switch.connect("notify::active", self.on_language_practice_switch_toggled)
 
+        # List of switches and labels (Updated labels)
         switches = [
             ("System Info Enabled", self.sys_info_switch),
             ("Agent", self.agent_switch),
             ("User Profile Enabled", self.user_profile_switch),
             ("Medical Persona", self.medical_persona_switch),
-            ("Educational Tutor Persona", self.educational_persona_switch),
-            ("Fitness Trainer Persona", self.fitness_trainer_switch),
-            ("Language Practice Persona", self.language_practice_switch),
+            ("Educational Persona", self.educational_persona_switch),  
+            ("Fitness Persona", self.fitness_trainer_switch),          
+            ("Language Instructor Persona", self.language_practice_switch), 
         ]
 
-        for label, switch in switches:
-            switch_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-            switch_label = Gtk.Label(label=label)
-            switch_box.pack_start(switch_label, False, False, 0)
-            switch_box.pack_end(switch, False, False, 0)
-            self.type_box.pack_start(switch_box, False, False, 0)
+        for label_text, switch in switches:
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+            label = Gtk.Label(label=label_text)
+            label.set_halign(Gtk.Align.START)
+            hbox.pack_start(label, True, True, 0)
+            hbox.pack_end(switch, False, False, 0)
+            box.pack_start(hbox, False, False, 0)
 
-        # Connect signals to update UI
-        self.sys_info_switch.connect("notify::active", self.on_sys_info_switch_toggled)
-        self.user_profile_switch.connect("notify::active", self.on_user_profile_switch_toggled)
-        self.medical_persona_switch.connect("notify::active", self.on_medical_persona_switch_toggled)
-        self.educational_persona_switch.connect("notify::active", self.on_educational_persona_switch_toggled)
-        self.fitness_trainer_switch.connect("notify::active", self.on_fitness_trainer_switch_toggled)
-        self.language_practice_switch.connect("notify::active", self.on_language_practice_switch_toggled)
+        self.sub_notebook.append_page(box, Gtk.Label(label="Main"))
 
-        # Additional options panels
-        self.educational_options_box = self.create_educational_options()
-        self.type_box.pack_start(self.educational_options_box, False, False, 0)
-        self.educational_options_box.set_visible(self.educational_persona_switch.get_active())
+    def create_medical_persona_tab(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(10)
 
-        self.fitness_options_box = self.create_fitness_options()
-        self.type_box.pack_start(self.fitness_options_box, False, False, 0)
-        self.fitness_options_box.set_visible(self.fitness_trainer_switch.get_active())
+        # Currently, there are no additional settings for the medical persona
+        label = Gtk.Label(label="No additional settings for Medical Persona.")
+        label.set_halign(Gtk.Align.START)
+        box.pack_start(label, False, False, 0)
 
-        self.language_practice_options_box = self.create_language_practice_options()
-        self.type_box.pack_start(self.language_practice_options_box, False, False, 0)
-        self.language_practice_options_box.set_visible(self.language_practice_switch.get_active())
+        self.sub_notebook.append_page(box, Gtk.Label(label="Medical"))
 
-    def get_widget(self):
-        return self.type_box
-
-    # Switch toggled methods
-    def on_sys_info_switch_toggled(self, switch, gparam):
-        sys_info_enabled = switch.get_active()
-        self.general_tab.set_sys_info_enabled(sys_info_enabled)
-
-    def on_user_profile_switch_toggled(self, switch, gparam):
-        user_profile_enabled = switch.get_active()
-        self.general_tab.set_user_profile_enabled(user_profile_enabled)
-
-    def on_medical_persona_switch_toggled(self, switch, gparam):
-        medical_persona_enabled = switch.get_active()
-        self.general_tab.set_medical_persona_enabled(medical_persona_enabled)
-
-    def on_educational_persona_switch_toggled(self, switch, gparam):
-        educational_persona_enabled = switch.get_active()
-        self.educational_options_box.set_visible(educational_persona_enabled)
-        self.general_tab.set_educational_persona_enabled(educational_persona_enabled)
-        self.general_tab.update_end_locked()
-
-    def on_fitness_trainer_switch_toggled(self, switch, gparam):
-        fitness_persona_enabled = switch.get_active()
-        self.fitness_options_box.set_visible(fitness_persona_enabled)
-        self.general_tab.set_fitness_persona_enabled(fitness_persona_enabled)
-        self.general_tab.update_end_locked()
-
-    def on_language_practice_switch_toggled(self, switch, gparam):
-        language_practice_enabled = switch.get_active()
-        self.language_practice_options_box.set_visible(language_practice_enabled)
-        self.general_tab.set_language_practice_enabled(language_practice_enabled)
-        self.general_tab.update_end_locked()
-
-    # Options for different personas
-    def create_educational_options(self):
-        options_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        options_box.set_margin_start(20)
+    def create_educational_persona_tab(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(10)
 
         # Subject Specialization
         subject_label = Gtk.Label(label="Subject Specialization")
@@ -113,7 +105,7 @@ class PersonaTypeTab:
         subject_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         subject_box.pack_start(subject_label, False, False, 0)
         subject_box.pack_start(self.subject_entry, True, True, 0)
-        options_box.pack_start(subject_box, False, False, 0)
+        box.pack_start(subject_box, False, False, 0)
 
         # Education Level
         level_label = Gtk.Label(label="Education Level")
@@ -129,7 +121,7 @@ class PersonaTypeTab:
         level_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         level_box.pack_start(level_label, False, False, 0)
         level_box.pack_start(self.level_combo, False, False, 0)
-        options_box.pack_start(level_box, False, False, 0)
+        box.pack_start(level_box, False, False, 0)
 
         # Teaching Style
         style_label = Gtk.Label(label="Teaching Style")
@@ -145,13 +137,13 @@ class PersonaTypeTab:
         style_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         style_box.pack_start(style_label, False, False, 0)
         style_box.pack_start(self.style_combo, False, False, 0)
-        options_box.pack_start(style_box, False, False, 0)
+        box.pack_start(style_box, False, False, 0)
 
-        return options_box
+        self.sub_notebook.append_page(box, Gtk.Label(label="Educational"))
 
-    def create_fitness_options(self):
-        options_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        options_box.set_margin_start(20)
+    def create_fitness_trainer_tab(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(10)
 
         # Fitness Goal
         goal_label = Gtk.Label(label="Fitness Goal")
@@ -167,7 +159,7 @@ class PersonaTypeTab:
         goal_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         goal_box.pack_start(goal_label, False, False, 0)
         goal_box.pack_start(self.goal_combo, False, False, 0)
-        options_box.pack_start(goal_box, False, False, 0)
+        box.pack_start(goal_box, False, False, 0)
 
         # Exercise Preference
         exercise_label = Gtk.Label(label="Exercise Preference")
@@ -183,13 +175,13 @@ class PersonaTypeTab:
         exercise_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         exercise_box.pack_start(exercise_label, False, False, 0)
         exercise_box.pack_start(self.exercise_combo, False, False, 0)
-        options_box.pack_start(exercise_box, False, False, 0)
+        box.pack_start(exercise_box, False, False, 0)
 
-        return options_box
+        self.sub_notebook.append_page(box, Gtk.Label(label="Fitness"))
 
-    def create_language_practice_options(self):
-        options_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        options_box.set_margin_start(20)
+    def create_language_practice_tab(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(10)
 
         # Target Language
         language_label = Gtk.Label(label="Target Language")
@@ -198,7 +190,7 @@ class PersonaTypeTab:
         language_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         language_box.pack_start(language_label, False, False, 0)
         language_box.pack_start(self.language_entry, True, True, 0)
-        options_box.pack_start(language_box, False, False, 0)
+        box.pack_start(language_box, False, False, 0)
 
         # Proficiency Level
         proficiency_label = Gtk.Label(label="Proficiency Level")
@@ -214,9 +206,42 @@ class PersonaTypeTab:
         proficiency_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         proficiency_box.pack_start(proficiency_label, False, False, 0)
         proficiency_box.pack_start(self.proficiency_combo, False, False, 0)
-        options_box.pack_start(proficiency_box, False, False, 0)
+        box.pack_start(proficiency_box, False, False, 0)
 
-        return options_box
+        self.sub_notebook.append_page(box, Gtk.Label(label="Language Instructor"))
+
+    # Switch toggled methods
+    def on_sys_info_switch_toggled(self, switch, gparam):
+        sys_info_enabled = switch.get_active()
+        self.general_tab.set_sys_info_enabled(sys_info_enabled)
+
+    def on_agent_switch_toggled(self, switch, gparam):
+        agent_enabled = switch.get_active()
+        self.general_tab.set_agent_enabled(agent_enabled)
+
+    def on_user_profile_switch_toggled(self, switch, gparam):
+        user_profile_enabled = switch.get_active()
+        self.general_tab.set_user_profile_enabled(user_profile_enabled)
+
+    def on_medical_persona_switch_toggled(self, switch, gparam):
+        medical_persona_enabled = switch.get_active()
+        self.general_tab.set_medical_persona_enabled(medical_persona_enabled)
+        self.general_tab.update_end_locked()
+
+    def on_educational_persona_switch_toggled(self, switch, gparam):
+        educational_persona_enabled = switch.get_active()
+        self.general_tab.set_educational_persona_enabled(educational_persona_enabled)
+        self.general_tab.update_end_locked()
+
+    def on_fitness_trainer_switch_toggled(self, switch, gparam):
+        fitness_persona_enabled = switch.get_active()
+        self.general_tab.set_fitness_persona_enabled(fitness_persona_enabled)
+        self.general_tab.update_end_locked()
+
+    def on_language_practice_switch_toggled(self, switch, gparam):
+        language_practice_enabled = switch.get_active()
+        self.general_tab.set_language_practice_enabled(language_practice_enabled)
+        self.general_tab.update_end_locked()
 
     # Methods to retrieve values
     def get_sys_info_enabled(self):
@@ -267,7 +292,7 @@ class PersonaTypeTab:
             'medical_persona': self.get_medical_persona_enabled(),
             'educational_persona_enabled': self.get_educational_persona_enabled(),
             'fitness_trainer_enabled': self.get_fitness_trainer_enabled(),
-            'language_practice_enabled': self.get_language_practice_enabled()
+            'language_practice_enabled': self.get_language_practice_enabled(),
         }
 
         if values['educational_persona_enabled']:
