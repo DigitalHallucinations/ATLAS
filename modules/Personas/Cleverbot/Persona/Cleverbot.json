@@ -12,11 +12,13 @@
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "False",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "False",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }

@@ -4,10 +4,13 @@ ATLAS
 ├── ATLAS
 │   ├── ATLAS.py
 │   ├── ToolManager.py
+│   ├── config
+│   │   └── logging_config.yaml
 │   ├── config.py
 │   ├── model_manager.py
 │   ├── persona_manager.py
 │   └── provider_manager.py
+├── ATLAS_treeview.txt
 ├── Icons
 │   ├── agent.png
 │   ├── anthropic.png
@@ -23,12 +26,18 @@ ATLAS
 │   ├── providers.png
 │   ├── settings.png
 │   └── user.png
-├── LB_treeview.txt
 ├── UI
+│   ├── Persona_manager
+│   │   ├── General_Tab
+│   │   │   └── general_tab.py
+│   │   ├── Persona_Type_Tab
+│   │   │   └── persona_type_tab.py
+│   │   └── persona_management.py
 │   └── sidebar.py
 ├── main.py
 ├── modules
 │   ├── Personas
+│   │   ├── ALL_PERSONAS.json
 │   │   ├── ATLAS
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
@@ -38,7 +47,7 @@ ATLAS
 │   │   │   │   ├── functions.json
 │   │   │   │   └── maps.py
 │   │   │   └── Workspace
-│   │   ├── CleverBot
+│   │   ├── Cleverbot
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
 │   │   │   ├── Persona
@@ -82,6 +91,21 @@ ATLAS
 │   │   │   │   ├── functions.json
 │   │   │   │   └── maps.py
 │   │   │   └── Workspace
+│   │   ├── FitnessCoach
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   └── Persona
+│   │   │       └── FitnessCoach.json
+│   │   ├── HealthCoach
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   └── Persona
+│   │   │       └── HealthCoach.json
+│   │   ├── LanguageTutor
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   └── Persona
+│   │   │       └── LanguageTutor.json
 │   │   ├── MEDIC
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
@@ -90,6 +114,11 @@ ATLAS
 │   │   │   └── Toolbox
 │   │   │       ├── functions.json
 │   │   │       └── maps.py
+│   │   ├── MathTutor
+│   │   │   ├── Memory
+│   │   │   │   └── .keep
+│   │   │   └── Persona
+│   │   │       └── MathTutor.json
 │   │   ├── Nikola Tesla
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
@@ -184,8 +213,6 @@ ATLAS
 │   │   └── tool_maps
 │   │       ├── functions.json
 │   │       └── maps.py
-│   ├── config
-│   │   └── logging_config.yaml
 │   └── user_accounts
 │       ├── user_account_db.py
 │       ├── user_data_manager.py
@@ -193,4 +220,3 @@ ATLAS
 │       │   └── bib.json
 │       └── user_template
 └── requirements.txt
-

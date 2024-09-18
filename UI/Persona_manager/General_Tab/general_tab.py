@@ -8,13 +8,15 @@ from gi.repository import Gtk
 class GeneralTab:
     def __init__(self, persona):
         self.persona = persona
+        # Fetch the 'type' dictionary from persona
+        self.persona_type = self.persona.get('type', {})
         # Initialize flags for user profile, medical persona, and system info
         self.user_profile_enabled = persona.get("user_profile_enabled", "False") == "True"
-        self.medical_persona_enabled = persona.get("medical_persona", "False") == "True"
         self.sys_info_enabled = persona.get("sys_info_enabled", "False") == "True"
-        self.educational_persona_enabled = persona.get("educational_persona_enabled", "False") == "True"
-        self.fitness_persona_enabled = persona.get("fitness_trainer_enabled", "False") == "True"
-        self.language_practice_enabled = persona.get("language_practice_enabled", "False") == "True"
+        self.medical_persona_enabled = self.persona_type.get("medical_persona", "False") == "True"
+        self.educational_persona = self.persona_type.get("educational_persona", "False") == "True"
+        self.fitness_persona_enabled = self.persona_type.get("fitness_persona", "False") == "True"
+        self.language_instructor = self.persona_type.get("language_instructor", "False") == "True"
         self.build_ui()
 
     def build_ui(self):
@@ -153,17 +155,23 @@ class GeneralTab:
             dynamic_parts.append("User Profile: <<Profile>>")
         if self.medical_persona_enabled:
             dynamic_parts.append("User EMR: <<emr>>")
-        if self.educational_persona_enabled:
-            dynamic_parts.append(f"Subject: {self.persona.get('subject_specialization', 'General')}")
-            dynamic_parts.append(f"Level: {self.persona.get('education_level', 'High School')}")
+        if self.educational_persona:
+            subject_specialization = self.persona_type.get('subject_specialization', 'General')
+            education_level = self.persona_type.get('education_level', 'High School')
+            dynamic_parts.append(f"Subject: {subject_specialization}")
+            dynamic_parts.append(f"Level: {education_level}")
             dynamic_parts.append("Provide explanations suitable for the student's level.")
         if self.fitness_persona_enabled:
-            dynamic_parts.append(f"Fitness Goal: {self.persona.get('fitness_goal', 'Weight Loss')}")
-            dynamic_parts.append(f"Exercise Preference: {self.persona.get('exercise_preference', 'Gym Workouts')}")
+            fitness_goal = self.persona_type.get('fitness_goal', 'Weight Loss')
+            exercise_preference = self.persona_type.get('exercise_preference', 'Gym Workouts')
+            dynamic_parts.append(f"Fitness Goal: {fitness_goal}")
+            dynamic_parts.append(f"Exercise Preference: {exercise_preference}")
             dynamic_parts.append("Offer motivational support and track progress.")
-        if self.language_practice_enabled:
-            dynamic_parts.append(f"Target Language: {self.persona.get('target_language', 'Spanish')}")
-            dynamic_parts.append(f"Proficiency Level: {self.persona.get('proficiency_level', 'Beginner')}")
+        if self.language_instructor:
+            target_language = self.persona_type.get('target_language', 'Spanish')
+            proficiency_level = self.persona_type.get('proficiency_level', 'Beginner')
+            dynamic_parts.append(f"Target Language: {target_language}")
+            dynamic_parts.append(f"Proficiency Level: {proficiency_level}")
             dynamic_parts.append("Engage in conversation to practice the target language.")
         if dynamic_parts:
             dynamic_content = " ".join(dynamic_parts)
@@ -173,7 +181,7 @@ class GeneralTab:
 
         end_locked = dynamic_content
 
-        # Avoid updating multiple times by checking if content is already set
+        # Update the end_locked TextView
         buffer_start = self.end_view.get_buffer().get_start_iter()
         buffer_end = self.end_view.get_buffer().get_end_iter()
         current_text = self.end_view.get_buffer().get_text(buffer_start, buffer_end, True)
@@ -182,7 +190,6 @@ class GeneralTab:
             # If content is already set correctly, return early
             return
 
-        # Update the end_locked TextView
         self.end_view.get_buffer().set_text(end_locked)
 
         # Dynamically resize the TextView based on the content
@@ -239,16 +246,16 @@ class GeneralTab:
         self.medical_persona_enabled = enabled
         self.update_end_locked()
 
-    def set_educational_persona_enabled(self, enabled):
-        self.educational_persona_enabled = enabled
+    def set_educational_persona(self, enabled):
+        self.educational_persona = enabled
         self.update_end_locked()
 
     def set_fitness_persona_enabled(self, enabled):
         self.fitness_persona_enabled = enabled
         self.update_end_locked()
 
-    def set_language_practice_enabled(self, enabled):
-        self.language_practice_enabled = enabled
+    def set_language_instructor(self, enabled):
+        self.language_instructor = enabled
         self.update_end_locked()
 
     def get_name(self):

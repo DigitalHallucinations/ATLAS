@@ -8,6 +8,7 @@ class PersonaTypeTab:
     def __init__(self, persona, general_tab):
         self.persona = persona
         self.general_tab = general_tab
+        self.persona_type = self.persona.get('type', {})
         self.build_ui()
 
     def build_ui(self):
@@ -39,7 +40,7 @@ class PersonaTypeTab:
         self.sys_info_switch.connect("notify::active", self.on_sys_info_switch_toggled)
 
         self.agent_switch = Gtk.Switch()
-        self.agent_switch.set_active(self.persona.get("Agent", "False") == "True")
+        self.agent_switch.set_active(self.persona_type.get("Agent", "False") == "True")
         self.agent_switch.connect("notify::active", self.on_agent_switch_toggled)
 
         self.user_profile_switch = Gtk.Switch()
@@ -47,19 +48,19 @@ class PersonaTypeTab:
         self.user_profile_switch.connect("notify::active", self.on_user_profile_switch_toggled)
 
         self.medical_persona_switch = Gtk.Switch()
-        self.medical_persona_switch.set_active(self.persona.get("medical_persona", "False") == "True")
+        self.medical_persona_switch.set_active(self.persona_type.get("medical_persona", "False") == "True")
         self.medical_persona_switch.connect("notify::active", self.on_medical_persona_switch_toggled)
 
         self.educational_persona_switch = Gtk.Switch()
-        self.educational_persona_switch.set_active(self.persona.get("educational_persona_enabled", "False") == "True")
+        self.educational_persona_switch.set_active(self.persona_type.get("educational_persona", "False") == "True")
         self.educational_persona_switch.connect("notify::active", self.on_educational_persona_switch_toggled)
 
         self.fitness_trainer_switch = Gtk.Switch()
-        self.fitness_trainer_switch.set_active(self.persona.get("fitness_trainer_enabled", "False") == "True")
+        self.fitness_trainer_switch.set_active(self.persona_type.get("fitness_persona", "False") == "True")
         self.fitness_trainer_switch.connect("notify::active", self.on_fitness_trainer_switch_toggled)
 
         self.language_practice_switch = Gtk.Switch()
-        self.language_practice_switch.set_active(self.persona.get("language_practice_enabled", "False") == "True")
+        self.language_practice_switch.set_active(self.persona_type.get("language_instructor", "False") == "True")
         self.language_practice_switch.connect("notify::active", self.on_language_practice_switch_toggled)
 
         # List of switches and labels (Updated labels)
@@ -101,7 +102,7 @@ class PersonaTypeTab:
         # Subject Specialization
         subject_label = Gtk.Label(label="Subject Specialization")
         self.subject_entry = Gtk.Entry()
-        self.subject_entry.set_text(self.persona.get("subject_specialization", "General"))
+        self.subject_entry.set_text(self.persona_type.get("subject_specialization", "General"))
         subject_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         subject_box.pack_start(subject_label, False, False, 0)
         subject_box.pack_start(self.subject_entry, True, True, 0)
@@ -113,7 +114,7 @@ class PersonaTypeTab:
         levels = ["Elementary", "Middle School", "High School", "College", "Advanced"]
         for level in levels:
             self.level_combo.append_text(level)
-        level_text = self.persona.get("education_level", "High School")
+        level_text = self.persona_type.get("education_level", "High School")
         if level_text in levels:
             self.level_combo.set_active(levels.index(level_text))
         else:
@@ -151,7 +152,7 @@ class PersonaTypeTab:
         goals = ["Weight Loss", "Muscle Gain", "Endurance", "Flexibility"]
         for goal in goals:
             self.goal_combo.append_text(goal)
-        goal_text = self.persona.get("fitness_goal", "Weight Loss")
+        goal_text = self.persona_type.get("fitness_goal", "Weight Loss")
         if goal_text in goals:
             self.goal_combo.set_active(goals.index(goal_text))
         else:
@@ -167,7 +168,7 @@ class PersonaTypeTab:
         exercises = ["Gym Workouts", "Home Exercises", "Yoga", "Cardio"]
         for exercise in exercises:
             self.exercise_combo.append_text(exercise)
-        exercise_text = self.persona.get("exercise_preference", "Gym Workouts")
+        exercise_text = self.persona_type.get("exercise_preference", "Gym Workouts")
         if exercise_text in exercises:
             self.exercise_combo.set_active(exercises.index(exercise_text))
         else:
@@ -186,7 +187,7 @@ class PersonaTypeTab:
         # Target Language
         language_label = Gtk.Label(label="Target Language")
         self.language_entry = Gtk.Entry()
-        self.language_entry.set_text(self.persona.get("target_language", "Spanish"))
+        self.language_entry.set_text(self.persona_type.get("target_language", "Spanish"))
         language_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         language_box.pack_start(language_label, False, False, 0)
         language_box.pack_start(self.language_entry, True, True, 0)
@@ -198,7 +199,7 @@ class PersonaTypeTab:
         levels = ["Beginner", "Intermediate", "Advanced"]
         for level in levels:
             self.proficiency_combo.append_text(level)
-        proficiency_text = self.persona.get("proficiency_level", "Beginner")
+        proficiency_text = self.persona_type.get("proficiency_level", "Beginner")
         if proficiency_text in levels:
             self.proficiency_combo.set_active(levels.index(proficiency_text))
         else:
@@ -229,8 +230,8 @@ class PersonaTypeTab:
         self.general_tab.update_end_locked()
 
     def on_educational_persona_switch_toggled(self, switch, gparam):
-        educational_persona_enabled = switch.get_active()
-        self.general_tab.set_educational_persona_enabled(educational_persona_enabled)
+        educational_persona = switch.get_active()
+        self.general_tab.set_educational_persona(educational_persona)
         self.general_tab.update_end_locked()
 
     def on_fitness_trainer_switch_toggled(self, switch, gparam):
@@ -239,8 +240,8 @@ class PersonaTypeTab:
         self.general_tab.update_end_locked()
 
     def on_language_practice_switch_toggled(self, switch, gparam):
-        language_practice_enabled = switch.get_active()
-        self.general_tab.set_language_practice_enabled(language_practice_enabled)
+        language_instructor = switch.get_active()
+        self.general_tab.set_language_instructor(language_instructor)
         self.general_tab.update_end_locked()
 
     # Methods to retrieve values
@@ -256,13 +257,13 @@ class PersonaTypeTab:
     def get_medical_persona_enabled(self):
         return self.medical_persona_switch.get_active()
 
-    def get_educational_persona_enabled(self):
+    def get_educational_persona(self):
         return self.educational_persona_switch.get_active()
 
-    def get_fitness_trainer_enabled(self):
+    def get_fitness_persona(self):
         return self.fitness_trainer_switch.get_active()
 
-    def get_language_practice_enabled(self):
+    def get_language_instructor(self):
         return self.language_practice_switch.get_active()
 
     def get_educational_options(self):
@@ -287,19 +288,24 @@ class PersonaTypeTab:
     def get_values(self):
         values = {
             'sys_info_enabled': self.get_sys_info_enabled(),
-            'agent': self.get_agent_enabled(),
             'user_profile_enabled': self.get_user_profile_enabled(),
-            'medical_persona': self.get_medical_persona_enabled(),
-            'educational_persona_enabled': self.get_educational_persona_enabled(),
-            'fitness_trainer_enabled': self.get_fitness_trainer_enabled(),
-            'language_practice_enabled': self.get_language_practice_enabled(),
         }
 
-        if values['educational_persona_enabled']:
-            values.update(self.get_educational_options())
-        if values['fitness_trainer_enabled']:
-            values.update(self.get_fitness_options())
-        if values['language_practice_enabled']:
-            values.update(self.get_language_practice_options())
+        # Collect 'type' values
+        type_values = {
+            'Agent': self.get_agent_enabled(),
+            'medical_persona': self.get_medical_persona_enabled(),
+            'educational_persona': self.get_educational_persona(),
+            'fitness_persona': self.get_fitness_persona(),
+            'language_instructor': self.get_language_instructor(),
+        }
 
+        if type_values['educational_persona']:
+            type_values.update(self.get_educational_options())
+        if type_values['fitness_persona']:
+            type_values.update(self.get_fitness_options())
+        if type_values['language_instructor']:
+            type_values.update(self.get_language_practice_options())
+
+        values['type'] = type_values
         return values

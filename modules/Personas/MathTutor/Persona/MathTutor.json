@@ -12,14 +12,16 @@
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "False",
-      "educational_persona_enabled": "True",
-      "subject_specialization": "Mathematics",
-      "education_level": "High School",
-      "teaching_style": "Interactive Exercises",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "False",
+        "educational_persona": "True",
+        "subject_specialization": "Mathematics",
+        "education_level": "High School",
+        "teaching_style": "Interactive Exercises",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "emma"
     }

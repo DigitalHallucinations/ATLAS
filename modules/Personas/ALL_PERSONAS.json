@@ -16,11 +16,13 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "True",
-      "medical_persona": "False",
-      "Agent": "True",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "True",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -45,11 +47,13 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "False",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "False",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -74,11 +78,13 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "True",
-      "medical_persona": "False",
-      "Agent": "True",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "True",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -103,11 +109,13 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "False",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "True",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "True",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -132,14 +140,16 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "False",
-      "educational_persona_enabled": "True",
-      "subject_specialization": "Physics",
-      "education_level": "College",
-      "teaching_style": "Socratic Method",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "False",
+        "educational_persona": "True",
+        "subject_specialization": "Physics",
+        "education_level": "College",
+        "teaching_style": "Socratic Method",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -164,11 +174,13 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "True",
-      "medical_persona": "False",
-      "Agent": "True",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "True",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -193,11 +205,13 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "False",
       "sys_info_enabled": "False",
-      "medical_persona": "True",
-      "Agent": "True",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "True",
+        "Agent": "True",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -222,14 +236,16 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "False",
-      "educational_persona_enabled": "True",
-      "subject_specialization": "Electrical Engineering",
-      "education_level": "College",
-      "teaching_style": "Interactive Exercises",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "False",
+        "educational_persona": "True",
+        "subject_specialization": "Electrical Engineering",
+        "education_level": "College",
+        "teaching_style": "Interactive Exercises",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -254,11 +270,13 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "True",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "True",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -283,11 +301,13 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "True",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "True",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -312,11 +332,13 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "False",
       "sys_info_enabled": "True",
-      "medical_persona": "False",
-      "Agent": "True",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "True",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -341,13 +363,15 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "False",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "True",
-      "target_language": "Spanish",
-      "proficiency_level": "Beginner",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "False",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "True",
+        "target_language": "Spanish",
+        "proficiency_level": "Beginner"
+      },
       "Speech_provider": "11labs",
       "voice": "sofia"
     }
@@ -372,13 +396,15 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "False",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "True",
-      "fitness_goal": "Muscle Gain",
-      "exercise_preference": "Home Exercises",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "False",
+        "educational_persona": "False",
+        "fitness_persona": "True",
+        "fitness_goal": "Muscle Gain",
+        "exercise_preference": "Home Exercises",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "jack"
     }
@@ -403,14 +429,16 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "False",
-      "educational_persona_enabled": "True",
-      "subject_specialization": "Mathematics",
-      "education_level": "High School",
-      "teaching_style": "Interactive Exercises",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "False",
+        "educational_persona": "True",
+        "subject_specialization": "Mathematics",
+        "education_level": "High School",
+        "teaching_style": "Interactive Exercises",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "emma"
     }
@@ -420,7 +448,7 @@ json
 HealthCoach
 
 json
-
+ 
 {
   "persona": [
     {
@@ -435,13 +463,15 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "True",
-      "Agent": "True",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "True",
-      "fitness_goal": "Weight Loss",
-      "exercise_preference": "Yoga",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "True",
+        "Agent": "True",
+        "educational_persona": "False",
+        "fitness_persona": "True",
+        "fitness_goal": "Weight Loss",
+        "exercise_preference": "Yoga",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "olivia"
     }
@@ -466,13 +496,15 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "False",
-      "educational_persona_enabled": "False",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "True",
-      "target_language": "French",
-      "proficiency_level": "Intermediate",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "False",
+        "educational_persona": "False",
+        "fitness_persona": "False",
+        "language_instructor": "True",
+        "target_language": "French",
+        "proficiency_level": "Intermediate"
+      },
       "Speech_provider": "11labs",
       "voice": "camille"
     }
@@ -497,14 +529,16 @@ json
       "model": "gpt-4",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
-      "medical_persona": "False",
-      "Agent": "False",
-      "educational_persona_enabled": "True",
-      "subject_specialization": "General Science",
-      "education_level": "Middle School",
-      "teaching_style": "Interactive Exercises",
-      "fitness_trainer_enabled": "False",
-      "language_practice_enabled": "False",
+      "type": {
+        "medical_persona": "False",
+        "Agent": "False",
+        "educational_persona": "True",
+        "subject_specialization": "General Science",
+        "education_level": "Middle School",
+        "teaching_style": "Interactive Exercises",
+        "fitness_persona": "False",
+        "language_instructor": "False"
+      },
       "Speech_provider": "11labs",
       "voice": "liam"
     }

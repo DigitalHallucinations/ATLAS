@@ -172,7 +172,10 @@ class PersonaManagement:
         end_locked_content = self.general_tab.get_end_locked()
 
         # Get values from persona_type_tab
-        persona_type_values = self.persona_type_tab.get_values()
+        values = self.persona_type_tab.get_values()
+        sys_info_enabled = values.get('sys_info_enabled', False)
+        user_profile_enabled = values.get('user_profile_enabled', False)
+        persona_type_values = values.get('type', {})
 
         # Get values from provider_model_box
         provider = self.get_entry_text(self.provider_model_box, 0, 1)  # Provider
@@ -193,42 +196,32 @@ class PersonaManagement:
         content['end_locked'] = end_locked_content
         persona['content'] = content
 
-        # Save switch states from persona_type_values
-        for key in ['sys_info_enabled', 'agent', 'user_profile_enabled', 'medical_persona',
-                    'educational_persona_enabled', 'fitness_trainer_enabled', 'language_practice_enabled']:
-            persona[key] = "True" if persona_type_values.get(key, False) else "False"
+        # Save top-level flags
+        persona['sys_info_enabled'] = "True" if sys_info_enabled else "False"
+        persona['user_profile_enabled'] = "True" if user_profile_enabled else "False"
+
+        # Save 'type' dictionary
+        persona['type'] = {}
+        for key in ['Agent', 'medical_persona', 'educational_persona', 'fitness_persona', 'language_instructor']:
+            persona['type'][key] = "True" if persona_type_values.get(key, False) else "False"
+
+        # Save additional options under 'type'
+        additional_keys = [
+            'subject_specialization', 'education_level', 'teaching_style',
+            'fitness_goal', 'exercise_preference',
+            'target_language', 'proficiency_level'
+        ]
+        for key in additional_keys:
+            if key in persona_type_values:
+                persona['type'][key] = persona_type_values[key]
+            else:
+                persona['type'].pop(key, None)
 
         # Save other settings
         persona['provider'] = provider
         persona['model'] = model
         persona['Speech_provider'] = speech_provider
         persona['voice'] = voice
-
-        # Save options for educational persona
-        if persona_type_values.get('educational_persona_enabled'):
-            persona['subject_specialization'] = persona_type_values.get('subject_specialization', 'General')
-            persona['education_level'] = persona_type_values.get('education_level', 'High School')
-            persona['teaching_style'] = persona_type_values.get('teaching_style', 'Lecture Style')
-        else:
-            persona.pop('subject_specialization', None)
-            persona.pop('education_level', None)
-            persona.pop('teaching_style', None)
-
-        # Save options for fitness trainer persona
-        if persona_type_values.get('fitness_trainer_enabled'):
-            persona['fitness_goal'] = persona_type_values.get('fitness_goal', 'Weight Loss')
-            persona['exercise_preference'] = persona_type_values.get('exercise_preference', 'Gym Workouts')
-        else:
-            persona.pop('fitness_goal', None)
-            persona.pop('exercise_preference', None)
-
-        # Save options for language practice persona
-        if persona_type_values.get('language_practice_enabled'):
-            persona['target_language'] = persona_type_values.get('target_language', 'Spanish')
-            persona['proficiency_level'] = persona_type_values.get('proficiency_level', 'Beginner')
-        else:
-            persona.pop('target_language', None)
-            persona.pop('proficiency_level', None)
 
         self.ATLAS.persona_manager.update_persona(persona)
         print(f"Settings for {name} saved!")
