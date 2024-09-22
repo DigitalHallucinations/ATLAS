@@ -3,7 +3,7 @@
 import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import List, Dict, Union, AsyncIterator
-from modules.config import ConfigManager
+from ATLAS.config import ConfigManager
 import asyncio
 
 class GoogleGeminiGenerator:

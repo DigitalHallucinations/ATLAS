@@ -1,9 +1,9 @@
-# src/modules/Providers/Mistral/Mistral_gen_response.py
+# modules/Providers/Mistral/Mistral_gen_response.py
 
 from mistralai import Mistral
 from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import List, Dict, Union, AsyncIterator
-from modules.config import ConfigManager
+from ATLAS.config import ConfigManager
 import asyncio
 
 class MistralGenerator:

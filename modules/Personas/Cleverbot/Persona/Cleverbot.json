@@ -13,11 +13,82 @@
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
       "type": {
-        "medical_persona": "False",
-        "Agent": "False",
-        "educational_persona": "False",
-        "fitness_persona": "False",
-        "language_instructor": "False"
+        "Agent": {
+          "enabled": "False"
+        },
+        "medical_persona": {
+          "enabled": "False"
+        },
+        "educational_persona": {
+          "enabled": "False",
+          "subject_specialization": "",
+          "education_level": "",
+          "teaching_style": ""
+        },
+        "fitness_persona": {
+          "enabled": "False",
+          "fitness_goal": "",
+          "exercise_preference": ""
+        },
+        "language_instructor": {
+          "enabled": "False",
+          "target_language": "",
+          "proficiency_level": ""
+        },
+        "legal_persona": {
+          "enabled": "False",
+          "jurisdiction": "",
+          "area_of_law": "",
+          "disclaimer": ""
+        },
+        "financial_advisor": {
+          "enabled": "False",
+          "investment_goals": "",
+          "risk_tolerance": "",
+          "time_horizon": ""
+        },
+        "tech_support": {
+          "enabled": "False",
+          "product_specialization": "",
+          "user_expertise_level": "",
+          "access_to_logs": "False"
+        },
+        "personal_assistant": {
+          "enabled": "False",
+          "time_zone": "",
+          "communication_style": "",
+          "access_to_calendar": ""
+        },
+        "therapist": {
+          "enabled": "False",
+          "therapy_style": "",
+          "session_length": "",
+          "confidentiality": ""
+        },
+        "travel_guide": {
+          "enabled": "False",
+          "destination_preferences": "",
+          "travel_style": "",
+          "interests": ""
+        },
+        "storyteller": {
+          "enabled": "False",
+          "genre": "",
+          "audience_age_group": "",
+          "story_length": ""
+        },
+        "game_master": {
+          "enabled": "False",
+          "game_type": "",
+          "difficulty_level": "",
+          "theme": ""
+        },
+        "chef": {
+          "enabled": "False",
+          "cuisine_preferences": "",
+          "dietary_restrictions": "",
+          "skill_level": ""
+        }
       },
       "Speech_provider": "11labs",
       "voice": "jack"

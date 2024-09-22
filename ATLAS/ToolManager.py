@@ -1,4 +1,4 @@
-# src/components/Tools/ToolManager.py
+# ATLAS/Tools/ToolManager.py
 
 import asyncio
 import json
@@ -6,7 +6,7 @@ import inspect
 import importlib.util
 import sys
 from datetime import datetime
-from modules.config import ConfigManager
+from ATLAS.config import ConfigManager
 from modules.Tools.tool_event_system import event_system
 
 config_manager = ConfigManager()

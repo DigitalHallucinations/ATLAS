@@ -3,7 +3,7 @@
 import asyncio
 from typing import List, Dict, Union, AsyncIterator, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from modules.config import ConfigManager
+from ATLAS.config import ConfigManager
 from anthropic import AsyncAnthropic, APIError, HUMAN_PROMPT, AI_PROMPT, RateLimitError
 import json
 

@@ -1,11 +1,10 @@
-# UI/sidebar.py
-
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf
 from ATLAS.ATLAS import ATLAS
 from UI.Persona_manager.persona_management import PersonaManagement
+from UI.Provider_manager.provider_management import ProviderManagement  
 
 class Sidebar(Gtk.Window):
     def __init__(self):
@@ -13,6 +12,7 @@ class Sidebar(Gtk.Window):
         
         self.ATLAS = ATLAS()
         self.persona_management = PersonaManagement(self.ATLAS, self)
+        self.provider_management = ProviderManagement(self.ATLAS, self)  
 
         display = Gdk.Display.get_default()
         monitor = display.get_primary_monitor()
@@ -32,7 +32,7 @@ class Sidebar(Gtk.Window):
         top_spacer = Gtk.Box()
         self.box.pack_start(top_spacer, False, False, 5)
 
-        self.create_icon("Icons/providers.png", self.show_providers_menu, 42)
+        self.create_icon("Icons/providers.png", self.provider_management.show_provider_menu, 42)  
         self.create_icon("Icons/history.png", self.handle_history_button, 42)
         self.create_icon("Icons/chat.png", self.show_chat_page, 42)
         self.create_icon("Icons/agent.png", self.persona_management.show_persona_menu, 42)
@@ -59,9 +59,6 @@ class Sidebar(Gtk.Window):
         monitor = display.get_primary_monitor()
         geometry = monitor.get_geometry()
         self.move(geometry.width - self.get_size().width, 0)
-
-    def show_providers_menu(self):
-        print("Providers menu clicked")
 
     def handle_history_button(self):
         self.ATLAS.log_history()

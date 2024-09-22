@@ -1,4 +1,4 @@
-# modules/Providers/model_manager.py
+# ATLAS/model_manager.py
 
 import json
 import os
@@ -6,14 +6,26 @@ from typing import Dict, List, Tuple
 from ATLAS.config import ConfigManager
 
 class ModelManager:
-    def __init__(self):
-        self.config_manager = ConfigManager()
+    def __init__(self, config_manager: ConfigManager):
+        """
+        Initialize the ModelManager with a given ConfigManager.
+
+        Args:
+            config_manager (ConfigManager): An instance of ConfigManager.
+        """
+        self.config_manager = config_manager
         self.logger = self.config_manager.logger
         self.current_model = None
         self.current_provider = None
         self.models = self._load_models()
 
     def _load_models(self) -> Dict[str, List[str]]:
+        """
+        Load available models for each provider from configuration files.
+
+        Returns:
+            Dict[str, List[str]]: A dictionary mapping providers to their available models.
+        """
         models = {}
         providers = ['OpenAI', 'Mistral', 'Google', 'HuggingFace', 'Anthropic', 'Grok']
         base_path = os.path.dirname(os.path.abspath(__file__))  # This should point to the 'Providers' directory
@@ -53,6 +65,13 @@ class ModelManager:
         return models
 
     def set_model(self, model_name: str, provider: str) -> None:
+        """
+        Set the current model for the specified provider.
+
+        Args:
+            model_name (str): The name of the model to set.
+            provider (str): The provider of the model.
+        """
         if provider not in self.models:
             self.models[provider] = []
         if model_name not in self.models[provider]:
@@ -62,17 +81,47 @@ class ModelManager:
         self.logger.info(f"Model set to {model_name} for provider {provider}")
 
     def get_current_model(self) -> str:
+        """
+        Get the current model being used.
+
+        Returns:
+            str: The name of the current model.
+        """
         return self.current_model
 
     def get_current_provider(self) -> str:
+        """
+        Get the current provider being used.
+
+        Returns:
+            str: The name of the current provider.
+        """
         return self.current_provider
 
     def get_available_models(self, provider: str = None) -> Dict[str, List[str]]:
+        """
+        Get available models for a specific provider or all providers.
+
+        Args:
+            provider (str, optional): The name of the provider. Defaults to None.
+
+        Returns:
+            Dict[str, List[str]]: A dictionary of available models.
+        """
         if provider:
             return {provider: self.models.get(provider, [])}
         return self.models
 
     def get_token_limits_for_model(self, model_name: str) -> Tuple[int, int]:
+        """
+        Get the token limits for a specific model.
+
+        Args:
+            model_name (str): The name of the model.
+
+        Returns:
+            Tuple[int, int]: A tuple containing (input_tokens, output_tokens).
+        """
         # Define token limits for different models
         token_limits = {
             # OpenAI models
@@ -98,6 +147,15 @@ class ModelManager:
         return token_limits.get(model_name, (2000, 4000))
 
     def get_default_model_for_provider(self, provider: str) -> str:
+        """
+        Get the default model for a specific provider.
+
+        Args:
+            provider (str): The name of the provider.
+
+        Returns:
+            str: The default model name, or None if not available.
+        """
         if provider not in self.models:
             return None
         return self.models[provider][0] if self.models[provider] else None

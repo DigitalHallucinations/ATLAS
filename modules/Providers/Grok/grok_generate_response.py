@@ -1,7 +1,7 @@
 from xai_sdk import Client
 from typing import List, Dict, Union, AsyncIterator
-from modules.config import ConfigManager
-import asyncio
+from ATLAS.config import ConfigManager
+
 
 class GrokGenerator:
     def __init__(self, config_manager: ConfigManager):

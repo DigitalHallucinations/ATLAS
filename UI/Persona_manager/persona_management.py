@@ -74,7 +74,7 @@ class PersonaManagement:
 
     def show_persona_settings(self, persona):
         settings_window = Gtk.Window(title=f"Settings for {persona.get('name')}")
-        settings_window.set_default_size(500, 600)
+        settings_window.set_default_size(500, 800)  # You can adjust the default size
         settings_window.set_keep_above(True)
 
         self.apply_css_styling()
@@ -85,15 +85,23 @@ class PersonaManagement:
         notebook = Gtk.Notebook()
         main_vbox.pack_start(notebook, True, True, 0)
 
-        # General Tab
+        # General Tab (with scrollable box)
         self.general_tab = GeneralTab(persona)
         general_box = self.general_tab.get_widget()
-        notebook.append_page(general_box, Gtk.Label(label="General"))
+        
+        scrolled_general_tab = Gtk.ScrolledWindow()
+        scrolled_general_tab.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled_general_tab.add(general_box)
+        notebook.append_page(scrolled_general_tab, Gtk.Label(label="General"))
 
-        # Persona Type Tab
+        # Persona Type Tab (with scrollable box)
         self.persona_type_tab = PersonaTypeTab(persona, self.general_tab)
         type_box = self.persona_type_tab.get_widget()
-        notebook.append_page(type_box, Gtk.Label(label="Persona Type"))
+        
+        scrolled_persona_type = Gtk.ScrolledWindow()
+        scrolled_persona_type.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled_persona_type.add(type_box)
+        notebook.append_page(scrolled_persona_type, Gtk.Label(label="Persona Type"))
 
         # Provider and Model Tab
         self.provider_model_box = self.create_provider_model_tab(persona)
@@ -106,7 +114,7 @@ class PersonaManagement:
         # Save button
         save_button = Gtk.Button(label="Save")
         save_button.connect("clicked", lambda widget: self.save_persona_settings(persona, settings_window))
-        main_vbox.pack_end(save_button, False, False, 0)
+        main_vbox.pack_start(save_button, False, False, 0)
 
         settings_window.show_all()
         self.position_window_next_to_sidebar(settings_window, 500)
@@ -202,20 +210,38 @@ class PersonaManagement:
 
         # Save 'type' dictionary
         persona['type'] = {}
-        for key in ['Agent', 'medical_persona', 'educational_persona', 'fitness_persona', 'language_instructor']:
-            persona['type'][key] = "True" if persona_type_values.get(key, False) else "False"
+        persona_types = [
+            'Agent', 'medical_persona', 'educational_persona', 'fitness_persona', 'language_instructor',
+            'legal_persona', 'financial_advisor', 'tech_support', 'personal_assistant', 'therapist',
+            'travel_guide', 'storyteller', 'game_master', 'chef'
+        ]
+        for key in persona_types:
+            enabled = persona_type_values.get(key, {}).get('enabled', False)
+            persona['type'][key] = {"enabled": str(enabled)}
 
         # Save additional options under 'type'
-        additional_keys = [
-            'subject_specialization', 'education_level', 'teaching_style',
-            'fitness_goal', 'exercise_preference',
-            'target_language', 'proficiency_level'
-        ]
-        for key in additional_keys:
-            if key in persona_type_values:
-                persona['type'][key] = persona_type_values[key]
-            else:
-                persona['type'].pop(key, None)
+        additional_keys = {
+            'educational_persona': ['subject_specialization', 'education_level', 'teaching_style'],
+            'fitness_persona': ['fitness_goal', 'exercise_preference'],
+            'language_instructor': ['target_language', 'proficiency_level'],
+            'legal_persona': ['jurisdiction', 'area_of_law', 'disclaimer'],
+            'financial_advisor': ['investment_goals', 'risk_tolerance', 'time_horizon'],
+            'tech_support': ['product_specialization', 'user_expertise_level', 'access_to_logs'],
+            'personal_assistant': ['time_zone', 'communication_style', 'access_to_calendar'],
+            'therapist': ['therapy_style', 'session_length', 'confidentiality'],
+            'travel_guide': ['destination_preferences', 'travel_style', 'interests'],
+            'storyteller': ['genre', 'audience_age_group', 'story_length'],
+            'game_master': ['game_type', 'difficulty_level', 'theme'],
+            'chef': ['cuisine_preferences', 'dietary_restrictions', 'skill_level']
+        }
+
+        for persona_type, keys in additional_keys.items():
+            if persona['type'][persona_type]['enabled'] == "True":
+                for key in keys:
+                    if key in persona_type_values.get(persona_type, {}):
+                        persona['type'][persona_type][key] = persona_type_values[persona_type][key]
+                    else:
+                        persona['type'][persona_type].pop(key, None)
 
         # Save other settings
         persona['provider'] = provider
@@ -239,6 +265,9 @@ class PersonaManagement:
                 font-size: 14px;
                 padding: 5px;
                 margin: 0;
+            }
+            entry {
+                min-height: 30px;
             }
             entry:focus {
                 outline: none;
@@ -286,6 +315,33 @@ class PersonaManagement:
             .editable-textview:focus {
                 outline: none;
             }
+            .info-button {
+                background: none;
+                border: none;
+                color: #4a90d9;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 0;
+                margin: 0;
+                min-width: 20px;
+                min-height: 20px;
+            }
+            .info-button:hover {
+                color: #3a7ab9;
+            }
+            .info-popup {
+                background-color: #2b2b2b;
+                border: 1px solid #4a90d9;
+                padding: 5px;
+                margin: 0;
+            }
+            .info-popup label {
+                background-color: #2b2b2b;
+                color: white;
+                padding: 0;
+                margin: 0;
+                font-size: 14px;
+            }
         """)
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(),
@@ -298,6 +354,20 @@ class PersonaManagement:
         monitor = display.get_primary_monitor()
         monitor_geometry = monitor.get_geometry()
         screen_width = monitor_geometry.width
+        screen_height = monitor_geometry.height  # Get screen height
 
+        # Get the requested window height
+        window_height = window.get_preferred_height()[1]
+
+        # Calculate the X position (next to the sidebar)
         window_x = screen_width - 50 - 10 - window_width
-        window.move(window_x, 0)
+
+        # If window height exceeds screen height, resize the window
+        if window_height > screen_height:
+            window.set_default_size(window_width, screen_height - 50)  # Subtracting some padding (50 pixels)
+
+        # Move the window to the calculated position, keeping it on-screen
+        window_y = 0  # Start at the top
+        window.move(window_x, window_y)
+
+

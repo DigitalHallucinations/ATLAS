@@ -5,6 +5,7 @@ ATLAS
 │   ├── ATLAS.py
 │   ├── ToolManager.py
 │   ├── config
+│   │   ├── bitnet_config.yaml
 │   │   └── logging_config.yaml
 │   ├── config.py
 │   ├── model_manager.py
@@ -191,7 +192,20 @@ ATLAS
 │   │   ├── Grok
 │   │   │   └── grok_generate_response.py
 │   │   ├── HuggingFace
-│   │   │   └── HF_gen_response.py
+│   │   │   ├── HF_gen_response.py
+│   │   │   ├── __init__.py
+│   │   │   ├── components
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── huggingface_model_manager.py
+│   │   │   │   └── response_generator.py
+│   │   │   ├── config
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── base_config.py
+│   │   │   │   └── nvme_config.py
+│   │   │   └── utils
+│   │   │       ├── __init__.py
+│   │   │       ├── cache_manager.py
+│   │   │       └── logger.py
 │   │   ├── Mistral
 │   │   │   ├── M_models.json
 │   │   │   └── Mistral_gen_response.py
