@@ -1,16 +1,17 @@
+# UI/sidebar.py
+
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
-from gi.repository import Gtk, Gdk, GdkPixbuf
-from ATLAS.ATLAS import ATLAS
+from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
 from UI.Persona_manager.persona_management import PersonaManagement
 from UI.Provider_manager.provider_management import ProviderManagement  
 
 class Sidebar(Gtk.Window):
-    def __init__(self):
-        Gtk.Window.__init__(self, title="Sidebar")
+    def __init__(self, atlas):
+        super().__init__(title="Sidebar")
         
-        self.ATLAS = ATLAS()
+        self.ATLAS = atlas  # Use the passed atlas instance
         self.persona_management = PersonaManagement(self.ATLAS, self)
         self.provider_management = ProviderManagement(self.ATLAS, self)  
 
@@ -48,7 +49,11 @@ class Sidebar(Gtk.Window):
 
     def create_icon(self, icon_path, callback, icon_size):
         event_box = Gtk.EventBox()
-        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(icon_path, icon_size, icon_size, True)
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(icon_path, icon_size, icon_size, True)
+        except GLib.Error as e:
+            print(f"Error loading icon {icon_path}: {e}")
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale("Icons/default.png", icon_size, icon_size, True)  # Fallback icon
         icon = Gtk.Image.new_from_pixbuf(pixbuf)
         event_box.add(icon)
         event_box.connect("button-press-event", lambda widget, event: callback())
@@ -58,13 +63,15 @@ class Sidebar(Gtk.Window):
         display = Gdk.Display.get_default()
         monitor = display.get_primary_monitor()
         geometry = monitor.get_geometry()
-        self.move(geometry.width - self.get_size().width, 0)
+        sidebar_width = 50  # As set by set_default_size
+        self.move(geometry.width - sidebar_width, 0)
 
     def handle_history_button(self):
         self.ATLAS.log_history()
 
     def show_chat_page(self):
         print("Chat page clicked")
+        # Implement chat page logic here
 
     def show_settings_page(self):
         settings_window = Gtk.Window(title="Settings")

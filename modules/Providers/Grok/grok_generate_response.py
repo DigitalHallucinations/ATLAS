@@ -1,3 +1,5 @@
+# modules/Providers/Grok/grok_generate_response.py
+
 from xai_sdk import Client
 from typing import List, Dict, Union, AsyncIterator
 from ATLAS.config import ConfigManager
@@ -16,7 +18,13 @@ class GrokGenerator:
         self.client = Client(api_key=self.api_key)
         self.logger.info("Grok client initialized")
 
-    async def generate_response(self, messages: List[Dict[str, str]], model: str = "grok-2", max_tokens: int = 1000, stream: bool = False) -> Union[str, AsyncIterator[str]]:
+    async def generate_response(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "grok-2",
+        max_tokens: int = 1000,
+        stream: bool = False
+    ) -> Union[str, AsyncIterator[str]]:
         """
         Generates a response from Grok's model.
         :param messages: List of message dicts containing "role" and "content" keys.
@@ -27,32 +35,41 @@ class GrokGenerator:
         """
         self.logger.info(f"Generating response using Grok model {model}")
         try:
-            prompt = self._build_prompt_from_messages(messages)
-
             if stream:
-                async for token in self._stream_grok_response(prompt, max_tokens):
-                    yield token
+                return self._stream_response(messages, model, max_tokens)
             else:
-                return await self._get_grok_response(prompt, max_tokens)
+                return await self._get_grok_response(messages, model, max_tokens)
         
         except Exception as e:
             self.logger.error(f"Error generating Grok response: {str(e)}")
             raise
 
-    async def _get_grok_response(self, prompt: str, max_tokens: int) -> str:
+    async def _get_grok_response(
+        self,
+        messages: List[Dict[str, str]],
+        model: str,
+        max_tokens: int
+    ) -> str:
         """
         Non-streaming response generation from Grok.
         """
+        prompt = self._build_prompt_from_messages(messages)
         self.logger.debug(f"Sending prompt to Grok: {prompt}")
         result = await self.client.sampler.sample(prompt, max_len=max_tokens)
         response = "".join([token.token_str for token in result])
         self.logger.info(f"Grok response received: {response}")
         return response
 
-    async def _stream_grok_response(self, prompt: str, max_tokens: int) -> AsyncIterator[str]:
+    async def _stream_response(
+        self,
+        messages: List[Dict[str, str]],
+        model: str,
+        max_tokens: int
+    ) -> AsyncIterator[str]:
         """
         Streaming response generation from Grok.
         """
+        prompt = self._build_prompt_from_messages(messages)
         self.logger.debug(f"Streaming prompt to Grok: {prompt}")
         async for token in self.client.sampler.sample(prompt, max_len=max_tokens):
             yield token.token_str
