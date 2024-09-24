@@ -12,20 +12,6 @@ class ProviderManager:
     """
     Manages interactions with different LLM providers, including loading models,
     generating responses, and switching providers.
-    
-    Attributes:
-        config_manager (ConfigManager): Manages configuration settings.
-        logger (logging.Logger): Logger for logging messages.
-        model_manager (ModelManager): Manages model loading and availability.
-        current_llm_provider (str): The current LLM provider in use.
-        current_background_provider (str): The background provider in use.
-        current_model (str): The current model in use.
-        generate_response_func (callable): Function to generate responses.
-        process_streaming_response_func (callable): Function to process streaming responses.
-        huggingface_generator (HuggingFaceGenerator): Generator for HuggingFace models.
-        grok_generator (GrokGenerator): Generator for Grok models.
-        current_functions (Any): Currently available functions.
-        providers (Dict[str, Any]): Dictionary of provider modules.
     """
 
     AVAILABLE_PROVIDERS = ["OpenAI", "Mistral", "Google", "HuggingFace", "Anthropic", "Grok"]
@@ -45,7 +31,7 @@ class ProviderManager:
         self.current_model = None
         self.generate_response_func = None
         self.process_streaming_response_func = None
-        self.huggingface_generator = None
+        self.huggingface_generator = HuggingFaceGenerator(self.config_manager)
         self.grok_generator = None
         self.current_functions = None
         self.providers = {}

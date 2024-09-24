@@ -658,4 +658,4 @@ class HuggingFaceModelManager:
             new_settings (Dict): A dictionary of new settings to update.
         """
         self.base_config.update_model_settings(new_settings)
-        self.logger.info(f"Model settings updated: {self.base_config.model_settings}")
+        self.logger.info(f"Model settings updated: {self.base_config.model_settings}") 

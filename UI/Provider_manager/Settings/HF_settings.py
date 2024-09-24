@@ -476,21 +476,26 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             self.nvme_path_entry.set_text(selected_folder)
 
     def populate_model_comboboxes(self):
-        # Populate the model selection comboboxes with installed models
-        installed_models = self.ATLAS.provider_manager.huggingface_model_manager.get_installed_models()
+        # Access the installed models via huggingface_generator
+        installed_models = self.ATLAS.provider_manager.huggingface_generator.get_installed_models()
+
         self.model_combo.remove_all()
         self.remove_model_combo.remove_all()
         self.update_model_combo.remove_all()
+
+        if not installed_models:
+            # Handle the case when no models are installed
+            self.show_message("Info", "No installed models found. Please download a model.")
+            return
 
         for model in installed_models:
             self.model_combo.append_text(model)
             self.remove_model_combo.append_text(model)
             self.update_model_combo.append_text(model)
 
-        if installed_models:
-            self.model_combo.set_active(0)
-            self.remove_model_combo.set_active(0)
-            self.update_model_combo.set_active(0)
+        self.model_combo.set_active(0)
+        self.remove_model_combo.set_active(0)
+        self.update_model_combo.set_active(0)
 
     # Placeholder callback methods
     def on_load_model_clicked(self, widget):
@@ -502,7 +507,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             self.show_message("Error", "No model selected to load.")
 
     def on_unload_model_clicked(self, widget):
-        self.ATLAS.provider_manager.huggingface_model_manager.unload_model()
+        self.ATLAS.provider_manager.huggingface_generator.unload_model()
         self.show_message("Success", "Model unloaded successfully.")
 
     def on_fine_tune_clicked(self, widget):
@@ -552,7 +557,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         if selected_model:
             confirmation = self.confirm_dialog(f"Are you sure you want to remove the model '{selected_model}'?")
             if confirmation:
-                self.ATLAS.provider_manager.huggingface_model_manager.remove_installed_model(selected_model)
+                self.ATLAS.provider_manager.huggingface_generator.model_manager.remove_installed_model(selected_model)
                 self.populate_model_comboboxes()
                 self.show_message("Success", f"Model '{selected_model}' removed successfully.")
         else:
@@ -563,7 +568,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         if selected_model:
             confirmation = self.confirm_dialog(f"Do you want to update the model '{selected_model}'?")
             if confirmation:
-                asyncio.run(self.ATLAS.provider_manager.load_model(selected_model, force_download=True))
+                asyncio.run(self.ATLAS.provider_manager.huggingface_generator.load_model(selected_model, force_download=True))
                 self.show_message("Success", f"Model '{selected_model}' updated successfully.")
         else:
             self.show_message("Error", "No model selected to update.")
@@ -638,7 +643,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
     def download_model(self, model_name):
         try:
             # Trigger the model download using the provider manager
-            asyncio.run(self.ATLAS.provider_manager.huggingface_model_manager.load_model(model_name, force_download=True))
+            asyncio.run(self.ATLAS.provider_manager.huggingface_generator.load_model(model_name, force_download=True))
             self.populate_model_comboboxes()
             self.show_message("Success", f"Model '{model_name}' downloaded and installed successfully.")
         except Exception as e:
@@ -714,4 +719,3 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
     def run(self):
         self.show_all()
-
