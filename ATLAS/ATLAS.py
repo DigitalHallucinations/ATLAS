@@ -4,6 +4,7 @@ from typing import Dict, List
 from ATLAS.config import ConfigManager
 from ATLAS.persona_manager import PersonaManager
 from ATLAS.provider_manager import ProviderManager
+from ATLAS.chat_session import ChatSession
 
 class ATLAS:
     """
@@ -21,7 +22,7 @@ class ATLAS:
     def __init__(self, provider_manager: ProviderManager):
         """
         Initialize the ATLAS instance with a given ProviderManager.
-    
+
         Args:
             provider_manager (ProviderManager): An instance of ProviderManager.
         """
@@ -31,6 +32,7 @@ class ATLAS:
         self.user = "Bib"  # Example user, adjust as needed
         self.provider_manager = provider_manager
         self.persona_manager = PersonaManager(master=self, user=self.user)
+        self.chat_session = ChatSession(self)  # Initialize ChatSession
         self.logger.info("ATLAS initialized successfully.")
 
     @classmethod

@@ -99,7 +99,8 @@ class ProviderManagement:
             self.ATLAS.logger.info(f"No API key set for provider {provider}. Prompting user to enter it.")
             self.open_provider_settings(provider)
         else:
-            asyncio.create_task(self.ATLAS.set_current_provider(provider))
+            # Schedule the coroutine directly
+            asyncio.ensure_future(self.ATLAS.set_current_provider(provider))
             self.ATLAS.logger.info(f"Provider {provider} selected.")
             self.provider_window.close()
 

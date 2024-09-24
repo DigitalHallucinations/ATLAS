@@ -11,6 +11,7 @@ class ChatPage(Gtk.Window):
     def __init__(self, atlas):
         super().__init__(title="Chat Page")
         self.ATLAS = atlas
+        self.chat_session = atlas.chat_session  # Access the ChatSession
         self.set_default_size(600, 400)
         self.set_keep_above(False)
         self.stick()
@@ -85,28 +86,18 @@ class ChatPage(Gtk.Window):
             # Clear input entry
             self.input_entry.set_text("")
 
-            # Generate response from the model
-            asyncio.create_task(self.get_model_response(message))
+            # Schedule the asynchronous response handling
+            asyncio.ensure_future(self.handle_model_response(message))
 
-    async def get_model_response(self, message):
+    async def handle_model_response(self, message):
         try:
-            # Build the message in the format expected by the model
-            messages = [{"role": "user", "content": message}]
-            model = self.ATLAS.provider_manager.get_current_model()
-            if not model:
-                self.append_to_chat_history("Assistant: No model selected.\n")
-                return
-
-            # Generate response
-            response = await self.ATLAS.provider_manager.generate_response(
-                messages=messages,
-                model=model,
-                stream=False
-            )
-            # Append response to chat history
+            response = await self.chat_session.send_message(message)
+            # Schedule UI update
             GLib.idle_add(self.append_to_chat_history, f"Assistant: {response}\n")
         except Exception as e:
-            GLib.idle_add(self.append_to_chat_history, f"Assistant: Error generating response: {e}\n")
+            self.ATLAS.logger.error(f"Error in handle_model_response: {e}")
+            GLib.idle_add(self.append_to_chat_history, f"Assistant: Error: {e}\n")
+
 
     def append_to_chat_history(self, text):
         end_iter = self.chat_history_buffer.get_end_iter()

@@ -4,6 +4,8 @@ import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
+
+from UI.Chat.chat_page import ChatPage 
 from UI.Persona_manager.persona_management import PersonaManagement
 from UI.Provider_manager.provider_management import ProviderManagement  
 
@@ -70,8 +72,8 @@ class Sidebar(Gtk.Window):
         self.ATLAS.log_history()
 
     def show_chat_page(self):
-        print("Chat page clicked")
-        # Implement chat page logic here
+        chat_page = ChatPage(self.ATLAS)
+        chat_page.show_all()
 
     def show_settings_page(self):
         settings_window = Gtk.Window(title="Settings")
