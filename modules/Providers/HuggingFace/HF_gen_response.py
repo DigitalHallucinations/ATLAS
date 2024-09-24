@@ -37,6 +37,9 @@ class HuggingFaceGenerator:
     def unload_model(self):
         self.model_manager.unload_model()
 
+    def get_installed_models(self) -> List[str]:
+        return self.model_manager.get_installed_models()
+
     async def generate_response(
         self,
         messages: List[Dict[str, str]],
