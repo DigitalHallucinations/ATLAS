@@ -4,6 +4,9 @@ import threading
 from gi.repository import Gtk, GdkPixbuf, GLib, Gdk
 import asyncio
 
+# Import the HuggingFaceSettingsWindow
+from .Settings.HF_settings import HuggingFaceSettingsWindow
+
 class ProviderManagement:
     """
     Manages provider-related functionalities, including displaying available
@@ -121,7 +124,19 @@ class ProviderManagement:
         if self.provider_window:
             GLib.idle_add(self.provider_window.close)
 
-        GLib.idle_add(self.show_provider_settings, provider_name)
+        # Open the provider-specific settings window
+        if provider_name == "HuggingFace":
+            self.show_huggingface_settings()
+        else:
+            # For other providers, you can implement similar methods or show a default settings window
+            self.show_provider_settings(provider_name)
+
+    def show_huggingface_settings(self):
+        """
+        Displays the HuggingFace settings window.
+        """
+        settings_window = HuggingFaceSettingsWindow(self.ATLAS, self.config_manager)
+        settings_window.run()
 
     def show_provider_settings(self, provider_name: str):
         """
@@ -257,7 +272,6 @@ class ProviderManagement:
             except Exception as e:
                 self.ATLAS.logger.error(f"Error refreshing provider {provider_name}: {e}")
                 GLib.idle_add(self.show_error_dialog, f"Error refreshing provider {provider_name}: {e}")
-
 
     def show_error_dialog(self, message: str):
         """
