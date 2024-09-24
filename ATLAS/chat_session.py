@@ -1,7 +1,6 @@
 # ATLAS/chat_session.py
 
 from typing import List, Dict
-import asyncio
 
 class ChatSession:
     """
@@ -41,6 +40,7 @@ class ChatSession:
 
         # Generate response using the ProviderManager
         try:
+            # Add 'await' here
             response = await self.ATLAS.provider_manager.generate_response(
                 messages=self.conversation_history,
                 model=self.current_model,
@@ -52,7 +52,7 @@ class ChatSession:
         except Exception as e:
             self.ATLAS.logger.error(f"Error generating response: {e}")
             raise e
-
+    
     def reset_conversation(self):
         """
         Reset the conversation history.

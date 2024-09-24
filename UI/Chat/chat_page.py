@@ -1,11 +1,8 @@
 # UI/Chat/chat_page.py
 
-import gi
-gi.require_version('Gtk', '3.0')
-gi.require_version('Gdk', '3.0')
-from gi.repository import Gtk, Gdk, GLib
-
 import asyncio
+import threading
+from gi.repository import Gtk, GLib, Gdk
 
 class ChatPage(Gtk.Window):
     def __init__(self, atlas):
@@ -86,20 +83,31 @@ class ChatPage(Gtk.Window):
             # Clear input entry
             self.input_entry.set_text("")
 
-            # Schedule the asynchronous response handling
-            asyncio.ensure_future(self.handle_model_response(message))
+            # Use threading to handle the model response without blocking the UI
+            threading.Thread(target=self.handle_model_response_thread, args=(message,), daemon=True).start()
 
-    async def handle_model_response(self, message):
+    def handle_model_response_thread(self, message):
+        """
+        Thread target to handle model response.
+        """
         try:
-            response = await self.chat_session.send_message(message)
-            # Schedule UI update
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            response = loop.run_until_complete(self.chat_session.send_message(message))
+            loop.close()
+            # Schedule UI update in the main thread
             GLib.idle_add(self.append_to_chat_history, f"Assistant: {response}\n")
         except Exception as e:
             self.ATLAS.logger.error(f"Error in handle_model_response: {e}")
             GLib.idle_add(self.append_to_chat_history, f"Assistant: Error: {e}\n")
 
-
     def append_to_chat_history(self, text):
+        """
+        Appends text to the chat history in the UI.
+
+        Args:
+            text (str): The text to append.
+        """
         end_iter = self.chat_history_buffer.get_end_iter()
         self.chat_history_buffer.insert(end_iter, text)
         self.chat_history.scroll_to_mark(self.chat_history_buffer.get_insert(), 0.0, True, 0.0, 1.0)

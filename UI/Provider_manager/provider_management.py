@@ -1,22 +1,13 @@
 # ATLAS/UI/Provider_manager/provider_management.py
 
-import gi
-gi.require_version('Gtk', '3.0')
-gi.require_version('GdkPixbuf', '2.0')
-from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
-
+import threading
+from gi.repository import Gtk, GdkPixbuf, GLib, Gdk
 import asyncio
 
 class ProviderManagement:
     """
     Manages provider-related functionalities, including displaying available
     providers, handling provider selection, and managing provider settings.
-    
-    Attributes:
-        ATLAS (ATLAS): The main ATLAS instance.
-        parent_window (Gtk.Window): The parent GTK window.
-        provider_window (Gtk.Window): The window displaying the list of providers.
-        config_manager (ConfigManager): Instance of ConfigManager for configuration access.
     """
 
     def __init__(self, ATLAS, parent_window):
@@ -99,10 +90,26 @@ class ProviderManagement:
             self.ATLAS.logger.info(f"No API key set for provider {provider}. Prompting user to enter it.")
             self.open_provider_settings(provider)
         else:
-            # Schedule the coroutine directly
-            asyncio.ensure_future(self.ATLAS.set_current_provider(provider))
+            # Use threading to set the current provider without blocking the UI
+            threading.Thread(target=self.set_current_provider_thread, args=(provider,), daemon=True).start()
             self.ATLAS.logger.info(f"Provider {provider} selected.")
-            self.provider_window.close()
+            GLib.idle_add(self.provider_window.close)
+
+    def set_current_provider_thread(self, provider):
+        """
+        Thread target to set the current provider.
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(self.ATLAS.set_current_provider(provider))
+            self.ATLAS.logger.info(f"Provider {provider} set successfully.")
+        except Exception as e:
+            self.ATLAS.logger.error(f"Failed to set provider {provider}: {e}")
+            GLib.idle_add(self.show_error_dialog, f"Failed to set provider {provider}: {e}")
+        finally:
+            loop.close()
+
 
     def open_provider_settings(self, provider_name: str):
         """
@@ -112,9 +119,9 @@ class ProviderManagement:
             provider_name (str): The name of the provider whose settings are to be opened.
         """
         if self.provider_window:
-            self.provider_window.close()
+            GLib.idle_add(self.provider_window.close)
 
-        self.show_provider_settings(provider_name)
+        GLib.idle_add(self.show_provider_settings, provider_name)
 
     def show_provider_settings(self, provider_name: str):
         """
@@ -205,25 +212,52 @@ class ProviderManagement:
             self.show_error_dialog("API Key cannot be empty.")
             return
 
+        # Use threading to update the API key without blocking the UI
+        threading.Thread(target=self.update_api_key_thread, args=(provider_name, new_api_key, window), daemon=True).start()
+
+    def update_api_key_thread(self, provider_name: str, new_api_key: str, window: Gtk.Window):
+        """
+        Thread target to update the API key.
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
             self.config_manager.update_api_key(provider_name, new_api_key)
             self.ATLAS.logger.info(f"API Key for {provider_name} updated.")
-            self.refresh_provider(provider_name)
-            self.show_info_dialog(f"API Key for {provider_name} saved successfully.")
-            window.close()
+            loop.run_until_complete(self.refresh_provider_async(provider_name))
+            self.ATLAS.logger.info(f"Provider {provider_name} refreshed.")
+            GLib.idle_add(self.show_info_dialog, f"API Key for {provider_name} saved successfully.")
+            GLib.idle_add(window.close)
         except Exception as e:
-            self.show_error_dialog(f"Failed to save API Key: {str(e)}")
+            self.ATLAS.logger.error(f"Failed to save API Key: {str(e)}")
+            GLib.idle_add(self.show_error_dialog, f"Failed to save API Key: {str(e)}")
+        finally:
+            loop.close()
+
 
     def refresh_provider(self, provider_name: str):
         """
         Refreshes the provider configuration to use the new API key.
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(self.refresh_provider_async(provider_name))
+        finally:
+            loop.close()
 
-        Args:
-            provider_name (str): The name of the provider to refresh.
+    async def refresh_provider_async(self, provider_name: str):
+        """
+        Async version of refresh_provider.
         """
         if provider_name == self.ATLAS.provider_manager.current_llm_provider:
-            asyncio.create_task(self.ATLAS.provider_manager.set_current_provider(provider_name))
-            self.ATLAS.logger.info(f"Provider {provider_name} refreshed with new API key.")
+            try:
+                await self.ATLAS.provider_manager.set_current_provider(provider_name)
+                self.ATLAS.logger.info(f"Provider {provider_name} refreshed with new API key.")
+            except Exception as e:
+                self.ATLAS.logger.error(f"Error refreshing provider {provider_name}: {e}")
+                GLib.idle_add(self.show_error_dialog, f"Error refreshing provider {provider_name}: {e}")
+
 
     def show_error_dialog(self, message: str):
         """

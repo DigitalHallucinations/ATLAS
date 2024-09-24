@@ -2,6 +2,7 @@
 
 import json
 import os
+import threading
 from typing import Dict, List, Tuple
 from ATLAS.config import ConfigManager
 
@@ -17,53 +18,50 @@ class ModelManager:
         self.logger = self.config_manager.logger
         self.current_model = None
         self.current_provider = None
-        self.models = self._load_models()
+        self.models = {}
+        self.lock = threading.Lock()  # Add a lock for thread safety
+        self.load_models()
 
-    def _load_models(self) -> Dict[str, List[str]]:
+    def load_models(self) -> None:
         """
         Load available models for each provider from configuration files.
-
-        Returns:
-            Dict[str, List[str]]: A dictionary mapping providers to their available models.
         """
-        models = {}
-        providers = ['OpenAI', 'Mistral', 'Google', 'HuggingFace', 'Anthropic', 'Grok']
-        
-        atlas_root = self.config_manager.get_app_root()  
-        providers_path = os.path.join(atlas_root, "modules", "Providers")
-
-        for provider in providers:
-            if provider == 'HuggingFace':
-                # Use the installed_models.json file in the model cache directory for HuggingFace
-                file_path = os.path.join(self.config_manager.get_model_cache_dir(), 'installed_models.json')
-            elif provider == 'Grok':
-                models[provider] = ["grok-2", "grok-2-mini"]
-                continue
-            else:
-                file_name = f"{provider[0]}_models.json"  # e.g., 'O_models.json' for OpenAI
-                file_path = os.path.join(providers_path, provider, file_name)
+        with self.lock:
+            providers = ['OpenAI', 'Mistral', 'Google', 'HuggingFace', 'Anthropic', 'Grok']
             
-            self.logger.debug(f"Attempting to load model file for {provider} from: {file_path}")
+            atlas_root = self.config_manager.get_app_root()  
+            providers_path = os.path.join(atlas_root, "modules", "Providers")
 
-            try:
-                with open(file_path, 'r') as f:
-                    if provider == 'HuggingFace':
-                        provider_models = json.load(f)
-                    else:
-                        provider_models = json.load(f).get('models', [])
-                models[provider] = provider_models
-                self.logger.info(f"Successfully loaded models for {provider}: {models[provider]}")
-            except FileNotFoundError:
-                self.logger.warning(f"Model file not found for provider {provider} at {file_path}")
-                models[provider] = []
-            except json.JSONDecodeError:
-                self.logger.error(f"Error decoding JSON in model file for provider {provider} at {file_path}")
-                models[provider] = []
-            except Exception as e:
-                self.logger.error(f"Unexpected error loading model file for provider {provider}: {str(e)}")
-                models[provider] = []
+            for provider in providers:
+                if provider == 'HuggingFace':
+                    # Use the installed_models.json file in the model cache directory for HuggingFace
+                    file_path = os.path.join(self.config_manager.get_model_cache_dir(), 'installed_models.json')
+                elif provider == 'Grok':
+                    self.models[provider] = ["grok-2", "grok-2-mini"]
+                    continue
+                else:
+                    file_name = f"{provider[0]}_models.json"  # e.g., 'O_models.json' for OpenAI
+                    file_path = os.path.join(providers_path, provider, file_name)
+                
+                self.logger.debug(f"Attempting to load model file for {provider} from: {file_path}")
 
-        return models
+                try:
+                    with open(file_path, 'r') as f:
+                        if provider == 'HuggingFace':
+                            provider_models = json.load(f)
+                        else:
+                            provider_models = json.load(f).get('models', [])
+                    self.models[provider] = provider_models
+                    self.logger.info(f"Successfully loaded models for {provider}: {self.models[provider]}")
+                except FileNotFoundError:
+                    self.logger.warning(f"Model file not found for provider {provider} at {file_path}")
+                    self.models[provider] = []
+                except json.JSONDecodeError:
+                    self.logger.error(f"Error decoding JSON in model file for provider {provider} at {file_path}")
+                    self.models[provider] = []
+                except Exception as e:
+                    self.logger.error(f"Unexpected error loading model file for provider {provider}: {str(e)}")
+                    self.models[provider] = []
 
     def set_model(self, model_name: str, provider: str) -> None:
         """
@@ -73,13 +71,14 @@ class ModelManager:
             model_name (str): The name of the model to set.
             provider (str): The provider of the model.
         """
-        if provider not in self.models:
-            self.models[provider] = []
-        if model_name not in self.models[provider]:
-            self.models[provider].append(model_name)
-        self.current_model = model_name
-        self.current_provider = provider
-        self.logger.info(f"Model set to {model_name} for provider {provider}")
+        with self.lock:
+            if provider not in self.models:
+                self.models[provider] = []
+            if model_name not in self.models[provider]:
+                self.models[provider].append(model_name)
+            self.current_model = model_name
+            self.current_provider = provider
+            self.logger.info(f"Model set to {model_name} for provider {provider}")
 
     def get_current_model(self) -> str:
         """
@@ -88,7 +87,8 @@ class ModelManager:
         Returns:
             str: The name of the current model.
         """
-        return self.current_model
+        with self.lock:
+            return self.current_model
 
     def get_current_provider(self) -> str:
         """
@@ -97,7 +97,8 @@ class ModelManager:
         Returns:
             str: The name of the current provider.
         """
-        return self.current_provider
+        with self.lock:
+            return self.current_provider
 
     def get_available_models(self, provider: str = None) -> Dict[str, List[str]]:
         """
@@ -109,9 +110,10 @@ class ModelManager:
         Returns:
             Dict[str, List[str]]: A dictionary of available models.
         """
-        if provider:
-            return {provider: self.models.get(provider, [])}
-        return self.models
+        with self.lock:
+            if provider:
+                return {provider: self.models.get(provider, [])}
+            return self.models.copy()
 
     def get_token_limits_for_model(self, model_name: str) -> Tuple[int, int]:
         """
@@ -157,6 +159,7 @@ class ModelManager:
         Returns:
             str: The default model name, or None if not available.
         """
-        if provider not in self.models:
-            return None
-        return self.models[provider][0] if self.models[provider] else None
+        with self.lock:
+            if provider not in self.models:
+                return None
+            return self.models[provider][0] if self.models[provider] else None

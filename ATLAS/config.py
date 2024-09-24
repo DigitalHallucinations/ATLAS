@@ -6,7 +6,6 @@ import yaml
 from typing import Dict, Any
 from dotenv import load_dotenv, set_key, find_dotenv
 
-
 class ConfigManager:
     """
     Manages configuration settings for the application, including loading
@@ -27,8 +26,13 @@ class ConfigManager:
         Raises:
             ValueError: If the API key for the default provider is not found in environment variables.
         """
+        # Load environment variables from .env file
         load_dotenv()
+        
+        # Setup logger early to log any issues
         self.logger = self.setup_logger('config_manager')
+        
+        # Load configurations
         self.config = self._load_env_config()
         self.logging_config = self._load_logging_config()
 
@@ -74,10 +78,6 @@ class ConfigManager:
 
         Returns:
             Dict[str, Any]: A dictionary containing logging configurations.
-
-        Logs:
-            - Warning if the logging configuration file is not found.
-            - Error if there's an issue parsing the logging configuration file.
         """
         config_path = os.path.join(self.get_app_root(), 'ATLAS', 'config', 'logging_config.yaml')
         try:
@@ -175,7 +175,7 @@ class ConfigManager:
             AttributeError: If the provided level is not a valid logging level.
         """
         self.config['LOG_LEVEL'] = level
-        log_level = getattr(logging, level.upper())
+        log_level = getattr(logging, level.upper(), logging.INFO)
         logging.getLogger().setLevel(log_level)
         self.logger.info(f"Log level set to {level}")
 

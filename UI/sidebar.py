@@ -1,6 +1,7 @@
 # UI/sidebar.py
 
 import gi
+import asyncio
 gi.require_version('Gtk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
@@ -85,7 +86,7 @@ class Sidebar(Gtk.Window):
     def close_application(self):
         print("Closing application")
         Gtk.main_quit()
-
+        
     def apply_css_styling(self):
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(b"""
