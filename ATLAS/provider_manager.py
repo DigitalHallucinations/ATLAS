@@ -9,6 +9,27 @@ from modules.Providers.HuggingFace.HF_gen_response import HuggingFaceGenerator
 from modules.Providers.Grok.grok_generate_response import GrokGenerator
 
 class ProviderManager:
+    """
+    Manages interactions with different LLM providers, including loading models,
+    generating responses, and switching providers.
+    
+    Attributes:
+        config_manager (ConfigManager): Manages configuration settings.
+        logger (logging.Logger): Logger for logging messages.
+        model_manager (ModelManager): Manages model loading and availability.
+        current_llm_provider (str): The current LLM provider in use.
+        current_background_provider (str): The background provider in use.
+        current_model (str): The current model in use.
+        generate_response_func (callable): Function to generate responses.
+        process_streaming_response_func (callable): Function to process streaming responses.
+        huggingface_generator (HuggingFaceGenerator): Generator for HuggingFace models.
+        grok_generator (GrokGenerator): Generator for Grok models.
+        current_functions (Any): Currently available functions.
+        providers (Dict[str, Any]): Dictionary of provider modules.
+    """
+
+    AVAILABLE_PROVIDERS = ["OpenAI", "Mistral", "Google", "HuggingFace", "Anthropic", "Grok"]
+    
     def __init__(self, config_manager: ConfigManager):
         """
         Initialize the ProviderManager with a given ConfigManager.
@@ -43,6 +64,25 @@ class ProviderManager:
         self = cls(config_manager)
         await self.switch_llm_provider(self.current_llm_provider)
         return self
+
+    @classmethod
+    def providers(cls) -> List[str]:
+        """
+        Get a list of all available LLM providers.
+
+        Returns:
+            List[str]: A list of provider names.
+        """
+        return cls.AVAILABLE_PROVIDERS
+
+    def get_available_providers(self) -> List[str]:
+        """
+        Get a list of all available LLM providers.
+
+        Returns:
+            List[str]: A list of provider names.
+        """
+        return self.__class__.providers()
 
     async def __aenter__(self):
         return self
@@ -111,15 +151,17 @@ class ProviderManager:
         if self.current_model:
             self.logger.info(f"Current model set to: {self.current_model}")
 
-    async def set_provider(self, provider: str):
+    async def set_current_provider(self, provider: str):
         """
         Set the current provider to the specified provider.
 
         Args:
             provider (str): The name of the provider to set.
         """
-        self.logger.info(f"Attempting to set provider to: {provider}")
         await self.switch_llm_provider(provider)
+        self.logger.info(f"Current provider set to {self.current_llm_provider}")
+        if self.current_model:
+            self.logger.info(f"Current model set to: {self.current_model}")
 
     def get_current_model(self):
         """
@@ -305,15 +347,6 @@ class ProviderManager:
         """
         return self.current_background_provider
 
-    def get_available_providers(self):
-        """
-        Get a list of available LLM providers.
-
-        Returns:
-            List[str]: A list of provider names.
-        """
-        return ["OpenAI", "Mistral", "Google", "HuggingFace", "Anthropic"]
-
     async def get_available_models(self) -> List[str]:
         """
         Get available models for the current provider.
@@ -347,5 +380,7 @@ class ProviderManager:
         """
         if self.huggingface_generator:
             self.huggingface_generator.unload_model()
+        if self.grok_generator:
+            await self.grok_generator.unload_model()
         # Add any additional cleanup here
         self.logger.info("ProviderManager closed and models unloaded.")

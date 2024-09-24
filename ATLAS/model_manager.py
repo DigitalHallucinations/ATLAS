@@ -28,19 +28,20 @@ class ModelManager:
         """
         models = {}
         providers = ['OpenAI', 'Mistral', 'Google', 'HuggingFace', 'Anthropic', 'Grok']
-        base_path = os.path.dirname(os.path.abspath(__file__))  # This should point to the 'Providers' directory
+        
+        atlas_root = self.config_manager.get_app_root()  
+        providers_path = os.path.join(atlas_root, "modules", "Providers")
 
         for provider in providers:
             if provider == 'HuggingFace':
                 # Use the installed_models.json file in the model cache directory for HuggingFace
                 file_path = os.path.join(self.config_manager.get_model_cache_dir(), 'installed_models.json')
             elif provider == 'Grok':
-                # Grok doesn't need a models file, we just define the models here
                 models[provider] = ["grok-2", "grok-2-mini"]
                 continue
             else:
-                file_name = f"{provider[0]}_models.json"
-                file_path = os.path.join(base_path, provider, file_name)
+                file_name = f"{provider[0]}_models.json"  # e.g., 'O_models.json' for OpenAI
+                file_path = os.path.join(providers_path, provider, file_name)
             
             self.logger.debug(f"Attempting to load model file for {provider} from: {file_path}")
 

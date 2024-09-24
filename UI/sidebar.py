@@ -11,7 +11,7 @@ class Sidebar(Gtk.Window):
     def __init__(self, atlas):
         super().__init__(title="Sidebar")
         
-        self.ATLAS = atlas  # Use the passed atlas instance
+        self.ATLAS = atlas  
         self.persona_management = PersonaManagement(self.ATLAS, self)
         self.provider_management = ProviderManagement(self.ATLAS, self)  
 
