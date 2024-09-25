@@ -4,11 +4,15 @@ import gi
 import os
 import asyncio
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, GLib
+from gi.repository import Gtk, GLib, Gdk
 
 class HuggingFaceSettingsWindow(Gtk.Window):
     def __init__(self, ATLAS, config_manager):
         super().__init__(title="HuggingFace Settings")
+
+        # Apply the CSS styling
+        self.apply_css_styling()
+
         self.set_default_size(800, 600)
         self.ATLAS = ATLAS
         self.config_manager = config_manager
@@ -23,47 +27,53 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
         # General Settings Tab
         general_settings = self.create_general_settings_tab()
-        notebook.append_page(general_settings, Gtk.Label(label="General Settings"))
+        notebook.append_page(general_settings, Gtk.Label(label="General"))
 
-        # Advanced Optimizations Tab
+        # Advanced Tab (with NVMe Offloading and Miscellaneous as sub-tabs)
+        advanced_optimizations_notebook = Gtk.Notebook()
         advanced_optimizations = self.create_advanced_optimizations_tab()
-        notebook.append_page(advanced_optimizations, Gtk.Label(label="Advanced Optimizations"))
-
-        # NVMe Offloading Tab
         nvme_offloading = self.create_nvme_offloading_tab()
-        notebook.append_page(nvme_offloading, Gtk.Label(label="NVMe Offloading"))
+        miscellaneous = self.create_miscellaneous_tab()
+
+        # Add sub-tabs to the Advanced tab
+        advanced_optimizations_notebook.append_page(advanced_optimizations, Gtk.Label(label="Optimizations"))
+        advanced_optimizations_notebook.append_page(nvme_offloading, Gtk.Label(label="NVMe Offloading"))
+        advanced_optimizations_notebook.append_page(miscellaneous, Gtk.Label(label="Misc"))
+
+        notebook.append_page(advanced_optimizations_notebook, Gtk.Label(label="Advanced"))
 
         # Fine-Tuning Settings Tab
         fine_tuning_settings = self.create_fine_tuning_settings_tab()
-        notebook.append_page(fine_tuning_settings, Gtk.Label(label="Fine-Tuning Settings"))
 
-        # Model Management Tab
-        model_management = self.create_model_management_tab()
-        notebook.append_page(model_management, Gtk.Label(label="Model Management"))
-
-        # Miscellaneous Settings Tab
-        miscellaneous = self.create_miscellaneous_tab()
-        notebook.append_page(miscellaneous, Gtk.Label(label="Miscellaneous"))
-
-        # Search and Download Models Tab
-        search_download = self.create_search_download_tab()
-        notebook.append_page(search_download, Gtk.Label(label="Search & Download Models"))
-
-        # Action Buttons
-        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        vbox.pack_start(action_box, False, False, 10)
-
-        load_model_button = Gtk.Button(label="Load Model")
-        load_model_button.connect("clicked", self.on_load_model_clicked)
-        action_box.pack_start(load_model_button, True, True, 0)
-
-        unload_model_button = Gtk.Button(label="Unload Model")
-        unload_model_button.connect("clicked", self.on_unload_model_clicked)
-        action_box.pack_start(unload_model_button, True, True, 0)
+        # Fine-Tune Model Button - directly attach it to the fine-tuning grid
+        fine_tuning_grid = fine_tuning_settings  # Since `fine_tuning_settings` is already the grid
 
         fine_tune_button = Gtk.Button(label="Fine-Tune Model")
         fine_tune_button.connect("clicked", self.on_fine_tune_clicked)
-        action_box.pack_start(fine_tune_button, True, True, 0)
+        fine_tuning_grid.attach(fine_tune_button, 0, 7, 2, 1)
+
+        notebook.append_page(fine_tuning_settings, Gtk.Label(label="Fine-Tuning"))
+
+        # Model Management Tab (with Search and Download Models as sub-tab)
+        models_notebook = Gtk.Notebook()
+        model_management = self.create_model_management_tab()
+
+        # Adjust button positions and grid for Load and Unload Model Buttons
+        load_model_button = Gtk.Button(label="Load Model")
+        load_model_button.connect("clicked", self.on_load_model_clicked)
+        unload_model_button = Gtk.Button(label="Unload Model")
+        unload_model_button.connect("clicked", self.on_unload_model_clicked)
+
+        model_management_grid = model_management
+        model_management_grid.attach(load_model_button, 0, 0, 1, 1)
+        model_management_grid.attach(unload_model_button, 1, 0, 1, 1)
+
+        # Search and Download Models Tab as sub-tab
+        search_download = self.create_search_download_tab()
+        models_notebook.append_page(model_management, Gtk.Label(label="Manage Models"))
+        models_notebook.append_page(search_download, Gtk.Label(label="Search & Download"))
+
+        notebook.append_page(models_notebook, Gtk.Label(label="Models"))
 
         # Control Buttons
         control_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -83,6 +93,90 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
         # Populate model comboboxes
         self.populate_model_comboboxes()
+
+    def apply_css_styling(self):
+        css_provider = Gtk.CssProvider()
+        css_provider.load_from_data(b"""
+            * { 
+                background-color: #2b2b2b; 
+                color: white; 
+            }
+
+            entry, textview {
+                background-color: #1c1c1c;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                padding: 5px;
+                margin: 0;
+            }
+
+            entry {
+                min-height: 30px;
+            }
+
+            entry:focus {
+                outline: none;
+            }
+
+            textview {
+                caret-color: white;
+            }
+
+            textview text {
+                background-color: #1c1c1c;
+                color: white;
+                caret-color: white;
+            }
+
+            textview text selection {
+                background-color: #4a90d9;
+                color: white;
+            }
+
+            button {
+                background-color: #2b2b2b;
+                color: white;
+                padding: 8px;
+                border-radius: 3px;  /* Slight rounding */
+                border: 1px solid #4a4a4a;  /* Subtle, thin border */
+                font-size: 14px;
+            }
+
+            button:hover {
+                background-color: #4a90d9;
+                border: 1px solid #4a90d9;  /* Visible on hover */
+            }
+
+            button:active {
+                background-color: #357ABD;
+                border: 1px solid #357ABD;
+            }
+
+            label { 
+                margin: 5px;
+                color: #ffffff; 
+            }
+
+            notebook tab { 
+                background-color: #2b2b2b; 
+                color: white; 
+                padding: 8px; 
+            }
+
+            scrolledwindow {
+                border: none;
+                background-color: transparent;
+            }
+        """)
+        # Add CSS provider with higher priority
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_USER  # Higher priority than application level
+        )
+
 
     def create_general_settings_tab(self):
         grid = Gtk.Grid(column_spacing=10, row_spacing=10, margin=10)
@@ -323,42 +417,52 @@ class HuggingFaceSettingsWindow(Gtk.Window):
     def create_model_management_tab(self):
         grid = Gtk.Grid(column_spacing=10, row_spacing=10, margin=10)
 
-        # Model Selection
+        # Load Model Button
+        load_model_button = Gtk.Button(label="Load Model")
+        load_model_button.connect("clicked", self.on_load_model_clicked)
+        grid.attach(load_model_button, 0, 0, 1, 1)  # Align buttons in the first row
+
+        # Unload Model Button
+        unload_model_button = Gtk.Button(label="Unload Model")
+        unload_model_button.connect("clicked", self.on_unload_model_clicked)
+        grid.attach(unload_model_button, 1, 0, 1, 1)  # Attach next to Load Model button
+
+        # Select Active Model
         model_sel_label = Gtk.Label(label="Select Active Model:")
         model_sel_label.set_halign(Gtk.Align.START)
-        grid.attach(model_sel_label, 0, 0, 1, 1)
+        grid.attach(model_sel_label, 0, 1, 1, 1)  # Label for the combo box
 
         self.model_combo = Gtk.ComboBoxText()
-        grid.attach(self.model_combo, 1, 0, 1, 1)
+        grid.attach(self.model_combo, 1, 1, 2, 1)  # Combo box spans two columns
 
-        # Clear Cache
+        # Clear Cache Button
         clear_cache_button = Gtk.Button(label="Clear Cache")
         clear_cache_button.connect("clicked", self.on_clear_cache_clicked)
-        grid.attach(clear_cache_button, 0, 1, 2, 1)
+        grid.attach(clear_cache_button, 0, 2, 3, 1)  # Button spans three columns
 
         # Remove Installed Model
         remove_model_label = Gtk.Label(label="Remove Installed Model:")
         remove_model_label.set_halign(Gtk.Align.START)
-        grid.attach(remove_model_label, 0, 2, 1, 1)
+        grid.attach(remove_model_label, 0, 3, 1, 1)
 
         self.remove_model_combo = Gtk.ComboBoxText()
-        grid.attach(self.remove_model_combo, 1, 2, 1, 1)
+        grid.attach(self.remove_model_combo, 1, 3, 1, 1)
 
         remove_model_button = Gtk.Button(label="Remove Model")
         remove_model_button.connect("clicked", self.on_remove_model_clicked)
-        grid.attach(remove_model_button, 2, 2, 1, 1)
+        grid.attach(remove_model_button, 2, 3, 1, 1)  # Align button with the dropdown
 
         # Update Installed Model
         update_model_label = Gtk.Label(label="Update Installed Model:")
         update_model_label.set_halign(Gtk.Align.START)
-        grid.attach(update_model_label, 0, 3, 1, 1)
+        grid.attach(update_model_label, 0, 4, 1, 1)
 
         self.update_model_combo = Gtk.ComboBoxText()
-        grid.attach(self.update_model_combo, 1, 3, 1, 1)
+        grid.attach(self.update_model_combo, 1, 4, 1, 1)
 
         update_model_button = Gtk.Button(label="Update Model")
         update_model_button.connect("clicked", self.on_update_model_clicked)
-        grid.attach(update_model_button, 2, 3, 1, 1)
+        grid.attach(update_model_button, 2, 4, 1, 1)  # Align button with the dropdown
 
         return grid
 

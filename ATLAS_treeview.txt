@@ -4,8 +4,9 @@ ATLAS
 ├── ATLAS
 │   ├── ATLAS.py
 │   ├── ToolManager.py
+│   ├── __init__.py
+│   ├── chat_session.py
 │   ├── config
-│   │   ├── bitnet_config.yaml
 │   │   └── logging_config.yaml
 │   ├── config.py
 │   ├── model_manager.py
@@ -28,13 +29,23 @@ ATLAS
 │   ├── settings.png
 │   └── user.png
 ├── UI
+│   ├── Chat
+│   │   └── chat_page.py
 │   ├── Persona_manager
 │   │   ├── General_Tab
 │   │   │   └── general_tab.py
 │   │   ├── Persona_Type_Tab
 │   │   │   └── persona_type_tab.py
+│   │   ├── __init__.py
 │   │   └── persona_management.py
+│   ├── Provider_manager
+│   │   ├── Settings
+│   │   │   └── HF_settings.py
+│   │   ├── __init__.py
+│   │   └── provider_management.py
+│   ├── __init__.py
 │   └── sidebar.py
+├── debug.log
 ├── main.py
 ├── modules
 │   ├── Personas
@@ -198,6 +209,8 @@ ATLAS
 │   │   │   │   ├── __init__.py
 │   │   │   │   ├── huggingface_model_manager.py
 │   │   │   │   └── response_generator.py
+│   │   │   ├── model_cache
+│   │   │   │   └── installed_models.json
 │   │   │   ├── config
 │   │   │   │   ├── __init__.py
 │   │   │   │   ├── base_config.py
@@ -231,6 +244,6 @@ ATLAS
 │       ├── user_account_db.py
 │       ├── user_data_manager.py
 │       ├── user_profiles
-│       │   └── bib.json
+│       │   └── Bib.json
 │       └── user_template
 └── requirements.txt

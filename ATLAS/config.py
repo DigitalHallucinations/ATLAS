@@ -42,7 +42,15 @@ class ConfigManager:
 
         # Derive other paths from APP_ROOT
         self.config['LOG_FILE_PATH'] = os.path.join(self.config['APP_ROOT'], 'logs', 'application.log')
-        self.config['MODEL_CACHE_DIR'] = os.path.join(self.config['APP_ROOT'], 'model_cache')
+        self.config['MODEL_CACHE_DIR'] = os.path.join(
+            self.config['APP_ROOT'],
+            'modules',
+            'Providers',
+            'HuggingFace',
+            'model_cache'
+        )
+        # Ensure the model_cache directory exists
+        os.makedirs(self.config['MODEL_CACHE_DIR'], exist_ok=True)
 
         # Validate the API key for the default provider
         default_provider = self.config.get('DEFAULT_PROVIDER', 'OpenAI')
