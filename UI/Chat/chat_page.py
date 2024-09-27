@@ -23,13 +23,14 @@ class ChatPage(Gtk.Window):
         self.add(self.vbox)
 
         # Top label with current persona name
-        self.chat_label = Gtk.Label()
-        self.update_chat_label()
-        self.chat_label.set_xalign(0.0)
-        self.chat_label.set_margin_top(10)
-        self.chat_label.set_margin_start(10)
-        self.chat_label.set_margin_bottom(5)
-        self.vbox.pack_start(self.chat_label, False, False, 0)
+        self.persona_label = Gtk.Label()
+        self.persona_label.set_name("persona-label")
+        self.update_persona_label()
+        self.persona_label.set_xalign(0.0)
+        self.persona_label.set_margin_top(10)
+        self.persona_label.set_margin_start(10)
+        self.persona_label.set_margin_bottom(5)
+        self.vbox.pack_start(self.persona_label, False, False, 0)
 
         # Separator
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
@@ -73,9 +74,9 @@ class ChatPage(Gtk.Window):
 
         self.show_all()
 
-    def update_chat_label(self):
+    def update_persona_label(self):
         persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Chat')
-        self.chat_label.set_text(f"Chat with {persona_name}")
+        self.persona_label.set_text(persona_name)
 
     def on_send_message(self, widget):
         message = self.input_entry.get_text().strip()
@@ -157,6 +158,10 @@ class ChatPage(Gtk.Window):
             label {
                 color: white;
                 font-size: 14px;
+            }
+            #persona-label {
+                font-size: 18px;
+                font-weight: bold;
             }
             .message-bubble { 
                 border-radius: 18px; 
