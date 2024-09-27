@@ -5,6 +5,7 @@ import time
 import traceback
 from ATLAS.model_manager import ModelManager
 from ATLAS.config import ConfigManager
+from modules.logging.logger import setup_logger
 from modules.Providers.HuggingFace.HF_gen_response import HuggingFaceGenerator
 from modules.Providers.Grok.grok_generate_response import GrokGenerator
 
@@ -24,7 +25,7 @@ class ProviderManager:
             config_manager (ConfigManager): An instance of ConfigManager.
         """
         self.config_manager = config_manager
-        self.logger = self.config_manager.logger
+        self.logger = setup_logger(__name__)
         self.model_manager = ModelManager(self.config_manager)
         self.current_llm_provider = self.config_manager.get_default_provider()
         self.current_background_provider = self.config_manager.get_default_provider()

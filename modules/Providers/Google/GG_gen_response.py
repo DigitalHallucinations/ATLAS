@@ -4,12 +4,13 @@ import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import List, Dict, Union, AsyncIterator
 from ATLAS.config import ConfigManager
+from modules.logging.logger import setup_logger
 import asyncio
 
 class GoogleGeminiGenerator:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
-        self.logger = self.config_manager.setup_logger('GG_gen_response')
+        self.logger = setup_logger(__name__)
         self.api_key = self.config_manager.get_google_api_key()
         if not self.api_key:
             self.logger.error("Google API key not found in configuration")

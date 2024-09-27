@@ -2,9 +2,10 @@
 
 from typing import List
 from ATLAS.config import ConfigManager
+from modules.logging.logger import setup_logger
 from ATLAS.persona_manager import PersonaManager
 from ATLAS.provider_manager import ProviderManager
-from ATLAS.chat_session import ChatSession
+from modules.Chat.chat_session import ChatSession
 
 class ATLAS:
     """
@@ -16,12 +17,13 @@ class ATLAS:
         Initialize the ATLAS instance with synchronous initialization.
         """
         self.config_manager = ConfigManager()
-        self.logger = self.config_manager.logger
-        self.persona_path = "/home/bib/Projects/LB/modules/Personas"  # Adjust as needed
-        self.user = "Bib"  # Example user, adjust as needed
+        self.logger = setup_logger(__name__)
+        self.persona_path = "/home/bib/Projects/ATLAS/modules/Personas"  ### This should ConfigManager.get_app_root
+        self.current_persona = None
+        self.user = "Bib"  # We will use this later to load the user name from the system (windows and linux)
         self.provider_manager = ProviderManager(self.config_manager)
         self.persona_manager = PersonaManager(master=self, user=self.user)
-        self.chat_session = ChatSession(self)  # Initialize ChatSession
+        self.chat_session = ChatSession(self) 
         self.logger.info("ATLAS initialized successfully.")
 
     def get_persona_names(self) -> List[str]:
@@ -42,6 +44,12 @@ class ATLAS:
         """
         self.logger.info(f"Loading persona: {persona}")
         self.persona_manager.updater(persona)
+        self.current_persona = persona
+
+    def get_current_system_prompt(self) -> str:
+        if self.current_persona:
+            return self.persona_manager.current_system_prompt
+        return ""
 
     def get_available_providers(self) -> List[str]:
         """

@@ -2,12 +2,13 @@
 import sqlite3
 import os
 from ATLAS.config import ConfigManager
+from modules.logging.logger import setup_logger
 
 
 class UserAccountDatabase:
     def __init__(self, db_name="User.db"):
         self.config_manager = ConfigManager
-        self.logger = self.config_manager.logger
+        self.logger = setup_logger(__name__)
 
         root_dir = os.path.dirname(os.path.abspath(__file__)) 
         user_profiles_dir = os.path.join(root_dir, 'user_profiles')  

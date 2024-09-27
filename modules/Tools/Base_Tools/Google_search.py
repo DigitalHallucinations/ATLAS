@@ -4,9 +4,10 @@ import os
 import requests
 from typing import Tuple, Union
 from ATLAS.config import ConfigManager
+from modules.logging.logger import setup_logger
 
 config_manager = ConfigManager()
-logger = config_manager.logger 
+logger = setup_logger(__name__)
 
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 

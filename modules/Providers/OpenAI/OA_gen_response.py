@@ -4,13 +4,14 @@ from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import List, Dict, Union, AsyncIterator
 from ATLAS.config import ConfigManager
+from modules.logging.logger import setup_logger
 from ATLAS.ToolManager import load_function_map_from_current_persona, load_functions_from_json, use_tool
 from ATLAS.model_manager import ModelManager  
 
 class OpenAIGenerator:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
-        self.logger = self.config_manager.logger  
+        self.logger = setup_logger(__name__) 
         self.api_key = self.config_manager.get_openai_api_key()
         if not self.api_key:
             self.logger.error("OpenAI API key not found in configuration")

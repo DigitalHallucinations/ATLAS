@@ -5,7 +5,6 @@ ATLAS
 │   ├── ATLAS.py
 │   ├── ToolManager.py
 │   ├── __init__.py
-│   ├── chat_session.py
 │   ├── config
 │   │   └── logging_config.yaml
 │   ├── config.py
@@ -48,6 +47,8 @@ ATLAS
 ├── debug.log
 ├── main.py
 ├── modules
+│   ├── Chat
+│   │   └── chat_session.py
 │   ├── Personas
 │   │   ├── ALL_PERSONAS.json
 │   │   ├── ATLAS
@@ -209,12 +210,12 @@ ATLAS
 │   │   │   │   ├── __init__.py
 │   │   │   │   ├── huggingface_model_manager.py
 │   │   │   │   └── response_generator.py
-│   │   │   ├── model_cache
-│   │   │   │   └── installed_models.json
 │   │   │   ├── config
 │   │   │   │   ├── __init__.py
 │   │   │   │   ├── base_config.py
 │   │   │   │   └── nvme_config.py
+│   │   │   ├── model_cache
+│   │   │   │   └── installed_models.json
 │   │   │   └── utils
 │   │   │       ├── __init__.py
 │   │   │       ├── cache_manager.py
@@ -240,6 +241,8 @@ ATLAS
 │   │   └── tool_maps
 │   │       ├── functions.json
 │   │       └── maps.py
+│   ├── logging
+│   │   └── logger.py
 │   └── user_accounts
 │       ├── user_account_db.py
 │       ├── user_data_manager.py

@@ -1,11 +1,11 @@
-# ATLAS\persona_manager.py
+# ATLAS/persona_manager.py
 
 import os
 import json
 from typing import List, Optional, Dict
 from modules.user_accounts.user_data_manager import UserDataManager
 from ATLAS.config import ConfigManager
-
+from modules.logging.logger import setup_logger
 
 class PersonaManager:
     """
@@ -24,7 +24,7 @@ class PersonaManager:
         self.master = master
         self.user = user
         self.config_manager = ConfigManager()
-        self.logger = self.config_manager.logger
+        self.logger = setup_logger(__name__)
         self.persona_base_path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'Personas')
         self.persona_names: List[str] = self.load_persona_names(self.persona_base_path)
         self.personas: Dict[str, dict] = {}  # Cache for loaded personas
@@ -89,7 +89,6 @@ class PersonaManager:
         """Retrieve the persona by name, loading it from disk if necessary."""
         return self.load_persona(persona_name)
 
-
     def updater(self, selected_persona_name: str):
         """Update the current persona and manage conversation ID."""
         self.logger.info(f"Attempting to update persona to {selected_persona_name}.")
@@ -104,16 +103,6 @@ class PersonaManager:
 
         self.master.system_name = selected_persona_name
         self.master.system_name_tag = selected_persona_name
-
-
-        # uncomment when database is integrated
-        """
-        if hasattr(self.master, 'database'):
-            self.master.database.generate_new_conversation_id()
-            self.logger.info(f"Conversation ID updated due to persona change to {selected_persona_name}")
-        else:
-            self.logger.warning("ConversationHistory instance not found in master.")
-        """
 
         self.logger.info(f"Persona switched to {selected_persona_name} with new system prompt.")
 
@@ -176,7 +165,6 @@ class PersonaManager:
 
         return personalized_content
 
-    
     def update_persona(self, persona):
         """Update the persona settings and save them to the corresponding file."""
         persona_name = persona.get("name")
@@ -190,10 +178,13 @@ class PersonaManager:
         except OSError as e:
             self.logger.error(f"Error saving persona {persona_name}: {e}")
 
-
     def show_message(self, role: str, message: str):
         """Display a message using the chat component, if available."""
         if hasattr(self.master, 'chat_component'):
             self.master.chat_component.show_message(role, message)
         else:
             self.logger.warning("ChatComponent instance not found in master. Unable to display message.")
+
+    def get_current_persona_prompt(self) -> str:
+        """Returns the current persona's system prompt."""
+        return self.current_system_prompt

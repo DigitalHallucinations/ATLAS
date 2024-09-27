@@ -6,6 +6,7 @@ import json
 import platform
 import subprocess
 from ATLAS.config import ConfigManager
+from modules.logging.logger import setup_logger
 
 
 class SystemInfo:
@@ -96,7 +97,7 @@ class UserDataManager:
             user (str): The username of the user.
         """
         self.config_manager = ConfigManager()
-        self.logger = self.config_manager.logger
+        self.logger = setup_logger(__name__)
         SystemInfo.set_logger(self.logger)
         self.user = user
         self.profile = self.get_profile_text()

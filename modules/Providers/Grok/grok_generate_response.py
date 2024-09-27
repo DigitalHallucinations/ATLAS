@@ -3,12 +3,13 @@
 from xai_sdk import Client
 from typing import List, Dict, Union, AsyncIterator
 from ATLAS.config import ConfigManager
+from modules.logging.logger import setup_logger
 
 
 class GrokGenerator:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
-        self.logger = self.config_manager.logger
+        self.logger = setup_logger(__name__)
         self.api_key = self.config_manager.get_grok_api_key()
         if not self.api_key:
             self.logger.error("Grok API key not found in configuration")

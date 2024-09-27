@@ -7,10 +7,11 @@ import importlib.util
 import sys
 from datetime import datetime
 from ATLAS.config import ConfigManager
+from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system
 
 config_manager = ConfigManager()
-logger = config_manager.logger 
+logger = setup_logger(__name__)
 
 def get_required_args(function):
     logger.info("getting required args")

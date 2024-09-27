@@ -4,13 +4,14 @@ import asyncio
 from typing import List, Dict, Union, AsyncIterator, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from ATLAS.config import ConfigManager
+from modules.logging.logger import setup_logger
 from anthropic import AsyncAnthropic, APIError, HUMAN_PROMPT, AI_PROMPT, RateLimitError
 import json
 
 class AnthropicGenerator:
     def __init__(self, config_manager=ConfigManager):
         self.config_manager = config_manager
-        self.logger = self.config_manager.logger
+        self.logger = setup_logger(__name__)
         self.api_key = self.config_manager.get_anthropic_api_key()
         if not self.api_key:
             self.logger.error("Anthropic API key not found in configuration")

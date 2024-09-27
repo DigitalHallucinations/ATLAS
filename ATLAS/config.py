@@ -4,24 +4,21 @@ import logging
 import os
 import yaml
 from typing import Dict, Any
+from modules.logging.logger import setup_logger
 from dotenv import load_dotenv, set_key, find_dotenv
 
 class ConfigManager:
     """
     Manages configuration settings for the application, including loading
-    environment variables, handling API keys for various providers, and
-    managing logging configurations.
+    environment variables and handling API keys for various providers.
 
     Attributes:
-        config (Dict[str, Any]): A dictionary holding all configuration settings.
-        logging_config (Dict[str, Any]): A dictionary holding logging configurations.
-        logger (logging.Logger): Logger instance for logging messages.
+        config (Dict[str, Any]): A dictionary holding all configuration settings..
     """
 
     def __init__(self):
         """
-        Initializes the ConfigManager by loading environment variables,
-        setting up logging, and loading configuration settings.
+        Initializes the ConfigManager by loading environment variables and loading configuration settings.
 
         Raises:
             ValueError: If the API key for the default provider is not found in environment variables.
@@ -30,18 +27,12 @@ class ConfigManager:
         load_dotenv()
         
         # Setup logger early to log any issues
-        self.logger = self.setup_logger('config_manager')
+        self.logger = setup_logger(__name__)
         
         # Load configurations
         self.config = self._load_env_config()
-        self.logging_config = self._load_logging_config()
-
-        # Update the logger level after loading the logging config
-        log_level = self.get_log_level()
-        self.logger.setLevel(log_level)
 
         # Derive other paths from APP_ROOT
-        self.config['LOG_FILE_PATH'] = os.path.join(self.config['APP_ROOT'], 'logs', 'application.log')
         self.config['MODEL_CACHE_DIR'] = os.path.join(
             self.config['APP_ROOT'],
             'modules',
@@ -66,37 +57,17 @@ class ConfigManager:
         """
         config = {
             'OPENAI_API_KEY': os.getenv('OPENAI_API_KEY'),
-            'LOG_LEVEL': os.getenv('LOG_LEVEL', 'INFO'),
             'DEFAULT_PROVIDER': os.getenv('DEFAULT_PROVIDER', 'OpenAI'),
             'DEFAULT_MODEL': os.getenv('DEFAULT_MODEL', 'gpt-4'),
-            'MONGO_CONNECTION_STRING': os.getenv('MONGO_CONNECTION_STRING'),
             'MISTRAL_API_KEY': os.getenv('MISTRAL_API_KEY'),
             'HUGGINGFACE_API_KEY': os.getenv('HUGGINGFACE_API_KEY'),
             'GOOGLE_API_KEY': os.getenv('GOOGLE_API_KEY'),
             'ANTHROPIC_API_KEY': os.getenv('ANTHROPIC_API_KEY'),
-            'GROK_API_KEY': os.getenv('GROK_API_KEY'),  # Added Grok API Key
+            'GROK_API_KEY': os.getenv('GROK_API_KEY'),  
             'APP_ROOT': os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         }
         self.logger.info(f"APP_ROOT is set to: {config['APP_ROOT']}")
         return config
-
-    def _load_logging_config(self) -> Dict[str, Any]:
-        """
-        Loads logging configurations from a YAML file.
-
-        Returns:
-            Dict[str, Any]: A dictionary containing logging configurations.
-        """
-        config_path = os.path.join(self.get_app_root(), 'ATLAS', 'config', 'logging_config.yaml')
-        try:
-            with open(config_path, 'r') as file:
-                return yaml.safe_load(file)
-        except FileNotFoundError:
-            self.logger.warning(f"Logging config file not found at {config_path}, using default logging config.")
-            return {"log_level": "INFO", "console_enabled": True}  # Default configuration
-        except yaml.YAMLError as e:
-            self.logger.error(f"Error parsing logging config file: {e}")
-            return {"log_level": "INFO", "console_enabled": True}  # Default configuration
 
     def get_config(self, key: str, default: Any = None) -> Any:
         """
@@ -110,15 +81,6 @@ class ConfigManager:
             Any: The value associated with the key, or the default value if key is absent.
         """
         return self.config.get(key, default)
-
-    def get_log_level(self) -> int:
-        """
-        Retrieves the logging level from the logging configuration.
-
-        Returns:
-            int: The logging level as an integer (e.g., logging.INFO).
-        """
-        return getattr(logging, self.logging_config.get('log_level', 'INFO').upper(), logging.INFO)
 
     def get_model_cache_dir(self) -> str:
         """
@@ -147,45 +109,6 @@ class ConfigManager:
         """
         return self.get_config('DEFAULT_MODEL')
 
-    def setup_logger(self, name: str) -> logging.Logger:
-        """
-        Sets up a logger with the specified name. If the logger already has handlers,
-        it won't add additional ones to prevent duplicate logs.
-
-        Args:
-            name (str): The name of the logger.
-
-        Returns:
-            logging.Logger: The configured logger instance.
-        """
-        logger = logging.getLogger(name)
-        logger.setLevel(logging.INFO)
-
-        if not logger.hasHandlers():
-            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            
-            # Console handler
-            console_handler = logging.StreamHandler()
-            console_handler.setLevel(logging.INFO)
-            console_handler.setFormatter(formatter)
-            logger.addHandler(console_handler)
-
-        return logger
-
-    def set_log_level(self, level: str):
-        """
-        Sets the logging level for the application.
-
-        Args:
-            level (str): The logging level to set (e.g., 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL').
-
-        Raises:
-            AttributeError: If the provided level is not a valid logging level.
-        """
-        self.config['LOG_LEVEL'] = level
-        log_level = getattr(logging, level.upper(), logging.INFO)
-        logging.getLogger().setLevel(log_level)
-        self.logger.info(f"Log level set to {level}")
 
     def get_openai_api_key(self) -> str:
         """

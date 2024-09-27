@@ -5,6 +5,7 @@ import os
 import threading
 from typing import Dict, List, Tuple
 from ATLAS.config import ConfigManager
+from modules.logging.logger import setup_logger
 
 class ModelManager:
     def __init__(self, config_manager: ConfigManager):
@@ -15,7 +16,7 @@ class ModelManager:
             config_manager (ConfigManager): An instance of ConfigManager.
         """
         self.config_manager = config_manager
-        self.logger = self.config_manager.logger
+        self.logger = setup_logger(__name__)
         self.current_model = None
         self.current_provider = None
         self.models = {}
