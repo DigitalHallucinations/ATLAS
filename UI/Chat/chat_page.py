@@ -77,8 +77,11 @@ class ChatPage(Gtk.Window):
     def send_message(self):
         message = self.input_entry.get_text().strip()
         if message:
+            # Get the user's name
+            user_name = self.ATLAS.user
+
             # Append user's message to chat history
-            self.append_to_chat_history(f"You: {message}\n")
+            self.append_to_chat_history(f"{user_name}: {message}\n")
 
             # Clear input entry
             self.input_entry.set_text("")
@@ -95,8 +98,12 @@ class ChatPage(Gtk.Window):
             asyncio.set_event_loop(loop)
             response = loop.run_until_complete(self.chat_session.send_message(message))
             loop.close()
+            
+            # Get the current persona's name
+            persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
+            
             # Schedule UI update in the main thread
-            GLib.idle_add(self.append_to_chat_history, f"Assistant: {response}\n")
+            GLib.idle_add(self.append_to_chat_history, f"{persona_name}: {response}\n")
         except Exception as e:
             self.ATLAS.logger.error(f"Error in handle_model_response: {e}")
             GLib.idle_add(self.append_to_chat_history, f"Assistant: Error: {e}\n")
