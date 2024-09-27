@@ -2,13 +2,13 @@
 
 import asyncio
 import threading
-from gi.repository import Gtk, GLib, Gdk
+from gi.repository import Gtk, GLib, Gdk, Pango
 
 class ChatPage(Gtk.Window):
     def __init__(self, atlas):
         super().__init__(title="Chat Page")
         self.ATLAS = atlas
-        self.chat_session = atlas.chat_session  # Access the ChatSession
+        self.chat_session = atlas.chat_session
         self.set_default_size(600, 400)
         self.set_keep_above(False)
         self.stick()
@@ -19,11 +19,12 @@ class ChatPage(Gtk.Window):
         self.position_window_next_to_sidebar(self, 600)  # Assuming window width is 600
 
         # Main vertical box
-        self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add(self.vbox)
 
-        # Top label
-        self.chat_label = Gtk.Label(label="Chat")
+        # Top label with current persona name
+        self.chat_label = Gtk.Label()
+        self.update_chat_label()
         self.chat_label.set_xalign(0.0)
         self.chat_label.set_margin_top(10)
         self.chat_label.set_margin_start(10)
@@ -36,26 +37,30 @@ class ChatPage(Gtk.Window):
 
         # Chat history scrolled window
         self.chat_history_scrolled = Gtk.ScrolledWindow()
-        self.chat_history_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        self.chat_history = Gtk.TextView()
-        self.chat_history.set_editable(False)
-        self.chat_history.set_wrap_mode(Gtk.WrapMode.WORD)
-        self.chat_history_buffer = self.chat_history.get_buffer()
+        self.chat_history_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.chat_history = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.chat_history.set_margin_start(10)
+        self.chat_history.set_margin_end(10)
         self.chat_history_scrolled.add(self.chat_history)
         self.vbox.pack_start(self.chat_history_scrolled, True, True, 0)
 
-        # Input entry and send button in an hbox
-        input_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        # Input area
+        input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        input_box.set_margin_top(10)
+        input_box.set_margin_bottom(10)
+        input_box.set_margin_start(10)
+        input_box.set_margin_end(10)
+
         self.input_entry = Gtk.Entry()
-        self.input_entry.set_placeholder_text("Type your message here...")
-        self.input_entry.connect("activate", self.on_enter_pressed)
-        input_hbox.pack_start(self.input_entry, True, True, 0)
+        self.input_entry.set_placeholder_text("Type a message...")
+        self.input_entry.connect("activate", self.on_send_message)
+        input_box.pack_start(self.input_entry, True, True, 0)
 
-        self.send_button = Gtk.Button(label="Send")
-        self.send_button.connect("clicked", self.on_send_button_clicked)
-        input_hbox.pack_start(self.send_button, False, False, 0)
+        send_button = Gtk.Button.new_from_icon_name("send", Gtk.IconSize.BUTTON)
+        send_button.connect("clicked", self.on_send_message)
+        input_box.pack_start(send_button, False, False, 0)
 
-        self.vbox.pack_start(input_hbox, False, False, 5)
+        self.vbox.pack_start(input_box, False, False, 0)
 
         # Status bar
         self.status_bar = Gtk.Statusbar()
@@ -64,69 +69,70 @@ class ChatPage(Gtk.Window):
         model = self.ATLAS.provider_manager.get_current_model() or "No model selected"
         status_message = f"Provider: {provider} | Model: {model}"
         self.status_bar.push(context_id, status_message)
-        self.vbox.pack_end(self.status_bar, False, True, 0)
+        self.vbox.pack_end(self.status_bar, False, False, 0)
 
         self.show_all()
 
-    def on_enter_pressed(self, widget):
-        self.send_message()
+    def update_chat_label(self):
+        persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Chat')
+        self.chat_label.set_text(f"Chat with {persona_name}")
 
-    def on_send_button_clicked(self, widget):
-        self.send_message()
-
-    def send_message(self):
+    def on_send_message(self, widget):
         message = self.input_entry.get_text().strip()
         if message:
-            # Get the user's name
             user_name = self.ATLAS.user
-
-            # Append user's message to chat history
-            self.append_to_chat_history(f"{user_name}: {message}\n")
-
-            # Clear input entry
+            self.add_message_bubble(user_name, message, is_user=True)
             self.input_entry.set_text("")
-
-            # Use threading to handle the model response without blocking the UI
             threading.Thread(target=self.handle_model_response_thread, args=(message,), daemon=True).start()
 
     def handle_model_response_thread(self, message):
-        """
-        Thread target to handle model response.
-        """
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             response = loop.run_until_complete(self.chat_session.send_message(message))
             loop.close()
             
-            # Get the current persona's name
             persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
-            
-            # Schedule UI update in the main thread
-            GLib.idle_add(self.append_to_chat_history, f"{persona_name}: {response}\n")
+            GLib.idle_add(self.add_message_bubble, persona_name, response)
         except Exception as e:
             self.ATLAS.logger.error(f"Error in handle_model_response: {e}")
-            GLib.idle_add(self.append_to_chat_history, f"Assistant: Error: {e}\n")
+            GLib.idle_add(self.add_message_bubble, "Assistant", f"Error: {e}")
 
-    def append_to_chat_history(self, text):
-        """
-        Appends text to the chat history in the UI.
+    def add_message_bubble(self, sender, message, is_user=False):
+        bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        bubble.set_margin_top(5)
+        bubble.set_margin_bottom(5)
 
-        Args:
-            text (str): The text to append.
-        """
-        end_iter = self.chat_history_buffer.get_end_iter()
-        self.chat_history_buffer.insert(end_iter, text)
-        self.chat_history.scroll_to_mark(self.chat_history_buffer.get_insert(), 0.0, True, 0.0, 1.0)
+        sender_label = Gtk.Label(label=sender)
+        sender_label.set_halign(Gtk.Align.START)
+        bubble.pack_start(sender_label, False, False, 0)
+
+        message_label = Gtk.Label(label=message)
+        message_label.set_line_wrap(True)
+        message_label.set_max_width_chars(32)
+        message_label.set_justify(Gtk.Justification.LEFT)
+        message_label.set_halign(Gtk.Align.START)
+
+        bubble_box = Gtk.EventBox()
+        bubble_box.add(message_label)
+        bubble_box.get_style_context().add_class("message-bubble")
+        
+        if is_user:
+            bubble_box.get_style_context().add_class("user-message")
+            bubble.set_halign(Gtk.Align.END)
+        else:
+            bubble_box.get_style_context().add_class("assistant-message")
+            bubble.set_halign(Gtk.Align.START)
+
+        bubble.pack_start(bubble_box, False, False, 0)
+        self.chat_history.pack_start(bubble, False, False, 0)
+        self.chat_history.show_all()
+
+        # Scroll to the bottom
+        adj = self.chat_history_scrolled.get_vadjustment()
+        adj.set_value(adj.get_upper() - adj.get_page_size())
 
     def position_window_next_to_sidebar(self, window: Gtk.Window, window_width: int):
-        """
-        Positions the given window next to the sidebar.
-
-        Args:
-            window (Gtk.Window): The window to position.
-            window_width (int): The width of the window.
-        """
         display = Gdk.Display.get_default()
         monitor = display.get_primary_monitor()
         monitor_geometry = monitor.get_geometry()
@@ -150,17 +156,26 @@ class ChatPage(Gtk.Window):
             }
             label {
                 color: white;
-                font-size: 18px;
-                font-weight: bold;
+                font-size: 14px;
             }
-            textview {
-                background-color: #3c3c3c;
+            .message-bubble { 
+                border-radius: 18px; 
+                padding: 8px 12px;
+            }
+            .user-message { 
+                background-color: #0084ff; 
                 color: white;
-                padding: 10px;
+            }
+            .assistant-message { 
+                background-color: #3c3c3c; 
+                color: white;
             }
             entry {
                 background-color: #3c3c3c;
                 color: white;
+                border-radius: 20px;
+                padding: 8px 12px;
+                caret-color: white;
             }
             button {
                 background-color: #555555;
