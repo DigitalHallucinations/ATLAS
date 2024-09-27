@@ -174,7 +174,8 @@ class ProviderManager:
     async def generate_response(
         self,
         messages: List[Dict[str, str]],
-        model: str,
+        model: str = None,
+        provider: str = None,
         max_tokens: int = 4000,
         temperature: float = 0.0,
         stream: bool = True,
@@ -183,11 +184,12 @@ class ProviderManager:
         llm_call_type: str = None
     ) -> Union[str, AsyncIterator[str]]:
         """
-        Generate a response using the current LLM provider.
+        Generate a response using the specified provider and model, or the current ones if not specified.
 
         Args:
             messages (List[Dict[str, str]]): The conversation messages.
-            model (str): The model to use.
+            model (str, optional): The model to use. If None, uses the current model.
+            provider (str, optional): The provider to use. If None, uses the current provider.
             max_tokens (int, optional): Maximum number of tokens. Defaults to 4000.
             temperature (float, optional): Sampling temperature. Defaults to 0.0.
             stream (bool, optional): Whether to stream the response. Defaults to True.
@@ -198,32 +200,32 @@ class ProviderManager:
         Returns:
             Union[str, AsyncIterator[str]]: The generated response or a stream of tokens.
         """
+        if not provider:
+            provider = self.current_llm_provider
         if not model:
-            self.logger.error("No model provided. Please provide a model when calling generate_response.")
-            raise ValueError("No model provided")
+            model = self.get_current_model()
 
-        # Ensure the model is set as the current model
-        try:
+        if provider != self.current_llm_provider:
+            await self.switch_llm_provider(provider)
+
+        if model != self.current_model:
             await self.set_model(model)
-        except Exception as e:
-            self.logger.error(f"Failed to set model {model}: {str(e)}")
-            raise ValueError(f"Failed to set model {model}")
 
         if functions is None:
             functions = self.current_functions
 
         start_time = time.time()
-        self.logger.info(f"Starting API call to {self.current_llm_provider} with model {model} for {llm_call_type}")
+        self.logger.info(f"Starting API call to {provider} with model {model} for {llm_call_type}")
 
         try:
-            if self.current_llm_provider == "HuggingFace":
+            if provider == "HuggingFace":
                 response = await self.huggingface_generator.generate_response(messages, model, stream)
-            elif self.current_llm_provider == "Grok":
+            elif provider == "Grok":
                 response = await self.grok_generator.generate_response(messages, model, stream)
             else:
-                provider = self.providers.get(self.current_llm_provider)
-                if not provider:
-                    raise ValueError(f"Provider {self.current_llm_provider} not found")
+                provider_module = self.providers.get(provider)
+                if not provider_module:
+                    raise ValueError(f"Provider {provider} not found")
                 response = await self.generate_response_func(
                     self.config_manager,
                     messages,
@@ -238,7 +240,7 @@ class ProviderManager:
             self.logger.info(f"API call completed in {time.time() - start_time:.2f} seconds")
             return response
         except Exception as e:
-            self.logger.error(f"Error during API call to {self.current_llm_provider}: {str(e)}")
+            self.logger.error(f"Error during API call to {provider}: {str(e)}")
             self.logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
 

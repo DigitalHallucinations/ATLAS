@@ -6,17 +6,17 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
 
-from UI.Chat.chat_page import ChatPage 
+from UI.Chat.chat_page import ChatPage
 from UI.Persona_manager.persona_management import PersonaManagement
-from UI.Provider_manager.provider_management import ProviderManagement  
+from UI.Provider_manager.provider_management import ProviderManagement
 
 class Sidebar(Gtk.Window):
     def __init__(self, atlas):
         super().__init__(title="Sidebar")
         
-        self.ATLAS = atlas  
+        self.ATLAS = atlas
         self.persona_management = PersonaManagement(self.ATLAS, self)
-        self.provider_management = ProviderManagement(self.ATLAS, self)  
+        self.provider_management = ProviderManagement(self.ATLAS, self)
 
         display = Gdk.Display.get_default()
         monitor = display.get_primary_monitor()
@@ -36,10 +36,10 @@ class Sidebar(Gtk.Window):
         top_spacer = Gtk.Box()
         self.box.pack_start(top_spacer, False, False, 5)
 
-        self.create_icon("Icons/providers.png", self.provider_management.show_provider_menu, 42)  
+        self.create_icon("Icons/providers.png", self.show_provider_menu, 42)
         self.create_icon("Icons/history.png", self.handle_history_button, 42)
         self.create_icon("Icons/chat.png", self.show_chat_page, 42)
-        self.create_icon("Icons/agent.png", self.persona_management.show_persona_menu, 42)
+        self.create_icon("Icons/agent.png", self.show_persona_menu, 42)
 
         self.box.pack_start(Gtk.Box(), True, True, 0)
         self.create_icon("Icons/settings.png", self.show_settings_page, 42)
@@ -69,24 +69,45 @@ class Sidebar(Gtk.Window):
         sidebar_width = 50  # As set by set_default_size
         self.move(geometry.width - sidebar_width, 0)
 
+    def show_provider_menu(self):
+        if self.ATLAS.is_initialized():
+            self.provider_management.show_provider_menu()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+
     def handle_history_button(self):
-        self.ATLAS.log_history()
+        if self.ATLAS.is_initialized():
+            self.ATLAS.log_history()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
 
     def show_chat_page(self):
-        chat_page = ChatPage(self.ATLAS)
-        chat_page.show_all()
+        if self.ATLAS.is_initialized():
+            chat_page = ChatPage(self.ATLAS)
+            chat_page.show_all()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+
+    def show_persona_menu(self):
+        if self.ATLAS.is_initialized():
+            self.persona_management.show_persona_menu()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
 
     def show_settings_page(self):
-        settings_window = Gtk.Window(title="Settings")
-        settings_window.set_default_size(300, 400)
-        settings_window.set_keep_above(True)
-        self.persona_management.position_window_next_to_sidebar(settings_window, 300)
-        settings_window.show_all()
+        if self.ATLAS.is_initialized():
+            settings_window = Gtk.Window(title="Settings")
+            settings_window.set_default_size(300, 400)
+            settings_window.set_keep_above(True)
+            self.persona_management.position_window_next_to_sidebar(settings_window, 300)
+            settings_window.show_all()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
 
     def close_application(self):
         print("Closing application")
         Gtk.main_quit()
-        
+
     def apply_css_styling(self):
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(b"""
@@ -104,3 +125,15 @@ class Sidebar(Gtk.Window):
             css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
+
+    def show_error_dialog(self, message):
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text="Initialization Error",
+        )
+        dialog.format_secondary_text(message)
+        dialog.run()
+        dialog.destroy()

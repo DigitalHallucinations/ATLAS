@@ -1,6 +1,7 @@
 # ATLAS/ATLAS.py
 
 from typing import List
+import asyncio
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.persona_manager import PersonaManager
@@ -18,13 +19,38 @@ class ATLAS:
         """
         self.config_manager = ConfigManager()
         self.logger = setup_logger(__name__)
-        self.persona_path = "/home/bib/Projects/ATLAS/modules/Personas"  ### This should ConfigManager.get_app_root
+        self.persona_path = self.config_manager.get_app_root()  # Use ConfigManager to get app root
         self.current_persona = None
         self.user = "Bib"  # We will use this later to load the user name from the system (windows and linux)
-        self.provider_manager = ProviderManager(self.config_manager)
+        self.provider_manager = None
+        self.persona_manager = None
+        self.chat_session = None
+        self._initialized = False
+
+    async def initialize(self):
+        """
+        Asynchronously initialize the ATLAS instance.
+        """
+        self.provider_manager = await ProviderManager.create(self.config_manager)
         self.persona_manager = PersonaManager(master=self, user=self.user)
-        self.chat_session = ChatSession(self) 
+        self.chat_session = ChatSession(self)
+        
+        default_provider = self.config_manager.get_default_provider()
+        await self.provider_manager.set_current_provider(default_provider)
+        
+        self.logger.info(f"Default provider set to: {self.provider_manager.get_current_provider()}")
+        self.logger.info(f"Default model set to: {self.provider_manager.get_current_model()}")
         self.logger.info("ATLAS initialized successfully.")
+        self._initialized = True
+
+    def is_initialized(self) -> bool:
+        """
+        Check if ATLAS is fully initialized.
+
+        Returns:
+            bool: True if ATLAS is initialized, False otherwise.
+        """
+        return self._initialized
 
     def get_persona_names(self) -> List[str]:
         """
@@ -44,12 +70,6 @@ class ATLAS:
         """
         self.logger.info(f"Loading persona: {persona}")
         self.persona_manager.updater(persona)
-        self.current_persona = persona
-
-    def get_current_system_prompt(self) -> str:
-        if self.current_persona:
-            return self.persona_manager.current_system_prompt
-        return ""
 
     def get_available_providers(self) -> List[str]:
         """
@@ -65,7 +85,9 @@ class ATLAS:
         Asynchronously set the current provider in the ProviderManager.
         """
         await self.provider_manager.set_current_provider(provider)
+        self.chat_session.set_provider(provider)
         current_model = self.provider_manager.get_current_model()
+        self.chat_session.set_model(current_model)
         self.logger.info(f"Current provider set to {provider} with model {current_model}")
             
     def log_history(self):
@@ -81,3 +103,21 @@ class ATLAS:
         """
         self.logger.info("Settings page clicked")
         print("Settings page clicked")
+
+    def get_default_provider(self) -> str:
+        """
+        Get the default provider from the ProviderManager.
+
+        Returns:
+            str: The name of the default provider.
+        """
+        return self.provider_manager.get_current_provider()
+
+    def get_default_model(self) -> str:
+        """
+        Get the default model from the ProviderManager.
+
+        Returns:
+            str: The name of the default model.
+        """
+        return self.provider_manager.get_current_model()
