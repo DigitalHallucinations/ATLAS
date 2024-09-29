@@ -1,0 +1,80 @@
+/* UI/Utils/style.css */
+
+/* General Window Styling */
+window {
+    background-color: #2b2b2b;
+}
+
+/* Label Styling */
+label {
+    color: white;
+    font-size: 14px;
+}
+
+/* Persona Label Styling */
+#persona-label {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+/* Message Bubble Styling */
+.message-bubble { 
+    border-radius: 18px; 
+    padding: 8px 12px;
+}
+
+/* User Message Styling */
+.user-message { 
+    background-color: #0084ff; 
+    color: white;
+}
+
+/* Assistant Message Styling */
+.assistant-message { 
+    background-color: #3c3c3c; 
+    color: white;
+}
+
+/* Entry (Input Field) Styling */
+entry {
+    background-color: #3c3c3c;
+    color: white;
+    border-radius: 20px;
+    padding: 8px 12px;
+    caret-color: white;
+}
+
+/* Button Styling */
+button {
+    background-color: #555555;
+    color: white;
+}
+
+/* Status Bar Styling */
+statusbar {
+    background-color: #2b2b2b;
+    color: white;
+}
+
+/* Sidebar Window Styling */
+window.sidebar {
+    background-color: #2b2b2b;
+}
+
+/* Icon Styling */
+.icon {
+    padding: 10px;
+    transition: background-color 0.3s, border-radius 0.3s;
+}
+
+/* Hover Effect for Icons */
+.icon:hover {
+    background-color: #3c3c3c;
+    border-radius: 5px;
+}
+
+/* Error Dialog Styling */
+.message-dialog {
+    background-color: #f44336;
+    color: white;
+}

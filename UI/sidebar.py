@@ -1,7 +1,6 @@
 # UI/sidebar.py
 
 import gi
-import asyncio
 gi.require_version('Gtk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
@@ -9,6 +8,7 @@ from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
 from UI.Chat.chat_page import ChatPage
 from UI.Persona_manager.persona_management import PersonaManagement
 from UI.Provider_manager.provider_management import ProviderManagement
+from UI.Utils.style_util import apply_css  
 
 class Sidebar(Gtk.Window):
     def __init__(self, atlas):
@@ -27,8 +27,9 @@ class Sidebar(Gtk.Window):
         self.set_decorated(False)
         self.set_keep_above(False)
         self.stick()
-
-        self.apply_css_styling()
+    
+        self.get_style_context().add_class("sidebar")
+        apply_css()
 
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         self.add(self.box)
@@ -52,6 +53,8 @@ class Sidebar(Gtk.Window):
 
     def create_icon(self, icon_path, callback, icon_size):
         event_box = Gtk.EventBox()
+        event_box.get_style_context().add_class("icon")
+        
         try:
             pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(icon_path, icon_size, icon_size, True)
         except GLib.Error as e:
@@ -66,7 +69,7 @@ class Sidebar(Gtk.Window):
         display = Gdk.Display.get_default()
         monitor = display.get_primary_monitor()
         geometry = monitor.get_geometry()
-        sidebar_width = 50  # As set by set_default_size
+        sidebar_width = 50  
         self.move(geometry.width - sidebar_width, 0)
 
     def show_provider_menu(self):
@@ -108,24 +111,6 @@ class Sidebar(Gtk.Window):
         print("Closing application")
         Gtk.main_quit()
 
-    def apply_css_styling(self):
-        css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(b"""
-            window {
-                background-color: #2b2b2b;
-            }
-            label {
-                color: white;
-                padding: 5px;
-                font-size: 14px;
-            }
-        """)
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
-            css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
-
     def show_error_dialog(self, message):
         dialog = Gtk.MessageDialog(
             transient_for=self,
@@ -135,5 +120,7 @@ class Sidebar(Gtk.Window):
             text="Initialization Error",
         )
         dialog.format_secondary_text(message)
+        dialog.get_style_context().add_class("message-dialog")
+        
         dialog.run()
         dialog.destroy()

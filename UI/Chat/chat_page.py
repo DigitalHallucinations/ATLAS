@@ -2,7 +2,9 @@
 
 import asyncio
 import threading
-from gi.repository import Gtk, GLib, Gdk, Pango
+from gi.repository import Gtk, GLib, Gdk
+
+from UI.Utils.style_util import apply_css
 
 class ChatPage(Gtk.Window):
     def __init__(self, atlas):
@@ -13,10 +15,14 @@ class ChatPage(Gtk.Window):
         self.set_keep_above(False)
         self.stick()
 
-        self.apply_css_styling()
+        # Assign a CSS class to the window for targeted styling
+        self.get_style_context().add_class("chat-page")
+
+        # Apply centralized CSS
+        apply_css()
 
         # Position window next to sidebar
-        self.position_window_next_to_sidebar(self, 600)  # Assuming window width is 600
+        self.position_window_next_to_sidebar(self, 600)  
 
         # Main vertical box
         self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -26,10 +32,6 @@ class ChatPage(Gtk.Window):
         self.persona_label = Gtk.Label()
         self.persona_label.set_name("persona-label")
         self.update_persona_label()
-        self.persona_label.set_xalign(0.0)
-        self.persona_label.set_margin_top(10)
-        self.persona_label.set_margin_start(10)
-        self.persona_label.set_margin_bottom(5)
         self.vbox.pack_start(self.persona_label, False, False, 0)
 
         # Separator
@@ -58,6 +60,7 @@ class ChatPage(Gtk.Window):
         input_box.pack_start(self.input_entry, True, True, 0)
 
         send_button = Gtk.Button.new_from_icon_name("send", Gtk.IconSize.BUTTON)
+        send_button.get_style_context().add_class("send-button") 
         send_button.connect("clicked", self.on_send_message)
         input_box.pack_start(send_button, False, False, 0)
 
@@ -148,51 +151,3 @@ class ChatPage(Gtk.Window):
         )
 
         window.move(window_x, 0)
-
-    def apply_css_styling(self):
-        css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(b"""
-            window {
-                background-color: #2b2b2b;
-            }
-            label {
-                color: white;
-                font-size: 14px;
-            }
-            #persona-label {
-                font-size: 18px;
-                font-weight: bold;
-            }
-            .message-bubble { 
-                border-radius: 18px; 
-                padding: 8px 12px;
-            }
-            .user-message { 
-                background-color: #0084ff; 
-                color: white;
-            }
-            .assistant-message { 
-                background-color: #3c3c3c; 
-                color: white;
-            }
-            entry {
-                background-color: #3c3c3c;
-                color: white;
-                border-radius: 20px;
-                padding: 8px 12px;
-                caret-color: white;
-            }
-            button {
-                background-color: #555555;
-                color: white;
-            }
-            statusbar {
-                background-color: #2b2b2b;
-                color: white;
-            }
-        """)
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
-            css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
