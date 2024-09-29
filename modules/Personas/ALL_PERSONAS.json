@@ -13,7 +13,7 @@ json
         "end_locked": "User Profile: <<Profile>> This confidential data allows you to offer highly tailored and proactive suggestions. Clear responses and relevant information are key for a great user experience. Ask for clarity or offer input as needed."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": true,
       "type": {
@@ -116,7 +116,7 @@ json
         "end_locked": ""
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": false,
       "type": {
@@ -219,7 +219,7 @@ json
         "end_locked": "Your current System is <<sysinfo>>. Please make all requests considering these specifications."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": true,
       "type": {
@@ -322,7 +322,7 @@ json
         "end_locked": ""
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": false,
       "sys_info_enabled": false,
       "type": {
@@ -424,7 +424,7 @@ json
         "end_locked": "User Profile: <<Profile>>. This confidential data allows you to offer highly tailored and proactive suggestions. Clear responses and relevant information are key for a great user experience. Ask for clarity or offer input as needed."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": false,
       "type": {
@@ -528,7 +528,7 @@ json
         "end_locked": "User Profile: <<Profile>>. This confidential data allows you to offer highly tailored and proactive suggestions. Clear responses and relevant information are key for a great user experience. Ask for clarity or offer input as needed."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": true,
       "type": {
@@ -631,7 +631,7 @@ json
         "end_locked": "User EMR: <<emr>>. Clear responses and relevant information are key for a great user experience. Ask for clarity or offer input as needed."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": false,
       "sys_info_enabled": false,
       "type": {
@@ -734,7 +734,7 @@ json
         "end_locked": "User Profile: <<Profile>>. This confidential data allows you to offer highly tailored and proactive suggestions. Clear responses and relevant information are key for a great user experience. Ask for clarity or offer input as needed."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": false,
       "type": {
@@ -837,7 +837,7 @@ json
         "end_locked": "User Profile: <<Profile>>. This confidential data allows you to offer highly tailored and proactive suggestions. Clear responses and relevant information are key for a great user experience. Ask for clarity or offer input as needed."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": false,
       "type": {
@@ -940,7 +940,7 @@ json
         "end_locked": "User Profile: <<Profile>>. This confidential data allows you to offer highly tailored and proactive suggestions. Clear responses and relevant information are key for a great user experience. Ask for clarity or offer input as needed."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": false,
       "type": {
@@ -1043,7 +1043,7 @@ json
         "end_locked": "Your current System is <<sysinfo>>. Please make all requests considering these specifications."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": false,
       "sys_info_enabled": true,
       "type": {
@@ -1147,7 +1147,7 @@ json
         "end_locked": "Target Language: <<target_language>>. Proficiency Level: <<proficiency_level>>. This information helps you tailor your interactions to the user's learning needs."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": false,
       "type": {
@@ -1249,7 +1249,7 @@ json
         "end_locked": "Fitness Goal: <<fitness_goal>>. Exercise Preference: <<exercise_preference>>. This information helps you design suitable fitness programs for the user."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": false,
       "type": {
@@ -1354,7 +1354,7 @@ json
         "end_locked": "Subject Specialization: Mathematics. Education Level: <<education_level>>. Teaching Style: <<teaching_style>>. This information helps you tailor your lessons to the user's needs."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": false,
       "type": {
@@ -1458,7 +1458,7 @@ json
         "end_locked": "User Profile: <<Profile>>. This confidential data allows you to offer tailored and proactive suggestions."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": false,
       "type": {
@@ -1561,7 +1561,7 @@ json
         "end_locked": "Target Language: French. Proficiency Level: <<proficiency_level>>. This information helps you tailor your interactions to the user's learning needs."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": true,
       "sys_info_enabled": false,
       "type": {
@@ -1665,7 +1665,7 @@ json
         "end_locked": "Subject Specialization: General Science. Education Level: <<education_level>>. Teaching Style: <<teaching_style>>. This information helps you tailor your lessons to the user's needs."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
       "type": {

@@ -9,7 +9,7 @@
         "end_locked": "Target Language: <<target_language>>. Proficiency Level: <<proficiency_level>>. This information helps you tailor your interactions to the user's learning needs."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": "true",
       "sys_info_enabled": "False",
       "type": {

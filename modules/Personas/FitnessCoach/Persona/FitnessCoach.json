@@ -9,7 +9,7 @@
         "end_locked": "Fitness Goal: <<fitness_goal>>. Exercise Preference: <<exercise_preference>>. This information helps you design suitable fitness programs for the user."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": "True",
       "sys_info_enabled": "False",
       "type": {

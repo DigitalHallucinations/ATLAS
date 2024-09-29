@@ -9,7 +9,7 @@
                 "end_locked": "User Profile: <<Profile>> Subject: Mathematics Level: High School Provide explanations suitable for the student's level. Clear responses and relevant information are key for a great user experience. Ask for clarity or offer input as needed."
             },
             "provider": "openai",
-            "model": "gpt-4",
+            "model": "gpt-4o",
             "user_profile_enabled": "True",
             "sys_info_enabled": "False",
             "type": {

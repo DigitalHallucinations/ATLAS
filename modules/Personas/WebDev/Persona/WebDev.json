@@ -9,7 +9,7 @@
         "end_locked": "Your current System is <<sysinfo>>. Please make all requests considering these specifications."
       },
       "provider": "openai",
-      "model": "gpt-4",
+      "model": "gpt-4o",
       "user_profile_enabled": "False",
       "sys_info_enabled": "True",
       "type": {
