@@ -1,11 +1,10 @@
 # ATLAS/ATLAS.py
 
 from typing import List
-import asyncio
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
-from ATLAS.persona_manager import PersonaManager
 from ATLAS.provider_manager import ProviderManager
+from ATLAS.persona_manager import PersonaManager
 from modules.Chat.chat_session import ChatSession
 
 class ATLAS:
@@ -19,9 +18,9 @@ class ATLAS:
         """
         self.config_manager = ConfigManager()
         self.logger = setup_logger(__name__)
-        self.persona_path = self.config_manager.get_app_root()  # Use ConfigManager to get app root
+        self.persona_path = self.config_manager.get_app_root()  
         self.current_persona = None
-        self.user = "Bib"  # We will use this later to load the user name from the system (windows and linux)
+        self.user = "Bib"  # Placeholder; replace with system user retrieval
         self.provider_manager = None
         self.persona_manager = None
         self.chat_session = None
@@ -121,3 +120,10 @@ class ATLAS:
             str: The name of the default model.
         """
         return self.provider_manager.get_current_model()
+    
+    async def close(self):
+        """
+        Perform cleanup operations.
+        """
+        await self.provider_manager.close()
+        self.logger.info("ATLAS closed and all providers unloaded.")
