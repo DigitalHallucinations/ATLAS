@@ -80,6 +80,32 @@ class ProviderManager:
             List[str]: A list of provider names.
         """
         return cls.AVAILABLE_PROVIDERS
+    
+    def get_default_model_for_provider(self, provider: str) -> str:
+        """
+        Get the default model for a specific provider.
+
+        Args:
+            provider (str): The name of the provider.
+
+        Returns:
+            str: The default model name for the specified provider.
+        """
+        provider_default_models = {
+            "OpenAI": "gpt-4o",
+            "Mistral": "mistral-large-latest",
+            "Google": "gemini-1.5-pro-latest",
+            "HuggingFace": "default_hf_model",  # Replace with actual default HuggingFace model
+            "Anthropic": "claude-3-sonnet-20240229",
+            "Grok": "grok-2"
+        }
+
+        default_model = provider_default_models.get(provider)
+        if default_model is None:
+            self.logger.warning(f"No default model found for provider {provider}. Using fallback model.")
+            default_model = "gpt-4o"  # Fallback to a known model
+
+        return default_model
 
     def get_available_providers(self) -> List[str]:
         """
@@ -176,8 +202,9 @@ class ProviderManager:
         """
         await self.switch_llm_provider(provider)
         self.logger.info(f"Current provider set to {self.current_llm_provider}")
-        if self.current_model:
-            self.logger.info(f"Current model set to: {self.current_model}")
+        default_model = self.get_default_model_for_provider(provider)
+        await self.set_model(default_model)
+        self.logger.info(f"Current model set to: {self.current_model}")
 
     def get_current_model(self) -> str:
         """
