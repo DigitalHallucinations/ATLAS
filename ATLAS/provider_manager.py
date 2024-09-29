@@ -33,20 +33,23 @@ class ProviderManager:
         if ProviderManager._instance is not None:
             raise Exception("This class is a singleton! Use ProviderManager.create() to get the instance.")
         
-        # Existing initialization code
         self.config_manager = config_manager
         self.logger = setup_logger(__name__)
         self.model_manager = ModelManager(self.config_manager)
-        self.current_llm_provider = self.config_manager.get_default_provider()
+        self.current_provider_info = {
+            "name": self.config_manager.get_default_provider(),
+            "model": None,
+            "generate_func": None,
+            "stream_func": None
+        }
         self.current_background_provider = self.config_manager.get_default_provider()
-        self.current_model = None
-        self.generate_response_func = None
-        self.process_streaming_response_func = None
-        self.huggingface_generator = HuggingFaceGenerator(self.config_manager)
+        self.huggingface_generator = None
         self.grok_generator = None
         self.current_functions = None
         self.providers = {}
-        self.chat_session = None  # Assuming chat_session is initialized elsewhere or added later
+        self.chat_session = None
+        self.conversation_manager = None
+        self.current_conversation_id = None
 
     @classmethod
     async def create(cls, config_manager: ConfigManager):
@@ -69,7 +72,7 @@ class ProviderManager:
         """
         Initializes the provider managers and sets the default provider.
         """
-        await self.switch_llm_provider(self.current_llm_provider)
+        await self.set_current_provider(self.current_provider_info["name"])
 
     @classmethod
     def providers(cls) -> List[str]:
@@ -80,7 +83,7 @@ class ProviderManager:
             List[str]: A list of provider names.
         """
         return cls.AVAILABLE_PROVIDERS
-    
+
     def get_default_model_for_provider(self, provider: str) -> str:
         """
         Get the default model for a specific provider.
@@ -95,7 +98,7 @@ class ProviderManager:
             "OpenAI": "gpt-4o",
             "Mistral": "mistral-large-latest",
             "Google": "gemini-1.5-pro-latest",
-            "HuggingFace": "default_hf_model",  # Replace with actual default HuggingFace model
+            "HuggingFace": "default_hf_model",
             "Anthropic": "claude-3-sonnet-20240229",
             "Grok": "grok-2"
         }
@@ -116,6 +119,18 @@ class ProviderManager:
         """
         return self.__class__.providers()
 
+    async def set_current_provider(self, provider: str):
+        """
+        Set the current provider to the specified provider.
+
+        Args:
+            provider (str): The name of the provider to set.
+        """
+        if provider != self.current_provider_info["name"]:
+            await self.switch_llm_provider(provider)
+        else:
+            self.logger.info(f"Provider {provider} is already set. No action taken.")
+
     async def switch_llm_provider(self, llm_provider: str):
         """
         Switches the current LLM provider to the specified provider.
@@ -127,84 +142,52 @@ class ProviderManager:
             self.logger.warning(f"Provider {llm_provider} is not implemented. Reverting to default provider OpenAI.")
             llm_provider = "OpenAI"
 
-        self.logger.info(f"Attempting to switch to provider: {llm_provider}")
+        self.logger.info(f"Switching to provider: {llm_provider}")
 
         try:
-            if llm_provider == "OpenAI":
-                self.generate_response_func = openai_generate_response
-                self.process_streaming_response_func = None
-                self.grok_generator = None
-                self.huggingface_generator = None
-                await self.set_model("gpt-4o")
+            provider_settings = {
+                "OpenAI": (openai_generate_response, None),
+                "Mistral": (mistral_generate_response, None),
+                "Google": (google_generate_response, None),
+                "HuggingFace": (None, None),  # Will be set separately
+                "Anthropic": (anthropic_generate_response, None),
+                "Grok": (None, None)  # Will be set separately
+            }
 
-            elif llm_provider == "Mistral":
-                self.generate_response_func = mistral_generate_response
-                self.process_streaming_response_func = None
-                self.grok_generator = None
-                self.huggingface_generator = None
-                await self.set_model("mistral-large-latest")
+            generate_func, stream_func = provider_settings[llm_provider]
 
-            elif llm_provider == "Google":
-                self.generate_response_func = google_generate_response
-                self.process_streaming_response_func = None
-                self.grok_generator = None
-                self.huggingface_generator = None
-                await self.set_model("gemini-1.5-pro-latest")
-
-            elif llm_provider == "HuggingFace":
-                self.grok_generator = None
-                self.generate_response_func = self.huggingface_generator.generate_response
-                self.process_streaming_response_func = self.huggingface_generator.process_response
-                self.huggingface_generator = HuggingFaceGenerator(self.config_manager)  # Re-initialize if necessary
-                await self.huggingface_generator.load_model("default_hf_model")  # Replace with actual default model if needed
-
-            elif llm_provider == "Anthropic":
-                self.generate_response_func = anthropic_generate_response
-                self.process_streaming_response_func = None
-                self.grok_generator = None
-                self.huggingface_generator = None
-                await self.set_model("claude-3-sonnet-20240229")
-
+            if llm_provider == "HuggingFace":
+                self.huggingface_generator = HuggingFaceGenerator(self.config_manager)
+                generate_func = self.huggingface_generator.generate_response
+                stream_func = self.huggingface_generator.process_response
             elif llm_provider == "Grok":
-                self.huggingface_generator = None
                 self.grok_generator = GrokGenerator(self.config_manager)
-                self.generate_response_func = self.grok_generator.generate_response
-                self.process_streaming_response_func = self.grok_generator.process_streaming_response
-                self.current_model = "grok-2"
-                # Initialize Grok-specific settings if necessary
+                generate_func = self.grok_generator.generate_response
+                stream_func = self.grok_generator.process_streaming_response
 
-            else:
-                self.logger.warning(f"Provider {llm_provider} is not recognized. Reverting to OpenAI.")
-                self.generate_response_func = openai_generate_response
-                self.process_streaming_response_func = None
-                self.grok_generator = None
-                self.huggingface_generator = None
-                await self.set_model("gpt-4o")
+            default_model = self.get_default_model_for_provider(llm_provider)
+            
+            self.current_provider_info = {
+                "name": llm_provider,
+                "model": default_model,
+                "generate_func": generate_func,
+                "stream_func": stream_func
+            }
 
-            self.current_llm_provider = llm_provider
-            self.providers[llm_provider] = self.generate_response_func
+            self.providers[llm_provider] = generate_func
+            
+            if llm_provider == "HuggingFace":
+                await self.huggingface_generator.load_model(default_model)
 
-            self.logger.info(f"Switched to LLM provider: {self.current_llm_provider}")
-            if self.current_model:
-                self.logger.info(f"Current model set to: {self.current_model}")
+            await self.set_model(default_model)
+
+            self.logger.info(f"Switched to LLM provider: {llm_provider}")
+            self.logger.info(f"Current model set to: {default_model}")
 
         except Exception as e:
             self.logger.error(f"Failed to switch to provider {llm_provider}: {str(e)}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             raise
-
-    async def set_current_provider(self, provider: str):
-        """
-        Set the current provider to the specified provider.
-
-        Args:
-            provider (str): The name of the provider to set.
-        """
-        await self.switch_llm_provider(provider)
-        self.logger.info(f"Current provider set to {self.current_llm_provider}")
-        default_model = self.get_default_model_for_provider(provider)
-        await self.set_model(default_model)
-        self.logger.info(f"Current model set to: {self.current_model}")
 
     def get_current_model(self) -> str:
         """
@@ -213,9 +196,7 @@ class ProviderManager:
         Returns:
             str or None: The name of the current model, or None if not set.
         """
-        if self.current_llm_provider == "HuggingFace":
-            return self.huggingface_generator.get_current_model() if self.huggingface_generator else None
-        return self.current_model
+        return self.current_provider_info["model"]
 
     def set_current_functions(self, functions):
         """
@@ -231,7 +212,6 @@ class ProviderManager:
         self,
         messages: List[Dict[str, str]],
         model: str = None,
-        provider: str = None,
         max_tokens: int = 4000,
         temperature: float = 0.0,
         stream: bool = True,
@@ -240,12 +220,11 @@ class ProviderManager:
         llm_call_type: str = None
     ) -> Union[str, AsyncIterator[str]]:
         """
-        Generate a response using the specified provider and model, or the current ones if not specified.
+        Generate a response using the current provider and model.
 
         Args:
             messages (List[Dict[str, str]]): The conversation messages.
             model (str, optional): The model to use. If None, uses the current model.
-            provider (str, optional): The provider to use. If None, uses the current provider.
             max_tokens (int, optional): Maximum number of tokens. Defaults to 4000.
             temperature (float, optional): Sampling temperature. Defaults to 0.0.
             stream (bool, optional): Whether to stream the response. Defaults to True.
@@ -256,28 +235,20 @@ class ProviderManager:
         Returns:
             Union[str, AsyncIterator[str]]: The generated response or a stream of tokens.
         """
-        if not provider:
-            provider = self.current_llm_provider
-        if not model:
-            model = self.get_current_model()
-
-        if provider != self.current_llm_provider:
-            await self.switch_llm_provider(provider)
-
-        if model != self.current_model:
+        if model and model != self.current_provider_info["model"]:
             await self.set_model(model)
 
         if functions is None:
             functions = self.current_functions
 
         start_time = time.time()
-        self.logger.info(f"Starting API call to {provider} with model {model} for {llm_call_type}")
+        self.logger.info(f"Starting API call to {self.current_provider_info['name']} with model {self.current_provider_info['model']} for {llm_call_type}")
 
         try:
-            response = await self.generate_response_func(
+            response = await self.current_provider_info["generate_func"](
                 self.config_manager,
                 messages,
-                model=model,
+                model=self.current_provider_info["model"],
                 max_tokens=max_tokens,
                 temperature=temperature,
                 stream=stream,
@@ -288,7 +259,7 @@ class ProviderManager:
             self.logger.info(f"API call completed in {time.time() - start_time:.2f} seconds")
             return response
         except Exception as e:
-            self.logger.error(f"Error during API call to {provider}: {str(e)}")
+            self.logger.error(f"Error during API call to {self.current_provider_info['name']}: {str(e)}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
@@ -343,14 +314,10 @@ class ProviderManager:
             str: The full response.
         """
         try:
-            if self.current_llm_provider == "HuggingFace":
-                return await self.huggingface_generator.process_streaming_response(response)
-            elif self.current_llm_provider == "Grok":
-                return await self.grok_generator.process_streaming_response(response)
-            elif self.process_streaming_response_func:
-                return await self.process_streaming_response_func(response)
+            if self.current_provider_info["stream_func"]:
+                return await self.current_provider_info["stream_func"](response)
             else:
-                raise ValueError(f"Streaming response processing not implemented for {self.current_llm_provider}")
+                raise ValueError(f"Streaming response processing not implemented for {self.current_provider_info['name']}")
         except Exception as e:
             self.logger.error(f"Error processing streaming response: {str(e)}")
             raise
@@ -362,11 +329,12 @@ class ProviderManager:
         Args:
             model (str): The model to set.
         """
-        self.current_model = model
-        self.model_manager.set_model(model, self.current_llm_provider)
-        if self.current_llm_provider == "HuggingFace" and self.huggingface_generator:
-            await self.huggingface_generator.load_model(model)
-        self.logger.info(f"Model set to {model}")
+        if model != self.current_provider_info["model"]:
+            self.current_provider_info["model"] = model
+            self.model_manager.set_model(model, self.current_provider_info["name"])
+            if self.current_provider_info["name"] == "HuggingFace" and self.huggingface_generator:
+                await self.huggingface_generator.load_model(model)
+            self.logger.info(f"Model set to {model}")
 
     def switch_background_provider(self, background_provider: str):
         """
@@ -389,7 +357,7 @@ class ProviderManager:
         Returns:
             str: The name of the current LLM provider.
         """
-        return self.current_llm_provider
+        return self.current_provider_info["name"]
 
     def get_current_background_provider(self) -> str:
         """
@@ -407,7 +375,7 @@ class ProviderManager:
         Returns:
             List[str]: A list of available model names.
         """
-        return self.model_manager.get_available_models(self.current_llm_provider).get(self.current_llm_provider, [])
+        return self.model_manager.get_available_models(self.current_provider_info["name"]).get(self.current_provider_info["name"], [])
 
     def set_conversation_manager(self, conversation_manager):
         """
