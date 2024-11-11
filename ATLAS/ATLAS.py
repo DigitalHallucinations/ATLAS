@@ -84,8 +84,10 @@ class ATLAS:
         Asynchronously set the current provider in the ProviderManager.
         """
         await self.provider_manager.set_current_provider(provider)
-        # The ProviderManager now handles updating the ChatSession
-        self.logger.info(f"Current provider set to {provider}")
+        self.chat_session.set_provider(provider)
+        current_model = self.provider_manager.get_current_model()
+        self.chat_session.set_model(current_model)
+        self.logger.info(f"Current provider set to {provider} with model {current_model}")
             
     def log_history(self):
         """

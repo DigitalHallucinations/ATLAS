@@ -42,9 +42,11 @@ ATLAS
 │   │   │   └── HF_settings.py
 │   │   ├── __init__.py
 │   │   └── provider_management.py
+│   ├── Utils
+│   │   ├── style.css
+│   │   └── style_util.py
 │   ├── __init__.py
 │   └── sidebar.py
-├── debug.log
 ├── main.py
 ├── modules
 │   ├── Chat

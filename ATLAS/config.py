@@ -58,7 +58,7 @@ class ConfigManager:
         config = {
             'OPENAI_API_KEY': os.getenv('OPENAI_API_KEY'),
             'DEFAULT_PROVIDER': os.getenv('DEFAULT_PROVIDER', 'OpenAI'),
-            'DEFAULT_MODEL': os.getenv('DEFAULT_MODEL', 'gpt-4'),
+            'DEFAULT_MODEL': os.getenv('DEFAULT_MODEL', 'gpt-4o'),
             'MISTRAL_API_KEY': os.getenv('MISTRAL_API_KEY'),
             'HUGGINGFACE_API_KEY': os.getenv('HUGGINGFACE_API_KEY'),
             'GOOGLE_API_KEY': os.getenv('GOOGLE_API_KEY'),
