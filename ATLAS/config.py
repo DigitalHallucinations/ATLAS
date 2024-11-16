@@ -1,8 +1,6 @@
 # ATLAS/config.py
 
-import logging
 import os
-import yaml
 from typing import Dict, Any
 from modules.logging.logger import setup_logger
 from dotenv import load_dotenv, set_key, find_dotenv

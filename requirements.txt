@@ -20,6 +20,12 @@ xai_sdk
 # PyTorch for model computations
 torch
 
+# For data manipulation
+numpy
+
+# For environment variables
+python-dotenv
+
 # Transformers for model architectures and pipelines
 transformers>=4.31.0
 

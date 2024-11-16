@@ -1,8 +1,6 @@
-# src/components/logging/logger.py
-
 import logging
 import os
-from concurrent_log_handler import ConcurrentRotatingFileHandler
+from logging.handlers import RotatingFileHandler
 import yaml
 
 class CustomLogger(logging.Logger):
@@ -34,7 +32,7 @@ class CustomLogger(logging.Logger):
         # File Handler
         log_directory = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs')
         os.makedirs(log_directory, exist_ok=True)
-        file_handler = ConcurrentRotatingFileHandler(
+        file_handler = RotatingFileHandler(
             os.path.join(log_directory, self.config['log_file']),
             maxBytes=self.config['max_file_size'],
             backupCount=self.config['backup_count'],
