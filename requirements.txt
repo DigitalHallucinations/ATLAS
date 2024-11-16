@@ -18,7 +18,7 @@ huggingface_hub
 xai_sdk
 
 # PyTorch for model computations
-torch>=1.13.1
+torch
 
 # Transformers for model architectures and pipelines
 transformers>=4.31.0
@@ -46,7 +46,7 @@ deepspeed>=0.10.2
 # =====================================
 
 # Low-Rank Adaptation (LoRA) for efficient fine-tuning
-git+https://github.com/microsoft/LoRA.git@main#egg=LoRA
+git+https://github.com/microsoft/LoRA.git@main#egg=loralib
 
 # FlashAttention optimization for faster attention mechanisms
 # Ensure compatibility with the installed torch version.
