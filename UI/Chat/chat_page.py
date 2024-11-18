@@ -1,6 +1,11 @@
+# UI/Chat/chat_page.py
+
+import gi
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, GLib
+
 import asyncio
 import threading
-from gi.repository import Gtk, GLib, Gdk
 
 from UI.Utils.style_util import apply_css
 
@@ -11,8 +16,6 @@ class ChatPage(Gtk.Window):
         self.ATLAS = atlas
         self.chat_session = atlas.chat_session
         self.set_default_size(600, 400)
-        self.set_keep_above(False)
-        self.stick()
 
         # Assign a CSS class to the window for targeted styling
         self.get_style_context().add_class("chat-page")
@@ -20,31 +23,32 @@ class ChatPage(Gtk.Window):
         # Apply centralized CSS
         apply_css()
 
-        # Position window next to sidebar
-        self.position_window_next_to_sidebar(self, 600)
-
         # Main vertical box
         self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.add(self.vbox)
+        self.set_child(self.vbox)  # Use set_child() in GTK 4
 
         # Top label with current persona name
         self.persona_label = Gtk.Label()
         self.persona_label.set_name("persona-label")
         self.update_persona_label()
-        self.vbox.pack_start(self.persona_label, False, False, 0)
+        self.vbox.append(self.persona_label)  # Use append() in GTK 4
 
         # Separator
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        self.vbox.pack_start(separator, False, False, 5)
+        separator.set_margin_top(5)
+        self.vbox.append(separator)
 
         # Chat history scrolled window
         self.chat_history_scrolled = Gtk.ScrolledWindow()
         self.chat_history_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.chat_history_scrolled.set_min_content_height(200)
         self.chat_history = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.chat_history.set_margin_start(10)
         self.chat_history.set_margin_end(10)
-        self.chat_history_scrolled.add(self.chat_history)
-        self.vbox.pack_start(self.chat_history_scrolled, True, True, 0)
+        self.chat_history_scrolled.set_child(self.chat_history)
+        self.chat_history_scrolled.set_hexpand(True)
+        self.chat_history_scrolled.set_vexpand(True)
+        self.vbox.append(self.chat_history_scrolled)
 
         # Input area
         input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
@@ -56,24 +60,30 @@ class ChatPage(Gtk.Window):
         self.input_entry = Gtk.Entry()
         self.input_entry.set_placeholder_text("Type a message...")
         self.input_entry.connect("activate", self.on_send_message)
-        input_box.pack_start(self.input_entry, True, True, 0)
+        self.input_entry.set_hexpand(True)
+        input_box.append(self.input_entry)
 
-        send_button = Gtk.Button.new_from_icon_name("send", Gtk.IconSize.BUTTON)
+        send_button = Gtk.Button()
+        icon = Gtk.Image.new_from_icon_name("send")
+        send_button.set_child(icon)
         send_button.get_style_context().add_class("send-button")
         send_button.connect("clicked", self.on_send_message)
-        input_box.pack_start(send_button, False, False, 0)
+        input_box.append(send_button)
 
-        self.vbox.pack_start(input_box, False, False, 0)
+        self.vbox.append(input_box)
 
-        # Status bar
-        self.status_bar = Gtk.Statusbar()
+        # Status label (replacing status bar)
+        self.status_label = Gtk.Label()
+        self.status_label.set_halign(Gtk.Align.START)
+        self.status_label.set_margin_start(5)
+        self.status_label.set_margin_end(5)
+        self.vbox.append(self.status_label)
         self.update_status_bar()
-        self.vbox.pack_end(self.status_bar, False, False, 0)
 
         # Link status bar updates to provider changes
         self.ATLAS.notify_provider_changed = self.update_status_bar
 
-        self.show_all()
+        self.present()  # Use present() instead of show_all()
 
     def update_persona_label(self):
         """
@@ -91,7 +101,11 @@ class ChatPage(Gtk.Window):
             user_name = self.ATLAS.user
             self.add_message_bubble(user_name, message, is_user=True)
             self.input_entry.set_text("")
-            threading.Thread(target=self.handle_model_response_thread, args=(message,), daemon=True).start()
+            threading.Thread(
+                target=self.handle_model_response_thread,
+                args=(message,),
+                daemon=True
+            ).start()
 
     def handle_model_response_thread(self, message):
         """
@@ -124,16 +138,15 @@ class ChatPage(Gtk.Window):
 
         sender_label = Gtk.Label(label=sender)
         sender_label.set_halign(Gtk.Align.START)
-        bubble.pack_start(sender_label, False, False, 0)
+        bubble.append(sender_label)
 
         message_label = Gtk.Label(label=message)
-        message_label.set_line_wrap(True)
+        message_label.set_wrap(True)
         message_label.set_max_width_chars(32)
-        message_label.set_justify(Gtk.Justification.LEFT)
         message_label.set_halign(Gtk.Align.START)
 
-        bubble_box = Gtk.EventBox()
-        bubble_box.add(message_label)
+        bubble_box = Gtk.Box()
+        bubble_box.append(message_label)
         bubble_box.get_style_context().add_class("message-bubble")
 
         if is_user:
@@ -143,48 +156,21 @@ class ChatPage(Gtk.Window):
             bubble_box.get_style_context().add_class("assistant-message")
             bubble.set_halign(Gtk.Align.START)
 
-        bubble.pack_start(bubble_box, False, False, 0)
-        self.chat_history.pack_start(bubble, False, False, 0)
-        self.chat_history.show_all()
+        bubble.append(bubble_box)
+        self.chat_history.append(bubble)
 
         # Scroll to the bottom
-        adj = self.chat_history_scrolled.get_vadjustment()
-        adj.set_value(adj.get_upper() - adj.get_page_size())
+        self.chat_history_scrolled.ensure_visible(bubble)
 
     def update_status_bar(self, provider=None, model=None):
         """
-        Updates the status bar with the current provider and model.
+        Updates the status label with the current provider and model.
 
         Args:
             provider (str, optional): The provider to display.
             model (str, optional): The model to display.
         """
-        context_id = self.status_bar.get_context_id("Status")
         provider = provider or self.ATLAS.provider_manager.get_current_provider()
         model = model or self.ATLAS.provider_manager.get_current_model() or "No model selected"
         status_message = f"Provider: {provider} | Model: {model}"
-        self.status_bar.pop(context_id)  # Clear the old message
-        self.status_bar.push(context_id, status_message)
-
-    def position_window_next_to_sidebar(self, window: Gtk.Window, window_width: int):
-        """
-        Positions the chat window next to the sidebar.
-
-        Args:
-            window (Gtk.Window): The window to position.
-            window_width (int): The width of the window.
-        """
-        display = Gdk.Display.get_default()
-        monitor = display.get_primary_monitor()
-        monitor_geometry = monitor.get_geometry()
-        screen_width = monitor_geometry.width
-
-        window_height = monitor_geometry.height
-
-        window_x = screen_width - 50 - 10 - window_width
-        window.set_default_size(
-            window_width,
-            window_height if window_height < monitor_geometry.height else monitor_geometry.height - 50
-        )
-
-        window.move(window_x, 0)
+        self.status_label.set_text(status_message)
