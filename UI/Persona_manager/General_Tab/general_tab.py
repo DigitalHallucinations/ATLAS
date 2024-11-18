@@ -151,10 +151,10 @@ class GeneralTab:
         if height:
             textview.set_size_request(-1, height)
 
-        textview.observe_size_allocation(self.on_textview_size_changed)
+        buffer = textview.get_buffer()
+        buffer.connect('changed', self.on_textview_size_changed, textview)
 
         return textview
-
 
     def create_labeled_entry_with_info(self, label_text, initial_text, info_text):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
@@ -169,7 +169,7 @@ class GeneralTab:
         box.append(entry)
 
         info_button = Gtk.Button(label="?")
-        info_button.add_css_class("flat")  
+        info_button.add_css_class("flat")
         info_button.get_style_context().add_class("info-button")
         info_button.connect("clicked", self.show_info_popup, info_text)
         box.append(info_button)
@@ -181,7 +181,6 @@ class GeneralTab:
 
         return box
 
-
     def create_label_with_info(self, label_text, info_text):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
 
@@ -190,13 +189,12 @@ class GeneralTab:
         box.append(label)
 
         info_button = Gtk.Button(label="?")
-        info_button.add_css_class("flat")  # Replaces set_relief(Gtk.ReliefStyle.NONE)
+        info_button.add_css_class("flat")
         info_button.get_style_context().add_class("info-button")
         info_button.connect("clicked", self.show_info_popup, info_text)
         box.append(info_button)
 
         return box
-
 
     def show_info_popup(self, widget, info_text):
         popup = InfoPopup(self.main_widget.get_root(), info_text)
@@ -208,11 +206,11 @@ class GeneralTab:
         pixel_width, pixel_height = layout.get_pixel_size()
         entry.set_size_request(-1, pixel_height + 10)
 
-    def on_textview_size_allocate(self, textview, allocation):
-        buffer = textview.get_buffer()
+    def on_textview_size_changed(self, buffer, textview):
+        allocated_width = textview.get_allocated_width()
         text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
         layout = textview.create_pango_layout(text)
-        layout.set_width(allocation.width * Pango.SCALE)
+        layout.set_width(allocated_width * Pango.SCALE)
         layout.set_wrap(Pango.WrapMode.WORD_CHAR)
         width, height = layout.get_pixel_size()
         textview.set_size_request(-1, height + 10)
