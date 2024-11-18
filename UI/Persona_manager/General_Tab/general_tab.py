@@ -119,8 +119,11 @@ class GeneralTab:
         editable_content = content.get("editable_content", "")
         self.editable_view.get_buffer().set_text(editable_content, -1)
 
-        self.editable_view.connect("focus-in-event", self.on_textview_focus_in)
-        self.editable_view.connect("focus-out-event", self.on_textview_focus_out)
+        # Replace signal connections with EventControllerFocus
+        focus_controller = Gtk.EventControllerFocus()
+        focus_controller.connect("enter", self.on_textview_focus_in)
+        focus_controller.connect("leave", self.on_textview_focus_out)
+        self.editable_view.add_controller(focus_controller)
 
         # End Locked TextView
         self.end_view = self.create_textview(editable=False)
@@ -287,13 +290,11 @@ class GeneralTab:
                     self.general_box.remove(last_child)
                 self.sysinfo_view = None
 
-    def on_textview_focus_in(self, textview, event):
+    def on_textview_focus_in(self, controller, widget):
         self.frame.get_style_context().add_class("editable-area-focused")
-        return False
 
-    def on_textview_focus_out(self, textview, event):
+    def on_textview_focus_out(self, controller, widget):
         self.frame.get_style_context().remove_class("editable-area-focused")
-        return False
 
     def set_sys_info_enabled(self, enabled):
         self.sys_info_enabled = enabled
