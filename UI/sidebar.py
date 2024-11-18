@@ -19,7 +19,20 @@ class Sidebar(Gtk.Window):
         self.provider_management = ProviderManagement(self.ATLAS, self)
 
         display = Gdk.Display.get_default()
-        monitor = display.get_primary_monitor()
+        if display:
+            print(f"Display detected: {display}")
+            monitor_count = display.get_n_monitors()
+            print(f"Number of monitors detected: {monitor_count}")
+            monitor = display.get_primary_monitor()
+            if monitor:
+                print(f"Primary monitor detected: {monitor}")
+                monitor_geometry = monitor.get_geometry()
+                print(f"Primary monitor geometry: {monitor_geometry.width}x{monitor_geometry.height}")
+            else:
+                print("No primary monitor detected.")
+        else:
+            print("No display detected.")
+
         monitor_geometry = monitor.get_geometry()
         monitor_height = monitor_geometry.height
 

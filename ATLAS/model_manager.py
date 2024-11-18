@@ -30,8 +30,12 @@ class ModelManager:
         with self.lock:
             providers = ['OpenAI', 'Mistral', 'Google', 'HuggingFace', 'Anthropic', 'Grok']
             
-            atlas_root = self.config_manager.get_app_root()  
+            atlas_root = self.config_manager.get_app_root()
+            # Corrected the path to point to the 'modules' directory
             providers_path = os.path.join(atlas_root, "modules", "Providers")
+
+            self.logger.debug(f"Atlas root directory: {atlas_root}")
+            self.logger.debug(f"Providers path: {providers_path}")
 
             for provider in providers:
                 if provider == 'HuggingFace':
@@ -42,6 +46,7 @@ class ModelManager:
                     continue
                 else:
                     file_name = f"{provider[0]}_models.json"  # e.g., 'O_models.json' for OpenAI
+                    # Corrected file path to point to the correct directory
                     file_path = os.path.join(providers_path, provider, file_name)
                 
                 self.logger.debug(f"Attempting to load model file for {provider} from: {file_path}")
@@ -145,6 +150,7 @@ class ModelManager:
             "mistral-medium-latest": (4096, 8192),
             "mistral-large-latest": (4096, 8192),
             # HuggingFace models
+            # Add token limits for HuggingFace models if needed
         }
 
         # Return token limits for the specified model, or default values if not found
@@ -161,6 +167,7 @@ class ModelManager:
             str: The default model name, or None if not available.
         """
         with self.lock:
-            if provider not in self.models:
+            if provider not in self.models or not self.models[provider]:
+                self.logger.error(f"No models found for provider {provider}. Ensure the provider's models are loaded.")
                 return None
-            return self.models[provider][0] if self.models[provider] else None
+            return self.models[provider][0]

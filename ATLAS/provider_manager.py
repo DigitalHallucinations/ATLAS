@@ -43,11 +43,11 @@ class ProviderManager:
         self.current_model = None
         self.generate_response_func = None
         self.process_streaming_response_func = None
-        self.huggingface_generator = HuggingFaceGenerator(self.config_manager)
+        self.huggingface_generator = None
         self.grok_generator = None
         self.current_functions = None
         self.providers = {}
-        self.chat_session = None  # Assuming chat_session is initialized elsewhere or added later
+        self.chat_session = None  
 
     @classmethod
     async def create(cls, config_manager: ConfigManager):
@@ -98,9 +98,9 @@ class ProviderManager:
         Args:
             llm_provider (str): The name of the LLM provider to switch to.
         """
-        # Check if the requested provider is already the current one
-        if llm_provider == self.current_llm_provider:
-            self.logger.info(f"Provider {llm_provider} is already the current provider. No action taken.")
+        # Only skip initialization if the provider is already set and generate_response_func is initialized
+        if llm_provider == self.current_llm_provider and self.generate_response_func is not None:
+            self.logger.info(f"Provider {llm_provider} is already the current provider and is initialized. No action taken.")
             return
 
         # Validate provider
@@ -116,7 +116,13 @@ class ProviderManager:
                 self.process_streaming_response_func = None
                 self.grok_generator = None
                 self.huggingface_generator = None
-                await self.set_model("gpt-4o")
+
+                default_model = self.get_default_model_for_provider("OpenAI")
+                if default_model:
+                    await self.set_model(default_model)
+                else:
+                    self.logger.error("No default model found for OpenAI. Ensure models are configured correctly.")
+                    raise ValueError("No default model available for OpenAI provider.")
 
             elif llm_provider == "Mistral":
                 self.generate_response_func = mistral_generate_response
@@ -160,7 +166,12 @@ class ProviderManager:
                 self.process_streaming_response_func = None
                 self.grok_generator = None
                 self.huggingface_generator = None
-                await self.set_model("gpt-4o")
+                default_model = self.get_default_model_for_provider("OpenAI")
+                if default_model:
+                    await self.set_model(default_model)
+                else:
+                    self.logger.error("No default model found for OpenAI. Ensure models are configured correctly.")
+                    raise ValueError("No default model available for OpenAI provider.")
 
             self.current_llm_provider = llm_provider
             self.providers[llm_provider] = self.generate_response_func
@@ -173,6 +184,7 @@ class ProviderManager:
             self.logger.error(f"Failed to switch to provider {llm_provider}: {str(e)}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             raise
+
 
     async def set_current_provider(self, provider: str):
         """
@@ -256,6 +268,10 @@ class ProviderManager:
         self.logger.info(f"Starting API call to {requested_provider} with model {requested_model} for {llm_call_type}")
 
         try:
+            if not self.generate_response_func:
+                self.logger.error("No response generation function is set for the current provider.")
+                raise ValueError("generate_response_func is None. Ensure the provider is properly initialized.")
+
             response = await self.generate_response_func(
                 self.config_manager,
                 messages,
@@ -381,6 +397,21 @@ class ProviderManager:
             str: The name of the current background provider.
         """
         return self.current_background_provider
+    
+    def get_default_model_for_provider(self, provider: str) -> str:
+        """
+        Get the default model for a specific provider.
+
+        Args:
+            provider (str): The name of the provider.
+
+        Returns:
+            str: The default model name, or None if not available.
+        """
+        if provider not in self.model_manager.models:
+            self.logger.error(f"No models found for provider {provider}. Ensure the provider's models are loaded.")
+            return None
+        return self.model_manager.models[provider][0] if self.model_manager.models[provider] else None
 
     async def get_available_models(self) -> List[str]:
         """
