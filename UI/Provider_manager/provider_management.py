@@ -1,8 +1,10 @@
 # ATLAS/UI/Provider_manager/provider_management.py
 
 import threading
-from gi.repository import Gtk, GdkPixbuf, GLib, Gdk
+import gi
 import asyncio
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk, GdkPixbuf, GLib
 
 # Import the HuggingFaceSettingsWindow
 from .Settings.HF_settings import HuggingFaceSettingsWindow
@@ -33,12 +35,9 @@ class ProviderManagement:
         """
         self.provider_window = Gtk.Window(title="Select Provider")
         self.provider_window.set_default_size(150, 400)
-        self.provider_window.set_keep_above(True)
-
-        self.position_window_next_to_sidebar(self.provider_window, 150)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.provider_window.add(box)
+        self.provider_window.set_child(box)
 
         provider_names = self.ATLAS.get_available_providers()
 
@@ -48,13 +47,15 @@ class ProviderManagement:
             label = Gtk.Label(label=provider_name)
             label.set_xalign(0.0)
             label.set_yalign(0.5)
+            label.get_style_context().add_class("provider-label")
 
-            label_event_box = Gtk.EventBox()
-            label_event_box.add(label)
-            label_event_box.connect(
-                "button-press-event",
-                lambda widget, event, provider_name=provider_name: self.select_provider(provider_name)
+            # Add click event to the label using Gtk.GestureClick
+            label_click = Gtk.GestureClick()
+            label_click.connect(
+                "released",
+                lambda gesture, n_press, x, y, provider_name=provider_name: self.select_provider(provider_name)
             )
+            label.add_controller(label_click)
 
             settings_icon_path = "Icons/settings.png"
             try:
@@ -64,21 +65,20 @@ class ProviderManagement:
                 settings_pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale("Icons/default.png", 16, 16, True)
             settings_icon = Gtk.Image.new_from_pixbuf(settings_pixbuf)
 
-            settings_event_box = Gtk.EventBox()
-            settings_event_box.add(settings_icon)
-            settings_event_box.set_margin_start(20)
-
-            settings_event_box.connect(
-                "button-press-event",
-                lambda widget, event, provider_name=provider_name: self.open_provider_settings(provider_name)
+            # Add click event to the settings icon using Gtk.GestureClick
+            settings_click = Gtk.GestureClick()
+            settings_click.connect(
+                "released",
+                lambda gesture, n_press, x, y, provider_name=provider_name: self.open_provider_settings(provider_name)
             )
+            settings_icon.add_controller(settings_click)
 
-            hbox.pack_start(label_event_box, True, True, 0)
-            hbox.pack_end(settings_event_box, False, False, 0)
+            hbox.append(label)
+            hbox.append(settings_icon)
 
-            box.pack_start(hbox, False, False, 0)
+            box.append(hbox)
 
-        self.provider_window.show_all()
+        self.provider_window.present()
 
     def select_provider(self, provider: str):
         """
@@ -146,35 +146,33 @@ class ProviderManagement:
         """
         settings_window = Gtk.Window(title=f"Settings for {provider_name}")
         settings_window.set_default_size(400, 300)
-        settings_window.set_keep_above(True)
 
         self.apply_css_styling()
-        self.position_window_next_to_sidebar(settings_window, 400)
 
         main_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
-        settings_window.add(main_vbox)
+        settings_window.set_child(main_vbox)
 
         # Provider Name
         provider_label = Gtk.Label(label="Provider:")
         provider_label.set_xalign(0.0)
         provider_label.set_margin_bottom(10)
-        main_vbox.pack_start(provider_label, False, False, 0)
+        main_vbox.append(provider_label)
 
         provider_value = Gtk.Label(label=provider_name)
         provider_value.set_xalign(0.0)
         provider_value.set_margin_bottom(20)
-        main_vbox.pack_start(provider_value, False, False, 0)
+        main_vbox.append(provider_value)
 
         # API Key Entry
         api_key_label = Gtk.Label(label="API Key:")
         api_key_label.set_xalign(0.0)
-        main_vbox.pack_start(api_key_label, False, False, 0)
+        main_vbox.append(api_key_label)
 
         self.api_key_entry = Gtk.Entry()
         self.api_key_entry.set_placeholder_text("Enter your API key here")
         self.api_key_entry.set_visibility(False)  # Hide the API key input
         self.api_key_entry.set_invisible_char('*')  # Mask the input
-        main_vbox.pack_start(self.api_key_entry, False, False, 0)
+        main_vbox.append(self.api_key_entry)
 
         # Pre-fill the API key if it exists
         existing_api_key = self.get_existing_api_key(provider_name)
@@ -184,9 +182,9 @@ class ProviderManagement:
         # Save Button
         save_button = Gtk.Button(label="Save")
         save_button.connect("clicked", self.on_save_button_clicked, provider_name, settings_window)
-        main_vbox.pack_start(save_button, False, False, 20)
+        main_vbox.append(save_button)
 
-        settings_window.show_all()
+        settings_window.present()
 
     def get_existing_api_key(self, provider_name: str) -> str:
         """
@@ -248,17 +246,6 @@ class ProviderManagement:
         finally:
             loop.close()
 
-    def refresh_provider(self, provider_name: str):
-        """
-        Refreshes the provider configuration to use the new API key.
-        """
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(self.refresh_provider_async(provider_name))
-        finally:
-            loop.close()
-
     async def refresh_provider_async(self, provider_name: str):
         """
         Async version of refresh_provider.
@@ -280,14 +267,13 @@ class ProviderManagement:
         """
         dialog = Gtk.MessageDialog(
             transient_for=self.provider_window,
-            flags=0,
+            modal=True,
             message_type=Gtk.MessageType.ERROR,
             buttons=Gtk.ButtonsType.OK,
             text="Error",
         )
         dialog.format_secondary_text(message)
-        dialog.run()
-        dialog.destroy()
+        dialog.show()
 
     def show_info_dialog(self, message: str):
         """
@@ -298,37 +284,13 @@ class ProviderManagement:
         """
         dialog = Gtk.MessageDialog(
             transient_for=self.provider_window,
-            flags=0,
+            modal=True,
             message_type=Gtk.MessageType.INFO,
             buttons=Gtk.ButtonsType.OK,
             text="Information",
         )
         dialog.format_secondary_text(message)
-        dialog.run()
-        dialog.destroy()
-
-    def position_window_next_to_sidebar(self, window: Gtk.Window, window_width: int):
-        """
-        Positions the given window next to the sidebar.
-
-        Args:
-            window (Gtk.Window): The window to position.
-            window_width (int): The width of the window.
-        """
-        display = Gdk.Display.get_default()
-        monitor = display.get_primary_monitor()
-        monitor_geometry = monitor.get_geometry()
-        screen_width = monitor_geometry.width
-
-        window_height = window.get_preferred_height()[1]
-
-        window_x = screen_width - 50 - 10 - window_width
-        window.set_default_size(
-            window_width,
-            window_height if window_height < monitor_geometry.height else monitor_geometry.height - 50
-        )
-
-        window.move(window_x, 0)
+        dialog.show()
 
     def apply_css_styling(self):
         """
@@ -341,8 +303,9 @@ class ProviderManagement:
             entry { background-color: #3c3c3c; color: white; }
             button { background-color: #555555; color: white; }
         """)
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
+        display = Gtk.Window().get_display()
+        Gtk.StyleContext.add_provider_for_display(
+            display,
             css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )

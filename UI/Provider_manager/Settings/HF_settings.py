@@ -3,8 +3,8 @@
 import gi
 import os
 import asyncio
-gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, GLib, Gdk
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk, GLib
 
 class HuggingFaceSettingsWindow(Gtk.Window):
     def __init__(self, ATLAS, config_manager):
@@ -19,11 +19,11 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
         # Create a vertical box to hold all widgets
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.add(vbox)
+        self.set_child(vbox)
 
         # Create a Notebook (Tabs)
         notebook = Gtk.Notebook()
-        vbox.pack_start(notebook, True, True, 0)
+        vbox.append(notebook)
 
         # General Settings Tab
         general_settings = self.create_general_settings_tab()
@@ -77,19 +77,19 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
         # Control Buttons
         control_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        vbox.pack_start(control_box, False, False, 10)
+        vbox.append(control_box)
 
         back_button = Gtk.Button(label="Back")
         back_button.connect("clicked", self.on_back_clicked)
-        control_box.pack_start(back_button, False, False, 0)
+        control_box.append(back_button)
 
         cancel_button = Gtk.Button(label="Cancel")
         cancel_button.connect("clicked", self.on_cancel_clicked)
-        control_box.pack_end(cancel_button, False, False, 0)
+        control_box.append(cancel_button)
 
         save_button = Gtk.Button(label="Save Settings")
         save_button.connect("clicked", self.on_save_clicked)
-        control_box.pack_end(save_button, False, False, 0)
+        control_box.append(save_button)
 
         # Populate model comboboxes
         self.populate_model_comboboxes()
@@ -139,14 +139,14 @@ class HuggingFaceSettingsWindow(Gtk.Window):
                 background-color: #2b2b2b;
                 color: white;
                 padding: 8px;
-                border-radius: 3px;  /* Slight rounding */
-                border: 1px solid #4a4a4a;  /* Subtle, thin border */
+                border-radius: 3px;
+                border: 1px solid #4a4a4a;
                 font-size: 14px;
             }
 
             button:hover {
                 background-color: #4a90d9;
-                border: 1px solid #4a90d9;  /* Visible on hover */
+                border: 1px solid #4a90d9;
             }
 
             button:active {
@@ -170,13 +170,12 @@ class HuggingFaceSettingsWindow(Gtk.Window):
                 background-color: transparent;
             }
         """)
-        # Add CSS provider with higher priority
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
+        display = Gtk.Window().get_display()
+        Gtk.StyleContext.add_provider_for_display(
+            display,
             css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_USER  # Higher priority than application level
+            Gtk.STYLE_PROVIDER_PRIORITY_USER
         )
-
 
     def create_general_settings_tab(self):
         grid = Gtk.Grid(column_spacing=10, row_spacing=10, margin=10)
@@ -417,28 +416,20 @@ class HuggingFaceSettingsWindow(Gtk.Window):
     def create_model_management_tab(self):
         grid = Gtk.Grid(column_spacing=10, row_spacing=10, margin=10)
 
-        # Load Model Button
-        load_model_button = Gtk.Button(label="Load Model")
-        load_model_button.connect("clicked", self.on_load_model_clicked)
-        grid.attach(load_model_button, 0, 0, 1, 1)  # Align buttons in the first row
-
-        # Unload Model Button
-        unload_model_button = Gtk.Button(label="Unload Model")
-        unload_model_button.connect("clicked", self.on_unload_model_clicked)
-        grid.attach(unload_model_button, 1, 0, 1, 1)  # Attach next to Load Model button
+        # Load Model Button and Unload Model Button are added in the main __init__
 
         # Select Active Model
         model_sel_label = Gtk.Label(label="Select Active Model:")
         model_sel_label.set_halign(Gtk.Align.START)
-        grid.attach(model_sel_label, 0, 1, 1, 1)  # Label for the combo box
+        grid.attach(model_sel_label, 0, 1, 1, 1)
 
         self.model_combo = Gtk.ComboBoxText()
-        grid.attach(self.model_combo, 1, 1, 2, 1)  # Combo box spans two columns
+        grid.attach(self.model_combo, 1, 1, 2, 1)
 
         # Clear Cache Button
         clear_cache_button = Gtk.Button(label="Clear Cache")
         clear_cache_button.connect("clicked", self.on_clear_cache_clicked)
-        grid.attach(clear_cache_button, 0, 2, 3, 1)  # Button spans three columns
+        grid.attach(clear_cache_button, 0, 2, 3, 1)
 
         # Remove Installed Model
         remove_model_label = Gtk.Label(label="Remove Installed Model:")
@@ -450,7 +441,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
         remove_model_button = Gtk.Button(label="Remove Model")
         remove_model_button.connect("clicked", self.on_remove_model_clicked)
-        grid.attach(remove_model_button, 2, 3, 1, 1)  # Align button with the dropdown
+        grid.attach(remove_model_button, 2, 3, 1, 1)
 
         # Update Installed Model
         update_model_label = Gtk.Label(label="Update Installed Model:")
@@ -462,7 +453,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
         update_model_button = Gtk.Button(label="Update Model")
         update_model_button.connect("clicked", self.on_update_model_clicked)
-        grid.attach(update_model_button, 2, 4, 1, 1)  # Align button with the dropdown
+        grid.attach(update_model_button, 2, 4, 1, 1)
 
         return grid
 
@@ -558,7 +549,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         self.results_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scroll.add(self.results_listbox)
+        scroll.set_child(self.results_listbox)
         grid.attach(scroll, 0, 6, 3, 1)
 
         return grid
@@ -575,9 +566,9 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         self.set_nvme_sensitive(widget.get_active())
 
     def on_nvme_path_selected(self, widget):
-        selected_folder = widget.get_filename()
+        selected_folder = widget.get_file()
         if selected_folder:
-            self.nvme_path_entry.set_text(selected_folder)
+            self.nvme_path_entry.set_text(selected_folder.get_path())
 
     def populate_model_comboboxes(self):
         # Access the installed models via huggingface_generator
@@ -623,7 +614,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         self.save_settings()
         dialog = Gtk.MessageDialog(
             transient_for=self,
-            flags=0,
+            modal=True,
             message_type=Gtk.MessageType.INFO,
             buttons=Gtk.ButtonsType.OK,
             text="Settings Saved",
@@ -631,16 +622,15 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         dialog.format_secondary_text(
             "Your settings have been saved successfully."
         )
-        dialog.run()
-        dialog.destroy()
+        dialog.show()
 
     def on_cancel_clicked(self, widget):
         # Implement settings cancel functionality
-        self.destroy()
+        self.close()
 
     def on_back_clicked(self, widget):
         # Implement back navigation functionality
-        self.destroy()
+        self.close()
 
     def on_clear_cache_clicked(self, widget):
         # Implement cache clearing functionality
@@ -711,25 +701,26 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
             if not models:
                 label = Gtk.Label(label="No models found matching the criteria.")
-                self.results_listbox.add(label)
+                self.results_listbox.append(label)
             else:
                 for model in models:
                     box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-                    box.set_border_width(5)
+                    box.set_margin_top(5)
+                    box.set_margin_bottom(5)
 
                     info_label = Gtk.Label()
                     info_label.set_xalign(0)
                     info_text = f"Model ID: {model.modelId}\nTags: {model.tags}\nDownloads: {model.downloads}\nLikes: {model.likes}"
                     info_label.set_text(info_text)
-                    box.pack_start(info_label, True, True, 0)
+                    box.append(info_label)
 
                     download_button = Gtk.Button(label="Download")
                     download_button.connect("clicked", self.on_download_model_clicked, model.modelId)
-                    box.pack_start(download_button, False, False, 0)
+                    box.append(download_button)
 
-                    self.results_listbox.add(box)
+                    self.results_listbox.append(box)
 
-            self.results_listbox.show_all()
+            self.results_listbox.show()
         except Exception as e:
             self.show_message("Error", f"An error occurred while searching for models: {str(e)}")
 
@@ -800,26 +791,25 @@ class HuggingFaceSettingsWindow(Gtk.Window):
     def confirm_dialog(self, message):
         dialog = Gtk.MessageDialog(
             transient_for=self,
-            flags=0,
+            modal=True,
             message_type=Gtk.MessageType.QUESTION,
             buttons=Gtk.ButtonsType.YES_NO,
             text=message,
         )
-        response = dialog.run()
-        dialog.destroy()
+        response = dialog.show()
+        dialog.close()
         return response == Gtk.ResponseType.YES
 
     def show_message(self, title, message):
         dialog = Gtk.MessageDialog(
             transient_for=self,
-            flags=0,
+            modal=True,
             message_type=Gtk.MessageType.INFO,
             buttons=Gtk.ButtonsType.OK,
             text=title,
         )
         dialog.format_secondary_text(message)
-        dialog.run()
-        dialog.destroy()
+        dialog.show()
 
     def run(self):
-        self.show_all()
+        self.present()
