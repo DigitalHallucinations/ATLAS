@@ -100,6 +100,7 @@ class Sidebar(Gtk.Window):
     def show_chat_page(self):
         if self.ATLAS.is_initialized():
             chat_page = ChatPage(self.ATLAS)
+            self.ATLAS.chat_page = chat_page  # Store reference to chat_page
             chat_page.show_all()
         else:
             self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")

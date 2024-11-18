@@ -136,6 +136,15 @@ class ChatPage(Gtk.Window):
         adj = self.chat_history_scrolled.get_vadjustment()
         adj.set_value(adj.get_upper() - adj.get_page_size())
 
+    def update_status_bar(self, provider, model):
+        """
+        Updates the status bar with the current provider and model.
+        """
+        context_id = self.status_bar.get_context_id("Status")
+        status_message = f"Provider: {provider} | Model: {model or 'No model selected'}"
+        self.status_bar.pop(context_id)  # Clear the old message
+        self.status_bar.push(context_id, status_message)
+
     def position_window_next_to_sidebar(self, window: Gtk.Window, window_width: int):
         display = Gdk.Display.get_default()
         monitor = display.get_primary_monitor()

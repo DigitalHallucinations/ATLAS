@@ -87,8 +87,24 @@ class ATLAS:
         self.chat_session.set_provider(provider)
         current_model = self.provider_manager.get_current_model()
         self.chat_session.set_model(current_model)
+        
+        # Log the updates
         self.logger.info(f"Current provider set to {provider} with model {current_model}")
-            
+        # Notify any observers (e.g., UI components) about the change
+        self.notify_provider_changed(provider, current_model)
+
+    def notify_provider_changed(self, provider: str, model: str):
+        """
+        Notify observers that the provider and model have changed.
+        This method should be overridden by UI components that need to react to provider changes.
+
+        Args:
+            provider (str): The new provider.
+            model (str): The new model.
+        """
+        # This method can be overridden or connected via signals in UI code
+        pass
+
     def log_history(self):
         """
         Handle history-related functionality.

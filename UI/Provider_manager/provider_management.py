@@ -113,7 +113,6 @@ class ProviderManagement:
         finally:
             loop.close()
 
-
     def open_provider_settings(self, provider_name: str):
         """
         Opens the settings window for the specified provider.
@@ -248,7 +247,6 @@ class ProviderManagement:
             GLib.idle_add(self.show_error_dialog, f"Failed to save API Key: {str(e)}")
         finally:
             loop.close()
-
 
     def refresh_provider(self, provider_name: str):
         """

@@ -129,35 +129,61 @@ class ProviderManager:
                 self.process_streaming_response_func = None
                 self.grok_generator = None
                 self.huggingface_generator = None
-                await self.set_model("mistral-large-latest")
+                default_model = self.get_default_model_for_provider("Mistral")
+                if default_model:
+                    await self.set_model(default_model)
+                else:
+                    self.logger.error("No default model found for Mistral. Ensure models are configured correctly.")
+                    raise ValueError("No default model available for Mistral provider.")
 
             elif llm_provider == "Google":
                 self.generate_response_func = google_generate_response
                 self.process_streaming_response_func = None
                 self.grok_generator = None
                 self.huggingface_generator = None
-                await self.set_model("gemini-1.5-pro-latest")
+                default_model = self.get_default_model_for_provider("Google")
+                if default_model:
+                    await self.set_model(default_model)
+                else:
+                    self.logger.error("No default model found for Google. Ensure models are configured correctly.")
+                    raise ValueError("No default model available for Google provider.")
 
             elif llm_provider == "HuggingFace":
                 self.grok_generator = None
                 self.huggingface_generator = HuggingFaceGenerator(self.config_manager)
                 self.generate_response_func = self.huggingface_generator.generate_response
                 self.process_streaming_response_func = self.huggingface_generator.process_streaming_response
-                await self.huggingface_generator.load_model("default_hf_model")  # Replace with actual default model if needed
+                default_model = self.get_default_model_for_provider("HuggingFace")
+                if default_model:
+                    await self.huggingface_generator.load_model(default_model)
+                    self.current_model = default_model
+                else:
+                    self.logger.error("No default model found for HuggingFace. Ensure models are configured correctly.")
+                    raise ValueError("No default model available for HuggingFace provider.")
 
             elif llm_provider == "Anthropic":
                 self.generate_response_func = anthropic_generate_response
                 self.process_streaming_response_func = None
                 self.grok_generator = None
                 self.huggingface_generator = None
-                await self.set_model("claude-3-sonnet-20240229")
+                default_model = self.get_default_model_for_provider("Anthropic")
+                if default_model:
+                    await self.set_model(default_model)
+                else:
+                    self.logger.error("No default model found for Anthropic. Ensure models are configured correctly.")
+                    raise ValueError("No default model available for Anthropic provider.")
 
             elif llm_provider == "Grok":
                 self.huggingface_generator = None
                 self.grok_generator = GrokGenerator(self.config_manager)
                 self.generate_response_func = self.grok_generator.generate_response
                 self.process_streaming_response_func = self.grok_generator.process_streaming_response
-                self.current_model = "grok-2"
+                default_model = self.get_default_model_for_provider("Grok")
+                if default_model:
+                    self.current_model = default_model
+                else:
+                    self.logger.error("No default model found for Grok. Ensure models are configured correctly.")
+                    raise ValueError("No default model available for Grok provider.")
                 # Initialize Grok-specific settings if necessary
 
             else:
@@ -185,7 +211,6 @@ class ProviderManager:
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
-
     async def set_current_provider(self, provider: str):
         """
         Set the current provider to the specified provider.
@@ -205,8 +230,8 @@ class ProviderManager:
         Returns:
             str or None: The name of the current model, or None if not set.
         """
-        if self.current_llm_provider == "HuggingFace":
-            return self.huggingface_generator.get_current_model() if self.huggingface_generator else None
+        if self.current_llm_provider == "HuggingFace" and self.huggingface_generator:
+            return self.huggingface_generator.get_current_model()
         return self.current_model
 
     def set_current_functions(self, functions):
@@ -290,7 +315,7 @@ class ProviderManager:
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
-    async def _use_fallback(self, messages: List[Dict[str, str]], llm_call_type: str, **kwargs) -> str:  
+    async def _use_fallback(self, messages: List[Dict[str, str]], llm_call_type: str, **kwargs) -> str:
         """
         Use a fallback provider to generate a response.
         This method handles cases where the primary provider fails.
@@ -397,7 +422,7 @@ class ProviderManager:
             str: The name of the current background provider.
         """
         return self.current_background_provider
-    
+
     def get_default_model_for_provider(self, provider: str) -> str:
         """
         Get the default model for a specific provider.
@@ -408,10 +433,11 @@ class ProviderManager:
         Returns:
             str: The default model name, or None if not available.
         """
-        if provider not in self.model_manager.models:
+        models = self.model_manager.get_available_models(provider).get(provider, [])
+        if not models:
             self.logger.error(f"No models found for provider {provider}. Ensure the provider's models are loaded.")
             return None
-        return self.model_manager.models[provider][0] if self.model_manager.models[provider] else None
+        return models[0]
 
     async def get_available_models(self) -> List[str]:
         """
