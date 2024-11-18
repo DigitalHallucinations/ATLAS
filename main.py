@@ -2,7 +2,7 @@
 
 import gi
 import asyncio
-gi.require_version('Gtk', '3.0')
+gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
 
 from ATLAS.ATLAS import ATLAS
@@ -14,12 +14,18 @@ async def initialize_atlas():
     return atlas
 
 def main():
-    loop = asyncio.get_event_loop()
-    atlas = loop.run_until_complete(initialize_atlas())
-    
-    sidebar = Sidebar(atlas)
-    sidebar.show_all()
-    Gtk.main()  # Start the GTK main loop
+    atlas = asyncio.run(initialize_atlas())
+
+    app = Gtk.Application(application_id='com.example.sidebar')
+
+    def on_activate(app):
+        sidebar = Sidebar(atlas)
+        sidebar.set_application(app)
+        sidebar.present()
+
+    app.connect('activate', on_activate)
+    app.run()
 
 if __name__ == "__main__":
     main()
+
