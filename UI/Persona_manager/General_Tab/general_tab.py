@@ -145,12 +145,16 @@ class GeneralTab:
         textview.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         textview.set_editable(editable)
         textview.set_cursor_visible(editable)
+
         if css_class:
             textview.get_style_context().add_class(css_class)
         if height:
             textview.set_size_request(-1, height)
-        textview.connect("size-allocate", self.on_textview_size_allocate)
+
+        textview.observe_size_allocation(self.on_textview_size_changed)
+
         return textview
+
 
     def create_labeled_entry_with_info(self, label_text, initial_text, info_text):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
