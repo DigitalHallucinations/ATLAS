@@ -159,8 +159,10 @@ class ChatPage(Gtk.Window):
         bubble.append(bubble_box)
         self.chat_history.append(bubble)
 
-        # Scroll to the bottom
-        self.chat_history_scrolled.ensure_visible(bubble)
+        # Scroll to the bottom of the chat history
+        vadjustment = self.chat_history_scrolled.get_vadjustment()
+        vadjustment.set_value(vadjustment.get_upper())
+
 
     def update_status_bar(self, provider=None, model=None):
         """

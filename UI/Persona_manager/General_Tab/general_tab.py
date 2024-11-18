@@ -165,7 +165,7 @@ class GeneralTab:
         box.append(entry)
 
         info_button = Gtk.Button(label="?")
-        info_button.set_relief(Gtk.ReliefStyle.NONE)
+        info_button.add_css_class("flat")  
         info_button.get_style_context().add_class("info-button")
         info_button.connect("clicked", self.show_info_popup, info_text)
         box.append(info_button)
@@ -177,6 +177,7 @@ class GeneralTab:
 
         return box
 
+
     def create_label_with_info(self, label_text, info_text):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
 
@@ -185,12 +186,13 @@ class GeneralTab:
         box.append(label)
 
         info_button = Gtk.Button(label="?")
-        info_button.set_relief(Gtk.ReliefStyle.NONE)
+        info_button.add_css_class("flat")  # Replaces set_relief(Gtk.ReliefStyle.NONE)
         info_button.get_style_context().add_class("info-button")
         info_button.connect("clicked", self.show_info_popup, info_text)
         box.append(info_button)
 
         return box
+
 
     def show_info_popup(self, widget, info_text):
         popup = InfoPopup(self.main_widget.get_root(), info_text)

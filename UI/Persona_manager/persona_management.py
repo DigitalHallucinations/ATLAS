@@ -1,9 +1,8 @@
 # UI/persona_management.py
-
 import gi
-gi.require_version('Gtk', '3.0')
+gi.require_version('Gtk', '4.0')
 gi.require_version('GdkPixbuf', '2.0')
-from gi.repository import Gtk, Gdk, GdkPixbuf
+from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
 
 from .General_Tab.general_tab import GeneralTab
 from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
@@ -18,12 +17,15 @@ class PersonaManagement:
     def show_persona_menu(self):
         self.persona_window = Gtk.Window(title="Select Persona")
         self.persona_window.set_default_size(150, 600)
-        self.persona_window.set_keep_above(True)
 
-        self.position_window_next_to_sidebar(self.persona_window, 150)
+        # Removed set_keep_above(True) as it's deprecated in GTK 4
+
+        # Note: Window positioning methods like move() are not available in GTK 4
+        # Window positioning is managed by the window manager
+        # self.position_window_next_to_sidebar(self.persona_window, 150)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.persona_window.add(box)
+        self.persona_window.set_child(box)
 
         persona_names = self.ATLAS.get_persona_names()
 
@@ -34,32 +36,37 @@ class PersonaManagement:
             label.set_xalign(0.0)
             label.set_yalign(0.5)
 
-            label_event_box = Gtk.EventBox()
-            label_event_box.add(label)
-            label_event_box.connect(
-                "button-press-event",
-                lambda widget, event, persona_name=persona_name: self.select_persona(persona_name)
+            # Connect click gesture to label
+            label_gesture = Gtk.GestureClick()
+            label_gesture.connect(
+                "pressed",
+                lambda gesture, n_press, x, y, persona_name=persona_name: self.select_persona(persona_name)
             )
+            label.add_controller(label_gesture)
 
             settings_icon_path = "Icons/settings.png"
-            settings_pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(settings_icon_path, 16, 16, True)
+            try:
+                settings_pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(settings_icon_path, 16, 16, True)
+            except GLib.Error as e:
+                print(f"Error loading icon {settings_icon_path}: {e}")
+                settings_pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale("Icons/default.png", 16, 16, True)  # Fallback icon
             settings_icon = Gtk.Image.new_from_pixbuf(settings_pixbuf)
+            settings_icon.set_margin_start(20)
 
-            settings_event_box = Gtk.EventBox()
-            settings_event_box.add(settings_icon)
-            settings_event_box.set_margin_start(20)
-
-            settings_event_box.connect(
-                "button-press-event",
-                lambda widget, event, persona_name=persona_name: self.open_persona_settings(persona_name)
+            # Connect click gesture to settings icon
+            settings_gesture = Gtk.GestureClick()
+            settings_gesture.connect(
+                "pressed",
+                lambda gesture, n_press, x, y, persona_name=persona_name: self.open_persona_settings(persona_name)
             )
+            settings_icon.add_controller(settings_gesture)
 
-            hbox.pack_start(label_event_box, True, True, 0)
-            hbox.pack_end(settings_event_box, False, False, 0)
+            hbox.append(label)
+            hbox.append(settings_icon)
 
-            box.pack_start(hbox, False, False, 0)
+            box.append(hbox)
 
-        self.persona_window.show_all()
+        self.persona_window.present()
 
     def select_persona(self, persona):
         self.ATLAS.load_persona(persona)
@@ -74,55 +81,57 @@ class PersonaManagement:
 
     def show_persona_settings(self, persona):
         settings_window = Gtk.Window(title=f"Settings for {persona.get('name')}")
-        settings_window.set_default_size(500, 800)  # You can adjust the default size
-        settings_window.set_keep_above(True)
+        settings_window.set_default_size(500, 800)
 
         self.apply_css_styling()
 
         main_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        settings_window.add(main_vbox)
+        settings_window.set_child(main_vbox)
 
-        notebook = Gtk.Notebook()
-        main_vbox.pack_start(notebook, True, True, 0)
+        # Using Gtk.Stack and Gtk.StackSwitcher instead of Gtk.Notebook
+        stack = Gtk.Stack()
+        stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        stack.set_transition_duration(200)
+
+        stack_switcher = Gtk.StackSwitcher()
+        stack_switcher.set_stack(stack)
+        main_vbox.append(stack_switcher)
+        main_vbox.append(stack)
 
         # General Tab (with scrollable box)
         self.general_tab = GeneralTab(persona)
         general_box = self.general_tab.get_widget()
-        
+
         scrolled_general_tab = Gtk.ScrolledWindow()
-        scrolled_general_tab.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled_general_tab.add(general_box)
-        notebook.append_page(scrolled_general_tab, Gtk.Label(label="General"))
+        scrolled_general_tab.set_child(general_box)
+        stack.add_titled(scrolled_general_tab, "general", "General")
 
         # Persona Type Tab (with scrollable box)
         self.persona_type_tab = PersonaTypeTab(persona, self.general_tab)
         type_box = self.persona_type_tab.get_widget()
-        
+
         scrolled_persona_type = Gtk.ScrolledWindow()
-        scrolled_persona_type.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled_persona_type.add(type_box)
-        notebook.append_page(scrolled_persona_type, Gtk.Label(label="Persona Type"))
+        scrolled_persona_type.set_child(type_box)
+        stack.add_titled(scrolled_persona_type, "persona_type", "Persona Type")
 
         # Provider and Model Tab
-        self.provider_model_box = self.create_provider_model_tab(persona)
-        notebook.append_page(self.provider_model_box, Gtk.Label(label="Provider & Model"))
+        provider_model_box = self.create_provider_model_tab(persona)
+        stack.add_titled(provider_model_box, "provider_model", "Provider & Model")
 
         # Speech Provider and Voice Tab
-        self.speech_voice_box = self.create_speech_voice_tab(persona)
-        notebook.append_page(self.speech_voice_box, Gtk.Label(label="Speech & Voice"))
+        speech_voice_box = self.create_speech_voice_tab(persona)
+        stack.add_titled(speech_voice_box, "speech_voice", "Speech & Voice")
 
         # Save button
         save_button = Gtk.Button(label="Save")
         save_button.connect("clicked", lambda widget: self.save_persona_settings(persona, settings_window))
-        main_vbox.pack_start(save_button, False, False, 0)
+        main_vbox.append(save_button)
 
-        settings_window.show_all()
-        self.position_window_next_to_sidebar(settings_window, 500)
+        settings_window.present()
+        # Note: Window positioning is managed by the window manager in GTK 4
+        # self.position_window_next_to_sidebar(settings_window, 500)
 
-    def get_entry_text(self, box, child_index, entry_index):
-        entry_box = box.get_children()[child_index]
-        entry = entry_box.get_children()[entry_index]
-        return entry.get_text()
+    # Removed get_entry_text method as we are storing references to entries directly
 
     # Additional methods for provider and speech settings
     def create_provider_model_tab(self, persona):
@@ -130,21 +139,21 @@ class PersonaManagement:
 
         # Provider
         provider_label = Gtk.Label(label="Provider")
-        provider_entry = Gtk.Entry()
-        provider_entry.set_text(persona.get("provider", "openai"))
+        self.provider_entry = Gtk.Entry()
+        self.provider_entry.set_text(persona.get("provider", "openai"))
         provider_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        provider_box.pack_start(provider_label, False, False, 0)
-        provider_box.pack_start(provider_entry, True, True, 0)
-        provider_model_box.pack_start(provider_box, False, False, 0)
+        provider_box.append(provider_label)
+        provider_box.append(self.provider_entry)
+        provider_model_box.append(provider_box)
 
         # Model
         model_label = Gtk.Label(label="Model")
-        model_entry = Gtk.Entry()
-        model_entry.set_text(persona.get("model", "gpt-4"))
+        self.model_entry = Gtk.Entry()
+        self.model_entry.set_text(persona.get("model", "gpt-4"))
         model_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        model_box.pack_start(model_label, False, False, 0)
-        model_box.pack_start(model_entry, True, True, 0)
-        provider_model_box.pack_start(model_box, False, False, 0)
+        model_box.append(model_label)
+        model_box.append(self.model_entry)
+        provider_model_box.append(model_box)
 
         return provider_model_box
 
@@ -153,21 +162,21 @@ class PersonaManagement:
 
         # Speech Provider
         speech_provider_label = Gtk.Label(label="Speech Provider")
-        speech_provider_entry = Gtk.Entry()
-        speech_provider_entry.set_text(persona.get("Speech_provider", "11labs"))
+        self.speech_provider_entry = Gtk.Entry()
+        self.speech_provider_entry.set_text(persona.get("Speech_provider", "11labs"))
         speech_provider_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        speech_provider_box.pack_start(speech_provider_label, False, False, 0)
-        speech_provider_box.pack_start(speech_provider_entry, True, True, 0)
-        speech_voice_box.pack_start(speech_provider_box, False, False, 0)
+        speech_provider_box.append(speech_provider_label)
+        speech_provider_box.append(self.speech_provider_entry)
+        speech_voice_box.append(speech_provider_box)
 
         # Voice
         voice_label = Gtk.Label(label="Voice")
-        voice_entry = Gtk.Entry()
-        voice_entry.set_text(persona.get("voice", "jack"))
+        self.voice_entry = Gtk.Entry()
+        self.voice_entry.set_text(persona.get("voice", "jack"))
         voice_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        voice_box.pack_start(voice_label, False, False, 0)
-        voice_box.pack_start(voice_entry, True, True, 0)
-        speech_voice_box.pack_start(voice_box, False, False, 0)
+        voice_box.append(voice_label)
+        voice_box.append(self.voice_entry)
+        speech_voice_box.append(voice_box)
 
         return speech_voice_box
 
@@ -186,12 +195,12 @@ class PersonaManagement:
         persona_type_values = values.get('type', {})
 
         # Get values from provider_model_box
-        provider = self.get_entry_text(self.provider_model_box, 0, 1)  # Provider
-        model = self.get_entry_text(self.provider_model_box, 1, 1)  # Model
+        provider = self.provider_entry.get_text()
+        model = self.model_entry.get_text()
 
         # Get values from speech_voice_box
-        speech_provider = self.get_entry_text(self.speech_voice_box, 0, 1)  # Speech provider
-        voice = self.get_entry_text(self.speech_voice_box, 1, 1)  # Voice
+        speech_provider = self.speech_provider_entry.get_text()
+        voice = self.voice_entry.get_text()
 
         # Now save to persona
         persona['name'] = name
@@ -292,7 +301,12 @@ class PersonaManagement:
                 margin: 5px;
             }
             label { margin: 5px; }
-            notebook tab { background-color: #2b2b2b; color: white; }
+            /* Updated styling for Gtk.StackSwitcher */
+            stackswitcher {
+                background-color: #2b2b2b;
+                color: white;
+            }
+            /* Editable textview styles */
             .editable-textview {
                 border: none;
             }
@@ -343,31 +357,10 @@ class PersonaManagement:
                 font-size: 14px;
             }
         """)
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
+        display = Gdk.Display.get_default()
+        Gtk.StyleContext.add_provider_for_display(
+            display,
             css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1
         )
-
-    def position_window_next_to_sidebar(self, window, window_width):
-        display = Gdk.Display.get_default()
-        monitor = display.get_primary_monitor()
-        monitor_geometry = monitor.get_geometry()
-        screen_width = monitor_geometry.width
-        screen_height = monitor_geometry.height  # Get screen height
-
-        # Get the requested window height
-        window_height = window.get_preferred_height()[1]
-
-        # Calculate the X position (next to the sidebar)
-        window_x = screen_width - 50 - 10 - window_width
-
-        # If window height exceeds screen height, resize the window
-        if window_height > screen_height:
-            window.set_default_size(window_width, screen_height - 50)  # Subtracting some padding (50 pixels)
-
-        # Move the window to the calculated position, keeping it on-screen
-        window_y = 0  # Start at the top
-        window.move(window_x, window_y)
-
 
