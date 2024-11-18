@@ -1,7 +1,7 @@
 # UI/Persona_manager/Persona_Type_Tab/persona_type_tab.py
 
 import gi
-gi.require_version('Gtk', '3.0')
+gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
 
 class PersonaTypeTab:
@@ -17,7 +17,7 @@ class PersonaTypeTab:
 
         # Create a notebook to hold tabs for main switches and each persona type
         self.sub_notebook = Gtk.Notebook()
-        self.type_box.pack_start(self.sub_notebook, True, True, 0)
+        self.type_box.append(self.sub_notebook)
 
         # Create the switches and store them as attributes
         self.create_switches()
@@ -28,29 +28,8 @@ class PersonaTypeTab:
         # Add the main switches tab to the notebook
         self.sub_notebook.append_page(self.main_switches_box, Gtk.Label(label="Main"))
 
-        # Now create individual tabs for each persona type, only if the switch is ON
-        if self.medical_persona_switch.get_active():
-            tab = self.create_medical_persona_tab()
-            self.tabs['Medical'] = tab
-            self.sub_notebook.append_page(tab, Gtk.Label(label="Medical"))
-
-        if self.educational_persona_switch.get_active():
-            tab = self.create_educational_persona_tab()
-            self.tabs['Educational'] = tab
-            self.sub_notebook.append_page(tab, Gtk.Label(label="Educational"))
-
-        if self.fitness_trainer_switch.get_active():
-            tab = self.create_fitness_trainer_tab()
-            self.tabs['Fitness'] = tab
-            self.sub_notebook.append_page(tab, Gtk.Label(label="Fitness"))
-
-        if self.language_practice_switch.get_active():
-            tab = self.create_language_practice_tab()
-            self.tabs['Language Instructor'] = tab
-            self.sub_notebook.append_page(tab, Gtk.Label(label="Language Instructor"))
-
-        # Ensure the notebook is displayed correctly
-        self.sub_notebook.show_all()
+        # Initialize persona type tabs
+        self.update_persona_type_tabs()
 
     def get_widget(self):
         return self.type_box
@@ -125,7 +104,10 @@ class PersonaTypeTab:
 
     def create_main_switches_tab(self):
         self.main_switches_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.main_switches_box.set_border_width(10)
+        self.main_switches_box.set_margin_start(10)
+        self.main_switches_box.set_margin_end(10)
+        self.main_switches_box.set_margin_top(10)
+        self.main_switches_box.set_margin_bottom(10)
 
         # List of switches and labels
         switches = [
@@ -151,42 +133,34 @@ class PersonaTypeTab:
             hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
             label = Gtk.Label(label=label_text)
             label.set_halign(Gtk.Align.START)
-            hbox.pack_start(label, True, True, 0)
-            hbox.pack_end(switch, False, False, 0)
-            self.main_switches_box.pack_start(hbox, False, False, 0)
+            hbox.append(label)
+            hbox.append(switch)
+            self.main_switches_box.append(hbox)
 
     def update_persona_type_tabs(self):
-        # Existing persona types
-        if self.medical_persona_switch.get_active():
-            self.add_tab('Medical')
-        if self.educational_persona_switch.get_active():
-            self.add_tab('Educational')
-        if self.fitness_trainer_switch.get_active():
-            self.add_tab('Fitness')
-        if self.language_practice_switch.get_active():
-            self.add_tab('Language Instructor')
+        persona_types = {
+            'Medical': self.medical_persona_switch,
+            'Educational': self.educational_persona_switch,
+            'Fitness': self.fitness_trainer_switch,
+            'Language Instructor': self.language_practice_switch,
+            'Legal': self.legal_persona_switch,
+            'Financial Advisor': self.financial_advisor_switch,
+            'Tech Support': self.tech_support_switch,
+            'Personal Assistant': self.personal_assistant_switch,
+            'Therapist': self.therapist_switch,
+            'Travel Guide': self.travel_guide_switch,
+            'Storyteller': self.storyteller_switch,
+            'Game Master': self.game_master_switch,
+            'Chef': self.chef_switch,
+        }
 
-        # New persona types
-        if self.legal_persona_switch.get_active():
-            self.add_tab('Legal')
-        if self.financial_advisor_switch.get_active():
-            self.add_tab('Financial Advisor')
-        if self.tech_support_switch.get_active():
-            self.add_tab('Tech Support')
-        if self.personal_assistant_switch.get_active():
-            self.add_tab('Personal Assistant')
-        if self.therapist_switch.get_active():
-            self.add_tab('Therapist')
-        if self.travel_guide_switch.get_active():
-            self.add_tab('Travel Guide')
-        if self.storyteller_switch.get_active():
-            self.add_tab('Storyteller')
-        if self.game_master_switch.get_active():
-            self.add_tab('Game Master')
-        if self.chef_switch.get_active():
-            self.add_tab('Chef')
+        for tab_name, switch in persona_types.items():
+            if switch.get_active():
+                self.add_tab(tab_name)
+            else:
+                self.remove_tab(tab_name)
 
-        # Switch toggled methods
+    # Switch toggled methods
 
     def on_sys_info_switch_toggled(self, switch, gparam):
         sys_info_enabled = switch.get_active()
@@ -202,120 +176,68 @@ class PersonaTypeTab:
         self.general_tab.set_user_profile_enabled(user_profile_enabled)
 
     def on_medical_persona_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Medical')
-        else:
-            self.remove_tab('Medical')
-        self.general_tab.set_medical_persona_enabled(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_medical_persona_enabled(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_educational_persona_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Educational')
-        else:
-            self.remove_tab('Educational')
-        self.general_tab.set_educational_persona(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_educational_persona(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_fitness_trainer_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Fitness')
-        else:
-            self.remove_tab('Fitness')
-        self.general_tab.set_fitness_persona_enabled(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_fitness_persona_enabled(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_language_practice_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Language Instructor')
-        else:
-            self.remove_tab('Language Instructor')
-        self.general_tab.set_language_instructor(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_language_instructor(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_legal_persona_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Legal')
-        else:
-            self.remove_tab('Legal')
-        self.general_tab.set_legal_persona_enabled(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_legal_persona_enabled(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_financial_advisor_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Financial Advisor')
-        else:
-            self.remove_tab('Financial Advisor')
-        self.general_tab.set_financial_advisor_enabled(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_financial_advisor_enabled(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_tech_support_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Tech Support')
-        else:
-            self.remove_tab('Tech Support')
-        self.general_tab.set_tech_support_enabled(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_tech_support_enabled(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_personal_assistant_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Personal Assistant')
-        else:
-            self.remove_tab('Personal Assistant')
-        self.general_tab.set_personal_assistant_enabled(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_personal_assistant_enabled(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_therapist_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Therapist')
-        else:
-            self.remove_tab('Therapist')
-        self.general_tab.set_therapist_enabled(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_therapist_enabled(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_travel_guide_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Travel Guide')
-        else:
-            self.remove_tab('Travel Guide')
-        self.general_tab.set_travel_guide_enabled(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_travel_guide_enabled(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_storyteller_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Storyteller')
-        else:
-            self.remove_tab('Storyteller')
-        self.general_tab.set_storyteller_enabled(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_storyteller_enabled(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_game_master_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Game Master')
-        else:
-            self.remove_tab('Game Master')
-        self.general_tab.set_game_master_enabled(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_game_master_enabled(switch.get_active())
         self.general_tab.update_end_locked()
 
     def on_chef_switch_toggled(self, switch, gparam):
-        enabled = switch.get_active()
-        if enabled:
-            self.add_tab('Chef')
-        else:
-            self.remove_tab('Chef')
-        self.general_tab.set_chef_enabled(enabled)
+        self.update_persona_type_tabs()
+        self.general_tab.set_chef_enabled(switch.get_active())
         self.general_tab.update_end_locked()
 
     # Methods to add or remove tabs
@@ -354,7 +276,7 @@ class PersonaTypeTab:
 
         self.tabs[tab_name] = tab
         self.sub_notebook.append_page(tab, Gtk.Label(label=tab_name))
-        self.sub_notebook.show_all()
+        self.sub_notebook.show()
 
     def remove_tab(self, tab_name):
         if tab_name in self.tabs:
@@ -362,32 +284,38 @@ class PersonaTypeTab:
             if page_num != -1:
                 self.sub_notebook.remove_page(page_num)
             del self.tabs[tab_name]
-            self.sub_notebook.show_all()
+            self.sub_notebook.show()
 
     # Methods to create tabs for each persona type
     def create_medical_persona_tab(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
 
         # Currently, there are no additional settings for the medical persona
         label = Gtk.Label(label="No additional settings for Medical Persona.")
         label.set_halign(Gtk.Align.START)
-        box.pack_start(label, False, False, 0)
+        box.append(label)
 
         return box
 
     def create_educational_persona_tab(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
 
         # Subject Specialization
         subject_label = Gtk.Label(label="Subject Specialization")
         self.subject_entry = Gtk.Entry()
         self.subject_entry.set_text(self.persona_type.get("educational_persona", {}).get("subject_specialization", "General"))
         subject_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        subject_box.pack_start(subject_label, False, False, 0)
-        subject_box.pack_start(self.subject_entry, True, True, 0)
-        box.pack_start(subject_box, False, False, 0)
+        subject_box.append(subject_label)
+        subject_box.append(self.subject_entry)
+        box.append(subject_box)
 
         # Education Level
         level_label = Gtk.Label(label="Education Level")
@@ -401,9 +329,9 @@ class PersonaTypeTab:
         else:
             self.level_combo.set_active(2)  # Default to "High School"
         level_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        level_box.pack_start(level_label, False, False, 0)
-        level_box.pack_start(self.level_combo, False, False, 0)
-        box.pack_start(level_box, False, False, 0)
+        level_box.append(level_label)
+        level_box.append(self.level_combo)
+        box.append(level_box)
 
         # Teaching Style
         style_label = Gtk.Label(label="Teaching Style")
@@ -417,15 +345,18 @@ class PersonaTypeTab:
         else:
             self.style_combo.set_active(1)  # Default to "Lecture Style"
         style_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        style_box.pack_start(style_label, False, False, 0)
-        style_box.pack_start(self.style_combo, False, False, 0)
-        box.pack_start(style_box, False, False, 0)
+        style_box.append(style_label)
+        style_box.append(self.style_combo)
+        box.append(style_box)
 
         return box
 
     def create_fitness_trainer_tab(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
 
         # Fitness Goal
         goal_label = Gtk.Label(label="Fitness Goal")
@@ -439,9 +370,9 @@ class PersonaTypeTab:
         else:
             self.goal_combo.set_active(0)  # Default to "Weight Loss"
         goal_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        goal_box.pack_start(goal_label, False, False, 0)
-        goal_box.pack_start(self.goal_combo, False, False, 0)
-        box.pack_start(goal_box, False, False, 0)
+        goal_box.append(goal_label)
+        goal_box.append(self.goal_combo)
+        box.append(goal_box)
 
         # Exercise Preference
         exercise_label = Gtk.Label(label="Exercise Preference")
@@ -455,24 +386,27 @@ class PersonaTypeTab:
         else:
             self.exercise_combo.set_active(0)  # Default to "Gym Workouts"
         exercise_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        exercise_box.pack_start(exercise_label, False, False, 0)
-        exercise_box.pack_start(self.exercise_combo, False, False, 0)
-        box.pack_start(exercise_box, False, False, 0)
+        exercise_box.append(exercise_label)
+        exercise_box.append(self.exercise_combo)
+        box.append(exercise_box)
 
         return box
 
     def create_language_practice_tab(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
 
         # Target Language
         language_label = Gtk.Label(label="Target Language")
         self.language_entry = Gtk.Entry()
         self.language_entry.set_text(self.persona_type.get("language_instructor", {}).get("target_language", "Spanish"))
         language_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        language_box.pack_start(language_label, False, False, 0)
-        language_box.pack_start(self.language_entry, True, True, 0)
-        box.pack_start(language_box, False, False, 0)
+        language_box.append(language_label)
+        language_box.append(self.language_entry)
+        box.append(language_box)
 
         # Proficiency Level
         proficiency_label = Gtk.Label(label="Proficiency Level")
@@ -480,99 +414,21 @@ class PersonaTypeTab:
         levels = ["Beginner", "Intermediate", "Advanced"]
         for level in levels:
             self.proficiency_combo.append_text(level)
-        
-        # Corrected line: Specify the key and default value
         proficiency_text = self.persona_type.get("language_instructor", {}).get("proficiency_level", "Beginner")
-
         if proficiency_text in levels:
             self.proficiency_combo.set_active(levels.index(proficiency_text))
         else:
             self.proficiency_combo.set_active(0)  # Default to "Beginner"
-
         proficiency_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        proficiency_box.pack_start(proficiency_label, False, False, 0)
-        proficiency_box.pack_start(self.proficiency_combo, False, False, 0)
-        box.pack_start(proficiency_box, False, False, 0)
+        proficiency_box.append(proficiency_label)
+        proficiency_box.append(self.proficiency_combo)
+        box.append(proficiency_box)
 
         return box
 
+    # Additional tab creation methods for other personas would be added here.
 
-    def create_legal_persona_tab(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(10)
-
-        # Jurisdiction
-        jurisdiction_label = Gtk.Label(label="Jurisdiction")
-        self.jurisdiction_entry = Gtk.Entry()
-        self.jurisdiction_entry.set_text(self.persona_type.get("legal_persona", {}).get("jurisdiction", ""))
-        jurisdiction_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        jurisdiction_box.pack_start(jurisdiction_label, False, False, 0)
-        jurisdiction_box.pack_start(self.jurisdiction_entry, True, True, 0)
-        box.pack_start(jurisdiction_box, False, False, 0)
-
-        # Area of Law
-        area_label = Gtk.Label(label="Area of Law")
-        self.area_entry = Gtk.Entry()
-        self.area_entry.set_text(self.persona_type.get("legal_persona", {}).get("area_of_law", ""))
-        area_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        area_box.pack_start(area_label, False, False, 0)
-        area_box.pack_start(self.area_entry, True, True, 0)
-        box.pack_start(area_box, False, False, 0)
-
-        # Disclaimer
-        disclaimer_label = Gtk.Label(label="Disclaimer Notice")
-        self.disclaimer_entry = Gtk.Entry()
-        self.disclaimer_entry.set_text(self.persona_type.get("legal_persona", {}).get("disclaimer", "This is not legal advice."))
-        disclaimer_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        disclaimer_box.pack_start(disclaimer_label, False, False, 0)
-        disclaimer_box.pack_start(self.disclaimer_entry, True, True, 0)
-        box.pack_start(disclaimer_box, False, False, 0)
-
-        return box
-
-    def create_tech_support_tab(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(10)
-
-        # Product Specialization
-        product_label = Gtk.Label(label="Product Specialization")
-        self.product_entry = Gtk.Entry()
-        self.product_entry.set_text(self.persona_type.get("tech_support", {}).get("product_specialization", ""))
-        product_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        product_box.pack_start(product_label, False, False, 0)
-        product_box.pack_start(self.product_entry, True, True, 0)
-        box.pack_start(product_box, False, False, 0)
-
-        # User Expertise Level
-        expertise_label = Gtk.Label(label="User Expertise Level")
-        self.expertise_combo = Gtk.ComboBoxText()
-        levels = ["Beginner", "Intermediate", "Advanced"]
-        for level in levels:
-            self.expertise_combo.append_text(level)
-        expertise_text = self.persona_type.get("tech_support", {}).get("user_expertise_level", "Beginner")
-        if expertise_text in levels:
-            self.expertise_combo.set_active(levels.index(expertise_text))
-        else:
-            self.expertise_combo.set_active(0)
-        expertise_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        expertise_box.pack_start(expertise_label, False, False, 0)
-        expertise_box.pack_start(self.expertise_combo, False, False, 0)
-        box.pack_start(expertise_box, False, False, 0)
-
-        # Access to Logs
-        access_label = Gtk.Label(label="Access to Logs")
-        self.access_switch = Gtk.Switch()
-        access_state = self.persona_type.get("tech_support", {}).get("access_to_logs", "False") == "True"
-        self.access_switch.set_active(access_state)
-        access_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        access_box.pack_start(access_label, False, False, 0)
-        access_box.pack_start(self.access_switch, False, False, 0)
-        box.pack_start(access_box, False, False, 0)
-
-        return box
-    
-    # In persona_type_tab.py
-
+    # Methods to retrieve values
     def get_values(self):
         values = {
             'sys_info_enabled': self.get_sys_info_enabled(),
@@ -581,25 +437,24 @@ class PersonaTypeTab:
 
         # Collect 'type' values
         type_values = {
-            'Agent': {'enabled': self.get_agent_enabled()},
-            'medical_persona': {'enabled': self.get_medical_persona_enabled()},
-            'educational_persona': {'enabled': self.get_educational_persona()},
-            'fitness_persona': {'enabled': self.get_fitness_persona()},
-            'language_instructor': {'enabled': self.get_language_instructor()},
+            'Agent': {'enabled': str(self.get_agent_enabled())},
+            'medical_persona': {'enabled': str(self.get_medical_persona_enabled())},
+            'educational_persona': {'enabled': str(self.get_educational_persona())},
+            'fitness_persona': {'enabled': str(self.get_fitness_persona())},
+            'language_instructor': {'enabled': str(self.get_language_instructor())},
             # Add other persona types here...
         }
 
-        if type_values['educational_persona']['enabled']:
+        if type_values['educational_persona']['enabled'] == "True":
             type_values['educational_persona'].update(self.get_educational_options())
-        if type_values['fitness_persona']['enabled']:
+        if type_values['fitness_persona']['enabled'] == "True":
             type_values['fitness_persona'].update(self.get_fitness_options())
-        if type_values['language_instructor']['enabled']:
+        if type_values['language_instructor']['enabled'] == "True":
             type_values['language_instructor'].update(self.get_language_practice_options())
 
         values['type'] = type_values
         return values
-    
-    # Methods to retrieve values
+
     def get_sys_info_enabled(self):
         return self.sys_info_switch.get_active()
 
