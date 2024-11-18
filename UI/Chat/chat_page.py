@@ -1,10 +1,9 @@
-# UI/Chat/chat_page.py
-
 import asyncio
 import threading
 from gi.repository import Gtk, GLib, Gdk
 
 from UI.Utils.style_util import apply_css
+
 
 class ChatPage(Gtk.Window):
     def __init__(self, atlas):
@@ -22,7 +21,7 @@ class ChatPage(Gtk.Window):
         apply_css()
 
         # Position window next to sidebar
-        self.position_window_next_to_sidebar(self, 600)  
+        self.position_window_next_to_sidebar(self, 600)
 
         # Main vertical box
         self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -60,7 +59,7 @@ class ChatPage(Gtk.Window):
         input_box.pack_start(self.input_entry, True, True, 0)
 
         send_button = Gtk.Button.new_from_icon_name("send", Gtk.IconSize.BUTTON)
-        send_button.get_style_context().add_class("send-button") 
+        send_button.get_style_context().add_class("send-button")
         send_button.connect("clicked", self.on_send_message)
         input_box.pack_start(send_button, False, False, 0)
 
@@ -68,20 +67,25 @@ class ChatPage(Gtk.Window):
 
         # Status bar
         self.status_bar = Gtk.Statusbar()
-        context_id = self.status_bar.get_context_id("Status")
-        provider = self.ATLAS.provider_manager.get_current_provider()
-        model = self.ATLAS.provider_manager.get_current_model() or "No model selected"
-        status_message = f"Provider: {provider} | Model: {model}"
-        self.status_bar.push(context_id, status_message)
+        self.update_status_bar()
         self.vbox.pack_end(self.status_bar, False, False, 0)
+
+        # Link status bar updates to provider changes
+        self.ATLAS.notify_provider_changed = self.update_status_bar
 
         self.show_all()
 
     def update_persona_label(self):
+        """
+        Updates the persona label with the current persona's name.
+        """
         persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Chat')
         self.persona_label.set_text(persona_name)
 
     def on_send_message(self, widget):
+        """
+        Handles the event when a message is sent.
+        """
         message = self.input_entry.get_text().strip()
         if message:
             user_name = self.ATLAS.user
@@ -90,12 +94,15 @@ class ChatPage(Gtk.Window):
             threading.Thread(target=self.handle_model_response_thread, args=(message,), daemon=True).start()
 
     def handle_model_response_thread(self, message):
+        """
+        Handles the model response in a separate thread to avoid blocking the UI.
+        """
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             response = loop.run_until_complete(self.chat_session.send_message(message))
             loop.close()
-            
+
             persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
             GLib.idle_add(self.add_message_bubble, persona_name, response)
         except Exception as e:
@@ -103,6 +110,14 @@ class ChatPage(Gtk.Window):
             GLib.idle_add(self.add_message_bubble, "Assistant", f"Error: {e}")
 
     def add_message_bubble(self, sender, message, is_user=False):
+        """
+        Adds a message bubble to the chat history.
+
+        Args:
+            sender (str): The sender of the message.
+            message (str): The message content.
+            is_user (bool): Whether the message is from the user.
+        """
         bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         bubble.set_margin_top(5)
         bubble.set_margin_bottom(5)
@@ -120,7 +135,7 @@ class ChatPage(Gtk.Window):
         bubble_box = Gtk.EventBox()
         bubble_box.add(message_label)
         bubble_box.get_style_context().add_class("message-bubble")
-        
+
         if is_user:
             bubble_box.get_style_context().add_class("user-message")
             bubble.set_halign(Gtk.Align.END)
@@ -136,16 +151,29 @@ class ChatPage(Gtk.Window):
         adj = self.chat_history_scrolled.get_vadjustment()
         adj.set_value(adj.get_upper() - adj.get_page_size())
 
-    def update_status_bar(self, provider, model):
+    def update_status_bar(self, provider=None, model=None):
         """
         Updates the status bar with the current provider and model.
+
+        Args:
+            provider (str, optional): The provider to display.
+            model (str, optional): The model to display.
         """
         context_id = self.status_bar.get_context_id("Status")
-        status_message = f"Provider: {provider} | Model: {model or 'No model selected'}"
+        provider = provider or self.ATLAS.provider_manager.get_current_provider()
+        model = model or self.ATLAS.provider_manager.get_current_model() or "No model selected"
+        status_message = f"Provider: {provider} | Model: {model}"
         self.status_bar.pop(context_id)  # Clear the old message
         self.status_bar.push(context_id, status_message)
 
     def position_window_next_to_sidebar(self, window: Gtk.Window, window_width: int):
+        """
+        Positions the chat window next to the sidebar.
+
+        Args:
+            window (Gtk.Window): The window to position.
+            window_width (int): The width of the window.
+        """
         display = Gdk.Display.get_default()
         monitor = display.get_primary_monitor()
         monitor_geometry = monitor.get_geometry()
