@@ -12,7 +12,7 @@ from UI.Utils.style_util import apply_css
 
 class ChatPage(Gtk.Window):
     def __init__(self, atlas):
-        super().__init__(title="Chat Page")
+        super().__init__()
         self.ATLAS = atlas
         self.chat_session = atlas.chat_session
         self.set_default_size(600, 400)
@@ -27,11 +27,8 @@ class ChatPage(Gtk.Window):
         self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_child(self.vbox)  # Use set_child() in GTK 4
 
-        # Top label with current persona name
-        self.persona_label = Gtk.Label()
-        self.persona_label.set_name("persona-label")
+        # Update the window title with the current persona's name
         self.update_persona_label()
-        self.vbox.append(self.persona_label)  # Use append() in GTK 4
 
         # Separator
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
@@ -87,10 +84,10 @@ class ChatPage(Gtk.Window):
 
     def update_persona_label(self):
         """
-        Updates the persona label with the current persona's name.
+        Updates the window title with the current persona's name.
         """
         persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Chat')
-        self.persona_label.set_text(persona_name)
+        self.set_title(persona_name)  # Set the window title
 
     def on_send_message(self, widget):
         """
@@ -162,7 +159,6 @@ class ChatPage(Gtk.Window):
         # Scroll to the bottom of the chat history
         vadjustment = self.chat_history_scrolled.get_vadjustment()
         vadjustment.set_value(vadjustment.get_upper())
-
 
     def update_status_bar(self, provider=None, model=None):
         """
