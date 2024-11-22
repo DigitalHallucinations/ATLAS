@@ -1,6 +1,7 @@
 ATLAS
 ├── .env
 ├── .gitignore
+├── .vscode
 ├── ATLAS
 │   ├── ATLAS.py
 │   ├── ToolManager.py
@@ -25,11 +26,21 @@ ATLAS
 │   ├── openai.png
 │   ├── power_button.png
 │   ├── providers.png
+│   ├── send.png
 │   ├── settings.png
 │   └── user.png
 ├── UI
 │   ├── Chat
 │   │   └── chat_page.py
+│   ├── GTK_3.0_UI
+│   │   ├── chat_page.py
+│   │   ├── general_tab.py
+│   │   ├── main.py
+│   │   ├── persona_management.py
+│   │   ├── persona_type_tab.py
+│   │   ├── sidebar.py
+│   │   ├── style.css
+│   │   └── style_util.py
 │   ├── Persona_manager
 │   │   ├── General_Tab
 │   │   │   └── general_tab.py
@@ -58,19 +69,17 @@ ATLAS
 │   │   │   │   └── .keep
 │   │   │   ├── Persona
 │   │   │   │   └── ATLAS.json
-│   │   │   ├── Toolbox
-│   │   │   │   ├── functions.json
-│   │   │   │   └── maps.py
-│   │   │   └── Workspace
+│   │   │   └── Toolbox
+│   │   │       ├── functions.json
+│   │   │       └── maps.py
 │   │   ├── Cleverbot
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
 │   │   │   ├── Persona
 │   │   │   │   └── Cleverbot.json
-│   │   │   ├── Toolbox
-│   │   │   │   ├── functions.json
-│   │   │   │   └── maps.py
-│   │   │   └── Workspace
+│   │   │   └── Toolbox
+│   │   │       ├── functions.json
+│   │   │       └── maps.py
 │   │   ├── CodeGenius
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
@@ -86,26 +95,23 @@ ATLAS
 │   │   │   │   │       └── github_client.py
 │   │   │   │   ├── functions.json
 │   │   │   │   └── maps.py
-│   │   │   ├── Tools.txt
-│   │   │   └── Workspace
+│   │   │   └── Tools.txt
 │   │   ├── DocGenius
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
 │   │   │   ├── Persona
 │   │   │   │   └── DocGenius.json
-│   │   │   ├── Toolbox
-│   │   │   │   ├── functions.json
-│   │   │   │   └── maps.py
-│   │   │   └── Workspace
+│   │   │   └── Toolbox
+│   │   │       ├── functions.json
+│   │   │       └── maps.py
 │   │   ├── Einstein
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
 │   │   │   ├── Persona
 │   │   │   │   └── Einstein.json
-│   │   │   ├── Toolbox
-│   │   │   │   ├── functions.json
-│   │   │   │   └── maps.py
-│   │   │   └── Workspace
+│   │   │   └── Toolbox
+│   │   │       ├── functions.json
+│   │   │       └── maps.py
 │   │   ├── FitnessCoach
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
@@ -139,10 +145,9 @@ ATLAS
 │   │   │   │   └── .keep
 │   │   │   ├── Persona
 │   │   │   │   └── Nikola Tesla.json
-│   │   │   ├── Toolbox
-│   │   │   │   ├── functions.json
-│   │   │   │   └── maps.py
-│   │   │   └── Workspace
+│   │   │   └── Toolbox
+│   │   │       ├── functions.json
+│   │   │       └── maps.py
 │   │   ├── ResumeGenius
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
@@ -151,7 +156,6 @@ ATLAS
 │   │   │   ├── Toolbox
 │   │   │   │   ├── functions.json
 │   │   │   │   └── maps.py
-│   │   │   ├── Workspace
 │   │   │   └── functions.json
 │   │   ├── WeatherGenius
 │   │   │   ├── Memory
@@ -167,8 +171,7 @@ ATLAS
 │   │   │   │   ├── weather.py
 │   │   │   │   ├── weather_history.py
 │   │   │   │   └── weather_vizualization.py
-│   │   │   ├── Tools.txt
-│   │   │   └── Workspace
+│   │   │   └── Tools.txt
 │   │   ├── WebDev
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
@@ -184,8 +187,7 @@ ATLAS
 │   │   │   │   │       └── github_client.py
 │   │   │   │   ├── functions.json
 │   │   │   │   └── maps.py
-│   │   │   ├── Tools.txt
-│   │   │   └── Workspace
+│   │   │   └── Tools.txt
 │   │   └── genius
 │   │       ├── Memory
 │   │       │   └── .keep
@@ -194,7 +196,6 @@ ATLAS
 │   │       ├── Toolbox
 │   │       │   ├── functions.json
 │   │       │   └── maps.py
-│   │       ├── Workspace
 │   │       └── functions.json
 │   ├── Providers
 │   │   ├── Anthropic
@@ -224,8 +225,12 @@ ATLAS
 │   │   │       └── logger.py
 │   │   ├── Mistral
 │   │   │   ├── M_models.json
+│   │   │   ├── Mistral_Config
 │   │   │   └── Mistral_gen_response.py
 │   │   └── OpenAI
+│   │       ├── OA_Config
+│   │       │   └── __pycache__
+│   │       │       └── oa_config.cpython-311.pyc
 │   │       ├── OA_gen_response.py
 │   │       └── O_models.json
 │   ├── Tools
@@ -248,7 +253,5 @@ ATLAS
 │   └── user_accounts
 │       ├── user_account_db.py
 │       ├── user_data_manager.py
-│       ├── user_profiles
-│       │   └── Bib.json
 │       └── user_template
 └── requirements.txt

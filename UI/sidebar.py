@@ -2,7 +2,9 @@
 
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GdkPixbuf, GLib
+from gi.repository import Gtk, Gdk, GLib
+
+import os
 
 from UI.Chat.chat_page import ChatPage
 from UI.Persona_manager.persona_management import PersonaManagement
@@ -43,12 +45,28 @@ class Sidebar(Gtk.Window):
 
     def create_icon(self, icon_path, callback, icon_size):
         try:
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(icon_path, icon_size, icon_size, True)
+            # Construct the icon path relative to this file
+            full_icon_path = os.path.join(os.path.dirname(__file__), "..", icon_path)
+            full_icon_path = os.path.abspath(full_icon_path)
+            # Load the icon using Gdk.Texture
+            texture = Gdk.Texture.new_from_filename(full_icon_path)
+            # Create Gtk.Picture for the icon
+            icon = Gtk.Picture.new_for_paintable(texture)
+            icon.set_size_request(icon_size, icon_size)
+            icon.set_content_fit(Gtk.ContentFit.CONTAIN)
         except GLib.Error as e:
             print(f"Error loading icon {icon_path}: {e}")
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale("Icons/default.png", icon_size, icon_size, True)  # Fallback icon
+            # Load a fallback icon
+            fallback_icon_path = os.path.join(os.path.dirname(__file__), "..", "Icons/default.png")
+            try:
+                texture = Gdk.Texture.new_from_filename(fallback_icon_path)
+                icon = Gtk.Picture.new_for_paintable(texture)
+                icon.set_size_request(icon_size, icon_size)
+                icon.set_content_fit(Gtk.ContentFit.CONTAIN)
+            except GLib.Error as e:
+                print(f"Error loading fallback icon: {e}")
+                icon = Gtk.Image.new_from_icon_name("image-missing")
 
-        icon = Gtk.Image.new_from_pixbuf(pixbuf)
         icon.get_style_context().add_class("icon")
 
         # In GTK 4, use Gtk.GestureClick for click events
@@ -108,4 +126,3 @@ class Sidebar(Gtk.Window):
         )
         dialog.format_secondary_text(message)
         dialog.show()
-

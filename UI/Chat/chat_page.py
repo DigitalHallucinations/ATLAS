@@ -2,8 +2,9 @@
 
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib
+from gi.repository import Gtk, Gdk, GLib
 
+import os
 import asyncio
 import threading
 
@@ -61,7 +62,20 @@ class ChatPage(Gtk.Window):
         input_box.append(self.input_entry)
 
         send_button = Gtk.Button()
-        icon = Gtk.Image.new_from_icon_name("send")
+        try:
+            # Construct the icon path relative to this file
+            icon_path = os.path.join(os.path.dirname(__file__), "../../Icons/send.png")
+            icon_path = os.path.abspath(icon_path)
+            # Load the send icon using Gdk.Texture
+            texture = Gdk.Texture.new_from_filename(icon_path)
+            # Create a Gtk.Picture for the icon
+            icon = Gtk.Picture.new_for_paintable(texture)
+            icon.set_size_request(24, 24)
+            icon.set_content_fit(Gtk.ContentFit.CONTAIN)
+        except GLib.Error as e:
+            print(f"Error loading icon: {e}")
+            icon = Gtk.Image.new_from_icon_name("image-missing")  # Fallback icon
+
         send_button.set_child(icon)
         send_button.get_style_context().add_class("send-button")
         send_button.connect("clicked", self.on_send_message)

@@ -4,7 +4,9 @@ import threading
 import gi
 import asyncio
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, GdkPixbuf, GLib
+from gi.repository import Gtk, Gdk, GLib
+
+import os
 
 # Import the HuggingFaceSettingsWindow
 from .Settings.HF_settings import HuggingFaceSettingsWindow
@@ -57,13 +59,18 @@ class ProviderManagement:
             )
             label.add_controller(label_click)
 
-            settings_icon_path = "Icons/settings.png"
+            settings_icon_path = os.path.join(os.path.dirname(__file__), "../../Icons/settings.png")
+            settings_icon_path = os.path.abspath(settings_icon_path)
             try:
-                settings_pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(settings_icon_path, 16, 16, True)
+                # Load the settings icon using Gdk.Texture
+                texture = Gdk.Texture.new_from_filename(settings_icon_path)
+                # Create Gtk.Picture for the settings icon
+                settings_icon = Gtk.Picture.new_for_paintable(texture)
+                settings_icon.set_size_request(16, 16)
+                settings_icon.set_content_fit(Gtk.ContentFit.CONTAIN)
             except GLib.Error as e:
                 self.ATLAS.logger.error(f"Error loading settings icon: {e}")
-                settings_pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale("Icons/default.png", 16, 16, True)
-            settings_icon = Gtk.Image.new_from_pixbuf(settings_pixbuf)
+                settings_icon = Gtk.Image.new_from_icon_name("image-missing")
 
             # Add click event to the settings icon using Gtk.GestureClick
             settings_click = Gtk.GestureClick()

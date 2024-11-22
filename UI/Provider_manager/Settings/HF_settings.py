@@ -1,4 +1,4 @@
-# /home/bib/Projects/ATLAS/UI/Provider_manager/Settings/HF_settings.py
+# UI/Provider_manager/Settings/HF_settings.py
 
 import gi
 import os
@@ -178,7 +178,12 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         )
 
     def create_general_settings_tab(self):
-        grid = Gtk.Grid(column_spacing=10, row_spacing=10, margin=10)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10)
+        # Set margins individually
+        grid.set_margin_top(10)
+        grid.set_margin_bottom(10)
+        grid.set_margin_start(10)
+        grid.set_margin_end(10)
 
         # Temperature
         temp_label = Gtk.Label(label="Temperature:")
@@ -205,7 +210,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         topk_label.set_halign(Gtk.Align.START)
         grid.attach(topk_label, 0, 2, 1, 1)
 
-        self.topk_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(50, 1, 1000, 1, 10, 0))
+        topk_adjustment = Gtk.Adjustment(value=50, lower=1, upper=1000, step_increment=1, page_increment=10)
+        self.topk_spin = Gtk.SpinButton(adjustment=topk_adjustment)
         grid.attach(self.topk_spin, 1, 2, 1, 1)
 
         # Max Tokens
@@ -213,7 +219,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         maxt_label.set_halign(Gtk.Align.START)
         grid.attach(maxt_label, 0, 3, 1, 1)
 
-        self.maxt_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(100, 1, 2048, 1, 10, 0))
+        maxt_adjustment = Gtk.Adjustment(value=100, lower=1, upper=2048, step_increment=1, page_increment=10)
+        self.maxt_spin = Gtk.SpinButton(adjustment=maxt_adjustment)
         grid.attach(self.maxt_spin, 1, 3, 1, 1)
 
         # Repetition Penalty
@@ -221,7 +228,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         rp_label.set_halign(Gtk.Align.START)
         grid.attach(rp_label, 0, 4, 1, 1)
 
-        self.rp_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(1.0, 0.0, 10.0, 0.1, 1.0, 0))
+        rp_adjustment = Gtk.Adjustment(value=1.0, lower=0.0, upper=10.0, step_increment=0.1, page_increment=1.0)
+        self.rp_spin = Gtk.SpinButton(adjustment=rp_adjustment, digits=2)
         grid.attach(self.rp_spin, 1, 4, 1, 1)
 
         # Presence Penalty
@@ -229,7 +237,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         pres_penalty_label.set_halign(Gtk.Align.START)
         grid.attach(pres_penalty_label, 0, 5, 1, 1)
 
-        self.pres_penalty_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.0, -2.0, 2.0, 0.1, 0.5, 0))
+        pres_penalty_adjustment = Gtk.Adjustment(value=0.0, lower=-2.0, upper=2.0, step_increment=0.1, page_increment=0.5)
+        self.pres_penalty_spin = Gtk.SpinButton(adjustment=pres_penalty_adjustment, digits=2)
         grid.attach(self.pres_penalty_spin, 1, 5, 1, 1)
 
         # Length Penalty
@@ -237,7 +246,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         length_penalty_label.set_halign(Gtk.Align.START)
         grid.attach(length_penalty_label, 0, 6, 1, 1)
 
-        self.length_penalty_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(1.0, 0.0, 10.0, 0.1, 1.0, 0))
+        length_penalty_adjustment = Gtk.Adjustment(value=1.0, lower=0.0, upper=10.0, step_increment=0.1, page_increment=1.0)
+        self.length_penalty_spin = Gtk.SpinButton(adjustment=length_penalty_adjustment, digits=2)
         grid.attach(self.length_penalty_spin, 1, 6, 1, 1)
 
         # Early Stopping
@@ -251,7 +261,11 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         return grid
 
     def create_advanced_optimizations_tab(self):
-        grid = Gtk.Grid(column_spacing=10, row_spacing=10, margin=10)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10)
+        grid.set_margin_top(10)
+        grid.set_margin_bottom(10)
+        grid.set_margin_start(10)
+        grid.set_margin_end(10)
 
         # Quantization
         quant_label = Gtk.Label(label="Quantization:")
@@ -296,7 +310,11 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         return grid
 
     def create_nvme_offloading_tab(self):
-        grid = Gtk.Grid(column_spacing=10, row_spacing=10, margin=10)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10)
+        grid.set_margin_top(10)
+        grid.set_margin_bottom(10)
+        grid.set_margin_start(10)
+        grid.set_margin_end(10)
 
         # Enable NVMe Offloading
         self.enable_nvme_check = Gtk.CheckButton(label="Enable NVMe Offloading")
@@ -311,8 +329,9 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         self.nvme_path_entry = Gtk.Entry()
         grid.attach(self.nvme_path_entry, 1, 1, 1, 1)
 
-        nvme_path_button = Gtk.FileChooserButton(title="Select NVMe Path", action=Gtk.FileChooserAction.SELECT_FOLDER)
-        nvme_path_button.connect("selection-changed", self.on_nvme_path_selected)
+        # Replace Gtk.FileChooserButton with a regular button
+        nvme_path_button = Gtk.Button(label="Select NVMe Path")
+        nvme_path_button.connect("clicked", self.on_nvme_path_button_clicked)
         grid.attach(nvme_path_button, 2, 1, 1, 1)
 
         # NVMe Buffer Count (Parameters)
@@ -320,7 +339,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         buffer_param_label.set_halign(Gtk.Align.START)
         grid.attach(buffer_param_label, 0, 2, 1, 1)
 
-        self.buffer_param_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(5, 1, 10, 1, 2, 0))
+        buffer_param_adjustment = Gtk.Adjustment(value=5, lower=1, upper=10, step_increment=1, page_increment=2)
+        self.buffer_param_spin = Gtk.SpinButton(adjustment=buffer_param_adjustment)
         grid.attach(self.buffer_param_spin, 1, 2, 1, 1)
 
         # NVMe Buffer Count (Optimizer)
@@ -328,7 +348,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         buffer_opt_label.set_halign(Gtk.Align.START)
         grid.attach(buffer_opt_label, 0, 3, 1, 1)
 
-        self.buffer_opt_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(4, 1, 10, 1, 2, 0))
+        buffer_opt_adjustment = Gtk.Adjustment(value=4, lower=1, upper=10, step_increment=1, page_increment=2)
+        self.buffer_opt_spin = Gtk.SpinButton(adjustment=buffer_opt_adjustment)
         grid.attach(self.buffer_opt_spin, 1, 3, 1, 1)
 
         # NVMe Block Size
@@ -336,7 +357,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         block_size_label.set_halign(Gtk.Align.START)
         grid.attach(block_size_label, 0, 4, 1, 1)
 
-        self.block_size_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(1048576, 1024, 10485760, 1024, 10240, 0))
+        block_size_adjustment = Gtk.Adjustment(value=1048576, lower=1024, upper=10485760, step_increment=1024, page_increment=10240)
+        self.block_size_spin = Gtk.SpinButton(adjustment=block_size_adjustment)
         grid.attach(self.block_size_spin, 1, 4, 1, 1)
 
         # NVMe Queue Depth
@@ -344,7 +366,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         queue_depth_label.set_halign(Gtk.Align.START)
         grid.attach(queue_depth_label, 0, 5, 1, 1)
 
-        self.queue_depth_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(8, 1, 64, 1, 4, 0))
+        queue_depth_adjustment = Gtk.Adjustment(value=8, lower=1, upper=64, step_increment=1, page_increment=4)
+        self.queue_depth_spin = Gtk.SpinButton(adjustment=queue_depth_adjustment)
         grid.attach(self.queue_depth_spin, 1, 5, 1, 1)
 
         # Initially disable NVMe settings if not enabled
@@ -352,15 +375,43 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
         return grid
 
+    def on_nvme_path_button_clicked(self, widget):
+        dialog = Gtk.FileChooserDialog(
+            title="Select NVMe Path",
+            transient_for=self,
+            modal=True,
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+        )
+        dialog.add_buttons(
+            "_Cancel", Gtk.ResponseType.CANCEL,
+            "_Open", Gtk.ResponseType.OK
+        )
+
+        dialog.connect("response", self.on_nvme_dialog_response)
+        dialog.show()
+
+    def on_nvme_dialog_response(self, dialog, response):
+        if response == Gtk.ResponseType.OK:
+            folder = dialog.get_file()
+            if folder:
+                path = folder.get_path()
+                self.nvme_path_entry.set_text(path)
+        dialog.close()
+
     def create_fine_tuning_settings_tab(self):
-        grid = Gtk.Grid(column_spacing=10, row_spacing=10, margin=10)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10)
+        grid.set_margin_top(10)
+        grid.set_margin_bottom(10)
+        grid.set_margin_start(10)
+        grid.set_margin_end(10)
 
         # Number of Training Epochs
         epochs_label = Gtk.Label(label="Number of Training Epochs:")
         epochs_label.set_halign(Gtk.Align.START)
         grid.attach(epochs_label, 0, 0, 1, 1)
 
-        self.epochs_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(3, 1, 100, 1, 10, 0))
+        epochs_adjustment = Gtk.Adjustment(value=3, lower=1, upper=100, step_increment=1, page_increment=10)
+        self.epochs_spin = Gtk.SpinButton(adjustment=epochs_adjustment)
         grid.attach(self.epochs_spin, 1, 0, 1, 1)
 
         # Per Device Train Batch Size
@@ -368,7 +419,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         batch_size_label.set_halign(Gtk.Align.START)
         grid.attach(batch_size_label, 0, 1, 1, 1)
 
-        self.batch_size_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(8, 1, 128, 1, 8, 0))
+        batch_size_adjustment = Gtk.Adjustment(value=8, lower=1, upper=128, step_increment=1, page_increment=8)
+        self.batch_size_spin = Gtk.SpinButton(adjustment=batch_size_adjustment)
         grid.attach(self.batch_size_spin, 1, 1, 1, 1)
 
         # Learning Rate
@@ -392,7 +444,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         save_steps_label.set_halign(Gtk.Align.START)
         grid.attach(save_steps_label, 0, 4, 1, 1)
 
-        self.save_steps_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(1000, 100, 10000, 100, 1000, 0))
+        save_steps_adjustment = Gtk.Adjustment(value=1000, lower=100, upper=10000, step_increment=100, page_increment=1000)
+        self.save_steps_spin = Gtk.SpinButton(adjustment=save_steps_adjustment)
         grid.attach(self.save_steps_spin, 1, 4, 1, 1)
 
         # Save Total Limit
@@ -400,7 +453,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         save_total_label.set_halign(Gtk.Align.START)
         grid.attach(save_total_label, 0, 5, 1, 1)
 
-        self.save_total_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(2, 1, 100, 1, 5, 0))
+        save_total_adjustment = Gtk.Adjustment(value=2, lower=1, upper=100, step_increment=1, page_increment=5)
+        self.save_total_spin = Gtk.SpinButton(adjustment=save_total_adjustment)
         grid.attach(self.save_total_spin, 1, 5, 1, 1)
 
         # Number of Layers to Freeze
@@ -408,13 +462,18 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         layers_freeze_label.set_halign(Gtk.Align.START)
         grid.attach(layers_freeze_label, 0, 6, 1, 1)
 
-        self.layers_freeze_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 100, 1, 5, 0))
+        layers_freeze_adjustment = Gtk.Adjustment(value=0, lower=0, upper=100, step_increment=1, page_increment=5)
+        self.layers_freeze_spin = Gtk.SpinButton(adjustment=layers_freeze_adjustment)
         grid.attach(self.layers_freeze_spin, 1, 6, 1, 1)
 
         return grid
 
     def create_model_management_tab(self):
-        grid = Gtk.Grid(column_spacing=10, row_spacing=10, margin=10)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10)
+        grid.set_margin_top(10)
+        grid.set_margin_bottom(10)
+        grid.set_margin_start(10)
+        grid.set_margin_end(10)
 
         # Load Model Button and Unload Model Button are added in the main __init__
 
@@ -458,7 +517,11 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         return grid
 
     def create_miscellaneous_tab(self):
-        grid = Gtk.Grid(column_spacing=10, row_spacing=10, margin=10)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10)
+        grid.set_margin_top(10)
+        grid.set_margin_bottom(10)
+        grid.set_margin_start(10)
+        grid.set_margin_end(10)
 
         # Enable Caching
         self.caching_check = Gtk.CheckButton(label="Enable Caching")
@@ -482,7 +545,11 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         return grid
 
     def create_search_download_tab(self):
-        grid = Gtk.Grid(column_spacing=10, row_spacing=10, margin=10)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10)
+        grid.set_margin_top(10)
+        grid.set_margin_bottom(10)
+        grid.set_margin_start(10)
+        grid.set_margin_end(10)
 
         # Search Query
         search_label = Gtk.Label(label="Search Query:")
