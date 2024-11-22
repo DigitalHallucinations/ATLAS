@@ -9,7 +9,7 @@ import os
 from UI.Chat.chat_page import ChatPage
 from UI.Persona_manager.persona_management import PersonaManagement
 from UI.Provider_manager.provider_management import ProviderManagement
-from UI.Utils.style_util import apply_css  
+from UI.Utils.utils import apply_css, create_box
 
 class Sidebar(Gtk.Window):
     def __init__(self, atlas):
@@ -27,7 +27,7 @@ class Sidebar(Gtk.Window):
         apply_css()
 
         # Create main box
-        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        self.box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=5, margin=10)
         self.set_child(self.box)  # In GTK 4, use set_child instead of add()
 
         # Add icons
@@ -37,7 +37,10 @@ class Sidebar(Gtk.Window):
         self.create_icon("Icons/agent.png", self.show_persona_menu, 42)
 
         # Spacer
-        self.box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        separator.set_margin_top(10)
+        separator.set_margin_bottom(10)
+        self.box.append(separator)
 
         # Add bottom icons
         self.create_icon("Icons/settings.png", self.show_settings_page, 42)
@@ -70,7 +73,7 @@ class Sidebar(Gtk.Window):
         icon.get_style_context().add_class("icon")
 
         # In GTK 4, use Gtk.GestureClick for click events
-        gesture = Gtk.GestureClick()
+        gesture = Gtk.GestureClick.new()
         gesture.connect("pressed", lambda gesture, n_press, x, y: callback())
         icon.add_controller(gesture)
 
@@ -106,6 +109,20 @@ class Sidebar(Gtk.Window):
         if self.ATLAS.is_initialized():
             settings_window = Gtk.Window(title="Settings")
             settings_window.set_default_size(300, 400)
+            settings_window.set_transient_for(self)
+            settings_window.set_modal(True)
+
+            # Apply CSS styling to settings window
+            self.apply_css_styling(settings_window)
+
+            # Create a vertical box with margins
+            vbox = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
+            settings_window.set_child(vbox)
+
+            # Add content to settings_window as needed
+            label = Gtk.Label(label="Settings Page Content Here")
+            vbox.append(label)
+
             settings_window.present()
         else:
             self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
@@ -125,4 +142,35 @@ class Sidebar(Gtk.Window):
             text="Initialization Error",
         )
         dialog.format_secondary_text(message)
-        dialog.show()
+        dialog.connect("response", lambda dialog, response: dialog.destroy())
+        dialog.present()
+
+    def apply_css_styling(self, window=None):
+        """
+        Applies CSS styling to the specified window. If no window is provided,
+        applies to the current window.
+        """
+        target = window if window else self
+
+        css_provider = Gtk.CssProvider()
+        css_provider.load_from_data(b"""
+            .sidebar {
+                background-color: #2b2b2b;
+            }
+            .icon {
+                margin: 5px;
+                border-radius: 5px;
+            }
+            .icon:hover {
+                background-color: #4a90d9;
+            }
+            .icon:active {
+                background-color: #357ABD;
+            }
+        """)
+        display = target.get_display()
+        Gtk.StyleContext.add_provider_for_display(
+            display,
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_USER
+        )

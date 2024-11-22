@@ -8,7 +8,7 @@ import os
 import asyncio
 import threading
 
-from UI.Utils.style_util import apply_css
+from UI.Utils.utils import apply_css
 
 
 class ChatPage(Gtk.Window):

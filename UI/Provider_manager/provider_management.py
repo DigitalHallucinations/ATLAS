@@ -7,9 +7,12 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gdk, GLib
 
 import os
+import logging
 
-# Import the HuggingFaceSettingsWindow
+from UI.Utils.utils import create_box  
+
 from .Settings.HF_settings import HuggingFaceSettingsWindow
+from modules.Providers.HuggingFace.HF_gen_response import HuggingFaceGenerator
 
 class ProviderManagement:
     """
@@ -29,6 +32,7 @@ class ProviderManagement:
         self.parent_window = parent_window
         self.provider_window = None
         self.config_manager = self.ATLAS.config_manager  
+        self.logger = logging.getLogger(__name__)
 
     def show_provider_menu(self):
         """
@@ -36,9 +40,11 @@ class ProviderManagement:
         Each provider has a label and a settings icon.
         """
         self.provider_window = Gtk.Window(title="Select Provider")
-        self.provider_window.set_default_size(150, 400)
+        self.provider_window.set_default_size(300, 400)
+        self.provider_window.set_transient_for(self.parent_window)
+        self.provider_window.set_modal(True)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
         self.provider_window.set_child(box)
 
         provider_names = self.ATLAS.get_available_providers()
@@ -51,8 +57,7 @@ class ProviderManagement:
             label.set_yalign(0.5)
             label.get_style_context().add_class("provider-label")
 
-            # Add click event to the label using Gtk.GestureClick
-            label_click = Gtk.GestureClick()
+            label_click = Gtk.GestureClick.new()
             label_click.connect(
                 "released",
                 lambda gesture, n_press, x, y, provider_name=provider_name: self.select_provider(provider_name)
@@ -62,18 +67,16 @@ class ProviderManagement:
             settings_icon_path = os.path.join(os.path.dirname(__file__), "../../Icons/settings.png")
             settings_icon_path = os.path.abspath(settings_icon_path)
             try:
-                # Load the settings icon using Gdk.Texture
                 texture = Gdk.Texture.new_from_filename(settings_icon_path)
-                # Create Gtk.Picture for the settings icon
+
                 settings_icon = Gtk.Picture.new_for_paintable(texture)
                 settings_icon.set_size_request(16, 16)
                 settings_icon.set_content_fit(Gtk.ContentFit.CONTAIN)
             except GLib.Error as e:
-                self.ATLAS.logger.error(f"Error loading settings icon: {e}")
+                self.logger.error(f"Error loading settings icon: {e}")
                 settings_icon = Gtk.Image.new_from_icon_name("image-missing")
 
-            # Add click event to the settings icon using Gtk.GestureClick
-            settings_click = Gtk.GestureClick()
+            settings_click = Gtk.GestureClick.new()
             settings_click.connect(
                 "released",
                 lambda gesture, n_press, x, y, provider_name=provider_name: self.open_provider_settings(provider_name)
@@ -97,12 +100,11 @@ class ProviderManagement:
         """
         api_key = self.config_manager.get_config(f"{provider.upper()}_API_KEY")
         if not api_key:
-            self.ATLAS.logger.info(f"No API key set for provider {provider}. Prompting user to enter it.")
+            self.logger.info(f"No API key set for provider {provider}. Prompting user to enter it.")
             self.open_provider_settings(provider)
         else:
-            # Use threading to set the current provider without blocking the UI
             threading.Thread(target=self.set_current_provider_thread, args=(provider,), daemon=True).start()
-            self.ATLAS.logger.info(f"Provider {provider} selected.")
+            self.logger.info(f"Provider {provider} selected.")
             GLib.idle_add(self.provider_window.close)
 
     def set_current_provider_thread(self, provider):
@@ -113,36 +115,34 @@ class ProviderManagement:
         asyncio.set_event_loop(loop)
         try:
             loop.run_until_complete(self.ATLAS.set_current_provider(provider))
-            self.ATLAS.logger.info(f"Provider {provider} set successfully.")
+            self.logger.info(f"Provider {provider} set successfully.")
         except Exception as e:
-            self.ATLAS.logger.error(f"Failed to set provider {provider}: {e}")
+            self.logger.error(f"Failed to set provider {provider}: {e}")
             GLib.idle_add(self.show_error_dialog, f"Failed to set provider {provider}: {e}")
         finally:
             loop.close()
 
     def open_provider_settings(self, provider_name: str):
-        """
-        Opens the settings window for the specified provider.
-
-        Args:
-            provider_name (str): The name of the provider whose settings are to be opened.
-        """
         if self.provider_window:
             GLib.idle_add(self.provider_window.close)
 
-        # Open the provider-specific settings window
         if provider_name == "HuggingFace":
+            if self.ATLAS.provider_manager.huggingface_generator is None:
+                self.logger.info("Initializing huggingface_generator in open_provider_settings")
+                self.ATLAS.provider_manager.huggingface_generator = HuggingFaceGenerator(self.config_manager)
+                self.logger.info("huggingface_generator initialized successfully")
+            else:
+                self.logger.info("huggingface_generator already initialized")
             self.show_huggingface_settings()
         else:
-            # For other providers, you can implement similar methods or show a default settings window
             self.show_provider_settings(provider_name)
 
     def show_huggingface_settings(self):
         """
         Displays the HuggingFace settings window.
         """
-        settings_window = HuggingFaceSettingsWindow(self.ATLAS, self.config_manager)
-        settings_window.run()
+        settings_window = HuggingFaceSettingsWindow(self.ATLAS, self.config_manager, self.parent_window)  # Pass parent_window
+        settings_window.present()
 
     def show_provider_settings(self, provider_name: str):
         """
@@ -153,10 +153,12 @@ class ProviderManagement:
         """
         settings_window = Gtk.Window(title=f"Settings for {provider_name}")
         settings_window.set_default_size(400, 300)
+        settings_window.set_transient_for(self.parent_window)
+        settings_window.set_modal(True)
 
         self.apply_css_styling()
 
-        main_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
+        main_vbox = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
         settings_window.set_child(main_vbox)
 
         # Provider Name
@@ -177,8 +179,8 @@ class ProviderManagement:
 
         self.api_key_entry = Gtk.Entry()
         self.api_key_entry.set_placeholder_text("Enter your API key here")
-        self.api_key_entry.set_visibility(False)  # Hide the API key input
-        self.api_key_entry.set_invisible_char('*')  # Mask the input
+        self.api_key_entry.set_visibility(False)  
+        self.api_key_entry.set_invisible_char('*')
         main_vbox.append(self.api_key_entry)
 
         # Pre-fill the API key if it exists
@@ -231,7 +233,6 @@ class ProviderManagement:
             self.show_error_dialog("API Key cannot be empty.")
             return
 
-        # Use threading to update the API key without blocking the UI
         threading.Thread(target=self.update_api_key_thread, args=(provider_name, new_api_key, window), daemon=True).start()
 
     def update_api_key_thread(self, provider_name: str, new_api_key: str, window: Gtk.Window):
@@ -242,13 +243,13 @@ class ProviderManagement:
         asyncio.set_event_loop(loop)
         try:
             self.config_manager.update_api_key(provider_name, new_api_key)
-            self.ATLAS.logger.info(f"API Key for {provider_name} updated.")
+            self.logger.info(f"API Key for {provider_name} updated.")
             loop.run_until_complete(self.refresh_provider_async(provider_name))
-            self.ATLAS.logger.info(f"Provider {provider_name} refreshed.")
+            self.logger.info(f"Provider {provider_name} refreshed.")
             GLib.idle_add(self.show_info_dialog, f"API Key for {provider_name} saved successfully.")
             GLib.idle_add(window.close)
         except Exception as e:
-            self.ATLAS.logger.error(f"Failed to save API Key: {str(e)}")
+            self.logger.error(f"Failed to save API Key: {str(e)}")
             GLib.idle_add(self.show_error_dialog, f"Failed to save API Key: {str(e)}")
         finally:
             loop.close()
@@ -260,9 +261,9 @@ class ProviderManagement:
         if provider_name == self.ATLAS.provider_manager.current_llm_provider:
             try:
                 await self.ATLAS.provider_manager.set_current_provider(provider_name)
-                self.ATLAS.logger.info(f"Provider {provider_name} refreshed with new API key.")
+                self.logger.info(f"Provider {provider_name} refreshed with new API key.")
             except Exception as e:
-                self.ATLAS.logger.error(f"Error refreshing provider {provider_name}: {e}")
+                self.logger.error(f"Error refreshing provider {provider_name}: {e}")
                 GLib.idle_add(self.show_error_dialog, f"Error refreshing provider {provider_name}: {e}")
 
     def show_error_dialog(self, message: str):
@@ -273,14 +274,15 @@ class ProviderManagement:
             message (str): The error message to display.
         """
         dialog = Gtk.MessageDialog(
-            transient_for=self.provider_window,
+            transient_for=self.provider_window or self.parent_window,
             modal=True,
             message_type=Gtk.MessageType.ERROR,
             buttons=Gtk.ButtonsType.OK,
             text="Error",
         )
         dialog.format_secondary_text(message)
-        dialog.show()
+        dialog.connect("response", lambda dialog, response: dialog.destroy())
+        dialog.present()
 
     def show_info_dialog(self, message: str):
         """
@@ -290,14 +292,15 @@ class ProviderManagement:
             message (str): The information message to display.
         """
         dialog = Gtk.MessageDialog(
-            transient_for=self.provider_window,
+            transient_for=self.provider_window or self.parent_window,
             modal=True,
             message_type=Gtk.MessageType.INFO,
             buttons=Gtk.ButtonsType.OK,
             text="Information",
         )
         dialog.format_secondary_text(message)
-        dialog.show()
+        dialog.connect("response", lambda dialog, response: dialog.destroy())
+        dialog.present()
 
     def apply_css_styling(self):
         """
@@ -309,6 +312,11 @@ class ProviderManagement:
             label { margin: 5px; }
             entry { background-color: #3c3c3c; color: white; }
             button { background-color: #555555; color: white; }
+            button:hover { background-color: #4a90d9; }
+            button:active { background-color: #357ABD; }
+            .provider-label {
+                font-weight: bold;
+            }
         """)
         display = Gtk.Window().get_display()
         Gtk.StyleContext.add_provider_for_display(

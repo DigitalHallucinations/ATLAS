@@ -1,4 +1,4 @@
-# UI/Provider_manager/Settings/HF_settings.py
+# ATLAS/UI/Provider_manager/Settings/HF_settings.py
 
 import gi
 import os
@@ -6,9 +6,14 @@ import asyncio
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib
 
+from UI.Utils.utils import create_box  # Import the helper function
+
 class HuggingFaceSettingsWindow(Gtk.Window):
-    def __init__(self, ATLAS, config_manager):
+    def __init__(self, ATLAS, config_manager, parent_window):
         super().__init__(title="HuggingFace Settings")
+        self.parent_window = parent_window
+        self.set_transient_for(parent_window)  # Set parent window for modality
+        self.set_modal(True)  # Make the window modal
 
         # Apply the CSS styling
         self.apply_css_styling()
@@ -18,7 +23,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         self.config_manager = config_manager
 
         # Create a vertical box to hold all widgets
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        vbox = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
         self.set_child(vbox)
 
         # Create a Notebook (Tabs)
@@ -179,7 +184,6 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
     def create_general_settings_tab(self):
         grid = Gtk.Grid(column_spacing=10, row_spacing=10)
-        # Set margins individually
         grid.set_margin_top(10)
         grid.set_margin_bottom(10)
         grid.set_margin_start(10)
@@ -378,7 +382,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
     def on_nvme_path_button_clicked(self, widget):
         dialog = Gtk.FileChooserDialog(
             title="Select NVMe Path",
-            transient_for=self,
+            transient_for=self.parent_window,
             modal=True,
             action=Gtk.FileChooserAction.SELECT_FOLDER,
         )
@@ -388,7 +392,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         )
 
         dialog.connect("response", self.on_nvme_dialog_response)
-        dialog.show()
+        dialog.present()
 
     def on_nvme_dialog_response(self, dialog, response):
         if response == Gtk.ResponseType.OK:
@@ -396,7 +400,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             if folder:
                 path = folder.get_path()
                 self.nvme_path_entry.set_text(path)
-        dialog.close()
+        dialog.destroy()
 
     def create_fine_tuning_settings_tab(self):
         grid = Gtk.Grid(column_spacing=10, row_spacing=10)
@@ -647,7 +651,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
         if not installed_models:
             # Handle the case when no models are installed
-            self.show_message("Info", "No installed models found. Please download a model.")
+            self.show_message("Info", "No installed models found. Please download a model.", Gtk.MessageType.INFO)
             return
 
         for model in installed_models:
@@ -664,32 +668,22 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         selected_model = self.model_combo.get_active_text()
         if selected_model:
             asyncio.run(self.ATLAS.provider_manager.load_model(selected_model))
-            self.show_message("Success", f"Model '{selected_model}' loaded successfully.")
+            self.show_message("Success", f"Model '{selected_model}' loaded successfully.", Gtk.MessageType.INFO)
         else:
-            self.show_message("Error", "No model selected to load.")
+            self.show_message("Error", "No model selected to load.", Gtk.MessageType.ERROR)
 
     def on_unload_model_clicked(self, widget):
         self.ATLAS.provider_manager.huggingface_generator.unload_model()
-        self.show_message("Success", "Model unloaded successfully.")
+        self.show_message("Success", "Model unloaded successfully.", Gtk.MessageType.INFO)
 
     def on_fine_tune_clicked(self, widget):
         # Implement fine-tuning functionality
-        self.show_message("Info", "Fine-tuning functionality is not yet implemented.")
+        self.show_message("Info", "Fine-tuning functionality is not yet implemented.", Gtk.MessageType.INFO)
 
     def on_save_clicked(self, widget):
         # Implement settings saving functionality
         self.save_settings()
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            modal=True,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text="Settings Saved",
-        )
-        dialog.format_secondary_text(
-            "Your settings have been saved successfully."
-        )
-        dialog.show()
+        self.show_message("Settings Saved", "Your settings have been saved successfully.", Gtk.MessageType.INFO)
 
     def on_cancel_clicked(self, widget):
         # Implement settings cancel functionality
@@ -707,11 +701,11 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             try:
                 if os.path.exists(cache_file):
                     os.remove(cache_file)
-                    self.show_message("Success", "Cache cleared successfully.")
+                    self.show_message("Success", "Cache cleared successfully.", Gtk.MessageType.INFO)
                 else:
-                    self.show_message("Info", "Cache file does not exist.")
+                    self.show_message("Info", "Cache file does not exist.", Gtk.MessageType.INFO)
             except Exception as e:
-                self.show_message("Error", f"Error clearing cache: {str(e)}")
+                self.show_message("Error", f"Error clearing cache: {str(e)}", Gtk.MessageType.ERROR)
 
     def on_remove_model_clicked(self, widget):
         selected_model = self.remove_model_combo.get_active_text()
@@ -720,9 +714,9 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             if confirmation:
                 self.ATLAS.provider_manager.huggingface_generator.model_manager.remove_installed_model(selected_model)
                 self.populate_model_comboboxes()
-                self.show_message("Success", f"Model '{selected_model}' removed successfully.")
+                self.show_message("Success", f"Model '{selected_model}' removed successfully.", Gtk.MessageType.INFO)
         else:
-            self.show_message("Error", "No model selected to remove.")
+            self.show_message("Error", "No model selected to remove.", Gtk.MessageType.ERROR)
 
     def on_update_model_clicked(self, widget):
         selected_model = self.update_model_combo.get_active_text()
@@ -730,9 +724,9 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             confirmation = self.confirm_dialog(f"Do you want to update the model '{selected_model}'?")
             if confirmation:
                 asyncio.run(self.ATLAS.provider_manager.huggingface_generator.load_model(selected_model, force_download=True))
-                self.show_message("Success", f"Model '{selected_model}' updated successfully.")
+                self.show_message("Success", f"Model '{selected_model}' updated successfully.", Gtk.MessageType.INFO)
         else:
-            self.show_message("Error", "No model selected to update.")
+            self.show_message("Error", "No model selected to update.", Gtk.MessageType.ERROR)
 
     def on_search_clicked(self, widget):
         search_query = self.search_entry.get_text()
@@ -777,7 +771,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
                     info_label = Gtk.Label()
                     info_label.set_xalign(0)
-                    info_text = f"Model ID: {model.modelId}\nTags: {model.tags}\nDownloads: {model.downloads}\nLikes: {model.likes}"
+                    info_text = f"Model ID: {model.modelId}\nTags: {', '.join(model.tags)}\nDownloads: {model.downloads}\nLikes: {model.likes}"
                     info_label.set_text(info_text)
                     box.append(info_label)
 
@@ -789,7 +783,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
             self.results_listbox.show()
         except Exception as e:
-            self.show_message("Error", f"An error occurred while searching for models: {str(e)}")
+            self.show_message("Error", f"An error occurred while searching for models: {str(e)}", Gtk.MessageType.ERROR)
 
         return False  # Stop the idle_add
 
@@ -800,83 +794,88 @@ class HuggingFaceSettingsWindow(Gtk.Window):
                 # Start the download asynchronously
                 GLib.idle_add(self.download_model, model_name)
             except Exception as e:
-                self.show_message("Error", f"Error downloading model: {str(e)}")
+                self.show_message("Error", f"Error downloading model: {str(e)}", Gtk.MessageType.ERROR)
 
     def download_model(self, model_name):
         try:
             # Trigger the model download using the provider manager
             asyncio.run(self.ATLAS.provider_manager.huggingface_generator.load_model(model_name, force_download=True))
             self.populate_model_comboboxes()
-            self.show_message("Success", f"Model '{model_name}' downloaded and installed successfully.")
+            self.show_message("Success", f"Model '{model_name}' downloaded and installed successfully.", Gtk.MessageType.INFO)
         except Exception as e:
-            self.show_message("Error", f"Error downloading model '{model_name}': {str(e)}")
+            self.show_message("Error", f"Error downloading model '{model_name}': {str(e)}", Gtk.MessageType.ERROR)
 
         return False  # Stop the idle_add
 
     def save_settings(self):
         # Gather all settings from the UI and save them using the config manager
-        settings = {
-            "temperature": self.temp_scale.get_value(),
-            "top_p": self.topp_scale.get_value(),
-            "top_k": self.topk_spin.get_value_as_int(),
-            "max_tokens": self.maxt_spin.get_value_as_int(),
-            "repetition_penalty": self.rp_spin.get_value(),
-            "presence_penalty": self.pres_penalty_spin.get_value(),
-            "length_penalty": self.length_penalty_spin.get_value(),
-            "early_stopping": self.early_stopping_check.get_active(),
-            "do_sample": self.do_sample_check.get_active(),
-            "quantization": self.quant_combo.get_active_text(),
-            "use_gradient_checkpointing": self.gc_check.get_active(),
-            "use_lora": self.lora_check.get_active(),
-            "use_flash_attention": self.fa_check.get_active(),
-            "use_pruning": self.pruning_check.get_active(),
-            "use_memory_mapping": self.mem_map_check.get_active(),
-            "use_bfloat16": self.bfloat16_check.get_active(),
-            "use_torch_compile": self.torch_compile_check.get_active(),
-            "offload_nvme": self.enable_nvme_check.get_active(),
-            "nvme_path": self.nvme_path_entry.get_text(),
-            "nvme_buffer_count_param": self.buffer_param_spin.get_value_as_int(),
-            "nvme_buffer_count_optimizer": self.buffer_opt_spin.get_value_as_int(),
-            "nvme_block_size": self.block_size_spin.get_value_as_int(),
-            "nvme_queue_depth": self.queue_depth_spin.get_value_as_int(),
-            "num_train_epochs": self.epochs_spin.get_value_as_int(),
-            "per_device_train_batch_size": self.batch_size_spin.get_value_as_int(),
-            "learning_rate": float(self.lr_entry.get_text()),
-            "weight_decay": float(self.wd_entry.get_text()),
-            "save_steps": self.save_steps_spin.get_value_as_int(),
-            "save_total_limit": self.save_total_spin.get_value_as_int(),
-            "num_layers_to_freeze": self.layers_freeze_spin.get_value_as_int(),
-            "enable_caching": self.caching_check.get_active(),
-            "logging_level": self.log_level_combo.get_active_text(),
-            "current_model": self.model_combo.get_active_text(),
-        }
+        try:
+            settings = {
+                "temperature": self.temp_scale.get_value(),
+                "top_p": self.topp_scale.get_value(),
+                "top_k": self.topk_spin.get_value_as_int(),
+                "max_tokens": self.maxt_spin.get_value_as_int(),
+                "repetition_penalty": self.rp_spin.get_value(),
+                "presence_penalty": self.pres_penalty_spin.get_value(),
+                "length_penalty": self.length_penalty_spin.get_value(),
+                "early_stopping": self.early_stopping_check.get_active(),
+                "do_sample": self.do_sample_check.get_active(),
+                "quantization": self.quant_combo.get_active_text(),
+                "use_gradient_checkpointing": self.gc_check.get_active(),
+                "use_lora": self.lora_check.get_active(),
+                "use_flash_attention": self.fa_check.get_active(),
+                "use_pruning": self.pruning_check.get_active(),
+                "use_memory_mapping": self.mem_map_check.get_active(),
+                "use_bfloat16": self.bfloat16_check.get_active(),
+                "use_torch_compile": self.torch_compile_check.get_active(),
+                "offload_nvme": self.enable_nvme_check.get_active(),
+                "nvme_path": self.nvme_path_entry.get_text(),
+                "nvme_buffer_count_param": self.buffer_param_spin.get_value_as_int(),
+                "nvme_buffer_count_optimizer": self.buffer_opt_spin.get_value_as_int(),
+                "nvme_block_size": self.block_size_spin.get_value_as_int(),
+                "nvme_queue_depth": self.queue_depth_spin.get_value_as_int(),
+                "num_train_epochs": self.epochs_spin.get_value_as_int(),
+                "per_device_train_batch_size": self.batch_size_spin.get_value_as_int(),
+                "learning_rate": float(self.lr_entry.get_text()),
+                "weight_decay": float(self.wd_entry.get_text()),
+                "save_steps": self.save_steps_spin.get_value_as_int(),
+                "save_total_limit": self.save_total_spin.get_value_as_int(),
+                "num_layers_to_freeze": self.layers_freeze_spin.get_value_as_int(),
+                "enable_caching": self.caching_check.get_active(),
+                "logging_level": self.log_level_combo.get_active_text(),
+                "current_model": self.model_combo.get_active_text(),
+            }
 
-        # Save settings using the config manager
-        self.ATLAS.base_config.update_model_settings(settings)
-        self.show_message("Success", "Settings saved successfully.")
+            # Save settings using the config manager
+            self.ATLAS.base_config.update_model_settings(settings)
+            self.show_message("Settings Saved", "Your settings have been saved successfully.", Gtk.MessageType.INFO)
+        except ValueError as ve:
+            self.show_message("Invalid Input", f"Please ensure all fields are correctly filled: {str(ve)}", Gtk.MessageType.ERROR)
+        except Exception as e:
+            self.show_message("Error", f"An error occurred while saving settings: {str(e)}", Gtk.MessageType.ERROR)
 
     def confirm_dialog(self, message):
         dialog = Gtk.MessageDialog(
-            transient_for=self,
+            transient_for=self.parent_window, 
             modal=True,
             message_type=Gtk.MessageType.QUESTION,
             buttons=Gtk.ButtonsType.YES_NO,
             text=message,
         )
-        response = dialog.show()
-        dialog.close()
+        response = dialog.run()
+        dialog.destroy()
         return response == Gtk.ResponseType.YES
 
-    def show_message(self, title, message):
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            modal=True,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text=title,
-        )
-        dialog.format_secondary_text(message)
-        dialog.show()
 
-    def run(self):
-        self.present()
+    def show_message(self, title, message, message_type=Gtk.MessageType.INFO):
+        dialog = Gtk.MessageDialog(
+            transient_for=self.parent_window,  
+            modal=True,
+            message_type=message_type,
+            buttons=Gtk.ButtonsType.OK
+        )
+        dialog.text = title
+        dialog.secondary_text = message
+        dialog.connect("response", lambda dialog, response: dialog.destroy())
+        dialog.present()
+
