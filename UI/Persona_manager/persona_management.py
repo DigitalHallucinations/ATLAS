@@ -18,12 +18,6 @@ class PersonaManagement:
         self.persona_window = Gtk.Window(title="Select Persona")
         self.persona_window.set_default_size(150, 600)
 
-        # Removed set_keep_above(True) as it's deprecated in GTK 4
-
-        # Note: Window positioning methods like move() are not available in GTK 4
-        # Window positioning is managed by the window manager
-        # self.position_window_next_to_sidebar(self.persona_window, 150)
-
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.persona_window.set_child(box)
 

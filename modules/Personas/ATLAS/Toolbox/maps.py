@@ -1,4 +1,4 @@
-# modules\Personas\SCOUT\Toolbox\maps.py
+# modules\Personas\ATLAS\Toolbox\maps.py
 
 from modules.Tools.Base_Tools.time import get_current_info
 from modules.Tools.Base_Tools.Google_search import GoogleSearch

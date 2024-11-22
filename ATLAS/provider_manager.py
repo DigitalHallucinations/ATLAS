@@ -277,6 +277,9 @@ class ProviderManager:
         requested_provider = provider if provider else self.current_llm_provider
         requested_model = model if model else self.get_current_model()
 
+        # Log the incoming parameters
+        self.logger.info(f"Generating response with Provider: {requested_provider}, Model: {requested_model}, Persona: {current_persona}")
+
         # Switch provider if different
         if requested_provider != self.current_llm_provider:
             await self.switch_llm_provider(requested_provider)
@@ -299,7 +302,7 @@ class ProviderManager:
 
             response = await self.generate_response_func(
                 self.config_manager,
-                messages,
+                messages=messages,
                 model=requested_model,
                 max_tokens=max_tokens,
                 temperature=temperature,

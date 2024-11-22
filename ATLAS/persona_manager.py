@@ -41,9 +41,9 @@ class PersonaManager:
         if persona:
             self.current_persona = persona
             self.current_system_prompt = self.build_system_prompt(persona)
-            self.logger.info(f"Default persona {self.default_persona_name} loaded with personalized system prompt.")
+            self.logger.info(f"Default persona '{self.default_persona_name}' loaded with personalized system prompt.")
         else:
-            self.logger.error(f"Failed to load default persona: {self.default_persona_name}")
+            self.logger.error(f"Failed to load default persona: '{self.default_persona_name}'")
 
     def load_persona_names(self, persona_path: str) -> List[str]:
         """Get the list of persona directories."""
@@ -66,36 +66,45 @@ class PersonaManager:
             dict: The loaded persona data, or None if loading fails.
         """
         if persona_name in self.personas:  # Check cache first
+            self.logger.info(f"Persona '{persona_name}' retrieved from cache.")
             return self.personas[persona_name]
         
         persona_folder = os.path.join(self.master.config_manager.get_app_root(), 'modules', 'Personas', persona_name, 'Persona')
         json_file = os.path.join(persona_folder, f'{persona_name}.json')
 
+        self.logger.debug(f"Attempting to load persona from folder: {persona_folder}")
+        self.logger.debug(f"Persona JSON file path: {json_file}")
+
         if os.path.exists(json_file):
             try:
                 with open(json_file, 'r', encoding='utf-8') as file:
                     persona_data = json.load(file)
-                    self.personas[persona_name] = persona_data["persona"][0]  # Cache the loaded persona
-                    self.logger.info(f"Persona {persona_name} loaded successfully from {json_file}")
-                    return self.personas[persona_name]
+                    if "persona" in persona_data and isinstance(persona_data["persona"], list) and len(persona_data["persona"]) > 0:
+                        self.personas[persona_name] = persona_data["persona"][0]  # Cache the loaded persona
+                        self.logger.info(f"Persona '{persona_name}' loaded successfully from '{json_file}'.")
+                        return self.personas[persona_name]
+                    else:
+                        self.logger.error(f"Invalid persona format in '{json_file}'. Expected a list under 'persona' key.")
+                        return None
             except (FileNotFoundError, json.JSONDecodeError) as e:
-                self.logger.error(f"Error loading persona {persona_name}: {e}")
+                self.logger.error(f"Error loading persona '{persona_name}': {e}")
                 return None
         else:
-            self.logger.error(f"JSON file for persona {persona_name} not found at {json_file}")
+            self.logger.error(f"JSON file for persona '{persona_name}' not found at '{json_file}'.")
             return None
+
 
     def get_persona(self, persona_name: str) -> Optional[dict]:
         """Retrieve the persona by name, loading it from disk if necessary."""
         return self.load_persona(persona_name)
 
     def updater(self, selected_persona_name: str):
-        """Update the current persona and manage conversation ID."""
-        self.logger.info(f"Attempting to update persona to {selected_persona_name}.")
+        """Update the current persona."""
+        self.logger.info(f"Attempting to update persona to '{selected_persona_name}'.")
         
         persona = self.get_persona(selected_persona_name)
         if not persona:
-            self.logger.error(f"Failed to update persona: {selected_persona_name} not found.")
+            self.logger.error(f"Failed to update persona: '{selected_persona_name}' not found or invalid.")
             return
 
         self.current_persona = persona
@@ -104,7 +113,9 @@ class PersonaManager:
         self.master.system_name = selected_persona_name
         self.master.system_name_tag = selected_persona_name
 
-        self.logger.info(f"Persona switched to {selected_persona_name} with new system prompt.")
+        self.logger.info(f"Persona switched to '{selected_persona_name}' with new system prompt.")
+        self.logger.info(f"Current persona is now: {self.current_persona}")
+
 
     def build_system_prompt(self, persona: dict) -> str:
         """
@@ -117,7 +128,7 @@ class PersonaManager:
         Returns:
             str: The personalized system prompt.
         """
-        self.logger.info(f"Building system prompt for persona {persona.get('name')}")
+        self.logger.info(f"Building system prompt for persona '{persona.get('name')}'.")
         user_data_manager = UserDataManager(self.user)
 
         # General user data available to all personas
@@ -127,27 +138,27 @@ class PersonaManager:
 
         # Only add Profile if user_profile_enabled is True
         if persona.get("user_profile_enabled") == "True":
-            self.logger.info(f"Adding Profile to persona: {persona['name']}")
+            self.logger.info(f"Adding Profile to persona: '{persona['name']}'.")
             user_data["<<Profile>>"] = user_data_manager.get_profile_text()
         else:
-            self.logger.info(f"Profile not added for persona: {persona['name']}")
-            user_data["<<Profile>>"] = "Profile not available for this persona"
+            self.logger.info(f"Profile not added for persona: '{persona['name']}'.")
+            user_data["<<Profile>>"] = "Profile not available for this persona."
 
         # Only add EMR if the persona is a medical persona
         if persona.get("medical_persona") == "True":
-            self.logger.info(f"Adding EMR to medical persona: {persona['name']}")
+            self.logger.info(f"Adding EMR to medical persona: '{persona['name']}'.")
             user_data["<<emr>>"] = user_data_manager.get_emr()
         else:
-            self.logger.info(f"EMR not added for non-medical persona: {persona['name']}")
-            user_data["<<emr>>"] = "EMR not available for this persona"
+            self.logger.info(f"EMR not added for non-medical persona: '{persona['name']}'.")
+            user_data["<<emr>>"] = "EMR not available for this persona."
 
         # Only add sysinfo if the persona is a sys_admin_persona
         if persona.get("sys_info_enabled") == "True":
-            self.logger.info(f"Adding system info to persona: {persona['name']}")
+            self.logger.info(f"Adding system info to persona: '{persona['name']}'.")
             user_data["<<sysinfo>>"] = user_data_manager.get_system_info()
         else:
-            self.logger.info(f"System info not added for persona: {persona['name']}")
-            user_data["<<sysinfo>>"] = "System info not available for this persona"
+            self.logger.info(f"System info not added for persona: '{persona['name']}'.")
+            user_data["<<sysinfo>>"] = "System info not available for this persona."
 
         # Assemble the system prompt from the content parts
         content = persona.get("content", {})
@@ -163,6 +174,7 @@ class PersonaManager:
         for placeholder, data in user_data.items():
             personalized_content = personalized_content.replace(placeholder, data)
 
+        self.logger.info(f"System prompt built for persona '{persona['name']}': {personalized_content}")
         return personalized_content
 
     def update_persona(self, persona):
@@ -174,9 +186,9 @@ class PersonaManager:
         try:
             with open(json_file, 'w', encoding='utf-8') as file:
                 json.dump({"persona": [persona]}, file, indent=4)
-            self.logger.info(f"Persona {persona_name} updated successfully.")
+            self.logger.info(f"Persona '{persona_name}' updated successfully.")
         except OSError as e:
-            self.logger.error(f"Error saving persona {persona_name}: {e}")
+            self.logger.error(f"Error saving persona '{persona_name}': {e}")
 
     def show_message(self, role: str, message: str):
         """Display a message using the chat component, if available."""

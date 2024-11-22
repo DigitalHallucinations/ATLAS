@@ -32,15 +32,6 @@ ATLAS
 ├── UI
 │   ├── Chat
 │   │   └── chat_page.py
-│   ├── GTK_3.0_UI
-│   │   ├── chat_page.py
-│   │   ├── general_tab.py
-│   │   ├── main.py
-│   │   ├── persona_management.py
-│   │   ├── persona_type_tab.py
-│   │   ├── sidebar.py
-│   │   ├── style.css
-│   │   └── style_util.py
 │   ├── Persona_manager
 │   │   ├── General_Tab
 │   │   │   └── general_tab.py

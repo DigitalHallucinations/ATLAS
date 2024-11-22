@@ -1,6 +1,6 @@
 # ATLAS/ATLAS.py
 
-from typing import List
+from typing import List, Dict, Union, AsyncIterator
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.provider_manager import ProviderManager
@@ -18,7 +18,7 @@ class ATLAS:
         """
         self.config_manager = ConfigManager()
         self.logger = setup_logger(__name__)
-        self.persona_path = self.config_manager.get_app_root()  
+        self.persona_path = self.config_manager.get_app_root()
         self.current_persona = None
         self.user = "Bib"  # Placeholder; replace with system user retrieval
         self.provider_manager = None
@@ -69,6 +69,9 @@ class ATLAS:
         """
         self.logger.info(f"Loading persona: {persona}")
         self.persona_manager.updater(persona)
+        self.current_persona = self.persona_manager.current_persona  # Update the current_persona in ATLAS
+        self.logger.info(f"Current persona set to: {self.current_persona}")
+
 
     def get_available_providers(self) -> List[str]:
         """
@@ -143,3 +146,29 @@ class ATLAS:
         """
         await self.provider_manager.close()
         self.logger.info("ATLAS closed and all providers unloaded.")
+
+    async def generate_response(self, messages: List[Dict[str, str]]) -> Union[str, AsyncIterator[str]]:
+        """
+        Generate a response using the current provider and model.
+
+        Args:
+            messages (List[Dict[str, str]]): The conversation messages.
+
+        Returns:
+            Union[str, AsyncIterator[str]]: The generated response or a stream of tokens.
+        """
+        if not self.current_persona:
+            self.logger.error("No persona is currently loaded. Cannot generate response.")
+            return "Error: No persona is currently loaded. Please select a persona."
+
+        try:
+            response = await self.provider_manager.generate_response(
+                messages=messages,
+                current_persona=self.current_persona,
+                user=self.user,
+                conversation_id=self.chat_session.conversation_id
+            )
+            return response
+        except Exception as e:
+            self.logger.error(f"Failed to generate response: {e}", exc_info=True)
+            return "Error: Failed to generate response. Please try again later."
