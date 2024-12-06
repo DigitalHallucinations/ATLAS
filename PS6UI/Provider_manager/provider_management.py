@@ -4,9 +4,10 @@ import os
 import logging
 import asyncio
 import threading
+from functools import partial
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QMessageBox, QScrollArea, QWidget, QFrame
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QMessageBox
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap, QIcon
@@ -49,15 +50,18 @@ class ProviderManagement:
         provider_names = self.ATLAS.get_available_providers()
         for provider_name in provider_names:
             hbox = QHBoxLayout()
-            
+
             label = QLabel(provider_name)
             label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-            # Click on label -> select provider
-            label.mouseReleaseEvent = lambda e, p=provider_name: self.select_provider(p)
-            
+
+            # Define a closure for label click event so each label selects the correct provider
+            def label_mouse_release(event, p=provider_name):
+                self.select_provider(p)
+            label.mouseReleaseEvent = label_mouse_release
+
             settings_icon_path = os.path.join(os.path.dirname(__file__), "../../Icons/settings.png")
             settings_icon_path = os.path.abspath(settings_icon_path)
-            
+
             settings_button = QPushButton()
             settings_button.setFixedSize(16,16)
             if os.path.exists(settings_icon_path):
@@ -65,7 +69,9 @@ class ProviderManagement:
                 settings_button.setIcon(QIcon(pixmap))
             else:
                 settings_button.setText("S")
-            settings_button.clicked.connect(lambda checked, p=provider_name: self.open_provider_settings(p))
+
+            # Use partial to ensure the correct provider_name is used
+            settings_button.clicked.connect(partial(self.open_provider_settings, provider_name))
 
             hbox.addWidget(label)
             hbox.addWidget(settings_button, alignment=Qt.AlignRight)
@@ -104,8 +110,13 @@ class ProviderManagement:
             loop.close()
 
     def open_provider_settings(self, provider_name: str):
-        if self.provider_window:
-            self.provider_window.close()
+        """
+        Opens the appropriate settings dialog for the given provider.
+        If HuggingFace, opens the HuggingFaceSettingsWindow.
+        Otherwise, opens a generic provider settings dialog for API key entry.
+        """
+        # Do not close the provider_window here. Let the provider menu remain open or be closed by user if needed.
+        # This ensures the dialog does not immediately close when we open the settings.
 
         if provider_name == "HuggingFace":
             if self.ATLAS.provider_manager.huggingface_generator is None:
@@ -123,6 +134,7 @@ class ProviderManagement:
         Displays the HuggingFace settings window.
         """
         settings_window = HuggingFaceSettingsWindow(self.ATLAS, self.config_manager, self.parent_window)
+        # Display the dialog modally
         settings_window.exec()
 
     def show_provider_settings(self, provider_name: str):
@@ -157,8 +169,9 @@ class ProviderManagement:
         if existing_api_key:
             self.api_key_entry.setText(existing_api_key)
 
+        # Use partial to ensure the callback has correct provider_name and dialog
         save_button = QPushButton("Save")
-        save_button.clicked.connect(lambda: self.on_save_button_clicked(provider_name, dialog))
+        save_button.clicked.connect(partial(self.on_save_button_clicked, provider_name, dialog))
         layout.addWidget(save_button)
 
         dialog.exec()
@@ -173,7 +186,7 @@ class ProviderManagement:
             "Google": self.config_manager.get_google_api_key,
             "HuggingFace": self.config_manager.get_huggingface_api_key,
             "Anthropic": self.config_manager.get_anthropic_api_key,
-            "Grok": self.config_manager.get_grok_api_key,  
+            "Grok": self.config_manager.get_grok_api_key,
         }
 
         get_key_func = api_key_methods.get(provider_name)
@@ -182,6 +195,10 @@ class ProviderManagement:
         return ""
 
     def on_save_button_clicked(self, provider_name: str, dialog: QDialog):
+        """
+        Handles the Save button click in the provider settings dialog.
+        Validates and updates the API key for the provider.
+        """
         new_api_key = self.api_key_entry.text().strip()
         if not new_api_key:
             self.show_error_dialog("API Key cannot be empty.")
@@ -191,6 +208,9 @@ class ProviderManagement:
         threading.Thread(target=self.update_api_key_thread, args=(provider_name, new_api_key, dialog), daemon=True).start()
 
     def update_api_key_thread(self, provider_name: str, new_api_key: str, dialog: QDialog):
+        """
+        Thread target to update the API key and refresh the provider asynchronously.
+        """
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -207,6 +227,9 @@ class ProviderManagement:
             loop.close()
 
     async def refresh_provider_async(self, provider_name: str):
+        """
+        Refreshes the current provider if it matches the given provider_name.
+        """
         if provider_name == self.ATLAS.provider_manager.current_llm_provider:
             try:
                 await self.ATLAS.provider_manager.set_current_provider(provider_name)
@@ -216,7 +239,13 @@ class ProviderManagement:
                 QTimer.singleShot(0, lambda: self.show_error_dialog(f"Error refreshing provider {provider_name}: {e}"))
 
     def show_error_dialog(self, message: str):
+        """
+        Displays an error dialog with the given message.
+        """
         QMessageBox.critical(self.parent_window, "Error", message)
 
     def show_info_dialog(self, message: str):
+        """
+        Displays an info dialog with the given message.
+        """
         QMessageBox.information(self.parent_window, "Information", message)

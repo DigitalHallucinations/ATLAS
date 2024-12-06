@@ -95,6 +95,27 @@ class HuggingFaceGenerator:
     def set_torch_compile(self, enable: bool):
         self.base_config.set_torch_compile(enable)
 
+    async def process_streaming_response(self, response: AsyncIterator[str]) -> str:
+        """
+        Processes a streaming response from the HuggingFace model.
+
+        This method consumes an asynchronous iterator that yields pieces of the response
+        (such as tokens or text chunks) and concatenates them into a single string.
+
+        Args:
+            response (AsyncIterator[str]): An asynchronous iterator that yields
+                                           parts of the streamed response as strings.
+
+        Returns:
+            str: The complete, assembled response as a single string.
+        """
+        chunks = []
+        async for chunk in response:
+            # Each chunk is expected to be a string representing a portion of the response
+            chunks.append(chunk)
+        # Join all chunks to form the final response
+        return "".join(chunks)
+
 
 # Helper Functions
 
