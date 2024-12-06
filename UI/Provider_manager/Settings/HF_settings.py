@@ -6,14 +6,14 @@ import asyncio
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib
 
-from UI.Utils.utils import create_box  # Import the helper function
+from UI.Utils.utils import create_box 
 
 class HuggingFaceSettingsWindow(Gtk.Window):
     def __init__(self, ATLAS, config_manager, parent_window):
         super().__init__(title="HuggingFace Settings")
         self.parent_window = parent_window
-        self.set_transient_for(parent_window)  # Set parent window for modality
-        self.set_modal(True)  # Make the window modal
+        self.set_transient_for(parent_window)  
+        self.set_modal(True)  
 
         # Apply the CSS styling
         self.apply_css_styling()
