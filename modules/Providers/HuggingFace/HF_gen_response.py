@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import shutil
 from typing import List, Dict, Union, AsyncIterator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -39,6 +40,20 @@ class HuggingFaceGenerator:
 
     def get_installed_models(self) -> List[str]:
         return self.model_manager.get_installed_models()
+    
+    def clear_model_cache(self):
+        """
+        Clears all files and directories within the model_cache directory.
+        """
+        model_cache_dir = self.base_config.model_cache_dir
+        self.logger.info(f"Clearing all cache files in {model_cache_dir}")
+        for filename in os.listdir(model_cache_dir):
+            file_path = os.path.join(model_cache_dir, filename)
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.remove(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        self.logger.info("Model cache cleared successfully.")
 
     async def generate_response(
         self,
@@ -47,6 +62,27 @@ class HuggingFaceGenerator:
         stream: bool = True
     ) -> Union[str, AsyncIterator[str]]:
         return await self.response_generator.generate_response(messages, model, stream)
+
+    async def process_streaming_response(self, response: AsyncIterator[str]) -> str:
+        """
+        Processes a streaming response from the HuggingFace model.
+
+        This method consumes an asynchronous iterator that yields pieces of the response
+        (such as tokens or text chunks) and concatenates them into a single string.
+
+        Args:
+            response (AsyncIterator[str]): An asynchronous iterator that yields
+                                           parts of the streamed response as strings.
+
+        Returns:
+            str: The complete, assembled response as a single string.
+        """
+        chunks = []
+        async for chunk in response:
+            # Each chunk is expected to be a string representing a portion of the response
+            chunks.append(chunk)
+        # Join all chunks to form the final response
+        return "".join(chunks)
 
     def update_model_settings(self, new_settings: Dict):
         self.base_config.update_model_settings(new_settings)
@@ -95,27 +131,7 @@ class HuggingFaceGenerator:
     def set_torch_compile(self, enable: bool):
         self.base_config.set_torch_compile(enable)
 
-    async def process_streaming_response(self, response: AsyncIterator[str]) -> str:
-        """
-        Processes a streaming response from the HuggingFace model.
-
-        This method consumes an asynchronous iterator that yields pieces of the response
-        (such as tokens or text chunks) and concatenates them into a single string.
-
-        Args:
-            response (AsyncIterator[str]): An asynchronous iterator that yields
-                                           parts of the streamed response as strings.
-
-        Returns:
-            str: The complete, assembled response as a single string.
-        """
-        chunks = []
-        async for chunk in response:
-            # Each chunk is expected to be a string representing a portion of the response
-            chunks.append(chunk)
-        # Join all chunks to form the final response
-        return "".join(chunks)
-
+    
 
 # Helper Functions
 
@@ -155,3 +171,4 @@ def generate_response_sync(
     if stream:
         return loop.run_until_complete(process_response(response))
     return response
+

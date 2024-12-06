@@ -633,17 +633,10 @@ class HuggingFaceSettingsWindow(QDialog):
         self.close()
 
     def on_clear_cache_clicked(self):
-        """
-        Clear the model cache file if confirmed by the user.
-        """
-        cache_file = self.ATLAS.base_config.cache_file
-        if self.confirm_dialog(f"Are you sure you want to clear the cache at {cache_file}?"):
+        if self.confirm_dialog("Are you sure you want to clear all cached files?"):
             try:
-                if os.path.exists(cache_file):
-                    os.remove(cache_file)
-                    self.show_message("Success", "Cache cleared successfully.")
-                else:
-                    self.show_message("Info", "Cache file does not exist.")
+                self.ATLAS.provider_manager.huggingface_generator.clear_model_cache()
+                self.show_message("Success", "All cache files cleared successfully.")
             except Exception as e:
                 self.show_message("Error", f"Error clearing cache: {e}", QMessageBox.Critical)
 
@@ -766,9 +759,12 @@ class HuggingFaceSettingsWindow(QDialog):
                 "current_model": self.model_combo.currentText(),
             }
 
-            self.ATLAS.base_config.update_model_settings(settings)
+            # Call update_model_settings on the huggingface_generator
+            self.ATLAS.provider_manager.huggingface_generator.update_model_settings(settings)
+
             # Emit the settingsSaved signal
             self.settingsSaved.emit(settings)
+
         except ValueError as ve:
             self.show_message("Invalid Input", f"Check field values: {ve}", QMessageBox.Critical)
         except Exception as e:
