@@ -13,6 +13,9 @@ env/
 # Ignore all .log files
 *.log
 
+# Ignore model_cache directory
+/modules/Providers/HuggingFace/model_cache
+
 # Ignore mp3, mp4, and wav audio/video files in assets
 /assets/tts_mp3/*.mp3
 /assets/avatar_videos/*.mp4

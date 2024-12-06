@@ -4,10 +4,10 @@ import os
 import asyncio
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox,
-    QComboBox, QWidget, QGridLayout, QMessageBox, QFileDialog, QListWidget, QScrollArea, QSlider
+    QComboBox, QWidget, QGridLayout, QMessageBox, QFileDialog, QListWidget, QScrollArea, QSlider, QMenu
 )
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QDoubleValidator
+from PySide6.QtCore import Qt, Signal, QPoint
+from PySide6.QtGui import QDoubleValidator, QAction
 
 class HuggingFaceSettingsWindow(QDialog):
     """
@@ -494,9 +494,6 @@ class HuggingFaceSettingsWindow(QDialog):
         """
         Create the "Search & Download" tab under "Models", allowing the user to search the
         HuggingFace Hub for models that match certain criteria, and display the results.
-
-        Returns:
-            QWidget: The widget for searching and downloading models.
         """
         w = QWidget()
         layout = QGridLayout(w)
@@ -538,7 +535,36 @@ class HuggingFaceSettingsWindow(QDialog):
         self.results_list = QListWidget()
         layout.addWidget(self.results_list, 6, 0, 1, 3)
 
+        # Enable context menu on the results list
+        self.results_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.results_list.customContextMenuRequested.connect(self.on_results_list_context_menu)
+
         return w
+
+    def on_results_list_context_menu(self, pos: QPoint):
+        item = self.results_list.itemAt(pos)
+        if item is not None:
+            menu = QMenu(self)
+            download_action = QAction("Download", self)
+            download_action.triggered.connect(lambda: self.download_model(item))
+            menu.addAction(download_action)
+            menu.exec_(self.results_list.mapToGlobal(pos))
+
+    def download_model(self, item):
+        model_id = item.data(Qt.UserRole)
+        if not model_id:
+            self.show_message("Error", "Could not determine model ID to download.", QMessageBox.Critical)
+            return
+
+        if self.confirm_dialog(f"Do you want to download the model '{model_id}'?"):
+            try:
+                # Ensure that your huggingface_generator has a method like:
+                # await huggingface_generator.model_manager.load_model(model_id, force_download=True)
+                asyncio.run(self.ATLAS.provider_manager.huggingface_generator.model_manager.load_model(model_id, force_download=True))
+                self.show_message("Success", f"Model '{model_id}' downloaded successfully.")
+                self.populate_model_comboboxes()
+            except Exception as e:
+                self.show_message("Error", f"Failed to download model '{model_id}': {e}", QMessageBox.Critical)
 
     def populate_model_comboboxes(self):
         """
@@ -692,7 +718,10 @@ class HuggingFaceSettingsWindow(QDialog):
                                  f"Tags: {', '.join(model.tags)} | "
                                  f"Downloads: {model.downloads} | "
                                  f"Likes: {model.likes}")
-                    self.results_list.addItem(info_text)
+                    item = self.results_list.addItem(info_text)
+                    new_item = self.results_list.item(self.results_list.count()-1)
+                    # Store model ID in user data for easy retrieval
+                    new_item.setData(Qt.UserRole, model.modelId)
         except Exception as e:
             self.show_message("Error", f"An error occurred while searching for models: {str(e)}", QMessageBox.Critical)
 
