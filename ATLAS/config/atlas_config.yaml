@@ -1,0 +1,10 @@
+# ATLAS/config.yaml
+
+# TTS Configuration
+TTS_ENABLED: true
+DEFAULT_TTS_PROVIDER: "eleven_labs"
+
+# STT Configuration
+DEFAULT_STT_PROVIDER: "google"
+
+

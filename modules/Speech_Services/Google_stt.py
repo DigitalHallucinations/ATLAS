@@ -1,4 +1,4 @@
-#gui\Google\GglCldSvcs\stt.py
+# modules\Speech_Services\stt.py
 
 import os
 import sounddevice as sd
@@ -9,9 +9,9 @@ from modules.logging.logger import setup_logger
 
 logger = setup_logger('Ggl_stt.py')
 
-class SpeechToText:
+class GoogleSTT:
     def __init__(self, fs=16000, sample_rate_hertz=16000, enable_automatic_punctuation=True):
-        logger.info("Initializing SpeechToText")
+        logger.info("Initializing GoogleSTT")
         self.client = speech.SpeechClient()
         self.config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,

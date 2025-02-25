@@ -4,14 +4,12 @@ import os
 from typing import Dict, Any
 from modules.logging.logger import setup_logger
 from dotenv import load_dotenv, set_key, find_dotenv
+import yaml
 
 class ConfigManager:
     """
     Manages configuration settings for the application, including loading
     environment variables and handling API keys for various providers.
-
-    Attributes:
-        config (Dict[str, Any]): A dictionary holding all configuration settings..
     """
 
     def __init__(self):
@@ -27,12 +25,16 @@ class ConfigManager:
         # Setup logger early to log any issues
         self.logger = setup_logger(__name__)
         
-        # Load configurations
-        self.config = self._load_env_config()
+        # Load configurations from .env and config.yaml
+        self.env_config = self._load_env_config()
+        self.yaml_config = self._load_yaml_config()
+        
+        # Merge configurations, with YAML config overriding env config if there's overlap
+        self.config = {**self.env_config, **self.yaml_config}
 
         # Derive other paths from APP_ROOT
         self.config['MODEL_CACHE_DIR'] = os.path.join(
-            self.config['APP_ROOT'],
+            self.config.get('APP_ROOT', '.'),
             'modules',
             'Providers',
             'HuggingFace',
@@ -51,7 +53,7 @@ class ConfigManager:
         Loads environment variables into the configuration dictionary.
 
         Returns:
-            Dict[str, Any]: A dictionary containing all loaded configuration settings.
+            Dict[str, Any]: A dictionary containing all loaded environment configuration settings.
         """
         config = {
             'OPENAI_API_KEY': os.getenv('OPENAI_API_KEY'),
@@ -66,6 +68,29 @@ class ConfigManager:
         }
         self.logger.info(f"APP_ROOT is set to: {config['APP_ROOT']}")
         return config
+
+    def _load_yaml_config(self) -> Dict[str, Any]:
+        """
+        Loads configuration settings from the config.yaml file.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing all loaded YAML configuration settings.
+        """
+        # Construct the path to config.yaml based on APP_ROOT
+        yaml_path = os.path.join(self.env_config.get('APP_ROOT', '.'), 'ATLAS', 'config', 'atlas_config.yaml')
+        
+        if not os.path.exists(yaml_path):
+            self.logger.error(f"Configuration file not found: {yaml_path}")
+            return {}
+        
+        try:
+            with open(yaml_path, 'r') as file:
+                config = yaml.safe_load(file) or {}
+                self.logger.info(f"Loaded configuration from {yaml_path}")
+                return config
+        except Exception as e:
+            self.logger.error(f"Failed to load configuration from {yaml_path}: {e}")
+            return {}
 
     def get_config(self, key: str, default: Any = None) -> Any:
         """
@@ -207,6 +232,7 @@ class ConfigManager:
 
         # Reload environment variables
         load_dotenv(env_path, override=True)
+        self.env_config[env_key] = new_api_key
         self.config[env_key] = new_api_key
 
     def _is_api_key_set(self, provider_name: str) -> bool:
@@ -231,3 +257,38 @@ class ConfigManager:
         """
         providers = ["OpenAI", "Mistral", "Google", "HuggingFace", "Anthropic", "Grok"]
         return {provider: self.get_config(f"{provider.upper()}_API_KEY") for provider in providers}
+
+    # Additional methods to handle TTS_ENABLED from config.yaml
+    def get_tts_enabled(self) -> bool:
+        """
+        Retrieves the TTS enabled status from the configuration.
+
+        Returns:
+            bool: True if TTS is enabled, False otherwise.
+        """
+        return self.get_config('TTS_ENABLED', False)
+
+    def set_tts_enabled(self, value: bool):
+        """
+        Sets the TTS enabled status in the configuration.
+
+        Args:
+            value (bool): True to enable TTS, False to disable.
+        """
+        self.yaml_config['TTS_ENABLED'] = value
+        self.config['TTS_ENABLED'] = value
+        self.logger.info(f"TTS_ENABLED set to {value}")
+        # Optionally, write back to config.yaml if persistence is required
+        self._write_yaml_config()
+
+    def _write_yaml_config(self):
+        """
+        Writes the current YAML configuration back to the config.yaml file.
+        """
+        yaml_path = os.path.join(self.get_app_root(), 'config.yaml')
+        try:
+            with open(yaml_path, 'w') as file:
+                yaml.dump(self.yaml_config, file)
+            self.logger.info(f"Configuration written to {yaml_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to write configuration to {yaml_path}: {e}")

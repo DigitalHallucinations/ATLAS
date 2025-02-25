@@ -17,7 +17,17 @@ mistralai
 anthropic
 huggingface_hub
 google.generativeai
+google-cloud-texttospeech 
+google-cloud-speech  
 xai_sdk
+
+# for Config
+pyyaml
+
+# for Audio
+pygame
+soundfile
+sounddevice
 
 # Torch for model computations
 torch

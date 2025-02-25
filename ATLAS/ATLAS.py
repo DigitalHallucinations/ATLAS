@@ -6,10 +6,11 @@ from modules.logging.logger import setup_logger
 from ATLAS.provider_manager import ProviderManager
 from ATLAS.persona_manager import PersonaManager
 from modules.Chat.chat_session import ChatSession
+from modules.Speech_Services.speech_manager import SpeechManager  
 
 class ATLAS:
     """
-    The main ATLAS application class that manages configurations, providers, and personas.
+    The main ATLAS application class that manages configurations, providers, personas, and speech services.
     """
 
     def __init__(self):
@@ -24,6 +25,7 @@ class ATLAS:
         self.provider_manager = None
         self.persona_manager = None
         self.chat_session = None
+        self.speech_manager = SpeechManager(self.config_manager)  # Instantiate SpeechManager with ConfigManager
         self._initialized = False
 
     async def initialize(self):
@@ -40,6 +42,22 @@ class ATLAS:
         self.logger.info(f"Default provider set to: {self.provider_manager.get_current_provider()}")
         self.logger.info(f"Default model set to: {self.provider_manager.get_current_model()}")
         self.logger.info("ATLAS initialized successfully.")
+        
+        # Initialize SpeechManager
+        await self.speech_manager.initialize()  # Ensure SpeechManager is initialized
+        self.logger.info("SpeechManager initialized successfully.")
+        
+        # Load TTS setting from configuration
+        tts_enabled = self.config_manager.get_tts_enabled()
+        self.speech_manager.set_tts_status(tts_enabled)
+        self.logger.info(f"TTS enabled: {tts_enabled}")
+        
+        # Optionally, set default TTS provider if specified in config.yaml
+        default_tts_provider = self.config_manager.get_config('DEFAULT_TTS_PROVIDER')
+        if default_tts_provider:
+            self.speech_manager.set_default_tts_provider(default_tts_provider)
+            self.logger.info(f"Default TTS provider set to: {default_tts_provider}")
+        
         self._initialized = True
 
     def is_initialized(self) -> bool:
@@ -71,7 +89,6 @@ class ATLAS:
         self.persona_manager.updater(persona)
         self.current_persona = self.persona_manager.current_persona  # Update the current_persona in ATLAS
         self.logger.info(f"Current persona set to: {self.current_persona}")
-
 
     def get_available_providers(self) -> List[str]:
         """
@@ -145,11 +162,13 @@ class ATLAS:
         Perform cleanup operations.
         """
         await self.provider_manager.close()
+        await self.speech_manager.close()  
         self.logger.info("ATLAS closed and all providers unloaded.")
 
     async def generate_response(self, messages: List[Dict[str, str]]) -> Union[str, AsyncIterator[str]]:
         """
         Generate a response using the current provider and model.
+        Additionally, perform TTS generation if enabled.
 
         Args:
             messages (List[Dict[str, str]]): The conversation messages.
@@ -168,6 +187,11 @@ class ATLAS:
                 user=self.user,
                 conversation_id=self.chat_session.conversation_id
             )
+
+            # Perform TTS if enabled
+            if self.speech_manager.get_tts_status():
+                await self.speech_manager.text_to_speech(response)
+
             return response
         except Exception as e:
             self.logger.error(f"Failed to generate response: {e}", exc_info=True)
