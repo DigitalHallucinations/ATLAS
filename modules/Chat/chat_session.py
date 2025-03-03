@@ -1,4 +1,4 @@
-# ATLAS/chat_session.py
+# modules/chat_session.py
 
 class ChatSession:
     def __init__(self, atlas):
