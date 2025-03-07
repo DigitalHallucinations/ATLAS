@@ -1,4 +1,4 @@
-Certainly! Here's a set of documentation for the **Hybrid Cognitive Dynamics Model (HCDM)**.
+
 
 # Hybrid Cognitive Dynamics Model (HCDM) Documentation
 
