@@ -1,0 +1,1976 @@
+#Speech_Services integration
+
+# --------------------------------------------------------------------
+
+# modules/Speech_Services/base.py
+
+from abc import ABC, abstractmethod
+
+class BaseTTS(ABC):
+    @abstractmethod
+    async def text_to_speech(self, text: str):
+        pass
+
+    @abstractmethod
+    def set_voice(self, voice: dict):
+        pass
+
+    @abstractmethod
+    def get_voices(self) -> list:
+        pass
+
+    @abstractmethod
+    def set_tts(self, value: bool):
+        pass
+
+    @abstractmethod
+    def get_tts(self) -> bool:
+        pass
+
+class BaseSTT(ABC):
+    @abstractmethod
+    def listen(self):
+        pass
+
+    @abstractmethod
+    def stop_listening(self):
+        pass
+
+    @abstractmethod
+    def transcribe(self, audio_file: str) -> str:
+        pass
+
+# modules/Speech_Services/Eleven_Labs/elevenlabs_tts.py
+
+"""
+Module: elevenlabs_tts.py
+Description:
+    Enterprise production–ready implementation of Eleven Labs Text-to-Speech integration.
+    This provider now checks for an API key configuration. If the API key is not provided,
+    the service logs a warning and disables TTS functionality without breaking the application.
+    
+Usage:
+    The API key can be set via the environment (or via the ConfigManager in the Speech Settings UI).
+    If not provided, the provider remains disabled.
+    
+Author: Jeremy Shows - Digital Hallucinations
+Date: 05-11-2025
+"""
+
+import os
+import re
+import pygame
+import threading
+import requests
+from datetime import datetime
+from dotenv import load_dotenv
+from modules.logging.logger import setup_logger
+from .base import BaseTTS
+
+logger = setup_logger('eleven_labs_tts.py')
+
+CHUNK_SIZE = 1024 
+
+class ElevenLabsTTS(BaseTTS):
+    def __init__(self):
+        self._use_tts = False
+        self.voice_ids = []
+        self.configured = False  # Flag indicating whether API key is configured.
+        self.load_voices()
+
+    def load_voices(self):
+        """
+        Loads available voices from the Eleven Labs API.
+        Reads the XI_API_KEY from the environment.
+        If the API key is not provided, logs a warning and disables further functionality.
+        """
+        load_dotenv()
+        XI_API_KEY = os.getenv("XI_API_KEY")
+        if not XI_API_KEY:
+            logger.error("XI_API_KEY not found. Eleven Labs TTS is disabled. Please configure the API key.")
+            self.configured = False
+            self.voice_ids = []
+            return  # Do not raise an exception; allow the app to continue.
+        else:
+            self.configured = True
+
+        url = "https://api.elevenlabs.io/v1/voices"
+        headers = {
+            "Accept": "application/json",
+            "xi-api-key": XI_API_KEY,
+            "Content-Type": "application/json"
+        }
+
+        logger.info("Fetching voices from Eleven Labs API...")
+        response = requests.get(url, headers=headers)
+        if response.ok:
+            data = response.json()
+            self.voice_ids = [{'voice_id': voice['voice_id'], 'name': voice['name']} for voice in data.get('voices', [])]
+            if self.voice_ids:
+                logger.info(f"Loaded {len(self.voice_ids)} voices from Eleven Labs.")
+            else:
+                logger.error("No voices found in Eleven Labs.")
+        else:
+            logger.error(f"Failed to fetch voices: {response.text}")
+            self.voice_ids = []
+
+    def play_audio(self, filename):
+        """
+        Plays the specified audio file.
+        """
+        logger.info(f"Playing audio file: {filename}")
+        pygame.mixer.init()
+        pygame.mixer.music.load(filename)
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            pygame.time.Clock().tick(10)
+        logger.info("Audio playback finished.")
+
+    def contains_code(self, text: str) -> bool:
+        """
+        Checks if the provided text contains any code blocks.
+        
+        Args:
+            text (str): Text to check.
+        
+        Returns:
+            bool: True if code is detected, False otherwise.
+        """
+        logger.debug(f"Checking if text contains code: {text}")
+        return "<code>" in text
+
+    async def text_to_speech(self, text: str):
+        """
+        Converts text to speech by sending a request to the Eleven Labs API.
+        If TTS is disabled or the service is not configured, the method logs the state and returns.
+        
+        Args:
+            text (str): Text to be converted to speech.
+        """
+        if not self._use_tts:
+            logger.info("TTS is turned off.")
+            return
+
+        if not self.configured:
+            logger.error("Eleven Labs TTS is not configured (missing API key).")
+            return
+
+        if self.contains_code(text):
+            logger.info("Skipping TTS as the text contains code.")
+            text = re.sub(r"[^]*", "", text)
+
+        if not self.voice_ids:
+            logger.error("No voice IDs available for Eleven Labs TTS.")
+            return
+
+        voice_id = self.voice_ids[0]['voice_id']
+        tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
+       
+        headers = {
+            "Accept": "application/json",
+            "xi-api-key": os.getenv("XI_API_KEY")
+        }
+
+        data = {
+            "text": text,
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.8,
+                "style": 0.0,
+                "use_speaker_boost": True
+            }
+        }
+
+        logger.info(f"Sending TTS request to Eleven Labs with text: {text}")
+        response = requests.post(tts_url, headers=headers, json=data, stream=True)
+
+        logger.info(f"Eleven Labs API response status: {response.status_code}")
+        if response.ok:
+            logger.info("Received TTS response successfully.")
+            output_dir = "assets/SCOUT/tts_mp3/"
+            os.makedirs(output_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            output_path = os.path.join(output_dir, f"output_{timestamp}.mp3")
+            
+            with open(output_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
+                    f.write(chunk)
+            logger.info(f"Audio saved to {output_path}")
+            threading.Thread(target=self.play_audio, args=(output_path,)).start()
+        else:
+            logger.error(f"Eleven Labs TTS Error: {response.text}")
+
+    def set_voice(self, voice: dict):
+        """
+        Sets the active voice to the one matching the provided voice dictionary.
+        
+        Args:
+            voice (dict): Dictionary containing voice details.
+        """
+        for i, v in enumerate(self.voice_ids):
+            if v['name'] == voice['name'] and v['voice_id'] == voice['voice_id']:
+                self.voice_ids.pop(i)
+                self.voice_ids.insert(0, voice)
+                logger.info(f"Voice set to: {voice['name']} with ID: {voice['voice_id']}")
+                return
+        logger.error(f"Voice {voice['name']} not found in Eleven Labs voices.")
+
+    def get_voices(self) -> list:
+        """
+        Returns a list of available voices.
+        
+        Returns:
+            list: Available voices.
+        """
+        return self.voice_ids
+
+    def set_tts(self, value: bool):
+        """
+        Enables or disables TTS functionality.
+        
+        Args:
+            value (bool): True to enable, False to disable.
+        """
+        self._use_tts = value
+        logger.info(f"Eleven Labs TTS set to: {self._use_tts}")
+
+    def get_tts(self) -> bool:
+        """
+        Gets the current TTS enabled status.
+        
+        Returns:
+            bool: True if enabled, False otherwise.
+        """
+        return self._use_tts
+
+
+# modules/Speech_Services/whisper_stt.py
+
+"""
+Module: whisper_stt.py
+Description:
+    Implements a speech-to-text provider using OpenAI Whisper.
+    Supports both local transcription (via the whisper Python package)
+    and online transcription (via OpenAI's API). If the API key for online mode
+    is not configured, online transcription is disabled.
+    
+Author: Jeremy Shows - Digital Hallucinations
+Date: 05-11-2025
+"""
+
+import os
+import numpy as np
+import sounddevice as sd
+import soundfile as sf
+import logging
+
+logger = logging.getLogger(__name__)
+
+class WhisperSTT:
+    """
+    Speech-to-Text provider using OpenAI Whisper.
+    Supports both local and online modes.
+    
+    Args:
+        mode (str): Either "local" or "online". If "online", an API key must be set.
+        model_name (str): The Whisper model to load in local mode.
+        fs (int): The sampling frequency.
+    """
+    def __init__(self, mode="local", model_name="base", fs=16000):
+        self.mode = mode.lower()  # "local" or "online"
+        self.fs = fs
+        self.frames = []
+        self.recording = False
+        self.audio_file = None
+
+        # Initialize microphone stream.
+        self.stream = sd.InputStream(callback=self.callback, channels=1, samplerate=self.fs)
+
+        if self.mode == "local":
+            try:
+                import whisper
+                self.model = whisper.load_model(model_name)
+                logger.info(f"Loaded local Whisper model: {model_name}")
+            except Exception as e:
+                logger.error(f"Failed to load local Whisper model: {e}")
+                raise e
+        else:
+            try:
+                import openai
+                self.api_key = os.getenv("OPENAI_API_KEY")
+                if not self.api_key:
+                    logger.error("OPENAI_API_KEY not set. Whisper online mode is disabled.")
+                    self.online_configured = False
+                    # Online mode disabled; you can decide to either fall back or raise an exception.
+                else:
+                    openai.api_key = self.api_key
+                    self.online_configured = True
+                    logger.info("Configured OpenAI API for Whisper online mode.")
+            except Exception as e:
+                logger.error(f"Failed to initialize Whisper online mode: {e}")
+                raise e
+
+    def callback(self, indata, frames, time, status):
+        """
+        Callback for the audio input stream to store audio frames.
+        """
+        if self.recording:
+            self.frames.append(indata.copy())
+
+    def listen(self):
+        """
+        Starts recording audio from the microphone.
+        """
+        self.frames = []
+        self.recording = True
+        self.stream.start()
+        logger.info("Whisper STT listening...")
+
+    def stop_listening(self):
+        """
+        Stops recording and saves the audio file.
+        """
+        if self.recording:
+            self.stream.stop()
+            self.recording = False
+            self.save_recording()
+            logger.info("Whisper STT stopped listening.")
+        self.stream.close()
+        self.frames = []
+
+    def save_recording(self, filename="whisper_output.wav"):
+        """
+        Saves the recorded audio to a file.
+        
+        Args:
+            filename (str): The name of the file to save.
+        """
+        output_dir = os.path.join("assets", "user", "sst_whisper")
+        os.makedirs(output_dir, exist_ok=True)
+        output_file = os.path.join(output_dir, filename)
+        if self.frames:
+            data = np.concatenate(self.frames)
+            sf.write(output_file, data, self.fs)
+            logger.info(f"Saved Whisper audio to {output_file}")
+            self.audio_file = output_file
+        else:
+            logger.warning("No audio frames to save.")
+
+    def transcribe(self, audio_file=None) -> str:
+        """
+        Transcribes the audio file using the selected Whisper mode.
+        In online mode, if the API key is not configured, returns an error message.
+        
+        Args:
+            audio_file (str): Path to the audio file; if not provided, uses the last recorded file.
+            
+        Returns:
+            str: The transcribed text.
+        """
+        if not audio_file:
+            if not self.audio_file:
+                logger.error("No audio file available for transcription.")
+                return ""
+            audio_file = self.audio_file
+
+        if self.mode == "local":
+            try:
+                result = self.model.transcribe(audio_file)
+                logger.info("Local Whisper transcription complete.")
+                return result.get("text", "")
+            except Exception as e:
+                logger.error(f"Error during local transcription: {e}")
+                return ""
+        else:
+            if not getattr(self, "online_configured", False):
+                logger.error("Online mode is not configured due to missing API key.")
+                return "Online transcription unavailable (API key missing)"
+            try:
+                import openai
+                with open(audio_file, "rb") as f:
+                    result = openai.Audio.transcribe("whisper-1", f)
+                logger.info("Online Whisper transcription complete.")
+                return result.get("text", "")
+            except Exception as e:
+                logger.error(f"Error during online transcription: {e}")
+                return ""
+
+
+# modules\Speech_Services\Ggl_stt.py
+
+import os
+import sounddevice as sd
+import numpy as np
+import soundfile as sf
+from google.cloud import speech_v1p1beta1 as speech
+from modules.logging.logger import setup_logger
+
+logger = setup_logger('Ggl_stt.py')
+
+class GoogleSTT:
+    def __init__(self, fs=16000, sample_rate_hertz=16000, enable_automatic_punctuation=True):
+        logger.info("Initializing GoogleSTT")
+        self.client = speech.SpeechClient()
+        self.config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            sample_rate_hertz=16000,
+            language_code="en-US",
+            enable_automatic_punctuation=enable_automatic_punctuation
+        )
+        
+        self.fs = fs
+        self.frames = []
+        self.recording = False
+        self.stream = sd.InputStream(callback=self.callback, channels=1, samplerate=self.fs)
+
+    def callback(self, indata, frames, time, status):
+        if self.recording:
+            self.frames.append(indata.copy())
+
+    def listen(self):  
+        logger.info("Listening...")
+        self.frames = []
+        self.recording = True
+        self.stream = sd.InputStream(callback=self.callback, channels=1, samplerate=self.fs)
+        self.stream.start()
+
+    def stop_listening(self):
+        logger.info("Stopping listening")
+        if self.recording:
+            self.stream.stop()
+            self.recording = False
+            self.save_recording()
+            logger.debug("Recording stopped")
+        else:
+            logger.warning("Tried to stop listening, but was not recording")
+        self.stream.close()
+        self.frames = []
+
+    def save_recording(self, filename='output.wav'):
+        logger.info("Saving recording")
+        output_dir = 'assets/user/sst_output'
+        os.makedirs(output_dir, exist_ok=True)  
+        output_file = os.path.join(output_dir, filename)
+
+        if self.frames:
+            data = np.concatenate(self.frames)
+            sf.write(output_file, data, self.fs)
+            logger.info(f"Audio recorded and saved as {output_file}")
+        else:
+            logger.warning("No frames to save")
+
+    def transcribe(self, audio_file):
+        logger.info(f"Transcribing file {audio_file}")
+        audio_file_path = os.path.join('assets/user/sst_output', audio_file)
+
+        with open(audio_file_path, 'rb') as audio:
+            audio_content = audio.read()
+
+        audio = speech.RecognitionAudio(content=audio_content)
+        response = self.client.recognize(config=self.config, audio=audio)
+
+        if not os.path.exists(audio_file_path):
+            logger.error(f"Audio file not found: {audio_file_path}")
+            return "No audio file to transcribe"
+
+        transcript = []
+        for result in response.results:
+            transcript.append(result.alternatives[0].transcript)
+
+        # Delete the audio file after transcription
+        os.remove(audio_file_path)
+        logger.info(f"Deleted audio file {audio_file_path}")
+
+        return ' '.join(transcript)
+    
+# modules/Speech_Services/Google/tts.py
+# Description: Text to speech module using Google Cloud Text-to-Speech
+
+import os
+import re
+import pygame
+import threading
+from google.cloud import speech_v1p1beta1 as speech
+from modules.logging.logger import setup_logger
+from .base import BaseTTS
+
+logger = setup_logger('google_tts.py')
+
+CHUNK_SIZE = 1024
+OUTPUT_PATH = "assets/SCOUT/tts_mp3/output.mp3"
+
+class GoogleTTS(BaseTTS):
+    def __init__(self):
+        self._use_tts = False
+        self.voice = speech.VoiceSelectionParams(
+            language_code="en-US",
+            name="en-US-Wavenet-A"
+        )
+        self.client = speech.SpeechClient()
+
+    def play_audio(self, filename):
+        logger.info(f"Playing audio file: {filename}")
+        pygame.mixer.init()
+        pygame.mixer.music.load(filename)
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            pygame.time.Clock().tick(10)
+        logger.info("Audio playback finished.")
+
+    def contains_code(self, text: str) -> bool:
+        logger.debug(f"Checking if text contains code: {text}")
+        return "<code>" in text
+
+    async def text_to_speech(self, text: str):
+        if not self._use_tts:
+            logger.info("TTS is turned off.")
+            return
+
+        if self.contains_code(text):
+            logger.info("Skipping TTS as the text contains code.")
+            text = re.sub(r"[^]*", "", text)
+
+        synthesis_input = speech.SynthesisInput(text=text)
+        audio_config = speech.AudioConfig(
+            audio_encoding=speech.AudioEncoding.MP3
+        )
+
+        try:
+            response = self.client.synthesize_speech(
+                input=synthesis_input,
+                voice=self.voice,
+                audio_config=audio_config
+            )
+            logger.info("Google TTS response received successfully.")
+        except Exception as e:
+            logger.error(f"Google TTS synthesis error: {e}")
+            return
+
+        os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+        with open(OUTPUT_PATH, "wb") as out:
+            out.write(response.audio_content)
+            logger.info(f'Audio content written to "{OUTPUT_PATH}"')
+
+        threading.Thread(target=self.play_audio, args=(OUTPUT_PATH,)).start()
+
+    def set_voice(self, voice_name: str):
+        self.voice = speech.VoiceSelectionParams(
+            language_code=voice_name.split('-')[0] + '-' + voice_name.split('-')[1],
+            name=voice_name,
+        )
+        logger.info(f"Google TTS voice set to: {voice_name}")
+
+    def get_voices(self) -> list:
+        voices = []
+        try:
+            response = self.client.list_voices()
+            for voice in response.voices:
+                for language_code in voice.language_codes:
+                    voices.append({
+                        'name': voice.name,
+                        'language': language_code,
+                        'ssml_gender': speech.SsmlVoiceGender(voice.ssml_gender).name,
+                        'natural_sample_rate_hertz': voice.natural_sample_rate_hertz,
+                    })
+            logger.info(f"Google TTS: Found {len(voices)} voices.")
+        except Exception as e:
+            logger.error(f"Error fetching Google TTS voices: {e}")
+        return voices
+
+    def set_tts(self, value: bool):
+        self._use_tts = value
+        logger.info(f"Google TTS set to: {self._use_tts}")
+
+    def get_tts(self) -> bool:
+        return self._use_tts
+
+# modules/speech_services/speech_manager.py
+
+"""
+Speech Manager Module
+-----------------------
+This module provides a unified interface for managing Text-to-Speech (TTS)
+and Speech-to-Text (STT) services. It supports multiple providers (e.g.,
+Eleven Labs, Google, and Whisper) and allows dynamic selection, addition, and
+removal of providers. The manager also handles asynchronous initialization and
+clean-up of services.
+
+Author:Jeremy Shows - Digital Hallucinations
+Date: 05-11-2025
+"""
+
+from typing import Dict, Any
+from .elevenlabs_tts import ElevenLabsTTS
+from .Google_tts import GoogleTTS
+from .Google_stt import GoogleSTT
+from modules.logging.logger import setup_logger
+from ATLAS.config import ConfigManager
+
+logger = setup_logger('speech_manager.py')
+
+class SpeechManager:
+    def __init__(self, config_manager: ConfigManager):
+        """
+        Initializes the SpeechManager.
+
+        Args:
+            config_manager (ConfigManager): Configuration manager for retrieving global settings.
+        """
+        self.config_manager = config_manager
+        self.tts_services: Dict[str, Any] = {}
+        self.stt_services: Dict[str, Any] = {}
+        self.active_tts = None
+        self.active_stt = None
+        self._tts_enabled = False 
+
+        self.initialize_services()
+
+    async def initialize(self):
+        """
+        Perform any asynchronous initialization if required.
+        Currently a placeholder for future asynchronous initialization.
+        """
+        pass
+
+    def initialize_services(self):
+        """
+        Initializes available TTS and STT services.
+        This method registers all providers and sets default active services.
+        """
+        logger.info("Initializing Speech Services...")
+
+        # Initialize TTS services
+        try:
+            eleven_tts = ElevenLabsTTS()
+            self.tts_services['eleven_labs'] = eleven_tts
+            logger.info("Eleven Labs TTS initialized.")
+        except Exception as e:
+            logger.error(f"Failed to initialize Eleven Labs TTS: {e}")
+
+        try:
+            google_tts = GoogleTTS()
+            self.tts_services['google'] = google_tts
+            logger.info("Google TTS initialized.")
+        except Exception as e:
+            logger.error(f"Failed to initialize Google TTS: {e}")
+
+        # Initialize STT services
+        try:
+            google_stt = GoogleSTT()
+            self.stt_services['google'] = google_stt
+            logger.info("Google STT initialized.")
+        except Exception as e:
+            logger.error(f"Failed to initialize Google STT: {e}")
+
+        # Initialize Whisper STT services (local and online)
+        try:
+            from modules.Speech_Services.whisper_stt import WhisperSTT
+            whisper_local = WhisperSTT(mode="local")
+            self.stt_services['whisper_local'] = whisper_local
+            logger.info("Whisper local STT initialized.")
+        except Exception as e:
+            logger.error(f"Failed to initialize Whisper local STT: {e}")
+
+        try:
+            from modules.Speech_Services.whisper_stt import WhisperSTT
+            whisper_online = WhisperSTT(mode="online")
+            self.stt_services['whisper_online'] = whisper_online
+            logger.info("Whisper online STT initialized.")
+        except Exception as e:
+            logger.error(f"Failed to initialize Whisper online STT: {e}")
+
+        # Set default active services
+        if 'eleven_labs' in self.tts_services:
+            self.active_tts = self.tts_services['eleven_labs']
+            logger.info("Default TTS set to Eleven Labs.")
+        elif 'google' in self.tts_services:
+            self.active_tts = self.tts_services['google']
+            logger.info("Default TTS set to Google.")
+
+        # Default STT service is set to Google if available.
+        if 'google' in self.stt_services:
+            self.active_stt = self.stt_services['google']
+            logger.info("Default STT set to Google.")
+
+    # ----------------------- TTS Methods -----------------------
+
+    async def text_to_speech(self, text: str, provider: str = None):
+        """
+        Converts text to speech using the specified provider.
+
+        Args:
+            text (str): The text to convert.
+            provider (str, optional): The TTS provider key. If None, the default provider is used.
+        """
+        if not self.config_manager.get_tts_enabled():
+            logger.info("TTS is disabled. Skipping TTS generation.")
+            return
+
+        provider = provider or self.get_default_tts_provider()
+        tts = self.tts_services.get(provider)
+        if not tts:
+            logger.error(f"TTS provider '{provider}' not found.")
+            return
+
+        await tts.text_to_speech(text)
+
+    def set_tts_voice(self, voice: dict, provider: str = None):
+        """
+        Sets the active voice for a given TTS provider.
+
+        Args:
+            voice (dict): Dictionary containing voice details.
+            provider (str, optional): TTS provider key.
+        """
+        provider = provider or self.get_default_tts_provider()
+        tts = self.tts_services.get(provider)
+        if not tts:
+            logger.error(f"TTS provider '{provider}' not found.")
+            return
+        tts.set_voice(voice)
+
+    def get_tts_voices(self, provider: str = None) -> list:
+        """
+        Retrieves available voices from the specified TTS provider.
+
+        Args:
+            provider (str, optional): TTS provider key.
+
+        Returns:
+            list: List of available voices.
+        """
+        provider = provider or self.get_default_tts_provider()
+        tts = self.tts_services.get(provider)
+        if not tts:
+            logger.error(f"TTS provider '{provider}' not found.")
+            return []
+        return tts.get_voices()
+
+    def set_tts_status(self, value: bool, provider: str = None):
+        """
+        Enables or disables TTS for a specific provider or globally.
+
+        Args:
+            value (bool): True to enable TTS, False to disable.
+            provider (str, optional): Specific TTS provider key. If None, applies globally.
+        """
+        if provider:
+            tts = self.tts_services.get(provider)
+            if not tts:
+                logger.error(f"TTS provider '{provider}' not found.")
+                return
+            tts.set_tts(value)
+            logger.info(f"TTS for provider '{provider}' set to {value}.")
+        else:
+            self._tts_enabled = value
+            logger.info(f"Global TTS enabled set to {self._tts_enabled}.")
+
+    def get_tts_status(self, provider: str = None) -> bool:
+        """
+        Gets the TTS enabled status for a specific provider or globally.
+
+        Args:
+            provider (str, optional): TTS provider key.
+
+        Returns:
+            bool: TTS enabled status.
+        """
+        if provider:
+            tts = self.tts_services.get(provider)
+            if not tts:
+                logger.error(f"TTS provider '{provider}' not found.")
+                return False
+            return tts.get_tts()
+        else:
+            logger.info(f"Global TTS status: {self.config_manager.get_tts_enabled()}")
+            return self.config_manager.get_tts_enabled()
+
+    def add_tts_provider(self, name: str, tts_instance: Any):
+        """
+        Adds a new TTS provider.
+
+        Args:
+            name (str): Unique key for the provider.
+            tts_instance (Any): Instance of the TTS provider.
+        """
+        if name in self.tts_services:
+            logger.warning(f"TTS provider '{name}' already exists. Overwriting.")
+        self.tts_services[name] = tts_instance
+        logger.info(f"TTS provider '{name}' added.")
+
+    def remove_tts_provider(self, name: str):
+        """
+        Removes a TTS provider.
+
+        Args:
+            name (str): Unique key for the provider.
+        """
+        if name in self.tts_services:
+            del self.tts_services[name]
+            logger.info(f"TTS provider '{name}' removed.")
+        else:
+            logger.warning(f"TTS provider '{name}' does not exist.")
+
+    def get_default_tts_provider(self) -> str:
+        """
+        Retrieves the key for the default TTS provider.
+
+        Returns:
+            str: Default TTS provider key or None if not set.
+        """
+        if self.active_tts:
+            for name, service in self.tts_services.items():
+                if service == self.active_tts:
+                    return name
+        return None
+
+    def set_default_tts_provider(self, provider: str):
+        """
+        Sets the default TTS provider.
+
+        Args:
+            provider (str): Unique key for the TTS provider.
+        """
+        tts = self.tts_services.get(provider)
+        if not tts:
+            logger.error(f"TTS provider '{provider}' not found.")
+            return
+        self.active_tts = tts
+        logger.info(f"Default TTS provider set to '{provider}'.")
+
+    # ----------------------- STT Methods -----------------------
+
+    def listen(self, provider: str = None):
+        """
+        Starts speech recognition by invoking the active STT provider's listen method.
+
+        Args:
+            provider (str, optional): STT provider key.
+        """
+        provider = provider or self.get_default_stt_provider()
+        stt = self.stt_services.get(provider)
+        if not stt:
+            logger.error(f"STT provider '{provider}' not found.")
+            return
+        stt.listen()
+
+    def stop_listening(self, provider: str = None):
+        """
+        Stops speech recognition by invoking the active STT provider's stop_listening method.
+
+        Args:
+            provider (str, optional): STT provider key.
+        """
+        provider = provider or self.get_default_stt_provider()
+        stt = self.stt_services.get(provider)
+        if not stt:
+            logger.error(f"STT provider '{provider}' not found.")
+            return
+        stt.stop_listening()
+
+    def transcribe(self, audio_file: str, provider: str = None) -> str:
+        """
+        Transcribes the provided audio file using the active STT provider.
+
+        Args:
+            audio_file (str): The name or path of the audio file to transcribe.
+            provider (str, optional): STT provider key.
+
+        Returns:
+            str: Transcribed text.
+        """
+        provider = provider or self.get_default_stt_provider()
+        stt = self.stt_services.get(provider)
+        if not stt:
+            logger.error(f"STT provider '{provider}' not found.")
+            return ""
+        return stt.transcribe(audio_file)
+
+    def add_stt_provider(self, name: str, stt_instance: Any):
+        """
+        Adds a new STT provider.
+
+        Args:
+            name (str): Unique key for the provider.
+            stt_instance (Any): Instance of the STT provider.
+        """
+        if name in self.stt_services:
+            logger.warning(f"STT provider '{name}' already exists. Overwriting.")
+        self.stt_services[name] = stt_instance
+        logger.info(f"STT provider '{name}' added.")
+
+    def remove_stt_provider(self, name: str):
+        """
+        Removes an STT provider.
+
+        Args:
+            name (str): Unique key for the provider.
+        """
+        if name in self.stt_services:
+            del self.stt_services[name]
+            logger.info(f"STT provider '{name}' removed.")
+        else:
+            logger.warning(f"STT provider '{name}' does not exist.")
+
+    def get_default_stt_provider(self) -> str:
+        """
+        Retrieves the key for the default STT provider.
+
+        Returns:
+            str: Default STT provider key or None if not set.
+        """
+        if self.active_stt:
+            for name, service in self.stt_services.items():
+                if service == self.active_stt:
+                    return name
+        return None
+
+    def set_default_stt_provider(self, provider: str):
+        """
+        Sets the default STT provider.
+
+        Args:
+            provider (str): Unique key for the STT provider.
+        """
+        stt = self.stt_services.get(provider)
+        if not stt:
+            logger.error(f"STT provider '{provider}' not found.")
+            return
+        self.active_stt = stt
+        logger.info(f"Default STT provider set to '{provider}'.")
+
+    async def close(self):
+        """
+        Performs cleanup operations for all services that implement a close method.
+        """
+        # Close TTS services
+        for name, tts in self.tts_services.items():
+            if hasattr(tts, 'close') and callable(tts.close):
+                await tts.close()
+                logger.info(f"Closed TTS provider '{name}'.")
+
+        # Close STT services
+        for name, stt in self.stt_services.items():
+            if hasattr(stt, 'close') and callable(stt.close):
+                await stt.close()
+                logger.info(f"Closed STT provider '{name}'.")
+
+
+# Folder - GTKUI/Chat 
+
+# UI/Chat/chat_page.py
+
+"""
+This module implements the ChatPage window, which displays the conversation
+history, an input field, a microphone button for speech-to-text, and a send button.
+It handles user input and displays both user messages and responses from the ATLAS language model.
+
+It features robust error handling, nonblocking asynchronous processing via threads,
+and schedules UI updates via GLib.idle_add.
+"""
+
+import os
+import asyncio
+import threading
+import gi
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, Gdk, GLib
+import logging
+
+from GTKUI.Utils.utils import apply_css
+
+# Configure logging for the chat page.
+logger = logging.getLogger(__name__)
+
+
+class ChatPage(Gtk.Window):
+    """
+    ChatPage window for user interaction.
+
+    Displays the conversation history in a scrollable area, an input field,
+    a microphone button to activate speech-to-text, and a send button.
+    It updates the window title with the current persona's name and shows a status bar
+    with LLM provider/model information as well as the active TTS provider and voice.
+    """
+    def __init__(self, atlas):
+        """
+        Initializes the ChatPage window.
+
+        Args:
+            atlas: The main ATLAS application instance.
+        """
+        super().__init__()
+        self.ATLAS = atlas
+        self.chat_session = atlas.chat_session
+        self.set_default_size(600, 400)
+        
+        # Apply style classes to match the dark theme of the sidebar.
+        self.get_style_context().add_class("chat-page")
+        self.get_style_context().add_class("sidebar")
+        
+        # Apply centralized CSS styling.
+        apply_css()
+
+        # Main vertical container.
+        self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_child(self.vbox)
+
+        # Update window title with the current persona's name.
+        self.update_persona_label()
+
+        # Add a horizontal separator.
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        separator.set_margin_top(5)
+        self.vbox.append(separator)
+
+        # Create a scrollable area for the conversation history.
+        self.chat_history_scrolled = Gtk.ScrolledWindow()
+        self.chat_history_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.chat_history_scrolled.set_min_content_height(200)
+        self.chat_history = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.chat_history.set_margin_start(10)
+        self.chat_history.set_margin_end(10)
+        self.chat_history_scrolled.set_child(self.chat_history)
+        self.chat_history_scrolled.set_hexpand(True)
+        self.chat_history_scrolled.set_vexpand(True)
+        self.vbox.append(self.chat_history_scrolled)
+
+        # Create the input area with an Entry, a microphone button, and a send button.
+        input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        input_box.set_margin_top(10)
+        input_box.set_margin_bottom(10)
+        input_box.set_margin_start(10)
+        input_box.set_margin_end(10)
+
+        # Text input entry.
+        self.input_entry = Gtk.Entry()
+        self.input_entry.set_placeholder_text("Type a message...")
+        self.input_entry.connect("activate", self.on_send_message)
+        self.input_entry.set_hexpand(True)
+        input_box.append(self.input_entry)
+
+        # Microphone button for speech-to-text.
+        mic_button = Gtk.Button()
+        try:
+            mic_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../Icons/microphone.png")
+            mic_texture = Gdk.Texture.new_from_filename(mic_icon_path)
+            mic_icon = Gtk.Picture.new_for_paintable(mic_texture)
+            mic_icon.set_size_request(24, 24)
+            mic_icon.set_content_fit(Gtk.ContentFit.CONTAIN)
+        except Exception as e:
+            logger.error(f"Error loading microphone icon: {e}")
+            mic_icon = Gtk.Image.new_from_icon_name("audio-input-microphone")
+        mic_button.set_child(mic_icon)
+        mic_button.get_style_context().add_class("mic-button")
+        mic_button.connect("clicked", self.on_mic_button_click)
+        input_box.append(mic_button)
+
+        # Send button.
+        send_button = Gtk.Button()
+        try:
+            # Compute absolute path for the send icon.
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../Icons/send.png")
+            texture = Gdk.Texture.new_from_filename(icon_path)
+            icon = Gtk.Picture.new_for_paintable(texture)
+            icon.set_size_request(24, 24)
+            icon.set_content_fit(Gtk.ContentFit.CONTAIN)
+        except Exception as e:
+            logger.error(f"Error loading send icon: {e}")
+            icon = Gtk.Image.new_from_icon_name("image-missing")
+        send_button.set_child(icon)
+        send_button.get_style_context().add_class("send-button")
+        send_button.connect("clicked", self.on_send_message)
+        input_box.append(send_button)
+
+        self.vbox.append(input_box)
+
+        # Add a status label at the bottom of the window.
+        self.status_label = Gtk.Label()
+        self.status_label.set_halign(Gtk.Align.START)
+        self.status_label.set_margin_start(5)
+        self.status_label.set_margin_end(5)
+        self.vbox.append(self.status_label)
+        self.update_status_bar()
+
+        # Link provider changes to update the status bar.
+        self.ATLAS.notify_provider_changed = self.update_status_bar
+
+        self.present()
+
+    def update_persona_label(self):
+        """
+        Updates the window title with the current persona's name.
+        """
+        persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Chat')
+        self.set_title(persona_name)
+
+    def on_send_message(self, widget):
+        """
+        Handler for when the user sends a message.
+
+        Reads the input, adds the user's message to the conversation history, clears the input,
+        and spawns a separate thread to handle the model's response.
+
+        Args:
+            widget: The widget that triggered the event.
+        """
+        message = self.input_entry.get_text().strip()
+        if message:
+            user_name = self.ATLAS.user
+            self.add_message_bubble(user_name, message, is_user=True)
+            self.input_entry.set_text("")
+            # Start a new thread to process the model's response asynchronously.
+            threading.Thread(
+                target=self.handle_model_response_thread,
+                args=(message,),
+                daemon=True
+            ).start()
+
+    def on_mic_button_click(self, widget):
+        """
+        Handler for the microphone button click to toggle speech-to-text.
+
+        If speech recognition is not active, it starts listening and updates the status label.
+        If already listening, it stops recording, transcribes the audio, and inserts the transcript
+        into the input field.
+
+        Args:
+            widget: The widget that triggered the event.
+        """
+        # Retrieve the active STT service from the Speech Manager.
+        stt = self.ATLAS.speech_manager.active_stt
+        if not stt:
+            logger.error("No active STT service configured.")
+            return
+
+        # Toggle recording based on the STT provider's 'recording' attribute.
+        if not getattr(stt, 'recording', False):
+            logger.info("Starting speech recognition...")
+            self.status_label.set_text("Listening...")
+            self.ATLAS.speech_manager.listen()
+        else:
+            logger.info("Stopping speech recognition and transcribing...")
+            self.ATLAS.speech_manager.stop_listening()
+            
+            # Run transcription in a separate thread to avoid blocking the UI.
+            def transcribe_and_update():
+                # Use the provider's audio file if available; otherwise, default to "output.wav".
+                audio_file = getattr(stt, 'audio_file', "output.wav")
+                transcript = stt.transcribe(audio_file)
+                # Safely update the UI using GLib's idle loop.
+                GLib.idle_add(self.input_entry.set_text, transcript)
+                GLib.idle_add(self.status_label.set_text, "Transcription complete.")
+            threading.Thread(target=transcribe_and_update, daemon=True).start()
+
+    def handle_model_response_thread(self, message):
+        """
+        Processes the model's response asynchronously in a separate thread,
+        then schedules the UI update to add the assistant's message bubble.
+
+        Args:
+            message (str): The user message to process.
+        """
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            response = loop.run_until_complete(self.chat_session.send_message(message))
+            loop.close()
+            persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
+            GLib.idle_add(self.add_message_bubble, persona_name, response)
+        except Exception as e:
+            logger.error(f"Error in handle_model_response: {e}")
+            GLib.idle_add(self.add_message_bubble, "Assistant", f"Error: {e}")
+
+    def add_message_bubble(self, sender, message, is_user=False):
+        """
+        Adds a message bubble to the conversation history area.
+
+        Args:
+            sender (str): The name of the message sender.
+            message (str): The message content.
+            is_user (bool): True if the message is from the user, False if from the assistant.
+        """
+        bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        bubble.set_margin_top(5)
+        bubble.set_margin_bottom(5)
+
+        sender_label = Gtk.Label(label=sender)
+        sender_label.set_halign(Gtk.Align.START)
+        bubble.append(sender_label)
+
+        message_label = Gtk.Label(label=message)
+        message_label.set_wrap(True)
+        message_label.set_max_width_chars(32)
+        message_label.set_halign(Gtk.Align.START)
+
+        bubble_box = Gtk.Box()
+        bubble_box.append(message_label)
+        bubble_box.get_style_context().add_class("message-bubble")
+
+        # Apply different styling based on whether the message is from the user or assistant.
+        if is_user:
+            bubble_box.get_style_context().add_class("user-message")
+            bubble.set_halign(Gtk.Align.END)
+        else:
+            bubble_box.get_style_context().add_class("assistant-message")
+            bubble.set_halign(Gtk.Align.START)
+
+        bubble.append(bubble_box)
+        self.chat_history.append(bubble)
+        # Schedule scrolling to the bottom after a short delay.
+        GLib.timeout_add(100, self.scroll_to_bottom)
+
+    def scroll_to_bottom(self):
+        """
+        Scrolls the chat history scrolled window to the bottom.
+
+        Returns:
+            bool: False to stop further timeout events.
+        """
+        vadjustment = self.chat_history_scrolled.get_vadjustment()
+        vadjustment.set_value(vadjustment.get_upper())
+        return False  # Stop the timeout
+
+    def update_status_bar(self, provider=None, model=None):
+        """
+        Updates the status label with current LLM provider/model information as well as
+        the active TTS provider and its selected voice.
+
+        Args:
+            provider (str, optional): LLM provider name; if None, retrieved from ATLAS.
+            model (str, optional): LLM model name; if None, retrieved from ATLAS.
+        """
+        # Retrieve LLM provider and model information.
+        llm_provider = self.ATLAS.provider_manager.get_current_provider()
+        llm_model = self.ATLAS.provider_manager.get_current_model() or "No model selected"
+
+        # Retrieve TTS provider and voice information.
+        tts_provider = self.ATLAS.speech_manager.get_default_tts_provider() or "None"
+        tts = self.ATLAS.speech_manager.active_tts
+        tts_voice = "Not Set"
+        if tts:
+            # Attempt to use a get_current_voice() method if available.
+            if hasattr(tts, "get_current_voice") and callable(getattr(tts, "get_current_voice")):
+                tts_voice = tts.get_current_voice()
+            # Fallback: if the provider maintains a list of voices.
+            elif hasattr(tts, "voice_ids") and tts.voice_ids:
+                tts_voice = tts.voice_ids[0].get('name', "Not Set")
+            # Fallback for providers like GoogleTTS.
+            elif hasattr(tts, "voice") and tts.voice is not None:
+                tts_voice = tts.voice.name
+
+        # Construct and update the status message.
+        status_message = (
+            f"LLM: {llm_provider} | Model: {llm_model} | "
+            f"TTS: {tts_provider} (Voice: {tts_voice})"
+        )
+        self.status_label.set_text(status_message)
+
+
+# GTKUI/sidebar.py
+
+"""
+Sidebar Module
+--------------
+This module implements the Sidebar window, which provides quick access to core
+application functionalities including provider management, chat, persona management,
+and settings. A new speech settings icon is added to allow configuration of speech services.
+
+Authors: Jeremy Shows - Digital Hallucinations
+Date: 05-11-2025
+"""
+
+import os
+import gi
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, Gdk, GLib
+import logging
+
+# Import UI components and utility functions.
+from GTKUI.Chat.chat_page import ChatPage
+from GTKUI.Persona_manager.persona_management import PersonaManagement
+from GTKUI.Provider_manager.provider_management import ProviderManagement
+from GTKUI.Utils.utils import apply_css, create_box
+
+logger = logging.getLogger(__name__)
+
+class Sidebar(Gtk.Window):
+    def __init__(self, atlas):
+        """
+        Initializes the Sidebar window.
+
+        Args:
+            atlas: The main ATLAS application instance.
+        """
+        super().__init__(title="Sidebar")
+        self.ATLAS = atlas
+        self.persona_management = PersonaManagement(self.ATLAS, self)
+        self.provider_management = ProviderManagement(self.ATLAS, self)
+
+        # Set default window size and style.
+        self.set_default_size(80, 600)
+        self.set_decorated(False)
+        self.get_style_context().add_class("sidebar")
+        apply_css()
+
+        # Create the main container box.
+        self.box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=5, margin=10)
+        self.set_child(self.box)
+
+        # Add primary icons.
+        self.create_icon("Icons/providers.png", self.show_provider_menu, 42)
+        self.create_icon("Icons/history.png", self.handle_history_button, 42)
+        self.create_icon("Icons/chat.png", self.show_chat_page, 42)
+        # Speech settings icon.
+        self.create_icon("Icons/speech.png", self.show_speech_settings, 42)
+        self.create_icon("Icons/agent.png", self.show_persona_menu, 42)
+
+        # Add a visual spacer.
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        separator.set_margin_top(10)
+        separator.set_margin_bottom(10)
+        self.box.append(separator)
+
+        # Add secondary icons.
+        self.create_icon("Icons/settings.png", self.show_settings_page, 42)
+        self.create_icon("Icons/power_button.png", self.close_application, 42)
+
+    def create_icon(self, icon_path, callback, icon_size):
+        """
+        Creates and adds an icon widget to the sidebar.
+
+        Args:
+            icon_path (str): Relative path to the icon image.
+            callback (function): Function to call when the icon is clicked.
+            icon_size (int): Desired size for the icon.
+        """
+        try:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            full_icon_path = os.path.abspath(os.path.join(current_dir, "..", icon_path))
+            texture = Gdk.Texture.new_from_filename(full_icon_path)
+            icon = Gtk.Picture.new_for_paintable(texture)
+            icon.set_size_request(icon_size, icon_size)
+            icon.set_content_fit(Gtk.ContentFit.CONTAIN)
+        except Exception as e:
+            logger.error(f"Error loading icon '{icon_path}': {e}")
+            fallback_icon_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icons/default.png"))
+            try:
+                texture = Gdk.Texture.new_from_filename(fallback_icon_path)
+                icon = Gtk.Picture.new_for_paintable(texture)
+                icon.set_size_request(icon_size, icon_size)
+                icon.set_content_fit(Gtk.ContentFit.CONTAIN)
+            except Exception as e:
+                logger.error(f"Error loading fallback icon: {e}")
+                icon = Gtk.Image.new_from_icon_name("image-missing")
+
+        icon.get_style_context().add_class("icon")
+        gesture = Gtk.GestureClick.new()
+        gesture.connect("pressed", lambda gesture, n_press, x, y: callback())
+        icon.add_controller(gesture)
+        self.box.append(icon)
+
+    def show_provider_menu(self):
+        """
+        Opens the provider selection menu if ATLAS is initialized.
+        """
+        if self.ATLAS.is_initialized():
+            self.provider_management.show_provider_menu()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+
+    def handle_history_button(self):
+        """
+        Triggers the history logging functionality of ATLAS.
+        """
+        if self.ATLAS.is_initialized():
+            self.ATLAS.log_history()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+
+    def show_chat_page(self):
+        """
+        Opens the chat page.
+        """
+        if self.ATLAS.is_initialized():
+            chat_page = ChatPage(self.ATLAS)
+            self.ATLAS.chat_page = chat_page
+            chat_page.present()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+
+    def show_persona_menu(self):
+        """
+        Opens the persona management menu.
+        """
+        if self.ATLAS.is_initialized():
+            self.persona_management.show_persona_menu()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+
+    def show_settings_page(self):
+        """
+        Opens the general settings page.
+        """
+        if self.ATLAS.is_initialized():
+            settings_window = Gtk.Window(title="Settings")
+            settings_window.set_default_size(300, 400)
+            settings_window.set_transient_for(self)
+            settings_window.set_modal(True)
+            self.apply_css_styling(settings_window)
+            vbox = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
+            settings_window.set_child(vbox)
+            label = Gtk.Label(label="Settings Page Content Here")
+            vbox.append(label)
+            settings_window.present()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+
+    def show_speech_settings(self):
+        """
+        Opens the dedicated Speech Settings page for configuring speech services.
+        """
+        if self.ATLAS.is_initialized():
+            from GTKUI.Settings.Speech.speech_settings import SpeechSettings
+            speech_settings_page = SpeechSettings(self.ATLAS)
+            speech_settings_page.present()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+
+    def close_application(self):
+        """
+        Closes the application by quitting the parent application.
+        """
+        logger.info("Closing application")
+        app = self.get_application()
+        if app:
+            app.quit()
+
+    def show_error_dialog(self, message):
+        """
+        Displays an error dialog.
+
+        Args:
+            message (str): Error message to display.
+        """
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text="Initialization Error",
+        )
+        dialog.format_secondary_text(message)
+        dialog.connect("response", lambda d, r: d.destroy())
+        dialog.present()
+
+    def apply_css_styling(self, window=None):
+        """
+        Applies custom CSS styling to the provided window.
+
+        Args:
+            window (Gtk.Window, optional): Window to style.
+        """
+        target = window if window else self
+        css_provider = Gtk.CssProvider()
+        css_provider.load_from_data(b"""
+            .sidebar {
+                background-color: #2b2b2b;
+            }
+            .icon {
+                margin: 5px;
+                border-radius: 5px;
+            }
+            .icon:hover {
+                background-color: #4a90d9;
+            }
+            .icon:active {
+                background-color: #357ABD;
+            }
+        """)
+        display = target.get_display()
+        Gtk.StyleContext.add_provider_for_display(
+            display,
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_USER
+        )
+
+# GTKUI/Settings/Speech/speech_settings.py
+
+"""
+Module: speech_settings.py
+Description:
+    Enterprise production–ready Speech Settings window.
+    Allows configuration of Text-to-Speech (TTS) and Speech-to-Text (STT) settings.
+    In addition, provides input fields to configure API keys for speech providers as well as
+    Google Cloud credentials. If an API key is not provided, the corresponding provider is disabled.
+    
+Author: Jeremy Shows - Digital Hallucinations
+Date: 05-11-2025
+"""
+
+import gi
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, GLib
+import os
+import logging
+from GTKUI.Utils.utils import apply_css
+
+logger = logging.getLogger(__name__)
+
+class SpeechSettings(Gtk.Window):
+    def __init__(self, atlas):
+        """
+        Initializes the Speech Settings window.
+        
+        Args:
+            atlas: The main ATLAS application instance.
+        """
+        super().__init__(title="Speech Settings")
+        self.ATLAS = atlas
+        self.set_default_size(400, 450)
+        apply_css()
+
+        # Main container.
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        vbox.set_margin_top(10)
+        vbox.set_margin_bottom(10)
+        vbox.set_margin_start(10)
+        vbox.set_margin_end(10)
+        self.set_child(vbox)
+
+        # --- TTS Settings Section ---
+        tts_frame = Gtk.Frame(label="Text-to-Speech (TTS) Settings")
+        tts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        tts_frame.set_child(tts_box)
+
+        # Voice selection combo box.
+        self.voice_combo = Gtk.ComboBoxText()
+        current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
+        voices = self.ATLAS.speech_manager.get_tts_voices(current_tts_provider)
+        for voice in voices:
+            self.voice_combo.append_text(voice.get('name', 'Unknown'))
+        if voices:
+            self.voice_combo.set_active(0)
+        tts_box.append(Gtk.Label(label="Select TTS Voice:"))
+        tts_box.append(self.voice_combo)
+
+        # TTS enable/disable switch.
+        self.tts_switch = Gtk.Switch()
+        self.tts_switch.set_active(self.ATLAS.speech_manager.get_tts_status(current_tts_provider))
+        tts_box.append(Gtk.Label(label="Enable TTS:"))
+        tts_box.append(self.tts_switch)
+
+        # API key input for Eleven Labs TTS.
+        self.eleven_api_entry = Gtk.Entry()
+        existing_xi_api = self.ATLAS.config_manager.get("XI_API_KEY") or ""
+        self.eleven_api_entry.set_text(existing_xi_api)
+        tts_box.append(Gtk.Label(label="Eleven Labs API Key (optional):"))
+        tts_box.append(self.eleven_api_entry)
+
+        # --- STT Settings Section ---
+        stt_frame = Gtk.Frame(label="Speech-to-Text (STT) Settings")
+        stt_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        stt_frame.set_child(stt_box)
+
+        # STT provider selection combo box.
+        self.stt_combo = Gtk.ComboBoxText()
+        for key in self.ATLAS.speech_manager.stt_services.keys():
+            self.stt_combo.append_text(key)
+        self.stt_combo.set_active(0)
+        stt_box.append(Gtk.Label(label="Select STT Provider:"))
+        stt_box.append(self.stt_combo)
+
+        # Whisper mode selection combo box (only applicable if a Whisper provider is selected).
+        self.whisper_mode_combo = Gtk.ComboBoxText()
+        self.whisper_mode_combo.append_text("Local")
+        self.whisper_mode_combo.append_text("Online")
+        self.whisper_mode_combo.set_active(0)
+        stt_box.append(Gtk.Label(label="Whisper Mode (if applicable):"))
+        stt_box.append(self.whisper_mode_combo)
+
+        # API key input for OpenAI (used by Whisper online mode).
+        self.openai_api_entry = Gtk.Entry()
+        existing_openai_api = self.ATLAS.config_manager.get("OPENAI_API_KEY") or ""
+        self.openai_api_entry.set_text(existing_openai_api)
+        stt_box.append(Gtk.Label(label="OpenAI API Key for Whisper Online (optional):"))
+        stt_box.append(self.openai_api_entry)
+        
+        # --- Google Cloud Credentials Section ---
+        # This field allows setting the path to the Google Cloud credentials JSON file.
+        google_frame = Gtk.Frame(label="Google Cloud Credentials")
+        google_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        google_frame.set_child(google_box)
+        
+        self.google_credentials_entry = Gtk.Entry()
+        existing_google_creds = self.ATLAS.config_manager.get("GOOGLE_APPLICATION_CREDENTIALS") or ""
+        self.google_credentials_entry.set_text(existing_google_creds)
+        google_box.append(Gtk.Label(label="Google Credentials JSON Path (optional):"))
+        google_box.append(self.google_credentials_entry)
+        
+        # Save button to apply the settings.
+        save_button = Gtk.Button(label="Save Settings")
+        save_button.connect("clicked", self.on_save_clicked)
+
+        # Pack sections into the main container.
+        vbox.append(tts_frame)
+        vbox.append(stt_frame)
+        vbox.append(google_frame)
+        vbox.append(save_button)
+        self.present()
+
+    def on_save_clicked(self, widget):
+        """
+        Handler for the save button.
+        Applies TTS and STT settings via the speech manager.
+        Also saves API key configuration and Google credentials to the ConfigManager
+        and updates the environment.
+        """
+        # Update API keys and credentials in the ConfigManager and process environment.
+        eleven_api_key = self.eleven_api_entry.get_text().strip()
+        openai_api_key = self.openai_api_entry.get_text().strip()
+        google_creds = self.google_credentials_entry.get_text().strip()
+
+        # Save values to config (assumes set method persists configuration)
+        self.ATLAS.config_manager.set("XI_API_KEY", eleven_api_key)
+        self.ATLAS.config_manager.set("OPENAI_API_KEY", openai_api_key)
+        self.ATLAS.config_manager.set("GOOGLE_APPLICATION_CREDENTIALS", google_creds)
+
+        # Update the environment so provider modules using os.getenv pick up the changes.
+        os.environ["XI_API_KEY"] = eleven_api_key
+        os.environ["OPENAI_API_KEY"] = openai_api_key
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = google_creds
+
+        # Apply TTS settings.
+        current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
+        tts_enabled = self.tts_switch.get_active()
+        self.ATLAS.speech_manager.set_tts_status(tts_enabled, current_tts_provider)
+        selected_voice_name = self.voice_combo.get_active_text()
+        voices = self.ATLAS.speech_manager.get_tts_voices(current_tts_provider)
+        selected_voice = next((v for v in voices if v.get('name') == selected_voice_name), None)
+        if selected_voice:
+            self.ATLAS.speech_manager.set_tts_voice(selected_voice, current_tts_provider)
+
+        # Apply STT settings.
+        selected_stt_provider = self.stt_combo.get_active_text()
+        if selected_stt_provider.startswith("whisper"):
+            mode = self.whisper_mode_combo.get_active_text().lower()
+            try:
+                from modules.Speech_Services.whisper_stt import WhisperSTT
+                whisper_stt = WhisperSTT(mode=mode)
+                provider_key = f"whisper_{mode}"
+                self.ATLAS.speech_manager.add_stt_provider(provider_key, whisper_stt)
+                self.ATLAS.speech_manager.set_default_stt_provider(provider_key)
+                logger.info(f"STT provider set to {provider_key}")
+            except Exception as e:
+                logger.error(f"Error setting Whisper mode: {e}")
+        else:
+            self.ATLAS.speech_manager.set_default_stt_provider(selected_stt_provider)
+        self.destroy()
+
+
+# ATLAS/config.py
+
+import os
+from typing import Dict, Any
+from modules.logging.logger import setup_logger
+from dotenv import load_dotenv, set_key, find_dotenv
+import yaml
+
+class ConfigManager:
+    """
+    Manages configuration settings for the application, including loading
+    environment variables and handling API keys for various providers.
+    """
+
+    def __init__(self):
+        """
+        Initializes the ConfigManager by loading environment variables and loading configuration settings.
+
+        Raises:
+            ValueError: If the API key for the default provider is not found in environment variables.
+        """
+        # Load environment variables from .env file
+        load_dotenv()
+        
+        # Setup logger early to log any issues
+        self.logger = setup_logger(__name__)
+        
+        # Load configurations from .env and config.yaml
+        self.env_config = self._load_env_config()
+        self.yaml_config = self._load_yaml_config()
+        
+        # Merge configurations, with YAML config overriding env config if there's overlap
+        self.config = {**self.env_config, **self.yaml_config}
+
+        # Derive other paths from APP_ROOT
+        self.config['MODEL_CACHE_DIR'] = os.path.join(
+            self.config.get('APP_ROOT', '.'),
+            'modules',
+            'Providers',
+            'HuggingFace',
+            'model_cache'
+        )
+        # Ensure the model_cache directory exists
+        os.makedirs(self.config['MODEL_CACHE_DIR'], exist_ok=True)
+
+        # Validate the API key for the default provider
+        default_provider = self.config.get('DEFAULT_PROVIDER', 'OpenAI')
+        if not self._is_api_key_set(default_provider):
+            raise ValueError(f"{default_provider} API key not found in environment variables")
+
+    def _load_env_config(self) -> Dict[str, Any]:
+        """
+        Loads environment variables into the configuration dictionary.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing all loaded environment configuration settings.
+        """
+        config = {
+            'OPENAI_API_KEY': os.getenv('OPENAI_API_KEY'),
+            'DEFAULT_PROVIDER': os.getenv('DEFAULT_PROVIDER', 'OpenAI'),
+            'DEFAULT_MODEL': os.getenv('DEFAULT_MODEL', 'gpt-4o'),
+            'MISTRAL_API_KEY': os.getenv('MISTRAL_API_KEY'),
+            'HUGGINGFACE_API_KEY': os.getenv('HUGGINGFACE_API_KEY'),
+            'GOOGLE_API_KEY': os.getenv('GOOGLE_API_KEY'),
+            'ANTHROPIC_API_KEY': os.getenv('ANTHROPIC_API_KEY'),
+            'GROK_API_KEY': os.getenv('GROK_API_KEY'),  
+            'APP_ROOT': os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        }
+        self.logger.info(f"APP_ROOT is set to: {config['APP_ROOT']}")
+        return config
+
+    def _load_yaml_config(self) -> Dict[str, Any]:
+        """
+        Loads configuration settings from the config.yaml file.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing all loaded YAML configuration settings.
+        """
+        # Construct the path to config.yaml based on APP_ROOT
+        yaml_path = os.path.join(self.env_config.get('APP_ROOT', '.'), 'ATLAS', 'config', 'atlas_config.yaml')
+        
+        if not os.path.exists(yaml_path):
+            self.logger.error(f"Configuration file not found: {yaml_path}")
+            return {}
+        
+        try:
+            with open(yaml_path, 'r') as file:
+                config = yaml.safe_load(file) or {}
+                self.logger.info(f"Loaded configuration from {yaml_path}")
+                return config
+        except Exception as e:
+            self.logger.error(f"Failed to load configuration from {yaml_path}: {e}")
+            return {}
+
+    def get_config(self, key: str, default: Any = None) -> Any:
+        """
+        Retrieves a configuration value by its key.
+
+        Args:
+            key (str): The configuration key to retrieve.
+            default (Any, optional): The default value to return if the key is not found.
+
+        Returns:
+            Any: The value associated with the key, or the default value if key is absent.
+        """
+        return self.config.get(key, default)
+
+    def get_model_cache_dir(self) -> str:
+        """
+        Retrieves the directory path where models are cached.
+
+        Returns:
+            str: The path to the model cache directory.
+        """
+        return self.get_config('MODEL_CACHE_DIR')
+
+    def get_default_provider(self) -> str:
+        """
+        Retrieves the default provider name from the configuration.
+
+        Returns:
+            str: The name of the default provider.
+        """
+        return self.get_config('DEFAULT_PROVIDER')
+
+    def get_default_model(self) -> str:
+        """
+        Retrieves the default model name from the configuration.
+
+        Returns:
+            str: The name of the default model.
+        """
+        return self.get_config('DEFAULT_MODEL')
+
+
+    def get_openai_api_key(self) -> str:
+        """
+        Retrieves the OpenAI API key from the configuration.
+
+        Returns:
+            str: The OpenAI API key.
+        """
+        return self.get_config('OPENAI_API_KEY')
+
+    def get_mistral_api_key(self) -> str:
+        """
+        Retrieves the Mistral API key from the configuration.
+
+        Returns:
+            str: The Mistral API key.
+        """
+        return self.get_config('MISTRAL_API_KEY')
+
+    def get_huggingface_api_key(self) -> str:
+        """
+        Retrieves the HuggingFace API key from the configuration.
+
+        Returns:
+            str: The HuggingFace API key.
+        """
+        return self.get_config('HUGGINGFACE_API_KEY')
+
+    def get_google_api_key(self) -> str:
+        """
+        Retrieves the Google API key from the configuration.
+
+        Returns:
+            str: The Google API key.
+        """
+        return self.get_config('GOOGLE_API_KEY')
+
+    def get_anthropic_api_key(self) -> str:
+        """
+        Retrieves the Anthropic API key from the configuration.
+
+        Returns:
+            str: The Anthropic API key.
+        """
+        return self.get_config('ANTHROPIC_API_KEY')
+
+    def get_grok_api_key(self) -> str:
+        """
+        Retrieves the Grok API key from the configuration.
+
+        Returns:
+            str: The Grok API key.
+        """
+        return self.get_config('GROK_API_KEY')
+
+    def get_app_root(self) -> str:
+        """
+        Retrieves the application's root directory path.
+
+        Returns:
+            str: The path to the application's root directory.
+        """
+        return self.get_config('APP_ROOT')
+
+    def update_api_key(self, provider_name: str, new_api_key: str):
+        """
+        Updates the API key for a specified provider in the .env file and reloads
+        the environment variables to reflect the changes immediately.
+
+        Args:
+            provider_name (str): The name of the provider whose API key is to be updated.
+            new_api_key (str): The new API key to set for the provider.
+
+        Raises:
+            FileNotFoundError: If the .env file is not found.
+            ValueError: If the provider name does not have a corresponding API key mapping.
+        """
+        env_path = find_dotenv()
+        if not env_path:
+            raise FileNotFoundError(".env file not found.")
+
+        provider_env_keys = {
+            "OpenAI": "OPENAI_API_KEY",
+            "Mistral": "MISTRAL_API_KEY",
+            "Google": "GOOGLE_API_KEY",
+            "HuggingFace": "HUGGINGFACE_API_KEY",
+            "Anthropic": "ANTHROPIC_API_KEY",
+            "Grok": "GROK_API_KEY",  # Ensure this mapping exists
+        }
+
+        env_key = provider_env_keys.get(provider_name)
+        if not env_key:
+            raise ValueError(f"No API key mapping found for provider '{provider_name}'.")
+
+        # Update the .env file
+        set_key(env_path, env_key, new_api_key)
+        self.logger.info(f"API key for {provider_name} updated successfully.")
+
+        # Reload environment variables
+        load_dotenv(env_path, override=True)
+        self.env_config[env_key] = new_api_key
+        self.config[env_key] = new_api_key
+
+    def _is_api_key_set(self, provider_name: str) -> bool:
+        """
+        Checks if the API key for a specified provider is set.
+
+        Args:
+            provider_name (str): The name of the provider.
+
+        Returns:
+            bool: True if the API key is set, False otherwise.
+        """
+        api_key = self.get_config(f"{provider_name.upper()}_API_KEY")
+        return bool(api_key)
+
+    def get_available_providers(self) -> Dict[str, str]:
+        """
+        Retrieves a dictionary of available providers and their corresponding API keys.
+
+        Returns:
+            Dict[str, str]: A dictionary where keys are provider names and values are their API keys.
+        """
+        providers = ["OpenAI", "Mistral", "Google", "HuggingFace", "Anthropic", "Grok"]
+        return {provider: self.get_config(f"{provider.upper()}_API_KEY") for provider in providers}
+
+    # Additional methods to handle TTS_ENABLED from config.yaml
+    def get_tts_enabled(self) -> bool:
+        """
+        Retrieves the TTS enabled status from the configuration.
+
+        Returns:
+            bool: True if TTS is enabled, False otherwise.
+        """
+        return self.get_config('TTS_ENABLED', False)
+
+    def set_tts_enabled(self, value: bool):
+        """
+        Sets the TTS enabled status in the configuration.
+
+        Args:
+            value (bool): True to enable TTS, False to disable.
+        """
+        self.yaml_config['TTS_ENABLED'] = value
+        self.config['TTS_ENABLED'] = value
+        self.logger.info(f"TTS_ENABLED set to {value}")
+        # Optionally, write back to config.yaml if persistence is required
+        self._write_yaml_config()
+
+    def _write_yaml_config(self):
+        """
+        Writes the current YAML configuration back to the config.yaml file.
+        """
+        yaml_path = os.path.join(self.get_app_root(), 'config.yaml')
+        try:
+            with open(yaml_path, 'w') as file:
+                yaml.dump(self.yaml_config, file)
+            self.logger.info(f"Configuration written to {yaml_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to write configuration to {yaml_path}: {e}")
+
+# ATLAS/config.yaml
+
+# TTS Configuration
+TTS_ENABLED: true
+DEFAULT_TTS_PROVIDER: "eleven_labs"
+
+# STT Configuration
+DEFAULT_STT_PROVIDER: "whisper"
+
+
