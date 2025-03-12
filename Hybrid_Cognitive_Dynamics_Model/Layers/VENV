@@ -1,3 +1,0 @@
-VENV 
-python3 -m venv /home/bob/venvs/qina_env
-source /home/bob/venvs/qina_env/bin/activate

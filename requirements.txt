@@ -28,6 +28,7 @@ pyyaml
 pygame
 soundfile
 sounddevice
+Whisper
 
 # Torch for model computations
 torch

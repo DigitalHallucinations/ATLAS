@@ -1,4 +1,4 @@
-# modules\Speech_Services\stt.py
+# modules\Speech_Services\Ggl_stt.py
 
 import os
 import sounddevice as sd

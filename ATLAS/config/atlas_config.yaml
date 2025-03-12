@@ -5,6 +5,6 @@ TTS_ENABLED: true
 DEFAULT_TTS_PROVIDER: "eleven_labs"
 
 # STT Configuration
-DEFAULT_STT_PROVIDER: "google"
+DEFAULT_STT_PROVIDER: "whisper"
 
 

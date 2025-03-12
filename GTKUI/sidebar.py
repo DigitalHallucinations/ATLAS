@@ -1,14 +1,14 @@
-# UI/sidebar.py
+# GTKUI/sidebar.py
 
 """
-UI/sidebar.py
+Sidebar Module
+--------------
+This module implements the Sidebar window, which provides quick access to core
+application functionalities including provider management, chat, persona management,
+and settings. A new speech settings icon is added to allow configuration of speech services.
 
-This module implements the Sidebar window that provides quick access to core
-application functionality such as provider management, chat, persona selection,
-settings, and application exit.
-
-It uses absolute paths for loading icon assets, robust error handling, and integrates
-with the rest of the ATLAS application.
+Authors: Jeremy Shows - Digital Hallucinations
+Date: 05-11-2025
 """
 
 import os
@@ -17,26 +17,18 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib
 import logging
 
-# Import other UI components and utility functions.
+# Import UI components and utility functions.
 from GTKUI.Chat.chat_page import ChatPage
 from GTKUI.Persona_manager.persona_management import PersonaManagement
 from GTKUI.Provider_manager.provider_management import ProviderManagement
 from GTKUI.Utils.utils import apply_css, create_box
 
-# Configure logging for this module.
 logger = logging.getLogger(__name__)
 
-
 class Sidebar(Gtk.Window):
-    """
-    Sidebar window for accessing main application features.
-
-    Provides clickable icons for provider settings, history, chat, persona management,
-    settings, and application exit. Uses absolute paths for icon assets and applies CSS styling.
-    """
     def __init__(self, atlas):
         """
-        Initialize the Sidebar window.
+        Initializes the Sidebar window.
 
         Args:
             atlas: The main ATLAS application instance.
@@ -46,22 +38,22 @@ class Sidebar(Gtk.Window):
         self.persona_management = PersonaManagement(self.ATLAS, self)
         self.provider_management = ProviderManagement(self.ATLAS, self)
 
-        # Set the default size; increased width for improved usability.
+        # Set default window size and style.
         self.set_default_size(80, 600)
-        # Remove window decorations for a modern, minimal look.
         self.set_decorated(False)
         self.get_style_context().add_class("sidebar")
-        # Apply centralized CSS styling.
         apply_css()
 
         # Create the main container box.
         self.box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=5, margin=10)
         self.set_child(self.box)
 
-        # Add primary icons at the top.
+        # Add primary icons.
         self.create_icon("Icons/providers.png", self.show_provider_menu, 42)
         self.create_icon("Icons/history.png", self.handle_history_button, 42)
         self.create_icon("Icons/chat.png", self.show_chat_page, 42)
+        # Speech settings icon.
+        self.create_icon("Icons/speech.png", self.show_speech_settings, 42)
         self.create_icon("Icons/agent.png", self.show_persona_menu, 42)
 
         # Add a visual spacer.
@@ -70,7 +62,7 @@ class Sidebar(Gtk.Window):
         separator.set_margin_bottom(10)
         self.box.append(separator)
 
-        # Add secondary icons at the bottom.
+        # Add secondary icons.
         self.create_icon("Icons/settings.png", self.show_settings_page, 42)
         self.create_icon("Icons/power_button.png", self.close_application, 42)
 
@@ -78,16 +70,12 @@ class Sidebar(Gtk.Window):
         """
         Creates and adds an icon widget to the sidebar.
 
-        Tries to load the icon image from an absolute path. If the primary image cannot be loaded,
-        attempts to load a fallback image. Registers a click gesture to invoke the given callback.
-
         Args:
-            icon_path (str): Relative path to the icon image (from the UI folder).
-            callback (function): The function to be called when the icon is clicked.
-            icon_size (int): The desired width and height of the icon.
+            icon_path (str): Relative path to the icon image.
+            callback (function): Function to call when the icon is clicked.
+            icon_size (int): Desired size for the icon.
         """
         try:
-            # Compute absolute path based on current file location.
             current_dir = os.path.dirname(os.path.abspath(__file__))
             full_icon_path = os.path.abspath(os.path.join(current_dir, "..", icon_path))
             texture = Gdk.Texture.new_from_filename(full_icon_path)
@@ -96,7 +84,6 @@ class Sidebar(Gtk.Window):
             icon.set_content_fit(Gtk.ContentFit.CONTAIN)
         except Exception as e:
             logger.error(f"Error loading icon '{icon_path}': {e}")
-            # Attempt to load a fallback icon.
             fallback_icon_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icons/default.png"))
             try:
                 texture = Gdk.Texture.new_from_filename(fallback_icon_path)
@@ -108,7 +95,6 @@ class Sidebar(Gtk.Window):
                 icon = Gtk.Image.new_from_icon_name("image-missing")
 
         icon.get_style_context().add_class("icon")
-        # Use Gtk.GestureClick to register a click event.
         gesture = Gtk.GestureClick.new()
         gesture.connect("pressed", lambda gesture, n_press, x, y: callback())
         icon.add_controller(gesture)
@@ -125,7 +111,7 @@ class Sidebar(Gtk.Window):
 
     def handle_history_button(self):
         """
-        Invokes the history logging functionality of ATLAS.
+        Triggers the history logging functionality of ATLAS.
         """
         if self.ATLAS.is_initialized():
             self.ATLAS.log_history()
@@ -134,7 +120,7 @@ class Sidebar(Gtk.Window):
 
     def show_chat_page(self):
         """
-        Opens the chat page by instantiating ChatPage and storing its reference.
+        Opens the chat page.
         """
         if self.ATLAS.is_initialized():
             chat_page = ChatPage(self.ATLAS)
@@ -154,14 +140,13 @@ class Sidebar(Gtk.Window):
 
     def show_settings_page(self):
         """
-        Opens the settings page in a new transient window.
+        Opens the general settings page.
         """
         if self.ATLAS.is_initialized():
             settings_window = Gtk.Window(title="Settings")
             settings_window.set_default_size(300, 400)
             settings_window.set_transient_for(self)
             settings_window.set_modal(True)
-            # Apply custom CSS styling to the settings window.
             self.apply_css_styling(settings_window)
             vbox = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
             settings_window.set_child(vbox)
@@ -171,9 +156,20 @@ class Sidebar(Gtk.Window):
         else:
             self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
 
+    def show_speech_settings(self):
+        """
+        Opens the dedicated Speech Settings page for configuring speech services.
+        """
+        if self.ATLAS.is_initialized():
+            from GTKUI.Settings.Speech.speech_settings import SpeechSettings
+            speech_settings_page = SpeechSettings(self.ATLAS)
+            speech_settings_page.present()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+
     def close_application(self):
         """
-        Closes the application by retrieving the parent application and quitting it.
+        Closes the application by quitting the parent application.
         """
         logger.info("Closing application")
         app = self.get_application()
@@ -182,10 +178,10 @@ class Sidebar(Gtk.Window):
 
     def show_error_dialog(self, message):
         """
-        Displays an error dialog with the provided message.
+        Displays an error dialog.
 
         Args:
-            message (str): The error message to display.
+            message (str): Error message to display.
         """
         dialog = Gtk.MessageDialog(
             transient_for=self,
@@ -200,10 +196,10 @@ class Sidebar(Gtk.Window):
 
     def apply_css_styling(self, window=None):
         """
-        Applies CSS styling to the specified window (or this window if none is provided).
+        Applies custom CSS styling to the provided window.
 
         Args:
-            window (Gtk.Window, optional): The window to style.
+            window (Gtk.Window, optional): Window to style.
         """
         target = window if window else self
         css_provider = Gtk.CssProvider()

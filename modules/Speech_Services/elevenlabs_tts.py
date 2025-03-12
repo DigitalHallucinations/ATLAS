@@ -1,5 +1,20 @@
 # modules/Speech_Services/Eleven_Labs/elevenlabs_tts.py
 
+"""
+Module: elevenlabs_tts.py
+Description:
+    Enterprise production–ready implementation of Eleven Labs Text-to-Speech integration.
+    This provider now checks for an API key configuration. If the API key is not provided,
+    the service logs a warning and disables TTS functionality without breaking the application.
+    
+Usage:
+    The API key can be set via the environment (or via the ConfigManager in the Speech Settings UI).
+    If not provided, the provider remains disabled.
+    
+Author: Jeremy Shows - Digital Hallucinations
+Date: 05-11-2025
+"""
+
 import os
 import re
 import pygame
@@ -18,14 +33,24 @@ class ElevenLabsTTS(BaseTTS):
     def __init__(self):
         self._use_tts = False
         self.voice_ids = []
+        self.configured = False  # Flag indicating whether API key is configured.
         self.load_voices()
 
     def load_voices(self):
+        """
+        Loads available voices from the Eleven Labs API.
+        Reads the XI_API_KEY from the environment.
+        If the API key is not provided, logs a warning and disables further functionality.
+        """
         load_dotenv()
         XI_API_KEY = os.getenv("XI_API_KEY")
-        if XI_API_KEY is None:
-            logger.error("API key not found. Please set the XI_API_KEY environment variable.")
-            raise ValueError("API key not found. Please set the XI_API_KEY environment variable.")
+        if not XI_API_KEY:
+            logger.error("XI_API_KEY not found. Eleven Labs TTS is disabled. Please configure the API key.")
+            self.configured = False
+            self.voice_ids = []
+            return  # Do not raise an exception; allow the app to continue.
+        else:
+            self.configured = True
 
         url = "https://api.elevenlabs.io/v1/voices"
         headers = {
@@ -48,6 +73,9 @@ class ElevenLabsTTS(BaseTTS):
             self.voice_ids = []
 
     def play_audio(self, filename):
+        """
+        Plays the specified audio file.
+        """
         logger.info(f"Playing audio file: {filename}")
         pygame.mixer.init()
         pygame.mixer.music.load(filename)
@@ -57,12 +85,32 @@ class ElevenLabsTTS(BaseTTS):
         logger.info("Audio playback finished.")
 
     def contains_code(self, text: str) -> bool:
+        """
+        Checks if the provided text contains any code blocks.
+        
+        Args:
+            text (str): Text to check.
+        
+        Returns:
+            bool: True if code is detected, False otherwise.
+        """
         logger.debug(f"Checking if text contains code: {text}")
         return "<code>" in text
 
     async def text_to_speech(self, text: str):
+        """
+        Converts text to speech by sending a request to the Eleven Labs API.
+        If TTS is disabled or the service is not configured, the method logs the state and returns.
+        
+        Args:
+            text (str): Text to be converted to speech.
+        """
         if not self._use_tts:
             logger.info("TTS is turned off.")
+            return
+
+        if not self.configured:
+            logger.error("Eleven Labs TTS is not configured (missing API key).")
             return
 
         if self.contains_code(text):
@@ -112,6 +160,12 @@ class ElevenLabsTTS(BaseTTS):
             logger.error(f"Eleven Labs TTS Error: {response.text}")
 
     def set_voice(self, voice: dict):
+        """
+        Sets the active voice to the one matching the provided voice dictionary.
+        
+        Args:
+            voice (dict): Dictionary containing voice details.
+        """
         for i, v in enumerate(self.voice_ids):
             if v['name'] == voice['name'] and v['voice_id'] == voice['voice_id']:
                 self.voice_ids.pop(i)
@@ -121,11 +175,29 @@ class ElevenLabsTTS(BaseTTS):
         logger.error(f"Voice {voice['name']} not found in Eleven Labs voices.")
 
     def get_voices(self) -> list:
+        """
+        Returns a list of available voices.
+        
+        Returns:
+            list: Available voices.
+        """
         return self.voice_ids
 
     def set_tts(self, value: bool):
+        """
+        Enables or disables TTS functionality.
+        
+        Args:
+            value (bool): True to enable, False to disable.
+        """
         self._use_tts = value
         logger.info(f"Eleven Labs TTS set to: {self._use_tts}")
 
     def get_tts(self) -> bool:
+        """
+        Gets the current TTS enabled status.
+        
+        Returns:
+            bool: True if enabled, False otherwise.
+        """
         return self._use_tts

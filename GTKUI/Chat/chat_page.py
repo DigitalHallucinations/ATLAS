@@ -1,8 +1,6 @@
 # UI/Chat/chat_page.py
 
 """
-UI/Chat/chat_page.py
-
 This module implements the ChatPage window, which displays the conversation
 history, an input field, a microphone button for speech-to-text, and a send button.
 It handles user input and displays both user messages and responses from the ATLAS language model.
@@ -31,11 +29,12 @@ class ChatPage(Gtk.Window):
 
     Displays the conversation history in a scrollable area, an input field,
     a microphone button to activate speech-to-text, and a send button.
-    It updates the window title with the current persona's name and shows a status bar with provider/model info.
+    It updates the window title with the current persona's name and shows a status bar
+    with LLM provider/model information as well as the active TTS provider and voice.
     """
     def __init__(self, atlas):
         """
-        Initialize the ChatPage window.
+        Initializes the ChatPage window.
 
         Args:
             atlas: The main ATLAS application instance.
@@ -45,18 +44,18 @@ class ChatPage(Gtk.Window):
         self.chat_session = atlas.chat_session
         self.set_default_size(600, 400)
         
-        # Add both "chat-page" and "sidebar" style classes to match the dark theme of the sidebar.
+        # Apply style classes to match the dark theme of the sidebar.
         self.get_style_context().add_class("chat-page")
         self.get_style_context().add_class("sidebar")
         
-        # Apply centralized CSS.
+        # Apply centralized CSS styling.
         apply_css()
 
         # Main vertical container.
         self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_child(self.vbox)
 
-        # Update window title with current persona name.
+        # Update window title with the current persona's name.
         self.update_persona_label()
 
         # Add a horizontal separator.
@@ -64,7 +63,7 @@ class ChatPage(Gtk.Window):
         separator.set_margin_top(5)
         self.vbox.append(separator)
 
-        # Create a scrollable area for chat history.
+        # Create a scrollable area for the conversation history.
         self.chat_history_scrolled = Gtk.ScrolledWindow()
         self.chat_history_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.chat_history_scrolled.set_min_content_height(200)
@@ -76,7 +75,7 @@ class ChatPage(Gtk.Window):
         self.chat_history_scrolled.set_vexpand(True)
         self.vbox.append(self.chat_history_scrolled)
 
-        # Create the input area with an Entry, Microphone, and Send button.
+        # Create the input area with an Entry, a microphone button, and a send button.
         input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         input_box.set_margin_top(10)
         input_box.set_margin_bottom(10)
@@ -125,7 +124,7 @@ class ChatPage(Gtk.Window):
 
         self.vbox.append(input_box)
 
-        # Add a status label at the bottom.
+        # Add a status label at the bottom of the window.
         self.status_label = Gtk.Label()
         self.status_label.set_halign(Gtk.Align.START)
         self.status_label.set_margin_start(5)
@@ -133,7 +132,7 @@ class ChatPage(Gtk.Window):
         self.vbox.append(self.status_label)
         self.update_status_bar()
 
-        # Link provider changes to the status bar update.
+        # Link provider changes to update the status bar.
         self.ATLAS.notify_provider_changed = self.update_status_bar
 
         self.present()
@@ -151,13 +150,16 @@ class ChatPage(Gtk.Window):
 
         Reads the input, adds the user's message to the conversation history, clears the input,
         and spawns a separate thread to handle the model's response.
+
+        Args:
+            widget: The widget that triggered the event.
         """
         message = self.input_entry.get_text().strip()
         if message:
             user_name = self.ATLAS.user
             self.add_message_bubble(user_name, message, is_user=True)
             self.input_entry.set_text("")
-            # Start a new thread to call the model asynchronously.
+            # Start a new thread to process the model's response asynchronously.
             threading.Thread(
                 target=self.handle_model_response_thread,
                 args=(message,),
@@ -169,15 +171,19 @@ class ChatPage(Gtk.Window):
         Handler for the microphone button click to toggle speech-to-text.
 
         If speech recognition is not active, it starts listening and updates the status label.
-        If already listening, it stops recording, transcribes the audio, and inserts the transcript into the input field.
+        If already listening, it stops recording, transcribes the audio, and inserts the transcript
+        into the input field.
+
+        Args:
+            widget: The widget that triggered the event.
         """
-        # Get the active STT service from the Speech Manager.
+        # Retrieve the active STT service from the Speech Manager.
         stt = self.ATLAS.speech_manager.active_stt
         if not stt:
             logger.error("No active STT service configured.")
             return
 
-        # Toggle recording based on the STT's 'recording' attribute.
+        # Toggle recording based on the STT provider's 'recording' attribute.
         if not getattr(stt, 'recording', False):
             logger.info("Starting speech recognition...")
             self.status_label.set_text("Listening...")
@@ -186,19 +192,23 @@ class ChatPage(Gtk.Window):
             logger.info("Stopping speech recognition and transcribing...")
             self.ATLAS.speech_manager.stop_listening()
             
-            # Run the transcription in a separate thread to avoid blocking the UI.
+            # Run transcription in a separate thread to avoid blocking the UI.
             def transcribe_and_update():
-                transcript = stt.transcribe("output.wav")
-                # Safely update the UI from this thread.
+                # Use the provider's audio file if available; otherwise, default to "output.wav".
+                audio_file = getattr(stt, 'audio_file', "output.wav")
+                transcript = stt.transcribe(audio_file)
+                # Safely update the UI using GLib's idle loop.
                 GLib.idle_add(self.input_entry.set_text, transcript)
                 GLib.idle_add(self.status_label.set_text, "Transcription complete.")
             threading.Thread(target=transcribe_and_update, daemon=True).start()
 
     def handle_model_response_thread(self, message):
         """
-        Runs the model response in a separate thread to avoid blocking the UI.
+        Processes the model's response asynchronously in a separate thread,
+        then schedules the UI update to add the assistant's message bubble.
 
-        Creates a dedicated event loop for the async call and schedules the UI update using GLib.idle_add.
+        Args:
+            message (str): The user message to process.
         """
         try:
             loop = asyncio.new_event_loop()
@@ -213,7 +223,7 @@ class ChatPage(Gtk.Window):
 
     def add_message_bubble(self, sender, message, is_user=False):
         """
-        Adds a message bubble to the chat history area.
+        Adds a message bubble to the conversation history area.
 
         Args:
             sender (str): The name of the message sender.
@@ -253,7 +263,9 @@ class ChatPage(Gtk.Window):
     def scroll_to_bottom(self):
         """
         Scrolls the chat history scrolled window to the bottom.
-        This is scheduled via GLib.timeout_add to allow the layout to update.
+
+        Returns:
+            bool: False to stop further timeout events.
         """
         vadjustment = self.chat_history_scrolled.get_vadjustment()
         vadjustment.set_value(vadjustment.get_upper())
@@ -261,13 +273,35 @@ class ChatPage(Gtk.Window):
 
     def update_status_bar(self, provider=None, model=None):
         """
-        Updates the status label with the current provider and model information.
+        Updates the status label with current LLM provider/model information as well as
+        the active TTS provider and its selected voice.
 
         Args:
-            provider (str, optional): Provider name; if None, retrieved from ATLAS.
-            model (str, optional): Model name; if None, retrieved from ATLAS.
+            provider (str, optional): LLM provider name; if None, retrieved from ATLAS.
+            model (str, optional): LLM model name; if None, retrieved from ATLAS.
         """
-        provider = provider or self.ATLAS.provider_manager.get_current_provider()
-        model = model or self.ATLAS.provider_manager.get_current_model() or "No model selected"
-        status_message = f"Provider: {provider} | Model: {model}"
+        # Retrieve LLM provider and model information.
+        llm_provider = self.ATLAS.provider_manager.get_current_provider()
+        llm_model = self.ATLAS.provider_manager.get_current_model() or "No model selected"
+
+        # Retrieve TTS provider and voice information.
+        tts_provider = self.ATLAS.speech_manager.get_default_tts_provider() or "None"
+        tts = self.ATLAS.speech_manager.active_tts
+        tts_voice = "Not Set"
+        if tts:
+            # Attempt to use a get_current_voice() method if available.
+            if hasattr(tts, "get_current_voice") and callable(getattr(tts, "get_current_voice")):
+                tts_voice = tts.get_current_voice()
+            # Fallback: if the provider maintains a list of voices.
+            elif hasattr(tts, "voice_ids") and tts.voice_ids:
+                tts_voice = tts.voice_ids[0].get('name', "Not Set")
+            # Fallback for providers like GoogleTTS.
+            elif hasattr(tts, "voice") and tts.voice is not None:
+                tts_voice = tts.voice.name
+
+        # Construct and update the status message.
+        status_message = (
+            f"LLM: {llm_provider} | Model: {llm_model} | "
+            f"TTS: {tts_provider} (Voice: {tts_voice})"
+        )
         self.status_label.set_text(status_message)
