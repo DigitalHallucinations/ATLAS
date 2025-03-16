@@ -203,23 +203,29 @@ class ChatPage(Gtk.Window):
             threading.Thread(target=transcribe_and_update, daemon=True).start()
 
     def handle_model_response_thread(self, message):
-        """
-        Processes the model's response asynchronously in a separate thread,
-        then schedules the UI update to add the assistant's message bubble.
+            """
+            Processes the model's response asynchronously in a separate thread,
+            then schedules the UI update to add the assistant's message bubble.
+            Also triggers TTS if enabled.
+            
+            Args:
+                message (str): The user message to process.
+            """
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                response = loop.run_until_complete(self.chat_session.send_message(message))
+                
+                # Trigger TTS for the response if enabled.
+                loop.run_until_complete(self.ATLAS.speech_manager.text_to_speech(response))
+                
+                loop.close()
+                persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
+                GLib.idle_add(self.add_message_bubble, persona_name, response)
+            except Exception as e:
+                logger.error(f"Error in handle_model_response: {e}")
+                GLib.idle_add(self.add_message_bubble, "Assistant", f"Error: {e}")
 
-        Args:
-            message (str): The user message to process.
-        """
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            response = loop.run_until_complete(self.chat_session.send_message(message))
-            loop.close()
-            persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
-            GLib.idle_add(self.add_message_bubble, persona_name, response)
-        except Exception as e:
-            logger.error(f"Error in handle_model_response: {e}")
-            GLib.idle_add(self.add_message_bubble, "Assistant", f"Error: {e}")
 
     def add_message_bubble(self, sender, message, is_user=False):
         """

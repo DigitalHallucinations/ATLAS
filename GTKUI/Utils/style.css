@@ -97,6 +97,11 @@ window.sidebar {
     background-color: #2b2b2b;
 }
 
+/* Chat Page Window styling */
+window.chat-page {
+    background-color: #2b2b2b;
+}
+
 /* Icon Styling */
 .icon {
     padding: 10px;
@@ -142,12 +147,20 @@ textview:focus {
     border-color: #888888;
 }
 
-/* Frames (e.g., Editable Content) */
+/* Frame styling to ensure it matches the dark theme */
 frame {
-    border-radius: 10px;
+    background-color: #2b2b2b;
+    color: white;
     border: 1px solid #555555;
+    border-radius: 10px;
     padding: 8px;
     margin: 8px 0;
+}
+
+/* Additional styling for box if needed */
+box {
+    background-color: #2b2b2b;
+    color: white;
 }
 
 /* Highlighted Frame on Focus */

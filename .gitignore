@@ -17,8 +17,7 @@ env/
 /modules/Providers/HuggingFace/model_cache
 
 # Ignore mp3, mp4, and wav audio/video files in assets
-/assets/tts_mp3/*.mp3
-/assets/avatar_videos/*.mp4
+*.mp3
 *output.wav
 
 # Ignore all SQLite database files and associated temporary files

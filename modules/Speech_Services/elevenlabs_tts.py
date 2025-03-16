@@ -31,7 +31,7 @@ CHUNK_SIZE = 1024
 
 class ElevenLabsTTS(BaseTTS):
     def __init__(self):
-        self._use_tts = False
+        self._use_tts = True
         self.voice_ids = []
         self.configured = False  # Flag indicating whether API key is configured.
         self.load_voices()

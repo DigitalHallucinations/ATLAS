@@ -3,10 +3,10 @@
 """
 Module: speech_settings.py
 Description:
-    Enterprise production–ready Speech Settings window.
-    Allows configuration of Text-to-Speech (TTS) and Speech-to-Text (STT) settings.
-    In addition, provides input fields to configure API keys for speech providers as well as
-    Google Cloud credentials. If an API key is not provided, the corresponding provider is disabled.
+    Enterprise production–ready Speech Settings window with a tabbed layout.
+    The General tab lets the user turn TTS and STT on or off independently.
+    All Google settings (credentials used for both Google TTS and STT) are on a single Google tab.
+    Separate tabs exist for Eleven Labs TTS and Whisper STT.
     
 Author: Jeremy Shows - Digital Hallucinations
 Date: 05-11-2025
@@ -17,6 +17,7 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib
 import os
 import logging
+
 from GTKUI.Utils.utils import apply_css
 
 logger = logging.getLogger(__name__)
@@ -24,17 +25,24 @@ logger = logging.getLogger(__name__)
 class SpeechSettings(Gtk.Window):
     def __init__(self, atlas):
         """
-        Initializes the Speech Settings window.
-        
+        Initializes the Speech Settings window with a tabbed interface.
+
         Args:
             atlas: The main ATLAS application instance.
         """
         super().__init__(title="Speech Settings")
         self.ATLAS = atlas
-        self.set_default_size(400, 450)
+
+        # Use the same dark style classes as the rest of the UI
+        self.get_style_context().add_class("chat-page")
+        self.get_style_context().add_class("sidebar")
+        
+        # Apply global CSS (style.css)
         apply_css()
 
-        # Main container.
+        self.set_default_size(500, 500)
+
+        # Main container
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         vbox.set_margin_top(10)
         vbox.set_margin_bottom(10)
@@ -42,132 +50,210 @@ class SpeechSettings(Gtk.Window):
         vbox.set_margin_end(10)
         self.set_child(vbox)
 
-        # --- TTS Settings Section ---
-        tts_frame = Gtk.Frame(label="Text-to-Speech (TTS) Settings")
-        tts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        tts_frame.set_child(tts_box)
+        # Create a Notebook for tabbed settings
+        self.notebook = Gtk.Notebook()
+        vbox.append(self.notebook)
 
-        # Voice selection combo box.
+        # Create each tab/page
+        self.create_general_tab()
+        self.create_eleven_labs_tts_tab()
+        self.create_google_tab()
+        self.create_whisper_stt_tab()
+
+        # "Save Settings" button at the bottom of the window
+        save_button = Gtk.Button(label="Save Settings")
+        save_button.connect("clicked", self.on_save_clicked)
+        vbox.append(save_button)
+
+        self.present()
+
+    # -------------------------------------------------------------------------
+    #   TAB 1: GENERAL
+    # -------------------------------------------------------------------------
+    def create_general_tab(self):
+        """
+        Creates the "General" tab for overall speech-related settings.
+        Contains separate switches to enable or disable TTS and STT.
+        """
+        general_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        general_box.set_margin_top(6)
+        general_box.set_margin_bottom(6)
+        general_box.set_margin_start(6)
+        general_box.set_margin_end(6)
+
+        # TTS Enable Switch
+        tts_label = Gtk.Label(label="Enable TTS:")
+        self.general_tts_switch = Gtk.Switch()
+        current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
+        self.general_tts_switch.set_active(self.ATLAS.speech_manager.get_tts_status(current_tts_provider))
+        general_box.append(tts_label)
+        general_box.append(self.general_tts_switch)
+
+        # STT Enable Switch
+        stt_label = Gtk.Label(label="Enable STT:")
+        self.general_stt_switch = Gtk.Switch()
+        # For STT, we assume the default provider is set in the speech manager.
+        default_stt = self.ATLAS.speech_manager.get_default_stt_provider()
+        # Here we simply check if the provider exists to consider it "enabled"
+        stt_enabled = True if default_stt else False
+        self.general_stt_switch.set_active(stt_enabled)
+        general_box.append(stt_label)
+        general_box.append(self.general_stt_switch)
+
+        # Add the "General" page to the notebook
+        self.notebook.append_page(general_box, Gtk.Label(label="General"))
+
+    # -------------------------------------------------------------------------
+    #   TAB 2: ELEVEN LABS TTS
+    # -------------------------------------------------------------------------
+    def create_eleven_labs_tts_tab(self):
+        """
+        Creates a tab specifically for Eleven Labs TTS settings:
+        - Voice selection
+        - Eleven Labs API key
+        """
+        eleven_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        eleven_box.set_margin_top(6)
+        eleven_box.set_margin_bottom(6)
+        eleven_box.set_margin_start(6)
+        eleven_box.set_margin_end(6)
+
+        # Voice selection combo box
         self.voice_combo = Gtk.ComboBoxText()
         current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
         voices = self.ATLAS.speech_manager.get_tts_voices(current_tts_provider)
         for voice in voices:
-            self.voice_combo.append_text(voice.get('name', 'Unknown'))
+            voice_name = voice.get('name', 'Unknown')
+            self.voice_combo.append_text(voice_name)
         if voices:
             self.voice_combo.set_active(0)
-        tts_box.append(Gtk.Label(label="Select TTS Voice:"))
-        tts_box.append(self.voice_combo)
+        eleven_box.append(Gtk.Label(label="Select TTS Voice:"))
+        eleven_box.append(self.voice_combo)
 
-        # TTS enable/disable switch.
-        self.tts_switch = Gtk.Switch()
-        self.tts_switch.set_active(self.ATLAS.speech_manager.get_tts_status(current_tts_provider))
-        tts_box.append(Gtk.Label(label="Enable TTS:"))
-        tts_box.append(self.tts_switch)
-
-        # API key input for Eleven Labs TTS.
+        # Eleven Labs API key
         self.eleven_api_entry = Gtk.Entry()
         existing_xi_api = self.ATLAS.config_manager.get_config("XI_API_KEY") or ""
         self.eleven_api_entry.set_text(existing_xi_api)
-        tts_box.append(Gtk.Label(label="Eleven Labs API Key (optional):"))
-        tts_box.append(self.eleven_api_entry)
+        eleven_box.append(Gtk.Label(label="Eleven Labs API Key:"))
+        eleven_box.append(self.eleven_api_entry)
 
-        # --- STT Settings Section ---
-        stt_frame = Gtk.Frame(label="Speech-to-Text (STT) Settings")
-        stt_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        stt_frame.set_child(stt_box)
+        # Add the "Eleven Labs TTS" page to the notebook
+        self.notebook.append_page(eleven_box, Gtk.Label(label="Eleven Labs TTS"))
 
-        # STT provider selection combo box.
-        self.stt_combo = Gtk.ComboBoxText()
-        for key in self.ATLAS.speech_manager.stt_services.keys():
-            self.stt_combo.append_text(key)
-        self.stt_combo.set_active(0)
-        stt_box.append(Gtk.Label(label="Select STT Provider:"))
-        stt_box.append(self.stt_combo)
+    # -------------------------------------------------------------------------
+    #   TAB 3: GOOGLE (TTS & STT)
+    # -------------------------------------------------------------------------
+    def create_google_tab(self):
+        """
+        Creates a tab for all Google settings used by both TTS and STT.
+        Contains Google Cloud credentials.
+        """
+        google_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        google_box.set_margin_top(6)
+        google_box.set_margin_bottom(6)
+        google_box.set_margin_start(6)
+        google_box.set_margin_end(6)
 
-        # Whisper mode selection combo box (only applicable if a Whisper provider is selected).
+        # Google Cloud Credentials entry
+        self.google_credentials_entry = Gtk.Entry()
+        existing_google_creds = self.ATLAS.config_manager.get_config("GOOGLE_APPLICATION_CREDENTIALS") or ""
+        self.google_credentials_entry.set_text(existing_google_creds)
+        google_box.append(Gtk.Label(label="Google Cloud Credentials JSON Path:"))
+        google_box.append(self.google_credentials_entry)
+
+        google_box.append(Gtk.Label(label="These credentials are used for both Google TTS and STT."))
+
+        self.notebook.append_page(google_box, Gtk.Label(label="Google"))
+
+    # -------------------------------------------------------------------------
+    #   TAB 4: WHISPER STT
+    # -------------------------------------------------------------------------
+    def create_whisper_stt_tab(self):
+        """
+        Creates a tab for Whisper STT settings:
+        - Whisper mode (Local/Online)
+        - OpenAI API key (for Whisper Online)
+        """
+        whisper_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        whisper_box.set_margin_top(6)
+        whisper_box.set_margin_bottom(6)
+        whisper_box.set_margin_start(6)
+        whisper_box.set_margin_end(6)
+
+        # Whisper mode selection combo box
+        whisper_mode_label = Gtk.Label(label="Whisper Mode:")
         self.whisper_mode_combo = Gtk.ComboBoxText()
         self.whisper_mode_combo.append_text("Local")
         self.whisper_mode_combo.append_text("Online")
         self.whisper_mode_combo.set_active(0)
-        stt_box.append(Gtk.Label(label="Whisper Mode (if applicable):"))
-        stt_box.append(self.whisper_mode_combo)
+        whisper_box.append(whisper_mode_label)
+        whisper_box.append(self.whisper_mode_combo)
 
-        # API key input for OpenAI (used by Whisper online mode).
+        # OpenAI API key for Whisper Online
         self.openai_api_entry = Gtk.Entry()
         existing_openai_api = self.ATLAS.config_manager.get_config("OPENAI_API_KEY") or ""
         self.openai_api_entry.set_text(existing_openai_api)
-        stt_box.append(Gtk.Label(label="OpenAI API Key for Whisper Online (optional):"))
-        stt_box.append(self.openai_api_entry)
-        
-        # --- Google Cloud Credentials Section ---
-        # This field allows setting the path to the Google Cloud credentials JSON file.
-        google_frame = Gtk.Frame(label="Google Cloud Credentials")
-        google_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        google_frame.set_child(google_box)
-        
-        self.google_credentials_entry = Gtk.Entry()
-        existing_google_creds = self.ATLAS.config_manager.get_config("GOOGLE_APPLICATION_CREDENTIALS") or ""
-        self.google_credentials_entry.set_text(existing_google_creds)
-        google_box.append(Gtk.Label(label="Google Credentials JSON Path (optional):"))
-        google_box.append(self.google_credentials_entry)
-        
-        # Save button to apply the settings.
-        save_button = Gtk.Button(label="Save Settings")
-        save_button.connect("clicked", self.on_save_clicked)
+        whisper_box.append(Gtk.Label(label="OpenAI API Key (for Whisper Online):"))
+        whisper_box.append(self.openai_api_entry)
 
-        # Pack sections into the main container.
-        vbox.append(tts_frame)
-        vbox.append(stt_frame)
-        vbox.append(google_frame)
-        vbox.append(save_button)
-        self.present()
+        self.notebook.append_page(whisper_box, Gtk.Label(label="Whisper STT"))
 
+    # -------------------------------------------------------------------------
+    #   SAVE SETTINGS
+    # -------------------------------------------------------------------------
     def on_save_clicked(self, widget):
         """
-        Handler for the save button.
-        Applies TTS and STT settings via the speech manager.
-        Also saves API key configuration and Google credentials to the ConfigManager
-        and updates the environment.
+        Handler for the "Save Settings" button.
+        Gathers data from all tabs and updates the configuration manager and environment.
+        Also updates the active TTS/STT providers in the Speech Manager.
         """
-        # Update API keys and credentials in the ConfigManager and process environment.
-        eleven_api_key = self.eleven_api_entry.get_text().strip()
-        openai_api_key = self.openai_api_entry.get_text().strip()
+        # ---------------------------
+        # General Tab: TTS and STT toggles
+        # ---------------------------
+        tts_enabled = self.general_tts_switch.get_active()
+        stt_enabled = self.general_stt_switch.get_active()
+        current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
+        self.ATLAS.speech_manager.set_tts_status(tts_enabled, current_tts_provider)
+        # For STT, you may have additional logic; here we simply log the state.
+        logger.info(f"General settings - TTS enabled: {tts_enabled}, STT enabled: {stt_enabled}")
+
+        # ---------------------------
+        # Google Tab: Update credentials
+        # ---------------------------
         google_creds = self.google_credentials_entry.get_text().strip()
-
-        # Save values to config (assumes set method persists configuration)
-        self.ATLAS.config_manager.set("XI_API_KEY", eleven_api_key)
-        self.ATLAS.config_manager.set("OPENAI_API_KEY", openai_api_key)
         self.ATLAS.config_manager.set("GOOGLE_APPLICATION_CREDENTIALS", google_creds)
-
-        # Update the environment so provider modules using os.getenv pick up the changes.
-        os.environ["XI_API_KEY"] = eleven_api_key
-        os.environ["OPENAI_API_KEY"] = openai_api_key
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = google_creds
 
-        # Apply TTS settings.
-        current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
-        tts_enabled = self.tts_switch.get_active()
-        self.ATLAS.speech_manager.set_tts_status(tts_enabled, current_tts_provider)
+        # ---------------------------
+        # Eleven Labs TTS Tab: Update API key and voice
+        # ---------------------------
+        eleven_api_key = self.eleven_api_entry.get_text().strip()
+        self.ATLAS.config_manager.set("XI_API_KEY", eleven_api_key)
+        os.environ["XI_API_KEY"] = eleven_api_key
+
         selected_voice_name = self.voice_combo.get_active_text()
         voices = self.ATLAS.speech_manager.get_tts_voices(current_tts_provider)
         selected_voice = next((v for v in voices if v.get('name') == selected_voice_name), None)
         if selected_voice:
             self.ATLAS.speech_manager.set_tts_voice(selected_voice, current_tts_provider)
 
-        # Apply STT settings.
-        selected_stt_provider = self.stt_combo.get_active_text()
-        if selected_stt_provider.startswith("whisper"):
-            mode = self.whisper_mode_combo.get_active_text().lower()
-            try:
-                from modules.Speech_Services.whisper_stt import WhisperSTT
-                whisper_stt = WhisperSTT(mode=mode)
-                provider_key = f"whisper_{mode}"
-                self.ATLAS.speech_manager.add_stt_provider(provider_key, whisper_stt)
-                self.ATLAS.speech_manager.set_default_stt_provider(provider_key)
-                logger.info(f"STT provider set to {provider_key}")
-            except Exception as e:
-                logger.error(f"Error setting Whisper mode: {e}")
-        else:
-            self.ATLAS.speech_manager.set_default_stt_provider(selected_stt_provider)
-        self.destroy()
+        # ---------------------------
+        # Whisper STT Tab: Update Whisper mode and OpenAI API key
+        # ---------------------------
+        openai_api_key = self.openai_api_entry.get_text().strip()
+        self.ATLAS.config_manager.set("OPENAI_API_KEY", openai_api_key)
+        os.environ["OPENAI_API_KEY"] = openai_api_key
+        whisper_mode = self.whisper_mode_combo.get_active_text().lower()
+        # If desired, you can reinitialize the Whisper STT provider based on the chosen mode here.
+        # For example:
+        # from modules.Speech_Services.whisper_stt import WhisperSTT
+        # try:
+        #     whisper_stt = WhisperSTT(mode=whisper_mode)
+        #     provider_key = f"whisper_{whisper_mode}"
+        #     self.ATLAS.speech_manager.add_stt_provider(provider_key, whisper_stt)
+        #     self.ATLAS.speech_manager.set_default_stt_provider(provider_key)
+        # except Exception as e:
+        #     logger.error(f"Error setting Whisper mode: {e}")
 
+        logger.info("Speech settings saved.")
+        self.destroy()

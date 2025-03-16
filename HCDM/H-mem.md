@@ -1,6 +1,6 @@
 # A Biologically-Inspired Multi-Layered Memory System for Hybrid Cognitive Dynamics
 
-**Author:**
+**Author:**  
 Jeremy Shows  
 Digital Hallucinations  
 <jeremyshws@digitalhallucinations.net>
@@ -9,11 +9,7 @@ Digital Hallucinations
 
 ## Abstract
 
-In this paper we present a comprehensive design and implementation of a multi-layered memory system for the Hybrid Cognitive Dynamics Model (HCDM). Inspired by neurobiological principles, the memory architecture integrates rapid sensory processing, short-term and working memory, intermediate buffers, and long-term episodic and semantic stores. The system employs time-based consolidation, replay-based reinforcement, and an emotional/motivational modulation module (EMoM) to emulate the complementary learning systems observed in biological cognition. A Neural Cognitive Bus (NCB) facilitates inter-module communication, while dynamic state cues and context-aware retrieval ensure that memory operations remain synchronized with ongoing cognitive processes. Experimental evaluations and implementation details illustrate the potential of this system for robust, context-sensitive learning in complex environments.
-
----
-
-Below is the revised Table of Contents with updated link fragments that conform to standard Markdown conventions. In this version, any special characters (such as en-dashes) have been replaced with standard hyphens to ensure that the link fragments are valid. You can copy and paste the following text directly into your paper.
+In this paper we present a comprehensive design and implementation of a multi-layered memory system for the Hybrid Cognitive Dynamics Model (HCDM). Inspired by neurobiological principles—including recent evidence that human medial temporal lobe (MTL) neurons encode concepts in a context-invariant manner (Rey et al., 2024)—we propose an architecture that integrates rapid sensory processing, short-term and working memory, intermediate buffers, and long-term episodic and semantic stores. The system employs time-based consolidation, replay-based reinforcement, and an emotional/motivational modulation module (EMoM) to emulate the complementary learning systems observed in biological cognition. A Neural Cognitive Bus (NCB) facilitates inter-module communication, while dynamic state cues and context-aware retrieval ensure that memory operations remain synchronized with ongoing cognitive processes. Notably, our design separates core concept information from contextual details—mirroring the finding that single neurons code for concepts independent of context—thereby enabling robust, flexible recall. Experimental evaluations and implementation details illustrate the potential of this system for context-sensitive yet conceptually invariant learning in complex environments.
 
 ---
 
@@ -58,7 +54,11 @@ Below is the revised Table of Contents with updated link fragments that conform 
 
 ## 1. Introduction
 
-Contemporary cognitive architectures often fall short in replicating the adaptive, integrative, and time-sensitive aspects of human memory. Drawing upon neuroscience insights—particularly the complementary roles of the hippocampus and neocortex in rapid encoding and gradual consolidation—this work introduces a memory system designed for the HCDM framework. By decomposing memory into distinct yet interacting subsystems, we create a scalable and biologically plausible solution that supports robust learning, context-aware retrieval, and adaptive consolidation.
+Contemporary cognitive architectures often fall short in replicating the adaptive, integrative, and time-sensitive aspects of human memory. Drawing upon neuroscience insights—particularly the complementary roles of the hippocampus and neocortex in rapid encoding and gradual consolidation—this work introduces a memory system designed for the HCDM framework.
+
+A key inspiration for our updated design comes from recent single-neuron recording studies in the human medial temporal lobe (MTL), which reveal that neurons encoding specific concepts (e.g., a famous actor or landmark) do so in a **context-invariant** manner (Rey et al., 2024). In other words, the neuronal response remains largely unchanged across different episodic contexts. This finding suggests that rather than modifying the fundamental representation of a concept based on context, the brain may store the core “information” independently while associating distinct contexts separately.
+
+By decomposing memory into distinct yet interacting subsystems, our updated design creates a scalable and biologically plausible solution that supports robust learning, context-aware retrieval, and adaptive consolidation—all while maintaining invariant conceptual representations.
 
 ### 1.1 Motivation and Background
 
@@ -67,6 +67,7 @@ Traditional artificial memory systems frequently rely on monolithic or single-la
 - **Rapid Encoding vs. Long-Term Storage:** Balancing the need for immediate processing with the requirement for durable, retrievable memory.
 - **Temporal Dynamics:** Adapting to variable time scales and ensuring that short-term, working, and long-term memories are appropriately integrated.
 - **Emotional and Salience Modulation:** Prioritizing memory based on relevance and affective state—a critical feature in biological cognition.
+- **Contextual Separation:** Many conventional models entangle context with the core information. In contrast, recent evidence from human MTL recordings (Rey et al., 2024) shows that memory coding can be context-invariant—a design principle we incorporate to allow the separation of concept from context.
 
 Our design addresses these limitations by explicitly modeling the stages of memory processing, drawing inspiration from both the neural mechanisms underlying memory and established computational paradigms.
 
@@ -74,7 +75,9 @@ Our design addresses these limitations by explicitly modeling the stages of memo
 
 ## 2. System Architecture
 
-The proposed memory system is composed of a suite of specialized subsystems that collectively instantiate the complementary learning systems observed in biological cognition. This architecture is engineered to rapidly capture and preprocess transient sensory information, dynamically integrate and manipulate short-term representations, and robustly consolidate data into durable long-term stores. The system is designed to operate over multiple time scales and to modulate memory encoding and consolidation processes via affective signals. Furthermore, a dedicated Neural Cognitive Bus (NCB) provides asynchronous, nonlocal inter-module communication, thereby ensuring coherent and synchronized operations across the system.
+The proposed memory system is composed of a suite of specialized subsystems that collectively instantiate the complementary learning systems observed in biological cognition. Engineered to operate over multiple time scales, the system rapidly captures and preprocesses transient sensory information, dynamically integrates short-term representations, and robustly consolidates data into durable long-term stores.
+
+Critically, our architecture distinguishes between the **core concept representation** and its associated episodic context. This design choice is informed by findings that human MTL neurons exhibit context-invariant coding (Rey et al., 2024). In our system, **Semantic Memory** encodes and stores invariant, context–free concepts, while **Episodic Memory** captures the specific contextual details of each experience. Context thus acts as a retrieval filter rather than as an intrinsic modifier of the concept representation.
 
 ### Figure 1. Memory System Architecture Overview
 
@@ -126,7 +129,7 @@ flowchart TD
     style J fill:#ccf,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
 ```
 
-*Figure 1: Overview diagram illustrating the complete hierarchical architecture of the memory system. The diagram delineates the progression from raw sensory input through successive memory buffers—Sensory Memory, Short-Term Memory, Working Memory, and Intermediate Memory—to the consolidation of long-term memory into Episodic and Semantic components. The figure also emphasizes the modulatory influence of the Emotional/Motivational Module (EMoM) and the role of the Neural Cognitive Bus (NCB) in facilitating asynchronous inter-module communication.*
+*Figure 1: Overview diagram illustrating the complete hierarchical architecture of the memory system. The diagram delineates the progression from raw sensory input through successive memory buffers—Sensory Memory, Short-Term Memory, Working Memory, and Intermediate Memory—to the consolidation of long-term memory into Episodic and Semantic components. The figure emphasizes that while episodic memory stores context-rich episodes, semantic memory holds context–invariant concept representations. The Emotional/Motivational Module (EMoM) modulates processing, and the Neural Cognitive Bus (NCB) provides asynchronous inter-module communication.*
 
 ### Detailed Memory Subsystems
 
@@ -173,7 +176,7 @@ STM serves as a transient repository for the most recently acquired information.
 #### 2.3 Working Memory
 
 **Function:**  
-Working Memory is the dynamic processing arena where transient information is actively manipulated to facilitate reasoning and problem-solving. It integrates inputs from both Sensory and Short-Term Memory, thereby forming a critical substrate for complex cognitive functions.
+Working Memory is the dynamic processing arena where transient information is actively manipulated to facilitate reasoning and problem-solving. It integrates inputs from both Sensory and Short-Term Memory, forming a critical substrate for complex cognitive functions.
 
 **Design Considerations:**
 
@@ -227,15 +230,18 @@ Intermediate Memory acts as a transient buffer for items that are earmarked for 
 
 #### 2.5 Long-Term Memory
 
-Long-Term Memory is bifurcated into two complementary modules that support both episodic and semantic retention.
+Long-Term Memory is bifurcated into two complementary modules that support both episodic and semantic retention. A key innovation in our updated design is the **explicit separation of context from the core concept**.
 
 ##### 2.5.1 Episodic Memory
 
 **Function:**  
-Episodic Memory encodes and stores context-rich, temporally ordered episodes that reflect autobiographical experiences. It consolidates sequential events into coherent narratives.
+Episodic Memory encodes and stores context-rich, temporally ordered episodes that reflect autobiographical experiences. It consolidates sequential events into coherent narratives without altering the invariant concept coding.
 
 **Approach:**
 
+- **Separate Context Storage:**  
+  The episodic component stores the details of the context (time, place, emotional state, etc.) alongside the event but does not modify the underlying concept coding. This enables the retrieval of the same core concept across different episodic contexts.
+  
 - **Replay Buffer:**  
   A prioritized replay mechanism is employed, wherein the priority of a memory item is determined by its salience and recency.
   
@@ -245,23 +251,53 @@ Episodic Memory encodes and stores context-rich, temporally ordered episodes tha
 ##### 2.5.2 Semantic Memory
 
 **Function:**  
-Semantic Memory abstracts from individual episodes to store generalized, invariant knowledge in a structured format.
+Semantic Memory abstracts from individual episodes to store generalized, invariant knowledge in a structured format. In our design, semantic memory captures the core concept—such as a person or object—independent of any contextual association.
 
 **Core Elements:**
 
-- **Embedding Generation:**  
-  Each semantic concept is represented as a vector embedding, generated either randomly or via pretrained models.
+- **Context-Invariant Embedding Generation:**  
+  Each semantic concept is represented as a vector embedding generated via pretrained models or learned representations, ensuring that the encoding remains constant regardless of episodic context.
   
 - **Graph Structure:**  
   A knowledge graph is constructed where nodes represent individual concepts and edges represent inter-concept relationships. This graph facilitates efficient inference and retrieval.
   
 - **Query Mechanisms:**  
-  Retrieval is performed using cosine similarity measures between embeddings, enabling context-aware inference of related concepts.
+  Retrieval is performed using cosine similarity measures between embeddings, enabling context-aware inference of related concepts while leaving the core representation unchanged.
 
 #### 2.6 Context-Aware Retrieval
 
 **Function:**  
-This module interfaces with the Dynamic State Space Model (DSSM) to extract current context vectors. It computes similarity metrics between these vectors and stored memory contexts, ensuring that the most contextually relevant memories are retrieved for current cognitive demands.
+This module interfaces with the Dynamic State Space Model (DSSM) to extract current context vectors. It computes similarity metrics between these vectors and stored memory contexts. Importantly, the retrieval process uses context as a filter to access the appropriate episodic associations, while the invariant semantic representations remain intact.
+
+**Implementation:**
+
+- **Similarity-Based Filtering:**  
+  When a retrieval operation is initiated, the current context vector \( \mathbf{c}_{\text{current}} \) is compared against stored episodic context vectors using cosine similarity:
+  
+  \[
+  \text{sim}(\mathbf{c}_{\text{current}}, \mathbf{c}_i) = \frac{\mathbf{c}_{\text{current}} \cdot \mathbf{c}_i}{\|\mathbf{c}_{\text{current}}\| \, \|\mathbf{c}_i\|}
+  \]
+  
+- **Decoupled Retrieval:**  
+  The semantic memory is queried separately to retrieve the invariant concept, while episodic memory provides the contextual details for that concept.
+
+**Pseudocode Implementation:**
+
+```python
+class ContextAwareRetrieval:
+    def __init__(self, episodic_memory):
+        self.episodic_memory = episodic_memory
+
+    def retrieve(self, current_context_vector):
+        scores = []
+        for memory in self.episodic_memory.episodes:
+            score = cosine_similarity(current_context_vector, memory["context"])
+            scores.append((memory["event"], score))
+
+        # Rank by similarity and return events that pass a threshold.
+        scores.sort(key=lambda x: x[1], reverse=True)
+        return [event for event, score in scores if score > 0.7]  # Threshold filtering
+```
 
 #### 2.7 Replay Buffer and Consolidation Mechanisms
 
@@ -269,7 +305,7 @@ This module interfaces with the Dynamic State Space Model (DSSM) to extract curr
 A priority-based storage system that samples memory items for review based on dynamic priority values. These priorities are computed as a function of both time-dependent decay and the affective modulation provided by EMoM.
 
 **Consolidation Process:**  
-By integrating automated time-based decay with the SM2-based spaced repetition algorithm, the system gradually consolidates high-salience memories into Long-Term Episodic Memory, while lower-salience items are systematically pruned.
+By integrating automated time-based decay with the SM2-based spaced repetition algorithm, the system gradually consolidates high-salience memories into Long-Term Episodic Memory, while lower-salience items are systematically pruned. Importantly, the consolidation process respects the decoupling of context and core concept; that is, the invariant semantic representation is never altered by episodic details.
 
 #### 2.8 Emotional and Motivational Modulation (EMoM)
 
@@ -322,66 +358,31 @@ flowchart LR
 #### 2.9 Neural Cognitive Bus (NCB)
 
 **Role in Memory:**  
-The Neural Cognitive Bus (NCB) functions as the central communication substrate within the HCDM framework. It provides asynchronous, multi-channel messaging capabilities that allow all memory subsystems—and indeed all cognitive modules—to exchange state updates, context vectors, and consolidation signals in real time. This nonlocal synchronization is pivotal for maintaining coherence across distributed memory operations.
+The Neural Cognitive Bus (NCB) functions as the central communication substrate within the HCDM framework. It provides asynchronous, multi-channel messaging capabilities that allow all memory subsystems—and indeed all cognitive modules—to exchange state updates, context vectors, and consolidation signals in real time.
 
-### Integration and API Design
+**Context-Invariant Messaging:**  
+In line with our principle of context-invariant concept representation, the NCB routes “pure” concept signals (for semantic storage) separately from episodic events that include context. For example:
 
-The integration of the memory system with the broader cognitive architecture is achieved through two principal mechanisms: the Neural Cognitive Bus (NCB) and dynamic state cues supporting context-aware retrieval.
+- A message publishing a visual stimulus’s processing outcome will include an invariant feature vector sent to Semantic Memory.
+- A separate message, including contextual tags (e.g., time, location), is sent to Episodic Memory.
 
-#### Integration via the Neural Cognitive Bus (NCB)
-
-The NCB abstracts the complexity of asynchronous, real-time communication among modules. Each subsystem publishes its outputs—such as the preprocessed sensory features, memory state updates, and consolidation signals—on dedicated channels (e.g., `"sensory_features"`, `"memory_updates"`, `"context_vectors"`). Modules subscribe to these channels via the `register_subscriber()` API, ensuring that messages are routed efficiently and processed according to their temporal and semantic relevance.
-
-**Example API Call:**  
-A high-fidelity API call from the Sensory Memory module is as follows:
+**Example API Call:**
 
 ```python
-processed_data = {
-    "fused_feature": [0.127, 0.342, 0.589, ..., 0.763],  # High-dimensional feature vector
-    "salience": 0.87,                                    # Computed via exponential decay: s(t)=s(0)e^(-λt)
-    "timestamp": 1634567890.123                          # Unix timestamp with millisecond precision
-}
-await ncb.publish("sensory_features", processed_data)
+# Publish invariant concept representation.
+await ncb.publish("semantic_store", {
+    "concept": "Jackie Chan",
+    "embedding": concept_vector  # Context-independent vector.
+})
+
+# Publish episodic event with contextual details.
+await ncb.publish("episodic_store", {
+    "event": "Encountered Jackie Chan at Iguazu Falls",
+    "context": ["Iguazu Falls", "Christmas"]
+})
 ```
 
-This call encapsulates the results of the preprocessing pipeline. Modules such as Context-Aware Retrieval subscribe to `"sensory_features"` and use the transmitted data to inform retrieval and consolidation processes.
-
-#### Dynamic State Cues and Context-Aware Retrieval
-
-The Dynamic State Space Model (DSSM) generates a high-dimensional context vector \( \mathbf{c} \in \mathbb{R}^d \) by integrating transient sensory inputs, affective signals, and internal state parameters. Each memory item is stored alongside its encoding context vector, normalized to unit norm to facilitate cosine similarity calculations. When a retrieval operation is initiated, the current context vector \( \mathbf{c}_{\text{current}} \) is compared against stored vectors \( \{\mathbf{c}_i\} \) using the cosine similarity:
-
-\[
-\text{sim}(\mathbf{c}_{\text{current}}, \mathbf{c}_i) = \frac{\mathbf{c}_{\text{current}} \cdot \mathbf{c}_i}{\|\mathbf{c}_{\text{current}}\| \, \|\mathbf{c}_i\|}
-\]
-
-Memory items with the highest similarity scores are then retrieved to provide contextually relevant information for ongoing cognitive tasks. This process is encapsulated in the `get_context_vector()` and `context_similarity()` APIs within the Context-Aware Retrieval module.
-
-**Technical Snippet:**  
-Below is an excerpt of pseudocode that illustrates this process:
-
-```python
-# Retrieve the current context vector from the DSSM.
-current_context = await dssm.get_state_context()  # current_context ∈ ℝ^(1×d)
-
-# Retrieve stored memory items along with their context vectors.
-stored_memories = intermediate_memory.retrieve()  # Each memory is a dict with a 'context' field.
-
-# Compute cosine similarity between the current context and each stored memory context.
-similarities = []
-for memory in stored_memories:
-    stored_context = torch.tensor(memory["context"], dtype=torch.float32)
-    similarity = F.cosine_similarity(current_context, stored_context.unsqueeze(0))
-    similarities.append((memory, similarity.item()))
-
-# Rank memories and select the one with the highest similarity.
-most_relevant_memory, highest_similarity = max(similarities, key=lambda item: item[1])
-```
-
-In this manner, the system ensures that memory retrieval is both context-sensitive and dynamically responsive to the current cognitive state.
-
-### Summary of Integration
-
-By standardizing communication protocols through the NCB and implementing dynamic state cues for context-aware retrieval, the memory system is deeply integrated with the overall HCDM. Modules communicate their outputs and status in real time, while state vectors generated by the DSSM enable precise, similarity-based retrieval from long-term stores. This architecture ensures a seamless interplay between rapid sensory encoding, active short-term manipulation, and robust long-term consolidation, all modulated by affective and motivational signals.
+This separation ensures that retrieval can later use context to filter episodes while leaving the core semantic representation unchanged.
 
 ---
 
@@ -391,9 +392,9 @@ The implementation of the memory system is realized in Python, leveraging asynch
 
 - **`SensoryMemory`**: Implements preprocessing and decay mechanisms.
 - **`ShortTermMemory` and `WorkingMemory`**: Provide immediate storage with fixed capacities.
-- **`IntermediateMemory`**: Buffers information for eventual consolidation, using time-based decay functions.
-- **`EnhancedLongTermEpisodicMemory` and `LongTermSemanticMemory`**: Manage long-term storage through a combination of replay buffers, spaced repetition, and knowledge graph representations.
-- **`ContextAwareRetrieval`**: Interfaces with the DSSM to extract current context vectors.
+- **`IntermediateMemory`**: Buffers information for eventual consolidation, using time-based decay functions and a spaced repetition algorithm.
+- **`EnhancedLongTermEpisodicMemory` and `LongTermSemanticMemory`**: Manage long-term storage through a combination of replay buffers, spaced repetition, and a knowledge graph representation—explicitly separating context (episodic) from invariant concept representations (semantic).
+- **`ContextAwareRetrieval`**: Interfaces with the DSSM to extract current context vectors and performs similarity-based filtering.
 - **`ReplayBuffer`**: Implements priority sampling based on memory salience.
 - **`MemoryConsolidationThread`**: Runs in parallel to continuously assess and consolidate memory items.
 
@@ -407,21 +408,34 @@ Each module follows a standardized API (e.g., `add()`, `retrieve()`, `clear()`),
 
 Initial experiments demonstrate that the multi-layered memory system:
 
-- **Improves Contextual Relevance:** Retrieval operations that incorporate context-aware similarity measures yield higher relevance in downstream cognitive tasks.
-- **Mitigates Catastrophic Forgetting:** Time-based decay and spaced repetition effectively balance the retention of new and old information.
-- **Adapts to Affective Cues:** EMoM integration ensures that emotionally salient items receive preferential consolidation, mirroring human memory biases.
+- **Improves Contextual Relevance:**  
+  Retrieval operations that incorporate context-aware similarity measures yield higher relevance in downstream cognitive tasks, while invariant semantic representations remain stable across contexts.
+- **Mitigates Catastrophic Forgetting:**  
+  Time-based decay and spaced repetition effectively balance the retention of new and old information.
+- **Adapts to Affective Cues:**  
+  EMoM integration ensures that emotionally salient items receive preferential consolidation, mirroring human memory biases.
+- **Maintains Concept Invariance:**  
+  By separating core concept encoding from episodic context, the system retrieves the same semantic representation even when the context changes, echoing findings from human single-neuron recordings (Rey et al., 2024).
 
 Quantitative metrics include memory recall accuracy, retrieval latency, and overall system throughput. Future work will involve benchmarking these metrics in simulated cognitive tasks and real-world environments.
 
 ### 4.2 Discussion
 
-The proposed memory system reflects a synthesis of classical connectionist approaches (e.g., Hopfield networks, recurrent architectures) and contemporary innovations in memory consolidation. By drawing on principles from complementary learning systems theory, the design balances rapid encoding with gradual, robust consolidation—a critical challenge in both biological and artificial systems. Additionally, the integration of emotional modulation and context-aware retrieval offers a path toward more human-like cognition in AI.
+The proposed memory system reflects a synthesis of classical connectionist approaches (e.g., Hopfield networks, recurrent architectures) and contemporary innovations in memory consolidation. By drawing on principles from complementary learning systems theory, the design balances rapid encoding with gradual, robust consolidation—a critical challenge in both biological and artificial systems.
+
+Our updated approach—motivated by recent neurobiological findings (Rey et al., 2024)—separates the encoding of core concepts from the contextual details that accompany episodic events. This enables:
+
+- **Stable Semantic Representations:** The invariant encoding of concepts allows for consistent recognition regardless of context.
+- **Flexible Episodic Retrieval:** Context acts solely as a retrieval cue, enabling the same concept to be experienced in multiple contexts without redundancy or conflict.
+- **Efficient Modular Integration:** With a dedicated Neural Cognitive Bus (NCB), the system ensures that concept representations and episodic details are processed asynchronously yet remain tightly coordinated.
+
+Together, these enhancements offer a pathway toward more human-like cognition in AI, paving the way for future research on adaptive, context-sensitive learning and memory retrieval.
 
 ---
 
 ## 5. Code Documentation
 
-In this section, we detail how the theoretical design of the hybrid cognitive dynamics memory system is directly mapped to the code implementation. Our design adheres to a standardized API—implemented uniformly across all memory subsystems—thus ensuring that each module exposes methods such as `add()`, `retrieve()`, and `clear()`. This uniformity not only facilitates integration but also mirrors the complementary roles of rapid sensory encoding, transient storage, and long–term consolidation observed in neurobiology.
+In this section, we detail how the theoretical design of the hybrid cognitive dynamics memory system is directly mapped to the code implementation. Our design adheres to a standardized API—implemented uniformly across all memory subsystems—thus ensuring that each module exposes methods such as `add()`, `retrieve()`, and `clear()`. This uniformity not only facilitates integration but also mirrors the complementary roles of rapid sensory encoding, transient storage, and long-term consolidation observed in neurobiology.
 
 ### 5.1 Sensory Memory
 
@@ -437,11 +451,11 @@ def add(self, input_data: Any) -> None:
         self.buffer.pop(0)
 ```
 
-*Figure 5.1: Excerpt from the `SensoryMemory.add()` method. This code segment demonstrates how the module preprocesses sensory data and annotates each entry with a timestamp and an initial salience value, thereby capturing the ephemeral nature of raw sensory inputs as posited in our model.*
+*Figure 5.1: Excerpt from the `SensoryMemory.add()` method demonstrating how sensory data are preprocessed, timestamped, and assigned an initial salience value.*
 
 ### 5.2 Short Term Memory
 
-The `ShortTermMemory` class serves as a transient repository for recently acquired information. Designed to enforce a strict capacity limit, this module ensures that the system does not become overloaded with recent inputs. The standardized API is exemplified by the `add()` method shown below:
+The `ShortTermMemory` class serves as a transient repository for recently acquired information. Designed to enforce a strict capacity limit, this module ensures that the system does not become overloaded with recent inputs. Its standardized API is exemplified by the `add()` method:
 
 ```python
 def add(self, item: Any) -> None:
@@ -450,15 +464,13 @@ def add(self, item: Any) -> None:
         self.items = self.items[-self.capacity:]
 ```
 
-This implementation is directly inspired by cognitive models that limit the number of items that can be held in short–term memory and guarantees real–time accessibility for online processing.
-
 ### 5.3 Working Memory
 
-Working memory is the dynamic processing arena where transient information is actively manipulated. The `WorkingMemory` class adheres to the same API conventions as its sensory and short–term counterparts, thereby enabling seamless integration into the broader cognitive architecture. Its design allows for continuous updates using a sliding window mechanism, ensuring that only the most relevant information is actively maintained for subsequent reasoning and decision-making.
+Working Memory is the dynamic processing arena where transient information is actively manipulated. The `WorkingMemory` class adheres to the same API conventions as its sensory and short-term counterparts, thereby enabling seamless integration into the broader cognitive architecture.
 
 ### 5.4 Intermediate Memory and Consolidation
 
-The `IntermediateMemory` module acts as a buffer that temporarily holds information earmarked for long–term storage. This module not only follows the standardized API (i.e., `add()`, `retrieve()`, and `clear()`), but it also integrates a spaced repetition algorithm to schedule consolidation. The pseudocode below details how the module evaluates a memory’s decayed salience and schedules it for review:
+The `IntermediateMemory` module acts as a buffer that temporarily holds information earmarked for long-term storage. This module not only follows the standardized API (i.e., `add()`, `retrieve()`, and `clear()`), but it also integrates a spaced repetition algorithm to schedule consolidation. The pseudocode below details how the module evaluates a memory’s decayed salience and schedules it for review:
 
 ```python
 def consolidate_oldest(self) -> Dict[str, Any]:
@@ -472,15 +484,65 @@ def consolidate_oldest(self) -> Dict[str, Any]:
         self.spaced_repetition.schedule_review(memory=oldest_memory, review_time=review_time, emotion_factor=1.0)
 ```
 
-*Figure 5.2: Pseudocode from the `IntermediateMemory.consolidate_oldest()` method. This snippet exemplifies how the module uses a biologically inspired decay function—combined with the SM2-based spaced repetition algorithm—to decide which memories are eligible for long–term consolidation.*
+*Figure 5.2: Pseudocode from the `IntermediateMemory.consolidate_oldest()` method, illustrating the use of time-based decay and spaced repetition for scheduling memory consolidation.*
 
 ### 5.5 Long Term Memory Subsystems
 
-Long term memory is bifurcated into episodic and semantic stores. The episodic component (`EnhancedLongTermEpisodicMemory`) encodes temporally ordered, context-rich episodes via mechanisms such as prioritized replay and time–based consolidation. Conversely, the semantic component (`LongTermSemanticMemory`) abstracts invariant knowledge through vector embeddings and a knowledge graph structure. Both modules adhere to the standardized API, ensuring that the transition from transient to durable memory is systematic and modular.
+Long-Term Memory is divided into two parts:
+
+- **Episodic Memory:**  
+  The `EnhancedLongTermEpisodicMemory` class stores episodic events along with their associated contextual details. In our design, context is stored separately from the core event (i.e., the invariant concept), allowing for flexible retrieval.
+  
+  **Example Code:**
+
+  ```python
+  class EpisodicMemory:
+      def __init__(self):
+          self.episodes = []  # List of episodic memories
+          self.context_index = {}  # Mapping from context cues to events
+
+      def store_event(self, event, context_vector):
+          self.episodes.append({"event": event, "context": context_vector})
+          for ctx in context_vector:
+              if ctx not in self.context_index:
+                  self.context_index[ctx] = []
+              self.context_index[ctx].append(event)
+
+      def retrieve_event(self, query_context):
+          relevant_events = []
+          for ctx in query_context:
+              if ctx in self.context_index:
+                  relevant_events.extend(self.context_index[ctx])
+          return list(set(relevant_events))
+  ```
+  
+- **Semantic Memory:**  
+  The `LongTermSemanticMemory` class stores context-invariant concept embeddings. These representations remain constant regardless of episodic context.
+  
+  **Example Code:**
+
+  ```python
+  class SemanticMemory:
+      def __init__(self):
+          self.concepts = {}  # Dictionary of concept embeddings
+          self.associations = {}  # Episodic links to semantic concepts
+
+      def store_concept(self, name, embedding):
+          self.concepts[name] = embedding
+
+      def link_episode(self, concept_name, episode):
+          if concept_name in self.concepts:
+              if concept_name not in self.associations:
+                  self.associations[concept_name] = []
+              self.associations[concept_name].append(episode)
+
+      def retrieve_concept(self, name):
+          return self.concepts.get(name, None)
+  ```
 
 ### 5.6 Neural Cognitive Bus (NCB)
 
-The `NeuralCognitiveBus` serves as the central communication backbone of the system. It implements multi–channel, asynchronous messaging that allows each module to exchange state updates and context vectors in real time. The `publish()` method (see the excerpt below) ensures that data are correctly processed—optionally via a quantum-inspired NEST module—before being enqueued for subscribers.
+The `NeuralCognitiveBus` serves as the central communication backbone of the system. It implements multi-channel, asynchronous messaging that allows each module to exchange state updates and context vectors in real time. An excerpt from the `publish()` method is shown below:
 
 ```python
 async def publish(self, channel_name: str, data: Any):
@@ -492,23 +554,30 @@ async def publish(self, channel_name: str, data: Any):
         await self.channels[channel_name]["queue"].put(data.clone())
 ```
 
-*Figure 5.3: Excerpt from the `NeuralCognitiveBus.publish()` method. This code fragment highlights the robust design of the NCB, which ensures that all messages are appropriately processed and dispatched across multiple channels.*
+*Figure 5.3: Excerpt from the `NeuralCognitiveBus.publish()` method, demonstrating how messages (including both invariant concept representations and contextual episodic data) are processed and dispatched.*
 
 ### 5.7 Alignment with Theoretical Constructs
 
 Each module in our system is purposefully designed to mirror specific aspects of human cognition:
 
-- **Rapid Sensory Encoding:** The `SensoryMemory` module rapidly processes raw inputs, employing exponential decay to simulate the transient nature of sensory traces.
-- **Capacity Limited Short Term Retention:** The `ShortTermMemory` module enforces a fixed capacity, reflecting the inherent limitations of human short–term memory.
-- **Active Information Manipulation:** `WorkingMemory` provides a dynamic workspace for reasoning, consistent with the functional role of working memory in human cognition.
-- **Gradual Consolidation:** `IntermediateMemory`, along with its spaced repetition mechanism, ensures that only high–salience information is consolidated into long–term stores.
-- **Durable Storage:** The bifurcated long term memory system (episodic and semantic) captures both context-specific experiences and abstracted knowledge, respectively.
-
-By adhering to a standardized API across modules (i.e., `add()`, `retrieve()`, and `clear()`), our implementation maintains consistency with theoretical models while also ensuring modularity and scalability. This design facilitates both intra–system communication (via the NCB) and cross–module integration (with components such as the Executive Function Module, Dynamic State Space Model, and Emotional Motivational Module).
+- **Rapid Sensory Encoding:**  
+  The `SensoryMemory` module rapidly processes raw inputs, employing exponential decay to simulate the fleeting nature of sensory traces.
+  
+- **Capacity-Limited Short-Term Retention:**  
+  The `ShortTermMemory` module enforces a fixed capacity, reflecting human short-term memory limitations.
+  
+- **Active Information Manipulation:**  
+  `WorkingMemory` provides a dynamic workspace for reasoning and decision-making.
+  
+- **Gradual Consolidation with Context Separation:**  
+  `IntermediateMemory` and its spaced repetition mechanism ensure that only high-salience information is consolidated into long-term stores. Episodic Memory stores context separately from the invariant semantic representation.
+  
+- **Durable, Invariant Storage:**  
+  The bifurcated Long-Term Memory system captures both episodic details and generalized, context-free semantic representations.
 
 ### 5.8 Summary
 
-The advanced code documentation alignment presented here bridges the gap between theoretical design and practical implementation. Through detailed pseudocode excerpts and rigorous API specifications, we have demonstrated how each cognitive function is systematically instantiated in the codebase. This modular and standardized approach not only enhances reproducibility but also lays the foundation for further refinements in hybrid cognitive dynamics research.
+The advanced code documentation provided here bridges the gap between theoretical design and practical implementation. Through detailed pseudocode excerpts and rigorous API specifications, we have demonstrated how each cognitive function is systematically instantiated in the codebase. The modular and standardized approach—enhanced with a clear separation of context and core concept—facilitates both intra-system communication (via the NCB) and robust memory retrieval.
 
 ---
 
@@ -516,16 +585,31 @@ The advanced code documentation alignment presented here bridges the gap between
 
 Planned enhancements include:
 
-- **Scalability Improvements:** Leveraging distributed computing to handle larger-scale memory stores.
-- **Enhanced Semantic Retrieval:** Integrating pretrained embeddings and transformer-based models for richer semantic representations.
-- **Adaptive Consolidation:** Dynamic adjustment of consolidation thresholds based on system performance and environmental feedback.
-- **Extended Evaluation:** Rigorous testing in multimodal and real-time environments to further validate the architecture.
+- **Scalability Improvements:**  
+  Leveraging distributed computing to handle larger-scale memory stores.
+- **Enhanced Semantic Retrieval:**  
+  Integrating pretrained embeddings and transformer-based models for richer semantic representations.
+- **Adaptive Consolidation:**  
+  Dynamic adjustment of consolidation thresholds based on system performance and environmental feedback.
+- **Extended Evaluation:**  
+  Rigorous testing in multimodal and real-time environments to further validate the architecture.
+- **Integration with Decision-Making Modules:**  
+  Exploring how context-invariant memory representations can be leveraged to improve adaptive reinforcement learning and real-time decision-making.
 
 ---
 
 ## 7. Conclusion
 
-This paper has detailed a biologically inspired, multi-layered memory system for the Hybrid Cognitive Dynamics Model. By combining sensory processing, multiple temporal memory buffers, and long-term storage with emotional and contextual modulation, the system offers a robust and flexible approach to memory that can serve as a foundation for advanced cognitive architectures. Future work will refine and extend this framework, ensuring its applicability in a wide range of cognitive tasks and environments.
+This paper has detailed a biologically inspired, multi-layered memory system for the Hybrid Cognitive Dynamics Model. By combining rapid sensory processing, multiple temporal memory buffers, and long-term storage—with a crucial update that decouples invariant semantic representations from episodic context—we offer a robust and flexible approach to memory. The system mimics biological mechanisms by:
+
+- Rapidly encoding sensory data,
+- Maintaining capacity-limited short-term representations,
+- Dynamically manipulating working memory,
+- Consolidating high-salience items through spaced repetition,
+- Storing enduring semantic knowledge in a context-invariant manner,
+- And retrieving episodic details using context-aware filtering.
+
+These innovations lay the foundation for more human-like cognition in artificial systems. Future work will further refine and extend this framework, ensuring its applicability in a wide range of cognitive tasks and environments.
 
 ---
 
@@ -535,6 +619,7 @@ This paper has detailed a biologically inspired, multi-layered memory system for
 2. Hassabis, D., Kumaran, D., Summerfield, C., & Botvinick, M. (2017). Neuroscience-Inspired Artificial Intelligence. *Neuron, 95*(2), 245–258.
 3. Eliasmith, C., & Anderson, C. H. (2003). *Neural Engineering: Computation, Representation, and Dynamics in Neurobiological Systems*. MIT Press.
 4. Graves, A., Wayne, G., Reynolds, M., et al. (2016). Hybrid Computing Using a Neural Network with Dynamic External Memory. *Nature, 538*(7626), 471–476.
+5. Rey, H. G., Panagiotaropoulos, T. I., Gutierrez, L., et al. (2024). Lack of context modulation in human single neuron responses in the medial temporal lobe. *Cell Reports*. <https://doi.org/10.1016/j.celrep.2024.115218>
 
 ---
 
