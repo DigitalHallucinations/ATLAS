@@ -169,13 +169,10 @@ class ChatPage(Gtk.Window):
     def on_mic_button_click(self, widget):
         """
         Handler for the microphone button click to toggle speech-to-text.
-
+        
         If speech recognition is not active, it starts listening and updates the status label.
         If already listening, it stops recording, transcribes the audio, and inserts the transcript
         into the input field.
-
-        Args:
-            widget: The widget that triggered the event.
         """
         # Retrieve the active STT service from the Speech Manager.
         stt = self.ATLAS.speech_manager.active_stt
@@ -197,9 +194,12 @@ class ChatPage(Gtk.Window):
                 # Use the provider's audio file if available; otherwise, default to "output.wav".
                 audio_file = getattr(stt, 'audio_file', "output.wav")
                 transcript = stt.transcribe(audio_file)
-                # Safely update the UI using GLib's idle loop.
-                GLib.idle_add(self.input_entry.set_text, transcript)
-                GLib.idle_add(self.status_label.set_text, "Transcription complete.")
+                # Update the text input with the transcript.
+                GLib.idle_add(lambda: self.input_entry.set_text(transcript.strip()))
+                # Temporarily update the status to indicate transcription complete.
+                GLib.idle_add(lambda: self.status_label.set_text("Transcription complete."))
+                # After 3 seconds, update the status bar with the default message.
+                GLib.timeout_add_seconds(3, lambda: self.update_status_bar())
             threading.Thread(target=transcribe_and_update, daemon=True).start()
 
     def handle_model_response_thread(self, message):

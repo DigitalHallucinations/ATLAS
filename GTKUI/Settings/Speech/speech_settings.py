@@ -4,7 +4,8 @@
 Module: speech_settings.py
 Description:
     Enterprise production–ready Speech Settings window with a tabbed layout.
-    The General tab lets the user turn TTS and STT on or off independently.
+    The General tab now lets the user turn TTS and STT on or off independently and select
+    the default providers for each.
     All Google settings (credentials used for both Google TTS and STT) are on a single Google tab.
     Separate tabs exist for Eleven Labs TTS and Whisper STT.
     
@@ -73,7 +74,8 @@ class SpeechSettings(Gtk.Window):
     def create_general_tab(self):
         """
         Creates the "General" tab for overall speech-related settings.
-        Contains separate switches to enable or disable TTS and STT.
+        Contains separate switches to enable/disable TTS and STT,
+        and selectors for the default TTS and STT providers.
         """
         general_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         general_box.set_margin_top(6)
@@ -89,16 +91,37 @@ class SpeechSettings(Gtk.Window):
         general_box.append(tts_label)
         general_box.append(self.general_tts_switch)
 
+        # Default TTS Provider Selector
+        tts_provider_label = Gtk.Label(label="Default TTS Provider:")
+        self.default_tts_combo = Gtk.ComboBoxText()
+        for key in self.ATLAS.speech_manager.tts_services.keys():
+            self.default_tts_combo.append_text(key)
+        # Set current active default provider if available.
+        if current_tts_provider:
+            index = list(self.ATLAS.speech_manager.tts_services.keys()).index(current_tts_provider)
+            self.default_tts_combo.set_active(index)
+        general_box.append(tts_provider_label)
+        general_box.append(self.default_tts_combo)
+
         # STT Enable Switch
         stt_label = Gtk.Label(label="Enable STT:")
         self.general_stt_switch = Gtk.Switch()
-        # For STT, we assume the default provider is set in the speech manager.
         default_stt = self.ATLAS.speech_manager.get_default_stt_provider()
-        # Here we simply check if the provider exists to consider it "enabled"
         stt_enabled = True if default_stt else False
         self.general_stt_switch.set_active(stt_enabled)
         general_box.append(stt_label)
         general_box.append(self.general_stt_switch)
+
+        # Default STT Provider Selector
+        stt_provider_label = Gtk.Label(label="Default STT Provider:")
+        self.default_stt_combo = Gtk.ComboBoxText()
+        for key in self.ATLAS.speech_manager.stt_services.keys():
+            self.default_stt_combo.append_text(key)
+        if default_stt:
+            index = list(self.ATLAS.speech_manager.stt_services.keys()).index(default_stt)
+            self.default_stt_combo.set_active(index)
+        general_box.append(stt_provider_label)
+        general_box.append(self.default_stt_combo)
 
         # Add the "General" page to the notebook
         self.notebook.append_page(general_box, Gtk.Label(label="General"))
@@ -208,52 +231,67 @@ class SpeechSettings(Gtk.Window):
         Also updates the active TTS/STT providers in the Speech Manager.
         """
         # ---------------------------
-        # General Tab: TTS and STT toggles
+        # General Tab: TTS and STT toggles & default provider selectors
         # ---------------------------
         tts_enabled = self.general_tts_switch.get_active()
         stt_enabled = self.general_stt_switch.get_active()
         current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
         self.ATLAS.speech_manager.set_tts_status(tts_enabled, current_tts_provider)
-        # For STT, you may have additional logic; here we simply log the state.
         logger.info(f"General settings - TTS enabled: {tts_enabled}, STT enabled: {stt_enabled}")
+
+        # Update default providers based on selectors.
+        selected_tts_provider = self.default_tts_combo.get_active_text()
+        if selected_tts_provider:
+            self.ATLAS.speech_manager.set_default_tts_provider(selected_tts_provider)
+            logger.info(f"Default TTS provider set to: {selected_tts_provider}")
+
+        if not stt_enabled:
+            # Disable STT by setting active_stt to None.
+            self.ATLAS.speech_manager.active_stt = None
+            logger.info("STT has been disabled.")
+        else:
+            selected_stt_provider = self.default_stt_combo.get_active_text()
+            if selected_stt_provider:
+                self.ATLAS.speech_manager.set_default_stt_provider(selected_stt_provider)
+                logger.info(f"Default STT provider set to: {selected_stt_provider}")
+            else:
+                logger.warning("STT enabled but no default provider was selected.")
 
         # ---------------------------
         # Google Tab: Update credentials
         # ---------------------------
         google_creds = self.google_credentials_entry.get_text().strip()
-        self.ATLAS.config_manager.set("GOOGLE_APPLICATION_CREDENTIALS", google_creds)
+        self.ATLAS.config_manager.config["GOOGLE_APPLICATION_CREDENTIALS"] = google_creds
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = google_creds
 
         # ---------------------------
         # Eleven Labs TTS Tab: Update API key and voice
         # ---------------------------
         eleven_api_key = self.eleven_api_entry.get_text().strip()
-        self.ATLAS.config_manager.set("XI_API_KEY", eleven_api_key)
+        self.ATLAS.config_manager.config["XI_API_KEY"] = eleven_api_key
         os.environ["XI_API_KEY"] = eleven_api_key
 
         selected_voice_name = self.voice_combo.get_active_text()
-        voices = self.ATLAS.speech_manager.get_tts_voices(current_tts_provider)
+        voices = self.ATLAS.speech_manager.get_tts_voices(self.ATLAS.speech_manager.get_default_tts_provider())
         selected_voice = next((v for v in voices if v.get('name') == selected_voice_name), None)
         if selected_voice:
-            self.ATLAS.speech_manager.set_tts_voice(selected_voice, current_tts_provider)
+            self.ATLAS.speech_manager.set_tts_voice(selected_voice, self.ATLAS.speech_manager.get_default_tts_provider())
 
-        # ---------------------------
+                # ---------------------------
         # Whisper STT Tab: Update Whisper mode and OpenAI API key
         # ---------------------------
         openai_api_key = self.openai_api_entry.get_text().strip()
-        self.ATLAS.config_manager.set("OPENAI_API_KEY", openai_api_key)
+        self.ATLAS.config_manager.config["OPENAI_API_KEY"] = openai_api_key
         os.environ["OPENAI_API_KEY"] = openai_api_key
-        whisper_mode = self.whisper_mode_combo.get_active_text().lower()
-        # If desired, you can reinitialize the Whisper STT provider based on the chosen mode here.
-        # For example:
-        # from modules.Speech_Services.whisper_stt import WhisperSTT
-        # try:
-        #     whisper_stt = WhisperSTT(mode=whisper_mode)
-        #     provider_key = f"whisper_{whisper_mode}"
-        #     self.ATLAS.speech_manager.add_stt_provider(provider_key, whisper_stt)
-        #     self.ATLAS.speech_manager.set_default_stt_provider(provider_key)
-        # except Exception as e:
-        #     logger.error(f"Error setting Whisper mode: {e}")
+        whisper_mode = self.whisper_mode_combo.get_active_text().lower()  # Define whisper_mode here
+        from modules.Speech_Services.whisper_stt import WhisperSTT
+        try:
+            whisper_stt = WhisperSTT(mode=whisper_mode)
+            provider_key = f"whisper_{whisper_mode}"
+            self.ATLAS.speech_manager.add_stt_provider(provider_key, whisper_stt)
+            self.ATLAS.speech_manager.set_default_stt_provider(provider_key)
+        except Exception as e:
+            logger.error(f"Error setting Whisper mode: {e}")
 
         logger.info("Speech settings saved.")
         self.destroy()

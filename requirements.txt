@@ -8,18 +8,21 @@
 
 PyGObject
 
-# =====================================
-# Providers
-# =====================================
-
+# LLM Providers
+# These are required for accessing various language model APIs.
+# You can install only the ones you need.
 openai
 mistralai
 anthropic
 huggingface_hub
 google.generativeai
+
+# Speech Services Providers
+# These are optional and can be installed based on your needs.
 google-cloud-texttospeech 
 google-cloud-speech  
 xai_sdk
+openai-whisper
 
 # for Config
 pyyaml
@@ -28,7 +31,7 @@ pyyaml
 pygame
 soundfile
 sounddevice
-Whisper
+ffmpg
 
 # Torch for model computations
 torch
