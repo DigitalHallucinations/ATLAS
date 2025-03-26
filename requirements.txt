@@ -32,6 +32,8 @@ pygame
 soundfile
 sounddevice
 ffmpg
+noisereduce
+pydub
 
 # Torch for model computations
 torch
