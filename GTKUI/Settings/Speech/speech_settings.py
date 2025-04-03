@@ -6,12 +6,13 @@ Description:
     Enterprise production–ready Speech Settings window with a tabbed layout.
     Each tab now saves only its own settings. When a user switches tabs,
     if unsaved changes exist, they’re prompted to save or discard.
-    In the Whisper STT tab:
-      - The title and drop‐down box (for mode, model, device, language, and task) are on the same row.
-      - Language is now a drop‐down list.
-      - The initial prompt’s label remains above its entry.
-      - The noise reduction and “return segments” options are arranged with their labels on the same row as their switches.
-      - The API key entry is a password field that never displays its contents after saving.
+    In the Open AI tab:
+      - All Open AI functions (both STT and TTS) are consolidated into one tab.
+      - The STT settings include a provider drop–down (with options like Whisper Online,
+        GPT‑4o STT, and GPT‑4o Mini STT), language selection, task (transcribe/translate),
+        and an initial prompt (with its label above the entry).
+      - The TTS settings section includes a provider drop–down (currently only GPT‑4o Mini TTS)
+        and uses a password field for the API key that hides its content after saving.
     
 Author: Jeremy Shows - Digital Hallucinations
 Date: 05-11-2025
@@ -63,7 +64,7 @@ class SpeechSettings(Gtk.Window):
         self.create_general_tab()
         self.create_eleven_labs_tts_tab()
         self.create_google_tab()
-        self.create_whisper_stt_tab()
+        self.create_openai_tab()
 
         # Connect a handler to detect tab switches.
         self.notebook.connect("switch-page", self.on_switch_page)
@@ -111,7 +112,7 @@ class SpeechSettings(Gtk.Window):
 
     def save_tab(self, tab_index):
         # Dispatch saving based on tab index:
-        # 0: General, 1: Eleven Labs TTS, 2: Google, 3: Whisper STT.
+        # 0: General, 1: Eleven Labs TTS, 2: Google, 3: Open AI.
         if tab_index == 0:
             self.save_general_tab()
         elif tab_index == 1:
@@ -119,7 +120,7 @@ class SpeechSettings(Gtk.Window):
         elif tab_index == 2:
             self.save_google_tab()
         elif tab_index == 3:
-            self.save_whisper_tab()
+            self.save_openai_tab()
 
     def mark_dirty(self, tab_index):
         self.tab_dirty[tab_index] = True
@@ -306,101 +307,109 @@ class SpeechSettings(Gtk.Window):
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = google_creds
         self.tab_dirty[2] = False
 
-    # ----------------------- Whisper STT Tab -----------------------
-    def create_whisper_stt_tab(self):
-        whisper_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        whisper_box.set_margin_top(6)
-        whisper_box.set_margin_bottom(6)
-        whisper_box.set_margin_start(6)
-        whisper_box.set_margin_end(6)
-
-        # Whisper Mode (title and dropdown on same row)
-        hbox_mode = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        mode_label = Gtk.Label(label="Whisper Mode:")
-        self.whisper_mode_combo = Gtk.ComboBoxText()
-        self.whisper_mode_combo.append_text("Local")
-        self.whisper_mode_combo.append_text("Online")
-        self.whisper_mode_combo.set_active(0)
-        hbox_mode.append(mode_label)
-        hbox_mode.append(self.whisper_mode_combo)
-        whisper_box.append(hbox_mode)
-
-        # Whisper Model (same row)
-        hbox_model = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        model_label = Gtk.Label(label="Whisper Model:")
-        self.whisper_model_combo = Gtk.ComboBoxText()
-        models = ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"]
-        for m in models:
-            self.whisper_model_combo.append_text(m)
-        self.whisper_model_combo.set_active(1)  # default "base"
-        hbox_model.append(model_label)
-        hbox_model.append(self.whisper_model_combo)
-        whisper_box.append(hbox_model)
-
-        # Device selection (same row)
-        hbox_device = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        device_label = Gtk.Label(label="Device:")
-        self.device_combo = Gtk.ComboBoxText()
-        self.device_combo.append_text("Auto")
-        self.device_combo.append_text("cuda")
-        self.device_combo.append_text("cpu")
-        self.device_combo.set_active(0)
-        hbox_device.append(device_label)
-        hbox_device.append(self.device_combo)
-        whisper_box.append(hbox_device)
-
-        # Language selection as a drop-down
+    # ----------------------- Open AI Tab -----------------------
+    def create_openai_tab(self):
+        """
+        Creates the Open AI settings tab, which consolidates all Open AI functions (both STT and TTS).
+        This tab is divided into two sections.
+        
+        STT Settings:
+          - Provider drop–down (options: "Whisper Online", "GPT-4o STT", "GPT-4o Mini STT")
+          - Language drop–down
+          - Task drop–down (transcribe/translate)
+          - Initial prompt entry (label above)
+          - (Shared API key field)
+        
+        TTS Settings:
+          - Provider drop–down (currently only "GPT-4o Mini TTS")
+          - (Shared API key field)
+        """
+        openai_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        openai_box.set_margin_top(6)
+        openai_box.set_margin_bottom(6)
+        openai_box.set_margin_start(6)
+        openai_box.set_margin_end(6)
+        
+        # --- STT Settings Frame ---
+        stt_frame = Gtk.Frame(label="Open AI STT Settings")
+        stt_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        stt_box.set_margin_top(6)
+        stt_box.set_margin_bottom(6)
+        stt_box.set_margin_start(6)
+        stt_box.set_margin_end(6)
+        
+        # STT Provider selection (dropdown)
+        hbox_stt_provider = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        stt_provider_label = Gtk.Label(label="STT Provider:")
+        self.openai_stt_combo = Gtk.ComboBoxText()
+        # Options: "Whisper Online", "GPT-4o STT", "GPT-4o Mini STT"
+        self.openai_stt_combo.append_text("Whisper Online")
+        self.openai_stt_combo.append_text("GPT-4o STT")
+        self.openai_stt_combo.append_text("GPT-4o Mini STT")
+        self.openai_stt_combo.set_active(0)
+        hbox_stt_provider.append(stt_provider_label)
+        hbox_stt_provider.append(self.openai_stt_combo)
+        stt_box.append(hbox_stt_provider)
+        
+        # Language selection as a drop-down.
         hbox_language = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         language_label = Gtk.Label(label="Language:")
-        self.language_combo = Gtk.ComboBoxText()
+        self.openai_language_combo = Gtk.ComboBoxText()
         languages = [("Auto", ""), ("English (en)", "en"), ("Japanese (ja)", "ja"),
                      ("Spanish (es)", "es"), ("French (fr)", "fr")]
         for label_text, code in languages:
-            # Use the label for display.
-            self.language_combo.append_text(label_text)
-        self.language_combo.set_active(0)
+            self.openai_language_combo.append_text(label_text)
+        self.openai_language_combo.set_active(0)
         hbox_language.append(language_label)
-        hbox_language.append(self.language_combo)
-        whisper_box.append(hbox_language)
-
-        # Task selection (same row)
+        hbox_language.append(self.openai_language_combo)
+        stt_box.append(hbox_language)
+        
+        # Task selection (transcribe/translate)
         hbox_task = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         task_label = Gtk.Label(label="Task:")
-        self.task_combo = Gtk.ComboBoxText()
-        self.task_combo.append_text("transcribe")
-        self.task_combo.append_text("translate")
-        self.task_combo.set_active(0)
+        self.openai_task_combo = Gtk.ComboBoxText()
+        self.openai_task_combo.append_text("transcribe")
+        self.openai_task_combo.append_text("translate")
+        self.openai_task_combo.set_active(0)
         hbox_task.append(task_label)
-        hbox_task.append(self.task_combo)
-        whisper_box.append(hbox_task)
-
+        hbox_task.append(self.openai_task_combo)
+        stt_box.append(hbox_task)
+        
         # Initial Prompt (label above entry)
         prompt_label = Gtk.Label(label="Initial Prompt (optional):")
-        self.prompt_entry = Gtk.Entry()
-        whisper_box.append(prompt_label)
-        whisper_box.append(self.prompt_entry)
-
-        # Noise Reduction (title and switch on same row)
-        hbox_noise = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        noise_label = Gtk.Label(label="Apply Noise Reduction:")
-        self.noise_switch = Gtk.Switch()
-        self.noise_switch.set_active(False)
-        hbox_noise.append(noise_label)
-        hbox_noise.append(self.noise_switch)
-        whisper_box.append(hbox_noise)
-
-        # Return Segments (title and switch on same row)
-        hbox_segments = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        segments_label = Gtk.Label(label="Return Segments with Timestamps:")
-        self.segments_switch = Gtk.Switch()
-        self.segments_switch.set_active(False)
-        hbox_segments.append(segments_label)
-        hbox_segments.append(self.segments_switch)
-        whisper_box.append(hbox_segments)
-
-        # OpenAI API Key as a password entry.
+        self.openai_prompt_entry = Gtk.Entry()
+        stt_box.append(prompt_label)
+        stt_box.append(self.openai_prompt_entry)
+        
+        stt_frame.set_child(stt_box)  # Use set_child instead of add
+        
+        openai_box.append(stt_frame)
+        
+        # --- TTS Settings Frame ---
+        tts_frame = Gtk.Frame(label="Open AI TTS Settings")
+        tts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        tts_box.set_margin_top(6)
+        tts_box.set_margin_bottom(6)
+        tts_box.set_margin_start(6)
+        tts_box.set_margin_end(6)
+        
+        # TTS Provider selection (dropdown)
+        hbox_tts_provider = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        tts_provider_label = Gtk.Label(label="TTS Provider:")
+        self.openai_tts_combo = Gtk.ComboBoxText()
+        # Currently only one option:
+        self.openai_tts_combo.append_text("GPT-4o Mini TTS")
+        self.openai_tts_combo.set_active(0)
+        hbox_tts_provider.append(tts_provider_label)
+        hbox_tts_provider.append(self.openai_tts_combo)
+        tts_box.append(hbox_tts_provider)
+        
+        tts_frame.set_child(tts_box)  # Use set_child instead of add
+        openai_box.append(tts_frame)
+        
+        # Shared API Key for Open AI (password entry)
         hbox_api = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        api_label = Gtk.Label(label="OpenAI API Key (for Whisper Online):")
+        api_label = Gtk.Label(label="Open AI API Key:")
         self.openai_api_entry = Gtk.Entry()
         self.openai_api_entry.set_visibility(False)
         existing_api = self.ATLAS.config_manager.get_config("OPENAI_API_KEY") or ""
@@ -411,68 +420,78 @@ class SpeechSettings(Gtk.Window):
             self.openai_api_entry.set_text("")
         hbox_api.append(api_label)
         hbox_api.append(self.openai_api_entry)
-        whisper_box.append(hbox_api)
-
-        save_button = Gtk.Button(label="Save Whisper STT Settings")
-        save_button.connect("clicked", lambda w: self.save_whisper_tab())
-        whisper_box.append(save_button)
-
+        openai_box.append(hbox_api)
+        
+        # Save button for Open AI tab.
+        save_button = Gtk.Button(label="Save Open AI Settings")
+        save_button.connect("clicked", lambda w: self.save_openai_tab())
+        openai_box.append(save_button)
+        
         self.tab_dirty[3] = False
         # Mark changes.
-        self.whisper_mode_combo.connect("changed", lambda w: self.mark_dirty(3))
-        self.whisper_model_combo.connect("changed", lambda w: self.mark_dirty(3))
-        self.device_combo.connect("changed", lambda w: self.mark_dirty(3))
-        self.language_combo.connect("changed", lambda w: self.mark_dirty(3))
-        self.task_combo.connect("changed", lambda w: self.mark_dirty(3))
-        self.prompt_entry.connect("notify::text", lambda w, ps: self.mark_dirty(3))
-        self.noise_switch.connect("notify::active", lambda w, ps: self.mark_dirty(3))
-        self.segments_switch.connect("notify::active", lambda w, ps: self.mark_dirty(3))
+        self.openai_stt_combo.connect("changed", lambda w: self.mark_dirty(3))
+        self.openai_language_combo.connect("changed", lambda w: self.mark_dirty(3))
+        self.openai_task_combo.connect("changed", lambda w: self.mark_dirty(3))
+        self.openai_prompt_entry.connect("notify::text", lambda w, ps: self.mark_dirty(3))
+        self.openai_tts_combo.connect("changed", lambda w: self.mark_dirty(3))
         self.openai_api_entry.connect("notify::text", lambda w, ps: self.mark_dirty(3))
+        
+        self.notebook.append_page(openai_box, Gtk.Label(label="Open AI"))
 
-        self.notebook.append_page(whisper_box, Gtk.Label(label="Whisper STT"))
-
-    def save_whisper_tab(self):
+    def save_openai_tab(self):
         openai_api_key = self.openai_api_entry.get_text().strip()
         self.ATLAS.config_manager.config["OPENAI_API_KEY"] = openai_api_key
         os.environ["OPENAI_API_KEY"] = openai_api_key
-        whisper_mode = self.whisper_mode_combo.get_active_text().lower()  # "local" or "online"
-        whisper_model = self.whisper_model_combo.get_active_text()
-        device_choice = self.device_combo.get_active_text()
-        device = None if device_choice.lower() == "auto" else device_choice.lower()
-        language_active = self.language_combo.get_active_text()
+        
+        stt_provider = self.openai_stt_combo.get_active_text()
+        language_active = self.openai_language_combo.get_active_text()
         language_code = ""
         for label_text, code in [("Auto", ""), ("English (en)", "en"), ("Japanese (ja)", "ja"), ("Spanish (es)", "es"), ("French (fr)", "fr")]:
             if label_text == language_active:
                 language_code = code
                 break
-        task = self.task_combo.get_active_text().lower()
-        initial_prompt = self.prompt_entry.get_text().strip() or None
-        noise_reduction = self.noise_switch.get_active()
-        return_segments = self.segments_switch.get_active()
+        task = self.openai_task_combo.get_active_text().lower()
+        initial_prompt = self.openai_prompt_entry.get_text().strip() or None
+        
+        # For Open AI TTS, we currently only support GPT-4o Mini TTS.
+        tts_provider = self.openai_tts_combo.get_active_text()
+        
+        # Save settings in the configuration manager.
+        self.ATLAS.config_manager.config["OPENAI_STT_PROVIDER"] = stt_provider
+        self.ATLAS.config_manager.config["OPENAI_LANGUAGE"] = language_code
+        self.ATLAS.config_manager.config["OPENAI_TASK"] = task
+        self.ATLAS.config_manager.config["OPENAI_INITIAL_PROMPT"] = initial_prompt
+        self.ATLAS.config_manager.config["OPENAI_TTS_PROVIDER"] = tts_provider
 
-        self.ATLAS.config_manager.config["WHISPER_MODE"] = whisper_mode
-        self.ATLAS.config_manager.config["WHISPER_MODEL"] = whisper_model
-        self.ATLAS.config_manager.config["WHISPER_DEVICE"] = device
-        self.ATLAS.config_manager.config["WHISPER_NOISE_REDUCTION"] = noise_reduction
-        self.ATLAS.config_manager.config["WHISPER_FALLBACK"] = True
-        self.ATLAS.config_manager.config["WHISPER_FS"] = 16000
-
-        from modules.Speech_Services.whisper_stt import WhisperSTT
+        # Initialize or update the Open AI providers in the SpeechManager.
+        # For STT:
         try:
-            whisper_stt = WhisperSTT(
-                mode=whisper_mode,
-                model_name=whisper_model,
-                fs=16000,
-                device=device,
-                noise_reduction=noise_reduction,
-                fallback_online=True
-            )
-            provider_key = f"whisper_{whisper_mode}"
-            self.ATLAS.speech_manager.add_stt_provider(provider_key, whisper_stt)
+            from modules.Speech_Services.gpt4o_stt import GPT4oSTT
+            if stt_provider == "Whisper Online":
+                from modules.Speech_Services.whisper_stt import WhisperSTT
+                openai_stt = WhisperSTT(mode="online")
+            elif stt_provider == "GPT-4o STT":
+                openai_stt = GPT4oSTT(variant="gpt-4o")
+            else:  # GPT-4o Mini STT
+                openai_stt = GPT4oSTT(variant="gpt-4o-mini")
+            provider_key = "openai_stt"
+            self.ATLAS.speech_manager.add_stt_provider(provider_key, openai_stt)
             self.ATLAS.speech_manager.set_default_stt_provider(provider_key)
-            logger.info(f"Whisper STT provider set to '{provider_key}' with model '{whisper_model}' on device '{device}'")
+            logger.info(f"Open AI STT provider set to {stt_provider}")
         except Exception as e:
-            logger.error(f"Error setting Whisper mode: {e}")
+            logger.error(f"Error initializing Open AI STT provider: {e}")
+        
+        # For TTS:
+        try:
+            from modules.Speech_Services.gpt4o_tts import GPT4oTTS
+            openai_tts = GPT4oTTS(voice="default")
+            provider_key_tts = "openai_tts"
+            self.ATLAS.speech_manager.add_tts_provider(provider_key_tts, openai_tts)
+            self.ATLAS.speech_manager.set_default_tts_provider(provider_key_tts)
+            logger.info("Open AI TTS provider (GPT-4o Mini TTS) initialized.")
+        except Exception as e:
+            logger.error(f"Error initializing Open AI TTS provider: {e}")
+        
         self.tab_dirty[3] = False
 
     def _create_audio_filter(self):

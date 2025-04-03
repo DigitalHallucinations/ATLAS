@@ -5,10 +5,10 @@ Speech Manager Module
 -----------------------
 This module provides a unified interface for managing Text-to-Speech (TTS)
 and Speech-to-Text (STT) services. It supports multiple providers (e.g.,
-Eleven Labs, Google, and Whisper) and allows dynamic selection, addition, and
-removal of providers. The manager also handles asynchronous initialization,
-batch transcription, detailed transcription history logging, and clean-up
-of services.
+Eleven Labs, Google, Whisper, and OpenAI's GPT-4o variants) and allows dynamic
+selection, addition, and removal of providers. The manager also handles
+asynchronous initialization, batch transcription, detailed transcription history
+logging, and clean-up of services.
 
 Author: Jeremy Shows - Digital Hallucinations
 Date: 05-11-2025
@@ -73,6 +73,15 @@ class SpeechManager:
         except Exception as e:
             logger.error(f"Failed to initialize Google TTS: {e}")
 
+        # Initialize new GPT-4o TTS provider
+        try:
+            from modules.Speech_Services.gpt4o_tts import GPT4oTTS
+            gpt4o_tts = GPT4oTTS(voice="default")
+            self.tts_services['gpt4o_tts'] = gpt4o_tts
+            logger.info("GPT-4o TTS initialized.")
+        except Exception as e:
+            logger.error(f"Failed to initialize GPT-4o TTS: {e}")
+
         # Initialize STT providers
         try:
             google_stt = GoogleSTT()
@@ -104,6 +113,16 @@ class SpeechManager:
             logger.info("Whisper online STT initialized.")
         except Exception as e:
             logger.error(f"Failed to initialize Whisper online STT: {e}")
+
+        # Initialize new GPT-4o STT provider
+        try:
+            from modules.Speech_Services.gpt4o_stt import GPT4oSTT
+            # You can choose between "gpt-4o" and "gpt-4o-mini". Here we use the full version.
+            gpt4o_stt = GPT4oSTT(variant="gpt-4o")
+            self.stt_services['gpt4o_stt'] = gpt4o_stt
+            logger.info("GPT-4o STT initialized.")
+        except Exception as e:
+            logger.error(f"Failed to initialize GPT-4o STT: {e}")
 
         # Set default active providers
         if 'eleven_labs' in self.tts_services:
