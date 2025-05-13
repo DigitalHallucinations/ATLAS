@@ -233,7 +233,251 @@ Example Placeholder Citations (to be replaced with actual full references):
  * Shows, J. ([Date of HCDM Publication]). HCDM - Hybrid Cognitive Dynamics Model. [Journal/Conference of HCDM Publication]. (This is a placeholder for the VALCORE paper's reference to the HCDM paper).
  * Sutton, R. S., & Barto, A. G. (2018). Reinforcement learning: An introduction (2nd ed.). MIT Press.
  * Tenenbaum, J. B., Kemp, C., Griffiths, T. L., & Goodman, N. D. (2011). How to grow a mind: Statistics, structure, and abstraction. Science, 331(6022), 1279-1285.
-Appendices (Optional)
- * Appendix A: Detailed Mathematical Formulations: Could include derivations for specific composition rules (e.g., convolution of two Gaussians), update rules for specific conjugate prior pairs, or the ELBO for a VALCORE-enhanced VAE.
- * Appendix B: Pseudocode for Core VALCORE Operations: Illustrative pseudocode for a Bayesian update step, a neural composition function, or a probabilistic factor analysis for decomposition.
- * Appendix C: Further Notes on HCDM Integration Specifics: More granular examples of how VALCORE data structures would be passed on the NCB or how DAR might formulate its state/action space with VALCORE variables.
+
+Appendices
+
+Appendix A: Detailed Mathematical Formulations
+This appendix provides illustrative mathematical details for some of the core probabilistic operations within the VALCORE framework.
+A.1. Bayesian Update: Beta-Bernoulli Model for Probabilistic Relevance
+Consider a scenario within HCDM's Enhanced Memory Model (EMM) where the relevance R of a memory item is a binary variable (R=1 for relevant, R=0 for not relevant). The probability of relevance, \theta_R = P(R=1), is unknown. VALCORE represents this uncertainty using a Beta distribution for \theta_R:
+P(\theta_R | \alpha_0, \beta_0) = \text{Beta}(\theta_R; \alpha_0, \beta_0) = \frac{\Gamma(\alpha_0 + \beta_0)}{\Gamma(\alpha_0)\Gamma(\beta_0)} \theta_R^{\alpha_0-1} (1-\theta_R)^{\beta_0-1}
+where \alpha_0, \beta_0 are the prior hyperparameters (e.g., from past experience or a non-informative prior like \alpha_0=1, \beta_0=1).
+Suppose new evidence \mathcal{E} is observed in the form of N independent assessments of relevance for this item, resulting in k instances where the item was deemed relevant and N-k instances where it was not. The likelihood of this evidence given \theta_R is a Binomial distribution:
+P(\mathcal{E} | \theta_R) = \text{Binomial}(k; N, \theta_R) = \binom{N}{k} \theta_R^k (1-\theta_R)^{N-k}
+Due to the conjugacy of the Beta prior and Binomial likelihood, the posterior distribution P(\theta_R | \mathcal{E}, \alpha_0, \beta_0) is also a Beta distribution:
+P(\theta_R | \mathcal{E}, \alpha_0, \beta_0) = \text{Beta}(\theta_R; \alpha_N, \beta_N)
+where the updated hyperparameters are:
+\alpha_N = \alpha_0 + k
+\beta_N = \beta_0 + (N-k)
+The EMM would store and propagate (\alpha_N, \beta_N) as the parameters of the probabilistic relevance score. The expected relevance is E[\theta_R | \mathcal{E}] = \frac{\alpha_N}{\alpha_N + \beta_N}, and the confidence can be related to the variance \text{Var}(\theta_R | \mathcal{E}) = \frac{\alpha_N \beta_N}{(\alpha_N + \beta_N)^2 (\alpha_N + \beta_N + 1)}. This update is computationally efficient and analytically tractable.
+A.2. Composition of Gaussian Distributions: Linear Combination
+Consider two independent probabilistic values V_1 and V_2 represented by Gaussian distributions:
+V_1 \sim \mathcal{N}(\mu_1, \sigma_1^2)
+V_2 \sim \mathcal{N}(\mu_2, \sigma_2^2)
+Suppose a composite value V_C is formed by a linear combination V_C = aV_1 + bV_2 + c, where a, b, c are scalar constants (potentially determined by context or a learned function).
+The mean of V_C is:
+E[V_C] = E[aV_1 + bV_2 + c] = aE[V_1] + bE[V_2] + c = a\mu_1 + b\mu_2 + c
+The variance of V_C, given independence of V_1 and V_2, is:
+\text{Var}(V_C) = \text{Var}(aV_1 + bV_2 + c) = a^2\text{Var}(V_1) + b^2\text{Var}(V_2) = a^2\sigma_1^2 + b^2\sigma_2^2
+Thus, the composite value V_C is also Gaussian:
+V_C \sim \mathcal{N}(a\mu_1 + b\mu_2 + c, a^2\sigma_1^2 + b^2\sigma_2^2)
+If V_1 and V_2 are d-dimensional vectors V_1 \sim \mathcal{N}(\vec{\mu}_1, \Sigma_1) and V_2 \sim \mathcal{N}(\vec{\mu}_2, \Sigma_2), and A, B are matrices, V_C = AV_1 + BV_2 + \vec{c}.
+Then E[V_C] = A\vec{\mu}_1 + B\vec{\mu}_2 + \vec{c}.
+If V_1, V_2 are independent, \text{Var}(V_C) = \Sigma_C = A\Sigma_1 A^T + B\Sigma_2 B^T.
+If V_1, V_2 are correlated with covariance \text{Cov}(V_1, V_2) = \Sigma_{12} (and \text{Cov}(V_2, V_1) = \Sigma_{21} = \Sigma_{12}^T), then:
+\Sigma_C = A\Sigma_1 A^T + B\Sigma_2 B^T + A\Sigma_{12}B^T + B\Sigma_{21}A^T
+This illustrates how VALCORE's composition engine would operate on parameters of Gaussian distributions. More complex compositions (non-linear, or with non-Gaussian distributions) might require approximation methods like Monte Carlo sampling, linearization (e.g., for Extended Kalman Filters), or variational approximations.
+A.3. Variational Inference Objective (ELBO) for a VAE Representing a Value
+Suppose a value V (e.g., a semantic embedding in ELM) is modeled by a Variational Autoencoder (VAE). The VAE assumes a generative process P(V, z) = P(V|z; \theta)P(z), where z is a latent variable with prior P(z) (e.g., \mathcal{N}(0,I)), and P(V|z; \theta) is the likelihood function (decoder network with parameters \theta). The goal is to maximize the marginal likelihood P(V) = \int P(V|z; \theta)P(z) dz.
+Since computing P(V|X) (where X is the input conditioning V, e.g. a word) involves an intractable posterior P(z|V,X), VI introduces an approximate posterior q(z|V,X; \phi) (encoder network with parameters \phi).
+The Evidence Lower Bound (ELBO), \mathcal{L}(\theta, \phi; V,X), is maximized:
+\mathcal{L}(\theta, \phi; V,X) = E_{q(z|V,X; \phi)}[\log P(V|z; \theta)] - KL(q(z|V,X; \phi) || P(z))
+The first term is the reconstruction likelihood: it encourages the decoder to accurately reconstruct V from latent samples z drawn from the approximate posterior. The second term is a regularization term that encourages the approximate posterior to be close to the prior P(z).
+The parameters of q(z|V,X; \phi) (e.g., mean and variance if q is Gaussian) are themselves probabilistic representations within VALCORE, representing uncertainty over the latent encoding of V. The output P(V|z; \theta) (e.g., a Gaussian distribution over embeddings, \mathcal{N}(\mu_V(z), \Sigma_V(z))) is another VALCORE probabilistic value.
+Appendix B: Pseudocode for Core VALCORE Operations
+This appendix provides conceptual pseudocode for some VALCORE mechanisms. This is illustrative and abstracts away many implementation details.
+B.1. Probabilistic Value Object Structure (Python-like)
+class ProbabilisticValue:
+    def __init__(self, type_name, parameters):
+        self.type_name = type_name # e.g., "Gaussian", "Beta", "Samples"
+        self.parameters = parameters # dict of tensors, e.g., {'mean': mu, 'cov_chol': L} for Gaussian
+        # Internal representation using a library like torch.distributions
+        self._dist = self._create_distribution(type_name, parameters)
+
+    def _create_distribution(self, type_name, params):
+        # Simplified: maps type_name and params to a library distribution object
+        if type_name == "Gaussian":
+            # Assuming params include 'mean' and 'covariance_matrix' or 'scale_tril'
+            return torch.distributions.MultivariateNormal(loc=params['mean'], 
+                                                          covariance_matrix=params.get('cov_matrix'),
+                                                          scale_tril=params.get('scale_tril'))
+        elif type_name == "Beta":
+            return torch.distributions.Beta(params['alpha'], params['beta'])
+        # ... other distribution types
+        else:
+            raise ValueError(f"Unsupported distribution type: {type_name}")
+
+    def sample(self, sample_shape=torch.Size()):
+        return self._dist.sample(sample_shape)
+
+    def log_prob(self, value_tensor):
+        return self._dist.log_prob(value_tensor)
+
+    def mean(self):
+        return self._dist.mean
+
+    def variance(self):
+        return self._dist.variance
+
+    def entropy(self):
+        return self._dist.entropy
+
+    def get_parameters(self):
+        return self.parameters # For propagation or learning
+
+    def update_parameters(self, new_parameters):
+        # E.g., after a Bayesian update or RNN step
+        self.parameters = new_parameters
+        self._dist = self._create_distribution(self.type_name, new_parameters)
+
+B.2. Neural Composition Function (Illustrative)
+Let's assume composing two 1D Gaussian values P(V_1) \sim \mathcal{N}(\mu_1, \sigma_1^2) and P(V_2) \sim \mathcal{N}(\mu_2, \sigma_2^2) into P(V_C) \sim \mathcal{N}(\mu_C, \sigma_C^2) using a neural network, potentially with context C_{ctx}.
+import torch.nn as nn
+
+class NeuralGaussianComposer(nn.Module):
+    def __init__(self, input_dim_dist_params, context_dim, hidden_dim, output_dim_dist_params):
+        super().__init__()
+        # input_dim_dist_params = 4 (mu1, log_sigma1_sq, mu2, log_sigma2_sq)
+        # output_dim_dist_params = 2 (mu_c, log_sigma_c_sq)
+        self.fc1 = nn.Linear(input_dim_dist_params + context_dim, hidden_dim)
+        self.relu = nn.ReLU()
+        self.fc_mu = nn.Linear(hidden_dim, output_dim_dist_params // 2) # Output mu_c
+        self.fc_log_var = nn.Linear(hidden_dim, output_dim_dist_params // 2) # Output log(sigma_c^2)
+
+    def forward(self, params_v1, params_v2, context_tensor):
+        # params_v1 = [mu1, log_sigma1_sq_tensor]
+        # params_v2 = [mu2, log_sigma2_sq_tensor]
+        
+        input_vec = torch.cat([params_v1['mean'], torch.log(params_v1['variance']), 
+                               params_v2['mean'], torch.log(params_v2['variance']), 
+                               context_tensor], dim=-1)
+        
+        hidden = self.relu(self.fc1(input_vec))
+        
+        mu_c = self.fc_mu(hidden)
+        log_sigma_c_sq = self.fc_log_var(hidden) # Ensure variance is positive
+        sigma_c_sq = torch.exp(log_sigma_c_sq)
+
+        # Return parameters for the composed Gaussian distribution
+        return {'mean': mu_c, 'variance': sigma_c_sq}
+
+# Usage:
+# composer_nn = NeuralGaussianComposer(...)
+# pv1 = ProbabilisticValue("Gaussian", {'mean': m1, 'variance': v1})
+# pv2 = ProbabilisticValue("Gaussian", {'mean': m2, 'variance': v2})
+# context = current_context_tensor
+# composed_params = composer_nn(pv1.get_parameters(), pv2.get_parameters(), context)
+# pv_composed = ProbabilisticValue("Gaussian", composed_params)
+
+Note: Using \log(\sigma^2) as network output and then exponentiating is a common trick to ensure variance is positive. For covariance matrices, Cholesky decomposition parameters are often learned.
+B.3. Attribution via Gradients (Simplified Example for Decomposition Insights)
+Suppose P(V_C) is composed from \{P(V_i)\} and we want to know how \mu_{V_i} (mean of an input value) influences \mu_{V_C} (mean of the composed value). This provides a basic form of decomposition/explanation.
+def get_influence_on_mean(composed_value_object, input_value_object_params, composition_function):
+    # Ensure input_value_object_params['mean'] requires gradients
+    input_mean_tensor = input_value_object_params['mean'].detach().requires_grad_(True)
+    
+    # Temporarily update parameters of input_value_object for the forward pass
+    # (assuming other parameters of input_value_object are fixed or also tensors)
+    temp_input_params = {**input_value_object_params, 'mean': input_mean_tensor}
+
+    # Perform composition (this could be a complex function involving neural nets or other ops)
+    # For simplicity, assume composition_function takes a list of parameter dicts
+    # and returns a parameter dict for the composed value.
+    # We need to ensure the full computation graph to composed_value_object.mean() is built.
+    
+    # Example: if composition_function is the NeuralGaussianComposer from B.2
+    # (assuming pv_other_inputs_params are parameters of other inputs to composition)
+    # composed_params_dict = composition_function(temp_input_params, pv_other_inputs_params, context)
+    # mu_c = composed_params_dict['mean']
+
+    # More generally, if composed_value_object is already the result of such a function:
+    # We'd need to re-run the composition with the specific input requiring grad.
+    # This is a simplified placeholder for the actual computation:
+    mu_c = composition_function(temp_input_params, ...).mean() # Access the mean of the resulting ProbabilisticValue
+
+    # Compute gradients of the composed mean w.r.t. the input mean
+    # If mu_c is scalar, otherwise sum or take a component.
+    mu_c_scalar = mu_c.sum() # Example for multi-dimensional mean
+    mu_c_scalar.backward()
+    
+    influence_gradient = input_mean_tensor.grad
+    
+    return influence_gradient
+
+# Usage:
+# Assume pv_composed resulted from composing pv1 and pv2 using composer_nn
+# grad_mu_c_wrt_mu1 = get_influence_on_mean(pv_composed, pv1.get_parameters(), 
+#                                           lambda p1, p2, ctx: NeuralGaussianComposer(...)(p1,p2,ctx))
+# This shows how a change in mu1 would affect mu_c.
+
+Note: This is highly simplified. Proper implementation would involve careful handling of computation graphs and potentially using library functions for attribution like Captum for PyTorch models. For complex models, evaluating the gradient \frac{\partial \text{statistic}(P(V_C))}{\partial \text{statistic}(P(V_i))} might be non-trivial.
+Appendix C: Further Notes on HCDM Integration Specifics
+This appendix elaborates on the practical integration of VALCORE within HCDM.
+C.1. NCB Data Transmission for Probabilistic Values
+Modules posting to HCDM's Neural Cognitive Bus (NCB) would transmit VALCORE ProbabilisticValue information. A standardized format would be crucial. Example JSON-like structure for a message on the NCB:
+{
+  "message_id": "uuid-1234-abcd-5678",
+  "source_module": "EMM", // HCDM module originating the value
+  "timestamp": "2025-05-12T18:30:05.123Z",
+  "value_name": "memory_item_relevance", // Semantic name of the value
+  "valcore_representation": {
+    "type_name": "Beta", // From ProbabilisticValue.type_name
+    "parameters": {       // From ProbabilisticValue.parameters
+      "alpha": 15.3,      // Scalar or tensor data
+      "beta": 4.2
+    },
+    "metadata": { // Optional VALCORE-specific metadata
+      "confidence_metric": 0.92, // e.g., 1 - normalized variance
+      "update_rule_used": "BayesianUpdate_BetaBernoulli",
+      "evidence_sources": ["feedback_module_X", "efm_goal_context"]
+    }
+  },
+  "target_modules": ["EFM", "AGM"] // Optional routing hint
+}
+
+Modules reading from the NCB would parse this structure, instantiate a local ProbabilisticValue object, and then use its methods (e.g., .sample(), .mean()) for their internal processing. Tensors for parameters would be transmitted directly in efficient binary formats if the NCB supports it, rather than JSON numbers for large data.
+C.2. DAR State Representation and Action Example with VALCORE Metrics
+HCDM's Dynamic Attention Routing (DAR) agent, likely an RL agent, would incorporate VALCORE-derived uncertainty metrics into its state representation.
+ * DAR State Features (Illustrative Additions):
+   * avg_entropy_efm_goal_utilities: Average entropy of P(\text{Utility}) for active goals in EFM. High entropy might signal need for information gathering.
+   * max_variance_agm_q_values: Maximum variance among P(Q(s,a)) for currently considered actions in AGM. High variance suggests high exploratory potential.
+   * kl_divergence_dssm_state_prediction_observation: KL divergence between predicted P(S_{t+1}|S_t, A_t) and P(S_{t+1}|\text{Observation}_{t+1}) in DSSM. High KL could indicate surprising event.
+   * num_conflicting_values_ncb: Number of values on NCB related to the same conceptual entity but with significantly different probabilistic representations (e.g., high KL divergence between them), detected by EMetaM.
+ * DAR Action Example:
+   If avg_entropy_efm_goal_utilities is high and max_variance_agm_q_values for a specific goal-related action is also high:
+   DAR_Action = Route(source=SPM_latest_observation, target=AGM_value_update_for_exploratory_action, priority=HIGH, bandwidth_allocation=0.3)
+   DAR_Action_Concurrent = Route(source=EMM_query_relevant_to_high_entropy_goal, target=EFM_goal_utility_refinement_engine, priority=HIGH)
+   Another action could be to trigger a specific VALCORE decomposition:
+   DAR_Action = Trigger(module=EMoM, operation=VALCORE_Decomposition, target_value="current_emotional_state", reason="High_Variance_Unexplained")
+C.3. EMetaM Consuming VALCORE Decomposition Output for System Monitoring
+HCDM's Enhanced Metacognition Module (EMetaM) is a key consumer of VALCORE's analytical outputs. Suppose EFM makes a decision to abandon Goal A and pursue Goal B. EFM's internal VALCORE decomposition engine might produce an explanation:
+ * Decomposition Output from EFM (sent to EMetaM via NCB):
+   {
+  "source_module": "EFM",
+  "value_decomposed": "Decision_Switch_Goal_A_to_B",
+  "composed_value_metric": "P(Utility(Plan_B)) / P(Utility(Plan_A)) > Threshold_Switch",
+  "contributing_factors": [
+    {
+      "factor_name": "P(Utility(SubGoal_A1_of_Plan_A))",
+      "role": "NegativeInfluence_On_Plan_A_Utility",
+      "probabilistic_value": {"type_name": "Gaussian", "parameters": {"mean": 2.5, "variance": 1.0}},
+      "attribution_score": -0.85 // Normalized impact on decision
+    },
+    {
+      "factor_name": "P(SuccessRate(SubGoal_B1_of_Plan_B))",
+      "role": "PositiveInfluence_On_Plan_B_Utility",
+      "probabilistic_value": {"type_name": "Beta", "parameters": {"alpha": 30.0, "beta": 5.0}},
+      "attribution_score": 0.92
+    },
+    {
+      "factor_name": "Context_Resource_Constraint_R1",
+      "role": "Increased_Variance_In_SuccessRate_SubGoal_A1",
+      "probabilistic_value": {"type_name": "Categorical", "parameters": {"probs": [0.1, 0.9]}}, // Low/High constraint
+      "attribution_score_variance_impact": 0.75
+    }
+  ],
+  "explanation_summary": "Switched to Goal B primarily due to a sharp decrease in projected utility of SubGoal A1 (mean=2.5), coupled with high confidence in success for SubGoal B1 (mean_success=0.85). Resource constraint R1 significantly increased uncertainty for Plan A."
+}
+
+EMetaM would log this, potentially flag the sensitivity to Resource R1 for future planning, or use the summary for generating user-facing explanations or internal system self-correction strategies (e.g., initiating learning to better predict utility under R1 constraint).
+C.4. NS Modulating a VALCORE Update Rule in AGM
+Consider the update of P(Q(s,a)) in HCDM's Action Generation Module (AGM), specifically the mean \mu_{Q(s,a)} of this distribution, using a distributional Temporal Difference (TD) error, \delta_t^{dist}.
+A Neuromodulatory System (NS) signal, NS_{DA} (simulating dopamine's role in reward learning), could modulate the learning rate \eta_Q for this update:
+\mu_{Q(s,a), t+1} = \mu_{Q(s,a), t} + (\eta_Q \cdot (1 + \lambda_{DA} \cdot \text{clip}(NS_{DA,t}, 0, \text{max_mod}))) \cdot E[\delta_t^{dist}]
+Where:
+ * \eta_Q is the base learning rate for Q-value means.
+ * NS_{DA,t} is the current dopamine-like signal from NS (e.g., scaled between -1 and 1, or simply positive).
+ * \lambda_{DA} is a sensitivity parameter controlling how much NS_{DA} affects the learning rate.
+ * \text{clip}(...) ensures the modulation stays within reasonable bounds.
+ * E[\delta_t^{dist}] is the expectation of the distributional TD error (or a relevant statistic).
+If NS_{DA,t} is high (e.g., following a surprisingly positive outcome), the effective learning rate increases, leading to a more substantial update of \mu_{Q(s,a)}. Conversely, a low or negative NS_{DA,t} (e.g., after a negative surprise) could reduce the learning rate or even facilitate learning about punishments if the TD error is negative. Similarly, NS_{NE} (norepinephrine-like) might modulate the variance term \sigma^2_{Q(s,a)} update, e.g., increasing it during exploration or decreasing it to sharpen exploitation based on perceived environmental volatility or task demands.
