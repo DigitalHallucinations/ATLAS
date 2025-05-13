@@ -4207,7 +4207,6 @@ if __name__ == "__main__":
                             format="[%(asctime)s] %(levelname)s - %(name)s.%(funcName)s:%(lineno)d - %(message)s")
     asyncio.run(dar_test_harness())
 
-
 # bus_watchdog.py
 
 import asyncio
