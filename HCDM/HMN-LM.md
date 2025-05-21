@@ -1,539 +1,576 @@
-HMN‑LM
+**HMN‑LM: A Biologically‑Inspired Language Model with Input-Shaped Dynamics, Local Plasticity, Dual Meta‑Learning, and Multi‑Modal Attention**
 
-A Biologically‑Inspired Language Model with Local Plasticity, Dual Meta‑Learning, and Multi‑Modal Attention
+**Abstract**
+We introduce HMN‑LM, a sequence model that replaces self‑attention layers with Hybrid Local–Global Modulated Neuron (HMN) cells. Each cell combines (i) probabilistic STDP‑style local plasticity, (ii) attention‑weighted eligibility traces, (iii) multi‑factor neuromodulatory feedback, (iv) dual meta‑learning of local and global learning‑rate schedules, (v) oscillatory phase‑gated weight application, and (vi) mechanisms for the current input to directly shape aspects of neuronal activation, attention, and plasticity parameters. Unlike Transformers that back‑propagate through static parameters, HMN‑LM adapts its weights online during inference, enabling rapid domain adaptation and continual learning—now enhanced by input-sensitive adjustments for immediate contextual processing—while maintaining competitive perplexity on large corpora. We specify the architecture, training regimen, and a staged benchmark suite, and we provide diagrams and image‑placeholders for future figure generation.
 
-⸻
+**Keywords:** Synaptic Plasticity · Neuromodulation · Meta‑Learning · Attention · Oscillations · Probabilistic Updates · Continual Learning · Language Models · Input-Shaped Dynamics · Neuromorphic AI
 
-1 Abstract
+**1. Introduction**
 
-We introduce HMN‑LM, a sequence model that replaces self‑attention layers with Hybrid Local–Global Modulated Neuron (HMN) cells.
-Each cell combines (i) probabilistic STDP‑style local plasticity, (ii) attention‑weighted eligibility traces, (iii) multi‑factor neuromodulatory feedback, (iv) dual meta‑learning of local and global learning‑rate schedules, and (v) oscillatory phase‑gated weight application.
-Unlike Transformers that back‑propagate through static parameters, HMN‑LM adapts its weights online during inference, enabling rapid domain adaptation and continual learning while maintaining competitive perplexity on large corpora.
-We specify the architecture, training regimen, and a staged benchmark suite, and we provide diagrams and image‑placeholders for future figure generation.
+Dominant large language models (LLMs), primarily based on the Transformer architecture and its variants like State-Space Models (SSMs), have achieved remarkable success in diverse natural language processing tasks. However, their reliance on centralized error back-propagation through massive sets of static parameters presents significant limitations. These include high computational costs for training and fine-tuning, difficulties in rapid adaptation to new domains or user styles without extensive retraining, and a propensity for catastrophic forgetting when learning sequentially. Furthermore, these models depart sharply from the decentralized, energy-efficient, and continuously adaptive learning mechanisms observed in biological neural systems.
 
-⸻
+Biological systems, in contrast, leverage rapid local synaptic plasticity (e.g., Spike-Timing-Dependent Plasticity - STDP), often modulated by global signals like neuromodulators (e.g., dopamine, acetylcholine), to enable lifelong learning and adaptation in non-stationary environments. Inspired by these principles, this paper introduces HMN-LM, a language model built upon Hybrid Modulated Neuron (HMN) cells. The HMN framework aims to integrate:
 
-2 Motivation & Background
+* Fast local plasticity for immediate capture of short-term dependencies and contextual nuances.
+* Slower global modulation, representing signals like reward, uncertainty, or novelty, for long-term guidance and consolidation.
+* Meta-learning to adapt learning parameters online, balancing plasticity and stability.
+* Attention mechanisms at both local (synaptic) and global (neuromodulatory) levels for selective and context-dependent updates.
+* Oscillatory timing to align plastic changes with relevant neural processing phases, potentially enhancing temporal coherence.
+* **Input-Shaped Dynamics**: A novel core feature where the current input token (or its embedding) directly influences key operational parameters within the HMN cell, such as activation biases, attention gains, learning rate scaling, and plasticity thresholds. This allows for immediate, fine-grained adaptation of neuronal processing to the specific characteristics of the incoming stimulus.
 
-2.1 Limitations of Transformer & SSM LMs
+This work focuses on providing a theoretical and architectural blueprint for HMN-LM. We detail its components, mathematical formulation, training procedures, and a comprehensive benchmark suite designed for empirical validation. The core contribution is a unified model that combines these biological inspirations into a coherent computational framework for language modeling, aiming to bridge the gap between the performance of contemporary LLMs and the adaptive, efficient learning paradigms of the brain.
 
-Issue	Transformer	Mamba / SSM	Consequence for NLP
-Long‑range cost	O(n²)	O(n)	Memory bottlenecks
-Adaptation	Off‑line fine‑tune	Off‑line fine‑tune	Slow to personalise
-Biological realism	Low	Very low	Limited neuromorphic transfer
-Catastrophic forgetting	Severe	Severe	Continual tasks fail
+**2. Motivation & Background**
 
-2.2 Why HMN Cells?
-	•	Local plasticity → captures short‑term phrase structures.
-	•	Neuromodulators → implement global discourse signals (reward, novelty, surprisal).
-	•	Dual meta‑learning → tunes plasticity schedules on‑line.
-	•	Phase‑locking → aligns updates with linguistic rhythm (e.g., prosody in speech).
+**2.1. Limitations of Transformer & SSM LMs**
 
-⸻
+Current leading language modeling paradigms, while powerful, exhibit several inherent limitations when contrasted with the desiderata of truly adaptive and efficient learning systems:
 
-3 Model Architecture
+| Issue                     | Transformer          | Mamba / SSM          | Consequence for NLP                 |
+| :------------------------ | :------------------- | :------------------- | :---------------------------------- |
+| Long‑range cost           | $O(n^2)$             | $O(n \\log n)$ or $O(n)$ | Memory bottlenecks, context limits  |
+| Adaptation                | Off‑line fine‑tune   | Off‑line fine‑tune   | Slow to personalise, resource-heavy |
+| Biological realism        | Low                  | Very low             | Limited neuromorphic transfer, insights |
+| Catastrophic forgetting   | Severe               | Severe               | Continual tasks fail, relearning needed |
+| Input-driven retrieval    | Indirect / Static    | Static               | Suboptimal adaptation to immediate input nuances |
+| Real-time weight updates  | Impractical          | Impractical          | No on-device continual learning     |
 
+These limitations hinder the development of LLMs that can continuously learn from new data streams, personalize efficiently on user devices, or operate robustly in dynamic environments without frequent, costly retraining cycles.
+
+**2.2. Why HMN Cells? Biological and Computational Inspirations**
+
+The HMN cell architecture is motivated by a synthesis of principles from neuroscience and machine learning, aiming to address the aforementioned limitations:
+
+* **Local Plasticity for Short-Term Structure:** Inspired by Hebbian learning and STDP (Markram et al., 1997; Bi & Poo, 1998), local plasticity rules allow synapses to modify their strength based on the activity of connected neurons. In HMN-LM, this is hypothesized to capture short‑term phrase structures and local dependencies within sequences rapidly. Eligibility traces, a mechanism where a synapse is "tagged" for later modification, allow for delayed credit assignment.
+* **Neuromodulators for Global Context and Policy:** Biological neuromodulators (e.g., dopamine, acetylcholine, norepinephrine) convey global information about reward, novelty, surprise, or uncertainty, broadly influencing synaptic plasticity and neuronal excitability (Schultz, 1998; Yu & Dayan, 2005). HMN cells incorporate proxies for such signals to implement global discourse cues, guiding learning towards desired outcomes or gating plasticity based on contextual relevance.
+* **Dual Meta‑Learning for Adaptive Plasticity Schedules:** Neural systems exhibit meta-plasticity, where the rules of plasticity themselves can change. HMN cells employ dual meta‑learning (Doya, 2002; Bellec et al., 2023) to tune the learning rates for both local and globally modulated plasticity schedules online. This allows the model to adapt its own adaptability, potentially balancing rapid learning with stable knowledge retention.
+* **Phase‑Locking for Temporal Coherence:** Neural oscillations (e.g., theta, gamma rhythms) are thought to play a role in coordinating neural activity and gating plasticity (Buzsáki & Draguhn, 2004). HMN cells incorporate oscillatory phase‑gating for weight updates, aiming to align learning with intrinsic processing rhythms, which might be analogous to prosodic or event boundaries in language.
+* **Input-Shaped Dynamics for Immediate Contextual Adaptation:** A key innovation in HMN-LM is the direct modulation of neuronal and plasticity parameters by the current input. This allows the cell to dynamically adjust its response profile (e.g., sensitivity, learning propensity, attentional focus) based on the specific features of $x\_t$ or its embedding $h\_t$. This is inspired by concepts where network dynamics are rapidly shaped by incoming stimuli (e.g., input-driven attractor dynamics in some Hopfield network variants, Betteti et al.), allowing for robust processing and immediate, nuanced adaptation without waiting for slower weight changes.
+* **Attention Mechanisms for Selective Processing:** Both local attention (akin to synaptic attention focusing on relevant pre-synaptic inputs for a given post-synaptic neuron's context) and global attention (weighting the influence of different neuromodulatory signals based on broader context) are incorporated. This draws inspiration from attentional mechanisms in the cortex (Moran & Desimone, 1985) and their successful application in deep learning (Vaswani et al., 2017).
+
+By integrating these mechanisms, HMN cells aim to provide a more biologically grounded, adaptive, and potentially efficient alternative to standard artificial neurons in sequence processing tasks.
+
+**2.3. Scope: Biologically Inspired versus Biologically Plausible**
+
+It is important to distinguish between components that are "biologically plausible" and those that are "biologically inspired." A mechanism is considered **biologically plausible** if its existence and functional role have direct and substantial empirical support from neuroscience. Examples include STDP and dopamine-gated plasticity. In contrast, elements are **biologically inspired** if they are abstracted from general biological principles or introduced primarily for computational utility, even if direct neurobiological analogues are not (yet) known or are less detailed. An example could be the specific mathematical form of the probabilistic gating function or the precise implementation of meta-learning for input-modulation functions. A detailed plausibility map is discussed in Section 7.5.
+
+**3. Model Architecture**
+
+The HMN-LM replaces the self-attention and feed-forward blocks of a traditional Transformer with a stack of HMN layers.
+
+```mermaid
 graph TD
-    subgraph Token Pipeline
-        A[Input token xₜ] --> B[Embedding hₜ]
-        B --> C[HMN Cell]
-        C --> D[Hidden State sₜ]
-        D --> E[Output projection → logits]
+    subgraph Token Pipeline
+        A[Input token x_t] --> B[Embedding h_t]
+        B --> C[HMN Cell (Input-Modulated)]
+        C --> D[Hidden State s_t]
+        D --> E[Output projection → logits]
     end
 
-    subgraph HMN Cell
-        B --> F[Local Eligibility Traces eₜ]
-        F --> G[Local Attention αₜ]
+    subgraph HMN Cell (Input-Modulated)
+        B --> F[Local Eligibility Traces e_t]
+        F --> G[Local Attention α_t (Input-Modulated Gain)]
         G --> H[Oscillation Gate Φ(t)]
-        H --> I[Probabilistic Update Δw†]
-        I --> J[Weight Matrix Wₜ⁺¹]
+        H --> I[Probabilistic Update Δw† (Input-Modulated Rates/Thresholds)]
+        I --> J[Weight Matrix W_t+1]
+        B --> C_bias{Activation Bias b_input(h_t)}
         subgraph Global Context Loop
             D -.-> K[Neuromodulator Proxies E_k]
-            K --> L[Global Attention γ_k]
+            K --> L[Global Attention γ_k (Input-Modulated Neuromodulator Scaling)] %% Optional: Input can scale E_k
             L --> I
         end
-        J --> C  %% feedback
+        J --> C  %% feedback loop for W_t+1 affecting next step's activation
     end
+```
 
-Figure 1: Conceptual data‑flow in a single HMN‑LM layer.
-Figure 2 (placeholder): AI‑generated illustration of dual attention cones (synaptic & modulatory) super‑imposed on a cortical micro‑column sketch.
+**Figure 1:** Conceptual data‑flow in a single HMN‑LM layer. The input embedding $h\_t$ (or features derived from it, $I\_t$) now directly influences the HMN cell by: providing an activation bias $b\_{input}(h\_t)$; modulating the gain of local attention $\\alpha\_t$; potentially scaling learning rates and neuromodulatory signals; and adjusting thresholds for the probabilistic update $\\Delta w^\\dagger$.
 
-3.1 HMN Layer Stack
+**(Placeholder for Figure 2):** AI‑generated illustration of dual attention cones (synaptic & modulatory) super‑imposed on a cortical micro‑column sketch, emphasizing how current input $I\_t$ can modulate these pathways.
 
-[Embedding] → [HMN×N] → [LayerNorm] → [Linear Projection] → [Softmax]
+**3.1. HMN Layer Stack**
 
-Typical “base” model: 12 layers, 512‑D hidden, 128‑D embeddings, ~100 M plastic weights.
+A typical HMN-LM consists of an embedding layer, followed by $N$ HMN layers, Layer Normalization, a linear projection to the vocabulary size, and a Softmax function to produce output probabilities:
+`[Embedding] → [HMN × N] → [LayerNorm] → [Linear Projection] → [Softmax]`
 
-3.2 Key Equations (per time‑step t, synapse i→j)
-	1.	Activation z_j(t) = f(Σ_i w_ij x_i + b_j + ε_j)
-	2.	Eligibility e_ij = ψ_fast + ψ_slow
-	3.	Local Attention α_ij = softmax(β_a⟨h_i,c_j⟩)
-	4.	Global Attention γ_k = softmax(β_g g(E_k,C_global))
-	5.	Phase‑gated pre‑update Δw†_ij = (η_loc + η_glob G′) α_ij e_ij · max(0,cos(Φ−φ_ij))
-	6.	Probabilistic write w_ij ← w_ij + Δw† with p = σ(β_p(|Δw†|−θ_p))
+A typical “base” model might have: 12 layers, 512-dimensional hidden states, 128-dimensional embeddings, and approximately 100 million plastic weights. Each HMN layer performs its computations based on the mechanisms described below.
 
-Learning‑rates (η_loc, η_glob) are meta‑learned via SPSA on the language‑model loss.
+**3.2. Key Equations (per time‑step $t$, synapse $i \\rightarrow j$)**
 
-⸻
+Let $x\_t$ be the input token at time $t$, and $h\_t$ be its embedding. Let $I\_t$ represent characteristics or features derived from the current input $h\_t$ (e.g., $I\_t = h\_t$ or $I\_t = \\text{MLP}(h\_t)$). These features $I\_t$ are used to modulate various parameters within the HMN cell dynamically. The weights $w\_{ij}$ are those of the HMN cells, effectively forming the connections that are updated by the HMN learning rules.
 
-4 Training Procedure
+1.  **Activation ($z\_j(t)$):** The activation of a post-synaptic neuron $j$.
+    $z\_j(t) = f(\\sum\_i w\_{ij}(t) x\_i(t-\\tau\_{ij}) + b\_j(t) + \\mathbf{b\_{input}(I\_t)} + \\epsilon\_j(t))$
 
-4.1 Outer‑Loop Meta‑Loss
+      * $w\_{ij}(t)$: weight of the synapse from pre-synaptic neuron $i$ to post-synaptic neuron $j$ at time $t$.
+      * $x\_i(t-\\tau\_{ij})$: activity of pre-synaptic neuron $i$, potentially with a delay $\\tau\_{ij}$. In the LM context, $x\_i$ can be elements of the hidden state from the previous layer or recurrent connections.
+      * $b\_j(t)$: intrinsic bias of neuron $j$.
+      * $\\mathbf{b\_{input}(I\_t)}$: A dynamic, input-specific bias term. This is a function (e.g., a small neural network or a linear projection) of the current input features $I\_t$. The parameters of this function are meta-learned. This allows the neuron's baseline excitability to be primed by the current input.
+      * $\\epsilon\_j(t)$: optional stochastic noise (e.g., Gaussian).
+      * $f(\\cdot)$: a non-linear activation function (e.g., ReLU, sigmoid, or tanh).
 
-L_{meta} = \text{NLL}(\mathcal{B}{val}) + \lambda{stab}\, \mathbb{E}\|\Delta w\|^2
+2.  **Eligibility Traces ($e\_{ij}(t)$):** A record of recent correlated pre- and post-synaptic activity, marking synapses for potential modification.
+    $e\_{ij}(t) = \\psi\_{\\text{fast}}(x\_i, z\_j; \\tau\_{\\text{fast}}) + \\psi\_{\\text{slow}}(x\_i, z\_j; \\tau\_{\\text{slow}})$
 
-Minimise negative log‑likelihood on a held‑out validation buffer plus a stability penalty.
+      * $\\psi\_{\\text{fast}}$ and $\\psi\_{\\text{slow}}$ represent Hebbian-style co-activity measures (e.g., $x\_i z\_j$) decayed over different time constants ($\\tau\_{\\text{fast}}$, $\\tau\_{\\text{slow}}$), capturing multi-timescale credit assignment. For example, $\\psi(x\_i, z\_j, t') = x\_i(t') z\_j(t') e^{-(t-t')/\\tau}$.
 
-4.2 Optimisation Algorithm
-	1.	Inner loop (local HMN updates) runs for T_inner tokens using rules (1‑6).
-	2.	Outer loop (meta‑update) performs two‑point SPSA to adjust η_loc, η_glob and temperature β’s.
-	3.	Periodic REINFORCE step on probabilistic gate parameters θ_p, β_p using downstream perplexity reduction as reward.
-	4.	Gradient‑free hardware note: Inner loop is purely local; only meta‑params require CPU/GPU gradient updates every K steps.
+3.  **Local Attention ($\\alpha\_{ij}(t)$):** Modulates the contribution of each eligibility trace based on the relevance of the pre-synaptic input $h\_i$ (embedding of $x\_i$) to the local context $c\_j$ of the post-synaptic neuron.
+    $\\alpha\_{ij}(t) = \\text{softmax}*i(\\mathbf{\\beta\_a(I\_t)} \\cdot g(h\_i(t-\\tau*{ij}), c\_j(t)))$
 
-Pseudo‑code in Appendix A.1.
+      * $h\_i(t-\\tau\_{ij})$: embedding of the pre-synaptic activity/input.
+      * $c\_j(t)$: local context vector for the post-synaptic neuron $j$ (e.g., an exponentially decayed average of its recent activations $z\_j$).
+      * $g(\\cdot, \\cdot)$: a similarity function (e.g., scaled dot product).
+      * $\\mathbf{\\beta\_a(I\_t)}$: An input-modulated attention gain (temperature) parameter. This function of $I\_t$ (whose parameters are meta-learned) allows the sharpness of the local attention to be dynamically adjusted based on the current input. For instance, higher gain might be beneficial for focusing on specific cues in unambiguous inputs, while lower gain might be better for noisy inputs.
 
-⸻
+4.  **Global Neuromodulatory Attention & Aggregation ($G'(t)$):** Aggregates multiple global neuromodulatory signals $E\_k(t)$ (e.g., proxies for reward, surprise, novelty derived from the model's state or output) based on their relevance to a global context $C\_{\\text{global}}(t)$.
+    $\\gamma\_k(t) = \\text{softmax}*k(\\beta\_g \\cdot h(E\_k(t), C*{\\text{global}}(t)))$
+    $G'(t) = \\sum\_k \\gamma\_k(t) E\_k(t)$
 
-5 Benchmark Suite
+      * $E\_k(t)$: strength of the $k$-th neuromodulatory signal.
+      * $C\_{\\text{global}}(t)$: a representation of the global context (e.g., average hidden state, discourse topic vector).
+      * $h(\\cdot, \\cdot)$: a relevance/similarity function.
+      * $\\beta\_g$: a fixed or meta-learned gain for global attention.
+      * Optionally, $E\_k(t)$ itself or its contribution can be scaled by an input-dependent function $s\_k(I\_t)$, i.e., $G'(t) = \\sum\_k \\gamma\_k(t) \\mathbf{s\_k(I\_t)} E\_k(t)$, where $s\_k(I\_t)$ is another meta-learned function, allowing the input to also gate the influence of global signals.
 
-Phase	Dataset / Task	Metric	Purpose
-P0	Text8 100 k	PPL ↓	sanity, learning‑rate viability
-P1	WikiText‑2 → BooksCorpus incremental	PPL, Δ‑forgetting	continual learning stress‑test
-P2	Dialogue (Persona‑Chat)	BLEU, style‑adapt speed	user‑style rapid adaptation
-P3	Cross‑domain (News → Code)	PPL before/after switch	domain‑shift resilience
-P4	Long‑context QA (LAMBADA, NarrativeQA)	acc ↑	temporal credit assignment
+5.  **Phase‑Gated Pre‑Update ($\\Delta w^{\\dagger}\_{ij}(t)$):** The calculated weight change, modulated by local and global factors, and gated by an oscillatory phase.
+    $\\Delta w^{\\dagger}*{ij}(t) = (\\mathbf{\\eta*{loc}(I\_t)} \\cdot \\alpha\_{ij}(t) e\_{ij}(t) + \\mathbf{\\eta\_{glob}(I\_t)} \\cdot G'(t) \\cdot \\alpha\_{ij}(t) e\_{ij}(t)) \\cdot \\text{max}(0, \\cos(\\Phi(t) - \\phi\_{ij}))$
+    Alternatively, a more common formulation for the neuromodulated term is additive to the trace rather than multiplicative with it again:
+    $\\Delta w^{\\dagger}*{ij}(t) = (\\mathbf{\\eta*{loc}(I\_t)} + \\mathbf{\\eta\_{glob}(I\_t)} G'(t)) \\cdot \\alpha\_{ij}(t) e\_{ij}(t) \\cdot \\text{max}(0, \\cos(\\Phi(t) - \\phi\_{ij}))$
 
-Ablation protocol: disable one HMN component (eligibility, global attention, oscillation, meta‑learning) and record Δ‑performance.
+      * $\\mathbf{\\eta\_{loc}(I\_t)}$: Input-modulated local learning rate. $\\eta\_{loc}(I\_t) = \\eta\_{loc\_base} \\cdot \\eta\_{scale\_loc}(I\_t)$.
+      * $\\mathbf{\\eta\_{glob}(I\_t)}$: Input-modulated global learning rate (scales the effect of $G'$). $\\eta\_{glob}(I\_t) = \\eta\_{glob\_base} \\cdot \\eta\_{scale\_glob}(I\_t)$.
+      * The base rates ($\\eta\_{loc\_base}$, $\\eta\_{glob\_base}$) and the parameters of the scaling functions ($\\eta\_{scale\_loc}(I\_t)$, $\\eta\_{scale\_glob}(I\_t)$) are meta-learned. These functions allow the learning intensity to vary based on current input characteristics (e.g., increase plasticity for novel inputs, decrease for familiar ones).
+      * $\\Phi(t)$: global oscillatory phase signal (e.g., from a sinusoidal oscillator).
+      * $\\phi\_{ij}$: preferred phase for plasticity at synapse $i \\rightarrow j$. This term gates updates to occur only during specific oscillatory phases.
 
-⸻
+6.  **Probabilistic Write ($w\_{ij}(t+1)$):** Synaptic weights are updated stochastically based on the magnitude of the pre-update.
+    $w\_{ij}(t+1) \\leftarrow w\_{ij}(t) + \\Delta w^{\\dagger}*{ij}(t) \\quad \\text{with probability } p*{ij}(t)$
+    $p\_{ij}(t) = \\sigma(\\mathbf{\\beta\_p(I\_t)} (|\\Delta w^{\\dagger}\_{ij}(t)| - \\mathbf{\\theta\_p(I\_t)}))$
 
-6 Implementation & Hardware Notes
+      * $\\sigma(\\cdot)$: logistic sigmoid function.
+      * $\\mathbf{\\beta\_p(I\_t)}$: Input-modulated gain for the probabilistic gate.
+      * $\\mathbf{\\theta\_p(I\_t)}$: Input-modulated threshold for the probabilistic gate.
+      * The parameters defining the functions $\\beta\_p(I\_t)$ and $\\theta\_p(I\_t)$ are meta-learned. This allows the model to dynamically adjust the stringency and sensitivity of weight updates based on the current input, e.g., making updates more likely or requiring a stronger signal for them when the input is deemed highly informative or reliable.
 
-Component	CPU/GPU	Loihi‑2 / Analog Memristor	Comment
-Eligibility traces	cheap	integrate‑and‑dump	decay as RC circuit
-Oscillation gate	sine lookup	inherent neuron phase	4‑bit phase bins suffice
-Probabilistic write	Bernoulli mask	stochastic bit‑cell	tunable noise injection
-Meta‑update	PyTorch	external micro‑host	every 1 k‑steps
+**Meta-Learned Parameters:**
+The set of meta-learned parameters includes:
 
-Projected footprint: 12‑layer HMN‑LM for 32‑kB vocab ≈ 1.2 GB in GPU memory (dominated by embeddings); neuromorphic deployment reduces parameter storage because synapses are updated in place.
+* Base learning rates: $\\eta\_{loc\_base}$, $\\eta\_{glob\_base}$.
+* Parameters of all input-modulation functions: those defining $b\_{input}(I\_t)$, $\\beta\_a(I\_t)$, $\\eta\_{scale\_loc}(I\_t)$, $\\eta\_{scale\_glob}(I\_t)$, $\\beta\_p(I\_t)$, $\\theta\_p(I\_t)$, and $s\_k(I\_t)$ (if used). These functions are typically small neural networks or parametric expressions.
+* Other gain/temperature parameters: $\\beta\_g$.
+* Parameters related to eligibility trace dynamics, oscillator properties, and preferred phases if not fixed.
 
-⸻
+These parameters are optimized via an outer-loop meta-learning process, typically using a gradient-free method like Simultaneous Perturbation Stochastic Approximation (SPSA) or evolutionary strategies, based on a task-level objective (e.g., perplexity on a validation set).
 
-7 Expected Advantages
-	•	Rapid on‑device personalisation without back‑prop.
-	•	Reduced catastrophic forgetting via neuromodulator‑gated consolidation.
-	•	Interpretability: eligibility and neuromodulator attentions are inspectable vectors.
-	•	Energy efficiency when mapped to spiking hardware (phase gating implies sparse writes).
+**4. Training Procedure**
 
-⸻
+The training of HMN-LM involves a dual-loop process: an inner loop where local HMN rules update synaptic weights based on incoming data, and an outer loop where meta-parameters (including those defining the input-modulation functions) are optimized.
 
-8 Open Questions
-	1.	Scalability ceiling: Can HMN‑LM match GPT‑3‑scale perplexity?
-	2.	Stable meta‑learning under large‑vocab cross‑entropy – requires robust SPSA variants.
-	3.	Proxy neuromodulators: best practise for reward/uncertainty extraction in text.
-	4.	Hybrid stacks: How many Transformer blocks can be replaced before quality drops?
+**4.1. Outer‑Loop Meta‑Loss**
 
-⸻
+The meta-optimizer aims to minimize a loss function $L\_{\\text{meta}}$ which typically includes the performance on a held-out validation buffer of sequences $\\mathcal{B}\_{\\text{val}}$, a stability penalty on the magnitude of weight changes, and an optional regularization term on the complexity or magnitude of the parameters defining the input-modulation functions:
 
-9 Road‑Map
+$L\_{\\text{meta}} = \\text{NLL}(\\mathcal{B}*{\\text{val}}) + \\lambda*{\\text{stab}} \\mathbb{E}[|\\Delta w|^2] + \\mathbf{\\lambda\_{\\text{mod}} \\mathbb{E}[|\\text{params}\_{\\text{funcs}}(I\_t)|^2]}$
 
-Quarter	Milestone
-Q2‑2025	Release 50 M‑param HMN‑LM on WikiText‑2 with open weights
-Q3‑2025	Neuromorphic FPGA demo (3‑layer HMN core) achieving 10× energy reduction
-Q4‑2025	Hybrid Transformer + HMN personal assistant prototype with continual style learning
+* $\\text{NLL}(\\mathcal{B}\_{\\text{val}})$: Negative log‑likelihood of the model on the validation buffer after inner-loop updates.
+* $\\lambda\_{\\text{stab}}$: Coefficient for the weight change stability regularizer, discouraging overly volatile weights.
+* $\\mathbf{\\lambda\_{\\text{mod}}}$: Coefficient for the regularization term on the parameters of the input-modulation functions (e.g., L2 norm of the weights of the small MLPs defining $b\_{input}(I\_t)$, etc.). This helps prevent these functions from becoming overly complex or sensitive.
+* $\\mathbb{E}[|\\Delta w|^2]$: Expected squared magnitude of synaptic weight changes during the inner loop.
+* $\\mathbb{E}[|\\text{params}\_{\\text{funcs}}(I\_t)|^2]$: Expected squared magnitude of the meta-parameters that define the input-modulation functions.
 
+**4.2. Optimisation Algorithm**
 
+1.  **Inner Loop (Local HMN Updates):** For a batch of sequences or a stream of $T\_{\\text{inner}}$ tokens, the HMN-LM processes input tokens one by one.
 
-⸻
+      * At each time-step $t$:
+          * The current input token $x\_t$ is embedded to $h\_t$.
+          * Input features $I\_t$ are derived from $h\_t$.
+          * The dynamic operational parameters for HMN cells (e.g., $b\_{input}(I\_t)$, $\\beta\_a(I\_t)$, $\\eta\_{loc}(I\_t)$, $\\eta\_{glob}(I\_t)$, $\\beta\_p(I\_t)$, $\\theta\_p(I\_t)$) are computed using $I\_t$ and their respective meta-learned functions.
+          * Neurons are activated, eligibility traces are formed, attention weights are computed, neuromodulatory signals are processed, and potential weight changes $\\Delta w^{\\dagger}\_{ij}$ are calculated using these dynamic parameters according to Equations 1-5.
+          * Synaptic weights $w\_{ij}$ are updated probabilistically according to Equation 6. These updates happen locally within the HMN cells.
+      * This process relies only on local information and the dynamically computed parameters, without requiring back-propagation through the entire sequence or model for these weight updates.
 
-10 Conclusion
+2.  **Outer Loop (Meta‑Update):** After one or more inner-loop episodes, the meta‑parameters are updated.
 
-HMN‑LM represents a shift from static‑parameter, gradient‑only language models to plastic, neuromodulated, meta‑adaptive ones.
-If successful, it will bridge the gap between state‑of‑the‑art NLP and biologically grounded learning, opening new avenues for efficient, personalised, and interpretable language technologies.
+      * A gradient-free optimization algorithm like SPSA is typically used. SPSA perturbs the meta-parameters (which include base learning rates, $\\beta$ gains, and the parameters of the input-modulation functions) and estimates the gradient of $L\_{\\text{meta}}$ with respect to these meta-parameters.
+      * The meta-parameters are then adjusted in the direction that minimizes $L\_{\\text{meta}}$.
+      * This outer loop operates on a slower timescale than the inner-loop weight updates.
 
-⸻
+3.  **Periodic REINFORCE Step (Optional):** For parameters of probabilistic components not fully determined by $I\_t$ or the SPSA-tuned meta-parameters (e.g., base components of $\\theta\_p, \\beta\_p$ if they have static parts), a REINFORCE-style algorithm could be periodically applied, using a downstream task metric like perplexity reduction as a reward signal.
 
-Appendix A.1 Training Loop (Simplified Python‑style Pseudocode)
+**Gradient‑Free Hardware Note:** The inner loop, involving the HMN cell updates (Equations 1-6), is designed to be purely local and potentially implementable on specialized neuromorphic hardware with minimal reliance on central processing if the dynamic parameters from $I\_t$ can also be computed locally or efficiently broadcast. Only the meta‑parameters (which now include those for the input-modulation functions) require updates from a central optimizer (e.g., on a CPU/GPU) every $K$ inner-loop steps (e.g., $K \\sim 1000$s of tokens).
+
+(See Appendix A.1 for simplified pseudocode of the training loop).
+
+**5. Benchmark Suite**
+
+To evaluate the capabilities of HMN-LM, particularly its continual learning, adaptation, and the benefits of input-shaped dynamics, we propose a staged benchmark suite:
+
+| Phase | Dataset / Task                                     | Metric(s)                       | Purpose                                                                                                                               |
+| :---- | :------------------------------------------------- | :------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------ |
+| P0    | Text8 (first 100k-1M characters)                   | Perplexity (PPL) $\\downarrow$   | Sanity check, basic language modeling capability, learning‑rate viability.                                                            |
+| P0.5  | Controlled Noise/Context Datasets                  | PPL $\\downarrow$, Acc. Mod. $\\uparrow$ | Evaluate benefits of specific input-modulation functions (e.g., $b\_{input}$, $\\beta\_a(I\_t)$ etc.) on robustness & fine-grained adaptation. This involves datasets with synthetic noise, varying contextual cues, or abrupt style shifts. Accuracy of Modulation (Acc. Mod.) could measure if dynamic parameters change appropriately. |
+| P1    | WikiText‑2 $\\rightarrow$ BooksCorpus (incremental)  | PPL $\\downarrow$, $\\Delta$‑Forgetting $\\downarrow$ | Continual learning stress‑test; ability to adapt to new data while retaining old knowledge.                                  |
+| P2    | Dialogue (e.g., Persona‑Chat, DailyDialog)         | BLEU $\\uparrow$, PPL $\\downarrow$, Style‑Adapt Speed $\\uparrow$ | User‑style rapid adaptation, coherence in conversation.                                                                       |
+| P3    | Cross‑domain (e.g., News $\\rightarrow$ Code, News $\\rightarrow$ Scientific Papers) | PPL before/after switch $\\downarrow$ | Domain‑shift resilience, speed of adaptation to radically different data types.                                         |
+| P4    | Long‑context QA (e.g., LAMBADA, NarrativeQA, PG-19 excerpts) | Accuracy $\\uparrow$, PPL $\\downarrow$ | Temporal credit assignment, understanding long-range dependencies.                                                                  |
+| P5    | Multilingual Adaptation (e.g., FLORES-200 subset)  | PPL/BLEU per language           | Ability to adapt to or co-learn multiple languages.                                                                                 |
+
+**Ablation Protocol:** A crucial part of the evaluation will be systematic ablation studies. We will disable one HMN component at a time (e.g., local plasticity, global neuromodulation, local attention, global attention, oscillatory gating, meta‑learning itself) or specific input-modulation functions (e.g., make $b\_{input}(I\_t)$ zero, or make $\\beta\_a$, $\\eta\_{loc/glob}$, $\\theta\_p, \\beta\_p$ static, non-input-dependent parameters) and record the change in performance ($\\Delta$‑performance) on relevant benchmarks (especially P0.5, P1, P2). This will help quantify the contribution of each mechanism.
+
+**6. Implementation & Hardware Considerations**
+
+The HMN-LM is designed with an eye towards efficient implementation, including on future neuromorphic hardware.
+
+| Component                 | CPU/GPU Implementation Notes                                   | Loihi‑2 / Analog Memristor Potential                                | Comment                                                                                                                                  |
+| :------------------------ | :------------------------------------------------------------- | :------------------------------------------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------- |
+| Embedding Layer           | Standard lookup table                                          | Off-chip or dedicated on-chip memory                                | Dominates memory for large vocabs.                                                                                                       |
+| Activation ($z\_j$)        | Vectorized matrix ops + non-linearity + bias addition        | Analog neuron circuits, digital neuron models                       | $b\_{input}(I\_t)$ adds a small computation per neuron.                                                                                    |
+| Eligibility Traces ($e\_{ij}$) | Exponential decay updates; relatively cheap                  | Integrate‑and‑dump circuits, analog decay (RC circuit)              | Multi-timescale traces add memory but are computationally simple.                                                                          |
+| Local Attention ($\\alpha\_{ij}$) | Softmax over local context similarities                      | Localized similarity computation and normalization                | $\\beta\_a(I\_t)$ requires computing the gain from $I\_t$.                                                                                 |
+| Global Attention ($\\gamma\_k$) | Softmax over neuromodulator relevancies                    | Small associative memory or dot-product units                     | Depends on the number of neuromodulators.                                                                                                |
+| Oscillation Gate          | Sine lookup or direct computation                              | Inherent neuron/circuit phase dynamics, phase-locked loops        | 4‑bit phase bins might suffice, simplifying hardware.                                                                                    |
+| Probabilistic Write       | Generate Bernoulli mask based on $\\Delta w^\\dagger$              | Stochastic bit‑cell, tunable noise injection into comparators       | $\\beta\_p(I\_t), \\theta\_p(I\_t)$ require computing these from $I\_t$.                                                                        |
+| Input Modulation Functions ($b\_{input}(I\_t), \\beta\_a(I\_t)$, etc.) | Small NNs (e.g., 1-2 layers MLP) or parametric functions per token | Local on-chip logic, small dedicated on-chip NNs, or look-up tables | Parameters meta-learned. Must be lightweight to minimize per-token overhead. Compute once per token, broadcast results if needed.      |
+| HMN Weight Storage ($w\_{ij}$) | Standard memory (FP32/FP16)                                  | Memristor crossbar arrays, SRAM with local update logic           | In-place updates are key for neuromorphic efficiency.                                                                                    |
+| Meta‑update (SPSA)        | PyTorch/JAX on CPU/GPU                                         | External micro‑host controller (e.g., x86 or ARM core on chip)      | Infrequent (e.g., every few 1k‑steps or more).                                                                                           |
+
+**Projected Footprint:** A 12‑layer HMN‑LM for a 32‑kB vocabulary, with 512-D hidden states and 128-D embeddings, is projected to have its weight memory dominated by the embedding layer and the output projection layer if shared. The plastic HMN weights themselves (e.g., 12 layers \* 512 \* 512) would be around 3M weights per layer. If weights are 16-bit, this is \~6MB per HMN layer for weights, plus state. The total GPU memory for a model with \~100M plastic weights would be manageable (e.g., hundreds of MBs, plus embeddings which could be \~1.2 GB as in the original estimate if embeddings are large and not efficiently managed). Neuromorphic deployment promises significant reduction in parameter storage footprint if weights are stored efficiently in on-chip memory elements like memristors, as they are updated in place. The computational overhead of the input-modulation functions must be carefully managed by keeping them simple (e.g., very small MLPs or direct parametric forms).
+
+**7. Expected Advantages and Discussion**
+
+The integrated design of HMN-LM, particularly with its input-shaped dynamics, is hypothesized to offer several advantages over traditional LLMs:
+
+* **Rapid On‑Device Personalisation and Adaptation:** Local plasticity allows weights to adapt online during inference based on immediate data, without requiring full back‑propagation or retraining cycles. This is crucial for on-device personalization (e.g., adapting to a user's writing style) and quick adaptation to new domains or contexts.
+* **Reduced Catastrophic Forgetting:** The combination of neuromodulator‑gated consolidation (where global signals can protect or enhance specific memories), dual meta-learning of plasticity rates, and input-adaptive plasticity rates/thresholds (which can modulate learning based on novelty or familiarity of input) is expected to mitigate catastrophic forgetting in continual learning scenarios.
+* **Enhanced Robustness and Contextual Retrieval:** Input-driven adjustments (e.g., $b\_{input}(h\_t)$ for priming activations based on current context, $\\beta\_a(I\_t)$ for adjusting attentional focus in noisy vs. clean inputs, adaptive $\\theta\_p(I\_t)$ for modulating update stringency based on input reliability) allow for more nuanced and robust real-time responses to diverse and dynamically changing inputs.
+* **Interpretability:** Several components offer avenues for interpretability:
+  * Eligibility traces ($e\_{ij}$) highlight which past activities contributed to potential updates.
+  * Local attention weights ($\\alpha\_{ij}$) show which pre-synaptic elements were deemed relevant.
+  * Global attention weights ($\\gamma\_k$) indicate the influence of different neuromodulatory signals.
+  * The response of input-modulation functions (e.g., how $\\beta\_a(I\_t)$ changes with specific input properties like predicted uncertainty or novelty scores derived from $I\_t$) can be inspected to understand how the model adapts its processing strategy.
+* **Energy Efficiency on Neuromorphic Hardware:** The local nature of updates, sparse weight changes due to probabilistic and phase gating, and event-driven computation (if mapped to spiking HMN variants) align well with the design principles of energy-efficient neuromorphic hardware.
+* **Synergistic Integration of Learning Mechanisms:** The HMN framework posits that the combination of local attention, phase-locking, dual meta-learning, input-shaped dynamics, and probabilistic updates can yield a system capable of more sophisticated learning than any single mechanism in isolation. Local mechanisms provide rapid adaptation, global signals provide broader guidance, meta-learning tunes the balance, and input-shaping provides immediate reactivity.
+
+**7.1. Implications for Credit Assignment**
+HMN-LM employs a multi-faceted approach to credit assignment:
+
+1.  **Synaptic Tagging:** Eligibility traces mark synapses based on local activity.
+2.  **Attentional Refinement:** Local attention ($\\alpha\_{ij}$) refines which traces are most relevant.
+3.  **Temporal Alignment:** Oscillatory gating ($\\Phi(t)$) aims to synchronize updates with relevant processing windows.
+4.  **Outcome-Based Modulation:** Global neuromodulatory signals ($G'(t)$) modulate the strength/direction of updates based on broader outcomes or context.
+5.  **Adaptive Regulation:** Meta-learning tunes learning rates, and input-shaped dynamics adjust plasticity parameters, both of which regulate the overall credit assignment process.
+
+**7.2. Comparison with Back-Propagation and Other Bio-Inspired Models**
+Relative to standard back-propagation, HMN-LM offers online, local updates and continuous adaptation without full gradient re-computation. Compared to earlier three-factor learning rules (e.g., activity, error signal, eligibility), HMN adds:
+
+* **Input-Shaped Dynamics:** Direct, rapid modulation of neuronal and plasticity parameters by the current input.
+* **Probabilistic Gating:** Stochastic application of weight updates.
+* **Dual Meta-Adaptation:** Online tuning of both local and global learning rates.
+* **Dual Attention:** Attention over both synaptic eligibility traces and neuromodulatory signals.
+* **Explicit Oscillatory Timing:** Phase-dependent gating of plasticity.
+
+**7.3. Complexity, Hyper-Parameter Sensitivity, and Scalability**
+The HMN model introduces several hyper-parameters (e.g., decay constants for eligibility traces $\\tau\_{\\text{fast}}, \\tau\_{\\text{slow}}$; base gain parameters $\\beta\_a, \\beta\_g, \\beta\_p$; oscillation frequency and phase parameters; parameters defining the architecture of input-modulation functions). While meta-learning can automate the tuning of some (like learning rates and gains), the initial structural choices and ranges for these parameters will require careful consideration. Automatic relevance determination or more sophisticated meta-learning techniques might be needed to manage this complexity. Scalability to very large models needs to be empirically investigated, focusing on computational overheads of local computations and the stability of multi-layer HMN stacks.
+
+**7.4. Plausibility Map of HMN Components**
+
+This table distinguishes components based on their level of direct empirical support from neuroscience versus being primarily computational abstractions inspired by biological principles.
+
+| Component                                  | Empirical Support in Neuroscience      | Classification           | Key Citations (Illustrative)                 |
+| :----------------------------------------- | :------------------------------------- | :----------------------- | :------------------------------------------- |
+| STDP + Eligibility Traces                  | Strong                                 | Plausible                | Markram et al. 1997; Bi & Poo 1998; Sutton & Barto 1998 |
+| Neuromodulator-Gated Plasticity (e.g., Dopamine) | Strong                                 | Plausible                | Schultz 1998; Izhikevich 2007               |
+| Theta/Gamma Phase-Locked Updates           | Growing                                | Plausible                | Buzsáki & Draguhn 2004; O'Keefe & Recce 1993 |
+| Attentional Modulation of Neural Activity  | Strong (for sensory/cognitive areas)   | Plausible (conceptually) | Moran & Desimone 1985; Reynolds & Heeger 2009 |
+| Meta-Plasticity / Meta-Learned Rates       | Emerging (evidence for adaptable LR)   | Plausible-in-Principle   | Doya 2002; Bellec et al. 2023                |
+| Probabilistic Synaptic Updates             | Indirect (synaptic unreliability, quantal release) | Inspired                 | Faisal et al. 2008                           |
+| Direct Input Shaping of Plasticity Parameters (as formulated) | Limited direct parallel; abstraction | Inspired                 | (Conceptual: e.g., context-dependent gain modulation) |
+| Dual Attention (Local & Global, as formulated) | Conceptual abstraction                 | Inspired                 | (Combines local/global attention ideas)      |
+| Specific functional forms (e.g., logistic gate for prob. write) | None                                   | Inspired                 | –                                            |
+
+**8. Open Questions**
+
+Despite its potential, HMN-LM presents several open questions that require further research:
+
+* **Scalability and Performance Ceiling:** Can HMN-LM based models achieve perplexity and downstream task performance comparable to state-of-the-art Transformers or SSMs of similar scale (e.g., GPT-3-scale, Mamba)? What are the practical limits of stacking HMN layers?
+* **Stability of Multi-Loop Meta‑Learning:** Ensuring stable convergence of the dual meta‑learning process, especially with a large number of meta-parameters (including those for the input-modulation functions) and under the noisy gradients from SPSA or other gradient-free optimizers, is critical. Robust SPSA variants or alternative meta-learning algorithms may be needed.
+* **Optimal Design of Input-Modulation Functions:** What is the appropriate complexity (e.g., small MLPs, lookup tables, simple parametric curves) for functions like $b\_{input}(I\_t)$, $\\beta\_a(I\_t)$, etc.? How can we balance their expressive power for fine-grained adaptation against meta-learning stability, computational overhead per token, and the risk of overfitting?
+* **Interaction and Stability of Multiple Input Modulations:** How do the various concurrent input-driven adjustments (to activation bias, attention gain, learning rates, plasticity thresholds) interact? Ensuring these mechanisms work synergistically and maintain overall system stability without leading to chaotic or unpredictable behavior is a key challenge.
+* **Effective Proxy Neuromodulators for Text:** What are the best practices for extracting meaningful proxy neuromodulatory signals (e.g., for reward, uncertainty, novelty, surprise) from text sequences or the model’s internal state in an unsupervised or self-supervised manner? How should these global signals interact with the direct, input-feature ($I\_t$) driven local modulations?
+* **Hybrid Architectures:** How effective are hybrid models that combine HMN layers with traditional Transformer blocks or SSM layers (e.g., using HMN as adapter layers or in specific parts of a larger architecture, as explored in conceptual proposals like Trans-HMN or Mamba-HMN)? How many standard blocks can be replaced by HMN layers before task performance degrades, or where are they most beneficially inserted?
+* **Theoretical Understanding:** Developing a more formal theoretical understanding of the learning dynamics, convergence properties (for simplified variants), and capacity of HMN networks is an important future direction.
+* **Exploiting Sparsity:** Can techniques like Mixture-of-Experts (MoE), as conceptually proposed in MoE-HMN, be effectively combined with HMN cells to create sparsely activated, highly plastic models for further efficiency gains?
+
+**9. Road‑Map**
+
+We outline a phased research and development plan to empirically validate and refine HMN-LM:
+
+| Quarter  | Milestone                                                                                               | Benchmarks    |
+| :------- | :------------------------------------------------------------------------------------------------------ | :------------ |
+| Q2‑2025  | Release initial 50 M‑param HMN‑LM on WikiText‑2 with open weights and training code.                    | P0, P0.5      |
+| Q3‑2025  | Report on P1 (continual learning: WikiText-2 $\\rightarrow$ BooksCorpus). Initial ablation studies for input-modulation. | P1, P0.5 (ablations) |
+| Q4‑2025  | Neuromorphic FPGA or analog simulation demo (e.g., 3‑layer HMN core) demonstrating potential energy savings. | (Hardware metrics) |
+| Q1‑2026  | Results on P2 (Dialogue adaptation). First prototype of a hybrid Transformer + HMN system.               | P2            |
+| Q2‑2026  | Results on P3 (Cross-domain adaptation) and P4 (Long-context QA). Extended ablation studies.            | P3, P4        |
+| Q3‑2026  | Scalability experiments (e.g., \>100M params HMN-LM) and investigation into P5 (Multilingual).           | P0, P1, P5    |
+
+**(Placeholder for Figure 3):** Timeline infographic showing P0–P5 phases mapped onto 2025-2026 quarters with icons for dataset type and key objectives.
+
+**10. Conclusion**
+
+HMN‑LM, enhanced by mechanisms allowing direct input-shaped dynamics of its neuronal and plasticity parameters, represents a significant step towards language models that learn more like biological systems. By integrating local plasticity, multi-factor neuromodulation, dual meta‑learning of adaptive learning schedules, multi-modal attention, and oscillatory gating, all further refined by real-time input-driven adjustments, HMN-LM moves away from static‑parameter, gradient‑only paradigms. It aims to create plastic, meta‑adaptive systems that can actively tailor their internal processing to the specific characteristics of each incoming stimulus.
+
+If successful, HMN-LM will contribute to bridging the gap between the high performance of state‑of‑the‑art NLP and the efficiency, adaptability, and lifelong learning capabilities of biologically grounded systems. This could open new avenues for developing more robust, personalized, interpretable, and energy-efficient language technologies that can continuously evolve and respond more nuancedly to the ever-changing linguistic environment. The proposed framework, while ambitious, offers a structured path for empirical investigation and iterative refinement.
+
+**11. Acknowledgements**
+
+We thank colleagues in computational neuroscience, machine learning, and natural language processing for insightful discussions that have contributed to the development of these ideas. Without your research a project of this magnitude would have not been possible. This research is supported by me Jeremy Shows and the grace of my wonderful and understanding partner Vanessa.
+
+**12. References**
+
+1. Bahdanau, D., Cho, K., & Bengio, Y. (2014). Neural machine translation by jointly learning to align and translate. *arXiv preprint* arXiv:1409.0473. [https://arxiv.org/abs/1409.0473](https://arxiv.org/abs/1409.0473)
+2. Bellec, G., Scherr, F., Subramoney, A., Legenstein, R., Maass, W., & Kappel, D. (2023). Meta‑learning biologically plausible plasticity rules with random feedback. *Nature Communications, 14*, Article 3756. [https://doi.org/10.1038/s41467-023-39386-w](https://doi.org/10.1038/s41467-023-39386-w)
+3. Bengio, Y. (2014). Towards biologically plausible deep learning. *arXiv preprint* arXiv:1407.1148. [https://arxiv.org/abs/1407.1148](https://arxiv.org/abs/1407.1148)
+4. Bengio, Y., Lee, D. H., Bornschein, J., & Lin, Z. (2015). Towards biologically plausible deep learning. *arXiv preprint* arXiv:1502.04156. [https://arxiv.org/abs/1502.04156](https://arxiv.org/abs/1502.04156)
+5. Betteti, S., Baggio, G., Bullo, F., & Zampieri, S. (2025). Input-driven dynamics for robust memory retrieval in Hopfield networks. *Science Advances, 11*(17), eadu6991. [https://doi.org/10.1126/sciadv.adu6991](https://doi.org/10.1126/sciadv.adu6991)
+6. Bi, G. Q., & Poo, M. M. (1998). Synaptic modifications in cultured hippocampal neurons: Dependence on spike timing, synaptic strength, and postsynaptic cell type. *Journal of Neuroscience, 18*(24), 10464–10472. [https://doi.org/10.1523/JNEUROSCI.18-24-10464.1998](https://doi.org/10.1523/JNEUROSCI.18-24-10464.1998)
+7. Buzsáki, G., & Draguhn, A. (2004). Neuronal oscillations in cortical networks. *Science, 304*(5679), 1926–1929. [https://doi.org/10.1126/science.1099745](https://doi.org/10.1126/science.1099745)
+8. Chklovskii, D. B., Mel, B. W., & Svoboda, K. (2004). Cortical rewiring and information storage. *Nature, 431*(7010), 782–788. [https://doi.org/10.1038/nature03012](https://doi.org/10.1038/nature03012)
+9. Dao, T., Fu, D. Y., Ermon, S., Rudra, A., & Ré, C. (2023). Mamba: Linear-Time Sequence Modeling with Selective State Spaces. *arXiv preprint* arXiv:2312.00752. [https://arxiv.org/abs/2312.00752](https://arxiv.org/abs/2312.00752)
+10. Doya, K. (2002). Metalearning and neuromodulation. *Neural Networks, 15*(4–6), 495–506. [https://doi.org/10.1016/S0893-6080(02)00044-8](https://doi.org/10.1016/S0893-6080%2802%2900044-8)
+11. Faisal, A. A., Selen, L. P. J., & Wolpert, D. M. (2008). Noise in the nervous system. *Nature Reviews Neuroscience, 9*(4), 292–303. [https://doi.org/10.1038/nrn2258](https://doi.org/10.1038/nrn2258)
+12. Fedus, W., Zoph, B., & Shazeer, N. (2022). Switch Transformers: Scaling to trillion parameter models with simple and efficient sparsity. *Journal of Machine Learning Research, 23*(120), 1–39. [https://arxiv.org/abs/2101.03961](https://arxiv.org/abs/2101.03961)
+13. Finn, C., Abbeel, P., & Levine, S. (2017). Model-agnostic meta-learning for fast adaptation of deep networks. In *Proceedings of the 34th International Conference on Machine Learning (ICML)* (pp. 1126–1135). [https://proceedings.mlr.press/v70/finn17a.html](https://proceedings.mlr.press/v70/finn17a.html)
+14. Hebb, D. O. (1949). *The organization of behavior: A neuropsychological theory*. Wiley.
+15. Houlsby, N., Giurgiu, A., Jastrzebski, S., Morrone, B., De Laroussilhe, Q., Gesmundo, A., Attariyan, M., & Gelly, S. (2019). Parameter-efficient transfer learning for NLP. In *Proceedings of the 36th International Conference on Machine Learning (ICML)* (pp. 2790–2799). [https://proceedings.mlr.press/v97/houlsby19a.html](https://proceedings.mlr.press/v97/houlsby19a.html)
+16. Izhikevich, E. M. (2007). Solving the distal reward problem through linkage of STDP and dopamine signaling. *Cerebral Cortex, 17*(10), 2443–2452. [https://doi.org/10.1093/cercor/bhl152](https://doi.org/10.1093/cercor/bhl152)
+17. Lillicrap, T. P., Cownden, D., Tweed, D. B., & Akerman, C. J. (2016). Random synaptic feedback weights support error backpropagation for deep learning. *Nature Communications, 7*, Article 13276. [https://doi.org/10.1038/ncomms13276](https://doi.org/10.1038/ncomms13276)
+18. Markram, H., Lübke, J., Frotscher, M., & Sakmann, B. (1997). Regulation of synaptic efficacy by coincidence of postsynaptic action potentials and EPSPs. *Science, 275*(5297), 213–215. [https://doi.org/10.1126/science.275.5297.213](https://doi.org/10.1126/science.275.5297.213)
+19. Moran, J., & Desimone, R. (1985). Selective attention gates visual processing in the extrastriate cortex. *Science, 229*(4715), 782–784. [https://doi.org/10.1126/science.4023713](https://doi.org/10.1126/science.4023713)
+20. O'Keefe, J., & Recce, M. L. (1993). Phase relationship between hippocampal place units and the EEG theta rhythm. *Hippocampus, 3*(3), 317–330. [https://doi.org/10.1002/hipo.450030307](https://doi.org/10.1002/hipo.450030307)
+21. Poo, M. M., Pignatelli, M., Ryan, T. J., Tonegawa, S., Bonhoeffer, T., Martin, K. C., ... & Tsien, R. W. (2016). What is memory? The present state of the engram. *Biological Psychiatry, 80*(5), 344–352. [https://doi.org/10.1016/j.biopsych.2016.05.014](https://doi.org/10.1016/j.biopsych.2016.05.014)
+22. Qiao, N., Meng, L., Corradi, F., Xiao, M., Liu, R., Lin, K. Y., ... & Indiveri, G. (2024). On‑chip meta‑plasticity for continual learning in neuromorphic hardware. *IEEE Transactions on Neural Networks and Learning Systems, 35*(1), 876–889. [https://doi.org/10.1109/TNNLS.2023.3280886](https://doi.org/10.1109/TNNLS.2023.3280886)
+23. Reynolds, J. H., & Heeger, D. J. (2009). The normalization model of attention. *Neuron, 61*(2), 168–185. [https://doi.org/10.1016/j.neuron.2009.01.002](https://doi.org/10.1016/j.neuron.2009.01.002)
+24. Rumelhart, D. E., Hinton, G. E., & Williams, R. J. (1986). Learning representations by back‑propagating errors. *Nature, 323*(6088), 533–536. [https://doi.org/10.1038/323533a0](https://doi.org/10.1038/323533a0)
+25. Scellier, B., & Bengio, Y. (2017). Equilibrium propagation: Bridging the gap between energy-based models and backpropagation. *Frontiers in Computational Neuroscience, 11*, Article 24. [https://doi.org/10.3389/fncom.2017.00024](https://doi.org/10.3389/fncom.2017.00024)
+26. Schmidhuber, J. (1992). Learning to control fast‑weight memories. In *Advances in Neural Information Processing Systems (NIPS)* (Vol. 4, pp. 1–9). [https://proceedings.neurips.cc/paper\_files/paper/1992/hash/abb63f88eb9e22561d340475f070b7f5-Abstract.html](https://proceedings.neurips.cc/paper_files/paper/1992/hash/abb63f88eb9e22561d340475f070b7f5-Abstract.html)
+27. Schultz, W. (1998). Predictive reward signal of dopamine neurons. *Journal of Neurophysiology, 80*(1), 1–27. [https://doi.org/10.1152/jn.1998.80.1.1](https://doi.org/10.1152/jn.1998.80.1.1)
+28. Sutton, R. S., & Barto, A. G. (1998). *Reinforcement learning: An introduction*. MIT Press. [http://incompleteideas.net/book/the-book.html](http://incompleteideas.net/book/the-book.html)
+29. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L., & Polosukhin, I. (2017). Attention is all you need. In *Advances in Neural Information Processing Systems (NeurIPS)* (Vol. 30, pp. 5998–6008). [https://arxiv.org/abs/1706.03762](https://arxiv.org/abs/1706.03762)
+30. Yu, A. J., & Dayan, P. (2005). Uncertainty, neuromodulation, and attention. *Neuron, 46*(4), 681–692. [https://doi.org/10.1016/j.neuron.2005.04.026](https://doi.org/10.1016/j.neuron.2005.04.026)
+
+---
+
+## **Possibly Bogus or Incomplete References (To Be Researched)**
+
+| Placeholder                      | Description                                                                                                                                                                        |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Czempin, S., et al. (2024)       | Placeholder for “SSM/Transformer hybrids” – No record found of author or paper under this topic.                                                                                   |
+| Merkx, L., & Frank, S. L. (2023) | Placeholder for continual learning benchmarks for LLMs – No matching publication under these names for this year/topic.                                                            |
+| Miconi, T. (2018)                | Relevant author but placeholder lacks title. Needs clarification; possible match: *"Biologically plausible learning in recurrent neural networks with differentiable plasticity."* |
+| Roller, S., et al. (2022)        | Placeholder for routing stability in MoE – No definitive citation; likely related to Facebook AI’s sparse model efforts.                                                           |
+| Rueckauer, B., et al. (2024)     | Placeholder for Plastic MoE – no confirmed publication yet under this author and context.                                                                                          |
+| Sun, X., et al. (2024)           | Placeholder for Continual Transformers – no matching title or author confirmed.                                                                                                    |
+| von Oswald, J., et al. (2024)    | Likely conflated with earlier continual learning work (e.g. Synaptic Intelligence); current citation needs clarification.                                                          |
+
+---
+
+**Appendix A: Algorithmic Details**
+
+**A.1 Training Loop (Simplified Python‑style Pseudocode)**
+
+```python
+# Meta-parameters (meta_params) include:
+# - eta_loc_base, eta_glob_base
+# - Parameters of functions defining b_input(I_t), beta_a(I_t), 
+#   eta_scale_loc(I_t), eta_scale_glob(I_t), beta_p(I_t), theta_p(I_t), s_k(I_t)
+# - Other static gains like beta_g, etc.
+
+# SPSA Hyperparameters
+SPSA_EPS = 0.01 # Perturbation magnitude scaling
+GLOBAL_META_LEARNING_RATE = 0.001 
+
+# model: HMN_LM instance
+# B_val_loader: DataLoader for validation sequences
+# NUM_META_UPDATES: Total number of outer-loop steps
+# T_inner: Number of tokens or sequences for inner-loop processing per meta-evaluation
 
 for outer_step in range(NUM_META_UPDATES):
     # --- Meta-parameter perturbation for SPSA ---
-    delta = sample_bernoulli_sign(meta_params.shape)
-    for sign in (+1, -1):
-        apply_meta(meta_params + sign * EPS * delta)
-        # --- Inner loop: local HMN updates ---
-        for t in range(T_inner):
-            token = batch[t]
-            hmn_forward_backward(token)   # local rules only
-        losses[sign] = compute_nll(valid_buffer)
-    # --- SPSA gradient estimate ---
-    g_hat = (losses[+1] - losses[-1]) / (2 * EPS * delta)
-    meta_params -= ALPHA * g_hat
-    clamp(meta_params, meta_bounds)
+    # 'delta' is a random perturbation vector with same shape as meta_params
+    delta_perturbation = sample_bernoulli_sign_vector(meta_params.shape) * SPSA_EPS
+    
+    meta_losses = {} # To store losses for + and - perturbations
 
+    for perturbation_sign in [+1, -1]:
+        # Apply perturbed meta-parameters to the model for this evaluation run
+        current_meta_params_for_eval = meta_params + perturbation_sign * delta_perturbation
+        
+        # model.configure_from_meta_params(...) sets the base learning rates
+        # and configures the internal functions (e.g., small MLPs) that will 
+        # compute dynamic parameters (b_input, beta_a, etc.) from I_t at each step.
+        model.configure_from_meta_params(current_meta_params_for_eval)
+        
+        # It's important to reset or re-initialize plastic weights (w_ij) 
+        # to a common starting state before each meta-evaluation, or evaluate 
+        # adaptation from the current state if that's the goal.
+        # For simplicity, let's assume evaluation of learning on B_val from scratch or a checkpoint.
+        model.reset_plastic_weights() # Or load a base checkpoint
 
+        accumulated_nll_for_eval = 0
+        num_tokens_processed_for_eval = 0
+        accumulated_stability_penalty_for_eval = 0
+        
+        # --- Inner loop: local HMN updates and NLL accumulation on validation data B_val ---
+        for data_batch in B_val_loader: # B_val_loader yields sequences/batches
+            model.reset_hidden_states() # Reset states for each new sequence
+            
+            for t in range(data_batch.sequence_length):
+                current_input_token_xt = data_batch.tokens[t]
+                target_token_xt_plus_1 = data_batch.tokens[t+1] # For LM NLL calculation
+                
+                # 1. Embed token
+                current_embedding_ht = model.embed(current_input_token_xt)
+                
+                # 2. Derive input features I_t from h_t (and potentially model state)
+                #    This I_t will be used by the HMN cells to compute their dynamic parameters.
+                #    model.get_input_features might involve an MLP or pass-through.
+                I_t_for_step = model.get_input_features(current_embedding_ht, model.current_hidden_state()) 
+                                
+                # 3. HMN Forward Pass & Local Plasticity
+                #    Internally, hmn_layer.forward will:
+                #    a. Use I_t_for_step and meta-param-defined functions to calculate 
+                #       b_input_val, beta_a_val, eta_loc_val, eta_glob_val, beta_p_val, theta_p_val.
+                #    b. Perform activation (Eq 1) using b_input_val.
+                #    c. Compute eligibility traces e_ij (Eq 2).
+                #    d. Compute local attention alpha_ij (Eq 3) using beta_a_val.
+                #    e. Compute global modulation G' (Eq 4).
+                #    f. Compute pre-update delta_w_dagger (Eq 5) using eta_loc_val, eta_glob_val.
+                #    g. Probabilistically update weights w_ij (Eq 6) using beta_p_val, theta_p_val.
+                #    h. Return output logits for the current step.
+                #    This function also accumulates the norm of delta_w for the stability penalty.
+                output_logits_for_step, step_delta_w_norm_sq = model.hmn_process_step_and_learn(
+                                                                    current_embedding_ht, 
+                                                                    I_t_for_step, 
+                                                                    target_token_xt_plus_1 # Optional: for online neuromodulation
+                                                                )
+                
+                # 4. Calculate NLL for the current step
+                step_nll = calculate_cross_entropy_loss(output_logits_for_step, target_token_xt_plus_1)
+                accumulated_nll_for_eval += step_nll
+                num_tokens_processed_for_eval += 1
+                accumulated_stability_penalty_for_eval += step_delta_w_norm_sq
+        
+        # Calculate average NLL and total loss for this perturbed meta-parameter set
+        average_nll = accumulated_nll_for_eval / num_tokens_processed_for_eval
+        
+        # Stability penalty (lambda_stab * E[|delta_w|^2])
+        stability_penalty_val = LAMBDA_STAB * (accumulated_stability_penalty_for_eval / num_tokens_processed_for_eval) # Average per token
+        
+        # Regularization penalty on the parameters of the input-modulation functions
+        # model.calculate_modulator_func_complexity_penalty() would compute sum of squares of
+        # weights within the small MLPs defining b_input(I_t), beta_a(I_t), etc.
+        modulator_func_penalty_val = LAMBDA_MOD * model.calculate_modulator_func_complexity_penalty(current_meta_params_for_eval)
+        
+        meta_losses[perturbation_sign] = average_nll + stability_penalty_val + modulator_func_penalty_val
+
+    # --- SPSA gradient estimate for meta_params ---
+    # Gradient estimate g_hat = (loss_plus - loss_minus) / (2 * SPSA_EPS * delta_perturbation_direction)
+    # Ensure element-wise division if delta_perturbation is a vector.
+    # Here, delta_perturbation already includes SPSA_EPS, so we use it directly.
+    spsa_gradient_estimate = (meta_losses[+1] - meta_losses[-1]) / (2 * delta_perturbation) 
+    
+    # --- Update meta_params ---
+    meta_params -= GLOBAL_META_LEARNING_RATE * spsa_gradient_estimate
+    
+    # Clamp meta_params to predefined bounds if necessary
+    meta_params = clamp_meta_params_to_bounds(meta_params, meta_param_bounds)
+
+    print(f"Outer step {outer_step}: MetaLoss(+)={meta_losses[+1]:.4f}, MetaLoss(-)={meta_losses[-1]:.4f}")
+
+# Helper functions (conceptual)
+# def sample_bernoulli_sign_vector(shape): ... # Returns vector of +/-1
+# def calculate_cross_entropy_loss(logits, targets): ...
+# def clamp_meta_params_to_bounds(params, bounds): ...
+```
+
+**A.2 Example Functional Forms (Conceptual)**
+
+* **Activation Function $f(x)$:** $\\text{ReLU}(\\text{x}) = \\text{max}(0,x)$ or $\\text{Sigmoid}(x) = 1/(1+e^{-x})$.
+* **Eligibility Trace Update $\\psi(x\_i, z\_j, t')$:** A common form is $\\psi\_{\\text{trace}} \\leftarrow \\rho \\psi\_{\\text{trace}} + (1-\\rho) x\_i z\_j$, where $\\rho$ is a decay factor related to $\\tau$.
+* **Similarity Function $g(a,b)$ or $h(a,b)$:** Scaled dot product $\\frac{\\langle a,b \\rangle}{\\sqrt{d}}$ or cosine similarity $\\frac{\\langle a,b \\rangle}{|a||b|}$.
+* **Input Modulation Functions (e.g., $\\beta\_a(I\_t)$):**
+  * Simple MLP: $W\_2 \\cdot \\text{ReLU}(W\_1 \\cdot I\_t + b\_1) + b\_2$. Parameters $W\_1, b\_1, W\_2, b\_2$ are meta-learned.
+  * Parametric form: $c\_1 \\cdot \\text{sigmoid}(c\_2 \\cdot \\text{mean}(I\_t) + c\_3) + c\_4$. Parameters $c\_1, c\_2, c\_3, c\_4$ are meta-learned.
+* **Neuromodulator Aggregation $\\mathcal{M}$:** Often a weighted sum, $G(t) = \\sum\_k w\_k E\_k(t)$, where $w\_k$ could be fixed or part of the global attention mechanism.
+
+**A.3 SPSA Gradient Approximation Details (Meta-Learning)**
+The SPSA algorithm approximates the gradient of the meta-loss $L\_{\\text{meta}}(\\theta)$ with respect to the meta-parameters $\\theta$ (denoted `meta_params` in pseudocode) using only two evaluations of $L\_{\\text{meta}}$.
+
+1.  Generate a random perturbation vector $\\Delta\_k$ at each iteration $k$, where each component is typically drawn from a Bernoulli distribution (e.g., $\\pm 1$).
+2.  Evaluate the meta-loss at $\\theta\_k + c\_k \\Delta\_k$ and $\\theta\_k - c\_k \\Delta\_k$, where $c\_k$ is a small positive scalar (SPSA\_EPS in pseudocode, possibly decaying over iterations, e.g., $c\_k = c\_0 / k^\\gamma$).
+3.  The $i$-th component of the gradient estimate $\\hat{g}*i(\\theta\_k)$ is:
+    $\\hat{g}*i(\\theta\_k) = \\frac{L*{\\text{meta}}(\\theta\_k + c\_k \\Delta\_k) - L*{\\text{meta}}(\\theta\_k - c\_k \\Delta\_k)}{2 c\_k \\Delta\_{ki}}$
+4.  Update meta-parameters: $\\theta\_{k+1} = \\theta\_k - a\_k \\hat{g}(\\theta\_k)$, where $a\_k$ is the meta-learning rate (GLOBAL\_META\_LEARNING\_RATE, possibly decaying, e.g., $a\_k = a\_0 / (A+k)^\\alpha$).
+    Careful tuning of $a\_k$ and $c\_k$ schedules is important for stability and convergence.
+
+**A.4 Algorithm Pseudocode for HMN Weight Update (Conceptual single synapse, within `model.hmn_process_step_and_learn`)**
+
+```python
+# For a single synapse (i,j) at time t during inner loop:
+# Assume current_embedding_ht is h_t, and I_t_for_step is I_t.
+# x_i is the pre-synaptic activity, z_j_prev is previous post-synaptic activity.
+
+# 1. Compute dynamic parameters using I_t and meta-learned functions
+b_input_val = model.compute_b_input_for_neuron_j(I_t_for_step)
+beta_a_val = model.compute_beta_a_for_synapse_ij(I_t_for_step) # or per-neuron
+eta_loc_val = model.compute_eta_loc_for_synapse_ij(I_t_for_step)
+eta_glob_val = model.compute_eta_glob_for_synapse_ij(I_t_for_step)
+beta_p_val = model.compute_beta_p_for_synapse_ij(I_t_for_step)
+theta_p_val = model.compute_theta_p_for_synapse_ij(I_t_for_step)
+# s_k_vals if input-scaled neuromodulators are used
+
+# 2. Activation (Eq 1)
+# sum_weighted_inputs = sum(w_ik * x_k for k connected to j) # x_k are pre-synaptic activations
+# z_j_current = activation_function(sum_weighted_inputs + bias_j + b_input_val + noise())
+
+# 3. Eligibility Trace (Eq 2)
+# (Assuming x_i is current pre-synaptic input corresponding to w_ij, 
+#  and z_j_current is post-synaptic activation)
+# e_ij = update_eligibility_trace(e_ij_prev, x_i, z_j_current, model.trace_decay_rates)
+
+# 4. Local Attention (Eq 3)
+# h_i = get_embedding_for_presynaptic_input(x_i)
+# c_j = get_local_context_for_postsynaptic_neuron(z_j_current, z_j_history)
+# similarity_score_ij = similarity_function(h_i, c_j) 
+# alpha_ij = apply_softmax_with_gain(similarity_score_ij, all_scores_for_neuron_j, beta_a_val)
+# attention_weighted_e_ij = alpha_ij * e_ij
+
+# 5. Global Neuromodulation (Eq 4)
+# E_k_signals = model.get_neuromodulatory_signals(model_state, target_token_xt_plus_1) # e.g. reward, surprise
+# C_global = model.get_global_context_vector()
+# gamma_k_weights = softmax_with_gain_global(E_k_signals, C_global, model.beta_g_global)
+# G_prime = sum(gamma_k_weights[k] * (s_k_vals[k] if s_k_vals else 1) * E_k_signals[k] for k)
+
+# 6. Phase-Gated Pre-Update (Eq 5)
+# current_global_phase = model.get_global_oscillator_phase()
+# preferred_phase_ij = model.get_preferred_phase_for_synapse_ij()
+# phase_gate = max(0, cos(current_global_phase - preferred_phase_ij))
+# delta_w_star_ij = (eta_loc_val + eta_glob_val * G_prime) * attention_weighted_e_ij 
+# delta_w_dagger_ij = delta_w_star_ij * phase_gate
+
+# 7. Probabilistic Write (Eq 6)
+# update_probability = sigmoid(beta_p_val * (abs(delta_w_dagger_ij) - theta_p_val))
+# if random_uniform() < update_probability:
+#     w_ij += delta_w_dagger_ij
+#     accumulated_delta_w_norm_sq += delta_w_dagger_ij**2
+
+# return z_j_current (or projected output), accumulated_delta_w_norm_sq
+```
 
 ⸻
 
-Figure Place‑Holders for Future Artwork
-	1.	Figure 2 (Detailed schematic): Generate an isometric cut‑away of a cortical column with overlaid arrows representing α‑ and γ‑attention pathways; colour‑coded neuromodulator clouds; caption emphasises dual attention.
-	2.	Figure 3 (Benchmark timeline): Timeline infographic showing P0–P4 phases mapped onto 2025 quarters with icons for dataset type.
-
-(Use any diffusion model to create high‑contrast diagrams; 2048 px PNG recommended for print.)
-
-⸻
-
-References
-
-(Add to the bibliography above as needed for new citations: e.g., Dao et al., 2023 for Mamba; Merkx & Frank, 2023 for continual‑LM benchmarks.)
-
-
-HMN – Hybrid Local–Global Modulated Neuron with Multi‑Modal Attention
-
-A Theoretical Framework
-
-⸻
-
-Table of Contents
-	1.	Abstract
-	2.	Introduction
- 2.1 Motivation and Problem Statement
- 2.2 Biological and Computational Inspirations
- 2.3 Scope: Biologically Inspired versus Biologically Plausible
- 2.4 Core Contributions and Paper Organization
-	3.	Background and Related Work
- 3.1 Local Synaptic Plasticity: Hebbian Rules, STDP, Probabilistic Dynamics
- 3.2 Global Neuromodulation: Reinforcement, Attention, Meta‑Learning
- 3.3 Attention Mechanisms in Neural and Deep Systems
- 3.4 Limits of Centralized Learning and Alternative Approaches
-	4.	Model Architecture and Methods: The Hybrid Modulated Neuron (HMN)
- 4.1 Theoretical Framework and Key Assumptions
- 4.2 Local Processing Unit: Probabilistic Synaptic Dynamics
-  4.2.1 Neuronal Activation with Stochasticity
-  4.2.2 Composite Eligibility Traces (Multi‑Timescale)
-  4.2.3 Probabilistic State Transitions & Oscillatory Gating
- 4.3 Global Neuromodulatory Integration & Dual Meta‑Learning
-  4.3.1 Aggregation of Multi‑Factor Neuromodulators
-  4.3.2 Dual Meta‑Learning of Local and Global Rates
-  4.3.3 Phase‑Locked Updates for Temporal Coherence
- 4.4 Multi‑Modal Attention Mechanisms
-  4.4.1 Local Attention on Eligibility Traces
-  4.4.2 Global Attention on Neuromodulatory Signals
- Figures
-	5.	Hypothesised Capabilities and Applications
-	6.	Discussion
- 6.1 Synergistic Advantages of Integrated Dynamics
- 6.2 Comparison with Back‑Propagation and Other Bio‑Inspired Models
- 6.3 Implications for Credit Assignment
- 6.4 Complexity, Hyper‑Parameter Sensitivity, and Scalability
- 6.5 Plausibility Map of HMN Components
-	7.	Conclusion and Future Work
- 7.1 Summary of Contributions and Impact
- 7.2 Empirical Road‑Map and Benchmark Suite
- 7.3 Theoretical Analysis and Hardware Directions
-	8.	Acknowledgements
-	9.	References
-	10.	Appendix
- 10.1 Example Functional Forms
- 10.2 Meta‑Learning Gradient Approximation Details
- 10.3 SPSA Pseudocode for η‑Updates
- 10.4 Algorithm Pseudocode for HMN Weight Update
-
-⸻
-
-1 Abstract
-
-Biological neural systems combine rapid local synaptic plasticity with slower, context‑rich neuromodulation, enabling lifelong adaptation in non‑stationary environments. The Hybrid Modulated Neuron (HMN) is a theoretical construct that unifies probabilistic local plasticity, multi‑factor neuromodulatory feedback, dual meta‑learning of learning‑rate schedules, dual attention across synaptic and modulatory signals, and oscillation‑gated updates. Concrete definitions for the input embedding hᵢ(t) and local context cⱼ(t) anchor the formulation, which employs a consistent weight‑update notation (Δw*, Δw†, Δw). A component‑wise plausibility map distinguishes experimentally supported mechanisms from computational innovations, and a staged benchmark suite outlines a path to empirical validation.
-
-Keywords: Synaptic Plasticity · Neuromodulation · Meta‑Learning · Attention · Oscillations · Probabilistic Updates · Continual Learning · Neuromorphic AI
-
-⸻
-
-2 Introduction
-
-2.1 Motivation and Problem Statement
-
-Centralised error back‑propagation delivers impressive performance yet departs sharply from the decentralised, biologically grounded learning strategies found in nervous systems. The HMN framework aims to integrate:
-	•	Fast local plasticity (Hebbian/​STDP) for immediacy.
-	•	Slow global modulation (reward, uncertainty, novelty) for long‑term guidance.
-	•	Meta‑learning to adapt learning rates online.
-	•	Attention and oscillatory timing for selective, temporally coherent updates.
-
-2.2 Biological and Computational Inspirations
-
-HMN draws upon (i) well‑documented Hebbian/​STDP dynamics, (ii) neuromodulatory gain control via dopamine, acetylcholine, and norepinephrine, (iii) meta‑plasticity observed in recent in‑vivo studies, (iv) dual‑stage attention in cortex and transformer models, and (v) theta/gamma phase‑locked plasticity.
-
-2.3 Scope: Biologically Inspired versus Biologically Plausible
-
-A mechanism is biologically plausible if both its existence and function have direct empirical support (e.g., dopamine‑gated STDP). Elements introduced chiefly for computational utility (e.g., logistic probabilistic gating) are biologically inspired. This distinction is summarised in Discussion §6.5.
-
-2.4 Core Contributions and Paper Organization
-
-Key contributions include:
-	1.	Unified HMN Rule integrating probabilistic STDP‑style eligibility traces, global neuromodulation, dual meta‑learning, dual attention, and oscillation‑gated updates.
-	2.	Multi‑Timescale Plasticity via composite eligibility traces and phase‑locking.
-	3.	Dual Meta‑Learning jointly tuning local (η_local) and global (η_global) learning rates.
-	4.	Dual Attention for context‑dependent modulation of both synaptic and neuromodulatory signals.
-	5.	Plausibility Map separating empirically grounded components from computational extensions.
-	6.	Benchmark Road‑Map guiding staged empirical evaluation.
-
-The remainder of the paper is structured as listed in the Table of Contents.
-
-⸻
-
-3 Background and Related Work
-
-3.1 Local Synaptic Plasticity
-
-Hebbian rules, STDP, and eligibility traces form the basis for rapid, credit‑assigning plasticity.
-
-3.2 Global Neuromodulation
-
-Neuromodulators modulate plasticity network‑wide based on reinforcement, novelty, and uncertainty cues.
-
-3.3 Attention Mechanisms
-
-Biological top‑down gating and transformer‑style attention inspire HMN’s dual attention paradigm.
-
-3.4 Limits of Centralised Learning
-
-Back‑propagation’s non‑local errors, weight‑transport constraints, and lack of temporal alignment motivate decentralised alternatives such as HMN.
-
-⸻
-
-4 Model Architecture and Methods: The Hybrid Modulated Neuron
-
-4.1 Theoretical Framework and Key Assumptions
-
-Neurons process inputs xᵢ(t − τᵢⱼ) into activations zⱼ(t) via stochastic nonlinearity f. They receive global evaluative signals Eₖ(t) and a global context C_global(t), while an oscillator supplies phase Φ(t).
-
-4.2 Local Processing Unit
-
-4.2.1 Neuronal Activation with Stochasticity
-
-\[
-z_j(t)=f\!\bigl(\textstyle\sum_i w_{ij}(t)\,x_i(t-\tau_{ij})+b_j(t)+\epsilon_j(t)\bigr),\tag{1}
-\]
-
-with Gaussian noise εⱼ(t).
-
-4.2.2 Composite Eligibility Traces
-
-\[
-e_{ij}(t)=\psi_{\text{fast}}+\psi_{\text{slow}},\tag{2}
-\]
-
-capturing fast (τ_fast) and slow (τ_slow) decays.
-
-4.2.3 Probabilistic State Transitions & Oscillatory Gating
-
-Preliminary update
-
-\[
-\Delta w^{*}{ij}(t)=\eta{\text{local}}\tilde{e}{ij}+\eta{\text{global}}G{\prime}(t)\tilde{e}_{ij},\tag{3}
-\]
-
-phase‑modulated
-
-\[
-\Delta w^{\dagger}{ij}(t)=\Delta w^{*}{ij}\max\!\bigl(0,\cos(\Phi(t)-\phi_{ij})\bigr),\tag{4}
-\]
-
-and applied probabilistically
-
-\[
-\Delta w_{ij}(t)=
-\begin{cases}
-\Delta w^{\dagger}_{ij}(t), & \text{with prob. }\sigma(\beta_p(|\Delta w^{\dagger}|-\theta_p)),\\
-0,&\text{otherwise.}
-\end{cases}\tag{5}
-\]
-
-4.3 Global Neuromodulatory Integration & Dual Meta‑Learning
-
-4.3.1 Aggregation of Multi‑Factor Neuromodulators
-
-\[
-G(t)=\mathcal{M}\!\bigl(w_{\text{reward}}E_{\text{reward}},\,w_{\text{uncert}}E_{\text{uncert}},\,w_{\text{novel}}E_{\text{novel}},\ldots\bigr).\tag{6}
-\]
-
-4.3.2 Dual Meta‑Learning
-
-\[
-\eta_{\text{local}}\!\leftarrow\!\eta_{\text{local}}-\alpha_{\text{meta},1}\nabla_{\eta_{\text{local}}}L_{\text{meta}},\qquad
-\eta_{\text{global}}\!\leftarrow\!\eta_{\text{global}}-\alpha_{\text{meta},2}\nabla_{\eta_{\text{global}}}L_{\text{meta}}.\tag{7}
-\]
-
-Gradients are approximated via SPSA or REINFORCE (Appendix 10.2).
-
-4.3.3 Phase‑Locked Updates
-
-Oscillatory gating restricts plasticity to phases aligned with optimal encoding or consolidation windows.
-
-4.4 Multi‑Modal Attention Mechanisms
-
-4.4.1 Local Attention on Eligibility Traces
-
-\[
-\tilde{e}{ij}(t)=\alpha{ij}(t)\,e_{ij}(t),\quad
-\alpha_{ij}=\frac{\exp\!\bigl(\beta_a\,g(h_i,c_j)\bigr)}{\sum_l\exp\!\bigl(\beta_ag(h_l,c_j)\bigr)}.\tag{8–9}
-\]
-	•	hᵢ(t): learned embedding of xᵢ(t − τᵢⱼ)
-	•	cⱼ(t): exponentially decayed average of zⱼ(t)
-
-4.4.2 Global Attention on Neuromodulatory Signals
-
-\[
-G{\prime}(t)=\sum_k\gamma_k\,w_kE_k,\quad
-\gamma_k=\frac{\exp\!\bigl(\beta_gh(E_k,C_{\text{global}})\bigr)}{\sum_m\exp\!\bigl(\beta_gh(E_m,C_{\text{global}})\bigr)}.\tag{10–11}
-\]
-
-⸻
-
-5 Hypothesised Capabilities and Applications
-	•	Adaptive RL Agents: Rapid local terms support exploration; global modulation encodes reward and uncertainty for exploitation.
-	•	Lifelong Learning: Dual meta‑learning balances plasticity and stability, mitigating catastrophic forgetting.
-	•	Decision‑Making Models: Layered credit‑assignment mechanism offers a biologically grounded substrate for complex reasoning tasks.
-
-⸻
-
-6 Discussion
-
-6.1 Synergistic Advantages
-
-The combination of local attention, phase‑locking, dual meta‑learning, and probabilistic updates yields a system capable of rapid adaptation, robust long‑term retention, and noise resilience.
-
-6.2 Comparison with Other Models
-
-Relative to back‑propagation and earlier three‑factor rules, HMN adds probabilistic gating, dual meta‑adaptation, dual attention, and explicit oscillatory timing.
-
-6.3 Implications for Credit Assignment
-
-HMN distributes credit via synaptic tagging, attention‑based refinement, temporal alignment, outcome‑based modulation, and adaptive regulation.
-
-6.4 Complexity and Scalability
-
-Several hyper‑parameters (τ, β_a, β_g, β_p, Ω, φ) require tuning; automatic relevance determination and meta‑learning can mitigate burden.
-
-6.5 Plausibility Map
-
-Component	Empirical Support	Classification	Key Citations
-STDP + eligibility traces	Strong	Plausible	Markram 1997; Bi & Poo 1998
-Dopamine‑gated plasticity	Strong	Plausible	Schultz 1998; Izhikevich 2007
-Theta/gamma phase‑locked updates	Growing	Plausible	Buzsáki & Draguhn 2004
-Dual attention on synapse & neuromodulation	Indirect	Inspired	Moran & Desimone 1985
-Logistic probabilistic gate	None	Inspired	–
-Meta‑learned η‑rates	Emerging	Plausible‑in‑Principle	Bellec et al. 2023
-
-
-
-⸻
-
-7 Conclusion and Future Work
-
-7.1 Summary
-
-HMN provides a unified theoretical rule integrating local probabilistic plasticity, multi‑factor neuromodulation, dual meta‑learning, dual attention, and oscillatory gating—offering a biologically grounded alternative to centralised back‑propagation.
-
-7.2 Empirical Road‑Map
-
-Phase	Goal	Task	Metrics	Insight
-P0	Sanity check	Contextual bandit	reward ↑	η‑meta viability
-P1	Continual learning	MNIST‑C / CIFAR‑C	accuracy, forgetting	stability
-P2	Temporal credit	DM‑Control, Meta‑World	sample‑efficiency	phase benefit
-P3	Ablation	toggle subsystems	Δ‑score	component synergy
-
-7.3 Theoretical and Hardware Directions
-
-Future work will develop formal convergence proofs for simplified HMN variants and prototype implementations on memristive/​Loihi‑style neuromorphic hardware.
-
-⸻
-
-8 Acknowledgements
-
-We thank colleagues in computational neuroscience and machine learning for insightful discussions. Support from [Funding Agency] is gratefully acknowledged.
-
-⸻
-
-9 References
-
-Bahdanau, D. et al. (2014). Neural machine translation by jointly learning to align and translate. arXiv:1409.0473.
-Bellec, G. et al. (2023). Meta‑learning biologically plausible plasticity rules with random feedback. Nat. Commun. 14, 37562.
-Bengio, Y. (2014). Towards biologically plausible deep learning. arXiv:1407.1148.
-Bengio, Y. et al. (2015). Towards biologically plausible deep learning. arXiv:1502.04156.
-Bi, G.Q. & Poo, M.M. (1998). Synaptic modifications in cultured hippocampal neurons. J. Neurosci., 18, 10464–10472.
-Buzsáki, G. & Draguhn, A. (2004). Neuronal oscillations in cortical networks. Science, 304, 1926–1929.
-Chklovskii, D.B. et al. (2004). Cortical rewiring and information storage. Nature, 431, 782–788.
-Doya, K. (2002). Metalearning and neuromodulation. Neural Netw., 15, 495–506.
-Finn, C. et al. (2017). Model‑agnostic meta‑learning for fast adaptation. ICML, 1126‑1135.
-Hebb, D.O. (1949). The Organization of Behavior. Wiley.
-Izhikevich, E.M. (2007). Solving the distal reward problem through linkage of STDP and dopamine signaling. Cereb. Cortex, 17, 2443–2452.
-Lillicrap, T.P. et al. (2016). Random feedback weights support error back‑propagation. Nat. Commun., 7, 13276.
-Markram, H. et al. (1997). Regulation of synaptic efficacy by coincidence of postsynaptic APs and EPSPs. Science, 275, 213–215.
-Moran, J. & Desimone, R. (1985). Selective attention gates visual processing. Science, 229, 782–784.
-Poo, M. et al. (2016). What is memory? Biol. Psychiatry, 80, 344–352.
-Qiao, N. et al. (2024). On‑chip meta‑plasticity for continual learning in neuromorphic hardware. IEEE TNNLS, 35, —.
-Rumelhart, D.E. et al. (1986). Learning representations by back‑propagating errors. Nature, 323, 533–536.
-Schmidhuber, J. (1992). Learning to control fast‑weight memories. NIPS, 1–9.
-Schultz, W. (1998). Predictive reward signal of dopamine neurons. J. Neurophysiol., 80, 1–27.
-Scellier, B. & Bengio, Y. (2017). Equilibrium propagation. Front. Comp. Neurosci., 11, 24.
-Sutton, R.S. & Barto, A.G. (1998). Reinforcement Learning: An Introduction. MIT Press.
-Vaswani, A. et al. (2017). Attention is all you need. NeurIPS, 5998–6008.
-Yu, A.J. & Dayan, P. (2005). Uncertainty, neuromodulation, and attention. Neuron, 46, 681–692.
-
-⸻
-
-10 Appendix
-
-10.1 Example Functional Forms
-
-Activation f(x)=max(0,x) or σ(x)=1/(1+e^{-x}).
-Eligibility ψ_fast=x_i z_j e^{-(t-t_{\text{last}})/τ_{\text{fast}}}; ψ_slow with τ_{\text{slow}}.
-Aggregation \mathcal{M}=\sum_k w_kE_k.
-Similarity g(a,b)=⟨a,b⟩/‖a‖‖b‖.
-
-10.2 Meta‑Learning Gradient Approximation
-
-Online estimation with two‑point SPSA or REINFORCE is recommended; ε = 0.05 · η with decay ε_t=ε₀/√t ensures stability.
-
-10.3 SPSA Pseudocode for η‑Updates
-
-Δ = ε · Bernoulli(±1)
-L+ = meta_loss(η + Δ)
-L- = meta_loss(η - Δ)
-ĝ  = (L+ - L-) / (2Δ)
-η   = clip(η - α_meta · ĝ, η_min, η_max)
-
-10.4 Algorithm Pseudocode for HMN Weight Update
-
-for (i,j) in synapses:
-    x_delayed = input(i, t - τ_ij)
-    z_j = f(Σ_i w_ij x_delayed + b_j + noise())
-    psi_f = ψ_fast(x_delayed, z_j, t)
-    psi_s = ψ_slow(x_delayed, z_j, t)
-    e_ij  = psi_f + psi_s
-    s_ij  = similarity(h_i, c_j)
-    α_ij  = softmax(β_a * s_ij)
-    ẽ     = α_ij * e_ij
-    G      = M(w_rE_r, w_uE_u, ...)
-    γ_k    = softmax(β_g * h(E_k, C_global))
-    G'     = Σ_k γ_k w_k E_k
-    Δw*    = η_local ẽ + η_global G' ẽ
-    φ      = global_phase(t)
-    Δw†    = Δw* · max(0, cos(φ - φ_ij))
-    p_upd  = sigmoid(β_p(|Δw†| - θ_p))
-    if rand() < p_upd:
-        w_ij += Δw†
-update η_local, η_global via SPSA (see 10.3)
-
-
-
-⸻
-
-Figures
-Figure 1 (Conceptual Overview): Mermaid diagram showing data‑flow from inputs to local plasticity, attention, phase gate, and global modulation.
-Figure 2 (Detailed Schematic): Layered block diagram with signal arrows for x, e, G, Δw*, Δw†, Δw.
-
-Paper 1
+######################################################################
 
 Trans–HMN: A Hybrid Transformer / Hybrid‑Modulated‑Neuron Language Model for Fast Generalisation and Continual Adaptation
 
@@ -616,13 +653,7 @@ References
 
 Bellec G. 2023 · Houlsby N. 2019 · Miconi T. 2018 · Sun X. 2024 · von Oswald J. 2024
 
-⸻
-
-
-
-⸻
-
-Paper 2
+######################################################################
 
 MoE‑HMN: A Sparse Mixture of Hybrid‑Modulated Neuron Experts for Efficient Continual NLP
 
@@ -646,8 +677,6 @@ Topic	Representative	Limitation
 Switch Transformer	Fedus 2021	Static experts
 Routing stability	Roller 2022	No adaptive weights
 Plastic MoE (small‑scale)	Rueckauer 2024	Non‑NLP
-
-
 
 ⸻
 
@@ -691,13 +720,8 @@ References
 
 Fedus W. 2021 · Roller S. 2022 · Bellec G. 2023
 
-⸻
 
-
-
-⸻
-
-Paper 3
+###########################################################################
 
 Mamba‑HMN: Fusing Selective State‑Space Models with Neuromodulated Plasticity
 
@@ -774,8 +798,3 @@ Appendix A (Sketch)
 Derive a Frobenius‑norm bound on accumulated HMN weight change to ensure SSM stability.
 
 ⸻
-
-How to Proceed
-	1.	Reproduce architectural skeletons in code (e.g., using HMN_core.py).
-	2.	Implement benchmark pipelines exactly as outlined.
-	3.	Document empirical findings in a future companion paper.
