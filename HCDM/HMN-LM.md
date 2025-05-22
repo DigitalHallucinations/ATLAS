@@ -32,8 +32,7 @@ We introduce HMN‑LM, a sequence model that replaces self‑attention layers wi
 10. [Conclusion](#10-conclusion)
 11. [Acknowledgements](#11-acknowledgements)
 12. [References](#12-references)
-13. [Possibly Bogus or Incomplete References (To Be Researched)](#possibly-bogus-or-incomplete-references-to-be-researched)
-14. [Appendix A: Algorithmic Details](#appendix-a-algorithmic-details)
+13. [Appendix A: Algorithmic Details](#appendix-a-algorithmic-details)
     * [A.1 Training Loop (Simplified Python‑style Pseudocode)](#a1-training-loop-simplified-pythonstyle-pseudocode)
     * [A.2 Example Functional Forms (Conceptual)](#a2-example-functional-forms-conceptual)
     * [A.3 SPSA Gradient Approximation Details (Meta-Learning)](#a3-spsa-gradient-approximation-details-meta-learning)
@@ -705,12 +704,10 @@ Goal. Provide a rigorously defined framework; defer experimentation to later wo
 
 2 Related Work
 
-Area	Key Works	Relevance
-Continual Transformers	Sun 2024; von Oswald 2024	Require gradient updates
-Neuromodulated Plasticity	Miconi 2018; Bellec 2023	Demonstrate local rules
-Adapter‑Tuning	Houlsby 2019	Gradient‑based only
-
-
+Area Key Works Relevance
+Continual Transformers Sun 2024; von Oswald 2024 Require gradient updates
+Neuromodulated Plasticity Miconi 2018; Bellec 2023 Demonstrate local rules
+Adapter‑Tuning Houlsby 2019 Gradient‑based only
 
 ⸻
 
@@ -729,9 +726,9 @@ HMN Rule (condensed).
 \max\!\bigl[0,\cos(\Phi-\phi_{ij})\bigr]
 
 where
-	•	e_{ij}=\psi_{\text{fast}}+\psi_{\text{slow}}
-	•	\alpha_{ij}=\mathrm{softmax}(\beta_a\langle h_i,c_j\rangle)
-	•	G{\prime}=\gamma w_rE_{\text{reward}}+(1-\gamma)w_uE_{\text{uncert}}.
+ • e_{ij}=\psi_{\text{fast}}+\psi_{\text{slow}}
+ • \alpha_{ij}=\mathrm{softmax}(\beta_a\langle h_i,c_j\rangle)
+ • G{\prime}=\gamma w_rE_{\text{reward}}+(1-\gamma)w_uE_{\text{uncert}}.
 
 Meta‑parameters \eta_\ell,\eta_g,\beta_a,\beta_p are optimised with SPSA.
 
@@ -739,20 +736,20 @@ Meta‑parameters \eta_\ell,\eta_g,\beta_a,\beta_p are optimised with SPSA.
 
 4 Proposed Evaluation Plan (Future Work)
 
-Phase	Dataset	Metric	Hypothesis
-P0	WikiText‑2	PPL ↓	HMN adapters do not harm baseline perplexity
-P1	Persona‑Chat (style‑shift)	BLEU ↑	HMN enables few‑shot personalisation
-P2	News → Code continual	Forget ↓	Plasticity mitigates forgetting
-P3	Energy profile	J / token	Sparsity keeps overhead < 10 %
+Phase Dataset Metric Hypothesis
+P0 WikiText‑2 PPL ↓ HMN adapters do not harm baseline perplexity
+P1 Persona‑Chat (style‑shift) BLEU ↑ HMN enables few‑shot personalisation
+P2 News → Code continual Forget ↓ Plasticity mitigates forgetting
+P3 Energy profile J / token Sparsity keeps overhead < 10 %
 
 All numbers are placeholders; no experiments have yet been run.
 
 ⸻
 
 5 Discussion (Theoretical)
-	•	Division of labour – front‑end for generic syntax, back‑end for context‑dependent patterns.
-	•	Neuromodulator proxies – reward = -\!\log p_\theta; uncertainty = entropy; novelty = topic‑shift score.
-	•	Hardware prospects – sparse updates map naturally to memristive arrays.
+ • Division of labour – front‑end for generic syntax, back‑end for context‑dependent patterns.
+ • Neuromodulator proxies – reward = -\!\log p_\theta; uncertainty = entropy; novelty = topic‑shift score.
+ • Hardware prospects – sparse updates map naturally to memristive arrays.
 
 ⸻
 
@@ -786,10 +783,10 @@ Replacing dense experts with HMN experts could merge sparsity and plasticity—a
 
 2 Related Work
 
-Topic	Representative	Limitation
-Switch Transformer	Fedus 2021	Static experts
-Routing stability	Roller 2022	No adaptive weights
-Plastic MoE (small‑scale)	Rueckauer 2024	Non‑NLP
+Topic Representative Limitation
+Switch Transformer Fedus 2021 Static experts
+Routing stability Roller 2022 No adaptive weights
+Plastic MoE (small‑scale) Rueckauer 2024 Non‑NLP
 
 ⸻
 
@@ -802,24 +799,25 @@ graph TD
     E1 --> Agg[Aggregate]
     E2 --> Agg
 
-	•	Router loss: load‑balance + plastic‑capacity regulariser
+ • Router loss: load‑balance + plastic‑capacity regulariser
 \mathcal{L}=\mathcal{L}{\text{task}}+\lambda{\text{lb}}\mathcal{L}{\text{LB}}+\lambda{\text{pc}}\mathcal{L}_{\text{PC}}.
 
 ⸻
 
 4 Proposed Evaluation Plan (Future Work)
-	1.	Multilingual (FLORES‑200) – compare BLEU vs. Switch‑T.
-	2.	Noisy social media (MTNT) – measure robustness to spelling drift.
-	3.	Adaptation Latency – tokens needed for new language to hit 90 % of steady‑state accuracy.
-	4.	Routing FLOPs – theoretical vs. simulated count.
+
+ 1. Multilingual (FLORES‑200) – compare BLEU vs. Switch‑T.
+ 2. Noisy social media (MTNT) – measure robustness to spelling drift.
+ 3. Adaptation Latency – tokens needed for new language to hit 90 % of steady‑state accuracy.
+ 4. Routing FLOPs – theoretical vs. simulated count.
 
 No results exist yet; these define the benchmark roadmap.
 
 ⸻
 
 5 Discussion
-	•	Expected benefits – adaptive experts self‑organise by language family.
-	•	Open issues – router‑plasticity interactions might destabilise load‑balancing.
+ • Expected benefits – adaptive experts self‑organise by language family.
+ • Open issues – router‑plasticity interactions might destabilise load‑balancing.
 
 ⸻
 
@@ -832,7 +830,6 @@ MoE‑HMN is a hypothesis for sparse, plastic mega‑models; empirical testing i
 References
 
 Fedus W. 2021 · Roller S. 2022 · Bellec G. 2023
-
 
 ###########################################################################
 
@@ -855,12 +852,10 @@ Our premise: hierarchical memory—SSM for slowly evolving context, HMN for rapi
 
 2 Related Work
 
-Area	Reference	Gap
-Mamba SSM	Dao 2023	Static parameters
-SSM/Transformer hybrids	Czempin 2024	Still gradient‑only
-Three‑factor rules	Miconi 2018	No global vector
-
-
+Area Reference Gap
+Mamba SSM Dao 2023 Static parameters
+SSM/Transformer hybrids Czempin 2024 Still gradient‑only
+Three‑factor rules Miconi 2018 No global vector
 
 ⸻
 
@@ -878,19 +873,17 @@ Global summary G_t acts as a vector‑valued neuromodulator.
 
 4 Proposed Evaluation Plan (Future Work)
 
-Phase	Dataset	Metric	Purpose
-P0	PG‑19	Perplexity	Baseline compatibility
-P1	Books → News continual	Forget ↓	Catastrophic‑forgetting stress‑test
-P2	Long‑context QA	Accuracy ↑	Global‑context utility
-P3	Energy simulation	J/token	Overhead of plastic writes
-
-
+Phase Dataset Metric Purpose
+P0 PG‑19 Perplexity Baseline compatibility
+P1 Books → News continual Forget ↓ Catastrophic‑forgetting stress‑test
+P2 Long‑context QA Accuracy ↑ Global‑context utility
+P3 Energy simulation J/token Overhead of plastic writes
 
 ⸻
 
 5 Discussion (Hypotheses)
-	•	Coupling benefit – G_t modulates HMN plasticity intensity relative to discourse coherence.
-	•	Stability conjecture – bounded‑energy lemma (Appendix A) should hold under reasonable \eta ranges.
+ • Coupling benefit – G_t modulates HMN plasticity intensity relative to discourse coherence.
+ • Stability conjecture – bounded‑energy lemma (Appendix A) should hold under reasonable \eta ranges.
 
 ⸻
 
