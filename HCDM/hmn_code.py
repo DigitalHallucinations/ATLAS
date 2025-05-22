@@ -1,5 +1,5 @@
 # HMN System - Reference Implementation
-
+"""
 This directory contains a Python implementation of the Hybrid Modulated Neuron (HMN) system based on the theoretical framework paper provided. It aims to capture the core concepts including:
 
 * Local probabilistic plasticity (Hebbian-style traces).
@@ -60,6 +60,8 @@ This code provides a structural implementation of the HMN framework as described
  * **Network Architecture:** Integrate the `HMNLayer` into a larger network (e.g., stacking layers, connecting to other components) if needed. Define signal propagation between layers.
  * **Hyperparameter Tuning:** Adjust the parameters in `config.py` (learning rates, decay constants, attention betas, SPSA settings, etc.) for optimal performance on your task.
  * **Analysis:** Add logging and analysis to track weights, activations, traces, learning rates, and task performance.
+
+"""
 
 # hmn_project/example_usage.py
 import numpy as np
@@ -695,8 +697,6 @@ def aggregate_neuromodulators(modulators, weights):
             print(f"Warning: Neuromodulator '{key}' found but no corresponding weight provided in config.")
     return G
 
-# hmn_system/__init__.py
-# This file makes the hmn_system directory a Python package.
 
 
 
