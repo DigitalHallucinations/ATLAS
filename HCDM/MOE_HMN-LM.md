@@ -1,5 +1,10 @@
 MoE‑HMN: A Sparse Mixture of Hybrid‑Modulated Neuron Experts for Efficient Continual NLP
 
+**Author:**  
+Jeremy Shows  
+Digital Hallucinations  
+<jeremyshws@digitalhallucinations.net>
+
 Abstract
 
 We describe MoE‑HMN, a sparse Mixture‑of‑Experts language model in which each expert is a plastic HMN micro‑network.

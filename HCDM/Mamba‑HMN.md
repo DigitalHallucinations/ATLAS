@@ -1,5 +1,10 @@
 Mamba‑HMN: Fusing Selective State‑Space Models with Neuromodulated Plasticity
 
+**Author:**  
+Jeremy Shows  
+Digital Hallucinations  
+<jeremyshws@digitalhallucinations.net>
+
 Abstract
 
 We propose Mamba‑HMN, combining linear‑time Selective State‑Space Models (SSM) with Hybrid‑Modulated Neuron layers that provide adaptive short‑term memory.

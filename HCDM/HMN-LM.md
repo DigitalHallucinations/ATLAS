@@ -1,5 +1,10 @@
 # HMN‑LM: A Biologically‑Inspired Language Model with Input-Shaped Dynamics, Local Plasticity, Dual Meta‑Learning, and Multi‑Modal Attention
 
+**Author:**  
+Jeremy Shows  
+Digital Hallucinations  
+<jeremyshws@digitalhallucinations.net>
+
 **Abstract**
 We introduce HMN‑LM, a sequence model that replaces self‑attention layers with Hybrid Local–Global Modulated Neuron (HMN) cells. Each cell combines (i) probabilistic STDP‑style local plasticity, (ii) attention‑weighted eligibility traces, (iii) multi‑factor neuromodulatory feedback, (iv) dual meta‑learning of local and global learning‑rate schedules, (v) oscillatory phase‑gated weight application, and (vi) mechanisms for the current input to directly shape aspects of neuronal activation, attention, and plasticity parameters. Unlike Transformers that back‑propagate through static parameters, HMN‑LM adapts its weights online during inference, enabling rapid domain adaptation and continual learning—now enhanced by input-sensitive adjustments for immediate contextual processing—while maintaining competitive perplexity on large corpora. We specify the architecture, training regimen, and a staged benchmark suite, and we provide diagrams and image‑placeholders for future figure generation.
 

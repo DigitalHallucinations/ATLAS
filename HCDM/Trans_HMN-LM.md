@@ -1,5 +1,10 @@
 Trans–HMN: A Hybrid Transformer / Hybrid‑Modulated‑Neuron Language Model for Fast Generalisation and Continual Adaptation
 
+**Author:**  
+Jeremy Shows  
+Digital Hallucinations  
+<jeremyshws@digitalhallucinations.net>
+
 Abstract
 
 Transformers excel at zero‑shot generalisation yet adapt slowly to new domains and suffer catastrophic forgetting.

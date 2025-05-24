@@ -1,5 +1,10 @@
 # Sparse Hierarchical Latent Attention (SHLA): A Novel Framework for Efficient and Scalable Attention in Deep Learning Models
 
+**Author:**  
+Jeremy Shows  
+Digital Hallucinations  
+<jeremyshws@digitalhallucinations.net>
+
 **Abstract**
 Modern deep learning models, particularly Transformers, rely heavily on attention mechanisms. However, the standard self-attention mechanism exhibits quadratic complexity with respect to sequence length, posing significant computational and memory challenges for long-sequence processing and multi-modal integration. This paper introduces Sparse Hierarchical Latent Attention (SHLA), a novel attention framework designed to mitigate these limitations. SHLA constructs a hierarchical structure of latent representations by employing adaptive sparsification and learned hierarchical compression functions to reduce sequence length. Crucially, it integrates Progressive Dimensional Vector Compression-Decompression (PDVCD) to dynamically modulate the feature dimensionality of these latent representations based on information-theoretic measures (e.g., vector entropy), allowing for selective expansion only when necessary. This paper details the formal architecture of SHLA, the mathematical underpinnings of its components—including sparsification, hierarchical sequence compression, and PDVCD-driven dynamic feature dimension expansion—and its mechanisms for efficient latent routing and memory management. We also delineate a comprehensive experimental protocol for rigorous empirical validation. SHLA aims to provide a significant advancement in attention efficiency, scalability, and interpretability for complex AI systems.
 

@@ -1,8 +1,9 @@
-Okay, I will integrate the detailed figure descriptions and image generation guidance into your paper, placing them in the most relevant sections. I will also update the Table of Contents accordingly.
-
-Here is the updated paper:
-
 # HMN – Hybrid Local–Global Modulated Neuron with Multi-Modal Attention
+
+**Author:**  
+Jeremy Shows  
+Digital Hallucinations  
+<jeremyshws@digitalhallucinations.net>
 
 ## A Theoretical Framework
 
@@ -10,70 +11,70 @@ Here is the updated paper:
 
 ## Table of Contents
 
-  * [Abstract](https://www.google.com/search?q=abstract)
-  * [1. Introduction](https://www.google.com/search?q=introduction)
-      * [2.1 Motivation and Problem Statement](https://www.google.com/search?q=motivation-and-problem-statement)
-      * [2.2 Biological and Computational Inspirations](https://www.google.com/search?q=biological-and-computational-inspirations)
-      * [2.3 Scope: Biologically Inspired versus Biologically Plausible](https://www.google.com/search?q=scope-biologically-inspired-versus-biologically-plausible)
-      * [2.4 Core Contributions and Paper Organization](https://www.google.com/search?q=core-contributions-and-paper-organization)
-  * [3. Background and Related Work](https://www.google.com/search?q=background-and-related-work)
-      * [3.1 Local Synaptic Plasticity: Hebbian Rules, STDP, Probabilistic Dynamics](https://www.google.com/search?q=local-synaptic-plasticity-hebbian-rules-stdp-probabilistic-dynamics)
-      * [3.2 Global Neuromodulation: Reinforcement, Attention, Meta-Learning](https://www.google.com/search?q=global-neuromodulation-reinforcement-attention-meta-learning)
-      * [3.3 Attention Mechanisms in Neural and Deep Systems](https://www.google.com/search?q=attention-mechanisms-in-neural-and-deep-systems)
-      * [3.4 Limits of Centralized Learning and Alternative Approaches](https://www.google.com/search?q=limits-of-centralized-learning-and-alternative-approaches)
-  * [4. Model Architecture and Methods: The Hybrid Modulated Neuron (HMN)](https://www.google.com/search?q=model-architecture-and-methods-the-hybrid-modulated-neuron-hmn)
-      * [4.1 Theoretical Framework and Key Assumptions](https://www.google.com/search?q=theoretical-framework-and-key-assumptions)
-      * [4.2 Local Processing Unit: Probabilistic Synaptic Dynamics](https://www.google.com/search?q=local-processing-unit-probabilistic-synaptic-dynamics)
-          * [4.2.1 Neuronal Activation with Stochasticity](https://www.google.com/search?q=neuronal-activation-with-stochasticity)
-          * [4.2.2 Composite Eligibility Traces (Multi-Timescale)](https://www.google.com/search?q=composite-eligibility-traces-multi-timescale)
-          * [4.2.3 Preliminary Weight Update](https://www.google.com/search?q=preliminary-weight-update)
-          * [4.2.4 Phase-Locked Gating](https://www.google.com/search?q=phase-locked-gating)
-          * [4.2.5 Probabilistic Application of Updates](https://www.google.com/search?q=probabilistic-application-of-updates)
-      * [4.3 Global Neuromodulatory Integration & Dual Meta-Learning](https://www.google.com/search?q=global-neuromodulatory-integration--dual-meta-learning)
-          * [4.3.1 Aggregation and Attention on Neuromodulators](https://www.google.com/search?q=aggregation-and-attention-on-neuromodulators)
-          * [4.3.2 Dual Meta-Learning of Learning Rates](https://www.google.com/search?q=dual-meta-learning-of-learning-rates)
-      * [4.4 Multi-Modal Attention Mechanisms](https://www.google.com/search?q=multi-modal-attention-mechanisms)
-          * [4.4.1 Local Attention on Eligibility Traces](https://www.google.com/search?q=local-attention-on-eligibility-traces)
-      * [4.5 Model and Component Illustrations](https://www.google.com/search?q=%23model-and-component-illustrations)
-          * [Figure 1: Conceptual Overview of HMN](https://www.google.com/search?q=figure-1-conceptual-overview-of-hmn)
-          * [Figure 2: Detailed Schematic of HMN Operations](https://www.google.com/search?q=figure-2-detailed-schematic-of-hmn-operations)
-          * [Figure 3: Multi-Timescale Eligibility Traces](https://www.google.com/search?q=figure-3-multi-timescale-eligibility-traces)
-          * [Figure 4: Phase-Locked Gating Mechanism](https://www.google.com/search?q=figure-4-phase-locked-gating-mechanism)
-          * [Figure 5: Probabilistic Application of Updates](https://www.google.com/search?q=figure-5-probabilistic-application-of-updates)
-          * [Figure 6: Dual Attention Mechanisms in HMN](https://www.google.com/search?q=figure-6-dual-attention-mechanisms-in-hmn)
-          * [Figure 7: Conceptual Dynamics of Dual Meta-Learning](https://www.google.com/search?q=figure-7-conceptual-dynamics-of-dual-meta-learning)
-  * [5. Hypothesized Capabilities and Applications](https://www.google.com/search?q=hypothesized-capabilities-and-applications)
-      * [Figure 9: HMN Components Enabling Hypothesized Capabilities (Conceptual)](https://www.google.com/search?q=figure-9-hmn-components-enabling-hypothesized-capabilities-conceptual)
-  * [6. Discussion](https://www.google.com/search?q=discussion)
-      * [6.1 Synergistic Advantages of Integrated Dynamics](https://www.google.com/search?q=synergistic-advantages-of-integrated-dynamics)
-      * [6.2 Comparison with Back-Propagation and Other Bio-Inspired Models](https://www.google.com/search?q=comparison-with-back-propagation-and-other-bio-inspired-models)
-          * [Figure 8: Comparison of HMN with Other Learning Paradigms](https://www.google.com/search?q=figure-8-comparison-of-hmn-with-other-learning-paradigms)
-      * [6.3 Implications for Credit Assignment](https://www.google.com/search?q=implications-for-credit-assignment)
-      * [6.4 Complexity, Hyper-Parameter Sensitivity, and Scalability](https://www.google.com/search?q=complexity-hyper-parameter-sensitivity-and-scalability)
-      * [6.5 Plausibility Map of HMN Components](https://www.google.com/search?q=plausibility-map-of-hmn-components)
-  * [7. Conclusion and Future Work](https://www.google.com/search?q=conclusion-and-future-work)
-      * [7.1 Summary of Contributions and Impact](https://www.google.com/search?q=summary-of-contributions-and-impact)
-      * [7.2 Empirical Road-Map and Benchmark Suite](https://www.google.com/search?q=empirical-road-map-and-benchmark-suite)
-          * [Figure 14: Visual Roadmap for HMN Empirical Validation](https://www.google.com/search?q=figure-14-visual-roadmap-for-hmn-empirical-validation)
-      * [7.3 Theoretical Analysis and Hardware Directions](https://www.google.com/search?q=theoretical-analysis-and-hardware-directions)
-      * [7.4 Future Work: Integrating Astrocyte-Mediated Neuromodulation](https://www.google.com/search?q=future-work-integrating-astrocyte-mediated-neuromodulation)
-          * [7.4.1 Modeling an Astrocyte-Intermediary Layer for Norepinephrine](https://www.google.com/search?q=modeling-an-astrocyte-intermediary-layer-for-norepinephrine)
-              * [Figure 10: Astrocyte-Mediated Neuromodulation Pathway in HMN](https://www.google.com/search?q=figure-10-astrocyte-mediated-neuromodulation-pathway-in-hmn)
-          * [7.4.2 Investigating Computational Consequences](https://www.google.com/search?q=investigating-computational-consequences)
-          * [7.4.3 Empirical Validation and Plausibility](https://www.google.com/search?q=empirical-validation-and-plausibility)
-      * [7.5 Future Work: Hybrid Architectures – Trans-HMN](https://www.google.com/search?q=future-work-hybrid-architectures--trans-hmn)
-          * [Figure 11: Trans-HMN Hybrid Architecture](https://www.google.com/search?q=figure-11-trans-hmn-hybrid-architecture)
-      * [7.6 Future Work: Sparse Activation Models – MoE-HMN](https://www.google.com/search?q=future-work-sparse-activation-models--moe-hmn)
-          * [Figure 12: MoE-HMN Sparse Activation Architecture](https://www.google.com/search?q=figure-12-moe-hmn-sparse-activation-architecture)
-      * [7.7 Future Work: Efficient Long-Context Models – Mamba-HMN](https://www.google.com/search?q=future-work-efficient-long-context-models--mamba-hmn)
-          * [Figure 13: Mamba-HMN Architecture for Long-Context Processing](https://www.google.com/search?q=figure-13-mamba-hmn-architecture-for-long-context-processing)
-  * [8. Acknowledgements](https://www.google.com/search?q=acknowledgements)
-  * [9. References](https://www.google.com/search?q=references)
-  * [10. Appendix](https://www.google.com/search?q=appendix)
-      * [10.1 Example Functional Forms](https://www.google.com/search?q=example-functional-forms)
-      * [10.2 Meta-Learning Gradient Approximation Details](https://www.google.com/search?q=meta-learning-gradient-approximation-details)
-      * [10.3 SPSA Pseudocode for $\\eta$-Updates](https://www.google.com/search?q=spsa-pseudocode-for-eta-updates)
-      * [10.4 Algorithm Pseudocode for HMN Weight Update](https://www.google.com/search?q=algorithm-pseudocode-for-hmn-weight-update)
+* [Abstract](https://www.google.com/search?q=abstract)
+* [1. Introduction](https://www.google.com/search?q=introduction)
+  * [2.1 Motivation and Problem Statement](https://www.google.com/search?q=motivation-and-problem-statement)
+  * [2.2 Biological and Computational Inspirations](https://www.google.com/search?q=biological-and-computational-inspirations)
+  * [2.3 Scope: Biologically Inspired versus Biologically Plausible](https://www.google.com/search?q=scope-biologically-inspired-versus-biologically-plausible)
+  * [2.4 Core Contributions and Paper Organization](https://www.google.com/search?q=core-contributions-and-paper-organization)
+* [3. Background and Related Work](https://www.google.com/search?q=background-and-related-work)
+  * [3.1 Local Synaptic Plasticity: Hebbian Rules, STDP, Probabilistic Dynamics](https://www.google.com/search?q=local-synaptic-plasticity-hebbian-rules-stdp-probabilistic-dynamics)
+  * [3.2 Global Neuromodulation: Reinforcement, Attention, Meta-Learning](https://www.google.com/search?q=global-neuromodulation-reinforcement-attention-meta-learning)
+  * [3.3 Attention Mechanisms in Neural and Deep Systems](https://www.google.com/search?q=attention-mechanisms-in-neural-and-deep-systems)
+  * [3.4 Limits of Centralized Learning and Alternative Approaches](https://www.google.com/search?q=limits-of-centralized-learning-and-alternative-approaches)
+* [4. Model Architecture and Methods: The Hybrid Modulated Neuron (HMN)](https://www.google.com/search?q=model-architecture-and-methods-the-hybrid-modulated-neuron-hmn)
+  * [4.1 Theoretical Framework and Key Assumptions](https://www.google.com/search?q=theoretical-framework-and-key-assumptions)
+  * [4.2 Local Processing Unit: Probabilistic Synaptic Dynamics](https://www.google.com/search?q=local-processing-unit-probabilistic-synaptic-dynamics)
+    * [4.2.1 Neuronal Activation with Stochasticity](https://www.google.com/search?q=neuronal-activation-with-stochasticity)
+    * [4.2.2 Composite Eligibility Traces (Multi-Timescale)](https://www.google.com/search?q=composite-eligibility-traces-multi-timescale)
+    * [4.2.3 Preliminary Weight Update](https://www.google.com/search?q=preliminary-weight-update)
+    * [4.2.4 Phase-Locked Gating](https://www.google.com/search?q=phase-locked-gating)
+    * [4.2.5 Probabilistic Application of Updates](https://www.google.com/search?q=probabilistic-application-of-updates)
+  * [4.3 Global Neuromodulatory Integration & Dual Meta-Learning](https://www.google.com/search?q=global-neuromodulatory-integration--dual-meta-learning)
+    * [4.3.1 Aggregation and Attention on Neuromodulators](https://www.google.com/search?q=aggregation-and-attention-on-neuromodulators)
+    * [4.3.2 Dual Meta-Learning of Learning Rates](https://www.google.com/search?q=dual-meta-learning-of-learning-rates)
+  * [4.4 Multi-Modal Attention Mechanisms](https://www.google.com/search?q=multi-modal-attention-mechanisms)
+    * [4.4.1 Local Attention on Eligibility Traces](https://www.google.com/search?q=local-attention-on-eligibility-traces)
+  * [4.5 Model and Component Illustrations](https://www.google.com/search?q=%23model-and-component-illustrations)
+    * [Figure 1: Conceptual Overview of HMN](https://www.google.com/search?q=figure-1-conceptual-overview-of-hmn)
+    * [Figure 2: Detailed Schematic of HMN Operations](https://www.google.com/search?q=figure-2-detailed-schematic-of-hmn-operations)
+    * [Figure 3: Multi-Timescale Eligibility Traces](https://www.google.com/search?q=figure-3-multi-timescale-eligibility-traces)
+    * [Figure 4: Phase-Locked Gating Mechanism](https://www.google.com/search?q=figure-4-phase-locked-gating-mechanism)
+    * [Figure 5: Probabilistic Application of Updates](https://www.google.com/search?q=figure-5-probabilistic-application-of-updates)
+    * [Figure 6: Dual Attention Mechanisms in HMN](https://www.google.com/search?q=figure-6-dual-attention-mechanisms-in-hmn)
+    * [Figure 7: Conceptual Dynamics of Dual Meta-Learning](https://www.google.com/search?q=figure-7-conceptual-dynamics-of-dual-meta-learning)
+* [5. Hypothesized Capabilities and Applications](https://www.google.com/search?q=hypothesized-capabilities-and-applications)
+  * [Figure 9: HMN Components Enabling Hypothesized Capabilities (Conceptual)](https://www.google.com/search?q=figure-9-hmn-components-enabling-hypothesized-capabilities-conceptual)
+* [6. Discussion](https://www.google.com/search?q=discussion)
+  * [6.1 Synergistic Advantages of Integrated Dynamics](https://www.google.com/search?q=synergistic-advantages-of-integrated-dynamics)
+  * [6.2 Comparison with Back-Propagation and Other Bio-Inspired Models](https://www.google.com/search?q=comparison-with-back-propagation-and-other-bio-inspired-models)
+    * [Figure 8: Comparison of HMN with Other Learning Paradigms](https://www.google.com/search?q=figure-8-comparison-of-hmn-with-other-learning-paradigms)
+  * [6.3 Implications for Credit Assignment](https://www.google.com/search?q=implications-for-credit-assignment)
+  * [6.4 Complexity, Hyper-Parameter Sensitivity, and Scalability](https://www.google.com/search?q=complexity-hyper-parameter-sensitivity-and-scalability)
+  * [6.5 Plausibility Map of HMN Components](https://www.google.com/search?q=plausibility-map-of-hmn-components)
+* [7. Conclusion and Future Work](https://www.google.com/search?q=conclusion-and-future-work)
+  * [7.1 Summary of Contributions and Impact](https://www.google.com/search?q=summary-of-contributions-and-impact)
+  * [7.2 Empirical Road-Map and Benchmark Suite](https://www.google.com/search?q=empirical-road-map-and-benchmark-suite)
+    * [Figure 14: Visual Roadmap for HMN Empirical Validation](https://www.google.com/search?q=figure-14-visual-roadmap-for-hmn-empirical-validation)
+  * [7.3 Theoretical Analysis and Hardware Directions](https://www.google.com/search?q=theoretical-analysis-and-hardware-directions)
+  * [7.4 Future Work: Integrating Astrocyte-Mediated Neuromodulation](https://www.google.com/search?q=future-work-integrating-astrocyte-mediated-neuromodulation)
+    * [7.4.1 Modeling an Astrocyte-Intermediary Layer for Norepinephrine](https://www.google.com/search?q=modeling-an-astrocyte-intermediary-layer-for-norepinephrine)
+      * [Figure 10: Astrocyte-Mediated Neuromodulation Pathway in HMN](https://www.google.com/search?q=figure-10-astrocyte-mediated-neuromodulation-pathway-in-hmn)
+    * [7.4.2 Investigating Computational Consequences](https://www.google.com/search?q=investigating-computational-consequences)
+    * [7.4.3 Empirical Validation and Plausibility](https://www.google.com/search?q=empirical-validation-and-plausibility)
+  * [7.5 Future Work: Hybrid Architectures – Trans-HMN](https://www.google.com/search?q=future-work-hybrid-architectures--trans-hmn)
+    * [Figure 11: Trans-HMN Hybrid Architecture](https://www.google.com/search?q=figure-11-trans-hmn-hybrid-architecture)
+  * [7.6 Future Work: Sparse Activation Models – MoE-HMN](https://www.google.com/search?q=future-work-sparse-activation-models--moe-hmn)
+    * [Figure 12: MoE-HMN Sparse Activation Architecture](https://www.google.com/search?q=figure-12-moe-hmn-sparse-activation-architecture)
+  * [7.7 Future Work: Efficient Long-Context Models – Mamba-HMN](https://www.google.com/search?q=future-work-efficient-long-context-models--mamba-hmn)
+    * [Figure 13: Mamba-HMN Architecture for Long-Context Processing](https://www.google.com/search?q=figure-13-mamba-hmn-architecture-for-long-context-processing)
+* [8. Acknowledgements](https://www.google.com/search?q=acknowledgements)
+* [9. References](https://www.google.com/search?q=references)
+* [10. Appendix](https://www.google.com/search?q=appendix)
+  * [10.1 Example Functional Forms](https://www.google.com/search?q=example-functional-forms)
+  * [10.2 Meta-Learning Gradient Approximation Details](https://www.google.com/search?q=meta-learning-gradient-approximation-details)
+  * [10.3 SPSA Pseudocode for $\\eta$-Updates](https://www.google.com/search?q=spsa-pseudocode-for-eta-updates)
+  * [10.4 Algorithm Pseudocode for HMN Weight Update](https://www.google.com/search?q=algorithm-pseudocode-for-hmn-weight-update)
 
 -----
 
@@ -95,11 +96,11 @@ Synaptic Plasticity · Neuromodulation · Meta-Learning · Attention · Neural O
 
 The success of deep learning largely stems from supervised training using error back-propagation. However, this paradigm faces challenges related to biological plausibility (e.g., weight transport problem, non-local error signals) and struggles with continual learning in non-stationary environments (catastrophic forgetting). Biological systems, in contrast, employ decentralized learning rules modulated by global context, achieving robust lifelong adaptation. The HMN framework seeks to develop a computationally effective neuronal model incorporating principles observed in biology, specifically aiming to integrate:
 
-  * Fast, local synaptic plasticity (e.g., Hebbian, STDP variants) for rapid adaptation based on correlated activity.
-  * Slower, global neuromodulation (e.g., mimicking dopamine for reward, acetylcholine for attention/uncertainty, norepinephrine for novelty) providing context-dependent guidance.
-  * Meta-learning capabilities to dynamically adjust the balance between local and global influences (learning rates) based on performance or environmental statistics.
-  * Attention mechanisms to selectively weigh inputs and neuromodulatory signals based on relevance.
-  * Oscillatory gating to potentially enhance temporal credit assignment and coordinate plasticity across neuronal assemblies.
+* Fast, local synaptic plasticity (e.g., Hebbian, STDP variants) for rapid adaptation based on correlated activity.
+* Slower, global neuromodulation (e.g., mimicking dopamine for reward, acetylcholine for attention/uncertainty, norepinephrine for novelty) providing context-dependent guidance.
+* Meta-learning capabilities to dynamically adjust the balance between local and global influences (learning rates) based on performance or environmental statistics.
+* Attention mechanisms to selectively weigh inputs and neuromodulatory signals based on relevance.
+* Oscillatory gating to potentially enhance temporal credit assignment and coordinate plasticity across neuronal assemblies.
 
 ### 2.2 Biological and Computational Inspirations
 
@@ -115,12 +116,12 @@ We differentiate between components with direct empirical support for both their
 
 This paper introduces the HMN framework with the following core contributions:
 
-  * **Unified HMN Learning Rule**: A single theoretical rule integrating probabilistic local eligibility traces, globally modulated feedback, dual meta-learning of rates, dual attention mechanisms, and oscillatory gating.
-  * **Multi-Timescale Plasticity**: Achieved through composite eligibility traces and phase-locked updates potentially aligning plasticity with different behavioral or cognitive states.
-  * **Dual Meta-Learning**: A mechanism to jointly tune local ($\\eta\_{\\text{local}}$) and global ($\\eta\_{\\text{global}}$) learning rates online, adapting the learning dynamics to the environment.
-  * **Dual Attention**: Context-dependent modulation operating locally on synaptic eligibility traces and globally on incoming neuromodulatory signals.
-  * **Plausibility Mapping**: A systematic classification of HMN components based on biological evidence versus computational design.
-  * **Empirical Roadmap**: A proposed sequence of experiments for validating HMN capabilities.
+* **Unified HMN Learning Rule**: A single theoretical rule integrating probabilistic local eligibility traces, globally modulated feedback, dual meta-learning of rates, dual attention mechanisms, and oscillatory gating.
+* **Multi-Timescale Plasticity**: Achieved through composite eligibility traces and phase-locked updates potentially aligning plasticity with different behavioral or cognitive states.
+* **Dual Meta-Learning**: A mechanism to jointly tune local ($\\eta\_{\\text{local}}$) and global ($\\eta\_{\\text{global}}$) learning rates online, adapting the learning dynamics to the environment.
+* **Dual Attention**: Context-dependent modulation operating locally on synaptic eligibility traces and globally on incoming neuromodulatory signals.
+* **Plausibility Mapping**: A systematic classification of HMN components based on biological evidence versus computational design.
+* **Empirical Roadmap**: A proposed sequence of experiments for validating HMN capabilities.
 
 The paper is structured as follows: Section 3 reviews related work. Section 4 details the HMN model architecture and mathematical formulation, including illustrative figures. Section 5 outlines hypothesized capabilities. Section 6 discusses advantages, comparisons, limitations, and plausibility. Section 7 concludes and proposes future directions. Appendices provide supplementary details.
 
@@ -154,13 +155,13 @@ We consider a neuron $j$ receiving inputs $x\_i(t - \\tau\_{ij})$ from presynapt
 
 **Key Assumptions:**
 
-  * Neurons operate stochastically.
-  * Synaptic plasticity depends on local activity (via eligibility traces) and global modulatory signals.
-  * Learning rates ($\\eta\_{\\text{local}}, \\eta\_{\\text{global}}$) are adaptable via meta-learning.
-  * Attention mechanisms can modulate both local trace effectiveness and global signal integration.
-  * Plasticity can be gated by oscillatory phase.
-  * Synaptic delays $\\tau\_{ij}$ and preferred phases $\\phi\_{ij}$ are assumed fixed parameters for simplicity, though they could potentially be learned.
-  * The bias term $b\_j(t)$ is assumed to be adapted slowly via a separate homeostatic or simpler learning mechanism (not detailed here) to maintain neuronal responsiveness.
+* Neurons operate stochastically.
+* Synaptic plasticity depends on local activity (via eligibility traces) and global modulatory signals.
+* Learning rates ($\\eta\_{\\text{local}}, \\eta\_{\\text{global}}$) are adaptable via meta-learning.
+* Attention mechanisms can modulate both local trace effectiveness and global signal integration.
+* Plasticity can be gated by oscillatory phase.
+* Synaptic delays $\\tau\_{ij}$ and preferred phases $\\phi\_{ij}$ are assumed fixed parameters for simplicity, though they could potentially be learned.
+* The bias term $b\_j(t)$ is assumed to be adapted slowly via a separate homeostatic or simpler learning mechanism (not detailed here) to maintain neuronal responsiveness.
 
 ### 4.2 Local Processing Unit: Probabilistic Synaptic Dynamics
 
@@ -196,14 +197,14 @@ $$ \\Delta w*{ij}(t) =
 \\Delta w^{\\dagger}*{ij}(t), & \\text{with probability } p*{\\text{update}} = \\sigma(\\beta\_p(|\\Delta w^{\\dagger}*{ij}(t)| - \\theta\_p)) \\
 0, & \\text{otherwise}
 \\end{cases} \\quad (5) $$
-where $\\sigma(x) = 1 / (1 + e^{-x})$ is the logistic sigmoid function, $\\beta\_p$ controls the steepness of the probability transition, and $\\theta\_p$ is the magnitude threshold. This probabilistic step is biologically inspired by the stochastic nature of synaptic vesicle release and receptor dynamics, and computationally may introduce sparsity, improve robustness to noise, or aid exploration. The final weight is updated as $w*{ij}(t+1) = w\_{ij}(t) + \\Delta w\_{ij}(t)$. (See Figure 5 for an illustration).
+where $\\sigma(x) = 1 / (1 + e^{-x})$ is the logistic sigmoid function, $\\beta\_p$ controls the steepness of the probability transition, and $\\theta\_p$ is the magnitude threshold. This probabilistic step is biologically inspired by the stochastic nature of synaptic vesicle release and receptor dynamics, and computationally may introduce sparsity, improve robustness to noise, or aid exploration. The final weight is updated as $w*{ij}(t+1) = w\_{ij}(t) + \ \Delta w\_{ij}(t)$. (See Figure 5 for an illustration).
 
 ### 4.3 Global Neuromodulatory Integration & Dual Meta-Learning
 
 #### 4.3.1 Aggregation and Attention on Neuromodulators
 
 Multiple neuromodulatory factors $E\_k(t)$ (e.g., reward, novelty, uncertainty signals) contribute to learning. Their baseline influence is determined by weights $w\_k$. We define the base contribution of each modulator as $M\_k(t) = w\_k E\_k(t)$. These contributions are then dynamically re-weighted by a global attention mechanism based on the current global context $C\_{\\text{global}}(t)$:
-$$G_{\text{eff}}(t) = \sum_k \gamma_k(t) M_k(t) = \sum_k \gamma_k(t) w_k E_k(t) \quad (6)$$The attention weights $\\gamma\_k(t)$ are computed similarly to local attention (§4.4.1), allowing the system to prioritize specific neuromodulatory signals based on the global state:$$\gamma_k(t) = \frac{\exp(\beta_g h(E_k(t), C_{\text{global}}(t)))}{\sum_m \exp(\beta_g h(E_m(t), C_{\text{global}}(t)))} \quad (7)$$
+$$G_{\text{eff}}(t) = \sum_k \gamma_k(t) M_k(t) = \sum_k \gamma_k(t) w_k E_k(t) \quad (6)$$The attention weights \$\\gamma\_k(t)$ are computed similarly to local attention (§4.4.1), allowing the system to prioritize specific neuromodulatory signals based on the global state:$$\gamma_k(t) = \frac{\exp(\beta_g h(E_k(t), C_{\text{global}}(t)))}{\sum_m \exp(\beta_g h(E_m(t), C_{\text{global}}(t)))} \quad (7)$$
 where $h(\\cdot, \\cdot)$ is a similarity or relevance function (e.g., cosine similarity, see Appendix §10.1) and $\\beta\_g$ is an inverse temperature parameter controlling attention sharpness. The weights $w\_k$ determining the baseline importance of each $E\_k$ are assumed fixed or slowly adapted. (The global attention component is also illustrated in Figure 6).
 
 #### 4.3.2 Dual Meta-Learning of Learning Rates

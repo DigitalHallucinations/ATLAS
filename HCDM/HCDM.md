@@ -594,8 +594,6 @@ While significant computational challenges and ethical considerations remain, th
 * **DPS Parameterization (Current Code Note):** In the current implementation (`developmental_process_simulator.py`), parameters controlling learning rates, plasticity thresholds, network expansion triggers (`trigger_network_expansion`), and curriculum progression (`update_developmental_stage`) are modulated dynamically by the DPS based on the current simulated developmental stage ('age') and performance thresholds defined in the configuration (`self.dev_config`). *Direct fitting to quantitative Lin et al. data is part of the intended design but not yet reflected in this code.*
 * **Asynchronous Structure:** The system heavily relies on `asyncio` for managing concurrent module operations, communication via NCB queues, and background tasks (e.g., consolidation thread, EFM updates, DPS loop).
 
-**(Code excerpts NCB/NEST examples here)*
-
 ```python
 # Example: NESTModule structure (from neural_cognitive_bus.py)
 import torch
