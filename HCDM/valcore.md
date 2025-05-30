@@ -1,14 +1,18 @@
-VALCORE: A Framework for Probabilistic Dynamic Value Composition, Decomposition, and Reasoning in Cognitive Architectures
+# VALCORE: A Framework for Probabilistic Dynamic Value Composition, Decomposition, and Reasoning in Cognitive Architectures
 
 Author: Jeremy Shows
 Digital Hallucinations
-jeremyshws@digitalhallucinations.net
+<jeremyshws@digitalhallucinations.net>
 Date: May 12, 2025
 
-Abstract: Advanced artificial intelligence systems, particularly cognitive architectures striving for human-like cognitive flexibility, must navigate pervasive uncertainty, operate within dynamic environments, and manage the complex interplay of multifaceted "values" (e.g., utility, salience, semantic certainty, emotional valence). Prevailing approaches often employ deterministic or static value representations, which inherently limits adaptability, nuanced reasoning under uncertainty, and robust decision-making. This paper introduces VALCORE (Value Composition, Decomposition, and Reasoning Engine), a comprehensive theoretical framework for the probabilistic and dynamic management of values within cognitive architectures. VALCORE specifies mechanisms for: (1) Representing diverse values as probability distributions or belief states, thereby explicitly capturing inherent uncertainty and confidence. (2) Dynamically updating these probabilistic value representations based on new evidence and internal cognitive states using principled Bayesian methods or learned recurrent models. (3) Composing complex, higher-order probabilistic values from simpler constituents via learned functions or probabilistic calculus, enabling sophisticated synthesis of information under uncertainty. (4) Decomposing complex probabilistic values into their underlying components or attributing them to generative sources using techniques such as probabilistic factor analysis or learned attribution methods, facilitating analysis, explanation, and credit assignment. We detail VALCORE's proposed integration within the Hybrid Cognitive Dynamics Model (HCDM), illustrating how it can systematically enhance core cognitive modules. By endowing AI with the capacity to handle values in this flexible, probabilistic manner, VALCORE promises significant improvements in adaptability, robustness under uncertainty, contextual reasoning, and inherent explainability, crucial steps towards more general and human-like artificial intelligence.
+## Abstract
+
+Advanced artificial intelligence systems, particularly cognitive architectures striving for human-like cognitive flexibility, must navigate pervasive uncertainty, operate within dynamic environments, and manage the complex interplay of multifaceted "values" (e.g., utility, salience, semantic certainty, emotional valence). Prevailing approaches often employ deterministic or static value representations, which inherently limits adaptability, nuanced reasoning under uncertainty, and robust decision-making. This paper introduces VALCORE (Value Composition, Decomposition, and Reasoning Engine), a comprehensive theoretical framework for the probabilistic and dynamic management of values within cognitive architectures. VALCORE specifies mechanisms for: (1) Representing diverse values as probability distributions or belief states, thereby explicitly capturing inherent uncertainty and confidence. (2) Dynamically updating these probabilistic value representations based on new evidence and internal cognitive states using principled Bayesian methods or learned recurrent models. (3) Composing complex, higher-order probabilistic values from simpler constituents via learned functions or probabilistic calculus, enabling sophisticated synthesis of information under uncertainty. (4) Decomposing complex probabilistic values into their underlying components or attributing them to generative sources using techniques such as probabilistic factor analysis or learned attribution methods, facilitating analysis, explanation, and credit assignment. We detail VALCORE's proposed integration within the Hybrid Cognitive Dynamics Model (HCDM), illustrating how it can systematically enhance core cognitive modules. By endowing AI with the capacity to handle values in this flexible, probabilistic manner, VALCORE promises significant improvements in adaptability, robustness under uncertainty, contextual reasoning, and inherent explainability, crucial steps towards more general and human-like artificial intelligence.
+
 Keywords: Probabilistic AI, Cognitive Architecture, Value Representation, Uncertainty Quantification, Bayesian Inference, Neural Networks, Compositionality, Explainable AI (XAI), Dynamic Systems, HCDM Integration, Probabilistic Reasoning, Decision Theory.
 
-1. Introduction
+## 1. Introduction
+
 The pursuit of artificial general intelligence (AGI) necessitates systems that can emulate the adaptability, robustness, and nuanced reasoning characteristic of human cognition. A fundamental aspect of such cognition is the pervasive and sophisticated handling of "value" in its myriad forms—utility, salience, semantic meaning, emotional significance, goal priority, and belief strength. Humans do not operate with absolute certainties; rather, they maintain degrees of belief, dynamically update valuations based on evolving contexts and internal states, compose complex judgments from uncertain evidence, and decompose intricate feelings or decisions to understand their origins (Gershman, 2015; Tenenbaum et al., 2011).
 
 Current AI systems, despite remarkable achievements in specialized domains, often fall short in this regard. Value representations are frequently deterministic scalars or static vectors, changing primarily through direct reward signals (Sutton & Barto, 2018). This limits their ability to: (a) represent and reason about uncertainty explicitly, (b) adapt value structures to novel contexts dynamically, (c) synthesize complex, multi-faceted values from simpler, uncertain components, and (d) provide transparent explanations for how values are derived and influence behavior. These limitations pose significant barriers to achieving more flexible, robust, and generalizable AI.
@@ -28,7 +32,9 @@ This paper makes the following contributions:
 * A discussion of implementation strategies, evaluation methodologies, and the potential advantages and challenges of the VALCORE framework.
 
 The VALCORE framework aims to provide a crucial layer of cognitive processing that we argue is essential for developing AI systems capable of more human-like reasoning, adaptability, and explainability in complex, uncertain, and dynamic environments.
-2. Related Work
+
+## 2. Related Work
+
 VALCORE draws inspiration from and aims to synthesize concepts from several distinct but related fields:
 
 * Cognitive Architectures: Frameworks like ACT-R (Anderson et al., 2004), Soar (Laird, 2012), LIDA (Franklin et al., 2013), and Sigma (Rosenbloom et al., 2016) have long sought to model human cognition by integrating multiple cognitive functions. While some architectures incorporate notions of utility or activation, VALCORE's explicit focus on representing all forms of value probabilistically and providing general mechanisms for their dynamic composition/decomposition offers a more systematic approach to uncertainty management than typically found. HCDM, the target architecture for VALCORE, already emphasizes dynamic, integrated cognition, making it a suitable testbed.
@@ -51,9 +57,12 @@ VALCORE draws inspiration from and aims to synthesize concepts from several dist
   * Decision Theory & Prospect Theory: These fields study how choices are made, often involving subjective values and risk attitudes (Kahneman & Tversky, 1979). VALCORE enables the representation of subjective utilities as distributions and decision-making that considers both expected value and uncertainty (variance, skewness).
 
 VALCORE distinguishes itself by providing a unified architectural framework for these diverse probabilistic concepts, focusing specifically on the lifecycle of "value" within a cognitive system.
-3. The VALCORE Framework
+
+## 3. The VALCORE Framework
+
 VALCORE is founded on the principle that values within an AI system are rarely known with certainty and often arise from, or contribute to, complex interactions.
-3.1. Core Principles
+
+## 3.1. Core Principles
 
 * Value (V): A quantifiable representation of utility, belief strength, semantic certainty, salience, an emotional state component, goal priority, etc. Critically, V is not a point estimate but a probabilistic quantity.
 
@@ -463,11 +472,17 @@ class NeuralGaussianComposer(nn.Module):
         return {'mean': mu_c, 'variance': sigma_c_sq}
 
 # Usage:
+
 # composer_nn = NeuralGaussianComposer(...)
+
 # pv1 = ProbabilisticValue("Gaussian", {'mean': m1, 'variance': v1})
+
 # pv2 = ProbabilisticValue("Gaussian", {'mean': m2, 'variance': v2})
+
 # context = current_context_tensor
+
 # composed_params = composer_nn(pv1.get_parameters(), pv2.get_parameters(), context)
+
 # pv_composed = ProbabilisticValue("Gaussian", composed_params)
 
 Note: Using \log(\sigma^2) as network output and then exponentiating is a common trick to ensure variance is positive. For covariance matrices, Cholesky decomposition parameters are often learned.
@@ -506,9 +521,13 @@ def get_influence_on_mean(composed_value_object, input_value_object_params, comp
     return influence_gradient
 
 # Usage:
+
 # Assume pv_composed resulted from composing pv1 and pv2 using composer_nn
+
 # grad_mu_c_wrt_mu1 = get_influence_on_mean(pv_composed, pv1.get_parameters(),
+
 #                                           lambda p1, p2, ctx: NeuralGaussianComposer(...)(p1,p2,ctx))
+
 # This shows how a change in mu1 would affect mu_c.
 
 Note: This is highly simplified. Proper implementation would involve careful handling of computation graphs and potentially using library functions for attribution like Captum for PyTorch models. For complex models, evaluating the gradient \frac{\partial \text{statistic}(P(V_C))}{\partial \text{statistic}(P(V_i))} might be non-trivial.
@@ -602,7 +621,7 @@ Okay, here is the VALCORE paper, formatted as a complete document with a populat
 VALCORE: A Framework for Probabilistic Dynamic Value Composition, Decomposition, and Reasoning in Cognitive Systems
 Author: Jeremy Shows
 Digital Hallucinations
-jeremyshws@digitalhallucinations.net
+<jeremyshws@digitalhallucinations.net>
 Date: May 12, 2025
 Abstract: Advanced artificial intelligence systems, particularly those striving for cognitive flexibility, must navigate pervasive uncertainty, operate within dynamic environments, and manage the complex interplay of multifaceted "values" (e.g., utility, salience, semantic certainty, emotional valence). Prevailing approaches often employ deterministic or static value representations, limiting adaptability, nuanced reasoning under uncertainty, and robust decision-making. This paper introduces VALCORE (Value Composition, Decomposition, and Reasoning Engine), a comprehensive theoretical framework for the probabilistic and dynamic management of values within AI systems. VALCORE specifies mechanisms for: (1) Representing diverse values as probability distributions or belief states, capturing inherent uncertainty and confidence. (2) Dynamically updating these probabilistic value representations based on new evidence and internal cognitive states using principled Bayesian methods or learned recurrent models. (3) Composing complex, higher-order probabilistic values from simpler constituents via learned functions or probabilistic calculus, enabling sophisticated synthesis under uncertainty. (4) Decomposing complex probabilistic values into their underlying components or attributing them to generative sources using techniques such as probabilistic factor analysis or learned attribution methods, facilitating analysis, explanation, and credit assignment. We detail VALCORE's core principles and potential integration strategies applicable to various architectural designs. By endowing AI with the capacity to handle values in this flexible, probabilistic manner, VALCORE promises significant improvements in adaptability, robustness under uncertainty, contextual reasoning, and inherent explainability, crucial steps towards more general and capable artificial intelligence.
 Keywords: Probabilistic AI, Cognitive Architecture, Value Representation, Uncertainty Quantification, Bayesian Inference, Neural Networks, Compositionality, Explainable AI (XAI), Dynamic Systems, Probabilistic Reasoning, Decision Theory, Modular AI, Value Systems.
@@ -734,27 +753,27 @@ The VALCORE framework opens several avenues for future research:
 9. Conclusion
 VALCORE offers a novel and comprehensive perspective on managing value within sophisticated AI systems, aiming to transcend the limitations of traditional static and deterministic representations. By systematically incorporating probabilistic modeling, dynamic updates, and explicit mechanisms for value composition and decomposition, the framework holds significant potential for enhancing the adaptability, robustness, reasoning capabilities, and intrinsic explainability of diverse AI systems and cognitive architectures. This paper presents VALCORE as a standalone set of principles and mechanisms, detached from any specific overarching architecture, to facilitate its broad consideration and potential integration across the field. While substantial theoretical, computational, and implementation challenges remain, VALCORE provides a rich conceptual foundation for advancing artificial intelligence towards greater generality and a more nuanced, human-like engagement with value. Its continued development and empirical validation represent a key research direction in artificial intelligence.
 10. References
-Anderson, J. R., Bothell, D., Byrne, M. D., Douglass, S., Lebiere, C., & Qin, Y. (2004). An integrated theory of the mind. Psychological Review, 111(4), 1036–1060. https://doi.org/10.1037/0033-295X.111.4.1036
-Bellemare, M. G., Dabney, W., & Munos, R. (2017). A distributional perspective on reinforcement learning. Proceedings of the 34th International Conference on Machine Learning, PMLR 70, 449–458. http://proceedings.mlr.press/v70/bellemare17a.html
-Bingham, E., Chen, J. P., Jankowiak, M., Obermeyer, F., Pradhan, N., Karaletsos, T., ... & Goodman, N. D. (2019). Pyro: Deep universal probabilistic programming. Journal of Machine Learning Research, 20(28), 1-6. https://www.jmlr.org/papers/v20/18-403.html
-Blundell, C., Cornebise, J., Kavukcuoglu, K., & Wierstra, D. (2015). Weight uncertainty in neural networks. Proceedings of the 32nd International Conference on Machine Learning, PMLR 37, 1613–1622. http://proceedings.mlr.press/v37/blundell15.html
-Carpenter, B., Gelman, A., Hoffman, M. D., Lee, D., Goodrich, B., Betancourt, M., ... & Riddell, A. (2017). Stan: A probabilistic programming language. Journal of Statistical Software, 76(1), 1-32. https://doi.org/10.18637/jss.v076.i01
-Dabney, W., Rowland, M., Bellemare, M. G., & Munos, R. (2018). Distributional reinforcement learning with quantile regression. Proceedings of the AAAI Conference on Artificial Intelligence, 32(1). https://doi.org/10.1609/aaai.v32i1.11800
-Dillon, J. V., Langmore, I., Tran, D., Brevdo, E., Vasudevan, S., Moore, D., ... & Saurous, R. A. (2017). TensorFlow Distributions. arXiv preprint arXiv:1711.10604. https://arxiv.org/abs/1711.10604
-Franklin, S., Strain, S., Snaider, J., McCall, R., & Faghihi, U. (2013). Global workspace theory, LIDA, and the underlying neuroscience. Biologically Inspired Cognitive Architectures, 6, 27-39. https://doi.org/10.1016/j.bica.2013.11.001
-Friston, K. (2010). The free-energy principle: a unified brain theory? Nature Reviews Neuroscience, 11(2), 127-138. https://doi.org/10.1038/nrn2787
-Gershman, S. J. (2015). What does the brain optimize? Science, 347(6229), 1424-1425. https://doi.org/10.1126/science.aaa9712
-Kahneman, D., & Tversky, A. (1979). Prospect theory: An analysis of decision under risk. Econometrica, 47(2), 263-291. https://doi.org/10.2307/1914185
-Kendall, A., & Gal, Y. (2017). What uncertainties do we need in Bayesian deep learning for computer vision? Advances in Neural Information Processing Systems, 30. https://proceedings.neurips.cc/paper/2017/hash/2650d6089a6d640c5e85b2b88265dc2b-Abstract.html
-Knill, D. C., & Pouget, A. (2004). The Bayesian brain: the role of uncertainty in neural coding and computation. Trends in Neurosciences, 27(12), 712-719. https://doi.org/10.1016/j.tins.2004.10.007
+Anderson, J. R., Bothell, D., Byrne, M. D., Douglass, S., Lebiere, C., & Qin, Y. (2004). An integrated theory of the mind. Psychological Review, 111(4), 1036–1060. <https://doi.org/10.1037/0033-295X.111.4.1036>
+Bellemare, M. G., Dabney, W., & Munos, R. (2017). A distributional perspective on reinforcement learning. Proceedings of the 34th International Conference on Machine Learning, PMLR 70, 449–458. <http://proceedings.mlr.press/v70/bellemare17a.html>
+Bingham, E., Chen, J. P., Jankowiak, M., Obermeyer, F., Pradhan, N., Karaletsos, T., ... & Goodman, N. D. (2019). Pyro: Deep universal probabilistic programming. Journal of Machine Learning Research, 20(28), 1-6. <https://www.jmlr.org/papers/v20/18-403.html>
+Blundell, C., Cornebise, J., Kavukcuoglu, K., & Wierstra, D. (2015). Weight uncertainty in neural networks. Proceedings of the 32nd International Conference on Machine Learning, PMLR 37, 1613–1622. <http://proceedings.mlr.press/v37/blundell15.html>
+Carpenter, B., Gelman, A., Hoffman, M. D., Lee, D., Goodrich, B., Betancourt, M., ... & Riddell, A. (2017). Stan: A probabilistic programming language. Journal of Statistical Software, 76(1), 1-32. <https://doi.org/10.18637/jss.v076.i01>
+Dabney, W., Rowland, M., Bellemare, M. G., & Munos, R. (2018). Distributional reinforcement learning with quantile regression. Proceedings of the AAAI Conference on Artificial Intelligence, 32(1). <https://doi.org/10.1609/aaai.v32i1.11800>
+Dillon, J. V., Langmore, I., Tran, D., Brevdo, E., Vasudevan, S., Moore, D., ... & Saurous, R. A. (2017). TensorFlow Distributions. arXiv preprint arXiv:1711.10604. <https://arxiv.org/abs/1711.10604>
+Franklin, S., Strain, S., Snaider, J., McCall, R., & Faghihi, U. (2013). Global workspace theory, LIDA, and the underlying neuroscience. Biologically Inspired Cognitive Architectures, 6, 27-39. <https://doi.org/10.1016/j.bica.2013.11.001>
+Friston, K. (2010). The free-energy principle: a unified brain theory? Nature Reviews Neuroscience, 11(2), 127-138. <https://doi.org/10.1038/nrn2787>
+Gershman, S. J. (2015). What does the brain optimize? Science, 347(6229), 1424-1425. <https://doi.org/10.1126/science.aaa9712>
+Kahneman, D., & Tversky, A. (1979). Prospect theory: An analysis of decision under risk. Econometrica, 47(2), 263-291. <https://doi.org/10.2307/1914185>
+Kendall, A., & Gal, Y. (2017). What uncertainties do we need in Bayesian deep learning for computer vision? Advances in Neural Information Processing Systems, 30. <https://proceedings.neurips.cc/paper/2017/hash/2650d6089a6d640c5e85b2b88265dc2b-Abstract.html>
+Knill, D. C., & Pouget, A. (2004). The Bayesian brain: the role of uncertainty in neural coding and computation. Trends in Neurosciences, 27(12), 712-719. <https://doi.org/10.1016/j.tins.2004.10.007>
 Laird, J. E. (2012). The Soar cognitive architecture. MIT Press.
-Lundberg, S. M., & Lee, S. I. (2017). A unified approach to interpreting model predictions. Advances in Neural Information Processing Systems, 30. https://proceedings.neurips.cc/paper/2017/hash/8a20a8621978632d76c43dfd28b67767-Abstract.html
+Lundberg, S. M., & Lee, S. I. (2017). A unified approach to interpreting model predictions. Advances in Neural Information Processing Systems, 30. <https://proceedings.neurips.cc/paper/2017/hash/8a20a8621978632d76c43dfd28b67767-Abstract.html>
 Pearl, J. (2009). Causality: Models, Reasoning, and Inference (2nd ed.). Cambridge University Press.
-Ribeiro, M. T., Singh, S., & Guestrin, C. (2016). "Why should I trust you?": Explaining the predictions of any classifier. Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining, 1135–1144. https://doi.org/10.1145/2939672.2939778
-Rosenbloom, P. S., Demski, A., & Ustun, V. (2016). The Sigma cognitive architecture and system: Towards a general cognitive architecture for open-ended intelligent behavior in the real world. Modern PASCAL, 55. https://doi.org/10.3233/978-1-61499-672-9-55
+Ribeiro, M. T., Singh, S., & Guestrin, C. (2016). "Why should I trust you?": Explaining the predictions of any classifier. Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining, 1135–1144. <https://doi.org/10.1145/2939672.2939778>
+Rosenbloom, P. S., Demski, A., & Ustun, V. (2016). The Sigma cognitive architecture and system: Towards a general cognitive architecture for open-ended intelligent behavior in the real world. Modern PASCAL, 55. <https://doi.org/10.3233/978-1-61499-672-9-55>
 Scherer, K. R., Schorr, A., & Johnstone, T. (Eds.). (2001). Appraisal processes in emotion: Theory, methods, research. Oxford University Press.
 Sutton, R. S., & Barto, A. G. (2018). Reinforcement learning: An introduction (2nd ed.). MIT Press.
-Tenenbaum, J. B., Kemp, C., Griffiths, T. L., & Goodman, N. D. (2011). How to grow a mind: Statistics, structure, and abstraction. Science, 331(6022), 1279-1285. https://doi.org/10.1126/science.1192788
+Tenenbaum, J. B., Kemp, C., Griffiths, T. L., & Goodman, N. D. (2011). How to grow a mind: Statistics, structure, and abstraction. Science, 331(6022), 1279-1285. <https://doi.org/10.1126/science.1192788>
 Appendices
 Appendix A: Detailed Mathematical Formulations
 This appendix provides illustrative mathematical details for some of the core probabilistic operations within the VALCORE framework.
@@ -870,7 +889,6 @@ class ProbabilisticValue:
         param_str = ", ".join(f"{k}={v.shape if isinstance(v, torch.Tensor) else v}" for k, v in self.parameters.items())
         return f"ProbabilisticValue(type='{self.type_name}', params=[{param_str}])"
 
-
 B.2. Neural Composition Function (Illustrative)
 Let's assume composing two 1D Gaussian values P(V\_1) \\sim \\mathcal{N}(\\mu\_1, \\sigma\_1^2) and P(V\_2) \\sim \\mathcal{N}(\\mu\_2, \\sigma\_2^2) into P(V\_C) \\sim \\mathcal{N}(\\mu\_C, \\sigma\_C^2) using a neural network, potentially with context C\_{ctx}.
 import torch.nn as nn
@@ -921,11 +939,17 @@ class NeuralGaussianComposer(nn.Module):
         return {'mean': mu_c, 'variance': sigma_c_sq}
 
 # # Example Usage:
+
 # # Assume pv1 and pv2 are ProbabilisticValue objects of type "Gaussian"
+
 # # composer_nn = NeuralGaussianComposer(input_dim_dist_params=4, context_dim=10, hidden_dim=64, output_dim_dist_params=2)
+
 # # context = torch.randn(1, 10) # Example context
+
 # # composed_params = composer_nn(pv1.get_parameters(), pv2.get_parameters(), context)
+
 # # pv_composed = ProbabilisticValue("Gaussian", composed_params)
+
 # # print(pv_composed)
 
 Note: Using \\log(\\sigma^2) as network input/output and then exponentiating is common for ensuring variance positivity and stabilizing learning. For covariance matrices, Cholesky decomposition parameters are often learned.
@@ -986,15 +1010,25 @@ def get_influence_on_mean(composition_function, input_params_list, context_tenso
     return influence_gradient.clone() # Return a clone of the gradient
 
 # # Example Usage (using composer from B.2):
+
 # # composer_nn = NeuralGaussianComposer(...)
+
 # # pv1_params = pv1.get_parameters()
+
 # # pv2_params = pv2.get_parameters()
+
 # # grad_mu_c_wrt_mu1 = get_influence_on_mean(
+
 # #     lambda params_list, ctx: composer_nn(params_list[0], params_list[1], ctx), # Adapt lambda to function signature
+
 # #     [pv1_params, pv2_params],
+
 # #     context,
+
 # #     target_input_index=0
+
 # # )
+
 # # print(f"Influence of mu1 on mu_c: {grad_mu_c_wrt_mu1}")
 
 Note: This is highly simplified. Proper implementation would involve careful handling of computation graphs, potentially non-differentiable operations, and might benefit from dedicated attribution libraries (e.g., Captum for PyTorch models) if the composition function is a complex neural network.

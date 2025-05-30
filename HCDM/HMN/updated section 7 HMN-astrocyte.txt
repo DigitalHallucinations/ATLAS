@@ -1,0 +1,370 @@
+original section 7:
+
+## 7\. Conclusion and Future Work
+
+### 7.1 Summary of Contributions and Impact
+
+The HMN framework offers a novel, unified theoretical model of neuronal learning that integrates multiple biologically-inspired mechanisms: probabilistic local plasticity, multi-factor global neuromodulation, dual meta‑learning of learning rates, dual attention (synaptic and modulatory), and oscillatory gating. By combining these elements, HMN aims to provide a more adaptive, robust, and biologically grounded alternative to conventional learning algorithms like back-propagation, potentially offering advantages in continual learning, reinforcement learning, and neuromorphic applications.
+
+-----
+
+### 7.2 Empirical Road-Map and Benchmark Suite
+
+Validating HMN requires systematic empirical evaluation. We propose a staged approach (visualized in Figure 14):
+
+  * **Phase 0 (Sanity Check)**: Implement HMN in simple tasks (e.g., contextual bandits) to verify basic functionality and the viability of meta-learning $\\eta\_{\\text{local}}$ and $\\eta\_{\\text{global}}$ to optimize reward. Metrics: Reward accumulation, convergence of $\\eta$ values.
+  * **Phase 1 (Continual Learning)**: Test HMN on sequential learning benchmarks (e.g., permuted MNIST, sequential CIFAR-10/100) against baseline models. Metrics: Accuracy on current task, forgetting of previous tasks, forward transfer. Insight: Assess stability-plasticity balance provided by meta-learning and other components.
+  * **Phase 2 (Temporal Credit Assignment / RL)**: Evaluate HMN in reinforcement learning tasks requiring longer-term credit assignment (e.g., DeepMind Control Suite, Meta-World). Metrics: Sample efficiency, final performance, reward curve dynamics. Insight: Assess benefits of composite traces, phase-locking, and modulated global signals.
+  * **Phase 3 (Ablation Studies)**: Systematically disable individual HMN components (e.g., attention mechanisms, probabilistic gating, phase-locking, meta-learning) across various tasks. Metrics: Performance difference ($\\Delta$-score) compared to full HMN. Insight: Quantify the synergistic contribution of each component.
+
+#### Figure 14: Visual Roadmap for HMN Empirical Validation
+
+  * **Content**: A visual timeline or flowchart. The main flow would represent time or progression through research phases.
+      * Each phase (Phase 0, Phase 1, Phase 2, Phase 3) would be a distinct block or stage.
+      * Within each phase block, brief descriptions or icons representing the task type (e.g., bandit icon for Phase 0, MNIST/CIFAR logos for Phase 1, RL agent icon for Phase 2) and key metrics (e.g., graph icon for reward, brain icon for forgetting).
+      * Arrows would connect the phases, indicating the progression.
+  * **Benefit**: Makes the experimental plan more accessible, engaging, and easy to grasp at a glance.
+  * **Creation Guidance**: Can be created using presentation software (e.g., PowerPoint, Google Slides with SmartArt or custom shapes), diagramming tools (e.g., Lucidchart), or even timeline generation tools. AI could help design icons for tasks/metrics.
+
+-----
+
+### 7.3 Theoretical Analysis and Hardware Directions
+
+Future theoretical work should focus on analyzing the learning dynamics and convergence properties of simplified HMN variants under specific assumptions. Understanding the theoretical interplay between local Hebbian forces, global modulatory guidance, and meta-learned rate adaptation is crucial. Furthermore, the decentralized and event-driven potential of HMN motivates prototyping on neuromorphic hardware platforms (e.g., spiking networks on Loihi 2, analog implementations using memristors) to explore potential efficiency gains and real-time learning capabilities (cf. Qiao et al., 2024).
+
+-----
+
+### 7.4 Future Work: Integrating Astrocyte-Mediated Neuromodulation 🧠
+
+The HMN framework aims to capture key biological learning principles. Recent advances in neuroscience, particularly the discovery that neuromodulators like norepinephrine (NE) can exert their influence on synapses indirectly via astrocytes, offer a compelling avenue for enhancing the biological realism and potentially the computational capabilities of HMN. Future work should focus on incorporating this astrocyte-mediated pathway for NE-like signals within the HMN, as detailed in the research by Lefton et al. (2025).
+
+#### 7.4.1 Modeling an Astrocyte-Intermediary Layer for Norepinephrine
+
+The current HMN model (Section 4.3.1) aggregates various neuromodulatory signals $E\_k(t)$ into an effective global signal $G\_{\\text{eff}}(t)$. For a neuromodulator like norepinephrine, $E\_{\\text{NE}}(t)$, which is implicated in arousal, novelty, and attention, the findings from Lefton et al. (2025) suggest a more nuanced pathway, as illustrated in Figure 10.
+
+**Proposed Integration Steps:**
+
+1.  **Astrocyte State Representation**: Introduce a new set of state variables, $A\_j(t)$, representing the activation level or signaling state of an astrocyte (or a population of astrocytes) associated with neuron $j$ or a local group of neurons.
+2.  **NE Reception by Astrocytes**: The NE signal, $E\_{\\text{NE}}(t)$, instead of directly contributing to $G\_{\\text{eff}}(t)$ for synaptic modulation, would primarily act as an input to these astrocyte units:
+    $$A_j(t+1) = f_{\text{astro}}(A_j(t), E_{\text{NE}}(t), \text{params}_{\text{astro}})$$
+    where $f\_{\\text{astro}}$ describes the astrocyte's response dynamics, potentially including slower integration timescales and non-linearities reflecting calcium dynamics or other internal processes. `params_astro` would include sensitivity to NE and decay rates.
+3.  **Astrocyte Output Generation**: Activated astrocytes would then release their own secondary modulatory signals, $M\_{\\text{astro},j}(t)$ (e.g., mimicking adenosine release, as suggested by the research):
+    $$M_{\text{astro},j}(t) = g_{\text{astro}}(A_j(t))$$
+    This $M\_{\\text{astro},j}(t)$ could then contribute to the global effective modulation $G\_{\\text{eff}}(t)$ alongside other direct-acting neuromodulators, or it could have a more localized effect.
+4.  **Modulation of Synaptic Plasticity**: The astrocyte-derived signal $M\_{\\text{astro},j}(t)$ would then influence synaptic plasticity. Based on the research, this is often a **dampening effect on synaptic strength** or a modulation of **presynaptic efficacy**. This could be implemented by:
+      * Having $M\_{\\text{astro},j}(t)$ scale the global learning rate component in the preliminary weight update (Equation 3):
+        $$\Delta w^{*}_{ij}(t) = (\eta_{\text{local}} + \eta_{\text{global}} (G'_{\text{eff}}(t) + \lambda_{\text{astro}} M_{\text{astro},j}(t))) \tilde{e}_{ij}(t)$$
+        where $G'*{\\text{eff}}(t)$ is the effect of other neuromodulators, and $\\lambda*{\\text{astro}}$ scales the astrocyte influence (which could be negative if dampening).
+      * Alternatively, $M\_{\\text{astro},j}(t)$ could directly modulate the eligibility trace $\\tilde{e}*{ij}(t)$ or a specific aspect of neuronal activation $z\_j(t)$ related to presynaptic release probability if the model detail allows. The research highlights NE's effect via astrocytes can involve control of presynaptic efficacy (e.g., through ATP-derived adenosine A1 receptor signaling), which might be modeled as a modulation of $x\_i$ before it contributes to the weighted sum, or as a specific factor affecting $e*{ij}$.
+
+##### Figure 10: Astrocyte-Mediated Neuromodulation Pathway in HMN
+
+  * **Content**: A schematic diagram illustrating the flow of norepinephrine (NE) signaling through an astrocyte intermediary.
+      * Show $E\_{\\text{NE}}(t)$ (Norepinephrine signal) as an input to an "Astrocyte Unit" block, representing $A\_j(t)$.
+      * The Astrocyte Unit block then outputs $M\_{\\text{astro},j}(t)$ (Astrocyte-derived modulator).
+      * This $M\_{\\text{astro},j}(t)$ is shown influencing the synaptic plasticity process, for example, by feeding into the calculation of $G\_{\\text{eff}}(t)$ (alongside other direct neuromodulators $E\_k(t)$) or by directly modulating $\\tilde{e}*{ij}(t)$ or the synaptic weight update $\\Delta w^{\*}*{ij}(t)$.
+      * Clearly label all signals and components.
+  * **Benefit**: Essential for explaining this novel and somewhat complex proposed integration, making the indirect modulatory pathway visually clear.
+  * **Creation Guidance**: Can be created using diagramming software (e.g., draw.io, Lucidchart) or vector graphics, focusing on clear signal flow and component interaction. AI-assisted diagramming tools could be used with a detailed prompt.
+
+#### 7.4.2 Investigating Computational Consequences 💡
+
+Integrating this indirect pathway would allow for:
+
+  * **Differential Timescales**: Exploring how the potentially slower dynamics of astrocyte mediation affect the overall learning process, particularly in response to sustained periods of novelty or arousal (signaled by NE).
+  * **Refined Credit Assignment**: Investigating if this intermediary step allows for more nuanced spatial or temporal credit assignment by NE-like signals, as astrocytes can integrate signals over local domains.
+  * **Homeostatic Regulation**: The dampening effect of NE-astrocyte signaling on synaptic activity could contribute to homeostatic mechanisms within the network, preventing runaway excitation during periods of high arousal.
+  * **Interaction with Other HMN Components**: Studying how astrocyte-mediated NE modulation interacts with the HMN's existing mechanisms like local/global attention ($\\alpha\_{ij}$, $\\gamma\_k$) and meta-learning ($\\eta\_{\\text{local}}$, $\\eta\_{\\text{global}}$). For instance, should the astrocyte pathway itself be subject to attentional modulation or meta-learning?
+
+#### 7.4.3 Empirical Validation and Plausibility ✅
+
+  * The empirical roadmap (Section 7.2) should be extended to include benchmarks that specifically probe the effects of sustained novelty or arousal, where such an astrocyte-mediated pathway might show distinct advantages.
+  * Ablation studies would be crucial to compare the HMN with and without the explicit astrocyte layer for NE processing.
+  * The Plausibility Map (Section 6.5) should be updated to reflect this more detailed and biologically supported mechanism for NE action.
+
+**Key Reference for Astrocyte Integration:**
+
+  * Lefton, K. B., Wu, Y., Dai, Y., Okuda, T., Zhang, Y., Yen, A., Rurak, G. M., Walsh, S., Manno, R., Myagmar, B.-E., Dougherty, J. D., Samineni, V. K., Simpson, P. C., & Papouin, T. (2025). Norepinephrine signals through astrocytes to modulate synapses. *Science*. (DOI: 10.1126/science.adq5480. Preprint available at bioRxiv).
+
+-----
+
+### 7.5 Future Work: Hybrid Architectures – Trans-HMN 🔄
+
+A promising direction is the development of **Trans-HMN**, a hybrid model combining the strengths of pre-trained Transformers with the adaptive capabilities of HMN cells (visualized in Figure 11).
+
+**Concept:**
+The core idea is to use a frozen, pre-trained Transformer (e.g., first few layers) as a powerful feature encoder to capture generic syntactic and semantic representations from input text. These rich representations would then be fed into subsequent HMN layers. The HMN layers, acting as adaptive "adapter" modules, would learn online via their inherent local plasticity, neuromodulatory feedback, and meta-learned learning rates.
+
+**Motivation:**
+This approach aims to:
+
+  * Leverage the strong zero-shot generalization capabilities of large pre-trained Transformers.
+  * Enable rapid on-device adaptation and continual learning for specific domains, styles, or users through the plastic HMN layers, without costly retraining of the entire Transformer backbone.
+  * Potentially mitigate catastrophic forgetting by localizing adaptive changes within the HMN layers while preserving the stable knowledge in the frozen Transformer.
+
+**Research & Evaluation:**
+Future empirical work should:
+
+  * Determine the optimal interface and number of HMN layers to augment the Transformer.
+  * Investigate how neuromodulatory signals can be derived or propagated from the Transformer's state to guide HMN plasticity.
+  * Evaluate Trans-HMN on benchmarks assessing few-shot personalization (e.g., Persona-Chat), continual domain adaptation (e.g., News → Code), and its ability to maintain baseline perplexity while enabling adaptation (cf. Houlsby et al., 2019; Sun et al., 2024; von Oswald et al., 2020).
+  * Analyze the division of labor between the frozen Transformer front-end (handling generic structure) and the plastic HMN back-end (capturing context-dependent, rapidly changing patterns).
+
+#### Figure 11: Trans-HMN Hybrid Architecture
+
+  * **Content**: A block diagram showing the Trans-HMN architecture.
+      * An initial block labeled "Pre-trained Transformer (Frozen Layers)" takes raw input (e.g., text).
+      * The output of this block (feature embeddings) is shown as input to a subsequent series of blocks labeled "Adaptive HMN Layers."
+      * Indicate that the HMN layers are plastic (e.g., with a synapse icon or learning symbol) and receive neuromodulatory signals.
+      * The final output comes from the HMN layers.
+  * **Benefit**: Visually represents the proposed hybrid architecture, clearly distinguishing between the static pre-trained component and the adaptive HMN component.
+  * **Creation Guidance**: Can be created using diagramming software. Using different visual styles or colors for the Transformer block versus the HMN blocks can enhance clarity.
+
+-----
+
+### 7.6 Future Work: Sparse Activation Models – MoE-HMN 🧩
+
+Exploring sparsity through a **Mixture-of-Experts (MoE)** architecture, termed **MoE-HMN**, could significantly enhance the scalability and efficiency of HMN-based language models (visualized in Figure 12).
+
+**Concept:**
+In MoE-HMN, the model would consist of multiple HMN "expert" sub-networks. For each input token or sequence segment, a learnable router mechanism would select a sparse subset of these HMN experts (e.g., top-k) to process the input. Each HMN expert would be a smaller, fully plastic HMN network as described in this paper.
+
+**Motivation:**
+This architecture aims to:
+
+  * Increase model capacity significantly without a proportional increase in inference cost, as only a fraction of experts are activated per input (cf. Fedus et al., 2022; Shazeer et al., 2017).
+  * Allow different HMN experts to specialize in different aspects of language, data domains, or even specific languages in multilingual settings.
+  * Combine the benefits of sparse activation with the continual learning and adaptive properties of HMN cells.
+
+**Research & Evaluation:**
+Key research questions include:
+
+  * Designing effective routing mechanisms that account for the plastic nature of HMN experts and ensure load balancing. This might involve new regularization terms for the router that consider the "plastic capacity" or learning state of experts.
+  * Investigating how neuromodulation and meta-learning should operate within an MoE framework (e.g., global neuromodulators for all active experts vs. expert-specific modulation).
+  * Evaluating MoE-HMN on tasks like multilingual adaptation (e.g., FLORES-200), robustness to noisy or diverse inputs (e.g., social media text), and measuring adaptation latency for new data types or languages.
+  * Analyzing the interaction between router stability and the ongoing plasticity within experts (cf. Roller et al., 2022; Riquelme et al., 2021).
+
+#### Figure 12: MoE-HMN Sparse Activation Architecture
+
+  * **Content**: A diagram illustrating the Mixture-of-Experts HMN model.
+      * Input is shown feeding into a "Router" mechanism (e.g., a small neural network).
+      * The Router is connected to multiple blocks, each labeled "HMN Expert Sub-network." Arrows from the router should indicate that it selects a subset of these experts.
+      * Each HMN Expert block should imply it's a full HMN (perhaps with a mini HMN icon).
+      * Outputs from the selected experts are then shown being combined (e.g., weighted sum) to produce the final output.
+  * **Benefit**: Clarifies the Mixture-of-Experts concept as applied to HMN, highlighting the sparse selection of expert networks.
+  * **Creation Guidance**: Diagramming software is suitable. Visual cues like faded-out unselected experts or highlighted pathways for selected experts can enhance understanding.
+
+-----
+
+### 7.7 Future Work: Efficient Long-Context Models – Mamba-HMN 🐍
+
+Fusing HMN cells with efficient sequence modeling backbones like **Selective State-Space Models (SSMs)**, such as Mamba (Dao et al., 2023), could lead to **Mamba-HMN** models capable of handling very long contexts while retaining online adaptability (visualized in Figure 13).
+
+**Concept:**
+Mamba-HMN would utilize an SSM stack (e.g., Mamba) as its primary mechanism for processing long sequences and capturing long-range dependencies with linear or near-linear time complexity. The output or internal states of the SSM layers could then be processed by HMN layers. A key idea is that the SSM could provide a compressed, low-rank summary of the long-term context ($G\_t$), which then acts as a powerful, vector-valued neuromodulatory signal for the HMN layers.
+
+**Motivation:**
+This hybrid approach seeks to:
+
+  * Combine the linear-time scaling and impressive long-context capabilities of SSMs with the online weight adaptation and personalization offered by HMN cells.
+  * Create a hierarchical memory system: SSMs for efficiently managing and compressing slowly evolving global context, and HMNs for rapid adaptation to local nuances and immediate history.
+  * Modulate the plasticity of HMN layers based on the broader discourse coherence or contextual information derived from the SSM.
+
+**Research & Evaluation:**
+Future investigations should:
+
+  * Formalize the coupling mechanism, particularly how the SSM's state ($G\_t$) influences HMN plasticity (e.g., as a direct neuromodulator, by gating learning rates, or by shaping attention within HMN).
+  * Evaluate Mamba-HMN on long-context language modeling (e.g., PG-19) and question-answering tasks (e.g., NarrativeQA) to assess if the combination preserves long-range understanding while adding adaptability.
+  * Test its performance in continual learning scenarios involving domain shifts, to see if the HMN component can adapt effectively while the SSM maintains stable long-term context representation.
+  * Theoretically analyze the stability of such coupled systems, particularly how the influence of $G\_t$ on HMN learning rates ($\\eta$) impacts overall model behavior.
+
+#### Figure 13: Mamba-HMN Architecture for Long-Context Processing
+
+  * **Content**: A block diagram showing the Mamba-HMN architecture.
+      * Input sequence feeds into a block labeled "SSM Backbone (e.g., Mamba)" which processes long contexts efficiently.
+      * The output of the SSM, or its internal states (labeled as $G\_t$ - long-term context summary), is shown feeding into subsequent "HMN Layers."
+      * The connection from SSM to HMN layers might be specifically depicted as providing neuromodulatory input or context for plasticity.
+      * HMN layers are shown as adaptive and producing the final output.
+  * **Benefit**: Illustrates the proposed fusion of efficient long-context SSMs with adaptive HMNs, highlighting the role of SSM output as a contextual modulator for HMN plasticity.
+  * **Creation Guidance**: Diagramming software is appropriate. Emphasize the flow of information and the distinct roles of the SSM and HMN components.
+
+These future directions aim to push the HMN-LM framework towards greater scalability, efficiency, and even deeper integration with state-of-the-art architectures, further exploring the potential of biologically-inspired learning in advanced AI systems.
+
+
+
+updated Section 7: this section has updated subsections but it is still missing critical elements. please supply the complete updated section 7.
+
+7. Conclusion and Future Work
+7.1 Summary of Contributions and Impact
+The Hierarchical Memory Network (HMN) framework, as detailed in this work, presents a significant step towards a unified and biologically plausible theory of neuronal learning. Its core contribution lies in the principled integration of multiple critical mechanisms observed in biological nervous systems: (1) fast, probabilistic local synaptic plasticity (Hebbian-like learning with stochasticity), (2) slower, multi-factor global neuromodulation influencing learning efficacy and direction, (3) dual meta‑learning of both local and global learning rates (\eta_{\text{local}}, \eta_{\text{global}}) to dynamically adapt the learning process itself, (4) dual attention mechanisms operating at both the synaptic level (credit assignment) and the neuromodulatory level (signal relevance), and (5) oscillatory gating for temporal coordination and information segregation.
+The novelty of HMN stems not just from including these components, but from their synergistic interplay, aiming to create a system that is inherently more adaptive, robust to noisy or sparse feedback, and capable of continual learning without catastrophic forgetting. Unlike conventional deep learning algorithms like back-propagation, which often rely on global error signals and offline training, HMN is designed for online, incremental learning. Its potential impact is broad, offering a promising alternative for:
+ * Continual Learning: By dynamically balancing plasticity and stability through meta-learned rates and contextual neuromodulation, HMN aims to overcome the stability-plasticity dilemma inherent in lifelong learning agents.
+ * Reinforcement Learning: The framework's mechanisms for temporal credit assignment, including composite eligibility traces and phase-locked neuromodulatory signals, could lead to more sample-efficient and robust learning in complex environments with delayed rewards.
+ * Neuromorphic Computing: HMN’s emphasis on local computations, event-driven updates, and diverse signaling pathways aligns well with the architectural principles of emerging neuromorphic hardware, potentially enabling highly efficient, low-power AI systems.
+ * Explainable AI (XAI): By grounding learning rules in identifiable biological processes and providing distinct roles for neuromodulators and attention, HMN may offer more interpretable learning dynamics compared to monolithic black-box models.
+7.2 Empirical Road-Map and Benchmark Suite
+Validating the multifaceted HMN framework necessitates a rigorous and staged empirical evaluation strategy, progressing from foundational checks to complex, real-world analogous scenarios.
+ * Phase 0 (Foundational Validation & Sanity Checks):
+   * Tasks: Simple contextual bandit problems (e.g., multi-armed bandits with changing reward probabilities), basic associative memory tasks (e.g., storing and retrieving simple patterns).
+   * Objectives: Verify the core functionality of local plasticity rules, the responsiveness of learning rates (\eta_{\text{local}}, \eta_{\text{global}}) to meta-learning objectives (e.g., reward maximization, error minimization), and the basic interaction between local and global signals. Test for basic stability and convergence in simplified settings.
+   * Metrics: Cumulative reward, regret analysis, convergence speed and stability of \eta values to optimal ranges, pattern recall accuracy, signal-to-noise ratio in learned representations.
+   * Expected Insights: Confirmation that the fundamental learning dynamics operate as intended and that meta-learning can effectively tune plasticity.
+ * Phase 1 (Continual Learning & Catastrophic Forgetting Mitigation):
+   * Tasks: Standard continual learning benchmarks such as permuted MNIST, split MNIST, sequential CIFAR-10/100, and more complex benchmarks like CTrL (Continual Transfer Learning Benchmark) or CLEAR (Continual Learning on Real-World Data). Introduce tasks with varying degrees of similarity and abruptness of concept drift.
+   * Objectives: Assess HMN's ability to learn new tasks sequentially while retaining knowledge from previously learned tasks. Evaluate the efficacy of meta-learned learning rates, attention mechanisms, and neuromodulatory gating in managing the stability-plasticity trade-off.
+   * Baselines: Compare against established continual learning methods (e.g., EWC, SI, GEM, A-GEM, rehearsal-based methods like ER, iCaRL) and recent meta-continual learning approaches.
+   * Metrics: Average accuracy across all learned tasks, backward transfer (forgetting measure), forward transfer (knowledge transfer to new tasks), learning accuracy on the current task, computational overhead (memory and FLOPs).
+   * Expected Insights: Quantify HMN's advantages in mitigating catastrophic forgetting and its adaptability to evolving data streams, particularly the role of dynamic \eta adjustment and contextual neuromodulation.
+ * Phase 2 (Temporal Credit Assignment & Reinforcement Learning):
+   * Tasks: Evaluate on a spectrum of RL environments:
+     * Classic control tasks with sparse rewards (e.g., CartPole with delayed feedback, MountainCar).
+     * More complex, high-dimensional tasks from suites like DeepMind Control Suite, Meta-World, or Procgen Benchmark, focusing on tasks requiring long-term memory and credit assignment.
+     * Partially Observable Markov Decision Processes (POMDPs) to test the role of internal memory states and attention.
+   * Objectives: Assess the effectiveness of HMN's composite eligibility traces, phase-locked neuromodulatory signals, and attentional mechanisms in assigning credit over extended temporal delays and complex state-action sequences.
+   * Baselines: Compare against state-of-the-art deep RL algorithms (e.g., PPO, SAC, Rainbow) and models incorporating explicit memory or attention (e.g., Recurrent DQN, Transformer-based RL agents).
+   * Metrics: Sample efficiency (episodes/timesteps to reach performance thresholds), final asymptotic performance, reward curve dynamics (speed of learning, stability), robustness to noisy rewards or state information.
+   * Expected Insights: Understand how HMN’s bio-inspired mechanisms for temporal processing and neuromodulation contribute to efficient and robust learning in challenging RL settings.
+ * Phase 3 (Comprehensive Ablation Studies & Component Synergy):
+   * Tasks: A diverse subset of tasks from Phases 1 and 2, selected to highlight the contributions of specific HMN components.
+   * Objectives: Systematically disable or simplify individual HMN components (e.g., remove meta-learning for one or both \eta values, fix attention weights, disable oscillatory gating, simplify neuromodulatory inputs, remove probabilistic elements from plasticity) to quantify their individual and synergistic contributions.
+   * Metrics: Performance difference (\Delta-score) compared to the full HMN model across all relevant task-specific metrics. Analyze changes in learning dynamics, internal representations, and stability.
+   * Expected Insights: Develop a detailed understanding of the necessity and interplay of each HMN component, identifying potential redundancies or critical pathways, and validating the hypothesis that their combination yields more than the sum of their parts.
+7.3 Theoretical Analysis and Hardware Directions
+Parallel to empirical validation, future work must delve into the theoretical underpinnings of HMN and explore its suitability for neuromorphic hardware implementation.
+Theoretical Analysis:
+ * Learning Dynamics & Convergence: Analyze the learning dynamics of simplified HMN variants. For instance, under what conditions (e.g., specific distributions of inputs and rewards, assumptions on neuromodulatory signals) do the meta-learned learning rates (\eta_{\text{local}}, \eta_{\text{global}}) converge to stable, optimal values? Can we establish convergence proofs for the weight updates given the interaction of Hebbian learning, global modulation, and attention?
+ * Stability Analysis: Investigate the stability of the HMN system, particularly concerning the positive feedback loops inherent in Hebbian learning. How do neuromodulation, attention, and the meta-learning of learning rates contribute to preventing runaway synaptic growth or uncontrolled oscillations?
+ * Information Theoretic Analysis: Quantify the information flow within HMN. How is information about tasks, rewards, and context encoded in synaptic weights, neuronal activations, and neuromodulatory states? What is the effective memory capacity of HMN, and how does it scale with network size and the complexity of its components?
+ * Computational Complexity: Analyze the computational complexity (time and space) of HMN, both in software simulation and in terms of potential hardware implementations. How does it compare to traditional algorithms, especially in online learning scenarios?
+ * Relationship to Existing Frameworks: Formally connect HMN to existing theoretical frameworks in machine learning (e.g., Bayesian inference, optimal control theory, information bottleneck theory) and computational neuroscience (e.g., theories of cortical learning, basal ganglia function).
+Neuromorphic Hardware Directions:
+ * Spiking Network Implementation: Translate HMN principles into spiking neural network (SNN) models suitable for platforms like Intel's Loihi 2 or SpiNNaker. This involves mapping continuous HMN variables and dynamics to spike-based representations and event-driven computations. Key challenges include representing probabilistic updates, implementing meta-learning with spikes, and managing diverse timescales of neuromodulation.
+ * Analog/Mixed-Signal Implementations: Explore the use of analog non-volatile memory devices (e.g., memristors, phase-change memory) to directly implement synaptic weights and potentially local plasticity rules. The continuous nature of HMN's synaptic updates and neuromodulatory influences might map well to the analog characteristics of these devices, offering significant power efficiency. Challenges include device variability, precision, and implementing complex multi-factor learning rules.
+ * Decentralization and Asynchrony: Leverage HMN's inherent parallelism and local learning rules for highly decentralized and asynchronous hardware implementations. This could lead to systems that are robust to individual component failures and can process information in a continuous, event-driven manner.
+ * Co-design of Algorithms and Hardware: Engage in a co-design process where HMN algorithms are adapted to exploit the strengths and mitigate the weaknesses of specific neuromorphic platforms, and conversely, where hardware designs are informed by the computational requirements of HMN.
+ * Benchmarking on Neuromorphic Platforms: Evaluate HMN implementations on neuromorphic hardware using the benchmark suite (Section 7.2) to quantify real-world gains in energy efficiency, latency, and learning speed compared to conventional hardware. This includes addressing the "input/output bottleneck" for streaming data to and from neuromorphic chips.
+7.4 Future Work: Integrating Multifaceted Astrocyte Roles in HMN 🧠
+The HMN framework aims to capture key biological learning principles. Recent advances in neuroscience underscore the active computational and memory storage roles of astrocytes, extending beyond their function as intermediaries for neuromodulators. Discoveries, such as norepinephrine (NE) exerting influence via astrocytes (Lefton et al., 2025) and astrocytes themselves forming vast associative memory networks with superior scaling properties (Kozachkov, Slotine, & Krotov, 2025), offer compelling avenues for enhancing HMN's biological realism and computational power. Future work should focus on integrating these multifaceted astrocytic contributions, creating a more holistic "Neuron-Glia Network" model.
+7.4.1 Modeling Astrocyte-Mediated Neuromodulation (e.g., for Norepinephrine)
+The current HMN model (Section 4.3.1) aggregates various neuromodulatory signals E_k(t) into an effective global signal G_{\text{eff}}(t). For a neuromodulator like norepinephrine, E_{\text{NE}}(t), implicated in arousal, novelty, and attention, the findings from Lefton et al. (2025) suggest a more nuanced pathway involving astrocyte intermediaries.
+Proposed Integration Steps for NE-Astrocyte Pathway:
+ * Astrocyte State Representation (for NE mediation): Introduce state variables, A_j^{\text{NE}}(t), representing the activation level (e.g., intracellular Ca$^{2+}$ concentration or gliotransmitter release potential) of an astrocyte (or a microdomain) associated with neuron j or a local neuronal ensemble. This state should capture the slower integration dynamics characteristic of astrocytic responses.
+   A_j^{\text{NE}}(t+1) = f_{\text{astro}}^{\text{NE}}(A_j^{\text{NE}}(t), E_{\text{NE}}(t), \text{LocalActivity}_j(t), \text{params}_{\text{astro}}^{\text{NE}})
+   where f_{\text{astro}}^{\text{NE}} describes the astrocyte's response dynamics, incorporating sensitivity to NE (E_{\text{NE}}(t)), local neuronal activity (\text{LocalActivity}_j(t)), integration timescales, and non-linearities.
+ * Astrocyte Output Generation (Gliotransmission): Activated astrocytes would release secondary modulatory signals (gliotransmitters), M_{\text{astro},j}^{\text{NE}}(t) (e.g., ATP, adenosine, D-serine):
+   M_{\text{astro},j}^{\text{NE}}(t) = g_{\text{astro}}^{\text{NE}}(A_j^{\text{NE}}(t))
+   This signal could be targeted, affecting specific synapses or neurons within the astrocyte's domain.
+ * Modulation of Synaptic Plasticity and Neuronal Excitability: The astrocyte-derived signal M_{\text{astro},j}^{\text{NE}}(t) would then influence synaptic plasticity (e.g., LTP/LTD thresholds, metaplasticity) or neuronal excitability. Based on Lefton et al. (2025), this often involves a dampening effect on synaptic strength or modulation of presynaptic efficacy (e.g., via adenosine A1 receptors). This could be implemented by:
+   \Delta w^{*}_{ij}(t) = (\eta_{\text{local}} + \eta_{\text{global}} (G'_{\text{eff}}(t) + \lambda_{\text{astro}}^{\text{NE}} M_{\text{astro},j}^{\text{NE}}(t))) \tilde{e}_{ij}(t)
+   or by M_{\text{astro},j}^{\text{NE}}(t) directly modulating presynaptic release probability p(x_i) or postsynaptic receptor sensitivity.
+7.4.2 Modeling Astrocytes as Computational Associative Memory Elements
+Beyond mediating neuromodulator effects, Kozachkov, Slotine, & Krotov (2025) propose that neuron-astrocyte networks function as high-capacity associative memories with distinct encoding and superior scaling properties. Integrating this into HMN involves modeling astrocytes as direct computational and memory storage units, potentially operating in parallel or hierarchically with neuronal memory systems.
+Proposed Integration Steps:
+ * Astrocyte Memory Network State & Encoding: Introduce state variables, A_k^{\text{mem}}(t), representing the collective memory state of an astrocytic network patch k. This state would evolve based on local neuronal activity patterns and internal astrocyte dynamics, potentially using principles from Dense Associative Memory (DAM) or Modern Hopfield Networks, as suggested by Kozachkov et al. (2025). The encoding process might involve slower, calcium-dependent plasticity within the astrocytic network itself, distinct from synaptic plasticity.
+   A_k^{\text{mem}}(t+1) = f_{\text{astro}}^{\text{mem}}(A_k^{\text{mem}}(t), \text{Pattern}_{\text{neurons},k}(t), \text{params}_{\text{astro}}^{\text{mem}})
+   where \text{Pattern}_{\text{neurons},k}(t) is a representation of salient neuronal activity patterns to be stored.
+ * Astrocyte Output for Memory Recall/Influence (Pattern Completion/Biasing): The astrocytic memory network would generate outputs, M_{\text{astro},k}^{\text{mem}}(t), that influence neuronal processing or plasticity, reflecting stored patterns or completed associations. This could involve biasing neuronal firing thresholds, modulating local synaptic strengths, or even triggering coordinated neuronal activity.
+   M_{\text{astro},k}^{\text{mem}}(t) = g_{\text{astro}}^{\text{mem}}(A_k^{\text{mem}}(t), \text{Cue}_{\text{neurons},k}(t))
+   where \text{Cue}_{\text{neurons},k}(t) could be a partial neuronal pattern triggering recall from the astrocyte network.
+ * Influence on Neuronal Dynamics and Learning: The M_{\text{astro},k}^{\text{mem}}(t) signals could:
+   * Act as a dynamic, context-specific biasing input to neurons, effectively shaping the "attractor landscape" of the neuronal network.
+   * Directly modulate local learning rates or eligibility traces, providing a memory-driven plasticity signal that could, for example, protect consolidated memories or facilitate the learning of related new information.
+   * Gate or coordinate information flow between neuronal ensembles based on retrieved astrocytic memories.
+7.4.3 Investigating Combined Computational Consequences 💡
+Integrating these distinct but interacting astrocyte roles (neuromodulator mediation and direct computation/memory) into HMN is hypothesized to yield significant benefits:
+ * Vastly Increased and Scalable Memory Capacity & Richness: Leveraging the superior memory scaling laws and potentially different encoding principles of neuron-astrocyte networks (Kozachkov, Slotine, & Krotov, 2025) could dramatically increase HMN's capacity to store more complex, nuanced information over longer timescales.
+ * Hybrid, Multi-Timescale Memory System: This creates a richer memory hierarchy: fast, labile synaptic memory in neurons for immediate adaptation, complemented by slower, potentially more stable and higher-capacity memory within the astrocytic network for consolidated knowledge and long-term associations.
+ * Refined Spatiotemporal Credit Assignment & Contextual Modulation: Astrocyte domains offer a natural level of spatial organization. Their slower dynamics and integrative properties could allow for more nuanced credit assignment in response to global signals like NE, and their memory functions could provide highly specific contextual modulation of neuronal processing.
+ * Enhanced Homeostatic Regulation and Stability: Astrocyte-mediated dampening (via NE pathway) and the intrinsic properties of astrocytic networks could contribute to more robust homeostatic mechanisms, preventing runaway excitation or synaptic saturation during intense learning periods.
+ * Novel Learning Capabilities: The interplay between neuronal and astrocytic learning rules could enable novel computational functions, such as astrocytes flagging novel stimuli for preferential neuronal encoding, or astrocytic memories guiding the interpretation of ambiguous neuronal inputs.
+ * Interaction with Other HMN Components: This requires careful study of how astrocyte pathways interact with HMN's existing mechanisms (attention, meta-learning). For example: Should astrocytic plasticity itself be meta-learned? Should neuronal attention gate the influence of astrocytic memory recall?
+7.4.4 Empirical Validation and Plausibility Roadmap for Astrocyte Integration ✅
+ * Targeted Benchmarks: Extend the empirical roadmap (Section 7.2) with benchmarks specifically designed to probe the hypothesized advantages of astrocyte integration:
+   * Tasks involving sustained novelty, arousal, or stress (for NE-astrocyte pathway evaluation, e.g., continual learning with surprise tasks).
+   * Tasks requiring very large memory capacities, robust associative recall from partial cues, or learning complex, temporally extended contextual dependencies (for astrocyte memory networks, e.g., long-form QA, story understanding with subtle thematic links).
+ * Computational Ablation Studies: Crucially, compare HMN variants: (a) without explicit astrocyte modeling, (b) with astrocyte-mediated NE pathway only, (c) with astrocyte associative memory only, and (d) with both integrated astrocyte functions.
+ * Plausibility Map Update: Update the HMN Plausibility Map to reflect these more detailed and biologically supported mechanisms for astrocyte contributions, mapping model components to specific astrocytic cell types, signaling pathways (e.g., Ca$^{2+}$ dynamics, gliotransmitter release), and their observed roles in learning and memory.
+ * Cross-Species Comparisons: Investigate if modeling species-specific differences in astrocyte complexity (e.g., human vs. rodent astrocytes) within HMN leads to different computational capabilities, aligning with evolutionary observations.
+Key References for Astrocyte Integration:
+ * Lefton, K. B., Wu, Y., Dai, Y., Okuda, T., Zhang, Y., Yen, A., Rurak, G. M., Walsh, S., Manno, R., Myagmar, B.-E., Dougherty, J. D., Samineni, V. K., Simpson, P. C., & Papouin, T. (2025). Norepinephrine signals through astrocytes to modulate synapses. Science. (DOI: 10.1126/science.adq5480. Preprint available at bioRxiv).
+ * Kozachkov, L., Slotine, J.-J., & Krotov, D. (2025). Neuron–astrocyte associative memory. Proceedings of the National Academy of Sciences, 122(21), e2417788122.
+7.5 Future Work: Hybrid Architectures – Trans-HMN 🔄
+A highly promising avenue for practical application and scaling is the development of Trans-HMN, a hybrid architecture that synergistically combines the vast knowledge encoded in pre-trained Transformers with the dynamic, online adaptive capabilities of HMN cells.
+Concept:
+The core principle is to leverage a large, pre-trained Transformer (e.g., early to middle layers of models like Llama, GPT, or BERT variants) as a powerful, frozen feature encoder. This Transformer backbone would process input sequences (text, images, etc.) to extract rich, general-purpose representations (e.g., contextualized token embeddings, pooled sequence representations). These representations would then serve as input to one or more subsequent HMN layers. These HMN layers, acting as "neuro-adaptive interfaces" or "plastic adapter modules," would learn online via their intrinsic local plasticity, neuromodulatory feedback (potentially derived from the Transformer's state or external signals), and meta-learned learning rates, tailoring the system's responses to specific downstream tasks, users, or evolving contexts.
+Motivation & Hypothesized Advantages:
+This hybrid approach aims to:
+ * Leverage Pre-trained Knowledge: Capitalize on the strong zero-shot and few-shot generalization capabilities of large Transformers, which have learned a broad model of the data modality.
+ * Enable Efficient, Rapid Adaptation: Allow for fast on-device or user-specific adaptation and continual learning through the HMN layers, without the need for costly and data-intensive fine-tuning or retraining of the entire multi-billion parameter Transformer backbone.
+ * Mitigate Catastrophic Forgetting: Confine most adaptive changes to the HMN layers, thereby preserving the stable, general knowledge encoded in the frozen Transformer core and reducing interference when learning new tasks or information.
+ * Enhance Interpretability & Control: Potentially allow for more interpretable adaptation, as the HMN's learning processes and neuromodulatory influences can be more readily analyzed. Neuromodulatory signals could offer a control point for guiding adaptation.
+ * Resource Efficiency for Personalization: Make personalization and continuous adaptation feasible in resource-constrained environments where full model retraining is impractical.
+Key Research & Evaluation Questions:
+ * Optimal Interface Design: Where in the Transformer architecture should HMN layers be integrated (e.g., after specific blocks, replacing top layers)? What is the optimal depth and width of the HMN component? How should Transformer representations be transformed or pooled before being fed to HMN?
+ * Neuromodulatory Signal Derivation: How can meaningful neuromodulatory signals for the HMN layers be derived? Options include:
+   * From the Transformer's internal states (e.g., attention scores, layer activations indicative of uncertainty or novelty).
+   * From task-specific feedback signals (rewards, errors) not directly used by the frozen Transformer.
+   * From external contextual signals (user state, environmental factors).
+ * Division of Labor: Empirically and theoretically analyze the functional specialization between the frozen Transformer (handling generic structure, syntax, common-sense knowledge) and the plastic HMN layers (capturing context-specific nuances, rapidly changing patterns, user preferences, task-specific mappings).
+ * Benchmark Evaluation:
+   * Few-Shot Personalization: Tasks like Persona-Chat, personalized recommendation, or style adaptation for text generation.
+   * Continual Domain/Task Adaptation: Scenarios like adapting a general news model to scientific articles, or a code generation model to a new programming language, using benchmarks like those from the ContinualAI or CLAW initiatives.
+   * Maintaining General Performance: Assess the ability of Trans-HMN to adapt effectively while preserving (or minimally degrading) the baseline performance of the frozen Transformer on general benchmarks.
+   * Compare against existing parameter-efficient fine-tuning (PEFT) methods like LoRA, Adapters (Houlsby et al., 2019), and prompt tuning, particularly in online/continual settings.
+ * Meta-learning in Hybrid Context: How can the meta-learning of HMN's \eta_{\text{local}} and \eta_{\text{global}} be optimized when HMN is coupled with a fixed, powerful feature extractor? Should the meta-learning objective consider the stability of the Transformer's representations?
+7.6 Future Work: Sparse Activation Models – MoE-HMN 🧩
+To address the escalating computational demands of ever-larger models while increasing representational capacity, exploring sparsity through a Mixture-of-Experts (MoE) architecture integrated with HMN cells (MoE-HMN) presents a compelling research direction.
+Concept:
+In an MoE-HMN, the model would comprise a collection of multiple HMN "expert" sub-networks, each being a smaller, fully plastic HMN system as described in this paper. For each input token, sequence segment, or even an entire input instance, a learnable "router" or "gating" mechanism would dynamically select a sparse subset of these HMN experts (e.g., top-k, where k is much smaller than the total number of experts) to process the input. The outputs of the selected experts would then be combined (e.g., weighted sum based on gating scores) to produce the final output.
+Motivation & Hypothesized Advantages:
+This architecture aims to:
+ * Scalable Capacity with Controlled Compute: Significantly increase the total number of parameters (and thus model capacity) without a proportional increase in inference cost, as only a fraction of the experts are activated per input (cf. Fedus et al., 2022; Shazeer et al., 2017).
+ * Expert Specialization: Allow different HMN experts to specialize in different aspects of the data, such as different topics in text, distinct visual features in images, various languages in multilingual settings, or even different computational strategies for problem-solving.
+ * Enhanced Continual Learning & Adaptation: The modularity of experts could facilitate continual learning by allowing new experts to be added or existing ones to be repurposed for new tasks with potentially less interference with previously learned specializations. The inherent plasticity of HMN experts would support this.
+ * Improved Robustness & Generalization: By having a diverse pool of specialized experts, the model might be more robust to noisy inputs or out-of-distribution data, as different experts might be better suited to handle different types of variations.
+Key Research & Evaluation Questions:
+ * Router Design for Plastic Experts:
+   * How to design routing mechanisms that are effective when experts themselves are continuously changing due to HMN plasticity? Traditional routers are often trained assuming fixed experts.
+   * Should the router consider the "learning state," "plastic capacity," or "confidence" of an expert when making routing decisions?
+   * How to ensure load balancing across experts to prevent a few experts from being over-utilized while others are neglected, especially during early stages of learning or when task distributions shift? This might require novel regularization terms for the router that promote exploration or consider expert utility. (Recent work on "Plasticity-Aware MoE" by Liu et al., 2025, touches on related concepts).
+ * Neuromodulation and Meta-Learning in MoE-HMN:
+   * How should global neuromodulatory signals be applied? Uniformly to all active experts? Or should there be expert-specific neuromodulation, perhaps guided by the router or the expert's specialization?
+   * Should the meta-learning of \eta_{\text{local}} and \eta_{\text{global}} be done per expert, or globally for all experts, or a hybrid?
+ * Expert Lifecycle Management: In continual learning settings, how to manage the lifecycle of experts? When to add new experts? Can underutilized or redundant experts be pruned or merged?
+ * Benchmark Evaluation:
+   * Multilingual Adaptation/Processing: Tasks like FLORES-200, where experts could specialize in language families or specific languages.
+   * Multi-Domain Learning: Training on diverse datasets (e.g., text, code, images) where experts specialize by modality or domain.
+   * Robustness to Adversarial or Noisy Inputs: Assess if the distributed expertise makes the model more resilient.
+   * Measure adaptation latency and performance when introducing novel data types or tasks that require new expert specializations.
+ * Interaction between Router Stability and Expert Plasticity: Analyze the co-evolution of the router and the experts. A stable router might hinder adaptation if it keeps sending new types of data to ill-suited (but previously optimal) experts. Conversely, a highly plastic router might lead to training instability (cf. Roller et al., 2022; Riquelme et al., 2021).
+7.7 Future Work: Efficient Long-Context Models – Mamba-HMN 🐍
+To enable HMNs to effectively process and learn from very long sequences while maintaining computational tractability, fusing HMN cells with efficient sequence modeling backbones like Selective State-Space Models (SSMs), exemplified by Mamba (Gu & Dao, 2023), to create Mamba-HMN models, is a highly promising research direction.
+Concept:
+Mamba-HMN would leverage an SSM stack (e.g., Mamba blocks) as its primary mechanism for efficiently processing long input sequences and capturing long-range dependencies with linear or near-linear time complexity with respect to sequence length. The core idea is that the SSM layers can generate a compressed, time-varying, and selective summary of the long-term context, let's call this G_t^{\text{SSM}}. This G_t^{\text{SSM}} (or derivatives thereof) would then be used as a powerful, vector-valued neuromodulatory signal for subsequent HMN layers. These HMN layers would operate on local sequence segments or the SSM's outputs, performing rapid, context-sensitive adaptation based on their intrinsic plasticity, modulated by the long-range contextual information provided by G_t^{\text{SSM}}.
+Motivation & Hypothesized Advantages:
+This hybrid approach seeks to:
+ * Combine Long-Context Efficiency with Online Adaptability: Marry the linear-time scaling and impressive long-context capabilities of SSMs (handling sequences of 1M+ tokens) with the online weight adaptation, personalization, and bio-inspired learning mechanisms of HMN cells.
+ * Create a Hierarchical Temporal Memory System:
+   * SSM Layer: Efficiently manages, compresses, and selectively propagates information about the slowly evolving global context and long-range dependencies.
+   * HMN Layer: Performs rapid adaptation to local nuances, immediate history, and specific task demands, guided by the broad contextual understanding provided by the SSM.
+ * Context-Sensitive Plasticity Modulation: Use the SSM-derived global context G_t^{\text{SSM}} to dynamically modulate the learning rates (\eta_{\text{local}}, \eta_{\text{global}}), attention mechanisms, or even the activation functions within the HMN layers, making HMN's adaptation sensitive to the broader discourse or environmental state.
+ * Improved Sample Efficiency in Long-Horizon Tasks: By providing a more informative and compressed representation of long-term history, the SSM could help the HMN make more effective credit assignments in RL tasks with very delayed rewards or learn complex sequential patterns more quickly.
+Key Research & Evaluation Questions:
+ * Formalizing the SSM-HMN Coupling:
+   * How exactly should the SSM's state or output (G_t^{\text{SSM}}) influence HMN plasticity?
+     * As a direct additive or multiplicative component in the neuromodulatory signal G_{\text{eff}}(t)?
+     * By gating or scaling the meta-learned learning rates \eta_{\text{local}} and \eta_{\text{global}}?
+     * By shaping the synaptic attention weights \alpha_{ij} or modulatory attention \gamma_k within HMN?
+     * By influencing the parameters of the HMN's oscillatory gating mechanism?
+   * What is the optimal granularity of interaction (e.g., token-level, segment-level)?
+ * Information Flow and Representation: How is information transformed and abstracted as it flows from the SSM layers to the HMN layers? Do the HMN layers learn to exploit specific aspects of the SSM's compressed state?
+ * Benchmark Evaluation:
+   * Long-Context Language Modeling: Tasks like PG-19, Books3, or custom long-document datasets.
+   * Long-Range Question Answering/Summarization: Benchmarks like NarrativeQA, QuALITY, or ELI5, where understanding dependencies across thousands of tokens is crucial.
+   * Continual Learning on Long Sequences: Scenarios involving evolving narratives, codebases, or time-series data where both long-term consistency and adaptation to new patterns are vital.
+ * Stability and Training Dynamics: Analyze the stability of such coupled systems. How does the influence of the dynamic G_t^{\text{SSM}} (which itself is learning or adapting) on HMN's learning parameters impact overall model convergence and stability? Are there specific initialization or regularization strategies needed?
+ * Comparison with other Long-Context Architectures: How does Mamba-HMN compare to other long-context Transformers (e.g., Longformer, BigBird) or Transformer+SSM hybrids, especially in terms of online adaptation capabilities and computational efficiency during learning?
+These future directions—astrocyte integration, Trans-HMN, MoE-HMN, and Mamba-HMN—represent ambitious but potentially highly impactful pathways to advance the HMN framework. They aim to enhance its biological plausibility, scalability, efficiency, and applicability to a wider range of complex, real-world AI challenges, pushing the boundaries of what biologically-inspired learning can achieve in advanced artificial intelligence systems.
+
+
+
