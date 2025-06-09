@@ -5885,7 +5885,7 @@ import datetime
 import logging
 import asyncio
 import threading
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Callable
 
 import numpy as np
 import torch
@@ -6154,19 +6154,44 @@ class CircadianSleepProcessesSimulator:
     Orchestrates all circadian and sleep–related processes by tying together TimeDecay,
     SpacedRepetition, and MemoryConsolidationThread. It provides start/stop interfaces and
     reports the current circadian state while notifying connected modules (e.g. EFM) when
-    entering/exiting sleep mode.
+    entering/exiting sleep mode. Other modules can register callbacks to receive
+    circadian updates in real time.
     """
-    def __init__(self, config_manager: ConfigManager, memory_system: Any, efm: Optional[Any] = None):
+    def __init__(
+        self,
+        config_manager: ConfigManager,
+        memory_system: Any,
+        efm: Optional[Any] = None,
+        dssm: Optional[Any] = None,
+    ):
         self.config_manager = config_manager
         self.logger = config_manager.setup_logger("CSPS")
         self.memory_system = memory_system
         self.efm = efm
+        self.dssm = dssm
         self.time_decay = TimeDecay(config_manager)
         self.spaced_repetition = SpacedRepetition(config_manager)
         self.consolidation_thread = MemoryConsolidationThread(
             memory_system, self.spaced_repetition, config_manager, self.time_decay, efm
         )
         self.running = False
+        self.listeners: List[Callable[[Dict[str, Any]], None]] = []
+
+        if self.efm and hasattr(self.efm, "update_circadian_state"):
+            self.register_listener(self.efm.update_circadian_state)
+        if self.dssm and hasattr(self.dssm, "update_circadian_state"):
+            self.register_listener(self.dssm.update_circadian_state)
+
+    def register_listener(self, listener: Callable[[Dict[str, Any]], None]) -> None:
+        if callable(listener):
+            self.listeners.append(listener)
+
+    def notify_listeners(self, state: Dict[str, Any]) -> None:
+        for listener in list(self.listeners):
+            try:
+                listener(state)
+            except Exception as e:
+                self.logger.error(f"Circadian listener error: {e}", exc_info=True)
 
     def start(self) -> None:
         self.logger.info("Starting CircadianSleepProcessesSimulator.")
@@ -6198,13 +6223,15 @@ class CircadianSleepProcessesSimulator:
                     sleep_start_dt += datetime.timedelta(days=1)
                 time_until_phase = (sleep_start_dt - now).total_seconds()
                 next_phase = "sleep"
-            return {
+            state = {
                 "multiplier": multiplier,
                 "is_nighttime": is_night,
                 "time_until_next_phase": time_until_phase,
                 "next_phase": next_phase,
                 "current_time": now.isoformat()
             }
+            self.notify_listeners(state)
+            return state
         except Exception as e:
             self.logger.error(f"Error getting circadian state: {e}", exc_info=True)
             return {"multiplier": 1.0, "is_nighttime": False, "time_until_next_phase": 0, "next_phase": "unknown"}
@@ -6259,9 +6286,38 @@ if __name__ == "__main__":
         async def replay_memory(self, memory: Dict[str, Any]):
             print(f"Replaying memory: {memory.get('content', '')}")
 
+    class DummyEFM:
+        def __init__(self):
+            self.circadian_multiplier = 1.0
+            self.sleep_mode = False
+        def update_circadian_state(self, state: Dict[str, Any]) -> None:
+            self.circadian_multiplier = state.get("multiplier", 1.0)
+            self.sleep_mode = state.get("is_nighttime", False)
+            print(f"EFM received circadian update: {state}")
+        def enter_sleep_mode(self):
+            self.sleep_mode = True
+            print("EFM entering sleep mode")
+        def exit_sleep_mode(self):
+            self.sleep_mode = False
+            print("EFM exiting sleep mode")
+
+    class DummyDSSM:
+        def __init__(self):
+            self.circadian_multiplier = 1.0
+        def update_circadian_state(self, state: Dict[str, Any]) -> None:
+            self.circadian_multiplier = state.get("multiplier", 1.0)
+            print(f"DSSM received circadian update: {state}")
+
     dummy_cm = DummyConfigManager()
     dummy_memory = DummyMemorySystem()
-    csps = CircadianSleepProcessesSimulator(config_manager=dummy_cm, memory_system=dummy_memory)
+    dummy_efm = DummyEFM()
+    dummy_dssm = DummyDSSM()
+    csps = CircadianSleepProcessesSimulator(
+        config_manager=dummy_cm,
+        memory_system=dummy_memory,
+        efm=dummy_efm,
+        dssm=dummy_dssm,
+    )
     csps.start()
     state = csps.get_current_circadian_state()
     print("Current circadian state:", state)
@@ -6271,8 +6327,10 @@ if __name__ == "__main__":
 
 
 #############################################################################
-integrate CPSP module into system and connect its outputs (e.g. the current circadian multiplier, sleep notifications) to other modules such as the Executive Function Module and the Dynamic State Space Model.
-##############################################################################
+# CPSP outputs are now propagated to other modules via callback registration in
+# CircadianSleepProcessesSimulator. Example usage is demonstrated in the test
+# script above where DummyEFM and DummyDSSM receive updates.
+#############################################################################
 
 # dynamic_state_space_model.py (DSSM)
 
@@ -6654,7 +6712,8 @@ class DSSM(nn.Module):
         config_manager: ConfigManager,
         device: Optional[torch.device] = None,
         dmns: Optional[Any] = None,
-        emm: Optional[Any] = None
+        emm: Optional[Any] = None,
+        csps: Optional[Any] = None
     ):
         """
         Dynamic State Space Model (DSSM)
@@ -6676,6 +6735,9 @@ class DSSM(nn.Module):
         self.device = device if device is not None else torch.device("cpu")
         self.dmns = dmns
         self.emm = emm
+        self.current_circadian_multiplier = 1.0
+        if csps is not None and hasattr(csps, "register_listener"):
+            csps.register_listener(self.update_circadian_state)
 
         # Load state-space configuration.
         sscfg = self.config_manager.get_subsystem_config("state_space_model") or {}
@@ -6790,11 +6852,19 @@ class DSSM(nn.Module):
         self.to(self.device)
         self.logger.info("DSSM fully initialized and running on device: {}".format(self.device))
 
+    def update_circadian_state(self, state: Dict[str, Any]) -> None:
+        """Update internal multiplier based on circadian state."""
+        self.current_circadian_multiplier = state.get("multiplier", 1.0)
+        self.logger.debug(
+            f"DSSM circadian multiplier updated to {self.current_circadian_multiplier:.3f}"
+        )
+
     def _fx_with_selection(self, x: torch.Tensor, dt: float) -> torch.Tensor:
         """
         State transition function that applies a selective transformation and time-dependent dynamics.
         """
         try:
+            dt = dt * self.current_circadian_multiplier
             new_x = torch.empty_like(x, device=self.device)
             primary = x[:self.dim]
             aux = x[self.dim:2*self.dim]
@@ -8933,6 +9003,10 @@ class ExecutiveFunctionModule(nn.Module):
         # For meta–learning, we expect performance signals to be in [0, 1] (with 1 being optimal).
         self.performance_signal: float = 0.5  # Default neutral performance.
 
+        # Circadian information propagated from the CSPS
+        self.circadian_multiplier: float = 1.0
+        self.sleep_mode: bool = False
+
         self.logger.info("ExecutiveFunctionModule initialized on device: {}".format(self.device))
 
     # -------------------------------------------------------------------------
@@ -8955,6 +9029,25 @@ class ExecutiveFunctionModule(nn.Module):
         """
         self.goal_manager = goal_manager
         self.logger.info("Goal Manager integrated into EFM.")
+
+    # -----------------------------------------------------------------
+    # Circadian Integration Methods
+    # -----------------------------------------------------------------
+    def update_circadian_state(self, state: Dict[str, Any]) -> None:
+        """Receive circadian updates from the CSPS."""
+        self.circadian_multiplier = state.get("multiplier", 1.0)
+        self.sleep_mode = bool(state.get("is_nighttime", False))
+        self.logger.debug(
+            f"EFM circadian update: multiplier={self.circadian_multiplier:.3f}, sleep={self.sleep_mode}"
+        )
+
+    def enter_sleep_mode(self) -> None:
+        self.sleep_mode = True
+        self.logger.info("EFM entering sleep mode.")
+
+    def exit_sleep_mode(self) -> None:
+        self.sleep_mode = False
+        self.logger.info("EFM exiting sleep mode.")
 
     # -------------------------------------------------------------------------
     # Advanced Task Scheduling Methods
