@@ -31,7 +31,7 @@ pyyaml
 pygame
 soundfile
 sounddevice
-ffmpg
+ffmpeg
 noisereduce
 pydub
 
