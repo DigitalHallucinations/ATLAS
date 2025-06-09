@@ -331,6 +331,13 @@ async def main():
             "im_channel": "interoceptive_signals",
             "alert_channel": "interoceptive_alerts"
         },
+        "ccs": {
+            "global_workspace_channel": "global_workspace",
+            "idle_timeout": 5.0
+        },
+        "dmns": {
+            "idle_processing_interval": 5.0
+        },
         "social_cognition": {
             "agent_embedding_dim": 128,
             "tom_input_dim": 64,
@@ -359,13 +366,36 @@ async def main():
     dssm = DSSM(provider_manager=None, config_manager=config_manager, device=device)
     await dssm.initialize()
     efm = ExecutiveFunctionModule(config_manager, ncb=ncb, device=device)
-    # Start EFM with realistic external signals and performance measure providers
     await efm.start(lambda: torch.zeros((1, 16), device=device), lambda: 0.6)
-    agm = AGM(state_dim=256, num_options=5, num_actions=10, option_embed_dim=64, device=device, emom=emom)
+
+    emm = EMM(state_model=dssm, provider_manager=None, config_manager=config_manager, ncb=ncb, emom=emom)
+    await emm.initialize()
+
+    thread_orch = ThreadOrchestrator()
+    goal_manager = GoalManager(thread_orchestrator=thread_orch, config_manager=config_manager)
+    efm.set_goal_manager(goal_manager)
+
     # For the language model, assume provider_manager is integrated in production
-    elm = EnhancedLanguageModel(provider_manager=None, memory_system=None, config_manager=config_manager, efm=efm)
+    elm = EnhancedLanguageModel(provider_manager=None, memory_system=emm, config_manager=config_manager, efm=efm)
+
+    dmns = DefaultModeNetworkSimulator(config_manager=config_manager, ncb=ncb, emm=emm, provider_manager=None, efm=efm, device=device)
+
+    ccs = ContinuousConsciousnessStream(
+        config_manager=config_manager,
+        ncb=ncb,
+        state_model=dssm,
+        memory_system=emm,
+        efm=efm,
+        goal_manager=goal_manager,
+        response_generator=elm,
+        dmns=dmns,
+    )
+    emm.set_consciousness_stream(ccs)
+
     dps = DevelopmentalProcessSimulator(config_manager, ncb=ncb, efm=efm, dssm=dssm, emom=emom, elm=elm, dar=None)
     await dps.start()
+    await dmns.start()
+    await ccs.start()
     im_system = InteroceptiveSystem(config_manager, ncb=ncb, efm=efm, update_interval=5.0)
     await im_system.start()
     sc_module = SocialCognitionModule(config_manager, ncb=ncb, efm=efm, elm=elm, dssm=dssm, emom=emom, dar=None, device=device)
@@ -401,6 +431,9 @@ async def main():
         logger.info(f"Episode {episode+1} completed.")
     
     # Gracefully stop all modules
+    await ccs.stop()
+    await dmns.stop()
+    await emm.close()
     await ns.stop()
     await dps.stop()
     await im_system.stop()
@@ -6270,9 +6303,11 @@ if __name__ == "__main__":
     csps.stop()
 
 
-#############################################################################
-integrate CPSP module into system and connect its outputs (e.g. the current circadian multiplier, sleep notifications) to other modules such as the Executive Function Module and the Dynamic State Space Model.
-##############################################################################
+# -----------------------------------------------------------------------------
+# integrate CPSP module into system and connect its outputs (e.g. the current
+# circadian multiplier, sleep notifications) to other modules such as the
+# Executive Function Module and the Dynamic State Space Model.
+# -----------------------------------------------------------------------------
 
 # dynamic_state_space_model.py (DSSM)
 
