@@ -449,28 +449,55 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 # Adjust to your project’s config manager path:
-# from modules.Config.config import ConfigManager 
-# Assuming a placeholder if the exact path is not available in this context for direct execution
-class ConfigManager: # Placeholder
-    def __init__(self, config_dict=None):
-        self.config = config_dict if config_dict is not None else {}
-        self.logger = logging.getLogger("DefaultConfigManagerLogger")
-        if not self.logger.hasHandlers():
+# from modules.Config.config import ConfigManager
+
+
+class ConfigManager:
+    """Simple configuration helper with optional file loading."""
+
+    def __init__(self, config_dict: Optional[Dict[str, Any]] = None, config_path: Optional[str] = None):
+        self.logger = logging.getLogger("ConfigManager")
+        if not self.logger.handlers:
             handler = logging.StreamHandler()
-            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
             self.logger.setLevel(logging.INFO)
 
+        self.config: Dict[str, Any] = {}
+        if config_dict:
+            self.config.update(config_dict)
+        if config_path:
+            self._load_from_file(config_path)
+
+    def _load_from_file(self, path: str) -> None:
+        """Load configuration from a JSON or YAML file."""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                if path.endswith(".json"):
+                    self.config.update(json.load(f))
+                else:
+                    try:
+                        import yaml  # type: ignore
+                    except Exception as e:  # pragma: no cover - YAML optional
+                        self.logger.error("PyYAML required for YAML config: %s", e)
+                        return
+                    self.config.update(yaml.safe_load(f))
+            self.logger.info("Loaded configuration from %s", path)
+        except FileNotFoundError:
+            self.logger.error("Config file %s not found", path)
+        except Exception as exc:
+            self.logger.error("Failed reading %s: %s", path, exc, exc_info=True)
+
     def get_subsystem_config(self, name: str) -> Dict[str, Any]:
         return self.config.get(name, {})
 
-    def setup_logger(self, name: str, level=logging.INFO) -> logging.Logger:
+    def setup_logger(self, name: str, level: int = logging.INFO) -> logging.Logger:
         logger = logging.getLogger(name)
-        if not logger.hasHandlers(): # Avoid adding multiple handlers if already configured
+        if not logger.handlers:
             handler = logging.StreamHandler()
             formatter = logging.Formatter(
-                f"[%(asctime)s] %(levelname)s - {name} - %(filename)s:%(lineno)d - %(message)s"
+                "[%(asctime)s] %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s"
             )
             handler.setFormatter(formatter)
             logger.addHandler(handler)
@@ -6270,9 +6297,11 @@ if __name__ == "__main__":
     csps.stop()
 
 
-#############################################################################
-integrate CPSP module into system and connect its outputs (e.g. the current circadian multiplier, sleep notifications) to other modules such as the Executive Function Module and the Dynamic State Space Model.
-##############################################################################
+###############################################################################
+# Integrate the CPSP module into the system and connect its outputs (e.g., the
+# current circadian multiplier or sleep notifications) to other modules such as
+# the Executive Function Module and the Dynamic State Space Model.
+###############################################################################
 
 # dynamic_state_space_model.py (DSSM)
 
