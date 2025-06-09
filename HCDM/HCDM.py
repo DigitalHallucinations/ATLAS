@@ -5138,6 +5138,8 @@ class EMM:
             async with aiofiles.open(self.file_path, 'w') as outfile:
                 await outfile.write(json.dumps(data, indent=2))
             self.logger.info(f"Memory saved to {self.file_path}")
+            # Immediately create a timestamped backup after each successful save
+            await self._backup_memory()
         except Exception as e:
             self.logger.error(f"Error saving memory: {e}", exc_info=True)
 
@@ -5146,12 +5148,28 @@ class EMM:
         Create a backup copy of the memory file.
         """
         try:
-            backup_path = self.file_path + ".bak"
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            backup_path = f"{self.file_path}.{timestamp}.bak"
             async with aiofiles.open(self.file_path, 'r') as infile:
                 text_data = await infile.read()
             async with aiofiles.open(backup_path, 'w') as outfile:
                 await outfile.write(text_data)
             self.logger.info(f"Backup of memory created at {backup_path}")
+
+            # Keep only the 5 most recent backups to avoid uncontrolled growth
+            dir_name = os.path.dirname(self.file_path)
+            base = os.path.basename(self.file_path)
+            pattern = f"{base}."  # base filename with trailing dot
+            backups = sorted(
+                [f for f in os.listdir(dir_name) if f.startswith(pattern) and f.endswith('.bak')]
+            )
+            if len(backups) > 5:
+                for old in backups[:-5]:
+                    try:
+                        os.remove(os.path.join(dir_name, old))
+                        self.logger.debug(f"Removed old backup {old}")
+                    except Exception as rm_err:
+                        self.logger.error(f"Error removing old backup {old}: {rm_err}", exc_info=True)
         except Exception as e:
             self.logger.error(f"Error during memory backup: {e}", exc_info=True)
 
@@ -5289,6 +5307,8 @@ class EMM:
                 content_str = m.get('content', '')
                 consolidated_content = f"Consolidated: {content_str}"
                 await self.long_term_episodic.add(consolidated_content, context_vector)
+                if self.ncb:
+                    await self.publish_to_ncb({"content": consolidated_content, "context": context_vector.tolist()})
             self.short_term.clear()
             self.intermediate.clear()
             await self._save_memory()
@@ -5401,6 +5421,51 @@ class EMM:
         except Exception as e:
             self.logger.error(f"Error in get_recent_context: {e}", exc_info=True)
             return ""
+
+    async def retrieve_by_context(self, query: str, top_k: int = 5, emotion_weight: float = 0.2) -> List[Dict[str, Any]]:
+        """Retrieve memories relevant to the query and current affective state."""
+        if not self.long_term_episodic or not hasattr(self.long_term_episodic, "episodes"):
+            return []
+        try:
+            query_vec = self._convert_to_tensor(query, dim=256).to(
+                self.state_model.device if self.state_model else "cpu"
+            )
+            if self.context_retrieval:
+                current_context = await self.context_retrieval.get_context_vector()
+            else:
+                current_context = query_vec
+
+            if self.emom:
+                ext_signal = self.provider_manager.huggingface_generator.transformer_encode(query)
+                if not isinstance(ext_signal, torch.Tensor):
+                    ext_signal = torch.tensor(ext_signal, dtype=torch.float32, device=self.emom.device)
+                int_signal = torch.ones((1, 10), dtype=torch.float32, device=self.emom.device) * 0.5
+                em_state = self.emom(ext_signal, int_signal).squeeze(0)
+            else:
+                em_state = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
+
+            scored: List[Tuple[float, Dict[str, Any]]] = []
+            for ep in self.long_term_episodic.episodes:
+                ctx = ep.get("context")
+                if ctx is None:
+                    ctx = torch.zeros_like(current_context)
+                elif isinstance(ctx, list):
+                    ctx = torch.tensor(ctx, dtype=torch.float32, device=current_context.device)
+                ctx = ctx.to(current_context.device)
+                sim = F.cosine_similarity(ctx.unsqueeze(0), current_context.unsqueeze(0), dim=1).item()
+
+                emo = ep.get("emotional_state", [0.5, 0.5, 0.5])
+                emo = torch.tensor(emo, dtype=torch.float32, device=em_state.device)
+                emo_sim = F.cosine_similarity(emo.unsqueeze(0), em_state.unsqueeze(0), dim=1).item()
+
+                score = sim * (1 - emotion_weight) + emo_sim * emotion_weight
+                scored.append((score, ep))
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return [item for (_, item) in scored[:top_k]]
+        except Exception as e:
+            self.logger.error(f"Error retrieving by context: {e}", exc_info=True)
+            return []
 
     def get_state_vector(self) -> List[float]:
         """
@@ -6270,9 +6335,11 @@ if __name__ == "__main__":
     csps.stop()
 
 
-#############################################################################
-integrate CPSP module into system and connect its outputs (e.g. the current circadian multiplier, sleep notifications) to other modules such as the Executive Function Module and the Dynamic State Space Model.
-##############################################################################
+###############################################################################
+# integrate CPSP module into system and connect its outputs (e.g. the current
+# circadian multiplier, sleep notifications) to other modules such as the
+# Executive Function Module and the Dynamic State Space Model.
+###############################################################################
 
 # dynamic_state_space_model.py (DSSM)
 
