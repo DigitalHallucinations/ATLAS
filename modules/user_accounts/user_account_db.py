@@ -7,7 +7,8 @@ from modules.logging.logger import setup_logger
 
 class UserAccountDatabase:
     def __init__(self, db_name="User.db"):
-        self.config_manager = ConfigManager
+        # Instantiate ConfigManager instead of referencing the class directly
+        self.config_manager = ConfigManager()
         self.logger = setup_logger(__name__)
 
         root_dir = os.path.dirname(os.path.abspath(__file__)) 
