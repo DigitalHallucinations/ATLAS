@@ -7,7 +7,7 @@ import threading
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QFrame
 )
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QPixmap, QIcon
 
 class ChatPage(QMainWindow):
@@ -59,6 +59,22 @@ class ChatPage(QMainWindow):
         self.input_entry.setPlaceholderText("Type a message...")
         self.input_entry.returnPressed.connect(self.on_send_message)
         input_hbox.addWidget(self.input_entry)
+
+        mic_button = QPushButton()
+        mic_button.setFixedSize(32, 32)
+        try:
+            mic_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Icons/microphone.png"))
+            if os.path.exists(mic_path):
+                mic_pix = QPixmap(mic_path)
+                mic_button.setIcon(QIcon(mic_pix))
+                mic_button.setIconSize(mic_pix.size().scaled(24, 24, Qt.KeepAspectRatio))
+            else:
+                mic_button.setText("Mic")
+        except Exception as e:
+            print(f"Error loading mic icon: {e}")
+            mic_button.setText("Mic")
+        mic_button.clicked.connect(self.on_mic_button_click)
+        input_hbox.addWidget(mic_button)
 
         send_button = QPushButton()
         send_button.setFixedSize(32, 32)
@@ -127,6 +143,26 @@ class ChatPage(QMainWindow):
                 daemon=True
             ).start()
 
+    def on_mic_button_click(self):
+        stt = self.ATLAS.speech_manager.active_stt
+        if not stt:
+            self.ATLAS.logger.error("No active STT service configured.")
+            return
+        if not getattr(stt, 'recording', False):
+            self.status_label.setText("Listening...")
+            self.ATLAS.speech_manager.listen()
+        else:
+            self.ATLAS.speech_manager.stop_listening()
+
+            def transcribe_and_update():
+                audio_file = getattr(stt, 'audio_file', 'output.wav')
+                transcript = stt.transcribe(audio_file)
+                QTimer.singleShot(0, lambda: self.input_entry.setText(transcript.strip()))
+                QTimer.singleShot(0, lambda: self.status_label.setText("Transcription complete."))
+                QTimer.singleShot(3000, self.update_status_bar)
+
+            threading.Thread(target=transcribe_and_update, daemon=True).start()
+
     def handle_model_response_thread(self, message):
         """
         Handles the model response in a separate thread to avoid blocking the UI.
@@ -135,6 +171,7 @@ class ChatPage(QMainWindow):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             response = loop.run_until_complete(self.chat_session.send_message(message))
+            loop.run_until_complete(self.ATLAS.speech_manager.text_to_speech(response))
             loop.close()
 
             persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
@@ -191,10 +228,23 @@ class ChatPage(QMainWindow):
         )
 
     def update_status_bar(self, provider=None, model=None):
-        """
-        Updates the status label with the current provider and model.
-        """
-        provider = provider or self.ATLAS.provider_manager.get_current_provider()
-        model = model or self.ATLAS.provider_manager.get_current_model() or "No model selected"
-        status_message = f"Provider: {provider} | Model: {model}"
+        """Update status label with LLM and TTS info."""
+        llm_provider = self.ATLAS.provider_manager.get_current_provider()
+        llm_model = self.ATLAS.provider_manager.get_current_model() or "No model selected"
+
+        tts_provider = self.ATLAS.speech_manager.get_default_tts_provider() or "None"
+        tts = self.ATLAS.speech_manager.active_tts
+        tts_voice = "Not Set"
+        if tts:
+            if hasattr(tts, "get_current_voice") and callable(getattr(tts, "get_current_voice")):
+                tts_voice = tts.get_current_voice()
+            elif hasattr(tts, "voice_ids") and tts.voice_ids:
+                tts_voice = tts.voice_ids[0].get('name', "Not Set")
+            elif hasattr(tts, "voice") and tts.voice is not None:
+                tts_voice = tts.voice.name
+
+        status_message = (
+            f"LLM: {llm_provider} | Model: {llm_model} | "
+            f"TTS: {tts_provider} (Voice: {tts_voice})"
+        )
         self.status_label.setText(status_message)

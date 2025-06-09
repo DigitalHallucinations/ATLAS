@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PS6UI.Chat.chat_page import ChatPage
 from PS6UI.Persona_manager.persona_management import PersonaManagement
 from PS6UI.Provider_manager.provider_management import ProviderManagement
+from PS6UI.Settings.Speech.speech_settings import SpeechSettings
 
 class Sidebar(QMainWindow):
     def __init__(self, atlas):
@@ -54,6 +55,7 @@ class Sidebar(QMainWindow):
         self.create_icon("Icons/providers.png", self.show_provider_menu, 42)
         self.create_icon("Icons/history.png", self.handle_history_button, 42)
         self.create_icon("Icons/chat.png", self.show_chat_page, 42)
+        self.create_icon("Icons/speech.png", self.show_speech_settings, 42)
         self.create_icon("Icons/agent.png", self.show_persona_menu, 42)
 
         # Separator
@@ -105,6 +107,13 @@ class Sidebar(QMainWindow):
             chat_page = ChatPage(self.ATLAS)
             self.ATLAS.chat_page = chat_page  # Store reference to chat_page
             chat_page.show()
+        else:
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+
+    def show_speech_settings(self):
+        if self.ATLAS.is_initialized():
+            dlg = SpeechSettings(self.ATLAS)
+            dlg.exec()
         else:
             self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
 
