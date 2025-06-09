@@ -356,12 +356,13 @@ async def main():
     # Initialize core modules with deep integration
     ns = NeuromodulatorySystem(config_manager, ncb=ncb, device=device)
     emom = EMoM(config_manager, external_input_dim=50, internal_input_dim=10, affective_state_dim=3, hidden_dims=[128,64], device=device)
-    dssm = DSSM(provider_manager=None, config_manager=config_manager, device=device)
+    dssm = DSSM(provider_manager=None, config_manager=config_manager, device=device, agm=None, num_actions=10)
     await dssm.initialize()
     efm = ExecutiveFunctionModule(config_manager, ncb=ncb, device=device)
     # Start EFM with realistic external signals and performance measure providers
     await efm.start(lambda: torch.zeros((1, 16), device=device), lambda: 0.6)
     agm = AGM(state_dim=256, num_options=5, num_actions=10, option_embed_dim=64, device=device, emom=emom)
+    dssm.agm = agm
     # For the language model, assume provider_manager is integrated in production
     elm = EnhancedLanguageModel(provider_manager=None, memory_system=None, config_manager=config_manager, efm=efm)
     dps = DevelopmentalProcessSimulator(config_manager, ncb=ncb, efm=efm, dssm=dssm, emom=emom, elm=elm, dar=None)
@@ -392,8 +393,13 @@ async def main():
             logger.info(f"Episode {episode+1}: Option {selected_option}, Action {selected_action}")
             # Execute action in the environment
             next_state_np, reward, done, info = await env.async_step(selected_action)
-            # Update DSSM with feedback
-            await dssm.update({"reward": reward})
+            # Update DSSM with environment feedback and action
+            await dssm.update(
+                {"timestamp": time.time()},
+                reward=reward,
+                action=selected_action,
+                env_state=next_state_np,
+            )
             # Publish RL info to the global workspace
             await ncb.publish("global_workspace", {"episode": episode+1, "action": selected_action, "reward": reward})
             state_np = next_state_np
@@ -6271,7 +6277,9 @@ if __name__ == "__main__":
 
 
 #############################################################################
-integrate CPSP module into system and connect its outputs (e.g. the current circadian multiplier, sleep notifications) to other modules such as the Executive Function Module and the Dynamic State Space Model.
+# integrate CPSP module into system and connect its outputs (e.g. the current
+# circadian multiplier, sleep notifications) to other modules such as the
+# Executive Function Module and the Dynamic State Space Model.
 ##############################################################################
 
 # dynamic_state_space_model.py (DSSM)
@@ -6654,7 +6662,9 @@ class DSSM(nn.Module):
         config_manager: ConfigManager,
         device: Optional[torch.device] = None,
         dmns: Optional[Any] = None,
-        emm: Optional[Any] = None
+        emm: Optional[Any] = None,
+        agm: Optional[Any] = None,
+        num_actions: int = 0,
     ):
         """
         Dynamic State Space Model (DSSM)
@@ -6676,6 +6686,16 @@ class DSSM(nn.Module):
         self.device = device if device is not None else torch.device("cpu")
         self.dmns = dmns
         self.emm = emm
+        self.agm = agm
+
+        self.num_actions = num_actions or (getattr(self.agm, "num_actions", 0) if self.agm else 0)
+        if self.num_actions > 0:
+            self.action_embeddings = nn.Embedding(self.num_actions, self.dim).to(self.device)
+        else:
+            self.action_embeddings = None
+
+        self.last_action: Optional[int] = None
+        self.last_env_state: Optional[torch.Tensor] = None
 
         # Load state-space configuration.
         sscfg = self.config_manager.get_subsystem_config("state_space_model") or {}
@@ -6790,6 +6810,28 @@ class DSSM(nn.Module):
         self.to(self.device)
         self.logger.info("DSSM fully initialized and running on device: {}".format(self.device))
 
+    def connect_agm(self, agm: Any, num_actions: Optional[int] = None) -> None:
+        """Connect an Action Generation Module (AGM) for closed-loop control."""
+        self.agm = agm
+        if num_actions is not None:
+            self.num_actions = num_actions
+        else:
+            self.num_actions = getattr(agm, "num_actions", 0)
+        if self.num_actions > 0:
+            self.action_embeddings = nn.Embedding(self.num_actions, self.dim).to(self.device)
+        else:
+            self.action_embeddings = None
+        self.logger.info(f"AGM connected with {self.num_actions} actions")
+
+    async def async_select_action(self, temperature: Optional[float] = None) -> Tuple[int, int]:
+        """Select an action using the connected AGM and current DSSM state."""
+        if self.agm is None:
+            raise RuntimeError("AGM not connected")
+        state = self.ukf_module.x[:self.dim].unsqueeze(0)
+        option, action, *_ = await self.agm.async_select_action(state, temperature)
+        self.last_action = int(action)
+        return int(option), int(action)
+
     def _fx_with_selection(self, x: torch.Tensor, dt: float) -> torch.Tensor:
         """
         State transition function that applies a selective transformation and time-dependent dynamics.
@@ -6804,7 +6846,14 @@ class DSSM(nn.Module):
             selective_branch = x[5*self.dim:6*self.dim]
             scalars = x[-8:]
 
-            selective_out = self.selective_ssm(primary)
+            action_effect = torch.zeros(self.dim, device=self.device)
+            if self.action_embeddings is not None and self.last_action is not None:
+                try:
+                    idx = torch.tensor([self.last_action], device=self.device)
+                    action_effect = self.action_embeddings(idx).squeeze(0)
+                except Exception as e:
+                    self.logger.error(f"Error using action embedding: {e}", exc_info=True)
+            selective_out = self.selective_ssm(primary + action_effect)
             if self.emm is not None and hasattr(self.emm, "get_gating_signal"):
                 gating = self.emm.get_gating_signal()
                 if gating.numel() == self.dim:
@@ -6900,7 +6949,13 @@ class DSSM(nn.Module):
         except Exception as e:
             self.logger.error(f"Error setting consciousness level: {e}", exc_info=True)
 
-    async def update(self, data: Dict[str, Any], reward: Optional[float] = None) -> Dict[str, Any]:
+    async def update(
+        self,
+        data: Dict[str, Any],
+        reward: Optional[float] = None,
+        action: Optional[int] = None,
+        env_state: Optional[Any] = None,
+    ) -> Dict[str, Any]:
         """
         Perform a full update of the DSSM:
           1. Prepares inputs using external content.
@@ -6912,7 +6967,22 @@ class DSSM(nn.Module):
         Returns:
             A dictionary containing the current state, emotional state, attention focus, and cognitive temporal state.
         """
-        self.logger.debug(f"DSSM update called with data: {data} and reward: {reward}")
+        self.logger.debug(
+            f"DSSM update called with data: {data}, reward: {reward}, action: {action}"
+        )
+        if action is None and self.agm is not None:
+            try:
+                _, action = await self.async_select_action()
+            except Exception as e:
+                self.logger.error(f"AGM action selection failed: {e}", exc_info=True)
+        if action is not None:
+            self.last_action = int(action)
+        if env_state is not None:
+            try:
+                env_tensor = torch.tensor(env_state, dtype=torch.float32, device=self.device)
+                self.last_env_state = env_tensor
+            except Exception as e:
+                self.logger.error(f"Error storing env_state: {e}", exc_info=True)
         out_state = {}
         try:
             pfc_in = self._prepare_pfc_input(data)
@@ -6928,6 +6998,17 @@ class DSSM(nn.Module):
                 scaling_factor = math.exp(-reward)
                 self.ukf_module.Q *= scaling_factor
                 self.logger.debug(f"Applied reward scaling factor: {scaling_factor:.3f}")
+            if self.last_env_state is not None:
+                try:
+                    err = self.last_env_state - self.ukf_module.x[:self.dim]
+                    error_mag = torch.norm(err).item()
+                    q_scale = 1.0 + error_mag
+                    self.ukf_module.Q = torch.eye(self.dim_x, device=self.device) * (
+                        self.process_noise * q_scale
+                    )
+                    self.logger.debug(f"Adjusted process noise scale: {q_scale:.3f}")
+                except Exception as e:
+                    self.logger.error(f"Error adjusting process noise: {e}", exc_info=True)
             self.ensure_pos_def()
             out_state = await self.get_state()
         except Exception as e:
@@ -9338,7 +9419,7 @@ async def main_rl_loop():
     await ncb.start()
 
     # Instantiate the DSSM (state–space model)
-    dssm = DSSM(provider_manager=None, config_manager=config_manager, device=device)
+    dssm = DSSM(provider_manager=None, config_manager=config_manager, device=device, agm=None, num_actions=10)
     await dssm.initialize()
 
     # Instantiate the EMoM
@@ -9358,8 +9439,10 @@ async def main_rl_loop():
     state_dim = config_dict["state_space_model"]["dimension"]
     num_options = 5
     num_actions = 10
-    hierarchical_agm = HierarchicalActionGenerationModule(state_dim, num_options, num_actions,
-                                                            hidden_dim=128, device=device, emom=emom)
+    hierarchical_agm = HierarchicalActionGenerationModule(
+        state_dim, num_options, num_actions, hidden_dim=128, device=device, emom=emom
+    )
+    dssm.agm = hierarchical_agm
 
     # Instantiate the Simulated Environment
     env = SimulatedEnvironment(state_dim=state_dim, num_actions=num_actions, max_steps=50)
@@ -9400,9 +9483,14 @@ async def main_rl_loop():
             }
             update_info = await hierarchical_agm.async_update(batch)
             logger.info(f"AGM update info: {update_info}")
-            
+
             # Update the DSSM with environment feedback
-            await dssm.update({"reward": reward})
+            await dssm.update(
+                {"timestamp": time.time()},
+                reward=reward,
+                action=action,
+                env_state=next_state_np,
+            )
             
             # Broadcast current state and action to the global workspace via NCB
             await ncb.publish("global_workspace", {
@@ -9764,7 +9852,7 @@ if __name__ == "__main__":
         # Instantiate system modules.
         efm = ExecutiveFunctionModule(config_manager)
         await efm.start(lambda: torch.zeros((1, 16)), lambda: 0.6)
-        dssm = DSSM(provider_manager=None, config_manager=config_manager, device=torch.device("cpu"))
+        dssm = DSSM(provider_manager=None, config_manager=config_manager, device=torch.device("cpu"), agm=None, num_actions=0)
         await dssm.initialize()
         emom = EMoM(config_manager, external_input_dim=50, internal_input_dim=10, affective_state_dim=3, hidden_dims=[128, 64])
         elm = EnhancedLanguageModel(provider_manager=None, memory_system=None, config_manager=config_manager)
