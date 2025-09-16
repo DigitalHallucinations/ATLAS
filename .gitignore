@@ -9,6 +9,7 @@
 
 # Ignore env directory
 env/
+GCC.JSON
 
 # Ignore all .log files
 *.log
