@@ -9,7 +9,7 @@
 
 # Ignore env directory
 env/
-GCC.JSON
+GCC.JSON/
 
 # Ignore all .log files
 *.log
@@ -40,3 +40,5 @@ __pycache__/
 /modules/user_accounts/user_profiles/*
 
 
+/GCC.json
+GCC.json
