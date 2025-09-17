@@ -9,7 +9,7 @@ from gi.repository import Gtk, Gdk, GLib
 import os
 import logging
 
-from GTKUI.Utils.utils import create_box  
+from GTKUI.Utils.utils import create_box
 from .Settings.HF_settings import HuggingFaceSettingsWindow
 from modules.Providers.HuggingFace.HF_gen_response import HuggingFaceGenerator
 
@@ -30,8 +30,15 @@ class ProviderManagement:
         self.ATLAS = ATLAS
         self.parent_window = parent_window
         self.provider_window = None
-        self.config_manager = self.ATLAS.config_manager  
+        self.config_manager = self.ATLAS.config_manager
         self.logger = logging.getLogger(__name__)
+
+        # Reused in settings window scope
+        self.api_key_entry: Gtk.Entry | None = None
+        self.api_key_toggle: Gtk.ToggleButton | None = None
+        self.api_key_visible = False
+
+    # ------------------------ Utilities ------------------------
 
     def _run_async_task(self, coro):
         """
@@ -49,6 +56,29 @@ class ProviderManagement:
                 GLib.idle_add(self.show_error_dialog, f"Async task error: {e}")
         threading.Thread(target=task, daemon=True).start()
 
+    def _abs_icon(self, relative_path: str) -> str:
+        """Resolve absolute path for an icon relative to this file."""
+        base = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        return os.path.join(base, relative_path)
+
+    def _load_icon_picture(self, primary_path: str, fallback_icon_name: str, size: int = 16) -> Gtk.Widget:
+        """
+        Try to load a paintable from a file path; fall back to a themed icon name.
+        Returns a Gtk.Picture (file) or Gtk.Image (themed) as a Widget.
+        """
+        try:
+            texture = Gdk.Texture.new_from_filename(primary_path)
+            pic = Gtk.Picture.new_for_paintable(texture)
+            pic.set_size_request(size, size)
+            pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+            return pic
+        except Exception:
+            img = Gtk.Image.new_from_icon_name(fallback_icon_name)
+            img.set_pixel_size(size)
+            return img
+
+    # ------------------------ Provider Menu ------------------------
+
     def show_provider_menu(self):
         """
         Displays the provider selection window, listing all available providers.
@@ -58,8 +88,10 @@ class ProviderManagement:
         self.provider_window.set_default_size(300, 400)
         self.provider_window.set_transient_for(self.parent_window)
         self.provider_window.set_modal(True)
+        self.provider_window.set_tooltip_text("Choose a default LLM provider or open its settings.")
 
         box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
+        box.set_tooltip_text("Available providers registered in ATLAS.")
         self.provider_window.set_child(box)
 
         provider_names = self.ATLAS.get_available_providers()
@@ -72,6 +104,7 @@ class ProviderManagement:
             label.set_xalign(0.0)
             label.set_yalign(0.5)
             label.get_style_context().add_class("provider-label")
+            label.set_tooltip_text(f"Click to select {provider_name} as the active provider.")
 
             # Attach a click gesture to the label for provider selection.
             label_click = Gtk.GestureClick.new()
@@ -81,28 +114,20 @@ class ProviderManagement:
             )
             label.add_controller(label_click)
 
-            # Compute the absolute path for the settings icon.
-            settings_icon_path = os.path.join(os.path.dirname(__file__), "../../Icons/settings.png")
-            settings_icon_path = os.path.abspath(settings_icon_path)
-            try:
-                texture = Gdk.Texture.new_from_filename(settings_icon_path)
-                settings_icon = Gtk.Picture.new_for_paintable(texture)
-                settings_icon.set_size_request(16, 16)
-                settings_icon.set_content_fit(Gtk.ContentFit.CONTAIN)
-            except GLib.Error as e:
-                self.logger.error(f"Error loading settings icon from '{settings_icon_path}': {e}")
-                settings_icon = Gtk.Image.new_from_icon_name("image-missing")
+            # Settings icon (file -> themed fallback).
+            settings_icon_path = self._abs_icon("Icons/settings.png")
+            settings_widget = self._load_icon_picture(settings_icon_path, "emblem-system-symbolic", 16)
+            settings_widget.set_tooltip_text(f"Open {provider_name} settings (API keys, options).")
 
-            # Attach a click gesture to the settings icon to open provider settings.
             settings_click = Gtk.GestureClick.new()
             settings_click.connect(
                 "released",
                 lambda gesture, n_press, x, y, provider_name=provider_name: self.open_provider_settings(provider_name)
             )
-            settings_icon.add_controller(settings_click)
+            settings_widget.add_controller(settings_click)
 
             hbox.append(label)
-            hbox.append(settings_icon)
+            hbox.append(settings_widget)
             box.append(hbox)
 
         self.provider_window.present()
@@ -123,7 +148,8 @@ class ProviderManagement:
             # Run the provider switch asynchronously to avoid blocking the UI.
             self._run_async_task(self.ATLAS.set_current_provider(provider))
             self.logger.info(f"Provider {provider} selected.")
-            GLib.idle_add(self.provider_window.close)
+            if self.provider_window:
+                GLib.idle_add(self.provider_window.close)
 
     def open_provider_settings(self, provider_name: str):
         """
@@ -152,19 +178,21 @@ class ProviderManagement:
         Displays the HuggingFace settings window.
         """
         settings_window = HuggingFaceSettingsWindow(self.ATLAS, self.config_manager, self.parent_window)
+        settings_window.set_tooltip_text("Configure HuggingFace provider options and credentials.")
         settings_window.present()
+
+    # ------------------------ Settings Window ------------------------
 
     def show_provider_settings(self, provider_name: str):
         """
-        Displays the settings window for a specific provider, including an API key entry.
-
-        Args:
-            provider_name (str): The name of the provider.
+        Displays the settings window for a specific provider, including an API key entry
+        with a visibility toggle (eye).
         """
         settings_window = Gtk.Window(title=f"Settings for {provider_name}")
         settings_window.set_default_size(400, 300)
         settings_window.set_transient_for(self.parent_window)
         settings_window.set_modal(True)
+        settings_window.set_tooltip_text(f"Update API key and settings for {provider_name}.")
 
         self.apply_css_styling()
 
@@ -175,35 +203,94 @@ class ProviderManagement:
         provider_label = Gtk.Label(label="Provider:")
         provider_label.set_xalign(0.0)
         provider_label.set_margin_bottom(10)
+        provider_label.set_tooltip_text("The provider whose settings you are editing.")
         main_vbox.append(provider_label)
 
         provider_value = Gtk.Label(label=provider_name)
         provider_value.set_xalign(0.0)
         provider_value.set_margin_bottom(20)
+        provider_value.set_tooltip_text(f"{provider_name}")
         main_vbox.append(provider_value)
 
-        # Create the API key entry field.
-        api_key_label = Gtk.Label(label="API Key:")
-        api_key_label.set_xalign(0.0)
-        main_vbox.append(api_key_label)
+        # API key row with eye toggle
+        api_row = self._build_api_row(provider_name)
+        main_vbox.append(api_row)
 
-        self.api_key_entry = Gtk.Entry()
-        self.api_key_entry.set_placeholder_text("Enter your API key here")
-        self.api_key_entry.set_visibility(False)  
-        self.api_key_entry.set_invisible_char('*')
-        main_vbox.append(self.api_key_entry)
-
-        # Pre-fill the API key if it exists.
-        existing_api_key = self.get_existing_api_key(provider_name)
-        if existing_api_key:
-            self.api_key_entry.set_text(existing_api_key)
-
-        # Add a Save button to update the API key.
+        # Save button
         save_button = Gtk.Button(label="Save")
+        save_button.set_tooltip_text("Save the API key and refresh the provider if it is active.")
         save_button.connect("clicked", self.on_save_button_clicked, provider_name, settings_window)
         main_vbox.append(save_button)
 
         settings_window.present()
+
+    def _build_api_row(self, provider_name: str) -> Gtk.Widget:
+        """
+        Build a labeled API key row: label, password entry, and eye toggle to show/hide.
+        """
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+
+        api_key_label = Gtk.Label(label="API Key:")
+        api_key_label.set_xalign(0.0)
+        api_key_label.set_tooltip_text("Enter your API key. Use the eye to show/hide.")
+        vbox.append(api_key_label)
+
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+        # Entry
+        self.api_key_entry = Gtk.Entry()
+        self.api_key_entry.set_placeholder_text("Enter your API key here")
+        self.api_key_entry.set_visibility(False)  # password-style default
+        self.api_key_entry.set_invisible_char('*')
+        self.api_key_entry.set_tooltip_text("API key is hidden. Click the eye to reveal.")
+        self.api_key_entry.set_hexpand(True)
+        hbox.append(self.api_key_entry)
+
+        # Eye toggle button
+        self.api_key_toggle = Gtk.ToggleButton()
+        self.api_key_toggle.set_can_focus(True)
+        self.api_key_toggle.set_tooltip_text("Show API key")
+        # NOTE: No explicit AccessibleRole.TOGGLE_BUTTON in GTK4. Let GTK choose, or set BUTTON if desired:
+        role = getattr(Gtk.AccessibleRole, "BUTTON", None)
+        if role is not None:
+            self.api_key_toggle.set_accessible_role(role)
+
+        # Load icons (project file -> themed fallback)
+        self._eye_icon_path = self._abs_icon("Icons/eye.png")
+        self._eye_off_icon_path = self._abs_icon("Icons/eye-off.png")
+
+        eye_widget = self._load_icon_picture(self._eye_icon_path, "view-reveal-symbolic", 18)
+        self.api_key_toggle.set_child(eye_widget)
+
+        # Connect toggle
+        self.api_key_toggle.connect("toggled", self._on_api_eye_toggled)
+        hbox.append(self.api_key_toggle)
+
+        vbox.append(hbox)
+
+        # Pre-fill placeholder when key exists
+        existing_api_key = self.get_existing_api_key(provider_name)
+        if existing_api_key:
+            # Do NOT reveal or prefill the actual key; hint only.
+            self.api_key_entry.set_placeholder_text("Saved")
+        return vbox
+
+    def _on_api_eye_toggled(self, toggle_btn: Gtk.ToggleButton):
+        """
+        Toggle visibility of the API key entry and swap the icon/tooltip accordingly.
+        """
+        self.api_key_visible = toggle_btn.get_active()
+        if self.api_key_entry:
+            self.api_key_entry.set_visibility(self.api_key_visible)
+        # Swap icon
+        icon_name = "view-conceal-symbolic" if self.api_key_visible else "view-reveal-symbolic"
+        icon_path = self._eye_off_icon_path if self.api_key_visible else self._eye_icon_path
+        new_widget = self._load_icon_picture(icon_path, icon_name, 18)
+        toggle_btn.set_child(new_widget)
+        # Update tooltip
+        toggle_btn.set_tooltip_text("Hide API key" if self.api_key_visible else "Show API key")
+
+    # ------------------------ Helpers & Async ------------------------
 
     def get_existing_api_key(self, provider_name: str) -> str:
         """
@@ -221,7 +308,7 @@ class ProviderManagement:
             "Google": self.config_manager.get_google_api_key,
             "HuggingFace": self.config_manager.get_huggingface_api_key,
             "Anthropic": self.config_manager.get_anthropic_api_key,
-            "Grok": self.config_manager.get_grok_api_key,  
+            "Grok": self.config_manager.get_grok_api_key,
         }
         get_key_func = api_key_methods.get(provider_name)
         if get_key_func:
@@ -238,7 +325,7 @@ class ProviderManagement:
             provider_name (str): The name of the provider.
             window (Gtk.Window): The settings window to close after updating.
         """
-        new_api_key = self.api_key_entry.get_text().strip()
+        new_api_key = (self.api_key_entry.get_text().strip() if self.api_key_entry else "")
         if not new_api_key:
             self.show_error_dialog("API Key cannot be empty.")
             return
@@ -283,6 +370,8 @@ class ProviderManagement:
                 self.logger.error(f"Error refreshing provider {provider_name}: {e}")
                 GLib.idle_add(self.show_error_dialog, f"Error refreshing provider {provider_name}: {e}")
 
+    # ------------------------ Dialogs & CSS ------------------------
+
     def show_error_dialog(self, message: str):
         """
         Displays an error dialog with the specified message.
@@ -299,6 +388,7 @@ class ProviderManagement:
         )
         dialog.format_secondary_text(message)
         dialog.connect("response", lambda dialog, response: dialog.destroy())
+        dialog.set_tooltip_text("Close to dismiss this error message.")
         dialog.present()
 
     def show_info_dialog(self, message: str):
@@ -317,6 +407,7 @@ class ProviderManagement:
         )
         dialog.format_secondary_text(message)
         dialog.connect("response", lambda dialog, response: dialog.destroy())
+        dialog.set_tooltip_text("Close to continue.")
         dialog.present()
 
     def apply_css_styling(self):
@@ -336,7 +427,15 @@ class ProviderManagement:
                 font-weight: bold;
             }
         """)
-        display = Gtk.Window().get_display()
+        # Use the app's display if possible; fall back safely.
+        display = None
+        try:
+            if self.parent_window:
+                display = self.parent_window.get_display()
+        except Exception:
+            display = None
+        if display is None:
+            display = Gtk.Window().get_display()
         Gtk.StyleContext.add_provider_for_display(
             display,
             css_provider,
