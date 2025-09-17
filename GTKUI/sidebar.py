@@ -74,39 +74,50 @@ class Sidebar(Gtk.Window):
             icon_path (str): Relative path to the icon image.
             callback (function): Function to call when the icon is clicked.
             icon_size (int): Desired size for the icon.
-            tooltip (str, optional): Tooltip and accessible label text for the icon.
+            tooltip (str, optional): Tooltip text for the icon.
         """
-        try:
+        def _resolve_path(path):
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            full_icon_path = os.path.abspath(os.path.join(current_dir, "..", icon_path))
+            return os.path.abspath(os.path.join(current_dir, "..", path))
+
+        # Load the texture with a fallback
+        texture = None
+        try:
+            full_icon_path = _resolve_path(icon_path)
             texture = Gdk.Texture.new_from_filename(full_icon_path)
-            icon = Gtk.Picture.new_for_paintable(texture)
-            icon.set_size_request(icon_size, icon_size)
-            icon.set_content_fit(Gtk.ContentFit.CONTAIN)
         except Exception as e:
             logger.error(f"Error loading icon '{icon_path}': {e}")
-            fallback_icon_path = os.path.abspath(
-                os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icons/default.png")
-            )
             try:
+                fallback_icon_path = _resolve_path("Icons/default.png")
                 texture = Gdk.Texture.new_from_filename(fallback_icon_path)
-                icon = Gtk.Picture.new_for_paintable(texture)
-                icon.set_size_request(icon_size, icon_size)
-                icon.set_content_fit(Gtk.ContentFit.CONTAIN)
-            except Exception as e:
-                logger.error(f"Error loading fallback icon: {e}")
-                icon = Gtk.Image.new_from_icon_name("image-missing")
+            except Exception as e2:
+                logger.error(f"Error loading fallback icon: {e2}")
+                texture = None
 
-        icon.get_style_context().add_class("icon")
+        # Picture that displays the icon
+        if texture:
+            picture = Gtk.Picture.new_for_paintable(texture)
+            picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+            picture.set_size_request(icon_size, icon_size)
+        else:
+            picture = Gtk.Image.new_from_icon_name("image-missing")
+            picture.set_size_request(icon_size, icon_size)
+
+        # Wrap the picture in a Button for proper accessibility & keyboard support
+        button = Gtk.Button()
+        button.add_css_class("icon")   # keep existing CSS hover/active behavior
+        button.add_css_class("flat")   # minimal chrome in a sidebar
+        button.set_child(picture)
+        button.set_can_focus(True)
+
         if tooltip:
-            icon.set_tooltip_text(tooltip)
-            accessible = icon.get_accessible()
-            if accessible is not None:
-                accessible.update_property(Gtk.AccessibleProperty.LABEL, tooltip)
-        gesture = Gtk.GestureClick.new()
-        gesture.connect("pressed", lambda gesture, n_press, x, y: callback())
-        icon.add_controller(gesture)
-        self.box.append(icon)
+            button.set_tooltip_text(tooltip)
+
+        # Accessible role is safe to set in GTK4
+        button.set_accessible_role(Gtk.AccessibleRole.BUTTON)
+
+        button.connect("clicked", lambda _btn: callback())
+        self.box.append(button)
 
     def show_provider_menu(self):
         """
@@ -215,9 +226,11 @@ class Sidebar(Gtk.Window):
             .sidebar {
                 background-color: #2b2b2b;
             }
+            /* Applied to the Gtk.Button wrapping the picture */
             .icon {
                 margin: 5px;
                 border-radius: 5px;
+                padding: 2px;
             }
             .icon:hover {
                 background-color: #4a90d9;
