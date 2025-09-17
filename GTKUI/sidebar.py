@@ -100,7 +100,9 @@ class Sidebar(Gtk.Window):
         icon.get_style_context().add_class("icon")
         if tooltip:
             icon.set_tooltip_text(tooltip)
-            icon.set_accessible_name(tooltip)
+            accessible = icon.get_accessible()
+            if accessible is not None:
+                accessible.update_property(Gtk.AccessibleProperty.LABEL, tooltip)
         gesture = Gtk.GestureClick.new()
         gesture.connect("pressed", lambda gesture, n_press, x, y: callback())
         icon.add_controller(gesture)
