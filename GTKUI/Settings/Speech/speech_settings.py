@@ -9,9 +9,9 @@ Description:
     In the Open AI tab:
       - All Open AI functions (both STT and TTS) are consolidated into one tab.
       - The STT settings include a provider drop–down (with options like Whisper Online,
-        GPT‑4o STT, and GPT‑4o Mini STT), language selection, task (transcribe/translate),
+        GPT-4o STT, and GPT-4o Mini STT), language selection, task (transcribe/translate),
         and an initial prompt (with its label above the entry).
-      - The TTS settings section includes a provider drop–down (currently only GPT‑4o Mini TTS)
+      - The TTS settings section includes a provider drop–down (currently only GPT-4o Mini TTS)
         and uses a password field for the API key that hides its content after saving.
     
 Author: Jeremy Shows - Digital Hallucinations
@@ -72,9 +72,12 @@ class SpeechSettings(Gtk.Window):
         # Global File Upload (if needed)
         file_upload_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         upload_label = Gtk.Label(label="Upload Audio File:")
+        upload_label.set_tooltip_text("Pick an audio file to test your STT flow (WAV/MP3/FLAC).")
         self.file_upload_button = Gtk.Button(label="Select Audio File")
+        self.file_upload_button.set_tooltip_text("Open a file chooser to select an audio file for transcription.")
         self.file_upload_button.connect("clicked", self.on_file_choose_clicked)
         self.selected_file_label = Gtk.Label(label="No file selected")
+        self.selected_file_label.set_tooltip_text("Shows the path of the selected audio file.")
         file_upload_box.append(upload_label)
         file_upload_box.append(self.file_upload_button)
         file_upload_box.append(self.selected_file_label)
@@ -82,6 +85,7 @@ class SpeechSettings(Gtk.Window):
 
         # Transcription History button.
         history_button = Gtk.Button(label="View Transcription History")
+        history_button.set_tooltip_text("Open a quick log of past transcriptions.")
         history_button.connect("clicked", self.show_history)
         vbox.append(history_button)
 
@@ -101,6 +105,8 @@ class SpeechSettings(Gtk.Window):
             dialog.format_secondary_text("Do you want to save your changes before switching tabs?")
             dialog.add_button("Save", Gtk.ResponseType.OK)
             dialog.add_button("Discard", Gtk.ResponseType.CANCEL)
+            # NOTE: Gtk.Dialog.run() is deprecated in GTK4, but leaving your current flow intact.
+            # If you see runtime issues, swap to a non-blocking response handler + present().
             response = dialog.run()
             dialog.destroy()
             if response == Gtk.ResponseType.OK:
@@ -136,7 +142,9 @@ class SpeechSettings(Gtk.Window):
         # TTS Enable (label and switch in one row)
         hbox_tts = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         tts_label = Gtk.Label(label="Enable TTS:")
+        tts_label.set_tooltip_text("Master switch for Text-to-Speech output.")
         self.general_tts_switch = Gtk.Switch()
+        self.general_tts_switch.set_tooltip_text("Turn TTS on/off globally.")
         current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
         self.general_tts_switch.set_active(self.ATLAS.speech_manager.get_tts_status(current_tts_provider))
         hbox_tts.append(tts_label)
@@ -146,7 +154,9 @@ class SpeechSettings(Gtk.Window):
         # Default TTS Provider (same row)
         hbox_tts_provider = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         tts_provider_label = Gtk.Label(label="Default TTS Provider:")
+        tts_provider_label.set_tooltip_text("Choose the service used for TTS by default.")
         self.default_tts_combo = Gtk.ComboBoxText()
+        self.default_tts_combo.set_tooltip_text("Select the default TTS service.")
         for key in self.ATLAS.speech_manager.tts_services.keys():
             self.default_tts_combo.append_text(key)
         if current_tts_provider:
@@ -159,7 +169,9 @@ class SpeechSettings(Gtk.Window):
         # STT Enable (same row)
         hbox_stt = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         stt_label = Gtk.Label(label="Enable STT:")
+        stt_label.set_tooltip_text("Master switch for Speech-to-Text input.")
         self.general_stt_switch = Gtk.Switch()
+        self.general_stt_switch.set_tooltip_text("Turn STT on/off globally.")
         default_stt = self.ATLAS.speech_manager.get_default_stt_provider()
         self.general_stt_switch.set_active(True if default_stt else False)
         hbox_stt.append(stt_label)
@@ -169,7 +181,9 @@ class SpeechSettings(Gtk.Window):
         # Default STT Provider (same row)
         hbox_stt_provider = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         stt_provider_label = Gtk.Label(label="Default STT Provider:")
+        stt_provider_label.set_tooltip_text("Choose the service used for STT by default.")
         self.default_stt_combo = Gtk.ComboBoxText()
+        self.default_stt_combo.set_tooltip_text("Select the default STT service.")
         for key in self.ATLAS.speech_manager.stt_services.keys():
             self.default_stt_combo.append_text(key)
         if default_stt:
@@ -181,6 +195,7 @@ class SpeechSettings(Gtk.Window):
 
         # Save button for General tab.
         save_button = Gtk.Button(label="Save General Settings")
+        save_button.set_tooltip_text("Save global speech settings (TTS/STT toggles and defaults).")
         save_button.connect("clicked", lambda w: self.save_general_tab())
         general_box.append(save_button)
 
@@ -191,7 +206,9 @@ class SpeechSettings(Gtk.Window):
         self.general_stt_switch.connect("notify::active", lambda w, ps: self.mark_dirty(0))
         self.default_stt_combo.connect("changed", lambda w: self.mark_dirty(0))
 
-        self.notebook.append_page(general_box, Gtk.Label(label="General"))
+        tab_label = Gtk.Label(label="General")
+        tab_label.set_tooltip_text("Global TTS/STT switches and default providers.")
+        self.notebook.append_page(general_box, tab_label)
         self.current_page_index = 0
 
     def save_general_tab(self):
@@ -224,7 +241,9 @@ class SpeechSettings(Gtk.Window):
         # Voice selection (label and dropdown in one row)
         hbox_voice = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         voice_label = Gtk.Label(label="Select TTS Voice:")
+        voice_label.set_tooltip_text("Pick the voice used by the current TTS provider.")
         self.voice_combo = Gtk.ComboBoxText()
+        self.voice_combo.set_tooltip_text("Available voices for the selected TTS provider.")
         current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
         voices = self.ATLAS.speech_manager.get_tts_voices(current_tts_provider)
         for voice in voices:
@@ -239,8 +258,10 @@ class SpeechSettings(Gtk.Window):
         # Eleven Labs API key as a password entry.
         hbox_api = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         api_label = Gtk.Label(label="Eleven Labs API Key:")
+        api_label.set_tooltip_text("Your Eleven Labs API key. Leave blank to keep the saved key.")
         self.eleven_api_entry = Gtk.Entry()
         self.eleven_api_entry.set_visibility(False)
+        self.eleven_api_entry.set_tooltip_text("Enter your Eleven Labs API key (hidden).")
         existing_xi_api = self.ATLAS.config_manager.get_config("XI_API_KEY") or ""
         if existing_xi_api:
             self.eleven_api_entry.set_text("")
@@ -252,6 +273,7 @@ class SpeechSettings(Gtk.Window):
         eleven_box.append(hbox_api)
 
         save_button = Gtk.Button(label="Save Eleven Labs Settings")
+        save_button.set_tooltip_text("Save Eleven Labs voice and API key.")
         save_button.connect("clicked", lambda w: self.save_eleven_labs_tab())
         eleven_box.append(save_button)
 
@@ -259,7 +281,9 @@ class SpeechSettings(Gtk.Window):
         self.voice_combo.connect("changed", lambda w: self.mark_dirty(1))
         self.eleven_api_entry.connect("notify::text", lambda w, ps: self.mark_dirty(1))
 
-        self.notebook.append_page(eleven_box, Gtk.Label(label="Eleven Labs TTS"))
+        tab_label = Gtk.Label(label="Eleven Labs TTS")
+        tab_label.set_tooltip_text("Configure Eleven Labs voice and credentials.")
+        self.notebook.append_page(eleven_box, tab_label)
 
     def save_eleven_labs_tab(self):
         eleven_api_key = self.eleven_api_entry.get_text().strip()
@@ -282,7 +306,9 @@ class SpeechSettings(Gtk.Window):
 
         hbox_google = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         creds_label = Gtk.Label(label="Google Credentials JSON Path:")
+        creds_label.set_tooltip_text("Path to your Google Cloud credentials JSON used by Google STT/TTS.")
         self.google_credentials_entry = Gtk.Entry()
+        self.google_credentials_entry.set_tooltip_text("Enter the absolute path to the Google credentials JSON.")
         existing_google_creds = self.ATLAS.config_manager.get_config("GOOGLE_APPLICATION_CREDENTIALS") or ""
         self.google_credentials_entry.set_text(existing_google_creds)
         hbox_google.append(creds_label)
@@ -290,16 +316,20 @@ class SpeechSettings(Gtk.Window):
         google_box.append(hbox_google)
 
         note_label = Gtk.Label(label="These credentials are used for both Google TTS and STT.")
+        note_label.set_tooltip_text("One set of Google creds powers both text-to-speech and speech-to-text.")
         google_box.append(note_label)
 
         save_button = Gtk.Button(label="Save Google Settings")
+        save_button.set_tooltip_text("Save the Google credentials path.")
         save_button.connect("clicked", lambda w: self.save_google_tab())
         google_box.append(save_button)
 
         self.tab_dirty[2] = False
         self.google_credentials_entry.connect("notify::text", lambda w, ps: self.mark_dirty(2))
 
-        self.notebook.append_page(google_box, Gtk.Label(label="Google"))
+        tab_label = Gtk.Label(label="Google")
+        tab_label.set_tooltip_text("Configure Google Cloud credentials for STT/TTS.")
+        self.notebook.append_page(google_box, tab_label)
 
     def save_google_tab(self):
         google_creds = self.google_credentials_entry.get_text().strip()
@@ -341,7 +371,9 @@ class SpeechSettings(Gtk.Window):
         # STT Provider selection (dropdown)
         hbox_stt_provider = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         stt_provider_label = Gtk.Label(label="STT Provider:")
+        stt_provider_label.set_tooltip_text("Pick the OpenAI-based service for speech recognition.")
         self.openai_stt_combo = Gtk.ComboBoxText()
+        self.openai_stt_combo.set_tooltip_text("Whisper Online, GPT-4o STT, or GPT-4o Mini STT.")
         # Options: "Whisper Online", "GPT-4o STT", "GPT-4o Mini STT"
         self.openai_stt_combo.append_text("Whisper Online")
         self.openai_stt_combo.append_text("GPT-4o STT")
@@ -354,7 +386,9 @@ class SpeechSettings(Gtk.Window):
         # Language selection as a drop-down.
         hbox_language = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         language_label = Gtk.Label(label="Language:")
+        language_label.set_tooltip_text("Force a language for STT, or keep Auto to let the model detect.")
         self.openai_language_combo = Gtk.ComboBoxText()
+        self.openai_language_combo.set_tooltip_text("Preferred recognition language (or Auto).")
         languages = [("Auto", ""), ("English (en)", "en"), ("Japanese (ja)", "ja"),
                      ("Spanish (es)", "es"), ("French (fr)", "fr")]
         for label_text, code in languages:
@@ -367,7 +401,9 @@ class SpeechSettings(Gtk.Window):
         # Task selection (transcribe/translate)
         hbox_task = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         task_label = Gtk.Label(label="Task:")
+        task_label.set_tooltip_text("Transcribe = same language; Translate = to English.")
         self.openai_task_combo = Gtk.ComboBoxText()
+        self.openai_task_combo.set_tooltip_text("Choose whether to transcribe or translate.")
         self.openai_task_combo.append_text("transcribe")
         self.openai_task_combo.append_text("translate")
         self.openai_task_combo.set_active(0)
@@ -377,12 +413,13 @@ class SpeechSettings(Gtk.Window):
         
         # Initial Prompt (label above entry)
         prompt_label = Gtk.Label(label="Initial Prompt (optional):")
+        prompt_label.set_tooltip_text("Short hint to bias recognition (e.g., vocabulary, names).")
         self.openai_prompt_entry = Gtk.Entry()
+        self.openai_prompt_entry.set_tooltip_text("Optional: give context or vocabulary to improve STT.")
         stt_box.append(prompt_label)
         stt_box.append(self.openai_prompt_entry)
         
         stt_frame.set_child(stt_box)  # Use set_child instead of add
-        
         openai_box.append(stt_frame)
         
         # --- TTS Settings Frame ---
@@ -396,7 +433,9 @@ class SpeechSettings(Gtk.Window):
         # TTS Provider selection (dropdown)
         hbox_tts_provider = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         tts_provider_label = Gtk.Label(label="TTS Provider:")
+        tts_provider_label.set_tooltip_text("Pick the OpenAI service for speech synthesis.")
         self.openai_tts_combo = Gtk.ComboBoxText()
+        self.openai_tts_combo.set_tooltip_text("Currently supports GPT-4o Mini TTS.")
         # Currently only one option:
         self.openai_tts_combo.append_text("GPT-4o Mini TTS")
         self.openai_tts_combo.set_active(0)
@@ -410,8 +449,10 @@ class SpeechSettings(Gtk.Window):
         # Shared API Key for Open AI (password entry)
         hbox_api = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         api_label = Gtk.Label(label="Open AI API Key:")
+        api_label.set_tooltip_text("Your OpenAI API key. Leave blank to keep the saved key.")
         self.openai_api_entry = Gtk.Entry()
         self.openai_api_entry.set_visibility(False)
+        self.openai_api_entry.set_tooltip_text("Enter your OpenAI API key (hidden).")
         existing_api = self.ATLAS.config_manager.get_config("OPENAI_API_KEY") or ""
         if existing_api:
             self.openai_api_entry.set_text("")
@@ -424,6 +465,7 @@ class SpeechSettings(Gtk.Window):
         
         # Save button for Open AI tab.
         save_button = Gtk.Button(label="Save Open AI Settings")
+        save_button.set_tooltip_text("Save OpenAI STT/TTS preferences and API key.")
         save_button.connect("clicked", lambda w: self.save_openai_tab())
         openai_box.append(save_button)
         
@@ -436,7 +478,9 @@ class SpeechSettings(Gtk.Window):
         self.openai_tts_combo.connect("changed", lambda w: self.mark_dirty(3))
         self.openai_api_entry.connect("notify::text", lambda w, ps: self.mark_dirty(3))
         
-        self.notebook.append_page(openai_box, Gtk.Label(label="Open AI"))
+        tab_label = Gtk.Label(label="Open AI")
+        tab_label.set_tooltip_text("Configure OpenAI STT/TTS and API key.")
+        self.notebook.append_page(openai_box, tab_label)
 
     def save_openai_tab(self):
         openai_api_key = self.openai_api_entry.get_text().strip()
