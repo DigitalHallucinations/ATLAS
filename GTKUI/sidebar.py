@@ -49,12 +49,12 @@ class Sidebar(Gtk.Window):
         self.set_child(self.box)
 
         # Add primary icons.
-        self.create_icon("Icons/providers.png", self.show_provider_menu, 42)
-        self.create_icon("Icons/history.png", self.handle_history_button, 42)
-        self.create_icon("Icons/chat.png", self.show_chat_page, 42)
+        self.create_icon("Icons/providers.png", self.show_provider_menu, 42, tooltip="Providers")
+        self.create_icon("Icons/history.png", self.handle_history_button, 42, tooltip="History")
+        self.create_icon("Icons/chat.png", self.show_chat_page, 42, tooltip="Chat")
         # Speech settings icon.
-        self.create_icon("Icons/speech.png", self.show_speech_settings, 42)
-        self.create_icon("Icons/agent.png", self.show_persona_menu, 42)
+        self.create_icon("Icons/speech.png", self.show_speech_settings, 42, tooltip="Speech Settings")
+        self.create_icon("Icons/agent.png", self.show_persona_menu, 42, tooltip="Personas")
 
         # Add a visual spacer.
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
@@ -63,10 +63,10 @@ class Sidebar(Gtk.Window):
         self.box.append(separator)
 
         # Add secondary icons.
-        self.create_icon("Icons/settings.png", self.show_settings_page, 42)
-        self.create_icon("Icons/power_button.png", self.close_application, 42)
+        self.create_icon("Icons/settings.png", self.show_settings_page, 42, tooltip="Settings")
+        self.create_icon("Icons/power_button.png", self.close_application, 42, tooltip="Quit")
 
-    def create_icon(self, icon_path, callback, icon_size):
+    def create_icon(self, icon_path, callback, icon_size, tooltip=None):
         """
         Creates and adds an icon widget to the sidebar.
 
@@ -74,6 +74,7 @@ class Sidebar(Gtk.Window):
             icon_path (str): Relative path to the icon image.
             callback (function): Function to call when the icon is clicked.
             icon_size (int): Desired size for the icon.
+            tooltip (str, optional): Tooltip and accessible label text for the icon.
         """
         try:
             current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -84,7 +85,9 @@ class Sidebar(Gtk.Window):
             icon.set_content_fit(Gtk.ContentFit.CONTAIN)
         except Exception as e:
             logger.error(f"Error loading icon '{icon_path}': {e}")
-            fallback_icon_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icons/default.png"))
+            fallback_icon_path = os.path.abspath(
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icons/default.png")
+            )
             try:
                 texture = Gdk.Texture.new_from_filename(fallback_icon_path)
                 icon = Gtk.Picture.new_for_paintable(texture)
@@ -95,6 +98,9 @@ class Sidebar(Gtk.Window):
                 icon = Gtk.Image.new_from_icon_name("image-missing")
 
         icon.get_style_context().add_class("icon")
+        if tooltip:
+            icon.set_tooltip_text(tooltip)
+            icon.set_accessible_name(tooltip)
         gesture = Gtk.GestureClick.new()
         gesture.connect("pressed", lambda gesture, n_press, x, y: callback())
         icon.add_controller(gesture)
