@@ -11,6 +11,7 @@ from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
 # Import the centralized CSS application function
 from GTKUI.Utils.utils import apply_css
 
+
 class PersonaManagement:
     """
     Manages the persona selection and settings functionality.
@@ -30,6 +31,32 @@ class PersonaManagement:
         self.parent_window = parent_window
         self.persona_window = None
 
+    # --------------------------- Helpers ---------------------------
+
+    def _abs_icon(self, rel_path: str) -> str:
+        """Resolve absolute path to an icon from project root."""
+        base = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        return os.path.join(base, rel_path)
+
+    def _make_icon_widget(self, rel_path: str, fallback_icon_name: str = "emblem-system-symbolic", size: int = 16) -> Gtk.Widget:
+        """
+        Try to create a Gtk.Picture from a file path; fall back to a themed icon name.
+        Returns a Gtk.Picture (file) or Gtk.Image (themed) widget.
+        """
+        try:
+            path = self._abs_icon(rel_path)
+            texture = Gdk.Texture.new_from_filename(path)
+            pic = Gtk.Picture.new_for_paintable(texture)
+            pic.set_size_request(size, size)
+            pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+            return pic
+        except Exception:
+            img = Gtk.Image.new_from_icon_name(fallback_icon_name)
+            img.set_pixel_size(size)
+            return img
+
+    # --------------------------- Menu ---------------------------
+
     def show_persona_menu(self):
         """
         Displays the "Select Persona" window. This window lists all available
@@ -37,63 +64,96 @@ class PersonaManagement:
         is styled to match the sidebar by applying the same CSS and style class.
         """
         self.persona_window = Gtk.Window(title="Select Persona")
-        # Set a default size; adjust as needed
-        self.persona_window.set_default_size(150, 600)
-        # Apply the same CSS as the sidebar
-        apply_css()
-        # Add the 'sidebar' style class to ensure matching background and font colors
-        self.persona_window.get_style_context().add_class("sidebar")
+        self.persona_window.set_default_size(220, 600)
+        self.persona_window.set_transient_for(self.parent_window)
+        self.persona_window.set_modal(True)
 
-        # Create a vertical box container with uniform spacing and margins
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_margin_top(10)
-        box.set_margin_bottom(10)
-        box.set_margin_start(10)
-        box.set_margin_end(10)
-        self.persona_window.set_child(box)
+        # Apply the same CSS as the sidebar and set class
+        apply_css()
+        self.persona_window.get_style_context().add_class("sidebar")
+        self.persona_window.set_tooltip_text("Choose a persona or open its settings.")
+
+        # Container
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        outer.set_margin_top(10)
+        outer.set_margin_bottom(10)
+        outer.set_margin_start(10)
+        outer.set_margin_end(10)
+        self.persona_window.set_child(outer)
+
+        # Scrollable list area
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        outer.append(scroll)
+
+        list_box = Gtk.ListBox()
+        list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        list_box.set_tooltip_text("Click a row to select the persona; use the gear to edit its settings.")
+        scroll.set_child(list_box)
 
         # Retrieve persona names from ATLAS
-        persona_names = self.ATLAS.get_persona_names()
+        persona_names = self.ATLAS.get_persona_names() or []
 
         for persona_name in persona_names:
-            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            # Each row is an HBox with a "Select" button (label-styled) and a gear button
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
-            # Create the label for the persona name.
-            label = Gtk.Label(label=persona_name)
-            label.set_xalign(0.0)
-            label.set_yalign(0.5)
-            hbox.append(label)
+            # Select button for persona (improves keyboard/accessibility over raw label+gesture)
+            select_btn = Gtk.Button()
+            select_btn.add_css_class("flat")
+            select_btn.add_css_class("sidebar")
+            select_btn.set_can_focus(True)
+            select_btn.set_hexpand(True)
+            select_btn.set_halign(Gtk.Align.FILL)
+            select_btn.set_tooltip_text(f"Select persona: {persona_name}")
 
-            # Create a gesture for clicking on the label to select the persona.
-            label_gesture = Gtk.GestureClick.new()
-            label_gesture.connect(
-                "pressed",
-                lambda gesture, n_press, x, y, persona_name=persona_name: self.select_persona(persona_name)
-            )
-            label.add_controller(label_gesture)
+            name_lbl = Gtk.Label(label=persona_name)
+            name_lbl.set_xalign(0.0)
+            name_lbl.set_yalign(0.5)
+            name_lbl.get_style_context().add_class("provider-label")  # reuse bold-ish style if present
+            name_lbl.set_halign(Gtk.Align.START)
+            name_lbl.set_hexpand(True)
+            select_btn.set_child(name_lbl)
 
-            # Create a settings icon for the persona.
-            settings_icon_path = os.path.join(os.path.dirname(__file__), "../../Icons/settings.png")
-            settings_icon_path = os.path.abspath(settings_icon_path)
-            try:
-                texture = Gdk.Texture.new_from_filename(settings_icon_path)
-                settings_icon = Gtk.Picture.new_for_paintable(texture)
-                settings_icon.set_size_request(16, 16)
-                settings_icon.set_content_fit(Gtk.ContentFit.CONTAIN)
-            except GLib.Error as e:
-                print(f"Error loading icon {settings_icon_path}: {e}")
-                settings_icon = Gtk.Image.new_from_icon_name("image-missing")
+            # When clicked, select persona
+            select_btn.connect("clicked", lambda _b, pname=persona_name: self.select_persona(pname))
 
-            # Attach a gesture to the settings icon to open persona settings.
-            settings_gesture = Gtk.GestureClick.new()
-            settings_gesture.connect(
-                "pressed",
-                lambda gesture, n_press, x, y, persona_name=persona_name: self.open_persona_settings(persona_name)
-            )
-            settings_icon.add_controller(settings_gesture)
+            # Settings button (gear icon)
+            settings_btn = Gtk.Button()
+            settings_btn.add_css_class("flat")
+            settings_btn.set_can_focus(True)
+            settings_btn.set_tooltip_text(f"Open settings for {persona_name}")
+            role = getattr(Gtk.AccessibleRole, "BUTTON", None)
+            if role is not None:
+                settings_btn.set_accessible_role(role)
 
-            hbox.append(settings_icon)
-            box.append(hbox)
+            gear = self._make_icon_widget("Icons/settings.png", fallback_icon_name="emblem-system-symbolic", size=16)
+            settings_btn.set_child(gear)
+            settings_btn.connect("clicked", lambda _b, pname=persona_name: self.open_persona_settings(pname))
+
+            row.append(select_btn)
+            row.append(settings_btn)
+
+            # Put row into a ListBoxRow for nicer selection/hover
+            lrow = Gtk.ListBoxRow()
+            lrow.set_child(row)
+            list_box.append(lrow)
+
+        # Hint footer
+        hint = Gtk.Label(label="Tip: double-click a row to select.")
+        hint.set_tooltip_text("You can also use arrow keys to move and Enter to activate.")
+        outer.append(hint)
+
+        # Double-click behavior on rows (optional)
+        def on_row_activated(_lb, lbrow):
+            # Find the select button inside the row and activate it
+            box = lbrow.get_child()
+            if isinstance(box, Gtk.Box):
+                child = box.get_first_child()
+                if isinstance(child, Gtk.Button):
+                    child.emit("clicked")
+
+        list_box.connect("row-activated", on_row_activated)
 
         self.persona_window.present()
 
@@ -106,6 +166,8 @@ class PersonaManagement:
         """
         self.ATLAS.load_persona(persona)
         print(f"Persona '{persona}' selected with system prompt:\n{self.ATLAS.persona_manager.current_system_prompt}")
+
+    # --------------------------- Settings ---------------------------
 
     def open_persona_settings(self, persona_name):
         """
@@ -129,8 +191,13 @@ class PersonaManagement:
         Args:
             persona (dict): The persona data.
         """
-        settings_window = Gtk.Window(title=f"Settings for {persona.get('name')}")
-        settings_window.set_default_size(500, 800)
+        title = f"Settings for {persona.get('name')}"
+        settings_window = Gtk.Window(title=title)
+        settings_window.set_default_size(560, 820)
+        settings_window.set_transient_for(self.parent_window)
+        settings_window.set_modal(True)
+        settings_window.set_tooltip_text("Configure the persona's details, provider/model, and speech options.")
+
         # Apply the centralized CSS to ensure consistent styling.
         apply_css()
         # Optionally, add a style class to match the sidebar.
@@ -148,9 +215,15 @@ class PersonaManagement:
         stack = Gtk.Stack()
         stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         stack.set_transition_duration(200)
+        # GTK4 quirk: Stack uses hhomogeneous / vhomogeneous (not 'homogeneous')
+        if hasattr(stack, "set_hhomogeneous"):
+            stack.set_hhomogeneous(True)
+        if hasattr(stack, "set_vhomogeneous"):
+            stack.set_vhomogeneous(True)
 
         stack_switcher = Gtk.StackSwitcher()
         stack_switcher.set_stack(stack)
+        stack_switcher.set_tooltip_text("Switch between settings tabs.")
         main_vbox.append(stack_switcher)
         main_vbox.append(stack)
 
@@ -158,26 +231,33 @@ class PersonaManagement:
         self.general_tab = GeneralTab(persona)
         general_box = self.general_tab.get_widget()
         scrolled_general_tab = Gtk.ScrolledWindow()
+        scrolled_general_tab.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled_general_tab.set_child(general_box)
         stack.add_titled(scrolled_general_tab, "general", "General")
+        scrolled_general_tab.set_tooltip_text("Edit persona name, meaning, and prompt content.")
 
         # Persona Type Tab (with scrollable box)
         self.persona_type_tab = PersonaTypeTab(persona, self.general_tab)
         type_box = self.persona_type_tab.get_widget()
         scrolled_persona_type = Gtk.ScrolledWindow()
+        scrolled_persona_type.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled_persona_type.set_child(type_box)
+        scrolled_persona_type.set_tooltip_text("Enable persona roles and configure their specific options.")
         stack.add_titled(scrolled_persona_type, "persona_type", "Persona Type")
 
         # Provider and Model Tab
         provider_model_box = self.create_provider_model_tab(persona)
+        provider_model_box.set_tooltip_text("Select which provider/model this persona should use.")
         stack.add_titled(provider_model_box, "provider_model", "Provider & Model")
 
         # Speech Provider and Voice Tab
         speech_voice_box = self.create_speech_voice_tab(persona)
+        speech_voice_box.set_tooltip_text("Select speech provider and voice defaults for this persona.")
         stack.add_titled(speech_voice_box, "speech_voice", "Speech & Voice")
 
         # Save Button at the bottom
         save_button = Gtk.Button(label="Save")
+        save_button.set_tooltip_text("Save all changes to this persona.")
         save_button.connect("clicked", lambda widget: self.save_persona_settings(persona, settings_window))
         main_vbox.append(save_button)
 
@@ -194,20 +274,29 @@ class PersonaManagement:
             Gtk.Box: The container with provider and model settings.
         """
         provider_model_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+
         # Provider
         provider_label = Gtk.Label(label="Provider")
+        provider_label.set_xalign(0.0)
+        provider_label.set_tooltip_text("LLM provider key, e.g., 'OpenAI', 'Anthropic', 'HuggingFace', etc.")
         self.provider_entry = Gtk.Entry()
+        self.provider_entry.set_placeholder_text("e.g., OpenAI")
         self.provider_entry.set_text(persona.get("provider", "openai"))
-        provider_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        self.provider_entry.set_tooltip_text("Set which backend/provider this persona uses by default.")
+        provider_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         provider_box.append(provider_label)
         provider_box.append(self.provider_entry)
         provider_model_box.append(provider_box)
 
         # Model
         model_label = Gtk.Label(label="Model")
+        model_label.set_xalign(0.0)
+        model_label.set_tooltip_text("Model identifier, e.g., 'gpt-4o', 'claude-3-opus', 'meta-llama-3-70b'.")
         self.model_entry = Gtk.Entry()
+        self.model_entry.set_placeholder_text("e.g., gpt-4o")
         self.model_entry.set_text(persona.get("model", "gpt-4"))
-        model_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        self.model_entry.set_tooltip_text("Exact model name to request from the provider.")
+        model_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         model_box.append(model_label)
         model_box.append(self.model_entry)
         provider_model_box.append(model_box)
@@ -225,20 +314,29 @@ class PersonaManagement:
             Gtk.Box: The container with speech and voice settings.
         """
         speech_voice_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+
         # Speech Provider
         speech_provider_label = Gtk.Label(label="Speech Provider")
+        speech_provider_label.set_xalign(0.0)
+        speech_provider_label.set_tooltip_text("TTS/STT provider key, e.g., '11labs', 'openai_tts', 'google_tts'.")
         self.speech_provider_entry = Gtk.Entry()
+        self.speech_provider_entry.set_placeholder_text("e.g., 11labs")
         self.speech_provider_entry.set_text(persona.get("Speech_provider", "11labs"))
-        speech_provider_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        self.speech_provider_entry.set_tooltip_text("Default speech provider for this persona.")
+        speech_provider_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         speech_provider_box.append(speech_provider_label)
         speech_provider_box.append(self.speech_provider_entry)
         speech_voice_box.append(speech_provider_box)
 
         # Voice
         voice_label = Gtk.Label(label="Voice")
+        voice_label.set_xalign(0.0)
+        voice_label.set_tooltip_text("Voice identifier (depends on the provider).")
         self.voice_entry = Gtk.Entry()
+        self.voice_entry.set_placeholder_text("e.g., Jack")
         self.voice_entry.set_text(persona.get("voice", "jack"))
-        voice_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        self.voice_entry.set_tooltip_text("Default voice to synthesize for this persona.")
+        voice_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         voice_box.append(voice_label)
         voice_box.append(self.voice_entry)
         speech_voice_box.append(voice_box)
