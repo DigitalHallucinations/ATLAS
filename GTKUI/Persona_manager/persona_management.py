@@ -73,23 +73,27 @@ class PersonaManagement:
         self.persona_window.get_style_context().add_class("sidebar")
         self.persona_window.set_tooltip_text("Choose a persona or open its settings.")
 
-        # Container
+        # Container inside a scrolled window so long persona lists remain usable
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_propagate_natural_height(True)
+        scroll.set_hexpand(True)
+        scroll.set_vexpand(True)
+        self.persona_window.set_child(scroll)
+
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         outer.set_margin_top(10)
         outer.set_margin_bottom(10)
         outer.set_margin_start(10)
         outer.set_margin_end(10)
-        self.persona_window.set_child(outer)
-
-        # Scrollable list area
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        outer.append(scroll)
+        outer.set_valign(Gtk.Align.START)
+        scroll.set_child(outer)
 
         list_box = Gtk.ListBox()
         list_box.set_selection_mode(Gtk.SelectionMode.NONE)
         list_box.set_tooltip_text("Click a row to select the persona; use the gear to edit its settings.")
-        scroll.set_child(list_box)
+        list_box.set_valign(Gtk.Align.START)
+        outer.append(list_box)
 
         # Retrieve persona names from ATLAS
         persona_names = self.ATLAS.get_persona_names() or []
@@ -142,6 +146,7 @@ class PersonaManagement:
         # Hint footer
         hint = Gtk.Label(label="Tip: double-click a row to select.")
         hint.set_tooltip_text("You can also use arrow keys to move and Enter to activate.")
+        hint.set_margin_top(6)
         outer.append(hint)
 
         # Double-click behavior on rows (optional)

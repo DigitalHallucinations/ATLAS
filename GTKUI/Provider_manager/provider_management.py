@@ -90,9 +90,17 @@ class ProviderManagement:
         self.provider_window.set_modal(True)
         self.provider_window.set_tooltip_text("Choose a default LLM provider or open its settings.")
 
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_propagate_natural_height(True)
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+        self.provider_window.set_child(scrolled)
+
         box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
         box.set_tooltip_text("Available providers registered in ATLAS.")
-        self.provider_window.set_child(box)
+        box.set_valign(Gtk.Align.START)
+        scrolled.set_child(box)
 
         provider_names = self.ATLAS.get_available_providers()
 
