@@ -12,6 +12,7 @@ and schedules UI updates via GLib.idle_add.
 import os
 import asyncio
 import threading
+from datetime import datetime
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib, GObject
@@ -368,7 +369,9 @@ class ChatPage(Gtk.Window):
         header_row.append(sender_label)
         header_row.append(self._spacer())
         # timestamp-ish (lightweight)
-        ts = Gtk.Label(label="")
+        now = datetime.now()
+        ts = Gtk.Label(label=now.strftime("%H:%M"))
+        ts.set_tooltip_text(now.strftime("%Y-%m-%d %H:%M:%S"))
         ts.add_css_class("dim-label")
         ts.set_halign(Gtk.Align.END)
         header_row.append(ts)
@@ -499,10 +502,16 @@ class ChatPage(Gtk.Window):
                         if len(kids) >= 2:
                             # header_row, bubble_box
                             header_row = kids[0]
-                            sender = header_row.get_first_child().get_text() if isinstance(header_row.get_first_child(), Gtk.Label) else "Sender"
+                            sender_widget = header_row.get_first_child()
+                            sender = sender_widget.get_text() if isinstance(sender_widget, Gtk.Label) else "Sender"
+                            timestamp_widget = header_row.get_last_child()
+                            timestamp = timestamp_widget.get_text() if isinstance(timestamp_widget, Gtk.Label) else ""
                             message_label = kids[1].get_first_child()
                             text = message_label.get_text() if isinstance(message_label, Gtk.Label) else ""
-                            f.write(f"{sender}: {text}\n\n")
+                            if timestamp:
+                                f.write(f"[{timestamp}] {sender}: {text}\n\n")
+                            else:
+                                f.write(f"{sender}: {text}\n\n")
                 self.status_label.set_text(f"Exported chat to: {path}")
             except Exception as e:
                 logger.error(f"Export error: {e}")
