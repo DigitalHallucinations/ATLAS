@@ -98,22 +98,40 @@ class ChatPage(Gtk.Window):
         self.chat_history_scrolled.set_vexpand(True)
         self.vbox.append(self.chat_history_scrolled)
 
-        # Create the input area with an Entry, a microphone button, and a send button.
+        # Create the input area with a multiline entry, a microphone button, and a send button.
         input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         input_box.set_margin_top(8)
         input_box.set_margin_bottom(8)
         input_box.set_margin_start(10)
         input_box.set_margin_end(10)
 
-        # Text input entry.
-        self.input_entry = Gtk.Entry()
-        self.input_entry.set_placeholder_text("Type a message…  (Enter to send • Ctrl+Enter for newline • Ctrl+L to focus)")
-        self.input_entry.set_tooltip_text("Enter to send • Ctrl/⌘+Enter to insert a newline • Ctrl/⌘+L to refocus this field")
-        self.input_entry.connect("activate", self.on_send_message)  # Enter
-        self.input_entry.set_hexpand(True)
-        input_box.append(self.input_entry)
+        # Text input area.
+        self.input_buffer = Gtk.TextBuffer()
+        self.input_textview = Gtk.TextView.new_with_buffer(self.input_buffer)
+        self.input_textview.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.input_textview.set_top_margin(6)
+        self.input_textview.set_bottom_margin(6)
+        self.input_textview.set_left_margin(6)
+        self.input_textview.set_right_margin(6)
+        self.input_textview.set_tooltip_text(
+            "Enter to send • Shift+Enter for newline • Ctrl/⌘+L to refocus this field"
+        )
 
-        # Keyboard controller for Ctrl+Enter newline and Ctrl+L focus
+        self.input_scroller = Gtk.ScrolledWindow()
+        self.input_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.input_scroller.set_has_frame(False)
+        self.input_scroller.set_hexpand(True)
+        self.input_scroller.set_min_content_height(60)
+        self.input_scroller.set_max_content_height(160)
+        self.input_scroller.set_child(self.input_textview)
+        input_box.append(self.input_scroller)
+
+        # Keyboard controller for Enter/Shift+Enter handling within the text view.
+        textview_keyctl = Gtk.EventControllerKey()
+        textview_keyctl.connect("key-pressed", self.on_textview_key_pressed)
+        self.input_textview.add_controller(textview_keyctl)
+
+        # Keyboard controller for global shortcuts (e.g., Ctrl/⌘+L focus)
         keyctl = Gtk.EventControllerKey()
         keyctl.connect("key-pressed", self.on_key_pressed)
         self.add_controller(keyctl)
@@ -189,12 +207,16 @@ class ChatPage(Gtk.Window):
         """
         Handler for when the user sends a message.
         """
-        message = self.input_entry.get_text().strip()
+        buffer = self.input_buffer
+        start_iter = buffer.get_start_iter()
+        end_iter = buffer.get_end_iter()
+        message = buffer.get_text(start_iter, end_iter, True).strip()
         if not message:
             return
         user_name = self.ATLAS.user
         self.add_message_bubble(user_name, message, is_user=True)
-        self.input_entry.set_text("")
+        buffer.set_text("")
+        self.input_textview.grab_focus()
         # Start a new thread to process the model's response asynchronously.
         threading.Thread(
             target=self.handle_model_response_thread,
@@ -205,22 +227,22 @@ class ChatPage(Gtk.Window):
     def on_key_pressed(self, _controller, keyval, keycode, state):
         """
         Global key handling for convenient editing:
-         - Ctrl/⌘ + Enter inserts a newline into the entry text (simulated multiline).
-         - Ctrl/⌘ + L focuses the entry.
+         - Ctrl/⌘ + L focuses the text input area.
         """
         ctrl = (state & Gdk.ModifierType.CONTROL_MASK) or (state & Gdk.ModifierType.META_MASK)
-        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and ctrl:
-            # Insert a visible newline into the entry text (Entry is single-line; we simulate).
-            text = self.input_entry.get_text()
-            caret = self.input_entry.get_position()
-            new_text = text[:caret] + "\n" + text[caret:]
-            self.input_entry.set_text(new_text)
-            # Move caret after newline
-            GLib.idle_add(lambda: self.input_entry.set_position(caret + 1))
-            return True
         if ctrl and keyval in (Gdk.KEY_l, Gdk.KEY_L):
-            self.input_entry.grab_focus()
+            self.input_textview.grab_focus()
             return True
+        return False
+
+    def on_textview_key_pressed(self, _controller, keyval, keycode, state):
+        """Handle Enter/Shift+Enter behavior within the text view."""
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+            if shift:
+                return False  # allow newline insertion
+            self.on_send_message(self.input_textview)
+            return True  # prevent default newline
         return False
 
     def on_mic_button_click(self, widget):
@@ -256,7 +278,17 @@ class ChatPage(Gtk.Window):
                 try:
                     audio_file = getattr(stt, 'audio_file', "output.wav")
                     transcript = stt.transcribe(audio_file) or ""
-                    GLib.idle_add(lambda: self.input_entry.set_text(transcript.strip()))
+                    def update_buffer():
+                        text = transcript.strip()
+                        if not text:
+                            return
+                        buf = self.input_buffer
+                        if buf.get_char_count() > 0:
+                            buf.insert(buf.get_end_iter(), "\n" + text)
+                        else:
+                            buf.insert(buf.get_end_iter(), text)
+                        buf.place_cursor(buf.get_end_iter())
+                    GLib.idle_add(update_buffer)
                     GLib.idle_add(lambda: self.status_label.set_text("Transcription complete."))
                 except Exception as e:
                     logger.error(f"Transcription error: {e}")
