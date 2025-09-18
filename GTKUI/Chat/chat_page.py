@@ -159,18 +159,31 @@ class ChatPage(Gtk.Window):
 
         self.vbox.append(input_box)
 
-        # Add a status label at the bottom of the window.
+        # Add a status area at the bottom of the window with a busy spinner and label.
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        status_box.set_margin_start(8)
+        status_box.set_margin_end(8)
+        status_box.set_margin_bottom(6)
+
+        self.status_spinner = Gtk.Spinner()
+        self.status_spinner.set_halign(Gtk.Align.START)
+        self.status_spinner.set_valign(Gtk.Align.CENTER)
+        self.status_spinner.set_visible(False)
+        status_box.append(self.status_spinner)
+
         self.status_label = Gtk.Label()
         self.status_label.set_halign(Gtk.Align.START)
-        self.status_label.set_margin_start(8)
-        self.status_label.set_margin_end(8)
-        self.status_label.set_margin_bottom(6)
+        self.status_label.set_hexpand(True)
         self.status_label.set_tooltip_text("Active LLM provider/model and TTS status")
-        self.vbox.append(self.status_label)
+        status_box.append(self.status_label)
+
+        self.vbox.append(status_box)
         self.update_status_bar()
 
         # Link provider changes to update the status bar.
         self.ATLAS.notify_provider_changed = self.update_status_bar
+
+        self.awaiting_response = False
 
         self.present()
 
@@ -207,6 +220,8 @@ class ChatPage(Gtk.Window):
         """
         Handler for when the user sends a message.
         """
+        if self.awaiting_response:
+            return
         buffer = self.input_buffer
         start_iter = buffer.get_start_iter()
         end_iter = buffer.get_end_iter()
@@ -217,6 +232,7 @@ class ChatPage(Gtk.Window):
         self.add_message_bubble(user_name, message, is_user=True)
         buffer.set_text("")
         self.input_textview.grab_focus()
+        self._set_busy_state(True)
         # Start a new thread to process the model's response asynchronously.
         threading.Thread(
             target=self.handle_model_response_thread,
@@ -309,8 +325,8 @@ class ChatPage(Gtk.Window):
         then schedules the UI update to add the assistant's message bubble.
         Also triggers TTS if enabled.
         """
+        loop = asyncio.new_event_loop()
         try:
-            loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             response = loop.run_until_complete(self.chat_session.send_message(message))
 
@@ -320,12 +336,17 @@ class ChatPage(Gtk.Window):
             except Exception as tts_err:
                 logger.warning(f"TTS error (continuing): {tts_err}")
 
-            loop.close()
             persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
             GLib.idle_add(self.add_message_bubble, persona_name, response)
         except Exception as e:
             logger.error(f"Error in handle_model_response: {e}")
             GLib.idle_add(self.add_message_bubble, "Assistant", f"Error: {e}")
+        finally:
+            try:
+                loop.close()
+            except Exception:
+                pass
+            GLib.idle_add(self._on_response_complete)
 
     def add_message_bubble(self, sender, message, is_user=False):
         """
@@ -382,6 +403,20 @@ class ChatPage(Gtk.Window):
 
         # Schedule scrolling to the bottom after a short delay.
         GLib.timeout_add(100, self.scroll_to_bottom)
+
+    def _set_busy_state(self, busy: bool):
+        self.awaiting_response = busy
+        self.send_button.set_sensitive(not busy)
+        if busy:
+            self.status_spinner.set_visible(True)
+            self.status_spinner.start()
+        else:
+            self.status_spinner.stop()
+            self.status_spinner.set_visible(False)
+
+    def _on_response_complete(self):
+        self._set_busy_state(False)
+        return False
 
     def _on_bubble_right_click(self, gesture, n_press, x, y, message_label: Gtk.Label, bubble: Gtk.Box):
         menu = Gtk.PopoverMenu()
