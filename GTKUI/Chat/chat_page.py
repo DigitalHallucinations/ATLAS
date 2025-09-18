@@ -12,6 +12,7 @@ and schedules UI updates via GLib.idle_add.
 import os
 import asyncio
 import threading
+from datetime import datetime
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib, GObject
@@ -362,17 +363,25 @@ class ChatPage(Gtk.Window):
         bubble.set_margin_bottom(4)
 
         header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        header_row.set_hexpand(True)
+        header_row.add_css_class("message-header")
+
         sender_label = Gtk.Label(label=sender)
         sender_label.set_halign(Gtk.Align.START)
         sender_label.add_css_class("caption")
         header_row.append(sender_label)
         header_row.append(self._spacer())
-        # timestamp-ish (lightweight)
-        ts = Gtk.Label(label="")
-        ts.add_css_class("dim-label")
-        ts.set_halign(Gtk.Align.END)
-        header_row.append(ts)
-        bubble.append(header_row)
+
+        now = datetime.now()
+        display_timestamp = now.strftime("%H:%M")
+        full_timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        timestamp_label = Gtk.Label(label=display_timestamp)
+        timestamp_label.set_tooltip_text(full_timestamp)
+        timestamp_label.set_halign(Gtk.Align.END)
+        timestamp_label.add_css_class("timestamp-label")
+        timestamp_label.set_hexpand(False)
+        timestamp_label.set_data("timestamp_full", full_timestamp)
+        header_row.append(timestamp_label)
 
         message_label = Gtk.Label(label=message)
         message_label.set_wrap(True)
@@ -381,7 +390,8 @@ class ChatPage(Gtk.Window):
         message_label.set_selectable(True)
         message_label.set_tooltip_text("Right-click for options")
 
-        bubble_box = Gtk.Box()
+        bubble_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        bubble_box.append(header_row)
         bubble_box.append(message_label)
         bubble_box.get_style_context().add_class("message-bubble")
 
@@ -494,14 +504,42 @@ class ChatPage(Gtk.Window):
             try:
                 with open(path, "w", encoding="utf-8") as f:
                     for row in self.chat_history.get_children():
-                        # row -> bubble (Box)
-                        kids = row.get_children()
-                        if len(kids) >= 2:
-                            # header_row, bubble_box
-                            header_row = kids[0]
-                            sender = header_row.get_first_child().get_text() if isinstance(header_row.get_first_child(), Gtk.Label) else "Sender"
-                            message_label = kids[1].get_first_child()
-                            text = message_label.get_text() if isinstance(message_label, Gtk.Label) else ""
+                        # Each row is a bubble (outer Box) that contains the styled bubble_box.
+                        bubble_children = row.get_children()
+                        if not bubble_children:
+                            continue
+
+                        bubble_box = bubble_children[0]
+                        if not isinstance(bubble_box, Gtk.Box):
+                            continue
+
+                        header_row = bubble_box.get_first_child()
+                        message_widget = bubble_box.get_last_child()
+
+                        sender = "Sender"
+                        timestamp = ""
+                        full_timestamp = ""
+
+                        if isinstance(header_row, Gtk.Box):
+                            sender_widget = header_row.get_first_child()
+                            if isinstance(sender_widget, Gtk.Label):
+                                sender = sender_widget.get_text() or "Sender"
+
+                            timestamp_widget = header_row.get_last_child()
+                            if isinstance(timestamp_widget, Gtk.Label):
+                                timestamp = timestamp_widget.get_text() or ""
+                                stored_full = timestamp_widget.get_data("timestamp_full")
+                                tooltip_full = timestamp_widget.get_tooltip_text()
+                                full_timestamp = stored_full or tooltip_full or timestamp
+
+                        text = ""
+                        if isinstance(message_widget, Gtk.Label):
+                            text = message_widget.get_text() or ""
+
+                        stamp_to_use = full_timestamp or timestamp
+                        if stamp_to_use:
+                            f.write(f"[{stamp_to_use}] {sender}: {text}\n\n")
+                        else:
                             f.write(f"{sender}: {text}\n\n")
                 self.status_label.set_text(f"Exported chat to: {path}")
             except Exception as e:
