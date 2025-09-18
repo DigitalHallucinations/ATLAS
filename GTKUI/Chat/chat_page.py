@@ -14,7 +14,7 @@ import asyncio
 import threading
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk, GLib
+from gi.repository import Gtk, Gdk, GLib, GObject
 import logging
 
 from GTKUI.Utils.utils import apply_css
@@ -42,14 +42,40 @@ class ChatPage(Gtk.Window):
         super().__init__()
         self.ATLAS = atlas
         self.chat_session = atlas.chat_session
-        self.set_default_size(600, 400)
-        
+        self.set_default_size(700, 520)
+
         # Apply style classes to match the dark theme of the sidebar.
         self.get_style_context().add_class("chat-page")
         self.get_style_context().add_class("sidebar")
-        
+
         # Apply centralized CSS styling.
         apply_css()
+
+        # --- Header bar with persona title & quick actions ---
+        self.header_bar = Gtk.HeaderBar()
+        self.set_titlebar(self.header_bar)
+
+        # Persona title label inside header
+        self.persona_title_label = Gtk.Label(xalign=0)
+        self.persona_title_label.add_css_class("title-1")
+        self.persona_title_label.set_tooltip_text("Current persona")
+        self.header_bar.set_title_widget(self.persona_title_label)
+
+        # Clear chat button
+        self.clear_btn = Gtk.Button()
+        self.clear_btn.set_tooltip_text("Clear chat history")
+        self._set_button_icon(self.clear_btn, "../../Icons/clear.png", "user-trash")
+        self.clear_btn.add_css_class("flat")
+        self.clear_btn.connect("clicked", self.on_clear_chat)
+        self.header_bar.pack_end(self.clear_btn)
+
+        # Export chat button
+        self.export_btn = Gtk.Button()
+        self.export_btn.set_tooltip_text("Export chat to a text file")
+        self._set_button_icon(self.export_btn, "../../Icons/export.png", "document-save")
+        self.export_btn.add_css_class("flat")
+        self.export_btn.connect("clicked", self.on_export_chat)
+        self.header_bar.pack_end(self.export_btn)
 
         # Main vertical container.
         self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -58,77 +84,70 @@ class ChatPage(Gtk.Window):
         # Update window title with the current persona's name.
         self.update_persona_label()
 
-        # Add a horizontal separator.
-        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        separator.set_margin_top(5)
-        self.vbox.append(separator)
-
         # Create a scrollable area for the conversation history.
         self.chat_history_scrolled = Gtk.ScrolledWindow()
         self.chat_history_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.chat_history_scrolled.set_min_content_height(200)
+        self.chat_history_scrolled.set_min_content_height(240)
         self.chat_history = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.chat_history.set_margin_start(10)
         self.chat_history.set_margin_end(10)
+        self.chat_history.set_margin_top(6)
+        self.chat_history.set_margin_bottom(6)
         self.chat_history_scrolled.set_child(self.chat_history)
         self.chat_history_scrolled.set_hexpand(True)
         self.chat_history_scrolled.set_vexpand(True)
         self.vbox.append(self.chat_history_scrolled)
 
         # Create the input area with an Entry, a microphone button, and a send button.
-        input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        input_box.set_margin_top(10)
-        input_box.set_margin_bottom(10)
+        input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        input_box.set_margin_top(8)
+        input_box.set_margin_bottom(8)
         input_box.set_margin_start(10)
         input_box.set_margin_end(10)
 
         # Text input entry.
         self.input_entry = Gtk.Entry()
-        self.input_entry.set_placeholder_text("Type a message...")
-        self.input_entry.connect("activate", self.on_send_message)
+        self.input_entry.set_placeholder_text("Type a message…  (Enter to send • Ctrl+Enter for newline • Ctrl+L to focus)")
+        self.input_entry.set_tooltip_text("Enter to send • Ctrl/⌘+Enter to insert a newline • Ctrl/⌘+L to refocus this field")
+        self.input_entry.connect("activate", self.on_send_message)  # Enter
         self.input_entry.set_hexpand(True)
         input_box.append(self.input_entry)
 
+        # Keyboard controller for Ctrl+Enter newline and Ctrl+L focus
+        keyctl = Gtk.EventControllerKey()
+        keyctl.connect("key-pressed", self.on_key_pressed)
+        self.add_controller(keyctl)
+
         # Microphone button for speech-to-text.
-        mic_button = Gtk.Button()
-        try:
-            mic_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../Icons/microphone.png")
-            mic_texture = Gdk.Texture.new_from_filename(mic_icon_path)
-            mic_icon = Gtk.Picture.new_for_paintable(mic_texture)
-            mic_icon.set_size_request(24, 24)
-            mic_icon.set_content_fit(Gtk.ContentFit.CONTAIN)
-        except Exception as e:
-            logger.error(f"Error loading microphone icon: {e}")
-            mic_icon = Gtk.Image.new_from_icon_name("audio-input-microphone")
-        mic_button.set_child(mic_icon)
-        mic_button.get_style_context().add_class("mic-button")
-        mic_button.connect("clicked", self.on_mic_button_click)
-        input_box.append(mic_button)
+        self.mic_button = Gtk.Button()
+        self._mic_icons = {
+            "idle": self._make_icon("../../Icons/microphone.png", "audio-input-microphone"),
+            "listening": self._make_icon("../../Icons/microphone-on.png", "media-record"),
+        }
+        self.mic_state_listening = False
+        self.mic_button.set_child(self._mic_icons["idle"])
+        self.mic_button.set_tooltip_text("Start listening (STT)")
+        self.mic_button.get_style_context().add_class("mic-button")
+        self.mic_button.connect("clicked", self.on_mic_button_click)
+        input_box.append(self.mic_button)
 
         # Send button.
-        send_button = Gtk.Button()
-        try:
-            # Compute absolute path for the send icon.
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../Icons/send.png")
-            texture = Gdk.Texture.new_from_filename(icon_path)
-            icon = Gtk.Picture.new_for_paintable(texture)
-            icon.set_size_request(24, 24)
-            icon.set_content_fit(Gtk.ContentFit.CONTAIN)
-        except Exception as e:
-            logger.error(f"Error loading send icon: {e}")
-            icon = Gtk.Image.new_from_icon_name("image-missing")
-        send_button.set_child(icon)
-        send_button.get_style_context().add_class("send-button")
-        send_button.connect("clicked", self.on_send_message)
-        input_box.append(send_button)
+        self.send_button = Gtk.Button()
+        self._set_button_icon(self.send_button, "../../Icons/send.png", "mail-send")
+        self.send_button.set_tooltip_text("Send message")
+        self.send_button.get_style_context().add_class("send-button")
+        self.send_button.connect("clicked", self.on_send_message)
+        input_box.append(self.send_button)
 
         self.vbox.append(input_box)
 
         # Add a status label at the bottom of the window.
         self.status_label = Gtk.Label()
         self.status_label.set_halign(Gtk.Align.START)
-        self.status_label.set_margin_start(5)
-        self.status_label.set_margin_end(5)
+        self.status_label.set_margin_start(8)
+        self.status_label.set_margin_end(8)
+        self.status_label.set_margin_bottom(6)
+        self.status_label.set_tooltip_text("Active LLM provider/model and TTS status")
         self.vbox.append(self.status_label)
         self.update_status_bar()
 
@@ -137,95 +156,144 @@ class ChatPage(Gtk.Window):
 
         self.present()
 
+    # --------------------------- Utilities ---------------------------
+
+    def _make_icon(self, rel_path, fallback_icon_name):
+        try:
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), rel_path)
+            texture = Gdk.Texture.new_from_filename(icon_path)
+            picture = Gtk.Picture.new_for_paintable(texture)
+            picture.set_size_request(24, 24)
+            picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+            return picture
+        except Exception as e:
+            logger.debug(f"Icon load failed ({rel_path}): {e}")
+            return Gtk.Image.new_from_icon_name(fallback_icon_name)
+
+    def _set_button_icon(self, button: Gtk.Button, rel_path: str, fallback_icon_name: str):
+        button.set_child(self._make_icon(rel_path, fallback_icon_name))
+
+    # --------------------------- Header helpers ---------------------------
+
     def update_persona_label(self):
         """
-        Updates the window title with the current persona's name.
+        Updates the window title and header label with the current persona's name.
         """
         persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Chat')
         self.set_title(persona_name)
+        self.persona_title_label.set_text(persona_name)
+
+    # --------------------------- Actions ---------------------------
 
     def on_send_message(self, widget):
         """
         Handler for when the user sends a message.
-
-        Reads the input, adds the user's message to the conversation history, clears the input,
-        and spawns a separate thread to handle the model's response.
-
-        Args:
-            widget: The widget that triggered the event.
         """
         message = self.input_entry.get_text().strip()
-        if message:
-            user_name = self.ATLAS.user
-            self.add_message_bubble(user_name, message, is_user=True)
-            self.input_entry.set_text("")
-            # Start a new thread to process the model's response asynchronously.
-            threading.Thread(
-                target=self.handle_model_response_thread,
-                args=(message,),
-                daemon=True
-            ).start()
+        if not message:
+            return
+        user_name = self.ATLAS.user
+        self.add_message_bubble(user_name, message, is_user=True)
+        self.input_entry.set_text("")
+        # Start a new thread to process the model's response asynchronously.
+        threading.Thread(
+            target=self.handle_model_response_thread,
+            args=(message,),
+            daemon=True
+        ).start()
+
+    def on_key_pressed(self, _controller, keyval, keycode, state):
+        """
+        Global key handling for convenient editing:
+         - Ctrl/⌘ + Enter inserts a newline into the entry text (simulated multiline).
+         - Ctrl/⌘ + L focuses the entry.
+        """
+        ctrl = (state & Gdk.ModifierType.CONTROL_MASK) or (state & Gdk.ModifierType.META_MASK)
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and ctrl:
+            # Insert a visible newline into the entry text (Entry is single-line; we simulate).
+            text = self.input_entry.get_text()
+            caret = self.input_entry.get_position()
+            new_text = text[:caret] + "\n" + text[caret:]
+            self.input_entry.set_text(new_text)
+            # Move caret after newline
+            GLib.idle_add(lambda: self.input_entry.set_position(caret + 1))
+            return True
+        if ctrl and keyval in (Gdk.KEY_l, Gdk.KEY_L):
+            self.input_entry.grab_focus()
+            return True
+        return False
 
     def on_mic_button_click(self, widget):
         """
-        Handler for the microphone button click to toggle speech-to-text.
-        
-        If speech recognition is not active, it starts listening and updates the status label.
-        If already listening, it stops recording, transcribes the audio, and inserts the transcript
-        into the input field.
+        Toggle speech-to-text recording/transcription.
         """
-        # Retrieve the active STT service from the Speech Manager.
         stt = self.ATLAS.speech_manager.active_stt
         if not stt:
             logger.error("No active STT service configured.")
+            self.status_label.set_text("No STT service configured.")
             return
 
         # Toggle recording based on the STT provider's 'recording' attribute.
-        if not getattr(stt, 'recording', False):
+        currently_recording = bool(getattr(stt, 'recording', False))
+        if not currently_recording:
             logger.info("Starting speech recognition...")
-            self.status_label.set_text("Listening...")
-            self.ATLAS.speech_manager.listen()
+            self._set_mic_visual(listening=True)
+            self.status_label.set_text("Listening…")
+            try:
+                self.ATLAS.speech_manager.listen()
+            except Exception as e:
+                logger.error(f"Error starting STT: {e}")
+                self._set_mic_visual(listening=False)
+                self.status_label.set_text("Failed to start listening.")
         else:
-            logger.info("Stopping speech recognition and transcribing...")
-            self.ATLAS.speech_manager.stop_listening()
-            
+            logger.info("Stopping speech recognition and transcribing…")
+            try:
+                self.ATLAS.speech_manager.stop_listening()
+            except Exception as e:
+                logger.error(f"Error stopping STT: {e}")
             # Run transcription in a separate thread to avoid blocking the UI.
             def transcribe_and_update():
-                # Use the provider's audio file if available; otherwise, default to "output.wav".
-                audio_file = getattr(stt, 'audio_file', "output.wav")
-                transcript = stt.transcribe(audio_file)
-                # Update the text input with the transcript.
-                GLib.idle_add(lambda: self.input_entry.set_text(transcript.strip()))
-                # Temporarily update the status to indicate transcription complete.
-                GLib.idle_add(lambda: self.status_label.set_text("Transcription complete."))
-                # After 3 seconds, update the status bar with the default message.
-                GLib.timeout_add_seconds(3, lambda: self.update_status_bar())
+                try:
+                    audio_file = getattr(stt, 'audio_file', "output.wav")
+                    transcript = stt.transcribe(audio_file) or ""
+                    GLib.idle_add(lambda: self.input_entry.set_text(transcript.strip()))
+                    GLib.idle_add(lambda: self.status_label.set_text("Transcription complete."))
+                except Exception as e:
+                    logger.error(f"Transcription error: {e}")
+                    GLib.idle_add(lambda: self.status_label.set_text(f"Transcription failed: {e}"))
+                finally:
+                    GLib.timeout_add_seconds(2, lambda: (self.update_status_bar() or False))
+                    GLib.idle_add(lambda: self._set_mic_visual(listening=False))
             threading.Thread(target=transcribe_and_update, daemon=True).start()
 
-    def handle_model_response_thread(self, message):
-            """
-            Processes the model's response asynchronously in a separate thread,
-            then schedules the UI update to add the assistant's message bubble.
-            Also triggers TTS if enabled.
-            
-            Args:
-                message (str): The user message to process.
-            """
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                response = loop.run_until_complete(self.chat_session.send_message(message))
-                
-                # Trigger TTS for the response if enabled.
-                loop.run_until_complete(self.ATLAS.speech_manager.text_to_speech(response))
-                
-                loop.close()
-                persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
-                GLib.idle_add(self.add_message_bubble, persona_name, response)
-            except Exception as e:
-                logger.error(f"Error in handle_model_response: {e}")
-                GLib.idle_add(self.add_message_bubble, "Assistant", f"Error: {e}")
+    def _set_mic_visual(self, listening: bool):
+        self.mic_state_listening = listening
+        self.mic_button.set_child(self._mic_icons["listening" if listening else "idle"])
+        self.mic_button.set_tooltip_text("Stop listening (STT)" if listening else "Start listening (STT)")
 
+    def handle_model_response_thread(self, message):
+        """
+        Processes the model's response asynchronously in a separate thread,
+        then schedules the UI update to add the assistant's message bubble.
+        Also triggers TTS if enabled.
+        """
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            response = loop.run_until_complete(self.chat_session.send_message(message))
+
+            # Trigger TTS for the response if enabled.
+            try:
+                loop.run_until_complete(self.ATLAS.speech_manager.text_to_speech(response))
+            except Exception as tts_err:
+                logger.warning(f"TTS error (continuing): {tts_err}")
+
+            loop.close()
+            persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
+            GLib.idle_add(self.add_message_bubble, persona_name, response)
+        except Exception as e:
+            logger.error(f"Error in handle_model_response: {e}")
+            GLib.idle_add(self.add_message_bubble, "Assistant", f"Error: {e}")
 
     def add_message_bubble(self, sender, message, is_user=False):
         """
@@ -236,18 +304,29 @@ class ChatPage(Gtk.Window):
             message (str): The message content.
             is_user (bool): True if the message is from the user, False if from the assistant.
         """
-        bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        bubble.set_margin_top(5)
-        bubble.set_margin_bottom(5)
+        bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        bubble.set_margin_top(4)
+        bubble.set_margin_bottom(4)
 
+        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         sender_label = Gtk.Label(label=sender)
         sender_label.set_halign(Gtk.Align.START)
-        bubble.append(sender_label)
+        sender_label.add_css_class("caption")
+        header_row.append(sender_label)
+        header_row.append(self._spacer())
+        # timestamp-ish (lightweight)
+        ts = Gtk.Label(label="")
+        ts.add_css_class("dim-label")
+        ts.set_halign(Gtk.Align.END)
+        header_row.append(ts)
+        bubble.append(header_row)
 
         message_label = Gtk.Label(label=message)
         message_label.set_wrap(True)
-        message_label.set_max_width_chars(32)
+        message_label.set_max_width_chars(46)
         message_label.set_halign(Gtk.Align.START)
+        message_label.set_selectable(True)
+        message_label.set_tooltip_text("Right-click for options")
 
         bubble_box = Gtk.Box()
         bubble_box.append(message_label)
@@ -261,10 +340,54 @@ class ChatPage(Gtk.Window):
             bubble_box.get_style_context().add_class("assistant-message")
             bubble.set_halign(Gtk.Align.START)
 
+        # Context menu: Copy / Delete
+        click = Gtk.GestureClick(button=3)  # right-click
+        click.connect("pressed", self._on_bubble_right_click, message_label, bubble)
+        bubble_box.add_controller(click)
+
         bubble.append(bubble_box)
         self.chat_history.append(bubble)
+
         # Schedule scrolling to the bottom after a short delay.
         GLib.timeout_add(100, self.scroll_to_bottom)
+
+    def _on_bubble_right_click(self, gesture, n_press, x, y, message_label: Gtk.Label, bubble: Gtk.Box):
+        menu = Gtk.PopoverMenu()
+        model = Gio.Menu()
+        model.append("Copy", "bubble.copy")
+        model.append("Delete", "bubble.delete")
+        menu.set_menu_model(model)
+        menu.set_has_arrow(False)
+
+        # Actions
+        copy_action = Gio.SimpleAction.new("copy", None)
+        copy_action.connect("activate", lambda *_: self._copy_label_text(message_label))
+        delete_action = Gio.SimpleAction.new("delete", None)
+        delete_action.connect("activate", lambda *_: self._delete_bubble(bubble))
+
+        action_group = Gio.SimpleActionGroup()
+        action_group.add_action(copy_action)
+        action_group.add_action(delete_action)
+        bubble.insert_action_group("bubble", action_group)
+
+        menu.set_parent(bubble)
+        menu.set_pointing_to(Gdk.Rectangle(int(x), int(y), 1, 1))
+        menu.popup()
+
+    def _copy_label_text(self, label: Gtk.Label):
+        text = label.get_text() or ""
+        display = self.get_display()
+        display.get_clipboard().set(text)
+
+    def _delete_bubble(self, bubble: Gtk.Box):
+        parent = bubble.get_parent()
+        if parent:
+            parent.remove(bubble)
+
+    def _spacer(self):
+        s = Gtk.Box()
+        s.set_hexpand(True)
+        return s
 
     def scroll_to_bottom(self):
         """
@@ -273,41 +396,93 @@ class ChatPage(Gtk.Window):
         Returns:
             bool: False to stop further timeout events.
         """
-        vadjustment = self.chat_history_scrolled.get_vadjustment()
-        vadjustment.set_value(vadjustment.get_upper())
+        vadj = self.chat_history_scrolled.get_vadjustment()
+        # Use upper - page_size so we truly land at the bottom without overshoot
+        bottom = max(0.0, vadj.get_upper() - vadj.get_page_size())
+        vadj.set_value(bottom)
         return False  # Stop the timeout
+
+    def on_clear_chat(self, _btn):
+        """
+        Clears the current chat history from the UI (does not modify persisted history unless your app does so elsewhere).
+        """
+        for child in list(self.chat_history.get_children()):
+            self.chat_history.remove(child)
+        self.status_label.set_text("Chat cleared.")
+        GLib.timeout_add_seconds(2, lambda: (self.update_status_bar() or False))
+
+    def on_export_chat(self, _btn):
+        """
+        Exports the chat history to a simple UTF-8 text file chosen by the user.
+        """
+        dialog = Gtk.FileChooserNative(
+            title="Export chat",
+            action=Gtk.FileChooserAction.SAVE,
+            transient_for=self
+        )
+        dialog.set_current_name("chat.txt")
+        response = dialog.run()
+        if response == Gtk.ResponseType.ACCEPT:
+            path = dialog.get_filename()
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    for row in self.chat_history.get_children():
+                        # row -> bubble (Box)
+                        kids = row.get_children()
+                        if len(kids) >= 2:
+                            # header_row, bubble_box
+                            header_row = kids[0]
+                            sender = header_row.get_first_child().get_text() if isinstance(header_row.get_first_child(), Gtk.Label) else "Sender"
+                            message_label = kids[1].get_first_child()
+                            text = message_label.get_text() if isinstance(message_label, Gtk.Label) else ""
+                            f.write(f"{sender}: {text}\n\n")
+                self.status_label.set_text(f"Exported chat to: {path}")
+            except Exception as e:
+                logger.error(f"Export error: {e}")
+                self.status_label.set_text(f"Export failed: {e}")
+        dialog.destroy()
 
     def update_status_bar(self, provider=None, model=None):
         """
         Updates the status label with current LLM provider/model information as well as
         the active TTS provider and its selected voice.
-
-        Args:
-            provider (str, optional): LLM provider name; if None, retrieved from ATLAS.
-            model (str, optional): LLM model name; if None, retrieved from ATLAS.
         """
         # Retrieve LLM provider and model information.
-        llm_provider = self.ATLAS.provider_manager.get_current_provider()
-        llm_model = self.ATLAS.provider_manager.get_current_model() or "No model selected"
+        try:
+            llm_provider = self.ATLAS.provider_manager.get_current_provider() or "Unknown"
+        except Exception:
+            llm_provider = "Unknown"
+        try:
+            llm_model = self.ATLAS.provider_manager.get_current_model() or "No model selected"
+        except Exception:
+            llm_model = "No model selected"
 
         # Retrieve TTS provider and voice information.
-        tts_provider = self.ATLAS.speech_manager.get_default_tts_provider() or "None"
-        tts = self.ATLAS.speech_manager.active_tts
+        try:
+            tts_provider = self.ATLAS.speech_manager.get_default_tts_provider() or "None"
+        except Exception:
+            tts_provider = "None"
+
+        tts = getattr(self.ATLAS.speech_manager, "active_tts", None)
         tts_voice = "Not Set"
         if tts:
-            # Attempt to use a get_current_voice() method if available.
-            if hasattr(tts, "get_current_voice") and callable(getattr(tts, "get_current_voice")):
-                tts_voice = tts.get_current_voice()
-            # Fallback: if the provider maintains a list of voices.
-            elif hasattr(tts, "voice_ids") and tts.voice_ids:
-                tts_voice = tts.voice_ids[0].get('name', "Not Set")
-            # Fallback for providers like GoogleTTS.
-            elif hasattr(tts, "voice") and tts.voice is not None:
-                tts_voice = tts.voice.name
+            try:
+                if hasattr(tts, "get_current_voice") and callable(getattr(tts, "get_current_voice")):
+                    tts_voice = tts.get_current_voice() or tts_voice
+                elif hasattr(tts, "voice_ids") and tts.voice_ids:
+                    tts_voice = tts.voice_ids[0].get('name', tts_voice)
+                elif hasattr(tts, "voice") and tts.voice is not None:
+                    # e.g., Google TTS voice object
+                    tts_voice = getattr(tts.voice, "name", tts_voice)
+            except Exception as e:
+                logger.debug(f"TTS voice fetch issue: {e}")
 
-        # Construct and update the status message.
         status_message = (
-            f"LLM: {llm_provider} | Model: {llm_model} | "
+            f"LLM: {llm_provider} • Model: {llm_model} • "
             f"TTS: {tts_provider} (Voice: {tts_voice})"
         )
         self.status_label.set_text(status_message)
+
+
+# Imports required by popover menu action wiring
+from gi.repository import Gio  # noqa: E402  (keep at bottom for clarity)
