@@ -478,7 +478,14 @@ class ChatPage(Gtk.Window):
         """
         for child in list(self.chat_history.get_children()):
             self.chat_history.remove(child)
-        self.status_label.set_text("Chat cleared.")
+        try:
+            self.chat_session.reset_conversation()
+        except Exception as exc:
+            logger.error(f"Failed to reset chat session: {exc}")
+            status_message = f"Failed to reset chat: {exc}"
+        else:
+            status_message = "Chat cleared and session reset."
+        self.status_label.set_text(status_message)
         GLib.timeout_add_seconds(2, lambda: (self.update_status_bar() or False))
 
     def on_export_chat(self, _btn):
