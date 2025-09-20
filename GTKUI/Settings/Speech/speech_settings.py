@@ -246,10 +246,11 @@ class SpeechSettings(Gtk.Window):
         tts_provider_label.set_tooltip_text("Choose the service used for TTS by default.")
         self.default_tts_combo = Gtk.ComboBoxText()
         self.default_tts_combo.set_tooltip_text("Select the default TTS service.")
-        for key in self.ATLAS.speech_manager.tts_services.keys():
+        tts_provider_names = self.ATLAS.speech_manager.get_tts_provider_names()
+        for key in tts_provider_names:
             self.default_tts_combo.append_text(key)
-        if current_tts_provider:
-            index = list(self.ATLAS.speech_manager.tts_services.keys()).index(current_tts_provider)
+        if current_tts_provider and current_tts_provider in tts_provider_names:
+            index = tts_provider_names.index(current_tts_provider)
             self.default_tts_combo.set_active(index)
         hbox_tts_provider.append(tts_provider_label)
         hbox_tts_provider.append(self.default_tts_combo)
@@ -273,10 +274,11 @@ class SpeechSettings(Gtk.Window):
         stt_provider_label.set_tooltip_text("Choose the service used for STT by default.")
         self.default_stt_combo = Gtk.ComboBoxText()
         self.default_stt_combo.set_tooltip_text("Select the default STT service.")
-        for key in self.ATLAS.speech_manager.stt_services.keys():
+        stt_provider_names = self.ATLAS.speech_manager.get_stt_provider_names()
+        for key in stt_provider_names:
             self.default_stt_combo.append_text(key)
-        if default_stt:
-            index = list(self.ATLAS.speech_manager.stt_services.keys()).index(default_stt)
+        if default_stt and default_stt in stt_provider_names:
+            index = stt_provider_names.index(default_stt)
             self.default_stt_combo.set_active(index)
         hbox_stt_provider.append(stt_provider_label)
         hbox_stt_provider.append(self.default_stt_combo)

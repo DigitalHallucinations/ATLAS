@@ -267,6 +267,56 @@ def speech_manager():
     return _SpeechManagerForTest(_DummyConfig())
 
 
+def test_get_tts_provider_names_returns_ordered_copy(speech_manager):
+    speech_manager.tts_services["alpha"] = object()
+    speech_manager.tts_services["beta"] = object()
+
+    names = speech_manager.get_tts_provider_names()
+
+    assert names == ("alpha", "beta")
+
+    speech_manager.tts_services["gamma"] = object()
+
+    assert names == ("alpha", "beta")
+
+
+def test_get_stt_provider_names_returns_ordered_copy(speech_manager):
+    speech_manager.stt_services["delta"] = object()
+    speech_manager.stt_services["epsilon"] = object()
+
+    names = speech_manager.get_stt_provider_names()
+
+    assert names == ("delta", "epsilon")
+
+    speech_manager.stt_services["zeta"] = object()
+
+    assert names == ("delta", "epsilon")
+
+
+def test_get_default_tts_provider_index_tracks_provider(speech_manager):
+    speech_manager.tts_services["one"] = object()
+    speech_manager.tts_services["two"] = object()
+    speech_manager.set_default_tts_provider("two")
+
+    assert speech_manager.get_default_tts_provider_index() == 1
+
+    speech_manager.remove_tts_provider("two")
+
+    assert speech_manager.get_default_tts_provider_index() is None
+
+
+def test_get_default_stt_provider_index_tracks_provider(speech_manager):
+    speech_manager.stt_services["uno"] = object()
+    speech_manager.stt_services["dos"] = object()
+    speech_manager.set_default_stt_provider("dos")
+
+    assert speech_manager.get_default_stt_provider_index() == 1
+
+    speech_manager.remove_stt_provider("dos")
+
+    assert speech_manager.get_default_stt_provider_index() is None
+
+
 def test_summary_prefers_get_current_voice_dict(speech_manager):
     class Provider:
         def get_current_voice(self):
