@@ -186,6 +186,7 @@ class ChatPage(Gtk.Window):
         self.ATLAS.notify_provider_changed = self.update_status_bar
 
         self.awaiting_response = False
+        self._export_dialog = None
 
         self.present()
 
@@ -513,12 +514,25 @@ class ChatPage(Gtk.Window):
         """
         Exports the chat history to a simple UTF-8 text file chosen by the user.
         """
+        if self._export_dialog is not None:
+            # Ensure any previous dialog is cleaned up before opening a new one.
+            try:
+                self._export_dialog.destroy()
+            except Exception:
+                pass
+            finally:
+                self._export_dialog = None
+                self.export_btn.set_sensitive(True)
+
         dialog = Gtk.FileChooserNative(
             title="Export chat",
             action=Gtk.FileChooserAction.SAVE,
             transient_for=self
         )
         dialog.set_current_name("chat.txt")
+        dialog.set_modal(True)
+        self.export_btn.set_sensitive(False)
+        self._export_dialog = dialog
         dialog.connect("response", self._on_export_dialog_response)
         dialog.show()
 
@@ -545,6 +559,8 @@ class ChatPage(Gtk.Window):
             )
         finally:
             dialog.destroy()
+            self.export_btn.set_sensitive(True)
+            self._export_dialog = None
 
     def update_status_bar(self, provider=None, model=None):
         """
