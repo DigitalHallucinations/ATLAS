@@ -14,7 +14,7 @@ Author: Jeremy Shows - Digital Hallucinations
 Date: 05-11-2025
 """
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Callable
 import os
 import asyncio
 import time
@@ -47,6 +47,17 @@ class SpeechManager:
         self._tts_enabled = False
         self.transcription_history: List[dict] = []  # Logs for transcription events
 
+        self._google_tts_factory: Callable[[], Any] = lambda: GoogleTTS()
+        self._google_stt_factory: Callable[[], Any] = lambda: GoogleSTT()
+        self._openai_stt_factories: Dict[str, Callable[[], Any]] = {
+            "Whisper Online": lambda: self._create_whisper_stt(),
+            "GPT-4o STT": lambda: self._create_gpt4o_stt("gpt-4o"),
+            "GPT-4o Mini STT": lambda: self._create_gpt4o_stt("gpt-4o-mini"),
+        }
+        self._openai_tts_factories: Dict[str, Callable[[], Any]] = {
+            "GPT-4o Mini TTS": lambda: self._create_gpt4o_tts(),
+        }
+
         self.initialize_services()
 
     async def initialize(self):
@@ -72,7 +83,7 @@ class SpeechManager:
             logger.error(f"Failed to initialize Eleven Labs TTS: {e}")
 
         try:
-            google_tts = GoogleTTS()
+            google_tts = self._google_tts_factory()
             self.tts_services['google'] = google_tts
             logger.info("Google TTS initialized.")
         except Exception as e:
@@ -80,8 +91,7 @@ class SpeechManager:
 
         # Initialize new GPT-4o TTS provider
         try:
-            from modules.Speech_Services.gpt4o_tts import GPT4oTTS
-            gpt4o_tts = GPT4oTTS(voice="default")
+            gpt4o_tts = self._create_gpt4o_tts()
             self.tts_services['gpt4o_tts'] = gpt4o_tts
             logger.info("GPT-4o TTS initialized.")
         except Exception as e:
@@ -89,7 +99,7 @@ class SpeechManager:
 
         # Initialize STT providers
         try:
-            google_stt = GoogleSTT()
+            google_stt = self._google_stt_factory()
             self.stt_services['google'] = google_stt
             logger.info("Google STT initialized.")
         except Exception as e:
@@ -121,9 +131,7 @@ class SpeechManager:
 
         # Initialize new GPT-4o STT provider
         try:
-            from modules.Speech_Services.gpt4o_stt import GPT4oSTT
-            # You can choose between "gpt-4o" and "gpt-4o-mini". Here we use the full version.
-            gpt4o_stt = GPT4oSTT(variant="gpt-4o")
+            gpt4o_stt = self._create_gpt4o_stt("gpt-4o")
             self.stt_services['gpt4o_stt'] = gpt4o_stt
             logger.info("GPT-4o STT initialized.")
         except Exception as e:
@@ -140,6 +148,154 @@ class SpeechManager:
         if 'google' in self.stt_services:
             self.active_stt = self.stt_services['google']
             logger.info("Default STT set to Google.")
+
+    @staticmethod
+    def _restore_env_var(env_key: str, previous_value: Optional[str]):
+        if previous_value is None:
+            os.environ.pop(env_key, None)
+        else:
+            os.environ[env_key] = previous_value
+
+    def _create_whisper_stt(self):
+        from modules.Speech_Services.whisper_stt import WhisperSTT
+
+        return WhisperSTT(mode="online")
+
+    def _create_gpt4o_stt(self, variant: str):
+        from modules.Speech_Services.gpt4o_stt import GPT4oSTT
+
+        return GPT4oSTT(variant=variant)
+
+    def _create_gpt4o_tts(self):
+        from modules.Speech_Services.gpt4o_tts import GPT4oTTS
+
+        return GPT4oTTS(voice="default")
+
+    def set_google_credentials(self, credentials_path: str, persist: bool = True):
+        """Update Google credentials and refresh provider instances."""
+
+        if not credentials_path:
+            raise ValueError("Google credentials path cannot be empty.")
+
+        previous_env = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        was_default_tts = self.get_default_tts_provider() == 'google'
+        was_default_stt = self.get_default_stt_provider() == 'google'
+
+        try:
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+            new_tts = self._google_tts_factory()
+            new_stt = self._google_stt_factory()
+        except Exception as exc:
+            self._restore_env_var("GOOGLE_APPLICATION_CREDENTIALS", previous_env)
+            logger.error(f"Failed to initialize Google providers with new credentials: {exc}")
+            raise
+
+        if persist:
+            try:
+                self.config_manager.set_google_credentials(credentials_path)
+            except Exception as exc:
+                self._restore_env_var("GOOGLE_APPLICATION_CREDENTIALS", previous_env)
+                logger.error(f"Failed to persist Google credentials: {exc}")
+                raise
+        else:
+            self.config_manager.config['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+
+        self.tts_services['google'] = new_tts
+        self.stt_services['google'] = new_stt
+
+        if was_default_tts:
+            self.set_default_tts_provider('google')
+        if was_default_stt:
+            self.set_default_stt_provider('google')
+
+    def set_openai_speech_config(
+        self,
+        *,
+        api_key: Optional[str],
+        stt_provider: Optional[str],
+        language: Optional[str],
+        task: Optional[str],
+        initial_prompt: Optional[str],
+        tts_provider: Optional[str],
+        persist: bool = True,
+    ):
+        """Configure OpenAI-based providers and update persistence as needed."""
+
+        previous_env = os.environ.get('OPENAI_API_KEY')
+        stored_key = self.config_manager.get_config('OPENAI_API_KEY')
+        target_api_key = api_key if api_key is not None else stored_key or previous_env
+
+        if (stt_provider or tts_provider) and not target_api_key:
+            raise ValueError("An OpenAI API key is required to configure speech services.")
+
+        if target_api_key:
+            os.environ['OPENAI_API_KEY'] = target_api_key
+
+        new_stt = None
+        new_tts = None
+        new_stt_key: Optional[str] = None
+        new_tts_key: Optional[str] = None
+
+        if stt_provider:
+            factory = self._openai_stt_factories.get(stt_provider)
+            if not factory:
+                self._restore_env_var('OPENAI_API_KEY', previous_env)
+                raise ValueError(f"Unknown OpenAI STT provider '{stt_provider}'.")
+            try:
+                new_stt = factory()
+                new_stt_key = 'openai_stt'
+            except Exception as exc:
+                self._restore_env_var('OPENAI_API_KEY', previous_env)
+                logger.error(f"Failed to initialize OpenAI STT provider '{stt_provider}': {exc}")
+                raise
+
+        if tts_provider:
+            factory = self._openai_tts_factories.get(tts_provider)
+            if not factory:
+                self._restore_env_var('OPENAI_API_KEY', previous_env)
+                raise ValueError(f"Unknown OpenAI TTS provider '{tts_provider}'.")
+            try:
+                new_tts = factory()
+                new_tts_key = 'openai_tts'
+            except Exception as exc:
+                self._restore_env_var('OPENAI_API_KEY', previous_env)
+                logger.error(f"Failed to initialize OpenAI TTS provider '{tts_provider}': {exc}")
+                raise
+
+        if persist:
+            try:
+                self.config_manager.set_openai_speech_config(
+                    api_key=api_key,
+                    stt_provider=stt_provider,
+                    tts_provider=tts_provider,
+                    language=language,
+                    task=task,
+                    initial_prompt=initial_prompt,
+                )
+            except Exception as exc:
+                self._restore_env_var('OPENAI_API_KEY', previous_env)
+                logger.error(f"Failed to persist OpenAI speech configuration: {exc}")
+                raise
+        else:
+            if api_key is not None:
+                self.config_manager.config['OPENAI_API_KEY'] = api_key
+            if stt_provider is not None:
+                self.config_manager.config['OPENAI_STT_PROVIDER'] = stt_provider
+            if tts_provider is not None:
+                self.config_manager.config['OPENAI_TTS_PROVIDER'] = tts_provider
+            if language is not None:
+                self.config_manager.config['OPENAI_LANGUAGE'] = language
+            if task is not None:
+                self.config_manager.config['OPENAI_TASK'] = task
+            if initial_prompt is not None:
+                self.config_manager.config['OPENAI_INITIAL_PROMPT'] = initial_prompt
+
+        if new_stt_key:
+            self.stt_services[new_stt_key] = new_stt
+        if new_tts_key:
+            self.tts_services[new_tts_key] = new_tts
+
+        self.set_default_speech_providers(tts_provider=new_tts_key, stt_provider=new_stt_key)
 
     # ----------------------- TTS Methods -----------------------
 
@@ -340,51 +496,16 @@ class SpeechManager:
         initial_prompt: Optional[str],
         tts_provider: Optional[str],
     ):
-        """Configure OpenAI-based speech providers and update defaults."""
+        """Backward-compatible wrapper for legacy callers."""
 
-        if api_key is not None:
-            if hasattr(self.config_manager, 'config'):
-                self.config_manager.config['OPENAI_API_KEY'] = api_key
-            os.environ['OPENAI_API_KEY'] = api_key
-
-        if hasattr(self.config_manager, 'config'):
-            self.config_manager.config['OPENAI_STT_PROVIDER'] = stt_provider
-            self.config_manager.config['OPENAI_LANGUAGE'] = language
-            self.config_manager.config['OPENAI_TASK'] = task
-            self.config_manager.config['OPENAI_INITIAL_PROMPT'] = initial_prompt
-            self.config_manager.config['OPENAI_TTS_PROVIDER'] = tts_provider
-
-        stt_key = None
-        tts_key = None
-
-        if stt_provider:
-            try:
-                if stt_provider == "Whisper Online":
-                    from modules.Speech_Services.whisper_stt import WhisperSTT
-
-                    stt_instance = WhisperSTT(mode="online")
-                else:
-                    from modules.Speech_Services.gpt4o_stt import GPT4oSTT
-
-                    variant = "gpt-4o" if stt_provider == "GPT-4o STT" else "gpt-4o-mini"
-                    stt_instance = GPT4oSTT(variant=variant)
-
-                stt_key = "openai_stt"
-                self.add_stt_provider(stt_key, stt_instance)
-            except Exception as exc:
-                logger.error(f"Error configuring OpenAI STT provider '{stt_provider}': {exc}")
-
-        if tts_provider:
-            try:
-                from modules.Speech_Services.gpt4o_tts import GPT4oTTS
-
-                tts_instance = GPT4oTTS(voice="default")
-                tts_key = "openai_tts"
-                self.add_tts_provider(tts_key, tts_instance)
-            except Exception as exc:
-                logger.error(f"Error configuring OpenAI TTS provider '{tts_provider}': {exc}")
-
-        self.set_default_speech_providers(tts_key, stt_key)
+        self.set_openai_speech_config(
+            api_key=api_key,
+            stt_provider=stt_provider,
+            language=language,
+            task=task,
+            initial_prompt=initial_prompt,
+            tts_provider=tts_provider,
+        )
 
     def get_active_tts_summary(self) -> Tuple[str, str]:
         """Return a tuple describing the active TTS provider and voice label."""

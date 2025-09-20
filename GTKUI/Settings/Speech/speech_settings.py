@@ -117,6 +117,18 @@ class SpeechSettings(Gtk.Window):
             img.set_pixel_size(size)
             return img
 
+    def _show_message(self, title: str, message: str, message_type: Gtk.MessageType = Gtk.MessageType.INFO):
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=message_type,
+            buttons=Gtk.ButtonsType.OK,
+            text=title,
+        )
+        dialog.format_secondary_text(message)
+        dialog.run()
+        dialog.destroy()
+
     def _build_secret_row(self, label_text: str, default_visible: bool = False):
         """
         Build a labeled secret row with: Label, Entry (password-mode), and an eye ToggleButton.
@@ -470,9 +482,19 @@ class SpeechSettings(Gtk.Window):
 
     def save_google_tab(self):
         google_creds = self.google_credentials_entry.get_text().strip()
-        self.ATLAS.config_manager.config["GOOGLE_APPLICATION_CREDENTIALS"] = google_creds
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = google_creds
+        if not google_creds:
+            self._show_message("Error", "Google credentials path cannot be empty.", Gtk.MessageType.ERROR)
+            return
+
+        try:
+            self.ATLAS.speech_manager.set_google_credentials(google_creds)
+        except Exception as exc:
+            logger.error(f"Failed to save Google credentials: {exc}", exc_info=True)
+            self._show_message("Error", f"Failed to save Google credentials: {exc}", Gtk.MessageType.ERROR)
+            return
+
         self.tab_dirty[2] = False
+        self._show_message("Success", "Google credentials updated.", Gtk.MessageType.INFO)
 
     # ----------------------- Open AI Tab -----------------------
     def create_openai_tab(self):
@@ -597,29 +619,39 @@ class SpeechSettings(Gtk.Window):
 
     def save_openai_tab(self):
         openai_api_key = self.openai_api_entry.get_text().strip()
+        if not openai_api_key:
+            openai_api_key = None
         stt_provider = self.openai_stt_combo.get_active_text()
         language_active = self.openai_language_combo.get_active_text()
         language_map = {"Auto": "", "English (en)": "en", "Japanese (ja)": "ja", "Spanish (es)": "es", "French (fr)": "fr"}
         language_code = language_map.get(language_active, "")
+        if language_code == "":
+            language_code = None
         task = self.openai_task_combo.get_active_text().lower()
         initial_prompt = self.openai_prompt_entry.get_text().strip() or None
 
         # For Open AI TTS, we currently only support GPT-4o Mini TTS.
         tts_provider = self.openai_tts_combo.get_active_text()
 
-        self.ATLAS.speech_manager.configure_openai_speech(
-            api_key=openai_api_key,
-            stt_provider=stt_provider,
-            language=language_code,
-            task=task,
-            initial_prompt=initial_prompt,
-            tts_provider=tts_provider,
-        )
+        try:
+            self.ATLAS.speech_manager.set_openai_speech_config(
+                api_key=openai_api_key,
+                stt_provider=stt_provider,
+                language=language_code,
+                task=task,
+                initial_prompt=initial_prompt,
+                tts_provider=tts_provider,
+            )
+        except Exception as exc:
+            logger.error(f"Failed to update OpenAI speech configuration: {exc}", exc_info=True)
+            self._show_message("Error", f"Failed to update OpenAI speech configuration: {exc}", Gtk.MessageType.ERROR)
+            return
 
         logger.info(f"Open AI STT provider set to {stt_provider}")
         logger.info("Open AI TTS provider (GPT-4o Mini TTS) initialized.")
 
         self.tab_dirty[3] = False
+        self._show_message("Success", "OpenAI speech settings saved.", Gtk.MessageType.INFO)
 
     # ----------------------- File Picker & History -----------------------
 

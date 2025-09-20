@@ -192,9 +192,13 @@ from modules.Speech_Services.speech_manager import SpeechManager
 
 class _DummyConfig:
     def __init__(self):
-        self.config = {}
+        self.config = {"OPENAI_API_KEY": "stored-key"}
         self.yaml_config = {}
         self._tts_enabled = True
+        self.raise_openai_error = False
+        self.raise_google_error = False
+        self.openai_calls = []
+        self.google_credentials = None
 
     def get_tts_enabled(self):
         return self._tts_enabled
@@ -205,6 +209,47 @@ class _DummyConfig:
 
     def get_config(self, key, default=None):
         return self.config.get(key, default)
+
+    def set_openai_speech_config(
+        self,
+        *,
+        api_key=None,
+        stt_provider=None,
+        tts_provider=None,
+        language=None,
+        task=None,
+        initial_prompt=None,
+    ):
+        if self.raise_openai_error:
+            raise RuntimeError("persist failed")
+        self.openai_calls.append(
+            {
+                "api_key": api_key,
+                "stt_provider": stt_provider,
+                "tts_provider": tts_provider,
+                "language": language,
+                "task": task,
+                "initial_prompt": initial_prompt,
+            }
+        )
+        if api_key is not None:
+            self.config['OPENAI_API_KEY'] = api_key
+        if stt_provider is not None:
+            self.config['OPENAI_STT_PROVIDER'] = stt_provider
+        if tts_provider is not None:
+            self.config['OPENAI_TTS_PROVIDER'] = tts_provider
+        if language is not None:
+            self.config['OPENAI_LANGUAGE'] = language
+        if task is not None:
+            self.config['OPENAI_TASK'] = task
+        if initial_prompt is not None:
+            self.config['OPENAI_INITIAL_PROMPT'] = initial_prompt
+
+    def set_google_credentials(self, credentials_path: str):
+        if self.raise_google_error:
+            raise RuntimeError("persist failed")
+        self.google_credentials = credentials_path
+        self.config['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
 
 
 class _SpeechManagerForTest(SpeechManager):
@@ -332,8 +377,14 @@ def test_disable_stt_clears_active_provider(speech_manager):
     assert speech_manager.config_manager.config["DEFAULT_STT_PROVIDER"] is None
 
 
-def test_configure_openai_speech_registers_providers(speech_manager):
-    speech_manager.configure_openai_speech(
+def test_set_openai_speech_config_registers_providers(speech_manager, monkeypatch):
+    stt_instance = object()
+    tts_instance = object()
+    speech_manager._openai_stt_factories = {"GPT-4o STT": lambda: stt_instance}
+    speech_manager._openai_tts_factories = {"GPT-4o Mini TTS": lambda: tts_instance}
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    speech_manager.set_openai_speech_config(
         api_key="unit-test-key",
         stt_provider="GPT-4o STT",
         language="en",
@@ -342,9 +393,110 @@ def test_configure_openai_speech_registers_providers(speech_manager):
         tts_provider="GPT-4o Mini TTS",
     )
 
-    assert "openai_stt" in speech_manager.stt_services
-    assert "openai_tts" in speech_manager.tts_services
+    assert speech_manager.stt_services["openai_stt"] is stt_instance
+    assert speech_manager.tts_services["openai_tts"] is tts_instance
     assert speech_manager.get_default_stt_provider() == "openai_stt"
     assert speech_manager.get_default_tts_provider() == "openai_tts"
     assert speech_manager.config_manager.config["OPENAI_TASK"] == "transcribe"
+    assert speech_manager.config_manager.openai_calls[-1]["initial_prompt"] == "Hello"
     assert os.environ["OPENAI_API_KEY"] == "unit-test-key"
+
+
+def test_set_openai_speech_config_persistence_failure_rolls_back(speech_manager, monkeypatch):
+    existing_stt = object()
+    existing_tts = object()
+    speech_manager.stt_services["openai_stt"] = existing_stt
+    speech_manager.tts_services["openai_tts"] = existing_tts
+    speech_manager.set_default_speech_providers(tts_provider="openai_tts", stt_provider="openai_stt")
+    speech_manager._openai_stt_factories = {"GPT-4o STT": lambda: object()}
+    speech_manager.config_manager.raise_openai_error = True
+    monkeypatch.setenv("OPENAI_API_KEY", "previous")
+
+    with pytest.raises(RuntimeError):
+        speech_manager.set_openai_speech_config(
+            api_key="new-key",
+            stt_provider="GPT-4o STT",
+            language="en",
+            task="translate",
+            initial_prompt=None,
+            tts_provider=None,
+        )
+
+    assert speech_manager.stt_services["openai_stt"] is existing_stt
+    assert speech_manager.tts_services["openai_tts"] is existing_tts
+    assert speech_manager.get_default_stt_provider() == "openai_stt"
+    assert os.environ["OPENAI_API_KEY"] == "previous"
+
+
+def test_set_openai_speech_config_factory_failure_rolls_back(speech_manager, monkeypatch):
+    def fail():
+        raise RuntimeError("factory error")
+
+    speech_manager._openai_stt_factories = {"GPT-4o STT": fail}
+    monkeypatch.setenv("OPENAI_API_KEY", "stored")
+
+    with pytest.raises(RuntimeError):
+        speech_manager.set_openai_speech_config(
+            api_key=None,
+            stt_provider="GPT-4o STT",
+            language=None,
+            task=None,
+            initial_prompt=None,
+            tts_provider=None,
+        )
+
+    assert speech_manager.config_manager.openai_calls == []
+
+
+def test_set_google_credentials_reconfigures_providers(speech_manager, monkeypatch):
+    new_tts = object()
+    new_stt = object()
+    speech_manager._google_tts_factory = lambda: new_tts
+    speech_manager._google_stt_factory = lambda: new_stt
+    speech_manager.tts_services['google'] = object()
+    speech_manager.stt_services['google'] = object()
+    speech_manager.set_default_tts_provider('google')
+    speech_manager.set_default_stt_provider('google')
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+
+    speech_manager.set_google_credentials("/tmp/google.json")
+
+    assert speech_manager.tts_services['google'] is new_tts
+    assert speech_manager.stt_services['google'] is new_stt
+    assert speech_manager.get_default_tts_provider() == 'google'
+    assert speech_manager.get_default_stt_provider() == 'google'
+    assert speech_manager.config_manager.google_credentials == "/tmp/google.json"
+    assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/google.json"
+
+
+def test_set_google_credentials_persist_failure_rolls_back(speech_manager, monkeypatch):
+    existing_tts = object()
+    existing_stt = object()
+    speech_manager.tts_services['google'] = existing_tts
+    speech_manager.stt_services['google'] = existing_stt
+    speech_manager.set_default_tts_provider('google')
+    speech_manager.set_default_stt_provider('google')
+    speech_manager._google_tts_factory = lambda: object()
+    speech_manager._google_stt_factory = lambda: object()
+    speech_manager.config_manager.raise_google_error = True
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "old.json")
+
+    with pytest.raises(RuntimeError):
+        speech_manager.set_google_credentials("/tmp/new.json")
+
+    assert speech_manager.tts_services['google'] is existing_tts
+    assert speech_manager.stt_services['google'] is existing_stt
+    assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == "old.json"
+
+
+def test_set_google_credentials_factory_failure_rolls_back(speech_manager, monkeypatch):
+    def fail():
+        raise RuntimeError("boom")
+
+    speech_manager._google_tts_factory = fail
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "old.json")
+
+    with pytest.raises(RuntimeError):
+        speech_manager.set_google_credentials("/tmp/new.json")
+
+    assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == "old.json"
