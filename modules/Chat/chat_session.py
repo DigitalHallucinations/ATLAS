@@ -1,4 +1,26 @@
-# modules/chat_session.py
+"""Chat session management for the ATLAS application."""
+
+import json
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterator, Mapping, Union
+
+
+PathLike = Union[str, os.PathLike, Path]
+
+
+class ChatHistoryExportError(Exception):
+    """Raised when exporting chat history fails."""
+
+
+@dataclass(frozen=True)
+class ChatExportResult:
+    """Simple container describing the outcome of a chat history export."""
+
+    path: Path
+    message_count: int
+
 
 class ChatSession:
     def __init__(self, atlas):
@@ -90,3 +112,116 @@ class ChatSession:
         default_model = self.ATLAS.provider_manager.get_default_model_for_provider(provider)
         if default_model:
             self.set_model(default_model)
+
+    def iter_messages(self) -> Iterator[Dict[str, object]]:
+        """Yield shallow copies of the recorded conversation history.
+
+        Returns:
+            Iterator[Dict[str, object]]: Iterable of message dictionaries.
+        """
+
+        for message in self.conversation_history:
+            # Return a copy to prevent callers from mutating internal state.
+            yield dict(message)
+
+    def export_history(self, path: PathLike) -> ChatExportResult:
+        """Persist the recorded conversation history to ``path``.
+
+        Args:
+            path (PathLike): Target file location.
+
+        Returns:
+            ChatExportResult: Information about the written export.
+
+        Raises:
+            ChatHistoryExportError: If the conversation is empty or the file
+                cannot be written.
+        """
+
+        try:
+            target = Path(path)
+        except TypeError as exc:
+            message = f"Invalid export path: {exc}"
+            self.ATLAS.logger.error(message)
+            raise ChatHistoryExportError(message) from exc
+
+        messages = list(self.iter_messages())
+        if not messages:
+            message = "No conversation history to export."
+            self.ATLAS.logger.warning(message)
+            raise ChatHistoryExportError(message)
+
+        session_metadata = self._format_session_metadata()
+        message_lines = self._format_messages(messages)
+        export_text = "".join(session_metadata + message_lines)
+
+        try:
+            target.write_text(export_text, encoding="utf-8")
+        except Exception as exc:
+            message = f"Failed to export chat history to {target}: {exc}"
+            self.ATLAS.logger.error(message, exc_info=True)
+            raise ChatHistoryExportError(message) from exc
+
+        result = ChatExportResult(path=target, message_count=len(messages))
+        self.ATLAS.logger.info(
+            "Exported %s messages to %s", result.message_count, result.path
+        )
+        return result
+
+    def _format_session_metadata(self) -> list[str]:
+        """Format session-level metadata for export."""
+
+        metadata_lines: list[str] = []
+        session_details: Dict[str, Union[str, None]] = {
+            "Provider": self.current_provider,
+            "Model": self.current_model,
+        }
+
+        recorded_details = [
+            f"# {key}: {value}\n"
+            for key, value in session_details.items()
+            if value
+        ]
+
+        if recorded_details:
+            metadata_lines.append("# Session information\n")
+            metadata_lines.extend(recorded_details)
+            metadata_lines.append("\n")
+
+        return metadata_lines
+
+    def _format_messages(self, messages: list[Mapping[str, object]]) -> list[str]:
+        """Create human-readable representations of conversation messages."""
+
+        formatted: list[str] = []
+        for index, message in enumerate(messages, start=1):
+            role = str(message.get("role", "unknown"))
+            content = message.get("content", "")
+            content_str = content if isinstance(content, str) else repr(content)
+            formatted.append(f"{index}. {role}: {content_str}\n")
+
+            metadata = {
+                key: value
+                for key, value in message.items()
+                if key not in {"role", "content"}
+            }
+            if metadata:
+                metadata_repr = self._serialize_metadata(metadata)
+                formatted.append(f"    metadata: {metadata_repr}\n")
+
+            formatted.append("\n")
+
+        return formatted
+
+    @staticmethod
+    def _serialize_metadata(metadata: Mapping[str, object]) -> str:
+        """Serialize metadata for inclusion in export output."""
+
+        safe_metadata: Dict[str, object] = {}
+        for key, value in metadata.items():
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                safe_metadata[key] = value
+            else:
+                safe_metadata[key] = repr(value)
+
+        return json.dumps(safe_metadata, ensure_ascii=False, sort_keys=True)
