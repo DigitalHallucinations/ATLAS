@@ -1025,8 +1025,12 @@ class HuggingFaceSettingsWindow(Gtk.Window):
                 "logging_level": self.log_level_combo.get_active_text(),
                 "current_model": self.model_combo.get_active_text(),
             }
-            self.ATLAS.base_config.update_model_settings(settings)
-            self.show_message("Settings Saved", "Your settings have been saved successfully.", Gtk.MessageType.INFO)
+            result = self.ATLAS.provider_manager.update_huggingface_settings(settings)
+            self._dispatch_provider_result(
+                result,
+                success_message="Your settings have been saved successfully.",
+                failure_message="An error occurred while saving settings.",
+            )
         except ValueError as ve:
             self.show_message("Invalid Input", f"Please ensure all fields are correctly filled: {str(ve)}", Gtk.MessageType.ERROR)
         except Exception as e:
@@ -1044,15 +1048,15 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         """
         Callback for clearing the model cache.
         """
-        cache_file = self.ATLAS.base_config.cache_file
-        confirmation = self.confirm_dialog(f"Are you sure you want to clear the cache at {cache_file}?")
+        confirmation = self.confirm_dialog("Are you sure you want to clear the Hugging Face cache?")
         if confirmation:
             try:
-                if os.path.exists(cache_file):
-                    os.remove(cache_file)
-                    self.show_message("Success", "Cache cleared successfully.", Gtk.MessageType.INFO)
-                else:
-                    self.show_message("Info", "Cache file does not exist.", Gtk.MessageType.INFO)
+                result = self.ATLAS.provider_manager.clear_huggingface_cache()
+                self._dispatch_provider_result(
+                    result,
+                    success_message="Cache cleared successfully.",
+                    failure_message="Error clearing cache",
+                )
             except Exception as e:
                 self.show_message("Error", f"Error clearing cache: {str(e)}", Gtk.MessageType.ERROR)
 
@@ -1091,7 +1095,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             confirmation = self.confirm_dialog(f"Do you want to update the model '{selected_model}'?")
             if confirmation:
                 self._run_async(
-                    self.ATLAS.provider_manager.load_hf_model(selected_model, force_download=True),
+                    self.ATLAS.provider_manager.download_huggingface_model(selected_model, force=True),
                     success_callback=lambda res, model=selected_model: self._dispatch_provider_result(
                         res,
                         success_message=f"Model '{model}' updated successfully.",
@@ -1131,49 +1135,71 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         if library:
             filter_args["library_name"] = library
 
-        GLib.idle_add(self.perform_search, search_query, filter_args)
+        self._run_async(
+            self.ATLAS.provider_manager.search_huggingface_models(search_query, filter_args, limit=10),
+            success_callback=self._handle_search_results,
+            error_callback=lambda e: self.show_message(
+                "Error",
+                f"An error occurred while searching for models: {str(e)}",
+                Gtk.MessageType.ERROR,
+            ),
+        )
 
-    def perform_search(self, search_query, filter_args):
-        """
-        Performs a search for models using the HuggingFace HfApi, and updates the UI with the results.
-        """
-        try:
-            from huggingface_hub import HfApi
-            api = HfApi()
-            models = api.list_models(search=search_query, **filter_args)
-            models = list(models)[:10]  # Limit to 10 results for display
+    def _handle_search_results(self, result):
+        """Render Hugging Face search results returned from the provider manager."""
 
-            # Clear previous results.
-            for row in list(self.results_listbox.get_children()):
-                self.results_listbox.remove(row)
+        if not isinstance(result, dict):
+            self.show_message(
+                "Error",
+                "Unexpected response from Hugging Face search.",
+                Gtk.MessageType.ERROR,
+            )
+            return
 
-            if not models:
-                label = Gtk.Label(label="No models found matching the criteria.")
-                label.set_tooltip_text("Try different keywords or relax filters.")
-                self.results_listbox.append(label)
-            else:
-                for model in models:
-                    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-                    box.set_margin_top(5)
-                    box.set_margin_bottom(5)
-                    info_label = Gtk.Label()
-                    info_label.set_xalign(0)
-                    tags = ", ".join(model.tags) if getattr(model, "tags", None) else "-"
-                    dl = getattr(model, "downloads", "-")
-                    likes = getattr(model, "likes", "-")
-                    info_text = f"Model ID: {model.modelId}\nTags: {tags}\nDownloads: {dl}\nLikes: {likes}"
-                    info_label.set_text(info_text)
-                    info_label.set_tooltip_text("Click Download to install this model locally.")
-                    box.append(info_label)
-                    download_button = Gtk.Button(label="Download")
-                    download_button.set_tooltip_text("Download and install this model.")
-                    download_button.connect("clicked", self.on_download_model_clicked, model.modelId)
-                    box.append(download_button)
-                    self.results_listbox.append(box)
-            self.results_listbox.show()
-        except Exception as e:
-            self.show_message("Error", f"An error occurred while searching for models: {str(e)}", Gtk.MessageType.ERROR)
-        return False  # Stop the idle_add
+        if not result.get("success"):
+            message = result.get("error", "An error occurred while searching for models.")
+            self.show_message("Error", message, Gtk.MessageType.ERROR)
+            return
+
+        models = result.get("data") or []
+
+        for row in list(self.results_listbox.get_children()):
+            self.results_listbox.remove(row)
+
+        if not models:
+            label = Gtk.Label(label="No models found matching the criteria.")
+            label.set_tooltip_text("Try different keywords or relax filters.")
+            self.results_listbox.append(label)
+        else:
+            for model in models:
+                box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+                box.set_margin_top(5)
+                box.set_margin_bottom(5)
+                info_label = Gtk.Label()
+                info_label.set_xalign(0)
+                tags = model.get("tags") or []
+                tags_str = ", ".join(tags) if tags else "-"
+                downloads = model.get("downloads")
+                likes = model.get("likes")
+                downloads_str = str(downloads) if downloads is not None else "-"
+                likes_str = str(likes) if likes is not None else "-"
+                model_id = model.get("id", "")
+                info_text = (
+                    f"Model ID: {model_id}\n"
+                    f"Tags: {tags_str}\n"
+                    f"Downloads: {downloads_str}\n"
+                    f"Likes: {likes_str}"
+                )
+                info_label.set_text(info_text)
+                info_label.set_tooltip_text("Click Download to install this model locally.")
+                box.append(info_label)
+                download_button = Gtk.Button(label="Download")
+                download_button.set_tooltip_text("Download and install this model.")
+                download_button.connect("clicked", self.on_download_model_clicked, model_id)
+                box.append(download_button)
+                self.results_listbox.append(box)
+        self.results_listbox.show()
+        return False
 
     def on_download_model_clicked(self, widget, model_name):
         """
@@ -1183,7 +1209,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         confirmation = self.confirm_dialog(f"Do you want to download and install the model '{model_name}'?")
         if confirmation:
             self._run_async(
-                self.ATLAS.provider_manager.load_hf_model(model_name, force_download=True),
+                self.ATLAS.provider_manager.download_huggingface_model(model_name, force=True),
                 success_callback=lambda res, model=model_name: self._dispatch_provider_result(
                     res,
                     success_message=f"Model '{model}' downloaded and installed successfully.",

@@ -40,6 +40,19 @@ if hf_module_name not in sys.modules:
             return "".join(collected)
 
     hf_stub.HuggingFaceGenerator = _PlaceholderGenerator
+    async def _async_list(*_args, **_kwargs):  # pragma: no cover - placeholder
+        return []
+
+    async def _async_dict(*_args, **_kwargs):  # pragma: no cover - placeholder
+        return {}
+
+    def _sync_noop(*_args, **_kwargs):  # pragma: no cover - placeholder
+        return {}
+
+    hf_stub.search_models = _async_list
+    hf_stub.download_model = _async_dict
+    hf_stub.update_model_settings = _sync_noop
+    hf_stub.clear_cache = lambda *_args, **_kwargs: None
     sys.modules[hf_module_name] = hf_stub
 
 grok_module_name = "modules.Providers.Grok.grok_generate_response"
@@ -136,6 +149,8 @@ class FakeHFGenerator:
         self.model_manager = FakeHFModelManager()
         self.loaded_models = []
         self.unload_calls = 0
+        self.updated_settings = None
+        self.cache_cleared = 0
 
     async def load_model(self, model_name: str, force_download: bool = False):
         await asyncio.sleep(0)
@@ -151,6 +166,12 @@ class FakeHFGenerator:
 
     def get_current_model(self):
         return self.model_manager.current_model
+
+    def update_model_settings(self, settings):  # pragma: no cover - updated via helper
+        self.updated_settings = settings
+
+    def clear_model_cache(self):  # pragma: no cover - updated via helper
+        self.cache_cleared += 1
 
     async def generate_response(self, *_args, **_kwargs):  # pragma: no cover - not exercised
         return "stubbed"
@@ -224,3 +245,55 @@ def test_huggingface_facade_handles_model_lifecycle(provider_manager):
     refreshed = provider_manager.list_hf_models()
     assert refreshed["success"] is True
     assert refreshed["data"] == ["alpha"]
+
+
+def test_huggingface_backend_helpers(provider_manager, monkeypatch):
+    search_calls = {}
+
+    async def fake_search(generator, query, filters=None, limit=10):
+        search_calls["args"] = (generator, query, filters, limit)
+        return [{"id": "zeta", "tags": ["tag"], "downloads": 42, "likes": 5}]
+
+    download_calls = []
+
+    async def fake_download(generator, model_id, force=False):
+        download_calls.append((generator, model_id, force))
+        return {"model_id": model_id}
+
+    updated_settings = {}
+
+    def fake_update(generator, settings):
+        updated_settings["settings"] = settings
+        return settings
+
+    clear_calls = []
+
+    def fake_clear(generator):
+        clear_calls.append(generator)
+
+    monkeypatch.setattr(provider_manager_module, "hf_search_models", fake_search)
+    monkeypatch.setattr(provider_manager_module, "hf_download_model", fake_download)
+    monkeypatch.setattr(provider_manager_module, "hf_update_model_settings", fake_update)
+    monkeypatch.setattr(provider_manager_module, "hf_clear_cache", fake_clear)
+
+    async def exercise():
+        result = await provider_manager.search_huggingface_models("llama", {"pipeline_tag": "text-generation"}, limit=5)
+        assert result["success"] is True
+        assert result["data"][0]["id"] == "zeta"
+        assert search_calls["args"][1] == "llama"
+        assert search_calls["args"][2]["pipeline_tag"] == "text-generation"
+        assert search_calls["args"][0] is provider_manager.huggingface_generator
+
+        download_result = await provider_manager.download_huggingface_model("omega", force=True)
+        assert download_result["success"] is True
+        assert download_calls[0] == (provider_manager.huggingface_generator, "omega", True)
+
+    asyncio.run(exercise())
+
+    update_result = provider_manager.update_huggingface_settings({"temperature": 0.5})
+    assert update_result["success"] is True
+    assert updated_settings["settings"]["temperature"] == 0.5
+
+    clear_result = provider_manager.clear_huggingface_cache()
+    assert clear_result["success"] is True
+    assert clear_calls[0] is provider_manager.huggingface_generator
