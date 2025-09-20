@@ -161,6 +161,26 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         thread = threading.Thread(target=runner, daemon=True)
         thread.start()
 
+    def _dispatch_provider_result(self, result, *, success_message: str, failure_message: str, on_success=None):
+        """Display feedback for provider manager operations."""
+        if isinstance(result, dict) and result.get("success"):
+            if on_success:
+                on_success()
+            message = result.get("message") or success_message
+            self.show_message("Success", message, Gtk.MessageType.INFO)
+            return
+
+        error_detail = ""
+        if isinstance(result, dict):
+            error_detail = result.get("error", "")
+        elif result is not None:
+            error_detail = str(result)
+
+        message = failure_message
+        if error_detail:
+            message = f"{failure_message}: {error_detail}"
+        self.show_message("Error", message, Gtk.MessageType.ERROR)
+
     def _abs_icon(self, relative_path: str) -> str:
         """Resolve absolute path for an icon relative to the project root."""
         base = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
@@ -891,12 +911,18 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         Populates the model, remove model, and update model combo boxes with
         the installed models obtained via the HuggingFace generator.
         """
-        installed_models = self.ATLAS.provider_manager.huggingface_generator.get_installed_models()
+        result = self.ATLAS.provider_manager.list_hf_models()
         self.model_combo.remove_all()
         self.remove_model_combo.remove_all()
         self.update_model_combo.remove_all()
+
+        if not result.get("success"):
+            message = result.get("error", "Failed to retrieve installed models.")
+            self.show_message("Error", message, Gtk.MessageType.ERROR)
+            return
+
+        installed_models = result.get("data") or []
         if not installed_models:
-            self.show_message("Info", "No installed models found. Please download a model.", Gtk.MessageType.INFO)
             return
         for model in installed_models:
             self.model_combo.append_text(model)
@@ -914,9 +940,17 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         selected_model = self.model_combo.get_active_text()
         if selected_model:
             self._run_async(
-                self.ATLAS.provider_manager.huggingface_generator.load_model(selected_model),
-                success_callback=lambda _: self.show_message("Success", f"Model '{selected_model}' loaded successfully.", Gtk.MessageType.INFO),
-                error_callback=lambda e: self.show_message("Error", f"Error loading model: {str(e)}", Gtk.MessageType.ERROR)
+                self.ATLAS.provider_manager.load_hf_model(selected_model),
+                success_callback=lambda res, model=selected_model: self._dispatch_provider_result(
+                    res,
+                    success_message=f"Model '{model}' loaded successfully.",
+                    failure_message=f"Error loading model '{model}'",
+                ),
+                error_callback=lambda e, model=selected_model: self.show_message(
+                    "Error",
+                    f"Error loading model '{model}': {str(e)}",
+                    Gtk.MessageType.ERROR,
+                ),
             )
         else:
             self.show_message("Error", "No model selected to load.", Gtk.MessageType.ERROR)
@@ -925,11 +959,19 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         """
         Callback for unloading the current model.
         """
-        try:
-            self.ATLAS.provider_manager.huggingface_generator.unload_model()
-            self.show_message("Success", "Model unloaded successfully.", Gtk.MessageType.INFO)
-        except Exception as e:
-            self.show_message("Error", f"Error unloading model: {str(e)}", Gtk.MessageType.ERROR)
+        self._run_async(
+            self.ATLAS.provider_manager.unload_hf_model(),
+            success_callback=lambda res: self._dispatch_provider_result(
+                res,
+                success_message="Model unloaded successfully.",
+                failure_message="Error unloading model",
+            ),
+            error_callback=lambda e: self.show_message(
+                "Error",
+                f"Error unloading model: {str(e)}",
+                Gtk.MessageType.ERROR,
+            ),
+        )
 
     def on_fine_tune_clicked(self, widget):
         """
@@ -1022,9 +1064,20 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         if selected_model:
             confirmation = self.confirm_dialog(f"Are you sure you want to remove the model '{selected_model}'?")
             if confirmation:
-                self.ATLAS.provider_manager.huggingface_generator.model_manager.remove_installed_model(selected_model)
-                self.populate_model_comboboxes()
-                self.show_message("Success", f"Model '{selected_model}' removed successfully.", Gtk.MessageType.INFO)
+                self._run_async(
+                    self.ATLAS.provider_manager.remove_hf_model(selected_model),
+                    success_callback=lambda res, model=selected_model: self._dispatch_provider_result(
+                        res,
+                        success_message=f"Model '{model}' removed successfully.",
+                        failure_message=f"Error removing model '{model}'",
+                        on_success=self.populate_model_comboboxes,
+                    ),
+                    error_callback=lambda e, model=selected_model: self.show_message(
+                        "Error",
+                        f"Error removing model '{model}': {str(e)}",
+                        Gtk.MessageType.ERROR,
+                    ),
+                )
         else:
             self.show_message("Error", "No model selected to remove.", Gtk.MessageType.ERROR)
 
@@ -1038,9 +1091,17 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             confirmation = self.confirm_dialog(f"Do you want to update the model '{selected_model}'?")
             if confirmation:
                 self._run_async(
-                    self.ATLAS.provider_manager.huggingface_generator.load_model(selected_model, force_download=True),
-                    success_callback=lambda _: self.show_message("Success", f"Model '{selected_model}' updated successfully.", Gtk.MessageType.INFO),
-                    error_callback=lambda e: self.show_message("Error", f"Error updating model: {str(e)}", Gtk.MessageType.ERROR)
+                    self.ATLAS.provider_manager.load_hf_model(selected_model, force_download=True),
+                    success_callback=lambda res, model=selected_model: self._dispatch_provider_result(
+                        res,
+                        success_message=f"Model '{model}' updated successfully.",
+                        failure_message=f"Error updating model '{model}'",
+                    ),
+                    error_callback=lambda e, model=selected_model: self.show_message(
+                        "Error",
+                        f"Error updating model '{model}': {str(e)}",
+                        Gtk.MessageType.ERROR,
+                    ),
                 )
         else:
             self.show_message("Error", "No model selected to update.", Gtk.MessageType.ERROR)
@@ -1122,9 +1183,18 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         confirmation = self.confirm_dialog(f"Do you want to download and install the model '{model_name}'?")
         if confirmation:
             self._run_async(
-                self.ATLAS.provider_manager.huggingface_generator.load_model(model_name, force_download=True),
-                success_callback=lambda _: (self.populate_model_comboboxes(), self.show_message("Success", f"Model '{model_name}' downloaded and installed successfully.", Gtk.MessageType.INFO)),
-                error_callback=lambda e: self.show_message("Error", f"Error downloading model '{model_name}': {str(e)}", Gtk.MessageType.ERROR)
+                self.ATLAS.provider_manager.load_hf_model(model_name, force_download=True),
+                success_callback=lambda res, model=model_name: self._dispatch_provider_result(
+                    res,
+                    success_message=f"Model '{model}' downloaded and installed successfully.",
+                    failure_message=f"Error downloading model '{model}'",
+                    on_success=self.populate_model_comboboxes,
+                ),
+                error_callback=lambda e, model=model_name: self.show_message(
+                    "Error",
+                    f"Error downloading model '{model}': {str(e)}",
+                    Gtk.MessageType.ERROR,
+                ),
             )
 
     # ---------------------------------------------------------------------
