@@ -140,23 +140,21 @@ class ProviderManagement:
         self.provider_window.present()
 
     def select_provider(self, provider: str):
-        """
-        Handles the selection of a provider. Sets the current provider in ATLAS.
-        If the provider's API key is not set, it prompts the user to enter it.
+        """Attempt to switch the active provider and display any errors."""
+        async def switch_provider():
+            try:
+                await self.ATLAS.set_current_provider(provider)
+            except Exception as exc:
+                self.logger.error(f"Failed to select provider {provider}: {exc}")
+                GLib.idle_add(self.show_error_dialog, str(exc))
+                return
 
-        Args:
-            provider (str): The name of the provider to select.
-        """
-        api_key = self.config_manager.get_config(f"{provider.upper()}_API_KEY")
-        if not api_key:
-            self.logger.info(f"No API key set for provider {provider}. Prompting user to enter it.")
-            self.open_provider_settings(provider)
-        else:
-            # Run the provider switch asynchronously to avoid blocking the UI.
-            self._run_async_task(self.ATLAS.set_current_provider(provider))
             self.logger.info(f"Provider {provider} selected.")
             if self.provider_window:
                 GLib.idle_add(self.provider_window.close)
+
+        # Run the provider switch asynchronously to avoid blocking the UI.
+        self._run_async_task(switch_provider())
 
     def open_provider_settings(self, provider_name: str):
         """
