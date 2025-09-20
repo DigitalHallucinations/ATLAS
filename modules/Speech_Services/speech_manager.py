@@ -208,6 +208,80 @@ class SpeechManager:
         if was_default_stt:
             self.set_default_stt_provider('google')
 
+    def set_elevenlabs_api_key(self, api_key: str, *, persist: bool = True):
+        """Persist the ElevenLabs API key and refresh the provider instance."""
+
+        if not api_key:
+            raise ValueError("ElevenLabs API key cannot be empty.")
+
+        previous_env = os.environ.get("XI_API_KEY")
+        previous_service = self.tts_services.get('eleven_labs')
+        was_default = self.get_default_tts_provider() == 'eleven_labs'
+
+        previous_voice = None
+        if previous_service:
+            try:
+                voices = previous_service.get_voices()
+            except Exception as exc:
+                logger.debug(f"Unable to capture existing ElevenLabs voice before refresh: {exc}")
+                voices = []
+            if voices:
+                first_voice = voices[0]
+                previous_voice = dict(first_voice) if isinstance(first_voice, dict) else first_voice
+
+        try:
+            os.environ["XI_API_KEY"] = api_key
+            new_service = ElevenLabsTTS()
+        except Exception as exc:
+            self._restore_env_var("XI_API_KEY", previous_env)
+            logger.error(f"Failed to initialize ElevenLabs TTS with new API key: {exc}")
+            raise
+
+        if persist:
+            try:
+                self.config_manager.set_elevenlabs_api_key(api_key)
+            except Exception as exc:
+                self._restore_env_var("XI_API_KEY", previous_env)
+                logger.error(f"Failed to persist ElevenLabs API key: {exc}")
+                raise
+        else:
+            if hasattr(self.config_manager, 'config'):
+                self.config_manager.config['XI_API_KEY'] = api_key
+            if hasattr(self.config_manager, 'env_config'):
+                self.config_manager.env_config['XI_API_KEY'] = api_key
+
+        if previous_voice:
+            try:
+                available_voices = new_service.get_voices()
+            except Exception as exc:
+                logger.debug(f"Unable to load ElevenLabs voices during refresh: {exc}")
+                available_voices = []
+
+            match = None
+            if isinstance(previous_voice, dict):
+                prev_id = previous_voice.get('voice_id')
+                prev_name = previous_voice.get('name')
+                for voice in available_voices:
+                    if not isinstance(voice, dict):
+                        continue
+                    if prev_id and voice.get('voice_id') == prev_id:
+                        match = voice
+                        break
+                    if prev_name and voice.get('name') == prev_name:
+                        match = voice
+                        break
+            if match:
+                try:
+                    new_service.set_voice(match)
+                except Exception as exc:
+                    logger.debug(f"Failed to restore ElevenLabs voice selection: {exc}")
+
+        self.tts_services['eleven_labs'] = new_service
+        if was_default or self.active_tts is previous_service:
+            self.active_tts = new_service
+
+        logger.info("ElevenLabs API key updated and provider refreshed.")
+
     def set_openai_speech_config(
         self,
         *,
