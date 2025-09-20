@@ -14,7 +14,7 @@ Author: Jeremy Shows - Digital Hallucinations
 Date: 05-11-2025
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import os
 import asyncio
 import time
@@ -38,7 +38,12 @@ class SpeechManager:
         self.tts_services: Dict[str, Any] = {}
         self.stt_services: Dict[str, Any] = {}
         self.active_tts = None
-        self.active_stt = None
+        self._active_stt_instance = None
+        self._active_stt_key: Optional[str] = None
+        self._recording_provider: Optional[str] = None
+        self._last_audio_provider: Optional[str] = None
+        self._stt_recording: bool = False
+        self._last_audio_path: Optional[str] = None
         self._tts_enabled = False
         self.transcription_history: List[dict] = []  # Logs for transcription events
 
@@ -284,33 +289,89 @@ class SpeechManager:
 
     # ----------------------- STT Methods -----------------------
 
-    def listen(self, provider: str = None):
+    @property
+    def active_stt(self):
+        return self._active_stt_instance
+
+    @active_stt.setter
+    def active_stt(self, value):
+        self._active_stt_instance = value
+        if value is None:
+            self._active_stt_key = None
+        else:
+            if hasattr(self, 'stt_services'):
+                for key, service in self.stt_services.items():
+                    if service == value:
+                        self._active_stt_key = key
+                        break
+
+    def is_listening(self) -> bool:
+        """Return True if an STT provider is actively recording."""
+        return self._stt_recording
+
+    def get_active_stt_provider(self) -> Optional[str]:
+        """Return the provider currently used for recording or the default provider."""
+        return self._recording_provider or self._active_stt_key
+
+    def get_last_audio_path(self) -> Optional[str]:
+        """Return the most recent audio file reference produced by stop_listening."""
+        return self._last_audio_path
+
+    def listen(self, provider: str = None) -> bool:
         """
         Starts speech recognition by invoking the active STT provider's listen method.
 
         Args:
             provider (str, optional): STT provider key.
         """
+        if self._stt_recording:
+            logger.info("STT recording is already active.")
+            return True
+
         provider = provider or self.get_default_stt_provider()
         stt = self.stt_services.get(provider)
         if not stt:
             logger.error(f"STT provider '{provider}' not found.")
-            return
-        stt.listen()
+            return False
 
-    def stop_listening(self, provider: str = None):
+        try:
+            stt.listen()
+        except Exception as exc:
+            logger.error(f"Failed to start STT provider '{provider}': {exc}")
+            return False
+
+        self._stt_recording = True
+        self._recording_provider = provider
+        self._last_audio_path = None
+        self._last_audio_provider = None
+        logger.info(f"Listening started using provider '{provider}'.")
+        return True
+
+    def stop_listening(self, provider: str = None) -> Optional[str]:
         """
         Stops speech recognition via the active STT provider.
 
         Args:
             provider (str, optional): STT provider key.
         """
-        provider = provider or self.get_default_stt_provider()
+        provider = provider or self._recording_provider or self.get_default_stt_provider()
         stt = self.stt_services.get(provider)
         if not stt:
             logger.error(f"STT provider '{provider}' not found.")
-            return
-        stt.stop_listening()
+            return None
+
+        try:
+            stt.stop_listening()
+        except Exception as exc:
+            logger.error(f"Failed to stop STT provider '{provider}': {exc}")
+
+        audio_reference = self._resolve_audio_reference(provider, stt)
+        self._last_audio_path = audio_reference
+        self._last_audio_provider = provider
+        self._stt_recording = False
+        self._recording_provider = None
+        logger.info(f"Listening stopped for provider '{provider}'.")
+        return audio_reference
 
     def transcribe(self, audio_file: str, provider: str = None) -> str:
         """
@@ -398,9 +459,12 @@ class SpeechManager:
         Returns:
             str: Default STT provider key or None if not set.
         """
+        if self._active_stt_key:
+            return self._active_stt_key
         if self.active_stt:
             for key, service in self.stt_services.items():
                 if service == self.active_stt:
+                    self._active_stt_key = key
                     return key
         return None
 
@@ -415,8 +479,60 @@ class SpeechManager:
         if not stt:
             logger.error(f"STT provider '{provider}' not found.")
             return
+        self._active_stt_key = provider
         self.active_stt = stt
         logger.info(f"Default STT provider set to '{provider}'.")
+
+    def _resolve_audio_reference(self, provider: Optional[str], stt_instance: Any) -> Optional[str]:
+        """Infer the audio reference produced by an STT provider after recording."""
+        if not stt_instance:
+            return None
+
+        audio_file = getattr(stt_instance, 'audio_file', None)
+        if isinstance(audio_file, str) and audio_file:
+            return audio_file
+
+        if hasattr(stt_instance, 'get_audio_file') and callable(stt_instance.get_audio_file):
+            try:
+                audio_file = stt_instance.get_audio_file()
+                if isinstance(audio_file, str) and audio_file:
+                    return audio_file
+            except Exception as exc:
+                logger.debug(f"Error retrieving audio file from provider '{provider}': {exc}")
+
+        if provider == 'google':
+            return 'output.wav'
+
+        return None
+
+    async def stop_and_transcribe(self, provider: str | None = None) -> str:
+        """Stop recording (if active) and return the resulting transcript string."""
+        provider_key = provider or self._recording_provider or self.get_default_stt_provider()
+        if not provider_key:
+            logger.error("No STT provider configured for transcription.")
+            return ""
+
+        stt = self.stt_services.get(provider_key)
+        if not stt:
+            logger.error(f"STT provider '{provider_key}' not found for transcription.")
+            return ""
+
+        audio_reference: Optional[str] = None
+        if self._stt_recording:
+            audio_reference = await asyncio.to_thread(self.stop_listening, provider_key)
+        else:
+            audio_reference = self._last_audio_path or self._resolve_audio_reference(provider_key, stt)
+
+        if not audio_reference:
+            logger.warning("No audio available to transcribe.")
+            return ""
+
+        try:
+            transcript = await asyncio.to_thread(self.transcribe, audio_reference, provider_key)
+            return transcript or ""
+        except Exception as exc:
+            logger.error(f"Error transcribing audio with provider '{provider_key}': {exc}")
+            return ""
 
     async def close(self):
         """
