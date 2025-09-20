@@ -1,7 +1,7 @@
 # ATLAS/config.py
 
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from modules.logging.logger import setup_logger
 from dotenv import load_dotenv, set_key, find_dotenv
 import yaml
@@ -91,6 +91,80 @@ class ConfigManager:
         except Exception as e:
             self.logger.error(f"Failed to load configuration from {yaml_path}: {e}")
             return {}
+
+    def _persist_env_value(self, env_key: str, value: Optional[str]):
+        """Persist an environment-backed configuration value."""
+
+        env_path = find_dotenv()
+        if not env_path:
+            raise FileNotFoundError("`.env` file not found.")
+
+        # Persist the value to the .env file and refresh the loaded environment.
+        set_key(env_path, env_key, value or "")
+        load_dotenv(env_path, override=True)
+
+        # Synchronize in-memory state and environment variables.
+        if value is None or value == "":
+            os.environ.pop(env_key, None)
+        else:
+            os.environ[env_key] = value
+
+        self.env_config[env_key] = value
+        if value is None:
+            self.config.pop(env_key, None)
+        else:
+            self.config[env_key] = value
+
+    def set_google_credentials(self, credentials_path: str):
+        """Persist Google application credentials and refresh process state."""
+
+        if not credentials_path:
+            raise ValueError("Google credentials path cannot be empty.")
+
+        self._persist_env_value("GOOGLE_APPLICATION_CREDENTIALS", credentials_path)
+        self.logger.info("Google credentials path updated.")
+
+    def set_hf_token(self, token: str):
+        """Persist the Hugging Face access token."""
+
+        if not token:
+            raise ValueError("Hugging Face token cannot be empty.")
+
+        self._persist_env_value("HUGGINGFACE_API_KEY", token)
+        self.logger.info("Hugging Face token updated.")
+
+    def set_openai_speech_config(
+        self,
+        *,
+        api_key: Optional[str] = None,
+        stt_provider: Optional[str] = None,
+        tts_provider: Optional[str] = None,
+        language: Optional[str] = None,
+        task: Optional[str] = None,
+        initial_prompt: Optional[str] = None,
+    ):
+        """Persist OpenAI speech configuration values."""
+
+        if api_key is not None:
+            if not api_key:
+                raise ValueError("OpenAI API key cannot be empty.")
+            self._persist_env_value("OPENAI_API_KEY", api_key)
+            self.logger.info("OpenAI API key updated for speech services.")
+
+        config_updates = {
+            "OPENAI_STT_PROVIDER": stt_provider,
+            "OPENAI_TTS_PROVIDER": tts_provider,
+            "OPENAI_LANGUAGE": language,
+            "OPENAI_TASK": task,
+            "OPENAI_INITIAL_PROMPT": initial_prompt,
+        }
+
+        for key, value in config_updates.items():
+            if value is not None:
+                self.config[key] = value
+            elif key in self.config:
+                self.config[key] = None
+
 
     def get_config(self, key: str, default: Any = None) -> Any:
         """
@@ -209,10 +283,6 @@ class ConfigManager:
             FileNotFoundError: If the .env file is not found.
             ValueError: If the provider name does not have a corresponding API key mapping.
         """
-        env_path = find_dotenv()
-        if not env_path:
-            raise FileNotFoundError("`.env` file not found.")
-
         provider_env_keys = {
             "OpenAI": "OPENAI_API_KEY",
             "Mistral": "MISTRAL_API_KEY",
@@ -226,14 +296,8 @@ class ConfigManager:
         if not env_key:
             raise ValueError(f"No API key mapping found for provider '{provider_name}'.")
 
-        # Update the .env file
-        set_key(env_path, env_key, new_api_key)
+        self._persist_env_value(env_key, new_api_key)
         self.logger.info(f"API key for {provider_name} updated successfully.")
-
-        # Reload environment variables
-        load_dotenv(env_path, override=True)
-        self.env_config[env_key] = new_api_key
-        self.config[env_key] = new_api_key
 
     def _is_api_key_set(self, provider_name: str) -> bool:
         """

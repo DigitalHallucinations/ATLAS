@@ -1140,11 +1140,14 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             self.show_message("Error", "Token cannot be empty.", Gtk.MessageType.ERROR)
             return
         try:
-            if hasattr(self.config_manager, "update_api_key"):
-                self.config_manager.update_api_key("HuggingFace", token)
+            if hasattr(self.config_manager, "set_hf_token"):
+                self.config_manager.set_hf_token(token)
             else:
-                self.config_manager.config["HUGGINGFACE_API_KEY"] = token
-            os.environ["HUGGINGFACE_API_KEY"] = token
+                if hasattr(self.config_manager, "update_api_key"):
+                    self.config_manager.update_api_key("HuggingFace", token)
+                else:
+                    self.config_manager.config["HUGGINGFACE_API_KEY"] = token
+                os.environ["HUGGINGFACE_API_KEY"] = token
             self.show_message("Success", "Hugging Face token saved.", Gtk.MessageType.INFO)
             # Do not reveal; switch back to placeholder
             self.hf_token_entry.set_text("")
