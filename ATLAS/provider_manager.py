@@ -421,6 +421,12 @@ class ProviderManager:
         Args:
             provider (str): The name of the provider to set.
         """
+        if not self.config_manager.has_provider_api_key(provider):
+            raise ValueError(
+                f"API key for provider '{provider}' is not configured. "
+                "Please add it in the provider settings before selecting this provider."
+            )
+
         await self.switch_llm_provider(provider)
         self.logger.info(f"Current provider set to {self.current_llm_provider}")
         if self.current_model:

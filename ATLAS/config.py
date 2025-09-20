@@ -315,6 +315,19 @@ class ConfigManager:
         self._persist_env_value(env_key, new_api_key)
         self.logger.info(f"API key for {provider_name} updated successfully.")
 
+    def has_provider_api_key(self, provider_name: str) -> bool:
+        """
+        Determine whether an API key is configured for the given provider.
+
+        Args:
+            provider_name (str): The name of the provider to check.
+
+        Returns:
+            bool: True if an API key exists for the provider, False otherwise.
+        """
+
+        return self._is_api_key_set(provider_name)
+
     def _is_api_key_set(self, provider_name: str) -> bool:
         """
         Checks if the API key for a specified provider is set.

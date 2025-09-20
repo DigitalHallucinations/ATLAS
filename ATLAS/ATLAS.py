@@ -108,11 +108,16 @@ class ATLAS:
         """
         Asynchronously set the current provider in the ProviderManager.
         """
-        await self.provider_manager.set_current_provider(provider)
+        try:
+            await self.provider_manager.set_current_provider(provider)
+        except Exception as exc:
+            self.logger.error("Failed to set provider %s: %s", provider, exc, exc_info=True)
+            raise
+
         self.chat_session.set_provider(provider)
         current_model = self.provider_manager.get_current_model()
         self.chat_session.set_model(current_model)
-        
+
         # Log the updates
         self.logger.info(f"Current provider set to {provider} with model {current_model}")
         # Notify any observers (e.g., UI components) about the change
