@@ -164,6 +164,11 @@ class DummyConfig:
         return self._hf_token
 
     def set_huggingface_api_key(self, token):
+        self.set_hf_token(token)
+
+    def set_hf_token(self, token):
+        if not token:
+            raise ValueError("Hugging Face token cannot be empty.")
         self._hf_token = token
 
 
@@ -337,8 +342,25 @@ def test_huggingface_backend_helpers(provider_manager, monkeypatch):
     assert clear_calls[0] is provider_manager.huggingface_generator
 
 
+def test_save_huggingface_token_refreshes_generator(provider_manager):
+    initial = provider_manager.ensure_huggingface_ready()
+    assert initial["success"] is True
+    original_generator = provider_manager.huggingface_generator
+
+    result = provider_manager.save_huggingface_token("  new-token  ")
+    assert result["success"] is True
+    assert provider_manager.config_manager.get_huggingface_api_key() == "new-token"
+    assert provider_manager.huggingface_generator is not original_generator
+
+
+def test_save_huggingface_token_rejects_empty(provider_manager):
+    result = provider_manager.save_huggingface_token("   ")
+    assert result["success"] is False
+    assert "cannot be empty" in result["error"].lower()
+
+
 def test_test_huggingface_token_success(provider_manager, monkeypatch):
-    provider_manager.config_manager.set_huggingface_api_key("stored-token")
+    provider_manager.config_manager.set_hf_token("stored-token")
 
     class StubHfApi:
         def __init__(self):
