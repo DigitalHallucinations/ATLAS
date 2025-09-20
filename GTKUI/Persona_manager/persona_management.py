@@ -357,66 +357,55 @@ class PersonaManagement:
             persona (dict): The persona data to update.
             settings_window (Gtk.Window): The settings window to close after saving.
         """
-        name = self.general_tab.get_name()
-        meaning = self.general_tab.get_meaning()
-        editable_content = self.general_tab.get_editable_content()
-        start_locked_content = self.general_tab.get_start_locked()
-        end_locked_content = self.general_tab.get_end_locked()
-
-        # Get values from persona type tab
-        values = self.persona_type_tab.get_values()
-        sys_info_enabled = values.get('sys_info_enabled', False)
-        user_profile_enabled = values.get('user_profile_enabled', False)
-        persona_type_values = values.get('type', {})
-
-        # Get provider/model values
-        provider = self.provider_entry.get_text()
-        model = self.model_entry.get_text()
-
-        # Get speech/voice values
-        speech_provider = self.speech_provider_entry.get_text()
-        voice = self.voice_entry.get_text()
-
-        persona['name'] = name
-        persona['meaning'] = meaning
-        content = persona.get('content', {})
-        content['start_locked'] = start_locked_content
-        content['editable_content'] = editable_content
-        content['end_locked'] = end_locked_content
-        persona['content'] = content
-        persona['sys_info_enabled'] = "True" if sys_info_enabled else "False"
-        persona['user_profile_enabled'] = "True" if user_profile_enabled else "False"
-
-        persona['type'] = {}
-        persona_types = [
-            'Agent', 'medical_persona', 'educational_persona', 'fitness_persona', 'language_instructor',
-            'legal_persona', 'financial_advisor', 'tech_support', 'personal_assistant', 'therapist',
-            'travel_guide', 'storyteller', 'game_master', 'chef'
-        ]
-        for key in persona_types:
-            enabled = persona_type_values.get(key, {}).get('enabled', False)
-            persona['type'][key] = {"enabled": str(enabled)}
-
-        # Save additional options under 'type'
-        additional_keys = {
-            'educational_persona': ['subject_specialization', 'education_level', 'teaching_style'],
-            'fitness_persona': ['fitness_goal', 'exercise_preference'],
-            'language_instructor': ['target_language', 'proficiency_level'],
-            # Add other persona type additional options as needed
+        general_payload = {
+            'name': self.general_tab.get_name(),
+            'meaning': self.general_tab.get_meaning(),
+            'content': {
+                'start_locked': self.general_tab.get_start_locked(),
+                'editable_content': self.general_tab.get_editable_content(),
+                'end_locked': self.general_tab.get_end_locked(),
+            },
         }
-        for persona_type, keys in additional_keys.items():
-            if persona['type'].get(persona_type, {}).get('enabled') == "True":
-                for key in keys:
-                    if key in persona_type_values.get(persona_type, {}):
-                        persona['type'][persona_type][key] = persona_type_values[persona_type][key]
-                    else:
-                        persona['type'][persona_type].pop(key, None)
 
-        persona['provider'] = provider
-        persona['model'] = model
-        persona['Speech_provider'] = speech_provider
-        persona['voice'] = voice
+        values = self.persona_type_tab.get_values() or {}
+        persona_type_payload = {
+            'sys_info_enabled': values.get('sys_info_enabled', False),
+            'user_profile_enabled': values.get('user_profile_enabled', False),
+            'type': {},
+        }
+        for type_name, type_values in (values.get('type') or {}).items():
+            entry = dict(type_values)
+            enabled_value = entry.get('enabled', False)
+            if isinstance(enabled_value, str):
+                entry['enabled'] = enabled_value.lower() == 'true'
+            else:
+                entry['enabled'] = bool(enabled_value)
+            persona_type_payload['type'][type_name] = entry
 
-        self.ATLAS.persona_manager.update_persona(persona)
-        print(f"Settings for {name} saved!")
-        settings_window.destroy()
+        provider_payload = {
+            'provider': self.provider_entry.get_text(),
+            'model': self.model_entry.get_text(),
+        }
+
+        speech_payload = {
+            'Speech_provider': self.speech_provider_entry.get_text(),
+            'voice': self.voice_entry.get_text(),
+        }
+
+        result = self.ATLAS.persona_manager.update_persona_from_form(
+            persona.get('name'),
+            general_payload,
+            persona_type_payload,
+            provider_payload,
+            speech_payload,
+        )
+
+        if result.get('success'):
+            if result.get('persona') is not None:
+                persona.clear()
+                persona.update(result['persona'])
+            print(f"Settings for {general_payload['name']} saved!")
+            settings_window.destroy()
+        else:
+            error_text = "; ".join(result.get('errors', [])) or "Unable to save persona settings."
+            self.ATLAS.persona_manager.show_message("system", f"Failed to save persona: {error_text}")
