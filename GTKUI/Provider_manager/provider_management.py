@@ -393,7 +393,10 @@ class ProviderManagement:
             buttons=Gtk.ButtonsType.OK,
             text="Error",
         )
-        dialog.format_secondary_text(message)
+        if hasattr(dialog, "set_secondary_text"):
+            dialog.set_secondary_text(message)
+        else:  # Fallback for API variations
+            dialog.props.secondary_text = message
         dialog.connect("response", lambda dialog, response: dialog.destroy())
         dialog.set_tooltip_text("Close to dismiss this error message.")
         dialog.present()
@@ -412,7 +415,10 @@ class ProviderManagement:
             buttons=Gtk.ButtonsType.OK,
             text="Information",
         )
-        dialog.format_secondary_text(message)
+        if hasattr(dialog, "set_secondary_text"):
+            dialog.set_secondary_text(message)
+        else:  # Fallback for API variations
+            dialog.props.secondary_text = message
         dialog.connect("response", lambda dialog, response: dialog.destroy())
         dialog.set_tooltip_text("Close to continue.")
         dialog.present()
