@@ -574,25 +574,8 @@ class ChatPage(Gtk.Window):
         except Exception:
             llm_model = "No model selected"
 
-        # Retrieve TTS provider and voice information.
-        try:
-            tts_provider = self.ATLAS.speech_manager.get_default_tts_provider() or "None"
-        except Exception:
-            tts_provider = "None"
-
-        tts = getattr(self.ATLAS.speech_manager, "active_tts", None)
-        tts_voice = "Not Set"
-        if tts:
-            try:
-                if hasattr(tts, "get_current_voice") and callable(getattr(tts, "get_current_voice")):
-                    tts_voice = tts.get_current_voice() or tts_voice
-                elif hasattr(tts, "voice_ids") and tts.voice_ids:
-                    tts_voice = tts.voice_ids[0].get('name', tts_voice)
-                elif hasattr(tts, "voice") and tts.voice is not None:
-                    # e.g., Google TTS voice object
-                    tts_voice = getattr(tts.voice, "name", tts_voice)
-            except Exception as e:
-                logger.debug(f"TTS voice fetch issue: {e}")
+        # Retrieve TTS provider and voice information via speech manager helper.
+        tts_provider, tts_voice = self.ATLAS.speech_manager.get_active_tts_summary()
 
         status_message = (
             f"LLM: {llm_provider} • Model: {llm_model} • "

@@ -14,7 +14,7 @@ Author: Jeremy Shows - Digital Hallucinations
 Date: 05-11-2025
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import os
 import asyncio
 import time
@@ -286,6 +286,101 @@ class SpeechManager:
             return
         self.active_tts = tts
         logger.info(f"Default TTS provider set to '{provider}'.")
+
+    def get_active_tts_summary(self) -> Tuple[str, str]:
+        """Return a tuple describing the active TTS provider and voice label."""
+        provider_label = "None"
+        voice_label = "Not Set"
+
+        try:
+            provider_key = self.get_default_tts_provider()
+        except Exception as exc:
+            logger.error(f"Failed to determine default TTS provider: {exc}")
+            provider_key = None
+
+        active_service = None
+        if provider_key:
+            provider_label = provider_key
+            active_service = self.tts_services.get(provider_key)
+            if active_service is None:
+                logger.error(f"Active TTS provider '{provider_key}' is not registered.")
+
+        if active_service is None:
+            fallback_service = getattr(self, "active_tts", None)
+            if fallback_service:
+                active_service = fallback_service
+                if provider_label == "None":
+                    for key, service in self.tts_services.items():
+                        if service == active_service:
+                            provider_label = key
+                            break
+
+        if active_service is None:
+            return provider_label, voice_label
+
+        try:
+            voice_label = self._extract_voice_label(active_service, voice_label)
+        except Exception as exc:
+            logger.error(f"Failed to resolve active TTS voice: {exc}")
+
+        return provider_label, voice_label
+
+    def _extract_voice_label(self, tts_service: Any, default: str = "Not Set") -> str:
+        """Derive a human readable voice label for the provided TTS service."""
+
+        voice_label = default
+
+        getter = getattr(tts_service, "get_current_voice", None)
+        if callable(getter):
+            try:
+                voice_value = getter()
+            except Exception as exc:
+                logger.error(f"Error retrieving current voice from provider: {exc}")
+            else:
+                normalized = self._normalize_voice_value(voice_value, default)
+                if normalized != default:
+                    return normalized
+                voice_label = normalized
+
+        voice_ids = getattr(tts_service, "voice_ids", None)
+        if isinstance(voice_ids, list) and voice_ids:
+            normalized = self._normalize_voice_value(voice_ids[0], default)
+            if normalized != default:
+                return normalized
+            voice_label = normalized
+
+        for attr_name in ("voice", "current_voice", "selected_voice"):
+            voice_value = getattr(tts_service, attr_name, None)
+            if voice_value is not None:
+                normalized = self._normalize_voice_value(voice_value, default)
+                if normalized != default:
+                    return normalized
+                voice_label = normalized
+
+        return voice_label
+
+    def _normalize_voice_value(self, value: Any, default: str = "Not Set") -> str:
+        """Convert various voice metadata representations into display text."""
+        if value is None:
+            return default
+
+        if isinstance(value, str):
+            text = value.strip()
+            return text if text else default
+
+        if isinstance(value, dict):
+            for key in ("name", "label", "voice_name", "voice_id", "id"):
+                entry = value.get(key)
+                if entry:
+                    return str(entry)
+            return str(value)
+
+        for attr in ("name", "label", "voice_name"):
+            attr_value = getattr(value, attr, None)
+            if attr_value:
+                return str(attr_value)
+
+        return str(value)
 
     # ----------------------- STT Methods -----------------------
 
