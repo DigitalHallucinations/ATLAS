@@ -145,6 +145,31 @@ class ChatSession:
             self.ATLAS.logger.error(message)
             raise ChatHistoryExportError(message) from exc
 
+        try:
+            target = target.expanduser()
+        except Exception as exc:
+            message = f"Failed to expand export path {path!r}: {exc}"
+            self.ATLAS.logger.error(message)
+            raise ChatHistoryExportError(message) from exc
+
+        try:
+            target = target.resolve(strict=False)
+        except Exception as exc:
+            message = f"Failed to resolve export path {target!r}: {exc}"
+            self.ATLAS.logger.error(message)
+            raise ChatHistoryExportError(message) from exc
+
+        export_dir = target.parent
+        if not export_dir.exists():
+            message = f"Export directory does not exist: {export_dir}"
+            self.ATLAS.logger.error(message)
+            raise ChatHistoryExportError(message)
+
+        if not export_dir.is_dir():
+            message = f"Export location is not a directory: {export_dir}"
+            self.ATLAS.logger.error(message)
+            raise ChatHistoryExportError(message)
+
         messages = list(self.iter_messages())
         if not messages:
             message = "No conversation history to export."

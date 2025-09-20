@@ -1,7 +1,9 @@
 import logging
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from modules.Chat.chat_session import (
     ChatExportResult,
@@ -89,6 +91,38 @@ class ChatSessionExportTests(unittest.TestCase):
         messages[0]["content"] = "Modified"
 
         self.assertEqual(self.session.conversation_history[0]["content"], "Test")
+
+    def test_export_history_requires_existing_directory(self):
+        self.session.conversation_history = [
+            {"role": "user", "content": "Hello"},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            export_path = Path(tmpdir) / "missing" / "chat.txt"
+            with self.assertRaises(ChatHistoryExportError) as exc:
+                self.session.export_history(export_path)
+
+        self.assertIn("does not exist", str(exc.exception))
+
+    def test_export_history_expands_user_directory(self):
+        self.session.conversation_history = [
+            {"role": "assistant", "content": "Hello"},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_home = Path(tmpdir) / "home"
+            fake_home.mkdir()
+            export_path = Path("~/chat.txt")
+
+            with mock.patch.dict(os.environ, {"HOME": str(fake_home)}):
+                result = self.session.export_history(export_path)
+
+            expected_path = fake_home / "chat.txt"
+            self.assertTrue(expected_path.exists())
+            exported_text = expected_path.read_text(encoding="utf-8")
+            self.assertIn("# Session information", exported_text)
+            self.assertIn("1. assistant: Hello", exported_text)
+            self.assertEqual(result.path, expected_path.resolve())
 
 
 if __name__ == "__main__":
