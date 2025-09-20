@@ -1,13 +1,19 @@
 # ATLAS/provider_manager.py
 
-from typing import Any, Dict, List, Union, AsyncIterator
+from typing import Any, Dict, List, Union, AsyncIterator, Optional
 import asyncio
 import time
 import traceback
 from ATLAS.model_manager import ModelManager
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
-from modules.Providers.HuggingFace.HF_gen_response import HuggingFaceGenerator
+from modules.Providers.HuggingFace.HF_gen_response import (
+    HuggingFaceGenerator,
+    search_models as hf_search_models,
+    download_model as hf_download_model,
+    update_model_settings as hf_update_model_settings,
+    clear_cache as hf_clear_cache,
+)
 from modules.Providers.Grok.grok_generate_response import GrokGenerator
 
 # Import other necessary provider generators
@@ -158,6 +164,68 @@ class ProviderManager:
             return self._build_result(True, data=models, message="Retrieved installed HuggingFace models.")
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to list HuggingFace models: %s", exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
+
+    async def search_huggingface_models(
+        self,
+        search_query: str,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        """Search HuggingFace models using shared backend helpers."""
+
+        ensure_result = self.ensure_huggingface_ready()
+        if not ensure_result.get("success"):
+            return ensure_result
+
+        try:
+            results = await hf_search_models(self.huggingface_generator, search_query, filters, limit)
+            return self._build_result(True, data=results, message="Search completed.")
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to search HuggingFace models '%s': %s", search_query, exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
+
+    async def download_huggingface_model(self, model_id: str, force: bool = False) -> Dict[str, Any]:
+        """Download a HuggingFace model without loading it into memory."""
+
+        ensure_result = self.ensure_huggingface_ready()
+        if not ensure_result.get("success"):
+            return ensure_result
+
+        try:
+            await hf_download_model(self.huggingface_generator, model_id, force)
+            message = f"Model '{model_id}' downloaded successfully."
+            return self._build_result(True, message=message)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to download HuggingFace model %s: %s", model_id, exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
+
+    def update_huggingface_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist HuggingFace model settings via shared helper."""
+
+        ensure_result = self.ensure_huggingface_ready()
+        if not ensure_result.get("success"):
+            return ensure_result
+
+        try:
+            updated = hf_update_model_settings(self.huggingface_generator, settings)
+            return self._build_result(True, data=updated, message="Settings updated successfully.")
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to update HuggingFace settings: %s", exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
+
+    def clear_huggingface_cache(self) -> Dict[str, Any]:
+        """Clear HuggingFace caches using shared helper."""
+
+        ensure_result = self.ensure_huggingface_ready()
+        if not ensure_result.get("success"):
+            return ensure_result
+
+        try:
+            hf_clear_cache(self.huggingface_generator)
+            return self._build_result(True, message="HuggingFace cache cleared.")
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to clear HuggingFace cache: %s", exc, exc_info=True)
             return self._build_result(False, error=str(exc))
 
     @classmethod

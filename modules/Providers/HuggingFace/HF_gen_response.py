@@ -3,8 +3,10 @@
 import asyncio
 import os
 import shutil
-from typing import List, Dict, Union, AsyncIterator
+from typing import List, Dict, Union, AsyncIterator, Optional, Any
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from huggingface_hub import HfApi, hf_hub_download
 
 from .config.base_config import BaseConfig
 from .config.nvme_config import NVMeConfig
@@ -137,6 +139,104 @@ class HuggingFaceGenerator:
 
 def setup_huggingface_generator(config_manager):
     return HuggingFaceGenerator(config_manager)
+
+
+async def search_models(
+    generator: HuggingFaceGenerator,
+    search_query: str,
+    filters: Optional[Dict[str, Any]] = None,
+    limit: Optional[int] = 10,
+) -> List[Dict[str, Any]]:
+    """Search available Hugging Face models using the configured API token.
+
+    Args:
+        generator: Active ``HuggingFaceGenerator`` instance.
+        search_query: Query string passed to the Hugging Face hub.
+        filters: Optional dictionary of additional search filters.
+        limit: Optional maximum number of results to return.
+
+    Returns:
+        A list of dictionaries describing the models.
+    """
+
+    filters = filters or {}
+    token = None
+    if hasattr(generator.base_config.config_manager, "get_huggingface_api_key"):
+        token = generator.base_config.config_manager.get_huggingface_api_key()
+    api = HfApi(token=token) if token else HfApi()
+
+    def _fetch_models():
+        return list(api.list_models(search=search_query, **filters))
+
+    models = await asyncio.to_thread(_fetch_models)
+    if limit is not None:
+        models = models[:limit]
+
+    serialised: List[Dict[str, Any]] = []
+    for model in models:
+        serialised.append(
+            {
+                "id": getattr(model, "modelId", ""),
+                "tags": list(getattr(model, "tags", []) or []),
+                "downloads": getattr(model, "downloads", None),
+                "likes": getattr(model, "likes", None),
+            }
+        )
+    return serialised
+
+
+async def download_model(
+    generator: HuggingFaceGenerator,
+    model_id: str,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Download a model from Hugging Face into the local cache directory."""
+
+    token = None
+    if hasattr(generator.base_config.config_manager, "get_huggingface_api_key"):
+        token = generator.base_config.config_manager.get_huggingface_api_key()
+    api = HfApi(token=token) if token else HfApi()
+
+    def _list_files() -> List[str]:
+        return list(api.list_repo_files(repo_id=model_id))
+
+    repo_files = await asyncio.to_thread(_list_files)
+
+    async def _download_file(filename: str) -> str:
+        return await asyncio.to_thread(
+            hf_hub_download,
+            repo_id=model_id,
+            filename=filename,
+            cache_dir=generator.base_config.model_cache_dir,
+            force_download=force,
+        )
+
+    downloaded_files: List[str] = []
+    for file_name in repo_files:
+        downloaded_files.append(await _download_file(file_name))
+
+    model_manager = getattr(generator, "model_manager", None)
+    if model_manager is not None:
+        if getattr(model_manager, "installed_models", None) is not None and model_id not in model_manager.installed_models:
+            model_manager.installed_models.append(model_id)
+        save_installed = getattr(model_manager, "_save_installed_models", None)
+        if callable(save_installed):
+            await asyncio.to_thread(save_installed, model_manager.installed_models)
+
+    return {"model_id": model_id, "files": downloaded_files}
+
+
+def update_model_settings(generator: HuggingFaceGenerator, settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Update the persisted Hugging Face model settings."""
+
+    generator.update_model_settings(settings)
+    return generator.base_config.model_settings.copy()
+
+
+def clear_cache(generator: HuggingFaceGenerator) -> None:
+    """Clear cached Hugging Face model artifacts."""
+
+    generator.clear_model_cache()
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
