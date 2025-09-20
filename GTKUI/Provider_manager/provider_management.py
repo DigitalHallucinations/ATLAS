@@ -349,15 +349,21 @@ class ProviderManagement:
             window (Gtk.Window): The settings window to close after updating.
         """
         try:
-            self.config_manager.update_api_key(provider_name, new_api_key)
-            self.logger.info(f"API Key for {provider_name} updated.")
-            await self.refresh_provider_async(provider_name)
-            self.logger.info(f"Provider {provider_name} refreshed.")
-            GLib.idle_add(self.show_info_dialog, f"API Key for {provider_name} saved successfully.")
-            GLib.idle_add(window.close)
-        except Exception as e:
-            self.logger.error(f"Failed to save API Key: {str(e)}")
+            result = await self.ATLAS.provider_manager.update_provider_api_key(provider_name, new_api_key)
+        except Exception as e:  # pragma: no cover - defensive logging
+            self.logger.error(f"Failed to save API Key: {str(e)}", exc_info=True)
             GLib.idle_add(self.show_error_dialog, f"Failed to save API Key: {str(e)}")
+            return
+
+        if result.get("success"):
+            message = result.get("message") or f"API Key for {provider_name} saved successfully."
+            self.logger.info(message)
+            GLib.idle_add(self.show_info_dialog, message)
+            GLib.idle_add(window.close)
+        else:
+            error_message = result.get("error") or f"Failed to save API Key for {provider_name}."
+            self.logger.error(f"Failed to save API Key: {error_message}")
+            GLib.idle_add(self.show_error_dialog, error_message)
 
     async def refresh_provider_async(self, provider_name: str):
         """

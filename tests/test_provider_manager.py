@@ -138,6 +138,7 @@ class DummyConfig:
     def __init__(self, root_path):
         self._root_path = root_path
         self._hf_token = ""
+        self._api_keys = {}
 
     def get_default_provider(self):
         return "OpenAI"
@@ -163,6 +164,9 @@ class DummyConfig:
     def get_huggingface_api_key(self):
         return self._hf_token
 
+    def get_openai_api_key(self):
+        return self._api_keys.get("OpenAI", "")
+
     def set_huggingface_api_key(self, token):
         self.set_hf_token(token)
 
@@ -170,6 +174,14 @@ class DummyConfig:
         if not token:
             raise ValueError("Hugging Face token cannot be empty.")
         self._hf_token = token
+
+    def update_api_key(self, provider_name: str, new_api_key: str):
+        if not provider_name:
+            raise ValueError("Provider name must be provided.")
+        self._api_keys[provider_name] = new_api_key
+
+    def has_provider_api_key(self, provider_name: str) -> bool:
+        return bool(self._api_keys.get(provider_name))
 
 
 class FakeHFModelManager:
@@ -402,3 +414,39 @@ def test_test_huggingface_token_failure(provider_manager, monkeypatch):
     assert result["success"] is False
     assert "invalid token" in result["error"]
     assert stub_instance.called_with == "explicit-token"
+
+
+def test_update_provider_api_key_refreshes_active_provider(provider_manager, monkeypatch):
+    observed = {}
+
+    async def fake_set_current_provider(provider):
+        observed["provider"] = provider
+
+    monkeypatch.setattr(provider_manager, "set_current_provider", fake_set_current_provider)
+
+    result = asyncio.run(provider_manager.update_provider_api_key("OpenAI", "sk-test"))
+
+    assert result["success"] is True
+    assert "refreshed" in result["message"].lower()
+    assert observed.get("provider") == "OpenAI"
+    assert provider_manager.config_manager.get_openai_api_key() == "sk-test"
+
+
+def test_update_provider_api_key_handles_refresh_failure(provider_manager, monkeypatch):
+    async def fake_set_current_provider(_provider):
+        raise RuntimeError("refresh failed")
+
+    monkeypatch.setattr(provider_manager, "set_current_provider", fake_set_current_provider)
+
+    result = asyncio.run(provider_manager.update_provider_api_key("OpenAI", "sk-failed"))
+
+    assert result["success"] is False
+    assert "refresh" in result["error"].lower()
+    assert provider_manager.config_manager.get_openai_api_key() == "sk-failed"
+
+
+def test_update_provider_api_key_rejects_empty_input(provider_manager):
+    result = asyncio.run(provider_manager.update_provider_api_key("OpenAI", "   "))
+
+    assert result["success"] is False
+    assert "empty" in result["error"].lower()
