@@ -92,6 +92,60 @@ class ProviderManager:
             payload["error"] = error or message or "Unknown error"
         return payload
 
+    async def update_provider_api_key(
+        self, provider_name: str, new_api_key: Optional[str]
+    ) -> Dict[str, Any]:
+        """Persist provider credentials and refresh active sessions when needed."""
+
+        normalized_key = (new_api_key or "").strip()
+        if not normalized_key:
+            return self._build_result(False, error="API key cannot be empty.")
+
+        try:
+            self.config_manager.update_api_key(provider_name, normalized_key)
+        except FileNotFoundError as exc:
+            self.logger.error(
+                "Failed to update API key for %s because the environment file could not be located.",
+                provider_name,
+                exc_info=True,
+            )
+            return self._build_result(
+                False,
+                error="Unable to save API key because the environment file could not be located.",
+            )
+        except ValueError as exc:
+            self.logger.error("Rejected API key update for %s: %s", provider_name, exc)
+            return self._build_result(False, error=str(exc))
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error(
+                "Unexpected error while updating API key for %s: %s",
+                provider_name,
+                exc,
+                exc_info=True,
+            )
+            return self._build_result(False, error=str(exc))
+
+        message = f"API Key for {provider_name} saved successfully."
+
+        if provider_name == self.current_llm_provider:
+            try:
+                await self.set_current_provider(provider_name)
+                message = f"{message} Provider {provider_name} refreshed with new API key."
+            except Exception as exc:
+                self.logger.error(
+                    "API key saved but failed to refresh provider %s: %s",
+                    provider_name,
+                    exc,
+                    exc_info=True,
+                )
+                return self._build_result(
+                    False,
+                    error=f"API key saved but failed to refresh {provider_name}: {exc}",
+                )
+
+        self.logger.info("API key for %s updated via provider manager.", provider_name)
+        return self._build_result(True, message=message)
+
     def save_huggingface_token(self, token: Optional[str]) -> Dict[str, Any]:
         """Persist a Hugging Face API token and refresh provider state when needed."""
 
