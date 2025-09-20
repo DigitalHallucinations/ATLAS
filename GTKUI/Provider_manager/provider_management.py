@@ -11,7 +11,6 @@ import logging
 
 from GTKUI.Utils.utils import create_box
 from .Settings.HF_settings import HuggingFaceSettingsWindow
-from modules.Providers.HuggingFace.HF_gen_response import HuggingFaceGenerator
 
 class ProviderManagement:
     """
@@ -171,12 +170,12 @@ class ProviderManagement:
             GLib.idle_add(self.provider_window.close)
 
         if provider_name == "HuggingFace":
-            if self.ATLAS.provider_manager.huggingface_generator is None:
-                self.logger.info("Initializing HuggingFace generator in open_provider_settings")
-                self.ATLAS.provider_manager.huggingface_generator = HuggingFaceGenerator(self.config_manager)
-                self.logger.info("HuggingFace generator initialized successfully")
-            else:
-                self.logger.info("HuggingFace generator already initialized")
+            result = self.ATLAS.provider_manager.ensure_huggingface_ready()
+            if not result.get("success"):
+                message = result.get("error", "Unable to open HuggingFace settings.")
+                self.logger.error("Failed to prepare HuggingFace settings window: %s", message)
+                self.show_error_dialog(message)
+                return
             self.show_huggingface_settings()
         else:
             self.show_provider_settings(provider_name)

@@ -1,6 +1,6 @@
 # ATLAS/provider_manager.py
 
-from typing import List, Dict, Union, AsyncIterator
+from typing import Any, Dict, List, Union, AsyncIterator
 import asyncio
 import time
 import traceback
@@ -71,6 +71,94 @@ class ProviderManager:
         Initializes the provider managers and sets the default provider.
         """
         await self.switch_llm_provider(self.current_llm_provider)
+
+    @staticmethod
+    def _build_result(success: bool, *, message: str = "", error: str = "", data: Any = None) -> Dict[str, Any]:
+        """Create a structured result payload for provider actions."""
+        payload: Dict[str, Any] = {"success": success}
+        if success:
+            if message:
+                payload["message"] = message
+            if data is not None:
+                payload["data"] = data
+        else:
+            payload["error"] = error or message or "Unknown error"
+        return payload
+
+    def ensure_huggingface_ready(self) -> Dict[str, Any]:
+        """Create the HuggingFace generator if it does not already exist."""
+        if self.huggingface_generator is not None:
+            return self._build_result(True, message="HuggingFace generator already initialized.")
+
+        try:
+            self.huggingface_generator = HuggingFaceGenerator(self.config_manager)
+            self.logger.info("HuggingFace generator initialized successfully.")
+            return self._build_result(True, message="HuggingFace generator initialized.")
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to initialize HuggingFace generator: %s", exc, exc_info=True)
+            self.huggingface_generator = None
+            return self._build_result(False, error=str(exc))
+
+    async def load_hf_model(self, model_name: str, force_download: bool = False) -> Dict[str, Any]:
+        """Load a HuggingFace model, instantiating the generator when needed."""
+        ensure_result = self.ensure_huggingface_ready()
+        if not ensure_result.get("success"):
+            return ensure_result
+
+        try:
+            await self.huggingface_generator.load_model(model_name, force_download)
+            self.model_manager.set_model(model_name, "HuggingFace")
+            if self.current_llm_provider == "HuggingFace":
+                self.current_model = model_name
+            message = f"Model '{model_name}' loaded successfully."
+            return self._build_result(True, message=message)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to load HuggingFace model %s: %s", model_name, exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
+
+    async def unload_hf_model(self) -> Dict[str, Any]:
+        """Unload the currently active HuggingFace model if one is loaded."""
+        if not self.huggingface_generator:
+            return self._build_result(True, message="No HuggingFace model loaded.")
+
+        try:
+            await asyncio.to_thread(self.huggingface_generator.unload_model)
+            if self.current_llm_provider == "HuggingFace":
+                self.current_model = None
+            return self._build_result(True, message="HuggingFace model unloaded.")
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to unload HuggingFace model: %s", exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
+
+    async def remove_hf_model(self, model_name: str) -> Dict[str, Any]:
+        """Remove a cached HuggingFace model from disk."""
+        ensure_result = self.ensure_huggingface_ready()
+        if not ensure_result.get("success"):
+            return ensure_result
+
+        try:
+            await asyncio.to_thread(
+                self.huggingface_generator.model_manager.remove_installed_model,
+                model_name,
+            )
+            message = f"Model '{model_name}' removed successfully."
+            return self._build_result(True, message=message)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to remove HuggingFace model %s: %s", model_name, exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
+
+    def list_hf_models(self) -> Dict[str, Any]:
+        """List installed HuggingFace models."""
+        ensure_result = self.ensure_huggingface_ready()
+        if not ensure_result.get("success"):
+            return ensure_result
+
+        try:
+            models = self.huggingface_generator.get_installed_models()
+            return self._build_result(True, data=models, message="Retrieved installed HuggingFace models.")
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to list HuggingFace models: %s", exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
 
     @classmethod
     def providers(cls) -> List[str]:
@@ -150,13 +238,17 @@ class ProviderManager:
 
             elif llm_provider == "HuggingFace":
                 self.grok_generator = None
-                self.huggingface_generator = HuggingFaceGenerator(self.config_manager)
+                ensure_result = self.ensure_huggingface_ready()
+                if not ensure_result.get("success"):
+                    raise ValueError(ensure_result.get("error", "Failed to initialize HuggingFace generator."))
+
                 self.generate_response_func = self.huggingface_generator.generate_response
                 self.process_streaming_response_func = self.huggingface_generator.process_streaming_response
                 default_model = self.get_default_model_for_provider("HuggingFace")
                 if default_model:
-                    await self.huggingface_generator.load_model(default_model)
-                    self.current_model = default_model
+                    load_result = await self.load_hf_model(default_model)
+                    if not load_result.get("success"):
+                        raise ValueError(load_result.get("error", "Failed to load default HuggingFace model."))
                 else:
                     self.logger.error("No default model found for HuggingFace. Ensure models are configured correctly.")
                     raise ValueError("No default model available for HuggingFace provider.")
@@ -231,7 +323,9 @@ class ProviderManager:
             str or None: The name of the current model, or None if not set.
         """
         if self.current_llm_provider == "HuggingFace" and self.huggingface_generator:
-            return self.huggingface_generator.get_current_model()
+            getter = getattr(self.huggingface_generator, "get_current_model", None)
+            if callable(getter):
+                return getter()
         return self.current_model
 
     def set_current_functions(self, functions):
@@ -388,10 +482,13 @@ class ProviderManager:
         Args:
             model (str): The model to set.
         """
-        self.current_model = model
-        self.model_manager.set_model(model, self.current_llm_provider)
-        if self.current_llm_provider == "HuggingFace" and self.huggingface_generator:
-            await self.huggingface_generator.load_model(model)
+        if self.current_llm_provider == "HuggingFace":
+            load_result = await self.load_hf_model(model)
+            if not load_result.get("success"):
+                raise ValueError(load_result.get("error", f"Failed to load HuggingFace model {model}."))
+        else:
+            self.current_model = model
+            self.model_manager.set_model(model, self.current_llm_provider)
         self.logger.info(f"Model set to {model}")
 
     def switch_background_provider(self, background_provider: str):
@@ -474,7 +571,7 @@ class ProviderManager:
         Perform cleanup operations, such as unloading models.
         """
         if self.huggingface_generator:
-            self.huggingface_generator.unload_model()
+            await self.unload_hf_model()
         if self.grok_generator:
             await self.grok_generator.unload_model()
         # Add any additional cleanup here
