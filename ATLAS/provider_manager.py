@@ -306,6 +306,8 @@ class ProviderManager:
 
             elif llm_provider == "HuggingFace":
                 self.grok_generator = None
+                # Reset any previously selected model when switching to HuggingFace.
+                self.current_model = None
                 ensure_result = self.ensure_huggingface_ready()
                 if not ensure_result.get("success"):
                     raise ValueError(ensure_result.get("error", "Failed to initialize HuggingFace generator."))
@@ -318,9 +320,14 @@ class ProviderManager:
                     if not load_result.get("success"):
                         raise ValueError(load_result.get("error", "Failed to load default HuggingFace model."))
                 else:
-                    self.logger.error("No default model found for HuggingFace. Ensure models are configured correctly.")
-                    raise ValueError("No default model available for HuggingFace provider.")
-
+                    self.logger.warning(
+                        "No default model found for HuggingFace. The provider is active without a loaded model."
+                    )
+                    # Ensure downstream logic knows no model is loaded yet.
+                    if hasattr(self.model_manager, "current_model"):
+                        self.model_manager.current_model = None
+                    if hasattr(self.model_manager, "current_provider"):
+                        self.model_manager.current_provider = "HuggingFace"
             elif llm_provider == "Anthropic":
                 self.generate_response_func = anthropic_generate_response
                 self.process_streaming_response_func = None
