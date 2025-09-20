@@ -448,6 +448,22 @@ class SpeechManager:
         self.active_tts = tts
         logger.info(f"Default TTS provider set to '{provider}'.")
 
+    def get_tts_provider_names(self) -> Tuple[str, ...]:
+        """Return the registered TTS provider keys in insertion order."""
+
+        return tuple(self.tts_services.keys())
+
+    def get_default_tts_provider_index(self) -> Optional[int]:
+        """Return the index of the default TTS provider within the provider list."""
+
+        provider = self.get_default_tts_provider()
+        if not provider:
+            return None
+        try:
+            return self.get_tts_provider_names().index(provider)
+        except ValueError:
+            return None
+
     def set_default_speech_providers(self, tts_provider: Optional[str] = None, stt_provider: Optional[str] = None):
         """Update the default TTS and/or STT providers in a single call."""
 
@@ -797,6 +813,22 @@ class SpeechManager:
         self._active_stt_key = provider
         self.active_stt = stt
         logger.info(f"Default STT provider set to '{provider}'.")
+
+    def get_stt_provider_names(self) -> Tuple[str, ...]:
+        """Return the registered STT provider keys in insertion order."""
+
+        return tuple(self.stt_services.keys())
+
+    def get_default_stt_provider_index(self) -> Optional[int]:
+        """Return the index of the default STT provider within the provider list."""
+
+        provider = self.get_default_stt_provider()
+        if not provider:
+            return None
+        try:
+            return self.get_stt_provider_names().index(provider)
+        except ValueError:
+            return None
 
     def _resolve_audio_reference(self, provider: Optional[str], stt_instance: Any) -> Optional[str]:
         """Infer the audio reference produced by an STT provider after recording."""
