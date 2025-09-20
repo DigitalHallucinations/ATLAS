@@ -212,6 +212,11 @@ class SpeechManager:
             logger.info(f"TTS for provider '{provider}' set to {value}.")
         else:
             self._tts_enabled = value
+            if hasattr(self.config_manager, 'set_tts_enabled'):
+                try:
+                    self.config_manager.set_tts_enabled(value)
+                except Exception as exc:
+                    logger.error(f"Failed to persist TTS status: {exc}")
             logger.info(f"Global TTS enabled set to {self._tts_enabled}.")
 
     def get_tts_status(self, provider: str = None) -> bool:
@@ -286,6 +291,100 @@ class SpeechManager:
             return
         self.active_tts = tts
         logger.info(f"Default TTS provider set to '{provider}'.")
+
+    def set_default_speech_providers(self, tts_provider: Optional[str] = None, stt_provider: Optional[str] = None):
+        """Update the default TTS and/or STT providers in a single call."""
+
+        if tts_provider:
+            if tts_provider in self.tts_services:
+                self.set_default_tts_provider(tts_provider)
+                if hasattr(self.config_manager, 'config'):
+                    self.config_manager.config['DEFAULT_TTS_PROVIDER'] = tts_provider
+                logger.info(f"Persisted default TTS provider '{tts_provider}'.")
+            else:
+                logger.error(f"Cannot set unknown TTS provider '{tts_provider}'.")
+
+        if stt_provider:
+            if stt_provider in self.stt_services:
+                self.set_default_stt_provider(stt_provider)
+                if hasattr(self.config_manager, 'config'):
+                    self.config_manager.config['DEFAULT_STT_PROVIDER'] = stt_provider
+                logger.info(f"Persisted default STT provider '{stt_provider}'.")
+            else:
+                logger.error(f"Cannot set unknown STT provider '{stt_provider}'.")
+
+    def disable_stt(self):
+        """Disable speech-to-text by clearing the active provider and state."""
+
+        if self._stt_recording and self._recording_provider:
+            try:
+                self.stop_listening(self._recording_provider)
+            except Exception as exc:
+                logger.debug(f"Error stopping provider '{self._recording_provider}' during disable: {exc}")
+
+        self._stt_recording = False
+        self._recording_provider = None
+        self._last_audio_provider = None
+        self._last_audio_path = None
+        self.active_stt = None
+        if hasattr(self.config_manager, 'config'):
+            self.config_manager.config['DEFAULT_STT_PROVIDER'] = None
+        logger.info("STT disabled and default provider cleared.")
+
+    def configure_openai_speech(
+        self,
+        api_key: Optional[str],
+        stt_provider: str,
+        language: Optional[str],
+        task: Optional[str],
+        initial_prompt: Optional[str],
+        tts_provider: Optional[str],
+    ):
+        """Configure OpenAI-based speech providers and update defaults."""
+
+        if api_key is not None:
+            if hasattr(self.config_manager, 'config'):
+                self.config_manager.config['OPENAI_API_KEY'] = api_key
+            os.environ['OPENAI_API_KEY'] = api_key
+
+        if hasattr(self.config_manager, 'config'):
+            self.config_manager.config['OPENAI_STT_PROVIDER'] = stt_provider
+            self.config_manager.config['OPENAI_LANGUAGE'] = language
+            self.config_manager.config['OPENAI_TASK'] = task
+            self.config_manager.config['OPENAI_INITIAL_PROMPT'] = initial_prompt
+            self.config_manager.config['OPENAI_TTS_PROVIDER'] = tts_provider
+
+        stt_key = None
+        tts_key = None
+
+        if stt_provider:
+            try:
+                if stt_provider == "Whisper Online":
+                    from modules.Speech_Services.whisper_stt import WhisperSTT
+
+                    stt_instance = WhisperSTT(mode="online")
+                else:
+                    from modules.Speech_Services.gpt4o_stt import GPT4oSTT
+
+                    variant = "gpt-4o" if stt_provider == "GPT-4o STT" else "gpt-4o-mini"
+                    stt_instance = GPT4oSTT(variant=variant)
+
+                stt_key = "openai_stt"
+                self.add_stt_provider(stt_key, stt_instance)
+            except Exception as exc:
+                logger.error(f"Error configuring OpenAI STT provider '{stt_provider}': {exc}")
+
+        if tts_provider:
+            try:
+                from modules.Speech_Services.gpt4o_tts import GPT4oTTS
+
+                tts_instance = GPT4oTTS(voice="default")
+                tts_key = "openai_tts"
+                self.add_tts_provider(tts_key, tts_instance)
+            except Exception as exc:
+                logger.error(f"Error configuring OpenAI TTS provider '{tts_provider}': {exc}")
+
+        self.set_default_speech_providers(tts_key, stt_key)
 
     def get_active_tts_summary(self) -> Tuple[str, str]:
         """Return a tuple describing the active TTS provider and voice label."""
