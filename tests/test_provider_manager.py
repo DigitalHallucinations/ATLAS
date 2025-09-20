@@ -16,6 +16,37 @@ if "tenacity" not in sys.modules:
     tenacity_stub.wait_exponential = lambda *args, **kwargs: None
     sys.modules["tenacity"] = tenacity_stub
 
+if "yaml" not in sys.modules:
+    yaml_stub = types.ModuleType("yaml")
+    yaml_stub.safe_load = lambda *_args, **_kwargs: {}
+    yaml_stub.dump = lambda *_args, **_kwargs: ""
+    sys.modules["yaml"] = yaml_stub
+
+if "dotenv" not in sys.modules:
+    dotenv_stub = types.ModuleType("dotenv")
+
+    def _noop(*_args, **_kwargs):  # pragma: no cover - placeholder
+        return None
+
+    dotenv_stub.load_dotenv = _noop
+    dotenv_stub.set_key = _noop
+    dotenv_stub.find_dotenv = lambda *_args, **_kwargs: ""
+    sys.modules["dotenv"] = dotenv_stub
+
+if "huggingface_hub" not in sys.modules:
+    hf_hub_stub = types.ModuleType("huggingface_hub")
+
+    class _PlaceholderHfApi:
+        def __init__(self, *_args, **_kwargs):  # pragma: no cover - placeholder
+            self.token = None
+
+        def whoami(self, token=None):  # pragma: no cover - placeholder
+            self.token = token
+            return {}
+
+    hf_hub_stub.HfApi = _PlaceholderHfApi
+    sys.modules["huggingface_hub"] = hf_hub_stub
+
 hf_module_name = "modules.Providers.HuggingFace.HF_gen_response"
 if hf_module_name not in sys.modules:
     hf_stub = types.ModuleType(hf_module_name)
@@ -106,6 +137,7 @@ from ATLAS.provider_manager import ProviderManager
 class DummyConfig:
     def __init__(self, root_path):
         self._root_path = root_path
+        self._hf_token = ""
 
     def get_default_provider(self):
         return "OpenAI"
@@ -127,6 +159,12 @@ class DummyConfig:
 
     def get_config(self, *_args, **_kwargs):
         return None
+
+    def get_huggingface_api_key(self):
+        return self._hf_token
+
+    def set_huggingface_api_key(self, token):
+        self._hf_token = token
 
 
 class FakeHFModelManager:
@@ -297,3 +335,48 @@ def test_huggingface_backend_helpers(provider_manager, monkeypatch):
     clear_result = provider_manager.clear_huggingface_cache()
     assert clear_result["success"] is True
     assert clear_calls[0] is provider_manager.huggingface_generator
+
+
+def test_test_huggingface_token_success(provider_manager, monkeypatch):
+    provider_manager.config_manager.set_huggingface_api_key("stored-token")
+
+    class StubHfApi:
+        def __init__(self):
+            self.called_with = None
+
+        def whoami(self, token=None):
+            self.called_with = token
+            return {"name": "tester"}
+
+    stub_instance = StubHfApi()
+    monkeypatch.setattr(provider_manager_module, "HfApi", lambda *args, **kwargs: stub_instance)
+
+    async def exercise():
+        return await provider_manager.test_huggingface_token(None)
+
+    result = asyncio.run(exercise())
+    assert result["success"] is True
+    assert result["data"]["name"] == "tester"
+    assert stub_instance.called_with == "stored-token"
+    assert "Signed in as" in result["message"]
+
+
+def test_test_huggingface_token_failure(provider_manager, monkeypatch):
+    class StubHfApi:
+        def __init__(self):
+            self.called_with = None
+
+        def whoami(self, token=None):
+            self.called_with = token
+            raise RuntimeError("invalid token")
+
+    stub_instance = StubHfApi()
+    monkeypatch.setattr(provider_manager_module, "HfApi", lambda *args, **kwargs: stub_instance)
+
+    async def exercise():
+        return await provider_manager.test_huggingface_token("explicit-token")
+
+    result = asyncio.run(exercise())
+    assert result["success"] is False
+    assert "invalid token" in result["error"]
+    assert stub_instance.called_with == "explicit-token"

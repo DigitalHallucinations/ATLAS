@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Union, AsyncIterator, Optional
 import asyncio
 import time
 import traceback
+from huggingface_hub import HfApi
 from ATLAS.model_manager import ModelManager
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
@@ -103,6 +104,41 @@ class ProviderManager:
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to initialize HuggingFace generator: %s", exc, exc_info=True)
             self.huggingface_generator = None
+            return self._build_result(False, error=str(exc))
+
+    async def test_huggingface_token(self, token: Optional[str]) -> Dict[str, Any]:
+        """Validate a HuggingFace token using the hub API."""
+
+        ensure_result = self.ensure_huggingface_ready()
+        if not ensure_result.get("success"):
+            return ensure_result
+
+        configured_token: str = token or ""
+        if not configured_token:
+            getter = getattr(self.config_manager, "get_huggingface_api_key", None)
+            if callable(getter):
+                configured_token = getter() or ""
+
+        if not configured_token:
+            return self._build_result(False, error="No HuggingFace token provided.")
+
+        try:
+            api = HfApi()
+            whoami_data = await asyncio.to_thread(api.whoami, token=configured_token)
+            display_name = ""
+            if isinstance(whoami_data, dict):
+                display_name = (
+                    whoami_data.get("name")
+                    or whoami_data.get("fullname")
+                    or whoami_data.get("email")
+                    or ""
+                )
+            message = "Token verified successfully."
+            if display_name:
+                message = f"Token OK. Signed in as: {display_name}"
+            return self._build_result(True, message=message, data=whoami_data)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to validate HuggingFace token: %s", exc, exc_info=True)
             return self._build_result(False, error=str(exc))
 
     async def load_hf_model(self, model_name: str, force_download: bool = False) -> Dict[str, Any]:
