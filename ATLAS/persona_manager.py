@@ -310,11 +310,20 @@ class PersonaManager:
         return {"success": True, "persona": persona}
 
     def show_message(self, role: str, message: str):
-        """Display a message using the chat component, if available."""
-        if hasattr(self.master, 'chat_component'):
-            self.master.chat_component.show_message(role, message)
-        else:
-            self.logger.warning("ChatComponent instance not found in master. Unable to display message.")
+        """Dispatch a persona-related message via the master callback when available."""
+        dispatcher = getattr(self.master, "message_dispatcher", None)
+
+        if not callable(dispatcher):
+            self.logger.warning(
+                "No message dispatcher registered on master. Unable to deliver persona message: %s",
+                message,
+            )
+            return
+
+        try:
+            dispatcher(role, message)
+        except Exception as exc:
+            self.logger.error("Message dispatcher failed: %s", exc, exc_info=True)
 
     def get_current_persona_prompt(self) -> str:
         """Returns the current persona's system prompt."""

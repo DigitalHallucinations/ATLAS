@@ -30,6 +30,8 @@ class PersonaManagement:
         self.ATLAS = ATLAS
         self.parent_window = parent_window
         self.persona_window = None
+        self._persona_message_handler = self._handle_persona_message
+        self.ATLAS.register_message_dispatcher(self._persona_message_handler)
 
     # --------------------------- Helpers ---------------------------
 
@@ -37,6 +39,37 @@ class PersonaManagement:
         """Resolve absolute path to an icon from project root."""
         base = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         return os.path.join(base, rel_path)
+
+    def _handle_persona_message(self, role: str, message: str) -> None:
+        """Surface persona manager messages via a modal dialog."""
+        if not message:
+            return
+
+        role_normalized = (role or "").lower()
+        if role_normalized == "error":
+            message_type = Gtk.MessageType.ERROR
+            title = "Error"
+        elif role_normalized == "warning":
+            message_type = Gtk.MessageType.WARNING
+            title = "Warning"
+        else:
+            message_type = Gtk.MessageType.INFO
+            title = "System"
+
+        def _present_dialog():
+            dialog = Gtk.MessageDialog(
+                transient_for=self.parent_window,
+                modal=True,
+                message_type=message_type,
+                buttons=Gtk.ButtonsType.OK,
+                text=title,
+            )
+            dialog.format_secondary_text(message)
+            dialog.connect("response", lambda d, *_: d.destroy())
+            dialog.present()
+            return False
+
+        GLib.idle_add(_present_dialog)
 
     def _make_icon_widget(self, rel_path: str, fallback_icon_name: str = "emblem-system-symbolic", size: int = 16) -> Gtk.Widget:
         """
