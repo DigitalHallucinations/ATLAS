@@ -19,6 +19,7 @@ from gi.repository import Gtk, Gdk, GLib, GObject
 import logging
 
 from GTKUI.Utils.utils import apply_css
+from modules.Chat.chat_session import ChatHistoryExportError
 
 # Configure logging for the chat page.
 logger = logging.getLogger(__name__)
@@ -522,27 +523,17 @@ class ChatPage(Gtk.Window):
         if response == Gtk.ResponseType.ACCEPT:
             path = dialog.get_filename()
             try:
-                with open(path, "w", encoding="utf-8") as f:
-                    for row in self.chat_history.get_children():
-                        # row -> bubble (Box)
-                        kids = row.get_children()
-                        if len(kids) >= 2:
-                            # header_row, bubble_box
-                            header_row = kids[0]
-                            sender_widget = header_row.get_first_child()
-                            sender = sender_widget.get_text() if isinstance(sender_widget, Gtk.Label) else "Sender"
-                            timestamp_widget = header_row.get_last_child()
-                            timestamp = timestamp_widget.get_text() if isinstance(timestamp_widget, Gtk.Label) else ""
-                            message_label = kids[1].get_first_child()
-                            text = message_label.get_text() if isinstance(message_label, Gtk.Label) else ""
-                            if timestamp:
-                                f.write(f"[{timestamp}] {sender}: {text}\n\n")
-                            else:
-                                f.write(f"{sender}: {text}\n\n")
-                self.status_label.set_text(f"Exported chat to: {path}")
-            except Exception as e:
-                logger.error(f"Export error: {e}")
-                self.status_label.set_text(f"Export failed: {e}")
+                result = self.chat_session.export_history(path)
+            except ChatHistoryExportError as exc:
+                logger.error("Export error: %s", exc)
+                self.status_label.set_text(f"Export failed: {exc}")
+            except Exception as exc:  # Safety net for unexpected issues
+                logger.error("Unexpected export error: %s", exc, exc_info=True)
+                self.status_label.set_text(f"Export failed: {exc}")
+            else:
+                self.status_label.set_text(
+                    f"Exported {result.message_count} messages to: {result.path}"
+                )
         dialog.destroy()
 
     def update_status_bar(self, provider=None, model=None):
