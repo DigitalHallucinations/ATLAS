@@ -266,59 +266,85 @@ class ChatPage(Gtk.Window):
         """
         Toggle speech-to-text recording/transcription.
         """
-        stt = self.ATLAS.speech_manager.active_stt
-        if not stt:
+        manager = self.ATLAS.speech_manager
+        provider_key = manager.get_active_stt_provider() if manager else None
+        if not manager or not provider_key:
             logger.error("No active STT service configured.")
             self.status_label.set_text("No STT service configured.")
+            self.status_label.set_tooltip_text("Active LLM provider/model and TTS status")
             return
 
-        # Toggle recording based on the STT provider's 'recording' attribute.
-        currently_recording = bool(getattr(stt, 'recording', False))
-        if not currently_recording:
+        if not manager.is_listening():
             logger.info("Starting speech recognition...")
-            self._set_mic_visual(listening=True)
-            self.status_label.set_text("Listening…")
-            try:
-                self.ATLAS.speech_manager.listen()
-            except Exception as e:
-                logger.error(f"Error starting STT: {e}")
+            started = manager.listen()
+            if started:
+                self._set_mic_visual(listening=True)
+                self._set_spinner_active(False)
+                self.status_label.set_text("Listening…")
+                self.status_label.set_tooltip_text(f"Listening via {provider_key}")
+            else:
                 self._set_mic_visual(listening=False)
                 self.status_label.set_text("Failed to start listening.")
-        else:
-            logger.info("Stopping speech recognition and transcribing…")
+                self.status_label.set_tooltip_text("Active LLM provider/model and TTS status")
+            return
+
+        logger.info("Stopping speech recognition and transcribing…")
+        self.status_label.set_text("Transcribing…")
+        self._set_spinner_active(True)
+
+        # Run transcription in a separate thread to avoid blocking the UI.
+        def transcribe_and_update():
+            transcript = ""
+            error_message = None
+            loop = asyncio.new_event_loop()
             try:
-                self.ATLAS.speech_manager.stop_listening()
-            except Exception as e:
-                logger.error(f"Error stopping STT: {e}")
-            # Run transcription in a separate thread to avoid blocking the UI.
-            def transcribe_and_update():
+                asyncio.set_event_loop(loop)
+                transcript = loop.run_until_complete(manager.stop_and_transcribe()) or ""
+            except Exception as exc:
+                logger.error(f"Unexpected transcription error: {exc}")
+                error_message = f"Transcription failed: {exc}"
+            finally:
                 try:
-                    audio_file = getattr(stt, 'audio_file', "output.wav")
-                    transcript = stt.transcribe(audio_file) or ""
-                    def update_buffer():
-                        text = transcript.strip()
-                        if not text:
-                            return
-                        buf = self.input_buffer
-                        if buf.get_char_count() > 0:
-                            buf.insert(buf.get_end_iter(), "\n" + text)
-                        else:
-                            buf.insert(buf.get_end_iter(), text)
-                        buf.place_cursor(buf.get_end_iter())
-                    GLib.idle_add(update_buffer)
-                    GLib.idle_add(lambda: self.status_label.set_text("Transcription complete."))
-                except Exception as e:
-                    logger.error(f"Transcription error: {e}")
-                    GLib.idle_add(lambda: self.status_label.set_text(f"Transcription failed: {e}"))
-                finally:
-                    GLib.timeout_add_seconds(2, lambda: (self.update_status_bar() or False))
-                    GLib.idle_add(lambda: self._set_mic_visual(listening=False))
-            threading.Thread(target=transcribe_and_update, daemon=True).start()
+                    loop.close()
+                except Exception:
+                    pass
+
+            text = transcript.strip()
+
+            def update_ui():
+                if text:
+                    buf = self.input_buffer
+                    if buf.get_char_count() > 0:
+                        buf.insert(buf.get_end_iter(), "\n" + text)
+                    else:
+                        buf.insert(buf.get_end_iter(), text)
+                    buf.place_cursor(buf.get_end_iter())
+                    self.status_label.set_text("Transcription complete.")
+                elif error_message:
+                    self.status_label.set_text(error_message)
+                else:
+                    self.status_label.set_text("No transcription available.")
+                self._set_spinner_active(False)
+                self._set_mic_visual(listening=False)
+                self.status_label.set_tooltip_text("Active LLM provider/model and TTS status")
+                GLib.timeout_add_seconds(2, lambda: (self.update_status_bar() or False))
+                return False
+
+            GLib.idle_add(update_ui)
+
+        threading.Thread(target=transcribe_and_update, daemon=True).start()
 
     def _set_mic_visual(self, listening: bool):
         self.mic_state_listening = listening
         self.mic_button.set_child(self._mic_icons["listening" if listening else "idle"])
         self.mic_button.set_tooltip_text("Stop listening (STT)" if listening else "Start listening (STT)")
+
+    def _set_spinner_active(self, active: bool):
+        self.status_spinner.set_visible(active)
+        if active:
+            self.status_spinner.start()
+        else:
+            self.status_spinner.stop()
 
     def handle_model_response_thread(self, message):
         """
