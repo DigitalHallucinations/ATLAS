@@ -350,23 +350,17 @@ class ChatPage(Gtk.Window):
         """
         Processes the model's response asynchronously in a separate thread,
         then schedules the UI update to add the assistant's message bubble.
-        Also triggers TTS if enabled.
+        The backend handles any text-to-speech responsibilities.
         """
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
             response = loop.run_until_complete(self.chat_session.send_message(message))
 
-            # Trigger TTS for the response if enabled.
-            try:
-                loop.run_until_complete(self.ATLAS.speech_manager.text_to_speech(response))
-            except Exception as tts_err:
-                logger.warning(f"TTS error (continuing): {tts_err}")
-
             persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
             GLib.idle_add(self.add_message_bubble, persona_name, response)
         except Exception as e:
-            logger.error(f"Error in handle_model_response: {e}")
+            logger.error(f"Error retrieving model response: {e}")
             GLib.idle_add(self.add_message_bubble, "Assistant", f"Error: {e}")
         finally:
             try:

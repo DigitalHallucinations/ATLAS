@@ -38,12 +38,15 @@ class ChatSession:
                 model=self.current_model,
                 stream=False
             )
-            self.conversation_history.append({"role": "assistant", "content": response})
-            self.messages_since_last_reminder += 1
-            return response
         except Exception as e:
-            self.ATLAS.logger.error(f"Error generating response: {e}")
-            raise e
+            self.ATLAS.logger.error(f"Error generating response: {e}", exc_info=True)
+            raise
+
+        await self.ATLAS.maybe_text_to_speech(response)
+
+        self.conversation_history.append({"role": "assistant", "content": response})
+        self.messages_since_last_reminder += 1
+        return response
 
     def switch_persona(self, new_persona_prompt: str):
         self.current_persona_prompt = new_persona_prompt
