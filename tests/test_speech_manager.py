@@ -280,6 +280,37 @@ def test_get_tts_provider_names_returns_ordered_copy(speech_manager):
     assert names == ("alpha", "beta")
 
 
+def test_resolve_tts_provider_prefers_registered_choice(speech_manager):
+    speech_manager.tts_services["eleven_labs"] = object()
+    speech_manager.tts_services["custom"] = object()
+
+    resolved = speech_manager.resolve_tts_provider("custom")
+
+    assert resolved == "custom"
+
+
+def test_resolve_tts_provider_falls_back_to_eleven_labs(speech_manager):
+    speech_manager.tts_services["eleven_labs"] = object()
+    speech_manager.tts_services["google"] = object()
+
+    resolved = speech_manager.resolve_tts_provider("missing")
+
+    assert resolved == "eleven_labs"
+
+
+def test_resolve_tts_provider_returns_first_available_when_no_fallback(speech_manager):
+    speech_manager.tts_services["google"] = object()
+    speech_manager.tts_services["second"] = object()
+
+    resolved = speech_manager.resolve_tts_provider(None)
+
+    assert resolved == "google"
+
+
+def test_resolve_tts_provider_handles_no_services(speech_manager):
+    assert speech_manager.resolve_tts_provider("whatever") is None
+
+
 def test_get_stt_provider_names_returns_ordered_copy(speech_manager):
     speech_manager.stt_services["delta"] = object()
     speech_manager.stt_services["epsilon"] = object()

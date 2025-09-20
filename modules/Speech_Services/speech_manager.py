@@ -527,6 +527,19 @@ class SpeechManager:
 
         return tuple(self.tts_services.keys())
 
+    def resolve_tts_provider(self, preferred: Optional[str]) -> Optional[str]:
+        """Resolve a TTS provider from a preferred key with sensible fallbacks."""
+
+        providers = self.get_tts_provider_names()
+        if preferred and preferred in providers:
+            return preferred
+
+        for fallback in ("eleven_labs",):
+            if fallback in providers:
+                return fallback
+
+        return providers[0] if providers else None
+
     def get_default_tts_provider_index(self) -> Optional[int]:
         """Return the index of the default TTS provider within the provider list."""
 
