@@ -48,6 +48,19 @@ class ConfigManager:
         if not self._is_api_key_set(default_provider):
             raise ValueError(f"{default_provider} API key not found in environment variables")
 
+    def _get_provider_env_keys(self) -> Dict[str, str]:
+        """Return the mapping between provider display names and environment keys."""
+
+        return {
+            "OpenAI": "OPENAI_API_KEY",
+            "Mistral": "MISTRAL_API_KEY",
+            "Google": "GOOGLE_API_KEY",
+            "HuggingFace": "HUGGINGFACE_API_KEY",
+            "Anthropic": "ANTHROPIC_API_KEY",
+            "Grok": "GROK_API_KEY",
+            "ElevenLabs": "XI_API_KEY",
+        }
+
     def _load_env_config(self) -> Dict[str, Any]:
         """
         Loads environment variables into the configuration dictionary.
@@ -63,7 +76,8 @@ class ConfigManager:
             'HUGGINGFACE_API_KEY': os.getenv('HUGGINGFACE_API_KEY'),
             'GOOGLE_API_KEY': os.getenv('GOOGLE_API_KEY'),
             'ANTHROPIC_API_KEY': os.getenv('ANTHROPIC_API_KEY'),
-            'GROK_API_KEY': os.getenv('GROK_API_KEY'),  
+            'GROK_API_KEY': os.getenv('GROK_API_KEY'),
+            'XI_API_KEY': os.getenv('XI_API_KEY'),
             'APP_ROOT': os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         }
         self.logger.info(f"APP_ROOT is set to: {config['APP_ROOT']}")
@@ -132,6 +146,15 @@ class ConfigManager:
 
         self._persist_env_value("HUGGINGFACE_API_KEY", token)
         self.logger.info("Hugging Face token updated.")
+
+    def set_elevenlabs_api_key(self, api_key: str):
+        """Persist the ElevenLabs access token."""
+
+        if not api_key:
+            raise ValueError("ElevenLabs API key cannot be empty.")
+
+        self._persist_env_value("XI_API_KEY", api_key)
+        self.logger.info("ElevenLabs API key updated.")
 
     def set_openai_speech_config(
         self,
@@ -283,14 +306,7 @@ class ConfigManager:
             FileNotFoundError: If the .env file is not found.
             ValueError: If the provider name does not have a corresponding API key mapping.
         """
-        provider_env_keys = {
-            "OpenAI": "OPENAI_API_KEY",
-            "Mistral": "MISTRAL_API_KEY",
-            "Google": "GOOGLE_API_KEY",
-            "HuggingFace": "HUGGINGFACE_API_KEY",
-            "Anthropic": "ANTHROPIC_API_KEY",
-            "Grok": "GROK_API_KEY",  # Ensure this mapping exists
-        }
+        provider_env_keys = self._get_provider_env_keys()
 
         env_key = provider_env_keys.get(provider_name)
         if not env_key:
@@ -309,7 +325,11 @@ class ConfigManager:
         Returns:
             bool: True if the API key is set, False otherwise.
         """
-        api_key = self.get_config(f"{provider_name.upper()}_API_KEY")
+        env_key = self._get_provider_env_keys().get(provider_name)
+        if not env_key:
+            return False
+
+        api_key = self.get_config(env_key)
         return bool(api_key)
 
     def get_available_providers(self) -> Dict[str, str]:
@@ -319,8 +339,8 @@ class ConfigManager:
         Returns:
             Dict[str, str]: A dictionary where keys are provider names and values are their API keys.
         """
-        providers = ["OpenAI", "Mistral", "Google", "HuggingFace", "Anthropic", "Grok"]
-        return {provider: self.get_config(f"{provider.upper()}_API_KEY") for provider in providers}
+        provider_env_keys = self._get_provider_env_keys()
+        return {provider: self.get_config(env_key) for provider, env_key in provider_env_keys.items()}
 
     # Additional methods to handle TTS_ENABLED from config.yaml
     def get_tts_enabled(self) -> bool:

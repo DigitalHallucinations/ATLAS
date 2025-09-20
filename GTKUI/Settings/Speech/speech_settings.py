@@ -373,14 +373,69 @@ class SpeechSettings(Gtk.Window):
         self.notebook.append_page(eleven_box, tab_label)
 
     def save_eleven_labs_tab(self):
-        eleven_api_key = self.eleven_api_entry.get_text().strip()
-        self.ATLAS.config_manager.config["XI_API_KEY"] = eleven_api_key
-        os.environ["XI_API_KEY"] = eleven_api_key
+        entered_key = self.eleven_api_entry.get_text().strip()
+        stored_key = self.ATLAS.config_manager.get_config("XI_API_KEY") or ""
+        key_updated = False
+
+        if entered_key:
+            try:
+                self.ATLAS.speech_manager.set_elevenlabs_api_key(entered_key)
+            except ValueError as exc:
+                self._show_message("Invalid Eleven Labs API Key", str(exc), Gtk.MessageType.ERROR)
+                return
+            except Exception as exc:
+                logger.error(f"Failed to persist Eleven Labs API key: {exc}")
+                self._show_message(
+                    "Failed to Save Eleven Labs Settings",
+                    "An error occurred while saving the Eleven Labs API key. Please try again.",
+                    Gtk.MessageType.ERROR,
+                )
+                return
+            else:
+                key_updated = True
+                self.eleven_api_entry.set_text("")
+                self.eleven_api_entry.set_placeholder_text("Saved")
+        elif not stored_key:
+            self._show_message(
+                "Eleven Labs API Key Required",
+                "Please provide a valid Eleven Labs API key before saving.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
         selected_voice_name = self.voice_combo.get_active_text()
-        voices = self.ATLAS.speech_manager.get_tts_voices(self.ATLAS.speech_manager.get_default_tts_provider())
-        selected_voice = next((v for v in voices if v.get('name') == selected_voice_name), None)
+        provider_key = self.ATLAS.speech_manager.get_default_tts_provider()
+        if not provider_key or provider_key not in getattr(self.ATLAS.speech_manager, 'tts_services', {}):
+            provider_key = 'eleven_labs'
+        voices = self.ATLAS.speech_manager.get_tts_voices(provider_key) or []
+        selected_voice = None
+        if selected_voice_name:
+            selected_voice = next(
+                (v for v in voices if isinstance(v, dict) and v.get('name') == selected_voice_name),
+                None,
+            )
+
         if selected_voice:
-            self.ATLAS.speech_manager.set_tts_voice(selected_voice, self.ATLAS.speech_manager.get_default_tts_provider())
+            self.ATLAS.speech_manager.set_tts_voice(selected_voice, provider_key)
+
+        # Refresh the combo box to reflect any updated voice list.
+        if hasattr(self.voice_combo, "remove_all"):
+            self.voice_combo.remove_all()
+        voice_names = []
+        for voice in voices:
+            voice_name = voice.get('name', 'Unknown') if isinstance(voice, dict) else str(voice)
+            voice_names.append(voice_name)
+            self.voice_combo.append_text(voice_name)
+
+        if voice_names:
+            target_name = selected_voice.get('name') if isinstance(selected_voice, dict) else selected_voice_name
+            if target_name and target_name in voice_names:
+                self.voice_combo.set_active(voice_names.index(target_name))
+            else:
+                self.voice_combo.set_active(0)
+
+        if key_updated:
+            logger.info("Eleven Labs API key saved successfully.")
         self.tab_dirty[1] = False
 
     # ----------------------- Google Tab -----------------------
