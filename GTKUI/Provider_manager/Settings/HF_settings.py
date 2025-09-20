@@ -1264,27 +1264,40 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
     def on_save_token_clicked(self, button):
         """
-        Save the Hugging Face token into config and environment.
+        Persist the Hugging Face token using the provider manager helper.
         """
-        token = self.hf_token_entry.get_text().strip()
-        if not token:
-            self.show_message("Error", "Token cannot be empty.", Gtk.MessageType.ERROR)
+
+        backend = getattr(getattr(self.ATLAS, "provider_manager", None), "save_huggingface_token", None)
+        if not callable(backend):
+            self.show_message(
+                "Error",
+                "Saving Hugging Face tokens is not supported in this build.",
+                Gtk.MessageType.ERROR,
+            )
             return
+
         try:
-            if hasattr(self.config_manager, "set_hf_token"):
-                self.config_manager.set_hf_token(token)
-            else:
-                if hasattr(self.config_manager, "update_api_key"):
-                    self.config_manager.update_api_key("HuggingFace", token)
-                else:
-                    self.config_manager.config["HUGGINGFACE_API_KEY"] = token
-                os.environ["HUGGINGFACE_API_KEY"] = token
-            self.show_message("Success", "Hugging Face token saved.", Gtk.MessageType.INFO)
-            # Do not reveal; switch back to placeholder
-            self.hf_token_entry.set_text("")
-            self.hf_token_entry.set_placeholder_text("Saved")
-        except Exception as e:
-            self.show_message("Error", f"Failed to save token: {str(e)}", Gtk.MessageType.ERROR)
+            result = backend(self.hf_token_entry.get_text())
+        except Exception as exc:  # pragma: no cover - defensive UI guard
+            self.show_message(
+                "Error",
+                f"Failed to save token: {str(exc)}",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
+        self._dispatch_provider_result(
+            result,
+            success_message="Hugging Face token saved.",
+            failure_message="Failed to save Hugging Face token",
+            on_success=self._mark_hf_token_saved,
+        )
+
+    def _mark_hf_token_saved(self):
+        """Reset the token entry to hide the persisted secret."""
+
+        self.hf_token_entry.set_text("")
+        self.hf_token_entry.set_placeholder_text("Saved")
 
     def on_test_token_clicked(self, button):
         """

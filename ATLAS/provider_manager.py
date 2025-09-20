@@ -92,6 +92,61 @@ class ProviderManager:
             payload["error"] = error or message or "Unknown error"
         return payload
 
+    def save_huggingface_token(self, token: Optional[str]) -> Dict[str, Any]:
+        """Persist a Hugging Face API token and refresh provider state when needed."""
+
+        normalized = (token or "").strip()
+        if not normalized:
+            return self._build_result(False, error="Hugging Face token cannot be empty.")
+
+        setter = getattr(self.config_manager, "set_hf_token", None)
+        if not callable(setter):
+            self.logger.error("Config manager does not support saving Hugging Face tokens.")
+            return self._build_result(
+                False,
+                error="Configuration backend does not support saving a Hugging Face token.",
+            )
+
+        try:
+            setter(normalized)
+        except FileNotFoundError as exc:
+            self.logger.error("Failed to persist Hugging Face token: %s", exc, exc_info=True)
+            return self._build_result(
+                False,
+                error="Unable to save Hugging Face token because the .env file could not be located.",
+            )
+        except ValueError as exc:
+            self.logger.error("Rejected Hugging Face token: %s", exc)
+            return self._build_result(False, error=str(exc))
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Unexpected error while saving Hugging Face token: %s", exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
+
+        refresh_message = ""
+        if self.huggingface_generator is not None:
+            previous_generator = self.huggingface_generator
+            self.huggingface_generator = None
+            refresh_result = self.ensure_huggingface_ready()
+            if not refresh_result.get("success"):
+                self.logger.error(
+                    "Token saved but failed to refresh HuggingFace generator: %s",
+                    refresh_result.get("error"),
+                )
+                self.huggingface_generator = previous_generator
+                return self._build_result(
+                    False,
+                    error="Hugging Face token saved but provider refresh failed: "
+                    + refresh_result.get("error", "Unknown error"),
+                )
+            refresh_message = refresh_result.get("message", "")
+
+        message = "Hugging Face token saved."
+        if refresh_message:
+            message = f"{message} {refresh_message}"
+
+        self.logger.info("Hugging Face token updated and provider refreshed.")
+        return self._build_result(True, message=message)
+
     def ensure_huggingface_ready(self) -> Dict[str, Any]:
         """Create the HuggingFace generator if it does not already exist."""
         if self.huggingface_generator is not None:
