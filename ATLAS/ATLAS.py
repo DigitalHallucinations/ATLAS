@@ -1,6 +1,6 @@
 # ATLAS/ATLAS.py
 
-from typing import List, Dict, Union, AsyncIterator
+from typing import List, Dict, Union, AsyncIterator, Optional
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.provider_manager import ProviderManager
@@ -98,7 +98,12 @@ class ATLAS:
             List[str]: A list of provider names.
         """
         return self.provider_manager.get_available_providers()
-    
+
+    async def test_huggingface_token(self, token: Optional[str] = None) -> Dict[str, Any]:
+        """Validate a HuggingFace API token via the provider manager."""
+
+        return await self.provider_manager.test_huggingface_token(token)
+
     async def set_current_provider(self, provider: str):
         """
         Asynchronously set the current provider in the ProviderManager.

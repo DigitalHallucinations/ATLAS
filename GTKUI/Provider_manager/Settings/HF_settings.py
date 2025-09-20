@@ -181,6 +181,41 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             message = f"{failure_message}: {error_detail}"
         self.show_message("Error", message, Gtk.MessageType.ERROR)
 
+    def _get_saved_hf_token(self) -> str:
+        """Retrieve a stored Hugging Face token from configuration if available."""
+
+        if hasattr(self.config_manager, "get_huggingface_api_key"):
+            return self.config_manager.get_huggingface_api_key() or ""
+        if hasattr(self.config_manager, "get_config"):
+            return self.config_manager.get_config("HUGGINGFACE_API_KEY") or ""
+        return ""
+
+    def _handle_token_test_result(self, result):
+        """Present the outcome of a token validation attempt to the user."""
+
+        if not isinstance(result, dict):
+            self.show_message(
+                "Warning",
+                "Token test returned an unexpected response.",
+                Gtk.MessageType.WARNING,
+            )
+            return
+
+        if result.get("success"):
+            info = result.get("data") or {}
+            display_name = (
+                info.get("name")
+                or info.get("fullname")
+                or info.get("email")
+                or "Authenticated"
+            )
+            message = result.get("message") or f"Token OK. Signed in as: {display_name}"
+            self.show_message("Success", message, Gtk.MessageType.INFO)
+            return
+
+        error_message = result.get("error") or "Token test failed."
+        self.show_message("Error", f"Token test failed: {error_message}", Gtk.MessageType.ERROR)
+
     def _abs_icon(self, relative_path: str) -> str:
         """Resolve absolute path for an icon relative to the project root."""
         base = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
@@ -1255,27 +1290,23 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         """
         Try a simple whoami() call using huggingface_hub to validate the token.
         """
-        try:
-            token = self.hf_token_entry.get_text().strip()
-            # If field is blank but we have saved token, try that from config
-            if not token:
-                if hasattr(self.config_manager, "get_huggingface_api_key"):
-                    token = self.config_manager.get_huggingface_api_key() or ""
-                elif hasattr(self.config_manager, "get_config"):
-                    token = self.config_manager.get_config("HUGGINGFACE_API_KEY") or ""
-            if not token:
-                self.show_message("Info", "Enter a token (or save one) before testing.", Gtk.MessageType.INFO)
-                return
-            from huggingface_hub import HfApi
-            api = HfApi()
-            who = api.whoami(token=token)
-            if who and isinstance(who, dict):
-                name = who.get("name") or who.get("fullname") or "Authenticated"
-                self.show_message("Success", f"Token OK. Signed in as: {name}", Gtk.MessageType.INFO)
-            else:
-                self.show_message("Warning", "Token test returned an unexpected response.", Gtk.MessageType.WARNING)
-        except Exception as e:
-            self.show_message("Error", f"Token test failed: {str(e)}", Gtk.MessageType.ERROR)
+        token_input = self.hf_token_entry.get_text().strip()
+        saved_token = self._get_saved_hf_token()
+        token_to_use = token_input or saved_token
+
+        if not token_to_use:
+            self.show_message("Info", "Enter a token (or save one) before testing.", Gtk.MessageType.INFO)
+            return
+
+        self._run_async(
+            self.ATLAS.provider_manager.test_huggingface_token(token_input or None),
+            success_callback=self._handle_token_test_result,
+            error_callback=lambda exc: self.show_message(
+                "Error",
+                f"Token test failed: {str(exc)}",
+                Gtk.MessageType.ERROR,
+            ),
+        )
 
     # ---------------------------------------------------------------------
     # Dialog helpers
