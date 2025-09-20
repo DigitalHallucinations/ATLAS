@@ -186,6 +186,7 @@ class ChatPage(Gtk.Window):
         self.ATLAS.notify_provider_changed = self.update_status_bar
 
         self.awaiting_response = False
+        self._export_dialog = None
 
         self.present()
 
@@ -510,31 +511,53 @@ class ChatPage(Gtk.Window):
         GLib.timeout_add_seconds(2, lambda: (self.update_status_bar() or False))
 
     def on_export_chat(self, _btn):
-        """
-        Exports the chat history to a simple UTF-8 text file chosen by the user.
-        """
+        """Launch a modal dialog that lets the user export the chat history."""
+        if self._export_dialog is not None:
+            # An export dialog is already active.
+            return
+
         dialog = Gtk.FileChooserNative(
             title="Export chat",
             action=Gtk.FileChooserAction.SAVE,
-            transient_for=self
+            transient_for=self,
         )
+        dialog.set_modal(True)
         dialog.set_current_name("chat.txt")
-        response = dialog.run()
-        if response == Gtk.ResponseType.ACCEPT:
-            path = dialog.get_filename()
-            try:
-                result = self.chat_session.export_history(path)
-            except ChatHistoryExportError as exc:
-                logger.error("Export error: %s", exc)
-                self.status_label.set_text(f"Export failed: {exc}")
-            except Exception as exc:  # Safety net for unexpected issues
-                logger.error("Unexpected export error: %s", exc, exc_info=True)
-                self.status_label.set_text(f"Export failed: {exc}")
+
+        self.export_btn.set_sensitive(False)
+        self._export_dialog = dialog
+        dialog.connect("response", self._on_export_dialog_response)
+        dialog.show()
+
+    def _on_export_dialog_response(self, dialog, response):
+        """Handle export dialog responses and perform the chat history export."""
+        try:
+            if response == Gtk.ResponseType.ACCEPT:
+                gio_file = dialog.get_file()
+                path = gio_file.get_path() if gio_file is not None else None
+                if not path:
+                    self.status_label.set_text("No file selected for export.")
+                    return
+
+                try:
+                    result = self.chat_session.export_history(path)
+                except ChatHistoryExportError as exc:
+                    logger.error("Export error: %s", exc)
+                    self.status_label.set_text(f"Export failed: {exc}")
+                except Exception as exc:  # Safety net for unexpected issues
+                    logger.error("Unexpected export error: %s", exc, exc_info=True)
+                    self.status_label.set_text(f"Export failed: {exc}")
+                else:
+                    self.status_label.set_text(
+                        f"Exported {result.message_count} messages to: {result.path}"
+                    )
             else:
-                self.status_label.set_text(
-                    f"Exported {result.message_count} messages to: {result.path}"
-                )
-        dialog.destroy()
+                self.status_label.set_text("Export cancelled.")
+        finally:
+            self.export_btn.set_sensitive(True)
+            dialog.destroy()
+            if self._export_dialog is dialog:
+                self._export_dialog = None
 
     def update_status_bar(self, provider=None, model=None):
         """
