@@ -403,11 +403,12 @@ class SpeechSettings(Gtk.Window):
             )
             return
 
+        speech_manager = self.ATLAS.speech_manager
         selected_voice_name = self.voice_combo.get_active_text()
-        provider_key = self.ATLAS.speech_manager.get_default_tts_provider()
-        if not provider_key or provider_key not in getattr(self.ATLAS.speech_manager, 'tts_services', {}):
-            provider_key = 'eleven_labs'
-        voices = self.ATLAS.speech_manager.get_tts_voices(provider_key) or []
+        provider_key = speech_manager.resolve_tts_provider(
+            speech_manager.get_default_tts_provider()
+        )
+        voices = speech_manager.get_tts_voices(provider_key) or [] if provider_key else []
         selected_voice = None
         if selected_voice_name:
             selected_voice = next(
@@ -415,8 +416,8 @@ class SpeechSettings(Gtk.Window):
                 None,
             )
 
-        if selected_voice:
-            self.ATLAS.speech_manager.set_tts_voice(selected_voice, provider_key)
+        if selected_voice and provider_key:
+            speech_manager.set_tts_voice(selected_voice, provider_key)
 
         # Refresh the combo box to reflect any updated voice list.
         if hasattr(self.voice_combo, "remove_all"):
