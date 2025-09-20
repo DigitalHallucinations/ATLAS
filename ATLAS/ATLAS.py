@@ -162,8 +162,31 @@ class ATLAS:
         Perform cleanup operations.
         """
         await self.provider_manager.close()
-        await self.speech_manager.close()  
+        await self.speech_manager.close()
         self.logger.info("ATLAS closed and all providers unloaded.")
+
+    async def maybe_text_to_speech(self, response_text: str) -> None:
+        """Run text-to-speech for the provided response when enabled.
+
+        Args:
+            response_text (str): The response to vocalize.
+
+        Raises:
+            RuntimeError: If text-to-speech is enabled but synthesis fails.
+        """
+        if not response_text:
+            return
+
+        if not self.speech_manager.get_tts_status():
+            return
+
+        self.logger.debug("TTS enabled; synthesizing response text.")
+
+        try:
+            await self.speech_manager.text_to_speech(response_text)
+        except Exception as exc:
+            self.logger.error("Text-to-speech failed: %s", exc, exc_info=True)
+            raise RuntimeError("Text-to-speech failed") from exc
 
     async def generate_response(self, messages: List[Dict[str, str]]) -> Union[str, AsyncIterator[str]]:
         """
@@ -189,8 +212,7 @@ class ATLAS:
             )
 
             # Perform TTS if enabled
-            if self.speech_manager.get_tts_status():
-                await self.speech_manager.text_to_speech(response)
+            await self.maybe_text_to_speech(response)
 
             return response
         except Exception as e:
