@@ -294,17 +294,22 @@ class SpeechSettings(Gtk.Window):
         current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
         self.ATLAS.speech_manager.set_tts_status(tts_enabled, current_tts_provider)
         selected_tts_provider = self.default_tts_combo.get_active_text()
-        if selected_tts_provider:
-            self.ATLAS.speech_manager.set_default_tts_provider(selected_tts_provider)
-            logger.info(f"General: Default TTS provider set to: {selected_tts_provider}")
+        selected_stt_provider = self.default_stt_combo.get_active_text() if stt_enabled else None
+
+        self.ATLAS.speech_manager.set_default_speech_providers(
+            tts_provider=selected_tts_provider,
+            stt_provider=selected_stt_provider,
+        )
+
         if not stt_enabled:
-            self.ATLAS.speech_manager.active_stt = None
+            self.ATLAS.speech_manager.disable_stt()
             logger.info("General: STT disabled.")
         else:
-            selected_stt_provider = self.default_stt_combo.get_active_text()
             if selected_stt_provider:
-                self.ATLAS.speech_manager.set_default_stt_provider(selected_stt_provider)
                 logger.info(f"General: Default STT provider set to: {selected_stt_provider}")
+
+        if selected_tts_provider:
+            logger.info(f"General: Default TTS provider set to: {selected_tts_provider}")
         self.tab_dirty[0] = False
 
     # ----------------------- Eleven Labs TTS Tab -----------------------
@@ -592,9 +597,6 @@ class SpeechSettings(Gtk.Window):
 
     def save_openai_tab(self):
         openai_api_key = self.openai_api_entry.get_text().strip()
-        self.ATLAS.config_manager.config["OPENAI_API_KEY"] = openai_api_key
-        os.environ["OPENAI_API_KEY"] = openai_api_key
-
         stt_provider = self.openai_stt_combo.get_active_text()
         language_active = self.openai_language_combo.get_active_text()
         language_map = {"Auto": "", "English (en)": "en", "Japanese (ja)": "ja", "Spanish (es)": "es", "French (fr)": "fr"}
@@ -605,41 +607,17 @@ class SpeechSettings(Gtk.Window):
         # For Open AI TTS, we currently only support GPT-4o Mini TTS.
         tts_provider = self.openai_tts_combo.get_active_text()
 
-        # Save settings in the configuration manager.
-        self.ATLAS.config_manager.config["OPENAI_STT_PROVIDER"] = stt_provider
-        self.ATLAS.config_manager.config["OPENAI_LANGUAGE"] = language_code
-        self.ATLAS.config_manager.config["OPENAI_TASK"] = task
-        self.ATLAS.config_manager.config["OPENAI_INITIAL_PROMPT"] = initial_prompt
-        self.ATLAS.config_manager.config["OPENAI_TTS_PROVIDER"] = tts_provider
+        self.ATLAS.speech_manager.configure_openai_speech(
+            api_key=openai_api_key,
+            stt_provider=stt_provider,
+            language=language_code,
+            task=task,
+            initial_prompt=initial_prompt,
+            tts_provider=tts_provider,
+        )
 
-        # Initialize or update the Open AI providers in the SpeechManager.
-        # For STT:
-        try:
-            from modules.Speech_Services.gpt4o_stt import GPT4oSTT
-            if stt_provider == "Whisper Online":
-                from modules.Speech_Services.whisper_stt import WhisperSTT
-                openai_stt = WhisperSTT(mode="online")
-            elif stt_provider == "GPT-4o STT":
-                openai_stt = GPT4oSTT(variant="gpt-4o")
-            else:  # GPT-4o Mini STT
-                openai_stt = GPT4oSTT(variant="gpt-4o-mini")
-            provider_key = "openai_stt"
-            self.ATLAS.speech_manager.add_stt_provider(provider_key, openai_stt)
-            self.ATLAS.speech_manager.set_default_stt_provider(provider_key)
-            logger.info(f"Open AI STT provider set to {stt_provider}")
-        except Exception as e:
-            logger.error(f"Error initializing Open AI STT provider: {e}")
-
-        # For TTS:
-        try:
-            from modules.Speech_Services.gpt4o_tts import GPT4oTTS
-            openai_tts = GPT4oTTS(voice="default")
-            provider_key_tts = "openai_tts"
-            self.ATLAS.speech_manager.add_tts_provider(provider_key_tts, openai_tts)
-            self.ATLAS.speech_manager.set_default_tts_provider(provider_key_tts)
-            logger.info("Open AI TTS provider (GPT-4o Mini TTS) initialized.")
-        except Exception as e:
-            logger.error(f"Error initializing Open AI TTS provider: {e}")
+        logger.info(f"Open AI STT provider set to {stt_provider}")
+        logger.info("Open AI TTS provider (GPT-4o Mini TTS) initialized.")
 
         self.tab_dirty[3] = False
 

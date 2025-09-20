@@ -2,6 +2,7 @@
 
 from types import MethodType
 import logging
+import os
 import sys
 import types
 
@@ -135,6 +136,23 @@ if "yaml" not in sys.modules:
     sys.modules["yaml"] = yaml_module
 
 
+if "openai" not in sys.modules:
+    class _DummyAudio:
+        @staticmethod
+        def create(*args, **kwargs):
+            return {"data": b""}
+
+        @staticmethod
+        def transcribe(*args, **kwargs):
+            return {"text": ""}
+
+    openai_module = types.ModuleType("openai")
+    openai_module.Audio = _DummyAudio
+    openai_module.api_key = ""
+
+    sys.modules["openai"] = openai_module
+
+
 if "sounddevice" not in sys.modules:
     class _DummyInputStream:
         def __init__(self, *args, **kwargs):
@@ -173,8 +191,20 @@ from modules.Speech_Services.speech_manager import SpeechManager
 
 
 class _DummyConfig:
+    def __init__(self):
+        self.config = {}
+        self.yaml_config = {}
+        self._tts_enabled = True
+
     def get_tts_enabled(self):
-        return True
+        return self._tts_enabled
+
+    def set_tts_enabled(self, value):
+        self._tts_enabled = value
+        self.config['TTS_ENABLED'] = value
+
+    def get_config(self, key, default=None):
+        return self.config.get(key, default)
 
 
 class _SpeechManagerForTest(SpeechManager):
@@ -276,3 +306,45 @@ def test_summary_logs_missing_provider(speech_manager):
         assert any("Active TTS provider 'ghost' is not registered." in message for message in captured_messages)
     finally:
         logger.removeHandler(handler)
+
+
+def test_set_default_speech_providers_updates_state(speech_manager):
+    speech_manager.tts_services["alpha"] = object()
+    speech_manager.stt_services["beta"] = object()
+
+    speech_manager.set_default_speech_providers(tts_provider="alpha", stt_provider="beta")
+
+    assert speech_manager.get_default_tts_provider() == "alpha"
+    assert speech_manager.get_default_stt_provider() == "beta"
+    assert speech_manager.config_manager.config["DEFAULT_TTS_PROVIDER"] == "alpha"
+    assert speech_manager.config_manager.config["DEFAULT_STT_PROVIDER"] == "beta"
+
+
+def test_disable_stt_clears_active_provider(speech_manager):
+    stt_provider = object()
+    speech_manager.stt_services["gamma"] = stt_provider
+    speech_manager.set_default_speech_providers(stt_provider="gamma")
+
+    speech_manager.disable_stt()
+
+    assert speech_manager.get_default_stt_provider() is None
+    assert speech_manager.active_stt is None
+    assert speech_manager.config_manager.config["DEFAULT_STT_PROVIDER"] is None
+
+
+def test_configure_openai_speech_registers_providers(speech_manager):
+    speech_manager.configure_openai_speech(
+        api_key="unit-test-key",
+        stt_provider="GPT-4o STT",
+        language="en",
+        task="transcribe",
+        initial_prompt="Hello",
+        tts_provider="GPT-4o Mini TTS",
+    )
+
+    assert "openai_stt" in speech_manager.stt_services
+    assert "openai_tts" in speech_manager.tts_services
+    assert speech_manager.get_default_stt_provider() == "openai_stt"
+    assert speech_manager.get_default_tts_provider() == "openai_tts"
+    assert speech_manager.config_manager.config["OPENAI_TASK"] == "transcribe"
+    assert os.environ["OPENAI_API_KEY"] == "unit-test-key"
