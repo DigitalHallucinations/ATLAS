@@ -1,6 +1,6 @@
 # ATLAS/ATLAS.py
 
-from typing import List, Dict, Union, AsyncIterator, Optional, Any
+from typing import List, Dict, Union, AsyncIterator, Optional, Any, Callable
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.provider_manager import ProviderManager
@@ -27,6 +27,8 @@ class ATLAS:
         self.chat_session = None
         self.speech_manager = SpeechManager(self.config_manager)  # Instantiate SpeechManager with ConfigManager
         self._initialized = False
+        self._message_dispatchers: List[Callable[[str, str], None]] = []
+        self.message_dispatcher: Optional[Callable[[str, str], None]] = None
 
     async def initialize(self):
         """
@@ -134,6 +136,40 @@ class ATLAS:
         """
         # This method can be overridden or connected via signals in UI code
         pass
+
+    def register_message_dispatcher(self, dispatcher: Callable[[str, str], None]) -> None:
+        """Register a callback that handles persona-related messages from the backend."""
+        if not callable(dispatcher):
+            raise TypeError("dispatcher must be callable")
+
+        if dispatcher in self._message_dispatchers:
+            return
+
+        self._message_dispatchers.append(dispatcher)
+        self._refresh_message_dispatcher()
+
+    def unregister_message_dispatcher(self, dispatcher: Callable[[str, str], None]) -> None:
+        """Remove a previously registered persona message callback."""
+        if dispatcher in self._message_dispatchers:
+            self._message_dispatchers.remove(dispatcher)
+            self._refresh_message_dispatcher()
+
+    def _refresh_message_dispatcher(self) -> None:
+        """Update the aggregated dispatcher exposed to backend components."""
+        if not self._message_dispatchers:
+            self.message_dispatcher = None
+            return
+
+        def aggregated(role: str, message: str) -> None:
+            for callback in list(self._message_dispatchers):
+                try:
+                    callback(role, message)
+                except Exception as exc:
+                    self.logger.error(
+                        "Message dispatcher %s failed: %s", callback, exc, exc_info=True
+                    )
+
+        self.message_dispatcher = aggregated
 
     def log_history(self):
         """
