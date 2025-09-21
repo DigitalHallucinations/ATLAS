@@ -10,6 +10,7 @@ and schedules UI updates via GLib.idle_add.
 """
 
 import os
+from concurrent.futures import Future
 from datetime import datetime
 import gi
 gi.require_version('Gtk', '4.0')
@@ -174,7 +175,8 @@ class ChatPage(Gtk.Window):
         self.status_label = Gtk.Label()
         self.status_label.set_halign(Gtk.Align.START)
         self.status_label.set_hexpand(True)
-        self.status_label.set_tooltip_text("Active LLM provider/model and TTS status")
+        self._default_status_tooltip = "Active LLM provider/model and TTS status"
+        self.status_label.set_tooltip_text(self._default_status_tooltip)
         status_box.append(self.status_label)
 
         self.vbox.append(status_box)
@@ -285,73 +287,89 @@ class ChatPage(Gtk.Window):
             return True  # prevent default newline
         return False
 
-    def on_mic_button_click(self, widget):
-        """
-        Toggle speech-to-text recording/transcription.
-        """
-        manager = self.ATLAS.speech_manager
-        provider_key = manager.get_active_stt_provider() if manager else None
-        if not manager or not provider_key:
-            logger.error("No active STT service configured.")
-            self.status_label.set_text("No STT service configured.")
-            self.status_label.set_tooltip_text("Active LLM provider/model and TTS status")
+    def on_mic_button_click(self, _widget):
+        """Toggle speech-to-text recording/transcription using backend helpers."""
+
+        if not self.mic_state_listening:
+            payload = self.ATLAS.start_stt_listening()
+            self._apply_stt_state(payload)
+            if not payload.get("ok", False):
+                GLib.timeout_add_seconds(
+                    2, lambda: (self.update_status_bar(payload.get("status_summary")) or False)
+                )
             return
 
-        if not manager.is_listening():
-            logger.info("Starting speech recognition...")
-            started = manager.listen()
-            if started:
-                self._set_mic_visual(listening=True)
-                self._set_spinner_active(False)
-                self.status_label.set_text("Listening…")
-                self.status_label.set_tooltip_text(f"Listening via {provider_key}")
-            else:
-                self._set_mic_visual(listening=False)
-                self.status_label.set_text("Failed to start listening.")
-                self.status_label.set_tooltip_text("Active LLM provider/model and TTS status")
+        payload = self.ATLAS.stop_stt_and_transcribe()
+        self._apply_stt_state(payload)
+
+        future = payload.get("transcription_future")
+        if isinstance(future, Future):
+            future.add_done_callback(self._on_transcription_future_ready)
+        elif payload.get("error"):
+            GLib.timeout_add_seconds(
+                2, lambda: (self.update_status_bar(payload.get("status_summary")) or False)
+            )
+
+    def _on_transcription_future_ready(self, future: Future):
+        try:
+            result_payload = future.result()
+        except Exception as exc:  # noqa: BLE001 - ensure UI reflects failure gracefully.
+            logger.error("Transcription future raised an exception: %s", exc, exc_info=True)
+            result_payload = {
+                "ok": False,
+                "status_text": f"Transcription failed: {exc}",
+                "provider": None,
+                "listening": False,
+                "spinner": False,
+                "transcript": "",
+                "error": f"Transcription failed: {exc}",
+                "status_tooltip": self._default_status_tooltip,
+                "status_summary": self.ATLAS.get_chat_status_summary(),
+            }
+
+        def dispatch():
+            self._handle_transcription_payload(result_payload)
+            return False
+
+        GLib.idle_add(dispatch)
+
+    def _handle_transcription_payload(self, payload: dict):
+        transcript = (payload.get("transcript") or "").strip()
+        error_message = payload.get("error")
+
+        if transcript:
+            buf = self.input_buffer
+            insertion = transcript
+            if buf.get_char_count() > 0:
+                insertion = "\n" + insertion
+            buf.insert(buf.get_end_iter(), insertion)
+            buf.place_cursor(buf.get_end_iter())
+        elif error_message:
+            logger.error(error_message)
+
+        self._apply_stt_state(payload, final=True)
+
+    def _apply_stt_state(self, payload: dict, *, final: bool = False):
+        if not isinstance(payload, dict):
             return
 
-        logger.info("Stopping speech recognition and transcribing…")
-        self.status_label.set_text("Transcribing…")
-        self._set_spinner_active(True)
+        if "listening" in payload:
+            self._set_mic_visual(bool(payload.get("listening")))
 
-        def finalize(transcript: str | None, error: Exception | None = None):
-            text = (transcript or "").strip()
+        if "spinner" in payload:
+            self._set_spinner_active(bool(payload.get("spinner")))
 
-            def update():
-                if text:
-                    buf = self.input_buffer
-                    if buf.get_char_count() > 0:
-                        buf.insert(buf.get_end_iter(), "\n" + text)
-                    else:
-                        buf.insert(buf.get_end_iter(), text)
-                    buf.place_cursor(buf.get_end_iter())
-                    self.status_label.set_text("Transcription complete.")
-                elif error is not None:
-                    self.status_label.set_text(f"Transcription failed: {error}")
-                else:
-                    self.status_label.set_text("No transcription available.")
+        tooltip_text = payload.get("status_tooltip") or self._default_status_tooltip
+        self.status_label.set_tooltip_text(tooltip_text)
 
-                self._set_spinner_active(False)
-                self._set_mic_visual(listening=False)
-                self.status_label.set_tooltip_text("Active LLM provider/model and TTS status")
-                GLib.timeout_add_seconds(2, lambda: (self.update_status_bar() or False))
-                return False
+        status_text = payload.get("status_text")
+        if status_text:
+            self.status_label.set_text(status_text)
 
-            GLib.idle_add(update)
-
-        def on_transcribe_success(result: str):
-            finalize(result)
-
-        def on_transcribe_error(exc: Exception):
-            logger.error(f"Unexpected transcription error: {exc}")
-            finalize(None, error=exc)
-
-        manager.stop_and_transcribe_in_background(
-            on_success=on_transcribe_success,
-            on_error=on_transcribe_error,
-            thread_name="SpeechTranscriptionWorker",
-        )
+        if final:
+            GLib.timeout_add_seconds(
+                2, lambda: (self.update_status_bar(payload.get("status_summary")) or False)
+            )
 
     def _set_mic_visual(self, listening: bool):
         self.mic_state_listening = listening

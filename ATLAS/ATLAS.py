@@ -1,5 +1,6 @@
 # ATLAS/ATLAS.py
 
+from concurrent.futures import Future
 from typing import List, Dict, Union, AsyncIterator, Optional, Any, Callable
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
@@ -30,6 +31,7 @@ class ATLAS:
         self._provider_change_listeners: List[Callable[[Dict[str, str]], None]] = []
         self._message_dispatchers: List[Callable[[str, str], None]] = []
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
+        self._default_status_tooltip = "Active LLM provider/model and TTS status"
 
     async def initialize(self):
         """
@@ -289,6 +291,214 @@ class ATLAS:
         except Exception as exc:
             self.logger.error("Text-to-speech failed: %s", exc, exc_info=True)
             raise RuntimeError("Text-to-speech failed") from exc
+
+    def start_stt_listening(self) -> Dict[str, Any]:
+        """Begin speech-to-text recording via the active provider.
+
+        Returns:
+            Dict[str, Any]: Structured payload describing the resulting state.
+        """
+
+        manager: Optional[SpeechManager] = getattr(self, "speech_manager", None)
+        if manager is None:
+            message = "Speech services unavailable."
+            self.logger.error(message)
+            return {
+                "ok": False,
+                "status_text": message,
+                "provider": None,
+                "listening": False,
+                "spinner": False,
+                "error": message,
+                "status_tooltip": self._default_status_tooltip,
+                "status_summary": self.get_chat_status_summary(),
+            }
+
+        provider_key = manager.get_active_stt_provider()
+        if not provider_key:
+            message = "No STT service configured."
+            self.logger.error(message)
+            return {
+                "ok": False,
+                "status_text": message,
+                "provider": None,
+                "listening": False,
+                "spinner": False,
+                "error": message,
+                "status_tooltip": self._default_status_tooltip,
+                "status_summary": self.get_chat_status_summary(),
+            }
+
+        try:
+            started = manager.listen(provider_key)
+        except Exception as exc:  # Defensive: listen() already handles errors.
+            self.logger.error(
+                "Failed to start STT provider %s: %s", provider_key, exc, exc_info=True
+            )
+            started = False
+
+        if not started:
+            message = "Failed to start listening."
+            return {
+                "ok": False,
+                "status_text": message,
+                "provider": provider_key,
+                "listening": False,
+                "spinner": False,
+                "error": message,
+                "status_tooltip": self._default_status_tooltip,
+                "status_summary": self.get_chat_status_summary(),
+            }
+
+        self.logger.info("Listening started using provider '%s'.", provider_key)
+        return {
+            "ok": True,
+            "status_text": "Listening…",
+            "provider": provider_key,
+            "listening": True,
+            "spinner": False,
+            "error": None,
+            "status_tooltip": f"Listening via {provider_key}",
+            "status_summary": self.get_chat_status_summary(),
+        }
+
+    def stop_stt_and_transcribe(self) -> Dict[str, Any]:
+        """Stop recording (if active) and transcribe in the background.
+
+        Returns:
+            Dict[str, Any]: Structured payload with an attached transcription future.
+        """
+
+        manager: Optional[SpeechManager] = getattr(self, "speech_manager", None)
+        if manager is None:
+            message = "Speech services unavailable."
+            self.logger.error(message)
+            return {
+                "ok": False,
+                "status_text": message,
+                "provider": None,
+                "listening": False,
+                "spinner": False,
+                "error": message,
+                "status_tooltip": self._default_status_tooltip,
+                "status_summary": self.get_chat_status_summary(),
+                "transcription_future": None,
+            }
+
+        provider_key = manager.get_active_stt_provider()
+        if not provider_key:
+            message = "No STT service configured."
+            self.logger.error(message)
+            return {
+                "ok": False,
+                "status_text": message,
+                "provider": None,
+                "listening": False,
+                "spinner": False,
+                "error": message,
+                "status_tooltip": self._default_status_tooltip,
+                "status_summary": self.get_chat_status_summary(),
+                "transcription_future": None,
+            }
+
+        result_future: Future[Dict[str, Any]] = Future()
+
+        def _finalize_payload(
+            *, transcript: Optional[str] = None, error: Optional[Exception] = None
+        ) -> Dict[str, Any]:
+            summary = self.get_chat_status_summary()
+            normalized_transcript = (transcript or "").strip()
+            if error is not None:
+                error_message = f"Transcription failed: {error}"
+                payload = {
+                    "ok": False,
+                    "status_text": error_message,
+                    "provider": provider_key,
+                    "listening": False,
+                    "spinner": False,
+                    "transcript": "",
+                    "error": error_message,
+                    "status_tooltip": self._default_status_tooltip,
+                    "status_summary": summary,
+                }
+            elif normalized_transcript:
+                payload = {
+                    "ok": True,
+                    "status_text": "Transcription complete.",
+                    "provider": provider_key,
+                    "listening": False,
+                    "spinner": False,
+                    "transcript": normalized_transcript,
+                    "error": None,
+                    "status_tooltip": self._default_status_tooltip,
+                    "status_summary": summary,
+                }
+            else:
+                payload = {
+                    "ok": True,
+                    "status_text": "No transcription available.",
+                    "provider": provider_key,
+                    "listening": False,
+                    "spinner": False,
+                    "transcript": "",
+                    "error": None,
+                    "status_tooltip": self._default_status_tooltip,
+                    "status_summary": summary,
+                }
+
+            return payload
+
+        def _on_success(transcript: str) -> None:
+            payload = _finalize_payload(transcript=transcript)
+            if not result_future.done():
+                result_future.set_result(payload)
+
+        def _on_error(exc: Exception) -> None:
+            self.logger.error("Unexpected transcription error: %s", exc, exc_info=True)
+            payload = _finalize_payload(error=exc)
+            if not result_future.done():
+                result_future.set_result(payload)
+
+        try:
+            manager.stop_and_transcribe_in_background(
+                provider_key,
+                on_success=_on_success,
+                on_error=_on_error,
+                thread_name="SpeechTranscriptionWorker",
+            )
+        except Exception as exc:
+            self.logger.error(
+                "Failed to schedule transcription with provider %s: %s",
+                provider_key,
+                exc,
+                exc_info=True,
+            )
+            payload = _finalize_payload(error=exc)
+            if not result_future.done():
+                result_future.set_result(payload)
+            return {
+                "ok": False,
+                "status_text": payload["status_text"],
+                "provider": provider_key,
+                "listening": False,
+                "spinner": False,
+                "error": payload["error"],
+                "status_tooltip": payload["status_tooltip"],
+                "status_summary": payload["status_summary"],
+                "transcription_future": result_future,
+            }
+
+        return {
+            "ok": True,
+            "status_text": "Transcribing…",
+            "provider": provider_key,
+            "listening": False,
+            "spinner": True,
+            "error": None,
+            "status_tooltip": f"Transcribing via {provider_key}",
+            "status_summary": self.get_chat_status_summary(),
+            "transcription_future": result_future,
+        }
 
     async def generate_response(self, messages: List[Dict[str, str]]) -> Union[str, AsyncIterator[str]]:
         """
