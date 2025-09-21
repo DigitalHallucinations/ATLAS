@@ -364,9 +364,15 @@ class SpeechSettings(Gtk.Window):
         self.general_stt_switch.connect("notify::active", lambda w, ps: self.mark_dirty(0))
         self.default_stt_combo.connect("changed", lambda w: self.mark_dirty(0))
 
+        general_scroller = Gtk.ScrolledWindow()
+        general_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        general_scroller.set_child(general_box)
+        general_scroller.set_hexpand(True)
+        general_scroller.set_vexpand(True)
+
         tab_label = Gtk.Label(label="General")
         tab_label.set_tooltip_text("Global TTS/STT switches and default providers.")
-        self.notebook.append_page(general_box, tab_label)
+        self.notebook.append_page(general_scroller, tab_label)
         self.current_page_index = 0
 
     def save_general_tab(self):
@@ -428,9 +434,15 @@ class SpeechSettings(Gtk.Window):
         self.voice_combo.connect("changed", lambda w: self.mark_dirty(1))
         self.eleven_api_entry.connect("notify::text", lambda w, ps: self.mark_dirty(1))
 
+        eleven_scroller = Gtk.ScrolledWindow()
+        eleven_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        eleven_scroller.set_child(eleven_box)
+        eleven_scroller.set_hexpand(True)
+        eleven_scroller.set_vexpand(True)
+
         tab_label = Gtk.Label(label="Eleven Labs TTS")
         tab_label.set_tooltip_text("Configure Eleven Labs voice and credentials.")
-        self.notebook.append_page(eleven_box, tab_label)
+        self.notebook.append_page(eleven_scroller, tab_label)
 
     def save_eleven_labs_tab(self):
         entered_key = self.eleven_api_entry.get_text().strip()
@@ -599,9 +611,15 @@ class SpeechSettings(Gtk.Window):
         self.tab_dirty[2] = False
         self.google_credentials_entry.connect("notify::text", lambda w, ps: self.mark_dirty(2))
 
+        google_scroller = Gtk.ScrolledWindow()
+        google_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        google_scroller.set_child(google_box)
+        google_scroller.set_hexpand(True)
+        google_scroller.set_vexpand(True)
+
         tab_label = Gtk.Label(label="Google")
         tab_label.set_tooltip_text("Configure Google Cloud credentials for STT/TTS.")
-        self.notebook.append_page(google_box, tab_label)
+        self.notebook.append_page(google_scroller, tab_label)
 
     def save_google_tab(self):
         google_creds = self.google_credentials_entry.get_text().strip()
@@ -746,9 +764,15 @@ class SpeechSettings(Gtk.Window):
         self.openai_tts_combo.connect("changed", lambda w: self.mark_dirty(3))
         self.openai_api_entry.connect("notify::text", lambda w, ps: self.mark_dirty(3))
 
+        openai_scroller = Gtk.ScrolledWindow()
+        openai_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        openai_scroller.set_child(openai_box)
+        openai_scroller.set_hexpand(True)
+        openai_scroller.set_vexpand(True)
+
         tab_label = Gtk.Label(label="Open AI")
         tab_label.set_tooltip_text("Configure OpenAI STT/TTS and API key.")
-        self.notebook.append_page(openai_box, tab_label)
+        self.notebook.append_page(openai_scroller, tab_label)
 
     def save_openai_tab(self):
         display_payload = {
