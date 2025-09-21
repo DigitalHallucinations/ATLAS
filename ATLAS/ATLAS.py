@@ -27,6 +27,7 @@ class ATLAS:
         self.chat_session = None
         self.speech_manager = SpeechManager(self.config_manager)  # Instantiate SpeechManager with ConfigManager
         self._initialized = False
+        self._provider_change_listeners: List[Callable[[str, str], None]] = []
         self._message_dispatchers: List[Callable[[str, str], None]] = []
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
 
@@ -123,19 +124,35 @@ class ATLAS:
         # Log the updates
         self.logger.info(f"Current provider set to {provider} with model {current_model}")
         # Notify any observers (e.g., UI components) about the change
-        self.notify_provider_changed(provider, current_model)
+        self._notify_provider_change_listeners(provider, current_model)
 
-    def notify_provider_changed(self, provider: str, model: str):
-        """
-        Notify observers that the provider and model have changed.
-        This method should be overridden by UI components that need to react to provider changes.
+    def add_provider_change_listener(self, listener: Callable[[str, str], None]) -> None:
+        """Register a callback to be notified when the provider or model changes."""
 
-        Args:
-            provider (str): The new provider.
-            model (str): The new model.
-        """
-        # This method can be overridden or connected via signals in UI code
-        pass
+        if not callable(listener):
+            raise TypeError("listener must be callable")
+
+        if listener in self._provider_change_listeners:
+            return
+
+        self._provider_change_listeners.append(listener)
+
+    def remove_provider_change_listener(self, listener: Callable[[str, str], None]) -> None:
+        """Remove a previously registered provider change callback if present."""
+
+        if listener in self._provider_change_listeners:
+            self._provider_change_listeners.remove(listener)
+
+    def _notify_provider_change_listeners(self, provider: str, model: str) -> None:
+        """Invoke all registered provider change callbacks."""
+
+        for listener in list(self._provider_change_listeners):
+            try:
+                listener(provider, model)
+            except Exception as exc:
+                self.logger.error(
+                    "Provider change listener %s failed: %s", listener, exc, exc_info=True
+                )
 
     def register_message_dispatcher(self, dispatcher: Callable[[str, str], None]) -> None:
         """Register a callback that handles persona-related messages from the backend."""
