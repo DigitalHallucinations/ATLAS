@@ -266,7 +266,7 @@ class PersonaManagement:
         main_vbox.append(stack)
 
         # General Tab (with scrollable box)
-        self.general_tab = GeneralTab(persona)
+        self.general_tab = GeneralTab(persona, self.ATLAS.persona_manager)
         general_box = self.general_tab.get_widget()
         scrolled_general_tab = Gtk.ScrolledWindow()
         scrolled_general_tab.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)

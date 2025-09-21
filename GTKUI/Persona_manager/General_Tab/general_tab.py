@@ -1,5 +1,7 @@
 # UI/Persona_manager/General_Tab/general_tab.py
 
+import copy
+
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, Pango
@@ -42,9 +44,11 @@ class InfoPopup(Gtk.Window):
 
 
 class GeneralTab:
-    def __init__(self, persona):
+    def __init__(self, persona, persona_manager):
         self.persona = persona
-        self.persona_type = self.persona.get('type', {})
+        self.persona_manager = persona_manager
+        self.persona_type = self.persona.setdefault('type', {})
+        self.persona_name = persona.get('name', '')
         self.user_profile_enabled = persona.get("user_profile_enabled", "False") == "True"
         self.sys_info_enabled = persona.get("sys_info_enabled", "False") == "True"
         self.medical_persona_enabled = self.persona_type.get("medical_persona", {}).get("enabled", "False") == "True"
@@ -238,15 +242,15 @@ class GeneralTab:
             prefix = "" if self.get_editable_content().endswith("\n\n") else "\n\n"
         else:
             prefix = ""
-        template = (
-            "Goals:\n"
-            "1) Provide accurate, concise answers.\n"
-            "2) Ask clarifying questions when needed.\n"
-            "Tone:\n"
-            "- Friendly, professional, and helpful.\n"
-            "Constraints:\n"
-            "- Keep responses grounded in provided context.\n"
-        )
+
+        template = ""
+        if self.persona_manager:
+            preview = self.persona_manager.preview_prompt_sections(
+                self.persona_name,
+                self._build_preview_overrides(),
+            )
+            template = preview.get('editable_template') or self.persona_manager.get_default_editable_template(self.persona)
+
         self._set_editable_text(self.get_editable_content() + prefix + template)
 
     def _set_editable_text(self, text: str, update_counter: bool = True):
@@ -354,54 +358,52 @@ class GeneralTab:
         textview.set_size_request(-1, height + 10)
 
     def update_start_locked(self, widget=None):
-        name = self.name_entry.get_text().strip() or "Assistant"
-        meaning = self.meaning_entry.get_text().strip()
-        if meaning:
-            start_locked = f"The name of the user you are speaking to is <<name>>. Your name is {name}: ({meaning})."
-        else:
-            start_locked = f"The name of the user you are speaking to is <<name>>. Your name is {name}."
-
-        buffer = self.start_view.get_buffer()
-        current_text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
-        if current_text.strip() != start_locked.strip():
-            buffer.set_text(start_locked, -1)
+        self.refresh_preview()
 
     def update_end_locked(self):
-        dynamic_parts = []
-        if self.user_profile_enabled:
-            dynamic_parts.append("User Profile: <<Profile>>")
-        if self.medical_persona_enabled:
-            dynamic_parts.append("User EMR: <<emr>>")
-        if self.educational_persona:
-            subject_specialization = self.persona_type.get('educational_persona', {}).get('subject_specialization', 'General')
-            education_level = self.persona_type.get('educational_persona', {}).get('education_level', 'High School')
-            dynamic_parts.append(f"Subject: {subject_specialization}")
-            dynamic_parts.append(f"Level: {education_level}")
-            dynamic_parts.append("Provide explanations suitable for the student's level.")
-        if self.fitness_persona_enabled:
-            fitness_goal = self.persona_type.get('fitness_persona', {}).get('fitness_goal', 'Weight Loss')
-            exercise_preference = self.persona_type.get('fitness_persona', {}).get('exercise_preference', 'Gym Workouts')
-            dynamic_parts.append(f"Fitness Goal: {fitness_goal}")
-            dynamic_parts.append(f"Exercise Preference: {exercise_preference}")
-            dynamic_parts.append("Offer motivational support and track progress.")
-        if self.language_instructor:
-            target_language = self.persona_type.get('language_instructor', {}).get('target_language', 'Spanish')
-            proficiency_level = self.persona_type.get('language_instructor', {}).get('proficiency_level', 'Beginner')
-            dynamic_parts.append(f"Target Language: {target_language}")
-            dynamic_parts.append(f"Proficiency Level: {proficiency_level}")
-            dynamic_parts.append("Engage in conversation to practice the target language.")
-        if dynamic_parts:
-            dynamic_content = " ".join(dynamic_parts)
-            dynamic_content += " Clear responses and relevant information are key for a great user experience. Ask for clarity or offer input as needed."
-        else:
-            dynamic_content = ""
+        self.refresh_preview()
 
-        end_locked = dynamic_content
+    def refresh_preview(self):
+        if not self.persona_manager:
+            return
 
-        buffer = self.end_view.get_buffer()
+        overrides = self._build_preview_overrides()
+        preview = self.persona_manager.preview_prompt_sections(self.persona_name, overrides)
+
+        start_locked = preview.get('start_locked', '')
+        end_locked = preview.get('end_locked', '')
+
+        self._update_textview(self.start_view, start_locked)
+        self._update_textview(self.end_view, end_locked)
+
+    def _update_textview(self, textview, text):
+        buffer = textview.get_buffer()
         current_text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
-        if current_text.strip() != end_locked.strip():
-            buffer.set_text(end_locked, -1)
+        if current_text != text:
+            buffer.set_text(text, -1)
+
+    def _build_preview_overrides(self):
+        type_overrides = copy.deepcopy(self.persona.get('type', {}))
+
+        def _apply_flag(key, value):
+            if value is None:
+                return
+            entry = type_overrides.setdefault(key, {})
+            entry['enabled'] = 'True' if value else 'False'
+
+        _apply_flag('medical_persona', self.medical_persona_enabled)
+        _apply_flag('educational_persona', self.educational_persona)
+        _apply_flag('fitness_persona', self.fitness_persona_enabled)
+        _apply_flag('language_instructor', self.language_instructor)
+
+        overrides = {
+            'name': self.name_entry.get_text(),
+            'meaning': self.meaning_entry.get_text(),
+            'user_profile_enabled': self.user_profile_enabled,
+            'sys_info_enabled': self.sys_info_enabled,
+            'type': type_overrides,
+        }
+        return overrides
 
     def update_sys_info_content(self):
         """
@@ -445,26 +447,32 @@ class GeneralTab:
     def set_sys_info_enabled(self, enabled):
         self.sys_info_enabled = enabled
         self.update_sys_info_content()
+        self.refresh_preview()
 
     def set_user_profile_enabled(self, enabled):
         self.user_profile_enabled = enabled
-        self.update_end_locked()
+        self.persona['user_profile_enabled'] = 'True' if enabled else 'False'
+        self.refresh_preview()
 
     def set_medical_persona_enabled(self, enabled):
         self.medical_persona_enabled = enabled
-        self.update_end_locked()
+        self._set_type_enabled('medical_persona', enabled)
+        self.refresh_preview()
 
     def set_educational_persona(self, enabled):
         self.educational_persona = enabled
-        self.update_end_locked()
+        self._set_type_enabled('educational_persona', enabled)
+        self.refresh_preview()
 
     def set_fitness_persona_enabled(self, enabled):
         self.fitness_persona_enabled = enabled
-        self.update_end_locked()
+        self._set_type_enabled('fitness_persona', enabled)
+        self.refresh_preview()
 
     def set_language_instructor(self, enabled):
         self.language_instructor = enabled
-        self.update_end_locked()
+        self._set_type_enabled('language_instructor', enabled)
+        self.refresh_preview()
 
     # ----------------------------- Value getters -----------------------------
 
@@ -487,8 +495,8 @@ class GeneralTab:
         return buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
 
     def set_agent_enabled(self, enabled):
-        self.persona.setdefault('type', {})
-        self.persona['type']['Agent'] = {'enabled': str(enabled)}
+        self._set_type_enabled('Agent', enabled)
+        self.refresh_preview()
 
     def get_sys_info_content(self):
         if self.sysinfo_view:
@@ -498,37 +506,43 @@ class GeneralTab:
 
     # Convenience setters for remaining persona flags (keep end-locked fresh)
     def set_legal_persona_enabled(self, enabled):
-        self.persona['type']['legal_persona'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+        self._set_type_enabled('legal_persona', enabled)
+        self.refresh_preview()
 
     def set_financial_advisor_enabled(self, enabled):
-        self.persona['type']['financial_advisor'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+        self._set_type_enabled('financial_advisor', enabled)
+        self.refresh_preview()
 
     def set_tech_support_enabled(self, enabled):
-        self.persona['type']['tech_support'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+        self._set_type_enabled('tech_support', enabled)
+        self.refresh_preview()
 
     def set_personal_assistant_enabled(self, enabled):
-        self.persona['type']['personal_assistant'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+        self._set_type_enabled('personal_assistant', enabled)
+        self.refresh_preview()
 
     def set_therapist_enabled(self, enabled):
-        self.persona['type']['therapist'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+        self._set_type_enabled('therapist', enabled)
+        self.refresh_preview()
 
     def set_travel_guide_enabled(self, enabled):
-        self.persona['type']['travel_guide'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+        self._set_type_enabled('travel_guide', enabled)
+        self.refresh_preview()
 
     def set_storyteller_enabled(self, enabled):
-        self.persona['type']['storyteller'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+        self._set_type_enabled('storyteller', enabled)
+        self.refresh_preview()
 
     def set_game_master_enabled(self, enabled):
-        self.persona['type']['game_master'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+        self._set_type_enabled('game_master', enabled)
+        self.refresh_preview()
 
     def set_chef_enabled(self, enabled):
-        self.persona['type']['chef'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+        self._set_type_enabled('chef', enabled)
+        self.refresh_preview()
+
+    def _set_type_enabled(self, key, enabled):
+        type_dict = self.persona.setdefault('type', {})
+        entry = dict(type_dict.get(key, {}))
+        entry['enabled'] = 'True' if enabled else 'False'
+        type_dict[key] = entry

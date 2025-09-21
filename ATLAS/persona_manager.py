@@ -2,7 +2,8 @@
 
 import os
 import json
-from typing import Any, Dict, List, Optional
+import copy
+from typing import Any, Dict, Iterable, List, Optional
 from modules.user_accounts.user_data_manager import UserDataManager
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
@@ -123,6 +124,185 @@ class PersonaManager:
         self.logger.info(f"Current persona is now: {self.current_persona}")
 
 
+    def build_start_locked(self, persona: Dict[str, Any]) -> str:
+        """Compose the canonical start-locked section for a persona."""
+
+        name = (persona.get("name") or "Assistant").strip()
+        meaning = (persona.get("meaning") or "").strip()
+
+        base = f"The name of the user you are speaking to is <<name>>. Your name is {name}"
+        if meaning:
+            meaning_text = meaning.rstrip()
+            if not meaning_text.endswith((".", "!", "?")):
+                meaning_text += "."
+            base += f": {meaning_text}"
+        else:
+            base += "."
+        return base
+
+    def _entry_enabled(self, entry: Optional[Dict[str, Any]]) -> bool:
+        if not entry:
+            return False
+        value = entry.get("enabled")
+        if isinstance(value, str):
+            return value.lower() == "true"
+        return bool(value)
+
+    def _format_clause(self, text: str) -> str:
+        normalized = text.strip()
+        if not normalized:
+            return ""
+        if normalized.endswith((".", "!", "?")):
+            return normalized
+        return f"{normalized}."
+
+    def _gather_type_clauses(self, persona: Dict[str, Any]) -> Iterable[str]:
+        types = persona.get("type") or {}
+
+        educational = types.get("educational_persona")
+        if self._entry_enabled(educational):
+            subject = (educational.get("subject_specialization") or "General").strip()
+            level = (educational.get("education_level") or "High School").strip()
+            style = (educational.get("teaching_style") or "Lecture Style").strip()
+            yield self._format_clause(f"Subject focus: {subject}")
+            yield self._format_clause(f"Learner level: {level}")
+            yield self._format_clause(f"Preferred teaching style: {style}")
+
+        fitness = types.get("fitness_persona")
+        if self._entry_enabled(fitness):
+            goal = (fitness.get("fitness_goal") or "General Fitness").strip()
+            preference = (fitness.get("exercise_preference") or "Mixed Workouts").strip()
+            yield self._format_clause(f"Fitness goal: {goal}")
+            yield self._format_clause(f"Exercise preference: {preference}")
+
+        language = types.get("language_instructor")
+        if self._entry_enabled(language):
+            target = (language.get("target_language") or "Spanish").strip()
+            proficiency = (language.get("proficiency_level") or "Beginner").strip()
+            yield self._format_clause(f"Target language: {target}")
+            yield self._format_clause(f"Learner proficiency: {proficiency}")
+
+        legal = types.get("legal_persona")
+        if self._entry_enabled(legal):
+            jurisdiction = (legal.get("jurisdiction") or "General").strip()
+            area = (legal.get("area_of_law") or "Common").strip()
+            disclaimer = (legal.get("disclaimer") or "Provide informational guidance only").strip()
+            yield self._format_clause(f"Jurisdiction: {jurisdiction}")
+            yield self._format_clause(f"Area of law: {area}")
+            yield self._format_clause(disclaimer)
+
+        financial = types.get("financial_advisor")
+        if self._entry_enabled(financial):
+            goals = (financial.get("investment_goals") or "Capital appreciation").strip()
+            risk = (financial.get("risk_tolerance") or "Moderate").strip()
+            horizon = (financial.get("time_horizon") or "Medium term").strip()
+            yield self._format_clause(f"Investment goals: {goals}")
+            yield self._format_clause(f"Risk tolerance: {risk}")
+            yield self._format_clause(f"Time horizon: {horizon}")
+
+        tech = types.get("tech_support")
+        if self._entry_enabled(tech):
+            specialization = (tech.get("product_specialization") or "General").strip()
+            expertise = (tech.get("user_expertise_level") or "Beginner").strip()
+            access_logs = tech.get("access_to_logs")
+            access = "enabled" if isinstance(access_logs, str) and access_logs.lower() == "true" or bool(access_logs) else "disabled"
+            yield self._format_clause(f"Tech support specialization: {specialization}")
+            yield self._format_clause(f"Assume user expertise: {expertise}")
+            yield self._format_clause(f"Access to diagnostic logs is {access}")
+
+        assistant = types.get("personal_assistant")
+        if self._entry_enabled(assistant):
+            timezone = (assistant.get("time_zone") or "UTC").strip()
+            style = (assistant.get("communication_style") or "Professional").strip()
+            calendar = assistant.get("access_to_calendar")
+            access = "enabled" if isinstance(calendar, str) and calendar.lower() == "true" or bool(calendar) else "disabled"
+            yield self._format_clause(f"Preferred communication style: {style}")
+            yield self._format_clause(f"Time zone reference: {timezone}")
+            yield self._format_clause(f"Calendar access is {access}")
+
+        therapist = types.get("therapist")
+        if self._entry_enabled(therapist):
+            therapy_style = (therapist.get("therapy_style") or "Supportive").strip()
+            session_length = (therapist.get("session_length") or "Flexible").strip()
+            confidentiality = (therapist.get("confidentiality") or "Maintain privacy and respect boundaries").strip()
+            yield self._format_clause(f"Therapy style: {therapy_style}")
+            yield self._format_clause(f"Typical session length: {session_length}")
+            yield self._format_clause(confidentiality)
+
+        travel = types.get("travel_guide")
+        if self._entry_enabled(travel):
+            preferences = (travel.get("destination_preferences") or "Open to ideas").strip()
+            travel_style = (travel.get("travel_style") or "Balanced").strip()
+            interests = (travel.get("interests") or "Culture and cuisine").strip()
+            yield self._format_clause(f"Destination preferences: {preferences}")
+            yield self._format_clause(f"Travel style: {travel_style}")
+            yield self._format_clause(f"Interests: {interests}")
+
+        storyteller = types.get("storyteller")
+        if self._entry_enabled(storyteller):
+            genre = (storyteller.get("genre") or "Adventure").strip()
+            audience = (storyteller.get("audience_age_group") or "General").strip()
+            length = (storyteller.get("story_length") or "Medium").strip()
+            yield self._format_clause(f"Preferred genre: {genre}")
+            yield self._format_clause(f"Target audience: {audience}")
+            yield self._format_clause(f"Story length: {length}")
+
+        game_master = types.get("game_master")
+        if self._entry_enabled(game_master):
+            game_type = (game_master.get("game_type") or "Tabletop RPG").strip()
+            difficulty = (game_master.get("difficulty_level") or "Moderate").strip()
+            theme = (game_master.get("theme") or "Fantasy").strip()
+            yield self._format_clause(f"Game type: {game_type}")
+            yield self._format_clause(f"Difficulty level: {difficulty}")
+            yield self._format_clause(f"Theme: {theme}")
+
+        chef = types.get("chef")
+        if self._entry_enabled(chef):
+            cuisine = (chef.get("cuisine_preferences") or "International").strip()
+            dietary = (chef.get("dietary_restrictions") or "None").strip()
+            skill = (chef.get("skill_level") or "Intermediate").strip()
+            yield self._format_clause(f"Cuisine preferences: {cuisine}")
+            yield self._format_clause(f"Dietary restrictions: {dietary}")
+            yield self._format_clause(f"Assumed skill level: {skill}")
+
+    def build_end_locked(self, persona: Dict[str, Any]) -> str:
+        """Compose the canonical end-locked section for a persona."""
+
+        clauses: List[str] = []
+
+        if persona.get("user_profile_enabled") == "True":
+            clauses.append("User Profile: <<Profile>>")
+
+        medical_entry = persona.get("type", {}).get("medical_persona")
+        if self._entry_enabled(medical_entry):
+            clauses.append("User EMR: <<emr>>")
+
+        clauses.extend(self._gather_type_clauses(persona))
+
+        if clauses:
+            clauses.append(
+                "Clear responses and relevant information are key for a great user experience. "
+                "Ask for clarity or offer input as needed."
+            )
+
+        return " ".join(filter(None, clauses))
+
+    def get_default_editable_template(self, persona: Optional[Dict[str, Any]] = None) -> str:
+        """Return the default editable content scaffold for personas."""
+
+        persona_name = (persona or {}).get("name") or "the persona"
+        return (
+            "Goals:\n"
+            "1) Provide accurate, concise answers.\n"
+            "2) Ask clarifying questions when needed.\n"
+            "Tone:\n"
+            "- Friendly, professional, and helpful.\n"
+            "Persona Focus:\n"
+            f"- Keep advice aligned with {persona_name}'s expertise.\n"
+            "Constraints:\n"
+            "- Ground responses in provided context and known capabilities.\n"
+        )
+
     def build_system_prompt(self, persona: dict) -> str:
         """
         Builds the system prompt using user-specific information,
@@ -168,10 +348,13 @@ class PersonaManager:
 
         # Assemble the system prompt from the content parts
         content = persona.get("content", {})
+        start_locked = content.get("start_locked") or self.build_start_locked(persona)
+        editable = content.get("editable_content", "").strip()
+        end_locked = content.get("end_locked") or self.build_end_locked(persona)
         parts = [
-            content.get("start_locked", "").strip(),
-            content.get("editable_content", "").strip(),
-            content.get("end_locked", "").strip(),
+            start_locked.strip(),
+            editable,
+            end_locked.strip(),
         ]
         # Filter out empty strings and join with spaces
         personalized_content = ' '.join(filter(None, parts))
@@ -261,11 +444,8 @@ class PersonaManager:
         persona['meaning'] = self._normalize_string(general.get("meaning"))
 
         content_payload = general.get("content") or {}
-        persona['content'] = {
-            'start_locked': self._normalize_string(content_payload.get('start_locked')),
-            'editable_content': self._normalize_string(content_payload.get('editable_content')),
-            'end_locked': self._normalize_string(content_payload.get('end_locked')),
-        }
+        persona.setdefault('content', {})
+        persona['content']['editable_content'] = self._normalize_string(content_payload.get('editable_content'))
 
         persona['sys_info_enabled'] = self._normalize_bool(persona_type.get('sys_info_enabled', False))
         persona['user_profile_enabled'] = self._normalize_bool(persona_type.get('user_profile_enabled', False))
@@ -302,12 +482,68 @@ class PersonaManager:
         persona['Speech_provider'] = self._normalize_string(speech.get('Speech_provider'))
         persona['voice'] = self._normalize_string(speech.get('voice'))
 
+        persona['content']['start_locked'] = self.build_start_locked(persona)
+        persona['content']['end_locked'] = self.build_end_locked(persona)
+
         self.personas[persona_name] = persona
         if new_name != persona_name:
             self.personas[new_name] = persona
 
         self.update_persona(persona)
         return {"success": True, "persona": persona}
+
+    def preview_prompt_sections(
+        self,
+        persona_name: str,
+        overrides: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, str]:
+        """Return prompt sections for a persona without persisting changes."""
+
+        overrides = overrides or {}
+        persona = self.get_persona(persona_name)
+
+        if persona is not None:
+            persona_copy: Dict[str, Any] = copy.deepcopy(persona)
+        else:
+            persona_copy = {
+                "name": overrides.get("name") or persona_name,
+                "meaning": overrides.get("meaning") or "",
+                "content": {"editable_content": ""},
+                "type": {},
+                "user_profile_enabled": "False",
+                "sys_info_enabled": "False",
+            }
+
+        for key, value in overrides.items():
+            if key == "type" and isinstance(value, dict):
+                type_store = persona_copy.setdefault("type", {})
+                for type_key, entry in value.items():
+                    if isinstance(entry, dict):
+                        type_entry = type_store.get(type_key, {}).copy()
+                        for opt_key, opt_val in entry.items():
+                            if opt_key == "enabled":
+                                type_entry[opt_key] = self._normalize_bool(opt_val)
+                            else:
+                                type_entry[opt_key] = self._normalize_string(opt_val)
+                        type_store[type_key] = type_entry
+            elif key in {"user_profile_enabled", "sys_info_enabled"}:
+                persona_copy[key] = self._normalize_bool(value)
+            elif key == "content" and isinstance(value, dict):
+                persona_copy.setdefault("content", {}).update({
+                    sub_key: self._normalize_string(sub_val)
+                    for sub_key, sub_val in value.items()
+                })
+            else:
+                persona_copy[key] = self._normalize_string(value)
+
+        start_locked = self.build_start_locked(persona_copy)
+        end_locked = self.build_end_locked(persona_copy)
+
+        return {
+            "start_locked": start_locked,
+            "end_locked": end_locked,
+            "editable_template": self.get_default_editable_template(persona_copy),
+        }
 
     def show_message(self, role: str, message: str):
         """Dispatch a persona-related message via the master callback when available."""
