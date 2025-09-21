@@ -222,11 +222,37 @@ class ProviderManagement:
         api_row = self._build_api_row(provider_name)
         main_vbox.append(api_row)
 
-        # Save button
-        save_button = Gtk.Button(label="Save")
-        save_button.set_tooltip_text("Save the API key and refresh the provider if it is active.")
-        save_button.connect("clicked", self.on_save_button_clicked, provider_name, settings_window)
-        main_vbox.append(save_button)
+        # Action buttons (credentials + settings)
+        controls_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        controls_box.set_halign(Gtk.Align.END)
+        controls_box.set_tooltip_text(
+            "Use these controls to persist credentials or save provider configuration."
+        )
+        main_vbox.append(controls_box)
+
+        save_key_button = Gtk.Button(label="Save API Key/Token")
+        save_key_button.set_tooltip_text(
+            "Persist the API key/token and refresh the provider if it is currently active."
+        )
+        save_key_button.connect(
+            "clicked",
+            self.on_save_api_key_clicked,
+            provider_name,
+            settings_window,
+        )
+        controls_box.append(save_key_button)
+
+        save_settings_button = Gtk.Button(label="Save Settings")
+        save_settings_button.set_tooltip_text(
+            "Save non-credential provider preferences without changing the stored API key/token."
+        )
+        save_settings_button.connect(
+            "clicked",
+            self.on_save_settings_clicked,
+            provider_name,
+            settings_window,
+        )
+        controls_box.append(save_settings_button)
 
         settings_window.present()
 
@@ -236,17 +262,21 @@ class ProviderManagement:
         """
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
 
-        api_key_label = Gtk.Label(label="API Key:")
+        api_key_label = Gtk.Label(label="API Key / Token:")
         api_key_label.set_xalign(0.0)
-        api_key_label.set_tooltip_text("Enter your API key. Use the eye to show/hide.")
+        api_key_label.set_tooltip_text(
+            "Enter your API key or token. Use the eye to show/hide and the credential button to save."
+        )
         vbox.append(api_key_label)
 
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
         # Entry
         self.api_key_entry = Gtk.Entry()
-        base_placeholder = "Enter your API key here"
-        base_tooltip = "API key is hidden. Click the eye to reveal."
+        base_placeholder = "Enter your API key or token here"
+        base_tooltip = (
+            "Credential input is hidden. Click the eye to reveal and 'Save API Key/Token' to persist."
+        )
         self.api_key_entry.set_placeholder_text(base_placeholder)
         self.api_key_entry.set_visibility(False)  # password-style default
         self.api_key_entry.set_invisible_char('*')
@@ -360,23 +390,49 @@ class ProviderManagement:
         )
         return {"has_key": False, "metadata": {}}
 
-    def on_save_button_clicked(self, button, provider_name: str, window: Gtk.Window):
-        """
-        Handles the Save button click event in the provider settings window.
-        It updates the API key and refreshes the provider settings.
+    def on_save_api_key_clicked(self, button, provider_name: str, window: Gtk.Window):
+        """Persist the API key/token entered by the user and refresh the provider if needed."""
 
-        Args:
-            button (Gtk.Button): The button that was clicked.
-            provider_name (str): The name of the provider.
-            window (Gtk.Window): The settings window to close after updating.
-        """
         new_api_key = (self.api_key_entry.get_text().strip() if self.api_key_entry else "")
         if not new_api_key:
-            self.show_error_dialog("API Key cannot be empty.")
+            self.show_error_dialog("API Key / Token cannot be empty when saving credentials.")
             return
 
-        # Run the API key update asynchronously.
         self._run_async_task(self._update_api_key_async(provider_name, new_api_key, window))
+
+    def on_save_settings_clicked(self, button, provider_name: str, window: Gtk.Window):
+        """Save non-credential provider settings while optionally delegating credential updates."""
+
+        new_api_key = (self.api_key_entry.get_text().strip() if self.api_key_entry else "")
+        if new_api_key:
+            # User entered a new credential but pressed Save Settings; honor the intent.
+            self.logger.info(
+                "Save Settings triggered with credential input for %s; delegating to API key handler.",
+                provider_name,
+            )
+            self._run_async_task(self._update_api_key_async(provider_name, new_api_key, window))
+            return
+
+        if self._provider_has_saved_key(provider_name):
+            self.logger.info(
+                "Provider settings for %s saved without modifying stored credentials.",
+                provider_name,
+            )
+            self.show_info_dialog(
+                f"Settings for {provider_name} saved. Existing credentials remain in place."
+            )
+            window.close()
+            return
+
+        self.show_error_dialog(
+            "No stored API key/token detected. Please provide a credential before saving settings."
+        )
+
+    def _provider_has_saved_key(self, provider_name: str) -> bool:
+        """Return whether the provider manager reports an existing credential for the provider."""
+
+        status = self._get_provider_key_status(provider_name)
+        return bool(status.get("has_key"))
 
     async def _update_api_key_async(self, provider_name: str, new_api_key: str, window: Gtk.Window):
         """
