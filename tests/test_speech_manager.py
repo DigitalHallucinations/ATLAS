@@ -465,6 +465,69 @@ def test_disable_stt_clears_active_provider(speech_manager):
     assert speech_manager.config_manager.config["DEFAULT_STT_PROVIDER"] is None
 
 
+def test_configure_defaults_updates_state_and_persists(speech_manager):
+    class DummyTTS:
+        def __init__(self):
+            self.enabled = None
+
+        def set_tts(self, value):
+            self.enabled = value
+
+        def get_tts(self):
+            return self.enabled
+
+    dummy_tts = DummyTTS()
+    speech_manager.tts_services["alpha"] = dummy_tts
+    speech_manager.stt_services["beta"] = object()
+
+    speech_manager.configure_defaults(
+        tts_enabled=True,
+        tts_provider="alpha",
+        stt_enabled=True,
+        stt_provider="beta",
+    )
+
+    assert speech_manager.config_manager.get_tts_enabled() is True
+    assert speech_manager.config_manager.config["TTS_ENABLED"] is True
+    assert dummy_tts.enabled is True
+    assert speech_manager.get_default_tts_provider() == "alpha"
+    assert speech_manager.get_default_stt_provider() == "beta"
+    assert speech_manager.config_manager.config["DEFAULT_TTS_PROVIDER"] == "alpha"
+    assert speech_manager.config_manager.config["DEFAULT_STT_PROVIDER"] == "beta"
+
+
+def test_configure_defaults_disables_stt_when_requested(speech_manager):
+    class DummyTTS:
+        def __init__(self):
+            self.enabled = None
+
+        def set_tts(self, value):
+            self.enabled = value
+
+        def get_tts(self):
+            return self.enabled
+
+    dummy_tts = DummyTTS()
+    speech_manager.tts_services["alpha"] = dummy_tts
+    speech_manager.stt_services["beta"] = object()
+    speech_manager.set_default_speech_providers(stt_provider="beta")
+
+    speech_manager.configure_defaults(
+        tts_enabled=False,
+        tts_provider="alpha",
+        stt_enabled=False,
+        stt_provider="beta",
+    )
+
+    assert speech_manager.config_manager.get_tts_enabled() is False
+    assert speech_manager.config_manager.config["TTS_ENABLED"] is False
+    assert dummy_tts.enabled is False
+    assert speech_manager.get_default_tts_provider() == "alpha"
+    assert speech_manager.get_default_stt_provider() is None
+    assert speech_manager.config_manager.config["DEFAULT_TTS_PROVIDER"] == "alpha"
+    assert speech_manager.config_manager.config["DEFAULT_STT_PROVIDER"] is None
+
+
 def test_set_openai_speech_config_registers_providers(speech_manager, monkeypatch):
     stt_instance = object()
     tts_instance = object()

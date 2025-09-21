@@ -698,6 +698,30 @@ class SpeechManager:
         except ValueError:
             return None
 
+    def configure_defaults(
+        self,
+        *,
+        tts_enabled: bool,
+        tts_provider: Optional[str] = None,
+        stt_enabled: bool,
+        stt_provider: Optional[str] = None,
+    ) -> None:
+        """Configure global speech defaults and perform related cleanup."""
+
+        self.set_tts_status(bool(tts_enabled))
+
+        if tts_provider and tts_provider in self.tts_services:
+            self.set_tts_status(bool(tts_enabled), tts_provider)
+
+        effective_stt_provider = stt_provider if stt_enabled else None
+        self.set_default_speech_providers(
+            tts_provider=tts_provider,
+            stt_provider=effective_stt_provider,
+        )
+
+        if not stt_enabled:
+            self.disable_stt()
+
     def set_default_speech_providers(self, tts_provider: Optional[str] = None, stt_provider: Optional[str] = None):
         """Update the default TTS and/or STT providers in a single call."""
 
