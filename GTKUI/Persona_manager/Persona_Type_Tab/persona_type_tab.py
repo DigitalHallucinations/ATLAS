@@ -1,5 +1,7 @@
 # UI/Persona_manager/Persona_Type_Tab/persona_type_tab.py
 
+from typing import Callable, Dict, Optional
+
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
@@ -12,6 +14,7 @@ class PersonaTypeTab:
         self.persona_type = self.persona.get('type', {})
         self.tabs = {}  # name -> page widget (dynamic tabs only; "Main" handled separately)
         self._restoring_tab = False  # guard to avoid races while restoring
+        self._switch_handlers: Dict[Gtk.Switch, int] = {}
         self.build_ui()
 
     # ----------------------------- UI Builders -----------------------------
@@ -81,8 +84,17 @@ class PersonaTypeTab:
         sw.set_active(active)
         if tooltip:
             sw.set_tooltip_text(tooltip)
-        sw.connect("notify::active", on_toggle)
+        handler_id = sw.connect("notify::active", on_toggle)
+        self._switch_handlers[sw] = handler_id
         return sw
+
+    def _set_switch_active(self, switch: Gtk.Switch, value: bool):
+        handler_id = self._switch_handlers.get(switch)
+        if handler_id is not None:
+            switch.handler_block(handler_id)
+        switch.set_active(value)
+        if handler_id is not None:
+            switch.handler_unblock(handler_id)
 
     def _set_all_switches(self, value: bool):
         """Set all persona-related switches to the same boolean value."""
@@ -331,80 +343,187 @@ class PersonaTypeTab:
             self._save_last_opened_tab(name)
 
     def on_sys_info_switch_toggled(self, switch, _gparam):
-        self.general_tab.set_sys_info_enabled(switch.get_active())
+        self._process_toggle(switch, lambda: self.general_tab.set_sys_info_enabled(switch.get_active()))
 
     def on_agent_switch_toggled(self, switch, _gparam):
-        self.general_tab.set_agent_enabled(switch.get_active())
-        # Add/remove "Tools" tab based on state
-        self.update_persona_type_tabs()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_agent_enabled(switch.get_active()),
+            update_tabs=True,
+        )
 
     def on_user_profile_switch_toggled(self, switch, _gparam):
-        self.general_tab.set_user_profile_enabled(switch.get_active())
+        self._process_toggle(switch, lambda: self.general_tab.set_user_profile_enabled(switch.get_active()))
 
     def on_medical_persona_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_medical_persona_enabled(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_medical_persona_enabled(switch.get_active()),
+            update_tabs=True,
+        )
 
     def on_educational_persona_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_educational_persona(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_educational_persona(
+                switch.get_active(),
+                self.get_educational_options() if switch.get_active() else None,
+            ),
+            update_tabs=True,
+        )
 
     def on_fitness_trainer_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_fitness_persona_enabled(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_fitness_persona_enabled(
+                switch.get_active(),
+                self.get_fitness_options() if switch.get_active() else None,
+            ),
+            update_tabs=True,
+        )
 
     def on_language_practice_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_language_instructor(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_language_instructor(
+                switch.get_active(),
+                self.get_language_practice_options() if switch.get_active() else None,
+            ),
+            update_tabs=True,
+        )
 
     def on_legal_persona_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_legal_persona_enabled(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_legal_persona_enabled(switch.get_active()),
+            update_tabs=True,
+        )
 
     def on_financial_advisor_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_financial_advisor_enabled(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_financial_advisor_enabled(switch.get_active()),
+            update_tabs=True,
+        )
 
     def on_tech_support_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_tech_support_enabled(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_tech_support_enabled(switch.get_active()),
+            update_tabs=True,
+        )
 
     def on_personal_assistant_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_personal_assistant_enabled(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_personal_assistant_enabled(switch.get_active()),
+            update_tabs=True,
+        )
 
     def on_therapist_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_therapist_enabled(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_therapist_enabled(switch.get_active()),
+            update_tabs=True,
+        )
 
     def on_travel_guide_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_travel_guide_enabled(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_travel_guide_enabled(switch.get_active()),
+            update_tabs=True,
+        )
 
     def on_storyteller_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_storyteller_enabled(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_storyteller_enabled(switch.get_active()),
+            update_tabs=True,
+        )
 
     def on_game_master_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_game_master_enabled(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_game_master_enabled(switch.get_active()),
+            update_tabs=True,
+        )
 
     def on_chef_switch_toggled(self, switch, _gparam):
-        self.update_persona_type_tabs()
-        self.general_tab.set_chef_enabled(switch.get_active())
-        self.general_tab.update_end_locked()
+        self._process_toggle(
+            switch,
+            lambda: self.general_tab.set_chef_enabled(switch.get_active()),
+            update_tabs=True,
+        )
+
+    def _process_toggle(
+        self,
+        switch: Gtk.Switch,
+        action: Callable[[], bool],
+        update_tabs: bool = False,
+    ) -> None:
+        desired_state = switch.get_active()
+        success = action()
+        if not success:
+            self._set_switch_active(switch, not desired_state)
+        self.refresh_from_persona()
+        if success and update_tabs:
+            self.update_persona_type_tabs()
+
+    def refresh_from_persona(self):
+        self.persona_type = self.persona.get('type', {})
+
+        def _enabled(flag: str) -> bool:
+            return self.persona_type.get(flag, {}).get('enabled', 'False') == 'True'
+
+        self._set_switch_active(self.sys_info_switch, self.persona.get("sys_info_enabled", "False") == "True")
+        self._set_switch_active(self.user_profile_switch, self.persona.get("user_profile_enabled", "False") == "True")
+        self._set_switch_active(self.agent_switch, _enabled('Agent'))
+        self._set_switch_active(self.medical_persona_switch, _enabled('medical_persona'))
+        self._set_switch_active(self.educational_persona_switch, _enabled('educational_persona'))
+        self._set_switch_active(self.fitness_trainer_switch, _enabled('fitness_persona'))
+        self._set_switch_active(self.language_practice_switch, _enabled('language_instructor'))
+        self._set_switch_active(self.legal_persona_switch, _enabled('legal_persona'))
+        self._set_switch_active(self.financial_advisor_switch, _enabled('financial_advisor'))
+        self._set_switch_active(self.tech_support_switch, _enabled('tech_support'))
+        self._set_switch_active(self.personal_assistant_switch, _enabled('personal_assistant'))
+        self._set_switch_active(self.therapist_switch, _enabled('therapist'))
+        self._set_switch_active(self.travel_guide_switch, _enabled('travel_guide'))
+        self._set_switch_active(self.storyteller_switch, _enabled('storyteller'))
+        self._set_switch_active(self.game_master_switch, _enabled('game_master'))
+        self._set_switch_active(self.chef_switch, _enabled('chef'))
+
+        educational = self.persona_type.get('educational_persona', {})
+        if hasattr(self, 'subject_entry'):
+            self.subject_entry.set_text(educational.get('subject_specialization', 'General'))
+        if hasattr(self, 'level_combo'):
+            self._set_combo_active(self.level_combo, educational.get('education_level', 'High School'))
+        if hasattr(self, 'style_combo'):
+            self._set_combo_active(self.style_combo, educational.get('teaching_style', 'Lecture Style'))
+
+        fitness = self.persona_type.get('fitness_persona', {})
+        if hasattr(self, 'goal_combo'):
+            self._set_combo_active(self.goal_combo, fitness.get('fitness_goal', 'Weight Loss'))
+        if hasattr(self, 'exercise_combo'):
+            self._set_combo_active(self.exercise_combo, fitness.get('exercise_preference', 'Gym Workouts'))
+
+        language = self.persona_type.get('language_instructor', {})
+        if hasattr(self, 'language_entry'):
+            self.language_entry.set_text(language.get('target_language', 'Spanish'))
+        if hasattr(self, 'proficiency_combo'):
+            self._set_combo_active(self.proficiency_combo, language.get('proficiency_level', 'Beginner'))
+
+    def _set_combo_active(self, combo: Gtk.ComboBoxText, text: Optional[str]):
+        if combo is None or text is None:
+            return
+        if combo.get_active_text() == text:
+            return
+        model = combo.get_model()
+        if model is None:
+            return
+        for index, row in enumerate(model):
+            if row[0] == text:
+                combo.set_active(index)
+                return
 
     # ----------------------------- Tab Mgmt -----------------------------
 

@@ -196,6 +196,19 @@ class PersonaManager:
         except OSError as e:
             self.logger.error(f"Error saving persona '{persona_name}': {e}")
 
+    def _persist_persona(self, original_name: str, persona: dict) -> None:
+        """Persist persona changes and refresh cache entries."""
+        if not persona:
+            return
+
+        current_name = persona.get("name") or original_name
+        if original_name:
+            self.personas[original_name] = persona
+        if current_name:
+            self.personas[current_name] = persona
+
+        self.update_persona(persona)
+
     def _normalize_bool(self, value: Any) -> str:
         """Convert a truthy value into the persona serialization format."""
         if isinstance(value, str):
@@ -207,6 +220,101 @@ class PersonaManager:
         if value is None:
             return ""
         return str(value)
+
+    def update_general_info(
+        self,
+        persona_name: str,
+        name: str,
+        meaning: Optional[str],
+        content: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Update general persona metadata (name/meaning/content)."""
+
+        persona = self.get_persona(persona_name)
+        if persona is None:
+            return {"success": False, "errors": [f"Persona '{persona_name}' could not be loaded."]}
+
+        normalized_name = self._normalize_string(name)
+        persona['name'] = normalized_name
+        persona['meaning'] = self._normalize_string(meaning)
+
+        content = content or {}
+        persona['content'] = {
+            'start_locked': self._normalize_string(content.get('start_locked')),
+            'editable_content': self._normalize_string(content.get('editable_content')),
+            'end_locked': self._normalize_string(content.get('end_locked')),
+        }
+
+        self._persist_persona(persona_name, persona)
+        return {"success": True, "persona": persona}
+
+    def set_flag(
+        self,
+        persona_name: str,
+        flag: str,
+        enabled: Any,
+        extras: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Toggle persona boolean flags while normalizing and persisting changes."""
+
+        persona = self.get_persona(persona_name)
+        if persona is None:
+            return {"success": False, "errors": [f"Persona '{persona_name}' could not be loaded."]}
+
+        normalized_enabled = self._normalize_bool(enabled)
+
+        if flag in {"sys_info_enabled", "user_profile_enabled"}:
+            persona[flag] = normalized_enabled
+        else:
+            persona_type = persona.setdefault('type', {})
+            entry = {'enabled': normalized_enabled}
+
+            if normalized_enabled == "True":
+                for key, value in (extras or {}).items():
+                    if key == 'enabled':
+                        continue
+                    if value not in (None, ""):
+                        entry[key] = self._normalize_string(value)
+            persona_type[flag] = entry
+
+        self._persist_persona(persona_name, persona)
+        return {"success": True, "persona": persona}
+
+    def set_provider_defaults(
+        self,
+        persona_name: str,
+        provider: str,
+        model: str,
+    ) -> Dict[str, Any]:
+        """Update the provider/model pair for a persona."""
+
+        persona = self.get_persona(persona_name)
+        if persona is None:
+            return {"success": False, "errors": [f"Persona '{persona_name}' could not be loaded."]}
+
+        persona['provider'] = self._normalize_string(provider)
+        persona['model'] = self._normalize_string(model)
+
+        self._persist_persona(persona_name, persona)
+        return {"success": True, "persona": persona}
+
+    def set_speech_defaults(
+        self,
+        persona_name: str,
+        speech_provider: str,
+        voice: str,
+    ) -> Dict[str, Any]:
+        """Update speech provider defaults for a persona."""
+
+        persona = self.get_persona(persona_name)
+        if persona is None:
+            return {"success": False, "errors": [f"Persona '{persona_name}' could not be loaded."]}
+
+        persona['Speech_provider'] = self._normalize_string(speech_provider)
+        persona['voice'] = self._normalize_string(voice)
+
+        self._persist_persona(persona_name, persona)
+        return {"success": True, "persona": persona}
 
     def update_persona_from_form(
         self,
@@ -257,57 +365,64 @@ class PersonaManager:
         if errors:
             return {"success": False, "errors": errors}
 
-        persona['name'] = new_name
-        persona['meaning'] = self._normalize_string(general.get("meaning"))
+        persona_data = persona
+        current_name = persona_name
 
-        content_payload = general.get("content") or {}
-        persona['content'] = {
-            'start_locked': self._normalize_string(content_payload.get('start_locked')),
-            'editable_content': self._normalize_string(content_payload.get('editable_content')),
-            'end_locked': self._normalize_string(content_payload.get('end_locked')),
-        }
+        def _apply_result(result: Dict[str, Any], default_error: str) -> bool:
+            nonlocal persona_data, current_name, errors
+            if not result.get('success'):
+                result_errors = result.get('errors')
+                if result_errors:
+                    errors.extend(result_errors)
+                else:
+                    errors.append(default_error)
+                return False
 
-        persona['sys_info_enabled'] = self._normalize_bool(persona_type.get('sys_info_enabled', False))
-        persona['user_profile_enabled'] = self._normalize_bool(persona_type.get('user_profile_enabled', False))
+            persona_data = result.get('persona') or persona_data
+            if persona_data:
+                current_name = persona_data.get('name', current_name) or current_name
+            return True
+
+        if not _apply_result(
+            self.update_general_info(persona_name, new_name, general.get("meaning"), general.get("content")),
+            "Failed to update persona general settings.",
+        ):
+            return {"success": False, "errors": errors}
+
+        _apply_result(
+            self.set_flag(current_name, 'sys_info_enabled', persona_type.get('sys_info_enabled', False)),
+            "Failed to update system info flag.",
+        )
+        _apply_result(
+            self.set_flag(current_name, 'user_profile_enabled', persona_type.get('user_profile_enabled', False)),
+            "Failed to update user profile flag.",
+        )
 
         submitted_types = persona_type.get('type') or {}
-        existing_types = persona.get('type', {}).copy()
-        normalized_types: Dict[str, Dict[str, str]] = {}
-        for type_key in set(self.PERSONA_TYPE_KEYS).union(submitted_types.keys()).union(existing_types.keys()):
-            submitted_entry = submitted_types.get(type_key)
-            if submitted_entry is None:
-                # Preserve existing entry when the form does not manage the type explicitly.
-                if type_key in existing_types:
-                    normalized_types[type_key] = existing_types[type_key].copy()
-                else:
-                    normalized_types[type_key] = {'enabled': 'False'}
-                continue
+        for type_key, submitted_entry in submitted_types.items():
+            extras = {k: v for k, v in submitted_entry.items() if k != 'enabled'}
+            _apply_result(
+                self.set_flag(current_name, type_key, submitted_entry.get('enabled', False), extras),
+                f"Failed to update persona flag '{type_key}'.",
+            )
 
-            enabled = self._normalize_bool(submitted_entry.get('enabled', False))
-            entry: Dict[str, str] = {'enabled': enabled}
+        _apply_result(
+            self.set_provider_defaults(current_name, provider_name, model_name),
+            "Failed to update provider defaults.",
+        )
+        _apply_result(
+            self.set_speech_defaults(
+                current_name,
+                speech.get('Speech_provider'),
+                speech.get('voice'),
+            ),
+            "Failed to update speech defaults.",
+        )
 
-            if enabled == "True":
-                for opt_key, opt_value in submitted_entry.items():
-                    if opt_key == 'enabled':
-                        continue
-                    if opt_value not in (None, ""):
-                        entry[opt_key] = self._normalize_string(opt_value)
-            normalized_types[type_key] = entry
+        if errors:
+            return {"success": False, "errors": errors}
 
-        persona['type'] = normalized_types
-
-        persona['provider'] = provider_name
-        persona['model'] = model_name
-
-        persona['Speech_provider'] = self._normalize_string(speech.get('Speech_provider'))
-        persona['voice'] = self._normalize_string(speech.get('voice'))
-
-        self.personas[persona_name] = persona
-        if new_name != persona_name:
-            self.personas[new_name] = persona
-
-        self.update_persona(persona)
-        return {"success": True, "persona": persona}
+        return {"success": True, "persona": persona_data}
 
     def show_message(self, role: str, message: str):
         """Dispatch a persona-related message via the master callback when available."""
