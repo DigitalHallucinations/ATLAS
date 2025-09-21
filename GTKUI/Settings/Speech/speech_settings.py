@@ -187,7 +187,7 @@ class SpeechSettings(Gtk.Window):
     def _show_message(self, title: str, message: str, message_type: Gtk.MessageType = Gtk.MessageType.INFO):
         dialog = Gtk.MessageDialog(
             transient_for=self,
-            flags=0,
+            modal=True,
             message_type=message_type,
             buttons=Gtk.ButtonsType.OK,
             text=title,
@@ -254,7 +254,7 @@ class SpeechSettings(Gtk.Window):
         if self.tab_dirty.get(old_index, False):
             dialog = Gtk.MessageDialog(
                 transient_for=self,
-                flags=0,
+                modal=True,
                 message_type=Gtk.MessageType.WARNING,
                 buttons=Gtk.ButtonsType.NONE,
                 text="You have unsaved changes in this tab."
