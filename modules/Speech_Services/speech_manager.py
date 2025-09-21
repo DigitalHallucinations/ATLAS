@@ -28,6 +28,151 @@ from modules.background_tasks import run_async_in_thread
 
 logger = setup_logger('speech_manager.py')
 
+
+_OPENAI_STT_PROVIDER_OPTIONS: List[Tuple[str, str]] = [
+    ("Whisper Online", "Whisper Online"),
+    ("GPT-4o STT", "GPT-4o STT"),
+    ("GPT-4o Mini STT", "GPT-4o Mini STT"),
+]
+
+_OPENAI_TTS_PROVIDER_OPTIONS: List[Tuple[str, str]] = [
+    ("GPT-4o Mini TTS", "GPT-4o Mini TTS"),
+]
+
+_OPENAI_LANGUAGE_OPTIONS: List[Tuple[str, Optional[str]]] = [
+    ("Auto", None),
+    ("English (en)", "en"),
+    ("Japanese (ja)", "ja"),
+    ("Spanish (es)", "es"),
+    ("French (fr)", "fr"),
+]
+
+_OPENAI_TASK_OPTIONS: List[Tuple[str, str]] = [
+    ("Transcribe", "transcribe"),
+    ("Translate", "translate"),
+]
+
+
+def _build_choice_lookup(options: List[Tuple[str, Optional[str]]]) -> Dict[str, Optional[str]]:
+    lookup: Dict[str, Optional[str]] = {}
+    for label, code in options:
+        if isinstance(label, str):
+            lookup[label.casefold()] = code
+        if isinstance(code, str):
+            lookup[code.casefold()] = code
+        if code is None:
+            lookup.setdefault("", None)
+    return lookup
+
+
+_OPENAI_STT_LOOKUP = _build_choice_lookup(_OPENAI_STT_PROVIDER_OPTIONS)
+_OPENAI_TTS_LOOKUP = _build_choice_lookup(_OPENAI_TTS_PROVIDER_OPTIONS)
+_OPENAI_LANGUAGE_LOOKUP = _build_choice_lookup(_OPENAI_LANGUAGE_OPTIONS)
+_OPENAI_LANGUAGE_LOOKUP.update({"auto": None, "none": None, "default": None})
+_OPENAI_TASK_LOOKUP = _build_choice_lookup(_OPENAI_TASK_OPTIONS)
+
+
+def get_openai_stt_provider_options() -> List[Tuple[str, str]]:
+    """Return the available OpenAI STT providers as (label, code) tuples."""
+
+    return list(_OPENAI_STT_PROVIDER_OPTIONS)
+
+
+def get_openai_tts_provider_options() -> List[Tuple[str, str]]:
+    """Return the available OpenAI TTS providers as (label, code) tuples."""
+
+    return list(_OPENAI_TTS_PROVIDER_OPTIONS)
+
+
+def get_openai_language_options() -> List[Tuple[str, Optional[str]]]:
+    """Return the available OpenAI language options as (label, code) tuples."""
+
+    return list(_OPENAI_LANGUAGE_OPTIONS)
+
+
+def get_openai_task_options() -> List[Tuple[str, str]]:
+    """Return the available OpenAI task options as (label, code) tuples."""
+
+    return list(_OPENAI_TASK_OPTIONS)
+
+
+def _normalize_choice(
+    raw_value: Optional[str],
+    *,
+    lookup: Dict[str, Optional[str]],
+    field_name: str,
+    valid_options: List[Tuple[str, Optional[str]]],
+) -> Optional[str]:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, str):
+        raise ValueError(f"OpenAI {field_name} must be provided as a string.")
+
+    stripped = raw_value.strip()
+    if not stripped:
+        return None
+
+    normalized = lookup.get(stripped.casefold())
+    if normalized is not None or stripped.casefold() in lookup:
+        return normalized
+
+    valid_labels = ", ".join(label for label, _ in valid_options)
+    raise ValueError(
+        f"Unknown OpenAI {field_name} '{raw_value}'. Valid options are: {valid_labels}."
+    )
+
+
+def _normalize_text(raw_value: Optional[str]) -> Optional[str]:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, str):
+        raise ValueError("Expected a string value.")
+    stripped = raw_value.strip()
+    return stripped or None
+
+
+def prepare_openai_settings(display_payload: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """Validate and normalize OpenAI speech settings provided by a UI."""
+
+    if not isinstance(display_payload, dict):
+        raise ValueError("OpenAI settings payload must be a dictionary.")
+
+    api_key = _normalize_text(display_payload.get("api_key"))
+    stt_provider = _normalize_choice(
+        display_payload.get("stt_provider"),
+        lookup=_OPENAI_STT_LOOKUP,
+        field_name="STT provider",
+        valid_options=_OPENAI_STT_PROVIDER_OPTIONS,
+    )
+    tts_provider = _normalize_choice(
+        display_payload.get("tts_provider"),
+        lookup=_OPENAI_TTS_LOOKUP,
+        field_name="TTS provider",
+        valid_options=_OPENAI_TTS_PROVIDER_OPTIONS,
+    )
+    language = _normalize_choice(
+        display_payload.get("language"),
+        lookup=_OPENAI_LANGUAGE_LOOKUP,
+        field_name="language",
+        valid_options=_OPENAI_LANGUAGE_OPTIONS,
+    )
+    task = _normalize_choice(
+        display_payload.get("task"),
+        lookup=_OPENAI_TASK_LOOKUP,
+        field_name="task",
+        valid_options=_OPENAI_TASK_OPTIONS,
+    )
+    initial_prompt = _normalize_text(display_payload.get("initial_prompt"))
+
+    return {
+        "api_key": api_key,
+        "stt_provider": stt_provider,
+        "language": language,
+        "task": task,
+        "initial_prompt": initial_prompt,
+        "tts_provider": tts_provider,
+    }
+
 class SpeechManager:
     def __init__(self, config_manager: ConfigManager):
         """
