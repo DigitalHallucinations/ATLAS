@@ -3,6 +3,7 @@
 import threading
 import gi
 import asyncio
+from typing import Any, Dict
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gdk, GLib
 
@@ -244,10 +245,12 @@ class ProviderManagement:
 
         # Entry
         self.api_key_entry = Gtk.Entry()
-        self.api_key_entry.set_placeholder_text("Enter your API key here")
+        base_placeholder = "Enter your API key here"
+        base_tooltip = "API key is hidden. Click the eye to reveal."
+        self.api_key_entry.set_placeholder_text(base_placeholder)
         self.api_key_entry.set_visibility(False)  # password-style default
         self.api_key_entry.set_invisible_char('*')
-        self.api_key_entry.set_tooltip_text("API key is hidden. Click the eye to reveal.")
+        self.api_key_entry.set_tooltip_text(base_tooltip)
         self.api_key_entry.set_hexpand(True)
         hbox.append(self.api_key_entry)
 
@@ -274,10 +277,12 @@ class ProviderManagement:
         vbox.append(hbox)
 
         # Pre-fill placeholder when key exists
-        existing_api_key = self.get_existing_api_key(provider_name)
-        if existing_api_key:
-            # Do NOT reveal or prefill the actual key; hint only.
-            self.api_key_entry.set_placeholder_text("Saved")
+        self._apply_provider_status_to_entry(
+            self.api_key_entry,
+            provider_name,
+            base_placeholder,
+            base_tooltip,
+        )
         return vbox
 
     def _on_api_eye_toggled(self, toggle_btn: Gtk.ToggleButton):
@@ -297,28 +302,63 @@ class ProviderManagement:
 
     # ------------------------ Helpers & Async ------------------------
 
-    def get_existing_api_key(self, provider_name: str) -> str:
-        """
-        Retrieves the existing API key for the given provider from ConfigManager.
+    def _apply_provider_status_to_entry(
+        self,
+        entry: Gtk.Entry,
+        provider_name: str,
+        base_placeholder: str,
+        base_tooltip: str,
+    ) -> None:
+        """Update placeholder/tooltip to reflect saved provider credential state."""
 
-        Args:
-            provider_name (str): The name of the provider.
+        entry.set_text("")
+        entry.set_placeholder_text(base_placeholder)
+        entry.set_tooltip_text(base_tooltip)
 
-        Returns:
-            str: The existing API key or an empty string if not set.
-        """
-        api_key_methods = {
-            "OpenAI": self.config_manager.get_openai_api_key,
-            "Mistral": self.config_manager.get_mistral_api_key,
-            "Google": self.config_manager.get_google_api_key,
-            "HuggingFace": self.config_manager.get_huggingface_api_key,
-            "Anthropic": self.config_manager.get_anthropic_api_key,
-            "Grok": self.config_manager.get_grok_api_key,
-        }
-        get_key_func = api_key_methods.get(provider_name)
-        if get_key_func:
-            return get_key_func() or ""
-        return ""
+        status = self._get_provider_key_status(provider_name)
+        if not status.get("has_key"):
+            return
+
+        metadata: Dict[str, Any] = status.get("metadata") or {}
+        placeholder = "Saved"
+        hint = metadata.get("hint")
+        if isinstance(hint, str) and hint:
+            placeholder = f"{placeholder} {hint}"
+
+        entry.set_placeholder_text(placeholder)
+
+        tooltip = f"{base_tooltip} Stored key detected."
+        length = metadata.get("length")
+        if isinstance(length, int) and length > 0:
+            tooltip = f"{tooltip} Length: {length} characters."
+        entry.set_tooltip_text(tooltip)
+
+    def _get_provider_key_status(self, provider_name: str) -> Dict[str, Any]:
+        """Fetch sanitized provider credential details from the provider manager."""
+
+        manager = getattr(self.ATLAS, "provider_manager", None)
+        getter = getattr(manager, "get_provider_api_key_status", None)
+        if not callable(getter):
+            self.logger.debug("Provider manager does not expose credential status helper.")
+            return {"has_key": False, "metadata": {}}
+
+        try:
+            status = getter(provider_name)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error(
+                "Failed to fetch API key status for %s: %s", provider_name, exc, exc_info=True
+            )
+            return {"has_key": False, "metadata": {}}
+
+        if isinstance(status, dict):
+            return status
+
+        self.logger.debug(
+            "Provider key status for %s returned unexpected payload type %s.",
+            provider_name,
+            type(status).__name__,
+        )
+        return {"has_key": False, "metadata": {}}
 
     def on_save_button_clicked(self, button, provider_name: str, window: Gtk.Window):
         """

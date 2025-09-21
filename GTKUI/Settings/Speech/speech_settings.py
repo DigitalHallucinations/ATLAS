@@ -22,6 +22,7 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib
 import os
 import logging
+from typing import Any, Dict
 
 from GTKUI.Utils.utils import apply_css
 
@@ -116,6 +117,65 @@ class SpeechSettings(Gtk.Window):
             img = Gtk.Image.new_from_icon_name(fallback_icon_name)
             img.set_pixel_size(size)
             return img
+
+    def _get_provider_key_status(self, provider_name: str) -> Dict[str, Any]:
+        """Fetch sanitized provider credential metadata from the backend manager."""
+
+        manager = getattr(self.ATLAS, "provider_manager", None)
+        getter = getattr(manager, "get_provider_api_key_status", None)
+        if not callable(getter):
+            logger.debug("Provider manager helper for credential status is unavailable.")
+            return {"has_key": False, "metadata": {}}
+
+        try:
+            status = getter(provider_name)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error(
+                "Failed to retrieve credential status for %s: %s", provider_name, exc, exc_info=True
+            )
+            return {"has_key": False, "metadata": {}}
+
+        if isinstance(status, dict):
+            return status
+
+        logger.debug(
+            "Credential status helper for %s returned unexpected payload type %s.",
+            provider_name,
+            type(status).__name__,
+        )
+        return {"has_key": False, "metadata": {}}
+
+    def _apply_provider_status_to_entry(
+        self,
+        entry: Gtk.Entry,
+        provider_name: str,
+        *,
+        base_placeholder: str,
+        base_tooltip: str,
+    ) -> None:
+        """Apply sanitized placeholder/tooltip reflecting saved credential state."""
+
+        entry.set_text("")
+        entry.set_placeholder_text(base_placeholder)
+        entry.set_tooltip_text(base_tooltip)
+
+        status = self._get_provider_key_status(provider_name)
+        if not status.get("has_key"):
+            return
+
+        metadata: Dict[str, Any] = status.get("metadata") or {}
+        placeholder = "Saved"
+        hint = metadata.get("hint")
+        if isinstance(hint, str) and hint:
+            placeholder = f"{placeholder} {hint}"
+
+        entry.set_placeholder_text(placeholder)
+
+        tooltip = f"{base_tooltip} Stored key detected."
+        length = metadata.get("length")
+        if isinstance(length, int) and length > 0:
+            tooltip = f"{tooltip} Length: {length} characters."
+        entry.set_tooltip_text(tooltip)
 
     def _show_message(self, title: str, message: str, message_type: Gtk.MessageType = Gtk.MessageType.INFO):
         dialog = Gtk.MessageDialog(
@@ -353,10 +413,12 @@ class SpeechSettings(Gtk.Window):
 
         # Eleven Labs API key (with eye toggle; default hidden)
         api_row, self.eleven_api_entry, self.eleven_api_toggle = self._build_secret_row("Eleven Labs API Key:", default_visible=False)
-        existing_xi_api = self.ATLAS.config_manager.get_config("XI_API_KEY") or ""
-        if existing_xi_api:
-            self.eleven_api_entry.set_text("")  # do not reveal stored
-            self.eleven_api_entry.set_placeholder_text("Saved")
+        self._apply_provider_status_to_entry(
+            self.eleven_api_entry,
+            "ElevenLabs",
+            base_placeholder="Enter value here",
+            base_tooltip="Value is hidden when the eye is off.",
+        )
         eleven_box.append(api_row)
 
         save_button = Gtk.Button(label="Save Eleven Labs Settings")
@@ -374,7 +436,8 @@ class SpeechSettings(Gtk.Window):
 
     def save_eleven_labs_tab(self):
         entered_key = self.eleven_api_entry.get_text().strip()
-        stored_key = self.ATLAS.config_manager.get_config("XI_API_KEY") or ""
+        status = self._get_provider_key_status("ElevenLabs")
+        has_saved_key = status.get("has_key", False)
         key_updated = False
 
         if entered_key:
@@ -393,9 +456,13 @@ class SpeechSettings(Gtk.Window):
                 return
             else:
                 key_updated = True
-                self.eleven_api_entry.set_text("")
-                self.eleven_api_entry.set_placeholder_text("Saved")
-        elif not stored_key:
+                self._apply_provider_status_to_entry(
+                    self.eleven_api_entry,
+                    "ElevenLabs",
+                    base_placeholder="Enter value here",
+                    base_tooltip="Value is hidden when the eye is off.",
+                )
+        elif not has_saved_key:
             self._show_message(
                 "Eleven Labs API Key Required",
                 "Please provide a valid Eleven Labs API key before saving.",
@@ -650,10 +717,12 @@ class SpeechSettings(Gtk.Window):
 
         # --- Shared OpenAI API Key (with eye toggle; default hidden) ---
         api_row, self.openai_api_entry, self.openai_api_toggle = self._build_secret_row("Open AI API Key:", default_visible=False)
-        existing_api = self.ATLAS.config_manager.get_config("OPENAI_API_KEY") or ""
-        if existing_api:
-            self.openai_api_entry.set_text("")  # do not reveal stored
-            self.openai_api_entry.set_placeholder_text("Saved")
+        self._apply_provider_status_to_entry(
+            self.openai_api_entry,
+            "OpenAI",
+            base_placeholder="Enter value here",
+            base_tooltip="Value is hidden when the eye is off.",
+        )
         openai_box.append(api_row)
 
         # Save button for Open AI tab.
@@ -707,6 +776,13 @@ class SpeechSettings(Gtk.Window):
 
         logger.info(f"Open AI STT provider set to {stt_provider}")
         logger.info("Open AI TTS provider (GPT-4o Mini TTS) initialized.")
+
+        self._apply_provider_status_to_entry(
+            self.openai_api_entry,
+            "OpenAI",
+            base_placeholder="Enter value here",
+            base_tooltip="Value is hidden when the eye is off.",
+        )
 
         self.tab_dirty[3] = False
         self._show_message("Success", "OpenAI speech settings saved.", Gtk.MessageType.INFO)

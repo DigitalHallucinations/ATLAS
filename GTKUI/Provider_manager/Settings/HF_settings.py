@@ -16,10 +16,15 @@ import gi
 import os
 import asyncio
 import threading
+import logging
+from typing import Any, Dict
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gdk, GLib
 
 from GTKUI.Utils.utils import create_box
+
+
+logger = logging.getLogger(__name__)
 
 
 class HuggingFaceSettingsWindow(Gtk.Window):
@@ -181,14 +186,60 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             message = f"{failure_message}: {error_detail}"
         self.show_message("Error", message, Gtk.MessageType.ERROR)
 
-    def _get_saved_hf_token(self) -> str:
-        """Retrieve a stored Hugging Face token from configuration if available."""
+    def _get_provider_key_status(self, provider_name: str) -> Dict[str, Any]:
+        """Fetch sanitized provider credential metadata from the backend manager."""
 
-        if hasattr(self.config_manager, "get_huggingface_api_key"):
-            return self.config_manager.get_huggingface_api_key() or ""
-        if hasattr(self.config_manager, "get_config"):
-            return self.config_manager.get_config("HUGGINGFACE_API_KEY") or ""
-        return ""
+        manager = getattr(self.ATLAS, "provider_manager", None)
+        getter = getattr(manager, "get_provider_api_key_status", None)
+        if not callable(getter):
+            logger.debug("Provider manager helper for credential status is unavailable.")
+            return {"has_key": False, "metadata": {}}
+
+        try:
+            status = getter(provider_name)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error(
+                "Failed to retrieve credential status for %s: %s", provider_name, exc, exc_info=True
+            )
+            return {"has_key": False, "metadata": {}}
+
+        if isinstance(status, dict):
+            return status
+
+        logger.debug(
+            "Credential status helper for %s returned unexpected payload type %s.",
+            provider_name,
+            type(status).__name__,
+        )
+        return {"has_key": False, "metadata": {}}
+
+    def _apply_token_placeholder(self) -> None:
+        """Apply sanitized placeholder/tooltip reflecting saved token state."""
+
+        base_placeholder = "hf_..."
+        base_tooltip = "Value is hidden when the eye is off."
+
+        self.hf_token_entry.set_text("")
+        self.hf_token_entry.set_placeholder_text(base_placeholder)
+        self.hf_token_entry.set_tooltip_text(base_tooltip)
+
+        status = self._get_provider_key_status("HuggingFace")
+        if not status.get("has_key"):
+            return
+
+        metadata: Dict[str, Any] = status.get("metadata") or {}
+        placeholder = "Saved"
+        hint = metadata.get("hint")
+        if isinstance(hint, str) and hint:
+            placeholder = f"{placeholder} {hint}"
+
+        self.hf_token_entry.set_placeholder_text(placeholder)
+
+        tooltip = "Stored Hugging Face token detected. Value hidden."
+        length = metadata.get("length")
+        if isinstance(length, int) and length > 0:
+            tooltip = f"{tooltip} Length: {length} characters."
+        self.hf_token_entry.set_tooltip_text(tooltip)
 
     def _handle_token_test_result(self, result):
         """Present the outcome of a token validation attempt to the user."""
@@ -398,18 +449,8 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         # Place the whole row in a single cell spanning two columns
         grid.attach(creds_row, 1, 0, 2, 1)
 
-        # Prefill from config (do not reveal). Show 'Saved' placeholder if present.
-        try:
-            existing_token = ""
-            if hasattr(self.config_manager, "get_huggingface_api_key"):
-                existing_token = self.config_manager.get_huggingface_api_key() or ""
-            elif hasattr(self.config_manager, "get_config"):
-                existing_token = self.config_manager.get_config("HUGGINGFACE_API_KEY") or ""
-            if existing_token:
-                self.hf_token_entry.set_text("")
-                self.hf_token_entry.set_placeholder_text("Saved")
-        except Exception:
-            pass
+        # Prefill from config (do not reveal). Show sanitized placeholder if present.
+        self._apply_token_placeholder()
 
         # Buttons: Save Token, Test Connection
         token_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -1296,18 +1337,17 @@ class HuggingFaceSettingsWindow(Gtk.Window):
     def _mark_hf_token_saved(self):
         """Reset the token entry to hide the persisted secret."""
 
-        self.hf_token_entry.set_text("")
-        self.hf_token_entry.set_placeholder_text("Saved")
+        self._apply_token_placeholder()
 
     def on_test_token_clicked(self, button):
         """
         Try a simple whoami() call using huggingface_hub to validate the token.
         """
         token_input = self.hf_token_entry.get_text().strip()
-        saved_token = self._get_saved_hf_token()
-        token_to_use = token_input or saved_token
+        token_status = self._get_provider_key_status("HuggingFace")
+        has_saved_token = token_status.get("has_key", False)
 
-        if not token_to_use:
+        if not token_input and not has_saved_token:
             self.show_message("Info", "Enter a token (or save one) before testing.", Gtk.MessageType.INFO)
             return
 
