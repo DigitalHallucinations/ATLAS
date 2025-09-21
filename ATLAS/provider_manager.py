@@ -146,6 +146,66 @@ class ProviderManager:
         self.logger.info("API key for %s updated via provider manager.", provider_name)
         return self._build_result(True, message=message)
 
+    @staticmethod
+    def _mask_secret(secret: str) -> str:
+        """Return a sanitized preview for a stored secret without leaking its value."""
+
+        if not secret:
+            return ""
+
+        visible_count = min(len(secret), 8)
+        return "•" * visible_count
+
+    def get_provider_api_key_status(self, provider_name: str) -> Dict[str, Any]:
+        """Return whether a provider key exists along with sanitized metadata."""
+
+        metadata: Dict[str, Any] = {}
+        has_key = False
+
+        provider_values: Dict[str, Any] = {}
+        getter = getattr(self.config_manager, "get_available_providers", None)
+        if callable(getter):
+            try:
+                provider_values = getter() or {}
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.error(
+                    "Unable to read provider credentials for %s: %s",
+                    provider_name,
+                    exc,
+                    exc_info=True,
+                )
+                provider_values = {}
+
+        raw_value = provider_values.get(provider_name)
+        if isinstance(raw_value, str):
+            stored_secret = raw_value
+        elif raw_value is None:
+            stored_secret = ""
+        else:
+            stored_secret = str(raw_value)
+
+        if stored_secret:
+            has_key = True
+            metadata = {
+                "length": len(stored_secret),
+                "hint": self._mask_secret(stored_secret),
+                "source": "environment",
+            }
+        else:
+            checker = getattr(self.config_manager, "has_provider_api_key", None)
+            if callable(checker):
+                try:
+                    has_key = bool(checker(provider_name))
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    self.logger.error(
+                        "Failed to verify API key presence for %s: %s",
+                        provider_name,
+                        exc,
+                        exc_info=True,
+                    )
+
+        return {"has_key": has_key, "metadata": metadata}
+
     def save_huggingface_token(self, token: Optional[str]) -> Dict[str, Any]:
         """Persist a Hugging Face API token and refresh provider state when needed."""
 

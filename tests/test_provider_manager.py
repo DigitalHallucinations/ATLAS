@@ -183,6 +183,17 @@ class DummyConfig:
     def has_provider_api_key(self, provider_name: str) -> bool:
         return bool(self._api_keys.get(provider_name))
 
+    def get_available_providers(self):
+        return {
+            "OpenAI": self._api_keys.get("OpenAI"),
+            "Mistral": self._api_keys.get("Mistral"),
+            "Google": self._api_keys.get("Google"),
+            "HuggingFace": self._hf_token,
+            "Anthropic": self._api_keys.get("Anthropic"),
+            "Grok": self._api_keys.get("Grok"),
+            "ElevenLabs": self._api_keys.get("ElevenLabs"),
+        }
+
 
 class FakeHFModelManager:
     def __init__(self):
@@ -450,3 +461,21 @@ def test_update_provider_api_key_rejects_empty_input(provider_manager):
 
     assert result["success"] is False
     assert "empty" in result["error"].lower()
+
+
+def test_get_provider_api_key_status_without_saved_key(provider_manager):
+    status = provider_manager.get_provider_api_key_status("OpenAI")
+
+    assert status["has_key"] is False
+    assert status["metadata"] == {}
+
+
+def test_get_provider_api_key_status_with_saved_key(provider_manager):
+    asyncio.run(provider_manager.update_provider_api_key("OpenAI", "sk-test"))
+    status = provider_manager.get_provider_api_key_status("OpenAI")
+
+    assert status["has_key"] is True
+    metadata = status["metadata"]
+    assert metadata["length"] == len("sk-test")
+    assert metadata["hint"] == "\u2022" * len("sk-test")
+    assert metadata["source"] == "environment"
