@@ -27,7 +27,7 @@ class ATLAS:
         self.chat_session = None
         self.speech_manager = SpeechManager(self.config_manager)  # Instantiate SpeechManager with ConfigManager
         self._initialized = False
-        self._provider_change_listeners: List[Callable[[str, str], None]] = []
+        self._provider_change_listeners: List[Callable[[Dict[str, str]], None]] = []
         self._message_dispatchers: List[Callable[[str, str], None]] = []
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
 
@@ -124,9 +124,9 @@ class ATLAS:
         # Log the updates
         self.logger.info(f"Current provider set to {provider} with model {current_model}")
         # Notify any observers (e.g., UI components) about the change
-        self._notify_provider_change_listeners(provider, current_model)
+        self._notify_provider_change_listeners()
 
-    def add_provider_change_listener(self, listener: Callable[[str, str], None]) -> None:
+    def add_provider_change_listener(self, listener: Callable[[Dict[str, str]], None]) -> None:
         """Register a callback to be notified when the provider or model changes."""
 
         if not callable(listener):
@@ -137,18 +137,19 @@ class ATLAS:
 
         self._provider_change_listeners.append(listener)
 
-    def remove_provider_change_listener(self, listener: Callable[[str, str], None]) -> None:
+    def remove_provider_change_listener(self, listener: Callable[[Dict[str, str]], None]) -> None:
         """Remove a previously registered provider change callback if present."""
 
         if listener in self._provider_change_listeners:
             self._provider_change_listeners.remove(listener)
 
-    def _notify_provider_change_listeners(self, provider: str, model: str) -> None:
+    def _notify_provider_change_listeners(self) -> None:
         """Invoke all registered provider change callbacks."""
 
+        summary = self.get_chat_status_summary()
         for listener in list(self._provider_change_listeners):
             try:
-                listener(provider, model)
+                listener(summary)
             except Exception as exc:
                 self.logger.error(
                     "Provider change listener %s failed: %s", listener, exc, exc_info=True
@@ -219,6 +220,44 @@ class ATLAS:
             str: The name of the default model.
         """
         return self.provider_manager.get_current_model()
+
+    def get_chat_status_summary(self) -> Dict[str, str]:
+        """Return a consolidated snapshot of chat-related status information."""
+
+        summary: Dict[str, str] = {
+            "llm_provider": "Unknown",
+            "llm_model": "No model selected",
+            "tts_provider": "None",
+            "tts_voice": "Not Set",
+        }
+
+        provider_manager = getattr(self, "provider_manager", None)
+        if provider_manager is not None:
+            try:
+                provider_name = provider_manager.get_current_provider()
+                if provider_name:
+                    summary["llm_provider"] = provider_name
+            except Exception as exc:
+                self.logger.error("Failed to read current LLM provider: %s", exc, exc_info=True)
+
+            try:
+                model_name = provider_manager.get_current_model()
+                if model_name:
+                    summary["llm_model"] = model_name
+            except Exception as exc:
+                self.logger.error("Failed to read current LLM model: %s", exc, exc_info=True)
+
+        speech_manager = getattr(self, "speech_manager", None)
+        if speech_manager is not None:
+            try:
+                tts_provider, tts_voice = speech_manager.get_active_tts_summary()
+            except Exception as exc:
+                self.logger.error("Failed to read active TTS configuration: %s", exc, exc_info=True)
+            else:
+                summary["tts_provider"] = tts_provider or summary["tts_provider"]
+                summary["tts_voice"] = tts_voice or summary["tts_voice"]
+
+        return summary
     
     async def close(self):
         """
