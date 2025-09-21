@@ -850,7 +850,7 @@ class SpeechSettings(Gtk.Window):
         dialog.destroy()
 
     def show_history(self, widget):
-        history = self.ATLAS.speech_manager.transcription_history
+        history = self.ATLAS.speech_manager.get_transcription_history(formatted=True)
         dialog = Gtk.MessageDialog(
             transient_for=self,
             flags=0,
