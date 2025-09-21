@@ -372,25 +372,16 @@ class SpeechSettings(Gtk.Window):
     def save_general_tab(self):
         tts_enabled = self.general_tts_switch.get_active()
         stt_enabled = self.general_stt_switch.get_active()
-        current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
-        self.ATLAS.speech_manager.set_tts_status(tts_enabled, current_tts_provider)
         selected_tts_provider = self.default_tts_combo.get_active_text()
-        selected_stt_provider = self.default_stt_combo.get_active_text() if stt_enabled else None
+        selected_stt_provider = self.default_stt_combo.get_active_text()
 
-        self.ATLAS.speech_manager.set_default_speech_providers(
+        self.ATLAS.speech_manager.configure_defaults(
+            tts_enabled=tts_enabled,
             tts_provider=selected_tts_provider,
+            stt_enabled=stt_enabled,
             stt_provider=selected_stt_provider,
         )
 
-        if not stt_enabled:
-            self.ATLAS.speech_manager.disable_stt()
-            logger.info("General: STT disabled.")
-        else:
-            if selected_stt_provider:
-                logger.info(f"General: Default STT provider set to: {selected_stt_provider}")
-
-        if selected_tts_provider:
-            logger.info(f"General: Default TTS provider set to: {selected_tts_provider}")
         self.tab_dirty[0] = False
 
     # ----------------------- Eleven Labs TTS Tab -----------------------
