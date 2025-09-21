@@ -104,6 +104,70 @@ class PersonaManager:
         """Retrieve the persona by name, loading it from disk if necessary."""
         return self.load_persona(persona_name)
 
+    def _as_bool(self, value: Any) -> bool:
+        """Convert serialized persona truthy values into booleans."""
+        if isinstance(value, str):
+            return value.lower() == "true"
+        return bool(value)
+
+    def _build_editor_state(self, persona: Dict[str, Any]) -> Dict[str, Any]:
+        """Return an editor-friendly snapshot for a loaded persona."""
+
+        content = persona.get('content') or {}
+
+        def _string(value: Any) -> str:
+            return self._normalize_string(value)
+
+        persona_type_raw = persona.get('type') or {}
+        type_state: Dict[str, Dict[str, Any]] = {}
+        keys = set(self.PERSONA_TYPE_KEYS) | set(persona_type_raw.keys())
+
+        for key in keys:
+            entry = persona_type_raw.get(key) or {}
+            extras = {
+                extra_key: _string(extra_value)
+                for extra_key, extra_value in entry.items()
+                if extra_key != 'enabled'
+            }
+            type_state[key] = {'enabled': self._as_bool(entry.get('enabled')), **extras}
+
+        state = {
+            'original_name': _string(persona.get('name')),
+            'general': {
+                'name': _string(persona.get('name')),
+                'meaning': _string(persona.get('meaning')),
+                'content': {
+                    'start_locked': _string(content.get('start_locked')),
+                    'editable_content': _string(content.get('editable_content')),
+                    'end_locked': _string(content.get('end_locked')),
+                },
+            },
+            'flags': {
+                'sys_info_enabled': self._as_bool(persona.get('sys_info_enabled')),
+                'user_profile_enabled': self._as_bool(persona.get('user_profile_enabled')),
+                'type': type_state,
+            },
+            'provider': {
+                'provider': _string(persona.get('provider')),
+                'model': _string(persona.get('model')),
+            },
+            'speech': {
+                'Speech_provider': _string(persona.get('Speech_provider')),
+                'voice': _string(persona.get('voice')),
+            },
+            'ui_state': dict(persona.get('ui_state') or {}),
+        }
+
+        return state
+
+    def get_editor_state(self, persona_name: str) -> Optional[Dict[str, Any]]:
+        """Return typed persona information for the editor views."""
+
+        persona = self.get_persona(persona_name)
+        if persona is None:
+            return None
+        return self._build_editor_state(persona)
+
     def updater(self, selected_persona_name: str):
         """Update the current persona."""
         self.logger.info(f"Attempting to update persona to '{selected_persona_name}'.")

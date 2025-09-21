@@ -8,10 +8,11 @@ from gi.repository import Gtk
 
 
 class PersonaTypeTab:
-    def __init__(self, persona, general_tab):
-        self.persona = persona
+    def __init__(self, persona_state, general_tab):
+        self.state = persona_state
         self.general_tab = general_tab
-        self.persona_type = self.persona.get('type', {})
+        self.flags = persona_state.get('flags', {})
+        self.persona_type = self.flags.get('type', {})
         self.tabs = {}  # name -> page widget (dynamic tabs only; "Main" handled separately)
         self._restoring_tab = False  # guard to avoid races while restoring
         self._switch_handlers: Dict[Gtk.Switch, int] = {}
@@ -130,12 +131,12 @@ class PersonaTypeTab:
         return None, -1
 
     def _save_last_opened_tab(self, name: str):
-        ui = self.persona.setdefault('ui_state', {})
+        ui = self.state.setdefault('ui_state', {})
         ui['persona_type_last_tab'] = name
 
     def _restore_last_opened_tab(self):
         """Restore last opened sub-tab from persona['ui_state'] if available."""
-        ui = self.persona.get('ui_state') or {}
+        ui = self.state.get('ui_state') or {}
         last = ui.get('persona_type_last_tab')
         # Delay until tabs are populated
         if last:
@@ -156,86 +157,89 @@ class PersonaTypeTab:
     # ----------------------------- Switches -----------------------------
 
     def create_switches(self):
+        type_flags = self.persona_type
+        global_flags = self.flags
+
         # Global/system switches
         self.sys_info_switch = self._switch(
-            active=self.persona.get("sys_info_enabled", "False") == "True",
+            active=bool(global_flags.get("sys_info_enabled")),
             tooltip="Allow the persona to include host/system info context (off by default).",
             on_toggle=self.on_sys_info_switch_toggled,
         )
         self.agent_switch = self._switch(
-            active=self.persona_type.get("Agent", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("Agent", {}).get("enabled")),
             tooltip="Enable Agent behavior (tool use / multi-step planning).",
             on_toggle=self.on_agent_switch_toggled,
         )
         self.user_profile_switch = self._switch(
-            active=self.persona.get("user_profile_enabled", "False") == "True",
+            active=bool(global_flags.get("user_profile_enabled")),
             tooltip="Permit use of stored user profile context for responses.",
             on_toggle=self.on_user_profile_switch_toggled,
         )
 
         # Persona type switches
         self.medical_persona_switch = self._switch(
-            active=self.persona_type.get("medical_persona", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("medical_persona", {}).get("enabled")),
             tooltip="Medical persona (health info & safety-aware tone).",
             on_toggle=self.on_medical_persona_switch_toggled,
         )
         self.educational_persona_switch = self._switch(
-            active=self.persona_type.get("educational_persona", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("educational_persona", {}).get("enabled")),
             tooltip="Educational persona (teaching-oriented explanations).",
             on_toggle=self.on_educational_persona_switch_toggled,
         )
         self.fitness_trainer_switch = self._switch(
-            active=self.persona_type.get("fitness_persona", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("fitness_persona", {}).get("enabled")),
             tooltip="Fitness persona (programs, exercises, goals).",
             on_toggle=self.on_fitness_trainer_switch_toggled,
         )
         self.language_practice_switch = self._switch(
-            active=self.persona_type.get("language_instructor", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("language_instructor", {}).get("enabled")),
             tooltip="Language instructor persona (practice & drills).",
             on_toggle=self.on_language_practice_switch_toggled,
         )
         self.legal_persona_switch = self._switch(
-            active=self.persona_type.get("legal_persona", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("legal_persona", {}).get("enabled")),
             tooltip="Legal persona (general information, not legal advice).",
             on_toggle=self.on_legal_persona_switch_toggled,
         )
         self.financial_advisor_switch = self._switch(
-            active=self.persona_type.get("financial_advisor", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("financial_advisor", {}).get("enabled")),
             tooltip="Financial advisor persona (general info, not financial advice).",
             on_toggle=self.on_financial_advisor_switch_toggled,
         )
         self.tech_support_switch = self._switch(
-            active=self.persona_type.get("tech_support", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("tech_support", {}).get("enabled")),
             tooltip="Tech support persona (troubleshooting & diagnostics).",
             on_toggle=self.on_tech_support_switch_toggled,
         )
         self.personal_assistant_switch = self._switch(
-            active=self.persona_type.get("personal_assistant", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("personal_assistant", {}).get("enabled")),
             tooltip="Personal assistant persona (organization & reminders).",
             on_toggle=self.on_personal_assistant_switch_toggled,
         )
         self.therapist_switch = self._switch(
-            active=self.persona_type.get("therapist", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("therapist", {}).get("enabled")),
             tooltip="Supportive, reflective style for wellness topics (not a substitute for therapy).",
             on_toggle=self.on_therapist_switch_toggled,
         )
         self.travel_guide_switch = self._switch(
-            active=self.persona_type.get("travel_guide", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("travel_guide", {}).get("enabled")),
             tooltip="Travel guide persona (itineraries, tips, highlights).",
             on_toggle=self.on_travel_guide_switch_toggled,
         )
         self.storyteller_switch = self._switch(
-            active=self.persona_type.get("storyteller", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("storyteller", {}).get("enabled")),
             tooltip="Storyteller persona (creative writing & narratives).",
             on_toggle=self.on_storyteller_switch_toggled,
         )
         self.game_master_switch = self._switch(
-            active=self.persona_type.get("game_master", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("game_master", {}).get("enabled")),
             tooltip="Game master persona (RPG facilitation & encounters).",
             on_toggle=self.on_game_master_switch_toggled,
         )
         self.chef_switch = self._switch(
-            active=self.persona_type.get("chef", {}).get("enabled", "False") == "True",
+            active=bool(type_flags.get("chef", {}).get("enabled")),
             tooltip="Chef persona (recipes, substitutions, techniques).",
             on_toggle=self.on_chef_switch_toggled,
         )
@@ -470,13 +474,14 @@ class PersonaTypeTab:
             self.update_persona_type_tabs()
 
     def refresh_from_persona(self):
-        self.persona_type = self.persona.get('type', {})
+        self.flags = self.state.get('flags', {})
+        self.persona_type = self.flags.get('type', {})
 
         def _enabled(flag: str) -> bool:
-            return self.persona_type.get(flag, {}).get('enabled', 'False') == 'True'
+            return bool(self.persona_type.get(flag, {}).get('enabled'))
 
-        self._set_switch_active(self.sys_info_switch, self.persona.get("sys_info_enabled", "False") == "True")
-        self._set_switch_active(self.user_profile_switch, self.persona.get("user_profile_enabled", "False") == "True")
+        self._set_switch_active(self.sys_info_switch, bool(self.flags.get('sys_info_enabled')))
+        self._set_switch_active(self.user_profile_switch, bool(self.flags.get('user_profile_enabled')))
         self._set_switch_active(self.agent_switch, _enabled('Agent'))
         self._set_switch_active(self.medical_persona_switch, _enabled('medical_persona'))
         self._set_switch_active(self.educational_persona_switch, _enabled('educational_persona'))
@@ -776,19 +781,19 @@ class PersonaTypeTab:
 
         # Collect 'type' values
         type_values = {
-            'Agent': {'enabled': str(self.get_agent_enabled())},
-            'medical_persona': {'enabled': str(self.get_medical_persona_enabled())},
-            'educational_persona': {'enabled': str(self.get_educational_persona())},
-            'fitness_persona': {'enabled': str(self.get_fitness_persona())},
-            'language_instructor': {'enabled': str(self.get_language_instructor())},
+            'Agent': {'enabled': self.get_agent_enabled()},
+            'medical_persona': {'enabled': self.get_medical_persona_enabled()},
+            'educational_persona': {'enabled': self.get_educational_persona()},
+            'fitness_persona': {'enabled': self.get_fitness_persona()},
+            'language_instructor': {'enabled': self.get_language_instructor()},
             # Add other persona types here if you later add options to them.
         }
 
-        if type_values['educational_persona']['enabled'] == "True":
+        if type_values['educational_persona']['enabled']:
             type_values['educational_persona'].update(self.get_educational_options())
-        if type_values['fitness_persona']['enabled'] == "True":
+        if type_values['fitness_persona']['enabled']:
             type_values['fitness_persona'].update(self.get_fitness_options())
-        if type_values['language_instructor']['enabled'] == "True":
+        if type_values['language_instructor']['enabled']:
             type_values['language_instructor'].update(self.get_language_practice_options())
 
         values['type'] = type_values
