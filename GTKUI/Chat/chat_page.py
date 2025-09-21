@@ -559,23 +559,22 @@ class ChatPage(Gtk.Window):
         self.ATLAS.remove_provider_change_listener(self._provider_change_handler)
         return False
 
-    def update_status_bar(self, provider=None, model=None):
+    def update_status_bar(self, status_summary=None):
         """
         Updates the status label with current LLM provider/model information as well as
         the active TTS provider and its selected voice.
         """
-        # Retrieve LLM provider and model information.
-        try:
-            llm_provider = self.ATLAS.provider_manager.get_current_provider() or "Unknown"
-        except Exception:
-            llm_provider = "Unknown"
-        try:
-            llm_model = self.ATLAS.provider_manager.get_current_model() or "No model selected"
-        except Exception:
-            llm_model = "No model selected"
+        if not status_summary:
+            try:
+                status_summary = self.ATLAS.get_chat_status_summary()
+            except Exception as exc:
+                logger.error("Failed to fetch chat status summary: %s", exc, exc_info=True)
+                status_summary = {}
 
-        # Retrieve TTS provider and voice information via speech manager helper.
-        tts_provider, tts_voice = self.ATLAS.speech_manager.get_active_tts_summary()
+        llm_provider = status_summary.get("llm_provider") or "Unknown"
+        llm_model = status_summary.get("llm_model") or "No model selected"
+        tts_provider = status_summary.get("tts_provider") or "None"
+        tts_voice = status_summary.get("tts_voice") or "Not Set"
 
         status_message = (
             f"LLM: {llm_provider} • Model: {llm_model} • "
