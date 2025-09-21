@@ -1,5 +1,7 @@
 # UI/Persona_manager/General_Tab/general_tab.py
 
+from typing import Any, Dict, Optional
+
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, Pango
@@ -42,15 +44,18 @@ class InfoPopup(Gtk.Window):
 
 
 class GeneralTab:
-    def __init__(self, persona):
+    def __init__(self, persona, persona_manager):
         self.persona = persona
+        self.persona_manager = persona_manager
         self.persona_type = self.persona.get('type', {})
-        self.user_profile_enabled = persona.get("user_profile_enabled", "False") == "True"
-        self.sys_info_enabled = persona.get("sys_info_enabled", "False") == "True"
-        self.medical_persona_enabled = self.persona_type.get("medical_persona", {}).get("enabled", "False") == "True"
-        self.educational_persona = self.persona_type.get("educational_persona", {}).get("enabled", "False") == "True"
-        self.fitness_persona_enabled = self.persona_type.get("fitness_persona", {}).get("enabled", "False") == "True"
-        self.language_instructor = self.persona_type.get("language_instructor", {}).get("enabled", "False") == "True"
+        self.user_profile_enabled = False
+        self.sys_info_enabled = False
+        self.medical_persona_enabled = False
+        self.educational_persona = False
+        self.fitness_persona_enabled = False
+        self.language_instructor = False
+
+        self._sync_flags_from_persona()
 
         # Keep references for dynamic widgets/labels
         self.sysinfo_view = None
@@ -442,29 +447,23 @@ class GeneralTab:
 
     # ----------------------------- External setters -----------------------------
 
-    def set_sys_info_enabled(self, enabled):
-        self.sys_info_enabled = enabled
-        self.update_sys_info_content()
+    def set_sys_info_enabled(self, enabled: bool) -> bool:
+        return self._toggle_flag('sys_info_enabled', enabled)
 
-    def set_user_profile_enabled(self, enabled):
-        self.user_profile_enabled = enabled
-        self.update_end_locked()
+    def set_user_profile_enabled(self, enabled: bool) -> bool:
+        return self._toggle_flag('user_profile_enabled', enabled)
 
-    def set_medical_persona_enabled(self, enabled):
-        self.medical_persona_enabled = enabled
-        self.update_end_locked()
+    def set_medical_persona_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('medical_persona', enabled, extras)
 
-    def set_educational_persona(self, enabled):
-        self.educational_persona = enabled
-        self.update_end_locked()
+    def set_educational_persona(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('educational_persona', enabled, extras)
 
-    def set_fitness_persona_enabled(self, enabled):
-        self.fitness_persona_enabled = enabled
-        self.update_end_locked()
+    def set_fitness_persona_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('fitness_persona', enabled, extras)
 
-    def set_language_instructor(self, enabled):
-        self.language_instructor = enabled
-        self.update_end_locked()
+    def set_language_instructor(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('language_instructor', enabled, extras)
 
     # ----------------------------- Value getters -----------------------------
 
@@ -486,9 +485,8 @@ class GeneralTab:
         buffer = self.end_view.get_buffer()
         return buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
 
-    def set_agent_enabled(self, enabled):
-        self.persona.setdefault('type', {})
-        self.persona['type']['Agent'] = {'enabled': str(enabled)}
+    def set_agent_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('Agent', enabled, extras)
 
     def get_sys_info_content(self):
         if self.sysinfo_view:
@@ -497,38 +495,80 @@ class GeneralTab:
         return ""
 
     # Convenience setters for remaining persona flags (keep end-locked fresh)
-    def set_legal_persona_enabled(self, enabled):
-        self.persona['type']['legal_persona'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+    def set_legal_persona_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('legal_persona', enabled, extras)
 
-    def set_financial_advisor_enabled(self, enabled):
-        self.persona['type']['financial_advisor'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+    def set_financial_advisor_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('financial_advisor', enabled, extras)
 
-    def set_tech_support_enabled(self, enabled):
-        self.persona['type']['tech_support'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+    def set_tech_support_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('tech_support', enabled, extras)
 
-    def set_personal_assistant_enabled(self, enabled):
-        self.persona['type']['personal_assistant'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+    def set_personal_assistant_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('personal_assistant', enabled, extras)
 
-    def set_therapist_enabled(self, enabled):
-        self.persona['type']['therapist'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+    def set_therapist_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('therapist', enabled, extras)
 
-    def set_travel_guide_enabled(self, enabled):
-        self.persona['type']['travel_guide'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+    def set_travel_guide_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('travel_guide', enabled, extras)
 
-    def set_storyteller_enabled(self, enabled):
-        self.persona['type']['storyteller'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+    def set_storyteller_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('storyteller', enabled, extras)
 
-    def set_game_master_enabled(self, enabled):
-        self.persona['type']['game_master'] = {'enabled': str(enabled)}
-        self.update_end_locked()
+    def set_game_master_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('game_master', enabled, extras)
 
-    def set_chef_enabled(self, enabled):
-        self.persona['type']['chef'] = {'enabled': str(enabled)}
+    def set_chef_enabled(self, enabled: bool, extras: Optional[Dict[str, Any]] = None) -> bool:
+        return self._toggle_flag('chef', enabled, extras)
+
+    # ----------------------------- Backend helpers -----------------------------
+
+    def _sync_flags_from_persona(self):
+        persona_type = self.persona.get('type') or {}
+        self.persona_type = persona_type
+
+        def _enabled(entry: Optional[Dict[str, Any]]) -> bool:
+            if not entry:
+                return False
+            return entry.get('enabled', 'False') == 'True'
+
+        self.user_profile_enabled = self.persona.get("user_profile_enabled", "False") == "True"
+        self.sys_info_enabled = self.persona.get("sys_info_enabled", "False") == "True"
+        self.medical_persona_enabled = _enabled(persona_type.get("medical_persona"))
+        self.educational_persona = _enabled(persona_type.get("educational_persona"))
+        self.fitness_persona_enabled = _enabled(persona_type.get("fitness_persona"))
+        self.language_instructor = _enabled(persona_type.get("language_instructor"))
+
+    def _apply_persona_response(self, persona: Dict[str, Any]):
+        self.persona.clear()
+        self.persona.update(persona)
+        self._sync_flags_from_persona()
         self.update_end_locked()
+        self.update_sys_info_content()
+
+    def _handle_response(self, response: Optional[Dict[str, Any]], failure_message: str) -> bool:
+        if not response or not response.get('success'):
+            errors = (response or {}).get('errors') if response else None
+            message = "; ".join(errors) if errors else failure_message
+            self.persona_manager.show_message('system', message)
+            return False
+
+        persona = response.get('persona')
+        if persona:
+            self._apply_persona_response(persona)
+        return True
+
+    def _toggle_flag(
+        self,
+        flag: str,
+        enabled: bool,
+        extras: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        persona_name = self.persona.get('name')
+        if not persona_name:
+            self.persona_manager.show_message('system', 'Persona name is missing; unable to update settings.')
+            return False
+
+        response = self.persona_manager.set_flag(persona_name, flag, enabled, extras)
+        return self._handle_response(response, f"Unable to update flag '{flag}'.")
