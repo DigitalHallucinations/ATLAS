@@ -10,12 +10,10 @@ and schedules UI updates via GLib.idle_add.
 """
 
 import os
-import asyncio
-import threading
 from datetime import datetime
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk, GLib, GObject
+from gi.repository import Gtk, Gdk, GLib
 import logging
 
 from GTKUI.Utils.utils import apply_css
@@ -238,12 +236,33 @@ class ChatPage(Gtk.Window):
         buffer.set_text("")
         self.input_textview.grab_focus()
         self._set_busy_state(True)
-        # Start a new thread to process the model's response asynchronously.
-        threading.Thread(
-            target=self.handle_model_response_thread,
-            args=(message,),
-            daemon=True
-        ).start()
+
+        def handle_success(response: str):
+            persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
+
+            def update():
+                self.add_message_bubble(persona_name, response)
+                self._on_response_complete()
+                return False
+
+            GLib.idle_add(update)
+
+        def handle_error(exc: Exception):
+            logger.error(f"Error retrieving model response: {exc}")
+
+            def update():
+                self.add_message_bubble("Assistant", f"Error: {exc}")
+                self._on_response_complete()
+                return False
+
+            GLib.idle_add(update)
+
+        self.chat_session.run_in_background(
+            lambda: self.chat_session.send_message(message),
+            on_success=handle_success,
+            on_error=handle_error,
+            thread_name="ChatResponseWorker",
+        )
 
     def on_key_pressed(self, _controller, keyval, keycode, state):
         """
@@ -296,26 +315,10 @@ class ChatPage(Gtk.Window):
         self.status_label.set_text("Transcribing…")
         self._set_spinner_active(True)
 
-        # Run transcription in a separate thread to avoid blocking the UI.
-        def transcribe_and_update():
-            transcript = ""
-            error_message = None
-            loop = asyncio.new_event_loop()
-            try:
-                asyncio.set_event_loop(loop)
-                transcript = loop.run_until_complete(manager.stop_and_transcribe()) or ""
-            except Exception as exc:
-                logger.error(f"Unexpected transcription error: {exc}")
-                error_message = f"Transcription failed: {exc}"
-            finally:
-                try:
-                    loop.close()
-                except Exception:
-                    pass
+        def finalize(transcript: str | None, error: Exception | None = None):
+            text = (transcript or "").strip()
 
-            text = transcript.strip()
-
-            def update_ui():
+            def update():
                 if text:
                     buf = self.input_buffer
                     if buf.get_char_count() > 0:
@@ -324,19 +327,31 @@ class ChatPage(Gtk.Window):
                         buf.insert(buf.get_end_iter(), text)
                     buf.place_cursor(buf.get_end_iter())
                     self.status_label.set_text("Transcription complete.")
-                elif error_message:
-                    self.status_label.set_text(error_message)
+                elif error is not None:
+                    self.status_label.set_text(f"Transcription failed: {error}")
                 else:
                     self.status_label.set_text("No transcription available.")
+
                 self._set_spinner_active(False)
                 self._set_mic_visual(listening=False)
                 self.status_label.set_tooltip_text("Active LLM provider/model and TTS status")
                 GLib.timeout_add_seconds(2, lambda: (self.update_status_bar() or False))
                 return False
 
-            GLib.idle_add(update_ui)
+            GLib.idle_add(update)
 
-        threading.Thread(target=transcribe_and_update, daemon=True).start()
+        def on_transcribe_success(result: str):
+            finalize(result)
+
+        def on_transcribe_error(exc: Exception):
+            logger.error(f"Unexpected transcription error: {exc}")
+            finalize(None, error=exc)
+
+        manager.stop_and_transcribe_in_background(
+            on_success=on_transcribe_success,
+            on_error=on_transcribe_error,
+            thread_name="SpeechTranscriptionWorker",
+        )
 
     def _set_mic_visual(self, listening: bool):
         self.mic_state_listening = listening
@@ -349,29 +364,6 @@ class ChatPage(Gtk.Window):
             self.status_spinner.start()
         else:
             self.status_spinner.stop()
-
-    def handle_model_response_thread(self, message):
-        """
-        Processes the model's response asynchronously in a separate thread,
-        then schedules the UI update to add the assistant's message bubble.
-        The backend handles any text-to-speech responsibilities.
-        """
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            response = loop.run_until_complete(self.chat_session.send_message(message))
-
-            persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
-            GLib.idle_add(self.add_message_bubble, persona_name, response)
-        except Exception as e:
-            logger.error(f"Error retrieving model response: {e}")
-            GLib.idle_add(self.add_message_bubble, "Assistant", f"Error: {e}")
-        finally:
-            try:
-                loop.close()
-            except Exception:
-                pass
-            GLib.idle_add(self._on_response_complete)
 
     def add_message_bubble(self, sender, message, is_user=False):
         """

@@ -1,13 +1,19 @@
 """Chat session management for the ATLAS application."""
 
+from __future__ import annotations
+
 import json
 import os
+from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, Mapping, Union
+from typing import Awaitable, Callable, Dict, Iterator, Mapping, TypeVar, Union
+
+from modules.background_tasks import run_async_in_thread
 
 
 PathLike = Union[str, os.PathLike, Path]
+T = TypeVar("T")
 
 
 class ChatHistoryExportError(Exception):
@@ -69,6 +75,24 @@ class ChatSession:
         self.conversation_history.append({"role": "assistant", "content": response})
         self.messages_since_last_reminder += 1
         return response
+
+    def run_in_background(
+        self,
+        coroutine_factory: Callable[[], Awaitable[T]],
+        *,
+        on_success: Callable[[T], None] | None = None,
+        on_error: Callable[[Exception], None] | None = None,
+        thread_name: str | None = None,
+    ) -> Future[T]:
+        """Execute a chat coroutine on a worker thread and return a ``Future``."""
+
+        return run_async_in_thread(
+            coroutine_factory,
+            on_success=on_success,
+            on_error=on_error,
+            logger=self.ATLAS.logger,
+            thread_name=thread_name or "ChatSessionTask",
+        )
 
     def switch_persona(self, new_persona_prompt: str):
         self.current_persona_prompt = new_persona_prompt

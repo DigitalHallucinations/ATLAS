@@ -15,6 +15,7 @@ Date: 05-11-2025
 """
 
 from typing import Dict, Any, List, Optional, Tuple, Callable
+from concurrent.futures import Future
 import os
 import asyncio
 import time
@@ -23,6 +24,7 @@ from .Google_tts import GoogleTTS
 from .Google_stt import GoogleSTT
 from modules.logging.logger import setup_logger
 from ATLAS.config import ConfigManager
+from modules.background_tasks import run_async_in_thread
 
 logger = setup_logger('speech_manager.py')
 
@@ -967,6 +969,24 @@ class SpeechManager:
         except Exception as exc:
             logger.error(f"Error transcribing audio with provider '{provider_key}': {exc}")
             return ""
+
+    def stop_and_transcribe_in_background(
+        self,
+        provider: str | None = None,
+        *,
+        on_success: Callable[[str], None] | None = None,
+        on_error: Callable[[Exception], None] | None = None,
+        thread_name: str | None = None,
+    ) -> Future[str]:
+        """Run :meth:`stop_and_transcribe` on a worker thread and return a ``Future``."""
+
+        return run_async_in_thread(
+            lambda: self.stop_and_transcribe(provider),
+            on_success=on_success,
+            on_error=on_error,
+            logger=logger,
+            thread_name=thread_name or "SpeechTranscription",
+        )
 
     async def close(self):
         """
