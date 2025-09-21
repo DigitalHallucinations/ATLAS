@@ -53,13 +53,21 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         self._eye_icon_path = self._abs_icon("Icons/eye.png")
         self._eye_off_icon_path = self._abs_icon("Icons/eye-off.png")
 
-        # Create a vertical box (with uniform margins) to hold all widgets.
+        # Create a scrolled container to ensure accessibility on smaller displays.
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        # Create a vertical box (with uniform margins) to hold all widgets and
+        # nest it within the scroller.
         vbox = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
-        self.set_child(vbox)
-        
+        scroller.set_child(vbox)
+        self.set_child(scroller)
+
         # Create a Notebook widget to hold the different settings tabs.
         self.notebook = Gtk.Notebook()
         self.notebook.set_tooltip_text("Configure Hugging Face provider behavior, models, and credentials.")
+        self.notebook.set_hexpand(True)
+        self.notebook.set_vexpand(True)
         vbox.append(self.notebook)
         
         # General Settings Tab
