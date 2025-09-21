@@ -19,6 +19,7 @@ from concurrent.futures import Future
 import os
 import asyncio
 import time
+from datetime import datetime
 from .elevenlabs_tts import ElevenLabsTTS
 from .Google_tts import GoogleTTS
 from .Google_stt import GoogleSTT
@@ -905,6 +906,32 @@ class SpeechManager:
     def get_last_audio_path(self) -> Optional[str]:
         """Return the most recent audio file reference produced by stop_listening."""
         return self._last_audio_path
+
+    def get_transcription_history(self, formatted: bool = False) -> List[Dict[str, Any]]:
+        """Return the transcription history, optionally formatted for display."""
+
+        if not formatted:
+            return list(self.transcription_history)
+
+        formatted_history: List[Dict[str, Any]] = []
+        for entry in self.transcription_history:
+            formatted_entry: Dict[str, Any] = dict(entry)
+            timestamp = formatted_entry.get("timestamp")
+
+            if isinstance(timestamp, (int, float)):
+                try:
+                    human_readable = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+                except (OverflowError, OSError, ValueError):
+                    human_readable = str(timestamp)
+            elif timestamp is None:
+                human_readable = "Unknown"
+            else:
+                human_readable = str(timestamp)
+
+            formatted_entry["timestamp"] = human_readable
+            formatted_history.append(formatted_entry)
+
+        return formatted_history
 
     def listen(self, provider: str = None) -> bool:
         """
