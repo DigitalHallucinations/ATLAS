@@ -25,6 +25,13 @@ import logging
 from typing import Any, Dict
 
 from GTKUI.Utils.utils import apply_css
+from modules.Speech_Services.speech_manager import (
+    get_openai_language_options,
+    get_openai_stt_provider_options,
+    get_openai_task_options,
+    get_openai_tts_provider_options,
+    prepare_openai_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -647,10 +654,11 @@ class SpeechSettings(Gtk.Window):
         stt_provider_label.set_tooltip_text("Pick the OpenAI-based service for speech recognition.")
         self.openai_stt_combo = Gtk.ComboBoxText()
         self.openai_stt_combo.set_tooltip_text("Whisper Online, GPT-4o STT, or GPT-4o Mini STT.")
-        self.openai_stt_combo.append_text("Whisper Online")
-        self.openai_stt_combo.append_text("GPT-4o STT")
-        self.openai_stt_combo.append_text("GPT-4o Mini STT")
-        self.openai_stt_combo.set_active(0)
+        stt_options = get_openai_stt_provider_options()
+        for label, _ in stt_options:
+            self.openai_stt_combo.append_text(label)
+        if stt_options:
+            self.openai_stt_combo.set_active(0)
         hbox_stt_provider.append(stt_provider_label)
         hbox_stt_provider.append(self.openai_stt_combo)
         stt_box.append(hbox_stt_provider)
@@ -661,9 +669,11 @@ class SpeechSettings(Gtk.Window):
         language_label.set_tooltip_text("Force a language for STT, or keep Auto to let the model detect.")
         self.openai_language_combo = Gtk.ComboBoxText()
         self.openai_language_combo.set_tooltip_text("Preferred recognition language (or Auto).")
-        for label_text in ["Auto", "English (en)", "Japanese (ja)", "Spanish (es)", "French (fr)"]:
+        language_options = get_openai_language_options()
+        for label_text, _ in language_options:
             self.openai_language_combo.append_text(label_text)
-        self.openai_language_combo.set_active(0)
+        if language_options:
+            self.openai_language_combo.set_active(0)
         hbox_language.append(language_label)
         hbox_language.append(self.openai_language_combo)
         stt_box.append(hbox_language)
@@ -674,9 +684,11 @@ class SpeechSettings(Gtk.Window):
         task_label.set_tooltip_text("Transcribe = same language; Translate = to English.")
         self.openai_task_combo = Gtk.ComboBoxText()
         self.openai_task_combo.set_tooltip_text("Choose whether to transcribe or translate.")
-        self.openai_task_combo.append_text("transcribe")
-        self.openai_task_combo.append_text("translate")
-        self.openai_task_combo.set_active(0)
+        task_options = get_openai_task_options()
+        for label_text, _ in task_options:
+            self.openai_task_combo.append_text(label_text)
+        if task_options:
+            self.openai_task_combo.set_active(0)
         hbox_task.append(task_label)
         hbox_task.append(self.openai_task_combo)
         stt_box.append(hbox_task)
@@ -706,8 +718,11 @@ class SpeechSettings(Gtk.Window):
         tts_provider_label.set_tooltip_text("Pick the OpenAI service for speech synthesis.")
         self.openai_tts_combo = Gtk.ComboBoxText()
         self.openai_tts_combo.set_tooltip_text("Currently supports GPT-4o Mini TTS.")
-        self.openai_tts_combo.append_text("GPT-4o Mini TTS")
-        self.openai_tts_combo.set_active(0)
+        tts_options = get_openai_tts_provider_options()
+        for label_text, _ in tts_options:
+            self.openai_tts_combo.append_text(label_text)
+        if tts_options:
+            self.openai_tts_combo.set_active(0)
         hbox_tts_provider.append(tts_provider_label)
         hbox_tts_provider.append(self.openai_tts_combo)
         tts_box.append(hbox_tts_provider)
@@ -745,37 +760,43 @@ class SpeechSettings(Gtk.Window):
         self.notebook.append_page(openai_box, tab_label)
 
     def save_openai_tab(self):
-        openai_api_key = self.openai_api_entry.get_text().strip()
-        if not openai_api_key:
-            openai_api_key = None
-        stt_provider = self.openai_stt_combo.get_active_text()
-        language_active = self.openai_language_combo.get_active_text()
-        language_map = {"Auto": "", "English (en)": "en", "Japanese (ja)": "ja", "Spanish (es)": "es", "French (fr)": "fr"}
-        language_code = language_map.get(language_active, "")
-        if language_code == "":
-            language_code = None
-        task = self.openai_task_combo.get_active_text().lower()
-        initial_prompt = self.openai_prompt_entry.get_text().strip() or None
-
-        # For Open AI TTS, we currently only support GPT-4o Mini TTS.
-        tts_provider = self.openai_tts_combo.get_active_text()
+        display_payload = {
+            "api_key": self.openai_api_entry.get_text(),
+            "stt_provider": self.openai_stt_combo.get_active_text(),
+            "language": self.openai_language_combo.get_active_text(),
+            "task": self.openai_task_combo.get_active_text(),
+            "initial_prompt": self.openai_prompt_entry.get_text(),
+            "tts_provider": self.openai_tts_combo.get_active_text(),
+        }
+        try:
+            prepared_settings = prepare_openai_settings(display_payload)
+        except ValueError as exc:
+            logger.error(
+                "Invalid OpenAI speech settings supplied: %s", exc, exc_info=True
+            )
+            self._show_message(
+                "Error",
+                f"Invalid OpenAI speech settings: {exc}",
+                Gtk.MessageType.ERROR,
+            )
+            return
 
         try:
             self.ATLAS.speech_manager.set_openai_speech_config(
-                api_key=openai_api_key,
-                stt_provider=stt_provider,
-                language=language_code,
-                task=task,
-                initial_prompt=initial_prompt,
-                tts_provider=tts_provider,
+                api_key=prepared_settings.get("api_key"),
+                stt_provider=prepared_settings.get("stt_provider"),
+                language=prepared_settings.get("language"),
+                task=prepared_settings.get("task"),
+                initial_prompt=prepared_settings.get("initial_prompt"),
+                tts_provider=prepared_settings.get("tts_provider"),
             )
         except Exception as exc:
             logger.error(f"Failed to update OpenAI speech configuration: {exc}", exc_info=True)
             self._show_message("Error", f"Failed to update OpenAI speech configuration: {exc}", Gtk.MessageType.ERROR)
             return
 
-        logger.info(f"Open AI STT provider set to {stt_provider}")
-        logger.info("Open AI TTS provider (GPT-4o Mini TTS) initialized.")
+        logger.info("Open AI STT provider set to %s", prepared_settings.get("stt_provider"))
+        logger.info("Open AI TTS provider set to %s", prepared_settings.get("tts_provider"))
 
         self._apply_provider_status_to_entry(
             self.openai_api_entry,

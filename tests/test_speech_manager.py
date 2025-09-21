@@ -187,7 +187,14 @@ if "soundfile" not in sys.modules:
     sys.modules["soundfile"] = soundfile_module
 
 
-from modules.Speech_Services.speech_manager import SpeechManager
+from modules.Speech_Services.speech_manager import (
+    SpeechManager,
+    get_openai_language_options,
+    get_openai_stt_provider_options,
+    get_openai_task_options,
+    get_openai_tts_provider_options,
+    prepare_openai_settings,
+)
 
 
 class _DummyConfig:
@@ -527,6 +534,45 @@ def test_set_openai_speech_config_factory_failure_rolls_back(speech_manager, mon
         )
 
     assert speech_manager.config_manager.openai_calls == []
+
+
+def test_prepare_openai_settings_normalizes_and_validates():
+    payload = {
+        "api_key": "  secret-key  ",
+        "stt_provider": "gPt-4O stt",
+        "language": "English (en)",
+        "task": "Transcribe",
+        "initial_prompt": "  Hello Atlas  ",
+        "tts_provider": "gpt-4o mini tts",
+    }
+
+    prepared = prepare_openai_settings(payload)
+
+    assert prepared["api_key"] == "secret-key"
+    assert prepared["stt_provider"] == "GPT-4o STT"
+    assert prepared["language"] == "en"
+    assert prepared["task"] == "transcribe"
+    assert prepared["initial_prompt"] == "Hello Atlas"
+    assert prepared["tts_provider"] == "GPT-4o Mini TTS"
+
+
+def test_prepare_openai_settings_raises_on_invalid_choice():
+    with pytest.raises(ValueError) as excinfo:
+        prepare_openai_settings({"stt_provider": "Invalid Provider"})
+
+    assert "Invalid Provider" in str(excinfo.value)
+
+
+def test_openai_option_exports_include_expected_entries():
+    stt_labels = [label for label, _ in get_openai_stt_provider_options()]
+    tts_labels = [label for label, _ in get_openai_tts_provider_options()]
+    languages = [label for label, _ in get_openai_language_options()]
+    tasks = [label for label, _ in get_openai_task_options()]
+
+    assert "Whisper Online" in stt_labels
+    assert "GPT-4o Mini TTS" in tts_labels
+    assert "Auto" in languages
+    assert any(label.lower() == "transcribe" for label in tasks)
 
 
 def test_set_google_credentials_reconfigures_providers(speech_manager, monkeypatch):
