@@ -44,10 +44,15 @@ class InfoPopup(Gtk.Window):
 
 
 class GeneralTab:
-    def __init__(self, persona, persona_manager):
-        self.persona = persona
+    def __init__(self, persona_state, persona_manager):
+        self.state = persona_state
         self.persona_manager = persona_manager
-        self.persona_type = self.persona.get('type', {})
+        self.persona_name = (
+            persona_state.get('original_name')
+            or persona_state.get('general', {}).get('name')
+            or ""
+        )
+        self.persona_type = persona_state.get('flags', {}).get('type', {})
         self.user_profile_enabled = False
         self.sys_info_enabled = False
         self.medical_persona_enabled = False
@@ -55,7 +60,10 @@ class GeneralTab:
         self.fitness_persona_enabled = False
         self.language_instructor = False
 
-        self._sync_flags_from_persona()
+        self._sync_flags_from_state()
+
+        self.general_state = self.state.get('general', {})
+        self.content_state = self.general_state.get('content', {})
 
         # Keep references for dynamic widgets/labels
         self.sysinfo_view = None
@@ -90,7 +98,7 @@ class GeneralTab:
         # Persona name
         name_box = self.create_labeled_entry_with_info(
             "Persona Name",
-            self.persona.get("name", ""),
+            self.general_state.get("name", ""),
             "The display name of this persona (used in menus and prompts)."
         )
         general_box.append(name_box)
@@ -98,7 +106,7 @@ class GeneralTab:
         # Name meaning
         meaning_box = self.create_labeled_entry_with_info(
             "Name Meaning",
-            self.persona.get("meaning", ""),
+            self.general_state.get("meaning", ""),
             "A short explanation or expansion that clarifies the persona’s purpose."
         )
         general_box.append(meaning_box)
@@ -170,7 +178,7 @@ class GeneralTab:
         self.frame = frame
         general_box.append(frame)
 
-        content = self.persona.get("content", {})
+        content = self.content_state
         editable_content = content.get("editable_content", "")
         self._set_editable_text(editable_content, update_counter=False)
         self._update_counter()  # initialize counter once
@@ -524,26 +532,38 @@ class GeneralTab:
 
     # ----------------------------- Backend helpers -----------------------------
 
-    def _sync_flags_from_persona(self):
-        persona_type = self.persona.get('type') or {}
+    def _sync_flags_from_state(self):
+        flags = self.state.get('flags') or {}
+        persona_type = flags.get('type') or {}
         self.persona_type = persona_type
 
         def _enabled(entry: Optional[Dict[str, Any]]) -> bool:
             if not entry:
                 return False
-            return entry.get('enabled', 'False') == 'True'
+            return bool(entry.get('enabled', False))
 
-        self.user_profile_enabled = self.persona.get("user_profile_enabled", "False") == "True"
-        self.sys_info_enabled = self.persona.get("sys_info_enabled", "False") == "True"
-        self.medical_persona_enabled = _enabled(persona_type.get("medical_persona"))
-        self.educational_persona = _enabled(persona_type.get("educational_persona"))
-        self.fitness_persona_enabled = _enabled(persona_type.get("fitness_persona"))
-        self.language_instructor = _enabled(persona_type.get("language_instructor"))
+        self.user_profile_enabled = bool(flags.get('user_profile_enabled'))
+        self.sys_info_enabled = bool(flags.get('sys_info_enabled'))
+        self.medical_persona_enabled = _enabled(persona_type.get('medical_persona'))
+        self.educational_persona = _enabled(persona_type.get('educational_persona'))
+        self.fitness_persona_enabled = _enabled(persona_type.get('fitness_persona'))
+        self.language_instructor = _enabled(persona_type.get('language_instructor'))
 
     def _apply_persona_response(self, persona: Dict[str, Any]):
-        self.persona.clear()
-        self.persona.update(persona)
-        self._sync_flags_from_persona()
+        if not persona:
+            return
+
+        name = persona.get('name') or self.persona_name
+        refreshed_state = self.persona_manager.get_editor_state(name)
+        if refreshed_state is None:
+            return
+
+        self.state.clear()
+        self.state.update(refreshed_state)
+        self.persona_name = self.state.get('original_name', name)
+        self.general_state = self.state.get('general', {})
+        self.content_state = self.general_state.get('content', {})
+        self._sync_flags_from_state()
         self.update_end_locked()
         self.update_sys_info_content()
 
@@ -565,7 +585,7 @@ class GeneralTab:
         enabled: bool,
         extras: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        persona_name = self.persona.get('name')
+        persona_name = self.persona_name
         if not persona_name:
             self.persona_manager.show_message('system', 'Persona name is missing; unable to update settings.')
             return False

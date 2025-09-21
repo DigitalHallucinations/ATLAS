@@ -32,6 +32,7 @@ class PersonaManagement:
         self.persona_window = None
         self._persona_message_handler = self._handle_persona_message
         self.ATLAS.register_message_dispatcher(self._persona_message_handler)
+        self._current_editor_state = None
 
     # --------------------------- Helpers ---------------------------
 
@@ -217,19 +218,30 @@ class PersonaManagement:
         if self.persona_window:
             self.persona_window.close()
 
-        persona = self.ATLAS.persona_manager.get_persona(persona_name)
-        self.show_persona_settings(persona)
+        state = self.ATLAS.persona_manager.get_editor_state(persona_name)
+        if state is None:
+            self.ATLAS.persona_manager.show_message(
+                "error",
+                f"Unable to load persona '{persona_name}' for editing.",
+            )
+            return
 
-    def show_persona_settings(self, persona):
+        self.show_persona_settings(state)
+
+    def show_persona_settings(self, persona_state):
         """
         Displays the settings window for a given persona. This window includes
         tabs for General settings, Persona Type settings, and other configuration
         options. The styling is applied consistently with the rest of the UI.
 
         Args:
-            persona (dict): The persona data.
+            persona_state (dict): The typed persona data.
         """
-        title = f"Settings for {persona.get('name')}"
+        self._current_editor_state = persona_state
+        general_state = persona_state.get('general', {})
+        persona_name = general_state.get('name') or persona_state.get('original_name') or "Persona"
+
+        title = f"Settings for {persona_name}"
         settings_window = Gtk.Window(title=title)
         settings_window.set_default_size(560, 820)
         settings_window.set_transient_for(self.parent_window)
@@ -266,7 +278,7 @@ class PersonaManagement:
         main_vbox.append(stack)
 
         # General Tab (with scrollable box)
-        self.general_tab = GeneralTab(persona, self.ATLAS.persona_manager)
+        self.general_tab = GeneralTab(persona_state, self.ATLAS.persona_manager)
         general_box = self.general_tab.get_widget()
         scrolled_general_tab = Gtk.ScrolledWindow()
         scrolled_general_tab.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -275,7 +287,7 @@ class PersonaManagement:
         scrolled_general_tab.set_tooltip_text("Edit persona name, meaning, and prompt content.")
 
         # Persona Type Tab (with scrollable box)
-        self.persona_type_tab = PersonaTypeTab(persona, self.general_tab)
+        self.persona_type_tab = PersonaTypeTab(persona_state, self.general_tab)
         type_box = self.persona_type_tab.get_widget()
         scrolled_persona_type = Gtk.ScrolledWindow()
         scrolled_persona_type.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -284,29 +296,29 @@ class PersonaManagement:
         stack.add_titled(scrolled_persona_type, "persona_type", "Persona Type")
 
         # Provider and Model Tab
-        provider_model_box = self.create_provider_model_tab(persona)
+        provider_model_box = self.create_provider_model_tab(persona_state)
         provider_model_box.set_tooltip_text("Select which provider/model this persona should use.")
         stack.add_titled(provider_model_box, "provider_model", "Provider & Model")
 
         # Speech Provider and Voice Tab
-        speech_voice_box = self.create_speech_voice_tab(persona)
+        speech_voice_box = self.create_speech_voice_tab(persona_state)
         speech_voice_box.set_tooltip_text("Select speech provider and voice defaults for this persona.")
         stack.add_titled(speech_voice_box, "speech_voice", "Speech & Voice")
 
         # Save Button at the bottom
         save_button = Gtk.Button(label="Save")
         save_button.set_tooltip_text("Save all changes to this persona.")
-        save_button.connect("clicked", lambda widget: self.save_persona_settings(persona, settings_window))
+        save_button.connect("clicked", lambda _widget: self.save_persona_settings(settings_window))
         main_vbox.append(save_button)
 
         settings_window.present()
 
-    def create_provider_model_tab(self, persona):
+    def create_provider_model_tab(self, persona_state):
         """
         Creates the Provider and Model settings tab.
 
         Args:
-            persona (dict): The persona data.
+            persona_state (dict): The persona data.
 
         Returns:
             Gtk.Box: The container with provider and model settings.
@@ -319,7 +331,8 @@ class PersonaManagement:
         provider_label.set_tooltip_text("LLM provider key, e.g., 'OpenAI', 'Anthropic', 'HuggingFace', etc.")
         self.provider_entry = Gtk.Entry()
         self.provider_entry.set_placeholder_text("e.g., OpenAI")
-        self.provider_entry.set_text(persona.get("provider", "openai"))
+        provider_defaults = persona_state.get('provider', {})
+        self.provider_entry.set_text(provider_defaults.get("provider", "openai"))
         self.provider_entry.set_tooltip_text("Set which backend/provider this persona uses by default.")
         provider_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         provider_box.append(provider_label)
@@ -332,7 +345,7 @@ class PersonaManagement:
         model_label.set_tooltip_text("Model identifier, e.g., 'gpt-4o', 'claude-3-opus', 'meta-llama-3-70b'.")
         self.model_entry = Gtk.Entry()
         self.model_entry.set_placeholder_text("e.g., gpt-4o")
-        self.model_entry.set_text(persona.get("model", "gpt-4"))
+        self.model_entry.set_text(provider_defaults.get("model", "gpt-4"))
         self.model_entry.set_tooltip_text("Exact model name to request from the provider.")
         model_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         model_box.append(model_label)
@@ -341,12 +354,12 @@ class PersonaManagement:
 
         return provider_model_box
 
-    def create_speech_voice_tab(self, persona):
+    def create_speech_voice_tab(self, persona_state):
         """
         Creates the Speech Provider and Voice settings tab.
 
         Args:
-            persona (dict): The persona data.
+            persona_state (dict): The persona data.
 
         Returns:
             Gtk.Box: The container with speech and voice settings.
@@ -359,7 +372,8 @@ class PersonaManagement:
         speech_provider_label.set_tooltip_text("TTS/STT provider key, e.g., '11labs', 'openai_tts', 'google_tts'.")
         self.speech_provider_entry = Gtk.Entry()
         self.speech_provider_entry.set_placeholder_text("e.g., 11labs")
-        self.speech_provider_entry.set_text(persona.get("Speech_provider", "11labs"))
+        speech_defaults = persona_state.get('speech', {})
+        self.speech_provider_entry.set_text(speech_defaults.get("Speech_provider", "11labs"))
         self.speech_provider_entry.set_tooltip_text("Default speech provider for this persona.")
         speech_provider_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         speech_provider_box.append(speech_provider_label)
@@ -372,7 +386,7 @@ class PersonaManagement:
         voice_label.set_tooltip_text("Voice identifier (depends on the provider).")
         self.voice_entry = Gtk.Entry()
         self.voice_entry.set_placeholder_text("e.g., Jack")
-        self.voice_entry.set_text(persona.get("voice", "jack"))
+        self.voice_entry.set_text(speech_defaults.get("voice", "jack"))
         self.voice_entry.set_tooltip_text("Default voice to synthesize for this persona.")
         voice_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         voice_box.append(voice_label)
@@ -381,15 +395,20 @@ class PersonaManagement:
 
         return speech_voice_box
 
-    def save_persona_settings(self, persona, settings_window):
+    def save_persona_settings(self, settings_window):
         """
         Gathers settings from the General, Persona Type, Provider/Model,
         and Speech/Voice tabs, updates the persona, and then saves the changes.
 
         Args:
-            persona (dict): The persona data to update.
             settings_window (Gtk.Window): The settings window to close after saving.
         """
+        if not self._current_editor_state:
+            self.ATLAS.persona_manager.show_message(
+                "system",
+                "Persona data is unavailable; cannot save.",
+            )
+            return
         general_payload = {
             'name': self.general_tab.get_name(),
             'meaning': self.general_tab.get_meaning(),
@@ -400,20 +419,7 @@ class PersonaManagement:
             },
         }
 
-        values = self.persona_type_tab.get_values() or {}
-        persona_type_payload = {
-            'sys_info_enabled': values.get('sys_info_enabled', False),
-            'user_profile_enabled': values.get('user_profile_enabled', False),
-            'type': {},
-        }
-        for type_name, type_values in (values.get('type') or {}).items():
-            entry = dict(type_values)
-            enabled_value = entry.get('enabled', False)
-            if isinstance(enabled_value, str):
-                entry['enabled'] = enabled_value.lower() == 'true'
-            else:
-                entry['enabled'] = bool(enabled_value)
-            persona_type_payload['type'][type_name] = entry
+        persona_type_payload = self.persona_type_tab.get_values() or {}
 
         provider_payload = {
             'provider': self.provider_entry.get_text(),
@@ -426,7 +432,7 @@ class PersonaManagement:
         }
 
         result = self.ATLAS.persona_manager.update_persona_from_form(
-            persona.get('name'),
+            self._current_editor_state.get('original_name'),
             general_payload,
             persona_type_payload,
             provider_payload,
@@ -434,9 +440,14 @@ class PersonaManagement:
         )
 
         if result.get('success'):
-            if result.get('persona') is not None:
-                persona.clear()
-                persona.update(result['persona'])
+            persona_result = result.get('persona')
+            target_name = general_payload['name']
+            if persona_result:
+                target_name = persona_result.get('name') or target_name
+            refreshed_state = self.ATLAS.persona_manager.get_editor_state(target_name)
+            if refreshed_state is not None:
+                self._current_editor_state.clear()
+                self._current_editor_state.update(refreshed_state)
             print(f"Settings for {general_payload['name']} saved!")
             settings_window.destroy()
         else:
