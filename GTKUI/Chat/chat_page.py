@@ -183,7 +183,9 @@ class ChatPage(Gtk.Window):
         self.update_status_bar()
 
         # Link provider changes to update the status bar.
-        self.ATLAS.notify_provider_changed = self.update_status_bar
+        self._provider_change_handler = self.update_status_bar
+        self.ATLAS.add_provider_change_listener(self._provider_change_handler)
+        self.connect("close-request", self._on_close_request)
 
         self.awaiting_response = False
         self._export_dialog = None
@@ -558,6 +560,12 @@ class ChatPage(Gtk.Window):
             dialog.destroy()
             if self._export_dialog is dialog:
                 self._export_dialog = None
+
+    def _on_close_request(self, *_args):
+        """Unregister provider change listeners before the window closes."""
+
+        self.ATLAS.remove_provider_change_listener(self._provider_change_handler)
+        return False
 
     def update_status_bar(self, provider=None, model=None):
         """
