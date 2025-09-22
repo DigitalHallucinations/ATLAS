@@ -1,8 +1,6 @@
 # GTKUI/Provider_manager/provider_management.py
 
-import threading
 import gi
-import asyncio
 from typing import Any, Dict
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gdk, GLib
@@ -38,24 +36,6 @@ class ProviderManagement:
         self.api_key_entry: Gtk.Entry | None = None
         self.api_key_toggle: Gtk.ToggleButton | None = None
         self.api_key_visible = False
-
-    # ------------------------ Utilities ------------------------
-
-    def _run_async_task(self, coro):
-        """
-        Helper method to run an asynchronous coroutine in a separate thread.
-        This ensures that the UI thread remains responsive.
-
-        Args:
-            coro (coroutine): The coroutine to run.
-        """
-        def task():
-            try:
-                asyncio.run(coro)
-            except Exception as e:
-                # Report errors back to the UI thread.
-                GLib.idle_add(self.show_error_dialog, f"Async task error: {e}")
-        threading.Thread(target=task, daemon=True).start()
 
     def _abs_icon(self, relative_path: str) -> str:
         """Resolve absolute path for an icon relative to this file."""
@@ -143,20 +123,28 @@ class ProviderManagement:
 
     def select_provider(self, provider: str):
         """Attempt to switch the active provider and display any errors."""
-        async def switch_provider():
-            try:
-                await self.ATLAS.set_current_provider(provider)
-            except Exception as exc:
-                self.logger.error(f"Failed to select provider {provider}: {exc}")
-                GLib.idle_add(self.show_error_dialog, str(exc))
-                return
-
+        def handle_success(_result: Any) -> None:
             self.logger.info(f"Provider {provider} selected.")
-            if self.provider_window:
-                GLib.idle_add(self.provider_window.close)
+            GLib.idle_add(self._close_provider_window)
 
-        # Run the provider switch asynchronously to avoid blocking the UI.
-        self._run_async_task(switch_provider())
+        def handle_error(exc: Exception) -> None:
+            message = str(exc) or f"Failed to select provider {provider}."
+            self.logger.error(
+                "Failed to select provider %s: %s", provider, exc, exc_info=True
+            )
+            GLib.idle_add(self.show_error_dialog, message)
+
+        try:
+            self.ATLAS.set_current_provider_in_background(
+                provider,
+                on_success=handle_success,
+                on_error=handle_error,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error(
+                "Unable to schedule provider switch to %s: %s", provider, exc, exc_info=True
+            )
+            self.show_error_dialog(str(exc))
 
     def open_provider_settings(self, provider_name: str):
         """
@@ -426,7 +414,7 @@ class ProviderManagement:
             self.show_error_dialog("API Key / Token cannot be empty when saving credentials.")
             return
 
-        self._run_async_task(self._update_api_key_async(provider_name, new_api_key, window))
+        self._begin_api_key_update(provider_name, new_api_key, window)
 
     def on_save_settings_clicked(self, button, provider_name: str, window: Gtk.Window):
         """Save non-credential provider settings while optionally delegating credential updates."""
@@ -438,7 +426,7 @@ class ProviderManagement:
                 "Save Settings triggered with credential input for %s; delegating to API key handler.",
                 provider_name,
             )
-            self._run_async_task(self._update_api_key_async(provider_name, new_api_key, window))
+            self._begin_api_key_update(provider_name, new_api_key, window)
             return
 
         if self._provider_has_saved_key(provider_name):
@@ -462,36 +450,74 @@ class ProviderManagement:
         status = self._get_provider_key_status(provider_name)
         return bool(status.get("has_key"))
 
-    async def _update_api_key_async(self, provider_name: str, new_api_key: str, window: Gtk.Window):
-        """
-        Asynchronously updates the API key for the given provider and refreshes the provider.
-        Notifies the user upon successful update or error.
+    def _begin_api_key_update(
+        self, provider_name: str, new_api_key: str, window: Gtk.Window
+    ) -> None:
+        """Kick off a provider credential update using the ATLAS background helper."""
 
-        Args:
-            provider_name (str): The name of the provider.
-            new_api_key (str): The new API key to set.
-            window (Gtk.Window): The settings window to close after updating.
-        """
+        def handle_success(result: Dict[str, Any]) -> None:
+            GLib.idle_add(
+                self._handle_api_key_update_result, provider_name, window, result
+            )
+
+        def handle_error(exc: Exception) -> None:
+            self.logger.error(
+                "Failed to save API Key for %s: %s", provider_name, exc, exc_info=True
+            )
+            GLib.idle_add(
+                self._handle_api_key_update_result,
+                provider_name,
+                window,
+                {"success": False, "error": str(exc)},
+            )
+
         try:
-            updater = getattr(self.ATLAS, "update_provider_api_key", None)
-            if not callable(updater):
-                raise AttributeError("ATLAS facade does not expose update_provider_api_key")
+            self.ATLAS.update_provider_api_key_in_background(
+                provider_name,
+                new_api_key,
+                on_success=handle_success,
+                on_error=handle_error,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error(
+                "Unable to schedule API key update for %s: %s",
+                provider_name,
+                exc,
+                exc_info=True,
+            )
+            self.show_error_dialog(f"Failed to save API Key: {str(exc)}")
 
-            result = await updater(provider_name, new_api_key)
-        except Exception as e:  # pragma: no cover - defensive logging
-            self.logger.error(f"Failed to save API Key: {str(e)}", exc_info=True)
-            GLib.idle_add(self.show_error_dialog, f"Failed to save API Key: {str(e)}")
-            return
+    def _handle_api_key_update_result(
+        self, provider_name: str, window: Gtk.Window, result: Dict[str, Any]
+    ) -> bool:
+        """Display the outcome of an API key update on the main thread."""
 
-        if result.get("success"):
-            message = result.get("message") or f"API Key for {provider_name} saved successfully."
+        if isinstance(result, dict) and result.get("success"):
+            message = (
+                result.get("message")
+                or f"API Key for {provider_name} saved successfully."
+            )
             self.logger.info(message)
-            GLib.idle_add(self.show_info_dialog, message)
-            GLib.idle_add(window.close)
+            self.show_info_dialog(message)
+            window.close()
         else:
-            error_message = result.get("error") or f"Failed to save API Key for {provider_name}."
-            self.logger.error(f"Failed to save API Key: {error_message}")
-            GLib.idle_add(self.show_error_dialog, error_message)
+            error_message = "Failed to save API Key."
+            if isinstance(result, dict):
+                error_message = result.get(
+                    "error",
+                    result.get("message", error_message),
+                )
+            self.logger.error("Failed to save API Key for %s: %s", provider_name, error_message)
+            self.show_error_dialog(error_message)
+
+        return False
+
+    def _close_provider_window(self) -> bool:
+        """Close the provider selection window if it is open."""
+
+        if self.provider_window:
+            self.provider_window.close()
+        return False
 
     async def refresh_provider_async(self, provider_name: str):
         """
