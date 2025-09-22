@@ -137,6 +137,7 @@ def test_set_openai_llm_settings_updates_state(config_manager):
         presence_penalty=-0.5,
         max_tokens=2048,
         stream=False,
+        function_calling=False,
         base_url=" https://example/v1 ",
         organization="org-42",
     )
@@ -149,6 +150,7 @@ def test_set_openai_llm_settings_updates_state(config_manager):
     assert math.isclose(stored["presence_penalty"], -0.5)
     assert stored["max_tokens"] == 2048
     assert stored["stream"] is False
+    assert stored["function_calling"] is False
     assert stored["base_url"] == "https://example/v1"
     assert stored["organization"] == "org-42"
 
@@ -193,3 +195,4 @@ def test_get_openai_llm_settings_includes_sampling_defaults(config_manager):
     assert snapshot["frequency_penalty"] == 0.0
     assert snapshot["presence_penalty"] == 0.0
     assert snapshot["max_tokens"] == 4000
+    assert snapshot["function_calling"] is True

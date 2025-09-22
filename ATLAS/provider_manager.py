@@ -156,6 +156,7 @@ class ProviderManager:
         presence_penalty: Optional[float] = None,
         max_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
+        function_calling: Optional[bool] = None,
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -170,6 +171,7 @@ class ProviderManager:
                 presence_penalty=presence_penalty,
                 max_tokens=max_tokens,
                 stream=stream,
+                function_calling=function_calling,
                 base_url=base_url,
                 organization=organization,
             )
@@ -750,6 +752,7 @@ class ProviderManager:
             else defaults.get("presence_penalty", 0.0)
         )
         resolved_stream = stream if stream is not None else defaults.get("stream", True)
+        resolved_function_calling = defaults.get("function_calling", True)
 
         # Log the incoming parameters
         self.logger.info(
@@ -799,6 +802,7 @@ class ProviderManager:
                     top_p=resolved_top_p,
                     frequency_penalty=resolved_frequency_penalty,
                     presence_penalty=resolved_presence_penalty,
+                    function_calling=resolved_function_calling,
                 )
 
             response = await self.generate_response_func(

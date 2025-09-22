@@ -454,6 +454,7 @@ class ATLAS:
         presence_penalty: Optional[float] = None,
         max_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
+        function_calling: Optional[bool] = None,
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -472,6 +473,7 @@ class ATLAS:
             presence_penalty=presence_penalty,
             max_tokens=max_tokens,
             stream=stream,
+            function_calling=function_calling,
             base_url=base_url,
             organization=organization,
         )

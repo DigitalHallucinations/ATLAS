@@ -151,6 +151,11 @@ class OpenAISettingsWindow(Gtk.Window):
         grid.attach(self.stream_toggle, 0, row, 2, 1)
 
         row += 1
+        self.function_call_toggle = Gtk.CheckButton(label="Allow automatic tool calls")
+        self.function_call_toggle.set_halign(Gtk.Align.START)
+        grid.attach(self.function_call_toggle, 0, row, 2, 1)
+
+        row += 1
         org_label = Gtk.Label(label="Organization (optional):")
         org_label.set_xalign(0.0)
         grid.attach(org_label, 0, row, 1, 1)
@@ -236,6 +241,7 @@ class OpenAISettingsWindow(Gtk.Window):
         self.presence_penalty_spin.set_value(float(settings.get("presence_penalty", 0.0)))
         self.max_tokens_spin.set_value(float(settings.get("max_tokens", 4000)))
         self.stream_toggle.set_active(bool(settings.get("stream", True)))
+        self.function_call_toggle.set_active(bool(settings.get("function_calling", True)))
         self.organization_entry.set_text(settings.get("organization") or "")
 
         self._begin_model_refresh(settings)
@@ -503,6 +509,7 @@ class OpenAISettingsWindow(Gtk.Window):
             "presence_penalty": self.presence_penalty_spin.get_value(),
             "max_tokens": self.max_tokens_spin.get_value_as_int(),
             "stream": self.stream_toggle.get_active(),
+            "function_calling": self.function_call_toggle.get_active(),
             "base_url": base_url,
             "organization": self.organization_entry.get_text().strip() or None,
         }
