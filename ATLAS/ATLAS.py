@@ -201,6 +201,56 @@ class ATLAS:
 
         self._require_persona_manager().show_message(role, message)
 
+    def send_chat_message_async(
+        self,
+        message: str,
+        *,
+        on_success: Optional[Callable[[str, str], None]] = None,
+        on_error: Optional[Callable[[str, Exception], None]] = None,
+        thread_name: Optional[str] = None,
+    ) -> Future[str]:
+        """Dispatch ``message`` via the chat session on a background worker.
+
+        The provided callbacks are invoked with the active persona's name along
+        with the generated response (for successes) or the raised exception (for
+        failures).  This keeps persona lookups consolidated within the backend
+        layer so UI components only handle widget updates.
+        """
+
+        session = getattr(self, "chat_session", None)
+        if session is None:
+            raise RuntimeError("Chat session is not initialized.")
+
+        def _invoke_success(response: str) -> None:
+            if on_success is None:
+                return
+            persona_name = self.get_active_persona_name()
+            try:
+                on_success(persona_name, response)
+            except Exception as callback_exc:  # noqa: BLE001 - log unexpected UI failures.
+                self.logger.error(
+                    "Chat success callback failed: %s", callback_exc, exc_info=True
+                )
+
+        def _invoke_error(exc: Exception) -> None:
+            persona_name = self.get_active_persona_name()
+            if on_error is None:
+                self.logger.error("Chat background task failed: %s", exc, exc_info=True)
+                return
+            try:
+                on_error(persona_name, exc)
+            except Exception as callback_exc:  # noqa: BLE001 - log unexpected UI failures.
+                self.logger.error(
+                    "Chat error callback failed: %s", callback_exc, exc_info=True
+                )
+
+        return session.run_in_background(
+            lambda: session.send_message(message),
+            on_success=_invoke_success if on_success is not None else None,
+            on_error=_invoke_error,
+            thread_name=thread_name or "ChatResponseWorker",
+        )
+
     def get_available_providers(self) -> List[str]:
         """
         Retrieve all available providers from the ProviderManager.
