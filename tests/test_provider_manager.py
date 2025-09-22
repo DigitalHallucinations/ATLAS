@@ -2,6 +2,279 @@ import asyncio
 import sys
 import types
 
+if "gi" not in sys.modules:
+    gi_stub = types.ModuleType("gi")
+
+    def _require_version(_name, _version):  # pragma: no cover - simple stub
+        return None
+
+    gi_stub.require_version = _require_version
+
+    gtk_module = types.ModuleType("Gtk")
+
+    class _Widget:
+        def __init__(self, *args, **kwargs):
+            self.children = []
+
+        def set_tooltip_text(self, text):
+            self.tooltip_text = text
+
+        def set_hexpand(self, value):
+            self.hexpand = value
+
+        def set_vexpand(self, value):
+            self.vexpand = value
+
+        def set_halign(self, value):
+            self.halign = value
+
+        def set_valign(self, value):
+            self.valign = value
+
+        def set_margin_top(self, value):
+            self.margin_top = value
+
+        def set_margin_bottom(self, value):
+            self.margin_bottom = value
+
+        def set_margin_start(self, value):
+            self.margin_start = value
+
+        def set_margin_end(self, value):
+            self.margin_end = value
+
+    class Window(_Widget):
+        def __init__(self, title=""):
+            super().__init__()
+            self.title = title
+            self.child = None
+            self.modal = False
+            self.presented = False
+            self.closed = False
+
+        def set_transient_for(self, parent):
+            self.transient_for = parent
+
+        def set_modal(self, modal):
+            self.modal = modal
+
+        def set_default_size(self, width, height):
+            self.default_size = (width, height)
+
+        def set_child(self, child):
+            self.child = child
+
+        def present(self):
+            self.presented = True
+
+        def close(self):
+            self.closed = True
+
+    class Box(_Widget):
+        def __init__(self, orientation=None, spacing=0):
+            super().__init__()
+            self.orientation = orientation
+            self.spacing = spacing
+
+        def append(self, child):
+            self.children.append(child)
+
+    class Grid(_Widget):
+        def __init__(self, column_spacing=0, row_spacing=0):
+            super().__init__()
+            self.column_spacing = column_spacing
+            self.row_spacing = row_spacing
+            self.attachments = []
+
+        def attach(self, child, column, row, width, height):
+            self.attachments.append((child, column, row, width, height))
+            self.children.append(child)
+
+    class Label(_Widget):
+        def __init__(self, label=""):
+            super().__init__()
+            self.label = label
+
+        def set_xalign(self, value):
+            self.xalign = value
+
+        def set_yalign(self, value):
+            self.yalign = value
+
+    class ComboBoxText(_Widget):
+        def __init__(self):
+            super().__init__()
+            self._items = []
+            self._active = -1
+
+        def append_text(self, text):
+            self._items.append(text)
+
+        def remove_all(self):
+            self._items = []
+            self._active = -1
+
+        def set_active(self, index):
+            if 0 <= index < len(self._items):
+                self._active = index
+
+        def get_active_text(self):
+            if 0 <= self._active < len(self._items):
+                return self._items[self._active]
+            return None
+
+    class Adjustment:
+        def __init__(self, value=0.0, lower=0.0, upper=1.0, step_increment=0.1, page_increment=0.1):
+            self.value = value
+            self.lower = lower
+            self.upper = upper
+            self.step_increment = step_increment
+            self.page_increment = page_increment
+
+    class SpinButton(_Widget):
+        def __init__(self, adjustment=None, digits=0):
+            super().__init__()
+            self.adjustment = adjustment or Adjustment()
+            self.digits = digits
+            self.value = self.adjustment.value
+
+        def set_increments(self, step, page):
+            self.step_increment = step
+            self.page_increment = page
+
+        def set_value(self, value):
+            self.value = value
+
+        def get_value(self):
+            return self.value
+
+        def get_value_as_int(self):
+            return int(round(self.value))
+
+    class CheckButton(_Widget):
+        def __init__(self, label=""):
+            super().__init__()
+            self.label = label
+            self.active = False
+            self._handlers = {}
+
+        def set_active(self, value):
+            self.active = bool(value)
+
+        def get_active(self):
+            return self.active
+
+        def connect(self, signal, callback):
+            self._handlers.setdefault(signal, []).append(callback)
+
+    class Entry(_Widget):
+        def __init__(self):
+            super().__init__()
+            self.text = ""
+            self.placeholder = ""
+            self.visible = True
+
+        def set_text(self, text):
+            self.text = text
+
+        def get_text(self):
+            return self.text
+
+        def set_placeholder_text(self, text):
+            self.placeholder = text
+
+        def set_visibility(self, value):
+            self.visible = bool(value)
+
+    class Button(_Widget):
+        def __init__(self, label=""):
+            super().__init__()
+            self.label = label
+            self._handlers = {}
+
+        def connect(self, signal, callback):
+            self._handlers.setdefault(signal, []).append(callback)
+
+    class MessageType:
+        ERROR = "error"
+        INFO = "info"
+
+    class ButtonsType:
+        OK = "ok"
+
+    class MessageDialog(Window):
+        def __init__(self, transient_for=None, modal=False, message_type=None, buttons=None, text=""):
+            super().__init__(title=text)
+            self.transient_for = transient_for
+            self.modal = modal
+            self.message_type = message_type
+            self.buttons = buttons
+            self.secondary_text = ""
+
+        def set_secondary_text(self, text):
+            self.secondary_text = text
+
+        def connect(self, signal, callback):
+            if signal == "response":
+                self._response_handler = callback
+
+        def present(self):
+            self.presented = True
+
+    class Orientation:
+        VERTICAL = "vertical"
+        HORIZONTAL = "horizontal"
+
+    class Align:
+        START = "start"
+        END = "end"
+
+    class AccessibleRole:
+        BUTTON = "button"
+
+    class PolicyType:
+        AUTOMATIC = "automatic"
+        NEVER = "never"
+
+    gtk_module.Window = Window
+    gtk_module.Box = Box
+    gtk_module.Grid = Grid
+    gtk_module.Label = Label
+    gtk_module.ComboBoxText = ComboBoxText
+    gtk_module.Adjustment = Adjustment
+    gtk_module.SpinButton = SpinButton
+    gtk_module.CheckButton = CheckButton
+    gtk_module.Entry = Entry
+    gtk_module.Button = Button
+    gtk_module.MessageDialog = MessageDialog
+    gtk_module.MessageType = MessageType
+    gtk_module.ButtonsType = ButtonsType
+    gtk_module.Orientation = Orientation
+    gtk_module.Align = Align
+    gtk_module.AccessibleRole = AccessibleRole
+    gtk_module.PolicyType = PolicyType
+
+    repository_module = types.ModuleType("gi.repository")
+    repository_module.Gtk = gtk_module
+
+    glib_module = types.ModuleType("GLib")
+
+    def idle_add(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    glib_module.idle_add = idle_add
+    repository_module.GLib = glib_module
+
+    gdk_module = types.ModuleType("Gdk")
+    repository_module.Gdk = gdk_module
+
+    sys.modules["gi"] = gi_stub
+    sys.modules["gi"].repository = repository_module
+    sys.modules["gi.repository"] = repository_module
+    sys.modules["gi.repository.Gtk"] = gtk_module
+    sys.modules["gi.repository.GLib"] = glib_module
+    sys.modules["gi.repository.Gdk"] = gdk_module
+
 if "tenacity" not in sys.modules:
     tenacity_stub = types.ModuleType("tenacity")
 
@@ -132,6 +405,7 @@ import pytest
 
 import ATLAS.provider_manager as provider_manager_module
 from ATLAS.provider_manager import ProviderManager
+from GTKUI.Provider_manager.Settings.OA_settings import OpenAISettingsWindow
 
 
 class DummyConfig:
@@ -139,9 +413,45 @@ class DummyConfig:
         self._root_path = root_path
         self._hf_token = ""
         self._api_keys = {}
+        self._default_model = "gpt-4o"
+        self._openai_settings = {
+            "model": "gpt-4o",
+            "temperature": 0.0,
+            "max_tokens": 4000,
+            "stream": True,
+            "organization": None,
+        }
+        self._openai_api_key = ""
 
     def get_default_provider(self):
         return "OpenAI"
+
+    def get_openai_llm_settings(self):
+        return dict(self._openai_settings)
+
+    def set_openai_llm_settings(
+        self,
+        *,
+        model,
+        temperature=None,
+        max_tokens=None,
+        stream=None,
+        api_key=None,
+        organization=None,
+    ):
+        if model:
+            self._openai_settings["model"] = model
+            self._default_model = model
+        if temperature is not None:
+            self._openai_settings["temperature"] = float(temperature)
+        if max_tokens is not None:
+            self._openai_settings["max_tokens"] = int(max_tokens)
+        if stream is not None:
+            self._openai_settings["stream"] = bool(stream)
+        self._openai_settings["organization"] = organization
+        if api_key is not None:
+            self._openai_api_key = api_key
+        return dict(self._openai_settings)
 
     def get_app_root(self):
         return self._root_path
@@ -165,7 +475,7 @@ class DummyConfig:
         return self._hf_token
 
     def get_openai_api_key(self):
-        return self._api_keys.get("OpenAI", "")
+        return self._openai_api_key or self._api_keys.get("OpenAI", "")
 
     def set_huggingface_api_key(self, token):
         self.set_hf_token(token)
@@ -479,3 +789,71 @@ def test_get_provider_api_key_status_with_saved_key(provider_manager):
     assert metadata["length"] == len("sk-test")
     assert metadata["hint"] == "\u2022" * len("sk-test")
     assert metadata["source"] == "environment"
+
+
+def test_set_openai_llm_settings_updates_provider_state(provider_manager):
+    result = provider_manager.set_openai_llm_settings(
+        model="gpt-4o-mini",
+        temperature=0.6,
+        max_tokens=1024,
+        stream=False,
+        api_key="sk-live",
+        organization="org-99",
+    )
+
+    assert result["success"] is True
+    settings = provider_manager.get_openai_llm_settings()
+    assert settings["model"] == "gpt-4o-mini"
+    assert settings["stream"] is False
+    assert provider_manager.model_manager.models["OpenAI"][0] == "gpt-4o-mini"
+    assert provider_manager.current_model == "gpt-4o-mini"
+    assert provider_manager.config_manager.get_openai_api_key() == "sk-live"
+
+
+def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
+    atlas_stub = types.SimpleNamespace()
+
+    saved_payload = {}
+
+    def fake_set_openai_llm_settings(**kwargs):
+        saved_payload.update(kwargs)
+        return {"success": True, "message": "saved"}
+
+    atlas_stub.provider_manager = provider_manager
+    atlas_stub.set_openai_llm_settings = fake_set_openai_llm_settings
+    atlas_stub.get_openai_llm_settings = lambda: {
+        "model": "gpt-4o-mini",
+        "temperature": 0.65,
+        "max_tokens": 2048,
+        "stream": False,
+        "organization": "org-42",
+    }
+
+    provider_manager.config_manager._openai_api_key = "sk-stored"
+
+    window = OpenAISettingsWindow(atlas_stub, provider_manager.config_manager, None)
+
+    assert window.model_combo.get_active_text() == "gpt-4o-mini"
+    assert window.temperature_spin.get_value() == 0.65
+    assert window.max_tokens_spin.get_value_as_int() == 2048
+    assert window.stream_toggle.get_active() is False
+    assert window.api_key_entry.get_text() == "sk-stored"
+    assert window.organization_entry.get_text() == "org-42"
+
+    window.model_combo.set_active(1)
+    window.temperature_spin.set_value(0.5)
+    window.max_tokens_spin.set_value(4096)
+    window.stream_toggle.set_active(True)
+    window.api_key_entry.set_text("sk-new")
+    window.organization_entry.set_text("org-new")
+
+    window.on_save_clicked(window.model_combo)
+
+    assert saved_payload["model"] == "gpt-4o"
+    assert saved_payload["temperature"] == 0.5
+    assert saved_payload["max_tokens"] == 4096
+    assert saved_payload["stream"] is True
+    assert saved_payload["api_key"] == "sk-new"
+    assert saved_payload["organization"] == "org-new"
+    assert window._last_message[0] == "Success"
+    assert window.closed is True

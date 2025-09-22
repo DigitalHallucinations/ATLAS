@@ -433,6 +433,43 @@ class ATLAS:
         """
         return self.provider_manager.get_current_model()
 
+    def get_openai_llm_settings(self) -> Dict[str, Any]:
+        """Expose the persisted OpenAI LLM defaults."""
+
+        provider_manager = getattr(self, "provider_manager", None)
+        if provider_manager is not None:
+            getter = getattr(provider_manager, "get_openai_llm_settings", None)
+            if callable(getter):
+                return getter()
+
+        return self.config_manager.get_openai_llm_settings()
+
+    def set_openai_llm_settings(
+        self,
+        *,
+        model: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        stream: Optional[bool] = None,
+        api_key: Optional[str] = None,
+        organization: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist OpenAI defaults through the provider manager facade."""
+
+        manager = self._require_provider_manager()
+        setter = getattr(manager, "set_openai_llm_settings", None)
+        if not callable(setter):
+            raise AttributeError("Provider manager does not support OpenAI settings updates.")
+
+        return setter(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=stream,
+            api_key=api_key,
+            organization=organization,
+        )
+
     def get_chat_status_summary(self) -> Dict[str, str]:
         """Return a consolidated snapshot of chat-related status information."""
 
