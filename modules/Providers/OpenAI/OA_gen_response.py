@@ -43,6 +43,9 @@ class OpenAIGenerator:
         model: str = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
         stream: Optional[bool] = None,
         current_persona=None,
         conversation_manager=None,
@@ -69,6 +72,12 @@ class OpenAIGenerator:
                 max_tokens = int(settings.get("max_tokens", 4000))
             if temperature is None:
                 temperature = float(settings.get("temperature", 0.0))
+            if top_p is None:
+                top_p = float(settings.get("top_p", 1.0))
+            if frequency_penalty is None:
+                frequency_penalty = float(settings.get("frequency_penalty", 0.0))
+            if presence_penalty is None:
+                presence_penalty = float(settings.get("presence_penalty", 0.0))
             if stream is None:
                 stream = bool(settings.get("stream", True))
 
@@ -110,6 +119,9 @@ class OpenAIGenerator:
                 n=1,
                 stop=None,
                 temperature=temperature,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
                 stream=stream,
                 functions=functions,
                 function_call="auto" if functions else None  # Always include if functions exist
@@ -142,7 +154,10 @@ class OpenAIGenerator:
                         functions,
                         current_persona,
                         temperature,
-                        model
+                        model,
+                        top_p,
+                        frequency_penalty,
+                        presence_penalty,
                     )
                 self.logger.info("No function call detected in response.")
                 return message.content
@@ -179,7 +194,10 @@ class OpenAIGenerator:
                     functions,
                     current_persona,
                     temperature,
-                    response.model
+                    response.model,
+                    top_p,
+                    frequency_penalty,
+                    presence_penalty,
                 )
                 yield result
                 full_response += result
@@ -198,7 +216,10 @@ class OpenAIGenerator:
         functions,
         current_persona,
         temperature,
-        model
+        model,
+        top_p,
+        frequency_penalty,
+        presence_penalty,
     ):
         self.logger.info(f"Handling function call: {message.get('function_call')}")
         tool_response = await use_tool(
@@ -210,7 +231,9 @@ class OpenAIGenerator:
             functions,
             current_persona,
             temperature,
-            1.0,  # Assuming top_p_var is 1.0
+            top_p,
+            frequency_penalty,
+            presence_penalty,
             conversation_manager,
             self.config_manager
         )
@@ -228,6 +251,9 @@ async def generate_response(
     model: str = None,
     max_tokens: int = 4000,
     temperature: float = 0.0,
+    top_p: float = 1.0,
+    frequency_penalty: float = 0.0,
+    presence_penalty: float = 0.0,
     stream: bool = True,
     current_persona=None,
     conversation_manager=None,
@@ -241,6 +267,9 @@ async def generate_response(
         model,
         max_tokens,
         temperature,
+        top_p,
+        frequency_penalty,
+        presence_penalty,
         stream,
         current_persona,
         conversation_manager,

@@ -151,6 +151,9 @@ class ProviderManager:
         *,
         model: Optional[str],
         temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
         max_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
         base_url: Optional[str] = None,
@@ -162,6 +165,9 @@ class ProviderManager:
             settings = self.config_manager.set_openai_llm_settings(
                 model=model,
                 temperature=temperature,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
                 max_tokens=max_tokens,
                 stream=stream,
                 base_url=base_url,
@@ -686,6 +692,9 @@ class ProviderManager:
         provider: str = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
         stream: Optional[bool] = None,
         current_persona=None,
         functions=None,
@@ -700,6 +709,9 @@ class ProviderManager:
             provider (str, optional): The provider to use. If None, uses the current provider.
             max_tokens (int, optional): Maximum number of tokens. Uses saved default when omitted.
             temperature (float, optional): Sampling temperature. Uses saved default when omitted.
+            top_p (float, optional): Nucleus sampling value. Uses saved default when omitted.
+            frequency_penalty (float, optional): Frequency penalty. Uses saved default when omitted.
+            presence_penalty (float, optional): Presence penalty. Uses saved default when omitted.
             stream (bool, optional): Whether to stream the response. Uses saved default when omitted.
             current_persona (optional): The current persona.
             functions (optional): Functions to use.
@@ -725,6 +737,17 @@ class ProviderManager:
         resolved_max_tokens = max_tokens if max_tokens is not None else defaults.get("max_tokens", 4000)
         resolved_temperature = (
             temperature if temperature is not None else defaults.get("temperature", 0.0)
+        )
+        resolved_top_p = top_p if top_p is not None else defaults.get("top_p", 1.0)
+        resolved_frequency_penalty = (
+            frequency_penalty
+            if frequency_penalty is not None
+            else defaults.get("frequency_penalty", 0.0)
+        )
+        resolved_presence_penalty = (
+            presence_penalty
+            if presence_penalty is not None
+            else defaults.get("presence_penalty", 0.0)
         )
         resolved_stream = stream if stream is not None else defaults.get("stream", True)
 
@@ -761,15 +784,26 @@ class ProviderManager:
                 self.logger.error("No response generation function is set for the current provider.")
                 raise ValueError("generate_response_func is None. Ensure the provider is properly initialized.")
 
+            call_kwargs = {
+                "messages": messages,
+                "model": resolved_model,
+                "max_tokens": resolved_max_tokens,
+                "temperature": resolved_temperature,
+                "stream": resolved_stream,
+                "current_persona": current_persona,
+                "functions": functions,
+            }
+
+            if requested_provider == "OpenAI":
+                call_kwargs.update(
+                    top_p=resolved_top_p,
+                    frequency_penalty=resolved_frequency_penalty,
+                    presence_penalty=resolved_presence_penalty,
+                )
+
             response = await self.generate_response_func(
                 self.config_manager,
-                messages=messages,
-                model=resolved_model,
-                max_tokens=resolved_max_tokens,
-                temperature=resolved_temperature,
-                stream=resolved_stream,
-                current_persona=current_persona,
-                functions=functions
+                **call_kwargs,
             )
 
             self.logger.info(f"API call completed in {time.time() - start_time:.2f} seconds")
@@ -806,17 +840,28 @@ class ProviderManager:
 
         self.logger.info(f"Using fallback provider {fallback_provider} for {llm_call_type}")
 
+        call_kwargs = {
+            "messages": messages,
+            "model": fallback_config.get('model'),
+            "max_tokens": fallback_config.get('max_tokens', 4000),
+            "temperature": fallback_config.get('temperature', 0.0),
+            "stream": fallback_config.get('stream', True),
+            "current_persona": fallback_config.get('current_persona'),
+            "functions": fallback_config.get('functions'),
+            "llm_call_type": llm_call_type,
+            **kwargs,
+        }
+
+        if fallback_provider == "OpenAI":
+            call_kwargs.update(
+                top_p=fallback_config.get('top_p', 1.0),
+                frequency_penalty=fallback_config.get('frequency_penalty', 0.0),
+                presence_penalty=fallback_config.get('presence_penalty', 0.0),
+            )
+
         return await fallback_function(
             self.config_manager,
-            messages=messages,
-            model=fallback_config.get('model'),
-            max_tokens=fallback_config.get('max_tokens', 4000),
-            temperature=fallback_config.get('temperature', 0.0),
-            stream=fallback_config.get('stream', True),
-            current_persona=fallback_config.get('current_persona'),
-            functions=fallback_config.get('functions'),
-            llm_call_type=llm_call_type,
-            **kwargs
+            **call_kwargs,
         )
 
     async def process_streaming_response(self, response: AsyncIterator[Dict]) -> str:
