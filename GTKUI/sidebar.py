@@ -37,6 +37,7 @@ class Sidebar(Gtk.Window):
         self.ATLAS = atlas
         self.persona_management = PersonaManagement(self.ATLAS, self)
         self.provider_management = ProviderManagement(self.ATLAS, self)
+        self._chat_page = None
 
         # Set default window size and style.
         self.set_default_size(80, 600)
@@ -142,11 +143,19 @@ class Sidebar(Gtk.Window):
         Opens the chat page.
         """
         if self.ATLAS.is_initialized():
-            chat_page = ChatPage(self.ATLAS)
-            self.ATLAS.chat_page = chat_page
-            chat_page.present()
+            if self._chat_page is None:
+                chat_page = ChatPage(self.ATLAS)
+                chat_page.connect("close-request", self._on_chat_page_close_request)
+                self._chat_page = chat_page
+            self._chat_page.present()
         else:
             self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+
+    def _on_chat_page_close_request(self, *_args):
+        """Reset the tracked chat page reference when the window closes."""
+
+        self._chat_page = None
+        return False
 
     def show_persona_menu(self):
         """
