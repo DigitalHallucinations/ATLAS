@@ -169,12 +169,31 @@ class ProviderManagement:
             GLib.idle_add(self.provider_window.close)
 
         if provider_name == "HuggingFace":
-            result = self.ATLAS.provider_manager.ensure_huggingface_ready()
-            if not result.get("success"):
-                message = result.get("error", "Unable to open HuggingFace settings.")
-                self.logger.error("Failed to prepare HuggingFace settings window: %s", message)
+            try:
+                result = self.ATLAS.ensure_huggingface_ready()
+            except AttributeError:
+                message = "HuggingFace support is unavailable in this build."
+                self.logger.error(message)
                 self.show_error_dialog(message)
                 return
+            except Exception as exc:
+                message = str(exc) or "Unable to open HuggingFace settings."
+                self.logger.error(
+                    "Failed to prepare HuggingFace settings window: %s", message, exc_info=True
+                )
+                self.show_error_dialog(message)
+                return
+
+            if not isinstance(result, dict) or not result.get("success"):
+                message = "Unable to open HuggingFace settings."
+                if isinstance(result, dict):
+                    message = result.get("error", message)
+                self.logger.error(
+                    "Failed to prepare HuggingFace settings window: %s", message
+                )
+                self.show_error_dialog(message)
+                return
+
             self.show_huggingface_settings()
         else:
             self.show_provider_settings(provider_name)
@@ -364,12 +383,11 @@ class ProviderManagement:
         entry.set_tooltip_text(tooltip)
 
     def _get_provider_key_status(self, provider_name: str) -> Dict[str, Any]:
-        """Fetch sanitized provider credential details from the provider manager."""
+        """Fetch sanitized provider credential details via the ATLAS facade."""
 
-        manager = getattr(self.ATLAS, "provider_manager", None)
-        getter = getattr(manager, "get_provider_api_key_status", None)
+        getter = getattr(self.ATLAS, "get_provider_api_key_status", None)
         if not callable(getter):
-            self.logger.debug("Provider manager does not expose credential status helper.")
+            self.logger.debug("ATLAS facade does not expose credential status helper.")
             return {"has_key": False, "metadata": {}}
 
         try:
@@ -445,7 +463,11 @@ class ProviderManagement:
             window (Gtk.Window): The settings window to close after updating.
         """
         try:
-            result = await self.ATLAS.provider_manager.update_provider_api_key(provider_name, new_api_key)
+            updater = getattr(self.ATLAS, "update_provider_api_key", None)
+            if not callable(updater):
+                raise AttributeError("ATLAS facade does not expose update_provider_api_key")
+
+            result = await updater(provider_name, new_api_key)
         except Exception as e:  # pragma: no cover - defensive logging
             self.logger.error(f"Failed to save API Key: {str(e)}", exc_info=True)
             GLib.idle_add(self.show_error_dialog, f"Failed to save API Key: {str(e)}")
@@ -469,13 +491,28 @@ class ProviderManagement:
         Args:
             provider_name (str): The name of the provider to refresh.
         """
-        if provider_name == self.ATLAS.provider_manager.current_llm_provider:
-            try:
-                await self.ATLAS.provider_manager.set_current_provider(provider_name)
-                self.logger.info(f"Provider {provider_name} refreshed with new API key.")
-            except Exception as e:
-                self.logger.error(f"Error refreshing provider {provider_name}: {e}")
-                GLib.idle_add(self.show_error_dialog, f"Error refreshing provider {provider_name}: {e}")
+        refresher = getattr(self.ATLAS, "refresh_current_provider", None)
+        if not callable(refresher):
+            self.logger.error("ATLAS facade does not expose refresh_current_provider.")
+            return
+
+        try:
+            result = await refresher(provider_name)
+        except Exception as e:  # pragma: no cover - defensive logging
+            self.logger.error(f"Error refreshing provider {provider_name}: {e}", exc_info=True)
+            GLib.idle_add(
+                self.show_error_dialog,
+                f"Error refreshing provider {provider_name}: {e}",
+            )
+            return
+
+        if isinstance(result, dict) and not result.get("success"):
+            message = result.get("error") or f"Provider {provider_name} was not refreshed."
+            self.logger.info(message)
+            GLib.idle_add(self.show_info_dialog, message)
+            return
+
+        self.logger.info(f"Provider {provider_name} refreshed with new API key.")
 
     # ------------------------ Dialogs & CSS ------------------------
 

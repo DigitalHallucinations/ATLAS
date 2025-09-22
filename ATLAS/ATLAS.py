@@ -276,6 +276,49 @@ class ATLAS:
 
         return self._require_provider_manager().get_provider_api_key_status(provider_name)
 
+    async def update_provider_api_key(
+        self, provider_name: str, new_api_key: Optional[str]
+    ) -> Dict[str, Any]:
+        """Persist a provider API key through the provider manager facade."""
+
+        return await self._require_provider_manager().update_provider_api_key(
+            provider_name, new_api_key
+        )
+
+    def ensure_huggingface_ready(self) -> Dict[str, Any]:
+        """Ensure the HuggingFace helper is initialized via the provider manager."""
+
+        return self._require_provider_manager().ensure_huggingface_ready()
+
+    async def refresh_current_provider(
+        self, provider_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Reload the active provider configuration when the names align."""
+
+        manager = self._require_provider_manager()
+        active_provider = manager.get_current_provider()
+        target_provider = provider_name or active_provider
+
+        if not target_provider:
+            return {
+                "success": False,
+                "error": "No active provider is configured.",
+            }
+
+        if target_provider != active_provider:
+            return {
+                "success": False,
+                "error": f"Provider '{target_provider}' is not the active provider.",
+                "active_provider": active_provider,
+            }
+
+        await manager.set_current_provider(active_provider)
+        return {
+            "success": True,
+            "message": f"Provider {active_provider} refreshed.",
+            "provider": active_provider,
+        }
+
     async def set_current_provider(self, provider: str):
         """
         Asynchronously set the current provider in the ProviderManager.
