@@ -51,6 +51,8 @@ def config_manager(tmp_path, monkeypatch):
             "ANTHROPIC_API_KEY": None,
             "GROK_API_KEY": None,
             "APP_ROOT": tmp_path.as_posix(),
+            "OPENAI_BASE_URL": os.getenv("OPENAI_BASE_URL"),
+            "OPENAI_ORGANIZATION": os.getenv("OPENAI_ORGANIZATION"),
         },
     )
     monkeypatch.setattr(ConfigManager, "_load_yaml_config", lambda self: {})
@@ -123,3 +125,45 @@ def test_set_hf_token_updates_state(config_manager):
         config_manager._recorded_set_key[(config_manager._env_path, "HUGGINGFACE_API_KEY")]
         == "hf-token"
     )
+
+
+def test_set_openai_llm_settings_updates_state(config_manager):
+    result = config_manager.set_openai_llm_settings(
+        model="gpt-4o-mini",
+        temperature=0.75,
+        max_tokens=2048,
+        stream=False,
+        base_url="https://example/v1",
+        organization="org-42",
+    )
+
+    assert result["model"] == "gpt-4o-mini"
+    stored = config_manager.config["OPENAI_LLM"]
+    assert stored["temperature"] == 0.75
+    assert stored["max_tokens"] == 2048
+    assert stored["stream"] is False
+    assert stored["base_url"] == "https://example/v1"
+    assert stored["organization"] == "org-42"
+
+    assert config_manager.config["DEFAULT_MODEL"] == "gpt-4o-mini"
+    assert os.environ["DEFAULT_MODEL"] == "gpt-4o-mini"
+    assert os.environ["OPENAI_BASE_URL"] == "https://example/v1"
+    assert os.environ["OPENAI_ORGANIZATION"] == "org-42"
+    assert (
+        config_manager._recorded_set_key[(config_manager._env_path, "DEFAULT_MODEL")]
+        == "gpt-4o-mini"
+    )
+
+
+def test_set_openai_llm_settings_clears_optional_fields(config_manager):
+    config_manager.set_openai_llm_settings(
+        model="gpt-4o",
+        base_url="  ",
+        organization="",
+    )
+
+    stored = config_manager.config["OPENAI_LLM"]
+    assert stored["base_url"] is None
+    assert stored["organization"] is None
+    assert "OPENAI_BASE_URL" not in os.environ
+    assert "OPENAI_ORGANIZATION" not in os.environ
