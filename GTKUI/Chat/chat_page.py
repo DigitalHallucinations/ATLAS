@@ -233,7 +233,7 @@ class ChatPage(Gtk.Window):
         message = buffer.get_text(start_iter, end_iter, True).strip()
         if not message:
             return
-        user_name = self.ATLAS.user
+        user_name = self.ATLAS.get_user_display_name()
         self.add_message_bubble(user_name, message, is_user=True)
         buffer.set_text("")
         self.input_textview.grab_focus()

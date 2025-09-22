@@ -421,10 +421,13 @@ class _FakeTextView:
 
 class _AtlasStub:
     def __init__(self, user="Tester"):
-        self.user = user
+        self._user_display_name = user
         self.calls = []
         self.last_success = None
         self.last_error = None
+
+    def get_user_display_name(self):
+        return self._user_display_name
 
     def send_chat_message_async(
         self,
