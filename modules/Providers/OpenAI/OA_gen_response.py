@@ -51,7 +51,8 @@ class OpenAIGenerator:
         conversation_manager=None,
         user=None,
         conversation_id=None,
-        functions=None
+        functions=None,
+        function_calling: Optional[bool] = None
     ) -> Union[str, AsyncIterator[str]]:
         try:
             settings = self.config_manager.get_openai_llm_settings()
@@ -80,6 +81,11 @@ class OpenAIGenerator:
                 presence_penalty = float(settings.get("presence_penalty", 0.0))
             if stream is None:
                 stream = bool(settings.get("stream", True))
+
+            if function_calling is None:
+                allow_function_calls = bool(settings.get("function_calling", True))
+            else:
+                allow_function_calls = bool(function_calling)
 
             self.logger.info(f"Starting API call to OpenAI with model {model}")
             self.logger.info(f"Current persona: {current_persona}")
@@ -112,6 +118,14 @@ class OpenAIGenerator:
             self.logger.info(f"Sending functions to OpenAI API: {functions}")
             self.logger.info(f"Sending function map to OpenAI API: {function_map}")
 
+            function_call_mode = None
+            if functions:
+                function_call_mode = "auto" if allow_function_calls else "none"
+                self.logger.info(
+                    "Automatic tool calling %s for this request.",
+                    "enabled" if allow_function_calls else "disabled",
+                )
+
             response = await self.client.chat.completions.create(
                 model=model,
                 messages=messages,
@@ -124,7 +138,7 @@ class OpenAIGenerator:
                 presence_penalty=presence_penalty,
                 stream=stream,
                 functions=functions,
-                function_call="auto" if functions else None  # Always include if functions exist
+                function_call=function_call_mode,
             )
             
             self.logger.info("Received response from OpenAI API.")
@@ -259,7 +273,8 @@ async def generate_response(
     conversation_manager=None,
     user=None,
     conversation_id=None,
-    functions=None
+    functions=None,
+    function_calling: Optional[bool] = None
 ) -> Union[str, AsyncIterator[str]]:
     generator = OpenAIGenerator(config_manager)
     return await generator.generate_response(
@@ -275,7 +290,8 @@ async def generate_response(
         conversation_manager,
         user,
         conversation_id,
-        functions
+        functions,
+        function_calling
     )
 
 async def process_streaming_response(response: AsyncIterator[Dict]) -> str:

@@ -444,6 +444,7 @@ class DummyConfig:
             "presence_penalty": 0.0,
             "max_tokens": 4000,
             "stream": True,
+            "function_calling": True,
             "base_url": None,
             "organization": None,
         }
@@ -464,6 +465,7 @@ class DummyConfig:
         presence_penalty=None,
         max_tokens=None,
         stream=None,
+        function_calling=None,
         base_url=None,
         organization=None,
     ):
@@ -482,6 +484,8 @@ class DummyConfig:
             self._openai_settings["max_tokens"] = int(max_tokens)
         if stream is not None:
             self._openai_settings["stream"] = bool(stream)
+        if function_calling is not None:
+            self._openai_settings["function_calling"] = bool(function_calling)
         self._openai_settings["base_url"] = base_url
         self._openai_settings["organization"] = organization
         return dict(self._openai_settings)
@@ -836,6 +840,7 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
         presence_penalty=-0.2,
         max_tokens=1024,
         stream=False,
+        function_calling=False,
         base_url="https://example/v1",
         organization="org-99",
     )
@@ -847,8 +852,57 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     assert math.isclose(settings["frequency_penalty"], 0.1)
     assert math.isclose(settings["presence_penalty"], -0.2)
     assert settings["stream"] is False
+    assert settings["function_calling"] is False
     assert provider_manager.model_manager.models["OpenAI"][0] == "gpt-4o-mini"
     assert provider_manager.current_model == "gpt-4o-mini"
+
+
+def test_generate_response_respects_function_calling_enabled(provider_manager):
+    captured = {}
+
+    async def fake_generate_response(_config_manager, **kwargs):
+        captured["function_calling"] = kwargs.get("function_calling")
+        return "ok"
+
+    provider_manager.generate_response_func = fake_generate_response
+    provider_manager.providers["OpenAI"] = fake_generate_response
+    provider_manager.current_llm_provider = "OpenAI"
+    provider_manager.current_model = "gpt-4o"
+
+    async def exercise():
+        return await provider_manager.generate_response(
+            messages=[{"role": "user", "content": "hi"}],
+            functions=[{"name": "tool"}],
+        )
+
+    result = asyncio.run(exercise())
+    assert result == "ok"
+    assert captured["function_calling"] is True
+
+
+def test_generate_response_respects_function_calling_disabled(provider_manager):
+    provider_manager.config_manager.set_openai_llm_settings(model="gpt-4o", function_calling=False)
+
+    captured = {}
+
+    async def fake_generate_response(_config_manager, **kwargs):
+        captured["function_calling"] = kwargs.get("function_calling")
+        return "ok"
+
+    provider_manager.generate_response_func = fake_generate_response
+    provider_manager.providers["OpenAI"] = fake_generate_response
+    provider_manager.current_llm_provider = "OpenAI"
+    provider_manager.current_model = "gpt-4o"
+
+    async def exercise():
+        return await provider_manager.generate_response(
+            messages=[{"role": "user", "content": "hello"}],
+            functions=[{"name": "tool"}],
+        )
+
+    result = asyncio.run(exercise())
+    assert result == "ok"
+    assert captured["function_calling"] is False
 
 
 def test_openai_settings_window_populates_defaults_and_saves(provider_manager, monkeypatch):
@@ -870,6 +924,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
         "presence_penalty": -0.1,
         "max_tokens": 2048,
         "stream": False,
+        "function_calling": False,
         "base_url": "https://example/v1",
         "organization": "org-42",
     }
@@ -889,6 +944,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
     assert math.isclose(window.presence_penalty_spin.get_value(), -0.1)
     assert window.max_tokens_spin.get_value_as_int() == 2048
     assert window.stream_toggle.get_active() is False
+    assert window.function_call_toggle.get_active() is False
     assert window.organization_entry.get_text() == "org-42"
     status_text = getattr(window.api_key_status_label, "label", None)
     if status_text is None and hasattr(window.api_key_status_label, "get_text"):
@@ -903,6 +959,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
     window.presence_penalty_spin.set_value(-0.15)
     window.max_tokens_spin.set_value(4096)
     window.stream_toggle.set_active(True)
+    window.function_call_toggle.set_active(True)
     window.organization_entry.set_text("org-new")
     window.base_url_entry.set_text("https://alt.example/v2")
 
@@ -915,6 +972,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
     assert saved_payload["presence_penalty"] == -0.15
     assert saved_payload["max_tokens"] == 4096
     assert saved_payload["stream"] is True
+    assert saved_payload["function_calling"] is True
     assert saved_payload["base_url"] == "https://alt.example/v2"
     assert saved_payload["organization"] == "org-new"
     assert window._stored_base_url == "https://alt.example/v2"

@@ -210,6 +210,7 @@ class ConfigManager:
         presence_penalty: Optional[float] = None,
         max_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
+        function_calling: Optional[bool] = None,
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -239,6 +240,7 @@ class ConfigManager:
             raise ValueError("Max tokens must be a positive integer.")
 
         normalized_stream = True if stream is None else bool(stream)
+        normalized_function_calling = True if function_calling is None else bool(function_calling)
 
         sanitized_base_url = (base_url or "").strip() or None
         sanitized_org = (organization or "").strip() or None
@@ -257,6 +259,7 @@ class ConfigManager:
                 'presence_penalty': normalized_presence_penalty,
                 'max_tokens': normalized_max_tokens,
                 'stream': normalized_stream,
+                'function_calling': normalized_function_calling,
                 'base_url': sanitized_base_url,
                 'organization': sanitized_org,
             }
@@ -333,6 +336,7 @@ class ConfigManager:
             'presence_penalty': 0.0,
             'max_tokens': 4000,
             'stream': True,
+            'function_calling': True,
             'base_url': self.get_config('OPENAI_BASE_URL'),
             'organization': self.get_config('OPENAI_ORGANIZATION'),
         }
