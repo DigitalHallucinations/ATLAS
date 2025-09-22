@@ -208,6 +208,16 @@ class SpeechManager:
 
         self.initialize_services()
 
+    @staticmethod
+    def _mask_secret(secret: Optional[str]) -> str:
+        """Return a masked preview of a stored secret for UI hints."""
+
+        if not secret:
+            return ""
+
+        visible_count = min(len(secret), 8)
+        return "•" * visible_count
+
     async def initialize(self):
         """
         Perform any asynchronous initialization if required.
@@ -518,6 +528,119 @@ class SpeechManager:
             self.tts_services[new_tts_key] = new_tts
 
         self.set_default_speech_providers(tts_provider=new_tts_key, stt_provider=new_stt_key)
+
+    def get_provider_credential_status(self, provider_name: str) -> Dict[str, Any]:
+        """Return sanitized credential metadata for the requested speech provider."""
+
+        if not provider_name:
+            return {"has_key": False, "metadata": {}}
+
+        normalized = "".join(ch for ch in provider_name.casefold() if ch.isalnum())
+        provider_to_env: Dict[str, str] = {
+            "elevenlabs": "XI_API_KEY",
+            "google": "GOOGLE_APPLICATION_CREDENTIALS",
+            "openai": "OPENAI_API_KEY",
+        }
+
+        env_key = provider_to_env.get(normalized)
+        if env_key is None:
+            return {"has_key": False, "metadata": {}}
+
+        stored_value: Optional[str] = None
+
+        try:
+            stored_value = self.config_manager.get_config(env_key)  # type: ignore[arg-type]
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error(
+                "Failed to read stored credential for %s (%s): %s",
+                provider_name,
+                env_key,
+                exc,
+                exc_info=True,
+            )
+            stored_value = None
+
+        if not stored_value:
+            stored_value = os.environ.get(env_key)
+
+        if not stored_value:
+            return {"has_key": False, "metadata": {}}
+
+        metadata = {
+            "length": len(stored_value),
+            "hint": self._mask_secret(stored_value),
+            "source": "environment",
+        }
+
+        return {"has_key": True, "metadata": metadata}
+
+    def describe_general_settings(self) -> Dict[str, Any]:
+        """Return a snapshot of global speech defaults for UI consumption."""
+
+        default_tts = self.get_default_tts_provider()
+        resolved_tts = self.resolve_tts_provider(default_tts)
+        default_stt = self.get_default_stt_provider()
+        tts_enabled = bool(self.get_tts_status())
+        stt_enabled = bool(default_stt)
+
+        provider, voice_name = self.get_active_tts_summary()
+
+        return {
+            "tts_enabled": tts_enabled,
+            "default_tts_provider": default_tts,
+            "resolved_tts_provider": resolved_tts,
+            "tts_providers": list(self.get_tts_provider_names()),
+            "stt_enabled": stt_enabled,
+            "default_stt_provider": default_stt,
+            "stt_providers": list(self.get_stt_provider_names()),
+            "active_voice": {
+                "provider": provider,
+                "name": voice_name,
+            },
+        }
+
+    def list_tts_voice_options(self, provider: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Return available TTS voices for the requested provider as dictionaries."""
+
+        voices = self.get_tts_voices(provider) or []
+        normalized: List[Dict[str, Any]] = []
+
+        for voice in voices:
+            if isinstance(voice, dict):
+                normalized.append(dict(voice))
+            else:
+                normalized.append({"name": str(voice)})
+
+        return normalized
+
+    def get_openai_option_sets(self) -> Dict[str, List[Tuple[str, Optional[str]]]]:
+        """Return the configured OpenAI speech option lists."""
+
+        return {
+            "stt": get_openai_stt_provider_options(),
+            "tts": get_openai_tts_provider_options(),
+            "language": get_openai_language_options(),
+            "task": get_openai_task_options(),
+        }
+
+    def get_openai_display_config(self) -> Dict[str, Optional[str]]:
+        """Return persisted OpenAI configuration values suitable for UI display."""
+
+        config = getattr(self.config_manager, "config", {})
+        return {
+            "stt_provider": config.get("OPENAI_STT_PROVIDER"),
+            "tts_provider": config.get("OPENAI_TTS_PROVIDER"),
+            "language": config.get("OPENAI_LANGUAGE"),
+            "task": config.get("OPENAI_TASK"),
+            "initial_prompt": config.get("OPENAI_INITIAL_PROMPT"),
+        }
+
+    def normalize_openai_display_settings(
+        self, display_payload: Dict[str, Any]
+    ) -> Dict[str, Optional[str]]:
+        """Validate and normalize OpenAI settings supplied by a UI façade."""
+
+        return prepare_openai_settings(display_payload)
 
     # ----------------------- TTS Methods -----------------------
 

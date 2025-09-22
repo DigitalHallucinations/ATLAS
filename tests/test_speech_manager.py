@@ -638,6 +638,97 @@ def test_openai_option_exports_include_expected_entries():
     assert any(label.lower() == "transcribe" for label in tasks)
 
 
+def test_get_provider_credential_status_detects_saved_key(speech_manager):
+    speech_manager.config_manager.config["XI_API_KEY"] = "secret-token"
+
+    status = speech_manager.get_provider_credential_status("ElevenLabs")
+
+    assert status["has_key"] is True
+    assert status["metadata"]["length"] == len("secret-token")
+
+
+def test_get_provider_credential_status_handles_unknown_provider(speech_manager):
+    status = speech_manager.get_provider_credential_status("Unknown")
+
+    assert status == {"has_key": False, "metadata": {}}
+
+
+def test_describe_general_settings_includes_defaults(speech_manager):
+    speech_manager.tts_services["eleven_labs"] = object()
+    speech_manager.stt_services["google"] = object()
+    speech_manager.set_default_tts_provider("eleven_labs")
+    speech_manager.set_default_stt_provider("google")
+
+    summary = speech_manager.describe_general_settings()
+
+    assert summary["tts_enabled"] is True
+    assert summary["default_tts_provider"] == "eleven_labs"
+    assert "eleven_labs" in summary["tts_providers"]
+    assert summary["stt_enabled"] is True
+    assert summary["default_stt_provider"] == "google"
+    assert "google" in summary["stt_providers"]
+
+
+def test_list_tts_voice_options_normalizes_items(speech_manager, monkeypatch):
+    monkeypatch.setattr(
+        speech_manager,
+        "get_tts_voices",
+        lambda provider=None: [
+            {"name": "Alpha", "voice_id": "alpha"},
+            "Beta",
+        ],
+    )
+
+    voices = speech_manager.list_tts_voice_options("eleven_labs")
+
+    assert voices == [
+        {"name": "Alpha", "voice_id": "alpha"},
+        {"name": "Beta"},
+    ]
+
+
+def test_get_openai_display_config_returns_stored_values(speech_manager):
+    speech_manager.config_manager.config.update(
+        {
+            "OPENAI_STT_PROVIDER": "Whisper Online",
+            "OPENAI_TTS_PROVIDER": "GPT-4o Mini TTS",
+            "OPENAI_LANGUAGE": "en",
+            "OPENAI_TASK": "transcribe",
+            "OPENAI_INITIAL_PROMPT": "Hello",
+        }
+    )
+
+    config = speech_manager.get_openai_display_config()
+
+    assert config["stt_provider"] == "Whisper Online"
+    assert config["tts_provider"] == "GPT-4o Mini TTS"
+    assert config["language"] == "en"
+    assert config["task"] == "transcribe"
+    assert config["initial_prompt"] == "Hello"
+
+
+def test_get_openai_option_sets_returns_expected_keys(speech_manager):
+    options = speech_manager.get_openai_option_sets()
+
+    assert {"stt", "tts", "language", "task"}.issubset(options.keys())
+
+
+def test_normalize_openai_display_settings_matches_prepare_function(speech_manager):
+    payload = {
+        "api_key": "abc123",
+        "stt_provider": "Whisper Online",
+        "language": "English (en)",
+        "task": "Transcribe",
+        "initial_prompt": "Prompt",
+        "tts_provider": "GPT-4o Mini TTS",
+    }
+
+    prepared = prepare_openai_settings(payload)
+    manager_prepared = speech_manager.normalize_openai_display_settings(payload)
+
+    assert manager_prepared == prepared
+
+
 def test_set_google_credentials_reconfigures_providers(speech_manager, monkeypatch):
     new_tts = object()
     new_stt = object()

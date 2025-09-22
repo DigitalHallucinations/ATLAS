@@ -25,14 +25,6 @@ import logging
 from typing import Any, Dict
 
 from GTKUI.Utils.utils import apply_css
-from modules.Speech_Services.speech_manager import (
-    get_openai_language_options,
-    get_openai_stt_provider_options,
-    get_openai_task_options,
-    get_openai_tts_provider_options,
-    prepare_openai_settings,
-)
-
 logger = logging.getLogger(__name__)
 
 class SpeechSettings(Gtk.Window):
@@ -128,10 +120,9 @@ class SpeechSettings(Gtk.Window):
     def _get_provider_key_status(self, provider_name: str) -> Dict[str, Any]:
         """Fetch sanitized provider credential metadata from the backend manager."""
 
-        manager = getattr(self.ATLAS, "provider_manager", None)
-        getter = getattr(manager, "get_provider_api_key_status", None)
+        getter = getattr(self.ATLAS, "get_speech_provider_status", None)
         if not callable(getter):
-            logger.debug("Provider manager helper for credential status is unavailable.")
+            logger.debug("Speech credential status helper is unavailable on the façade.")
             return {"has_key": False, "metadata": {}}
 
         try:
@@ -295,14 +286,21 @@ class SpeechSettings(Gtk.Window):
         general_box.set_margin_start(6)
         general_box.set_margin_end(6)
 
+        defaults = self.ATLAS.get_speech_defaults()
+        tts_enabled = bool(defaults.get("tts_enabled"))
+        default_tts_provider = defaults.get("default_tts_provider")
+        stt_enabled = bool(defaults.get("stt_enabled"))
+        default_stt_provider = defaults.get("default_stt_provider")
+        tts_provider_names = defaults.get("tts_providers", []) or []
+        stt_provider_names = defaults.get("stt_providers", []) or []
+
         # TTS Enable
         hbox_tts = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         tts_label = Gtk.Label(label="Enable TTS:")
         tts_label.set_tooltip_text("Master switch for Text-to-Speech output.")
         self.general_tts_switch = Gtk.Switch()
         self.general_tts_switch.set_tooltip_text("Turn TTS on/off globally.")
-        current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
-        self.general_tts_switch.set_active(self.ATLAS.speech_manager.get_tts_status(current_tts_provider))
+        self.general_tts_switch.set_active(tts_enabled)
         hbox_tts.append(tts_label)
         hbox_tts.append(self.general_tts_switch)
         general_box.append(hbox_tts)
@@ -313,11 +311,10 @@ class SpeechSettings(Gtk.Window):
         tts_provider_label.set_tooltip_text("Choose the service used for TTS by default.")
         self.default_tts_combo = Gtk.ComboBoxText()
         self.default_tts_combo.set_tooltip_text("Select the default TTS service.")
-        tts_provider_names = self.ATLAS.speech_manager.get_tts_provider_names()
         for key in tts_provider_names:
             self.default_tts_combo.append_text(key)
-        if current_tts_provider and current_tts_provider in tts_provider_names:
-            index = tts_provider_names.index(current_tts_provider)
+        if default_tts_provider and default_tts_provider in tts_provider_names:
+            index = tts_provider_names.index(default_tts_provider)
             self.default_tts_combo.set_active(index)
         hbox_tts_provider.append(tts_provider_label)
         hbox_tts_provider.append(self.default_tts_combo)
@@ -329,8 +326,7 @@ class SpeechSettings(Gtk.Window):
         stt_label.set_tooltip_text("Master switch for Speech-to-Text input.")
         self.general_stt_switch = Gtk.Switch()
         self.general_stt_switch.set_tooltip_text("Turn STT on/off globally.")
-        default_stt = self.ATLAS.speech_manager.get_default_stt_provider()
-        self.general_stt_switch.set_active(True if default_stt else False)
+        self.general_stt_switch.set_active(stt_enabled)
         hbox_stt.append(stt_label)
         hbox_stt.append(self.general_stt_switch)
         general_box.append(hbox_stt)
@@ -341,11 +337,10 @@ class SpeechSettings(Gtk.Window):
         stt_provider_label.set_tooltip_text("Choose the service used for STT by default.")
         self.default_stt_combo = Gtk.ComboBoxText()
         self.default_stt_combo.set_tooltip_text("Select the default STT service.")
-        stt_provider_names = self.ATLAS.speech_manager.get_stt_provider_names()
         for key in stt_provider_names:
             self.default_stt_combo.append_text(key)
-        if default_stt and default_stt in stt_provider_names:
-            index = stt_provider_names.index(default_stt)
+        if default_stt_provider and default_stt_provider in stt_provider_names:
+            index = stt_provider_names.index(default_stt_provider)
             self.default_stt_combo.set_active(index)
         hbox_stt_provider.append(stt_provider_label)
         hbox_stt_provider.append(self.default_stt_combo)
@@ -381,7 +376,7 @@ class SpeechSettings(Gtk.Window):
         selected_tts_provider = self.default_tts_combo.get_active_text()
         selected_stt_provider = self.default_stt_combo.get_active_text()
 
-        self.ATLAS.speech_manager.configure_defaults(
+        self.ATLAS.update_speech_defaults(
             tts_enabled=tts_enabled,
             tts_provider=selected_tts_provider,
             stt_enabled=stt_enabled,
@@ -404,13 +399,23 @@ class SpeechSettings(Gtk.Window):
         voice_label.set_tooltip_text("Pick the voice used by the current TTS provider.")
         self.voice_combo = Gtk.ComboBoxText()
         self.voice_combo.set_tooltip_text("Available voices for the selected TTS provider.")
-        current_tts_provider = self.ATLAS.speech_manager.get_default_tts_provider()
-        voices = self.ATLAS.speech_manager.get_tts_voices(current_tts_provider)
+        defaults = self.ATLAS.get_speech_defaults()
+        resolved_provider = (
+            defaults.get("resolved_tts_provider") or defaults.get("default_tts_provider")
+        )
+        active_voice = (defaults.get("active_voice") or {}).get("name")
+        self._voice_lookup: Dict[str, Dict[str, Any]] = {}
+        voices = self.ATLAS.get_speech_voice_options(resolved_provider)
         for voice in voices:
-            voice_name = voice.get('name', 'Unknown')
-            self.voice_combo.append_text(voice_name)
+            name = voice.get('name', 'Unknown')
+            self.voice_combo.append_text(name)
+            self._voice_lookup[name] = voice
         if voices:
-            self.voice_combo.set_active(0)
+            if active_voice and active_voice in self._voice_lookup:
+                index = list(self._voice_lookup).index(active_voice)
+                self.voice_combo.set_active(index)
+            else:
+                self.voice_combo.set_active(0)
         hbox_voice.append(voice_label)
         hbox_voice.append(self.voice_combo)
         eleven_box.append(hbox_voice)
@@ -448,31 +453,7 @@ class SpeechSettings(Gtk.Window):
         entered_key = self.eleven_api_entry.get_text().strip()
         status = self._get_provider_key_status("ElevenLabs")
         has_saved_key = status.get("has_key", False)
-        key_updated = False
-
-        if entered_key:
-            try:
-                self.ATLAS.speech_manager.set_elevenlabs_api_key(entered_key)
-            except ValueError as exc:
-                self._show_message("Invalid Eleven Labs API Key", str(exc), Gtk.MessageType.ERROR)
-                return
-            except Exception as exc:
-                logger.error(f"Failed to persist Eleven Labs API key: {exc}")
-                self._show_message(
-                    "Failed to Save Eleven Labs Settings",
-                    "An error occurred while saving the Eleven Labs API key. Please try again.",
-                    Gtk.MessageType.ERROR,
-                )
-                return
-            else:
-                key_updated = True
-                self._apply_provider_status_to_entry(
-                    self.eleven_api_entry,
-                    "ElevenLabs",
-                    base_placeholder="Enter value here",
-                    base_tooltip="Value is hidden when the eye is off.",
-                )
-        elif not has_saved_key:
+        if not entered_key and not has_saved_key:
             self._show_message(
                 "Eleven Labs API Key Required",
                 "Please provide a valid Eleven Labs API key before saving.",
@@ -480,39 +461,70 @@ class SpeechSettings(Gtk.Window):
             )
             return
 
-        speech_manager = self.ATLAS.speech_manager
         selected_voice_name = self.voice_combo.get_active_text()
-        provider_key = speech_manager.resolve_tts_provider(
-            speech_manager.get_default_tts_provider()
-        )
-        voices = speech_manager.get_tts_voices(provider_key) or [] if provider_key else []
-        selected_voice = None
-        if selected_voice_name:
-            selected_voice = next(
-                (v for v in voices if isinstance(v, dict) and v.get('name') == selected_voice_name),
-                None,
+        voice_id = None
+        if selected_voice_name and getattr(self, "_voice_lookup", None):
+            voice = self._voice_lookup.get(selected_voice_name)
+            if isinstance(voice, dict):
+                voice_id = voice.get("voice_id") or voice.get("name")
+
+        payload: Dict[str, Any] = {}
+        if entered_key:
+            payload["api_key"] = entered_key
+        if voice_id:
+            payload["voice_id"] = voice_id
+
+        try:
+            result = self.ATLAS.update_elevenlabs_settings(**payload)
+        except ValueError as exc:
+            self._show_message("Invalid Eleven Labs API Key", str(exc), Gtk.MessageType.ERROR)
+            return
+        except Exception as exc:
+            logger.error(f"Failed to persist Eleven Labs settings: {exc}", exc_info=True)
+            self._show_message(
+                "Failed to Save Eleven Labs Settings",
+                "An unexpected error occurred while saving Eleven Labs settings.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
+        if result.get("updated_api_key"):
+            self._apply_provider_status_to_entry(
+                self.eleven_api_entry,
+                "ElevenLabs",
+                base_placeholder="Enter value here",
+                base_tooltip="Value is hidden when the eye is off.",
             )
 
-        if selected_voice and provider_key:
-            speech_manager.set_tts_voice(selected_voice, provider_key)
+        provider_key = result.get("provider")
+        voices = self.ATLAS.get_speech_voice_options(provider_key)
 
         # Refresh the combo box to reflect any updated voice list.
         if hasattr(self.voice_combo, "remove_all"):
             self.voice_combo.remove_all()
-        voice_names = []
+        self._voice_lookup = {}
         for voice in voices:
-            voice_name = voice.get('name', 'Unknown') if isinstance(voice, dict) else str(voice)
-            voice_names.append(voice_name)
-            self.voice_combo.append_text(voice_name)
+            name = voice.get('name', 'Unknown')
+            self.voice_combo.append_text(name)
+            self._voice_lookup[name] = voice
 
-        if voice_names:
-            target_name = selected_voice.get('name') if isinstance(selected_voice, dict) else selected_voice_name
-            if target_name and target_name in voice_names:
-                self.voice_combo.set_active(voice_names.index(target_name))
+        if voices:
+            target_voice = None
+            if voice_id:
+                for name, voice in self._voice_lookup.items():
+                    candidate_id = voice.get('voice_id') or voice.get('name')
+                    if candidate_id == voice_id:
+                        target_voice = name
+                        break
+            if not target_voice:
+                target_voice = selected_voice_name if selected_voice_name in self._voice_lookup else None
+            if target_voice:
+                index = list(self._voice_lookup).index(target_voice)
+                self.voice_combo.set_active(index)
             else:
                 self.voice_combo.set_active(0)
 
-        if key_updated:
+        if result.get("updated_api_key"):
             logger.info("Eleven Labs API key saved successfully.")
         self.tab_dirty[1] = False
 
@@ -628,7 +640,7 @@ class SpeechSettings(Gtk.Window):
             return
 
         try:
-            self.ATLAS.speech_manager.set_google_credentials(google_creds)
+            self.ATLAS.update_google_speech_settings(google_creds)
         except Exception as exc:
             logger.error(f"Failed to save Google credentials: {exc}", exc_info=True)
             self._show_message("Error", f"Failed to save Google credentials: {exc}", Gtk.MessageType.ERROR)
@@ -649,6 +661,9 @@ class SpeechSettings(Gtk.Window):
         openai_box.set_margin_start(6)
         openai_box.set_margin_end(6)
 
+        option_sets = self.ATLAS.get_openai_speech_options()
+        openai_config = self.ATLAS.get_openai_speech_configuration()
+
         # --- STT Settings Frame ---
         stt_frame = Gtk.Frame(label="Open AI STT Settings")
         stt_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -663,11 +678,16 @@ class SpeechSettings(Gtk.Window):
         stt_provider_label.set_tooltip_text("Pick the OpenAI-based service for speech recognition.")
         self.openai_stt_combo = Gtk.ComboBoxText()
         self.openai_stt_combo.set_tooltip_text("Whisper Online, GPT-4o STT, or GPT-4o Mini STT.")
-        stt_options = get_openai_stt_provider_options()
-        for label, _ in stt_options:
+        self._openai_stt_options = option_sets.get("stt", [])
+        for label, _ in self._openai_stt_options:
             self.openai_stt_combo.append_text(label)
-        if stt_options:
-            self.openai_stt_combo.set_active(0)
+        if self._openai_stt_options:
+            target = openai_config.get("stt_provider")
+            index = next(
+                (idx for idx, (_label, code) in enumerate(self._openai_stt_options) if code == target),
+                None,
+            )
+            self.openai_stt_combo.set_active(index if index is not None else 0)
         hbox_stt_provider.append(stt_provider_label)
         hbox_stt_provider.append(self.openai_stt_combo)
         stt_box.append(hbox_stt_provider)
@@ -678,11 +698,20 @@ class SpeechSettings(Gtk.Window):
         language_label.set_tooltip_text("Force a language for STT, or keep Auto to let the model detect.")
         self.openai_language_combo = Gtk.ComboBoxText()
         self.openai_language_combo.set_tooltip_text("Preferred recognition language (or Auto).")
-        language_options = get_openai_language_options()
-        for label_text, _ in language_options:
+        self._openai_language_options = option_sets.get("language", [])
+        for label_text, _ in self._openai_language_options:
             self.openai_language_combo.append_text(label_text)
-        if language_options:
-            self.openai_language_combo.set_active(0)
+        if self._openai_language_options:
+            target = openai_config.get("language")
+            index = next(
+                (
+                    idx
+                    for idx, (_label, code) in enumerate(self._openai_language_options)
+                    if code == target
+                ),
+                None,
+            )
+            self.openai_language_combo.set_active(index if index is not None else 0)
         hbox_language.append(language_label)
         hbox_language.append(self.openai_language_combo)
         stt_box.append(hbox_language)
@@ -693,11 +722,16 @@ class SpeechSettings(Gtk.Window):
         task_label.set_tooltip_text("Transcribe = same language; Translate = to English.")
         self.openai_task_combo = Gtk.ComboBoxText()
         self.openai_task_combo.set_tooltip_text("Choose whether to transcribe or translate.")
-        task_options = get_openai_task_options()
-        for label_text, _ in task_options:
+        self._openai_task_options = option_sets.get("task", [])
+        for label_text, _ in self._openai_task_options:
             self.openai_task_combo.append_text(label_text)
-        if task_options:
-            self.openai_task_combo.set_active(0)
+        if self._openai_task_options:
+            target = openai_config.get("task")
+            index = next(
+                (idx for idx, (_label, code) in enumerate(self._openai_task_options) if code == target),
+                None,
+            )
+            self.openai_task_combo.set_active(index if index is not None else 0)
         hbox_task.append(task_label)
         hbox_task.append(self.openai_task_combo)
         stt_box.append(hbox_task)
@@ -707,6 +741,9 @@ class SpeechSettings(Gtk.Window):
         prompt_label.set_tooltip_text("Short hint to bias recognition (e.g., vocabulary, names).")
         self.openai_prompt_entry = Gtk.Entry()
         self.openai_prompt_entry.set_tooltip_text("Optional: give context or vocabulary to improve STT.")
+        initial_prompt = openai_config.get("initial_prompt")
+        if isinstance(initial_prompt, str):
+            self.openai_prompt_entry.set_text(initial_prompt)
         stt_box.append(prompt_label)
         stt_box.append(self.openai_prompt_entry)
 
@@ -727,11 +764,16 @@ class SpeechSettings(Gtk.Window):
         tts_provider_label.set_tooltip_text("Pick the OpenAI service for speech synthesis.")
         self.openai_tts_combo = Gtk.ComboBoxText()
         self.openai_tts_combo.set_tooltip_text("Currently supports GPT-4o Mini TTS.")
-        tts_options = get_openai_tts_provider_options()
-        for label_text, _ in tts_options:
+        self._openai_tts_options = option_sets.get("tts", [])
+        for label_text, _ in self._openai_tts_options:
             self.openai_tts_combo.append_text(label_text)
-        if tts_options:
-            self.openai_tts_combo.set_active(0)
+        if self._openai_tts_options:
+            target = openai_config.get("tts_provider")
+            index = next(
+                (idx for idx, (_label, code) in enumerate(self._openai_tts_options) if code == target),
+                None,
+            )
+            self.openai_tts_combo.set_active(index if index is not None else 0)
         hbox_tts_provider.append(tts_provider_label)
         hbox_tts_provider.append(self.openai_tts_combo)
         tts_box.append(hbox_tts_provider)
@@ -784,7 +826,7 @@ class SpeechSettings(Gtk.Window):
             "tts_provider": self.openai_tts_combo.get_active_text(),
         }
         try:
-            prepared_settings = prepare_openai_settings(display_payload)
+            prepared_settings = self.ATLAS.update_openai_speech_settings(display_payload)
         except ValueError as exc:
             logger.error(
                 "Invalid OpenAI speech settings supplied: %s", exc, exc_info=True
@@ -795,19 +837,16 @@ class SpeechSettings(Gtk.Window):
                 Gtk.MessageType.ERROR,
             )
             return
-
-        try:
-            self.ATLAS.speech_manager.set_openai_speech_config(
-                api_key=prepared_settings.get("api_key"),
-                stt_provider=prepared_settings.get("stt_provider"),
-                language=prepared_settings.get("language"),
-                task=prepared_settings.get("task"),
-                initial_prompt=prepared_settings.get("initial_prompt"),
-                tts_provider=prepared_settings.get("tts_provider"),
-            )
         except Exception as exc:
-            logger.error(f"Failed to update OpenAI speech configuration: {exc}", exc_info=True)
-            self._show_message("Error", f"Failed to update OpenAI speech configuration: {exc}", Gtk.MessageType.ERROR)
+            logger.error(
+                f"Failed to update OpenAI speech configuration: {exc}",
+                exc_info=True,
+            )
+            self._show_message(
+                "Error",
+                f"Failed to update OpenAI speech configuration: {exc}",
+                Gtk.MessageType.ERROR,
+            )
             return
 
         logger.info("Open AI STT provider set to %s", prepared_settings.get("stt_provider"))
@@ -850,7 +889,7 @@ class SpeechSettings(Gtk.Window):
         dialog.destroy()
 
     def show_history(self, widget):
-        history = self.ATLAS.speech_manager.get_transcription_history(formatted=True)
+        history = self.ATLAS.get_transcription_history(formatted=True)
         dialog = Gtk.MessageDialog(
             transient_for=self,
             flags=0,

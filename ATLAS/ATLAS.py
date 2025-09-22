@@ -1,7 +1,7 @@
 # ATLAS/ATLAS.py
 
 from concurrent.futures import Future
-from typing import List, Dict, Union, AsyncIterator, Optional, Any, Callable
+from typing import List, Dict, Union, AsyncIterator, Optional, Any, Callable, Tuple
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.provider_manager import ProviderManager
@@ -493,7 +493,126 @@ class ATLAS:
             f"LLM: {llm_provider} • Model: {llm_model} • "
             f"TTS: {tts_provider} (Voice: {tts_voice})"
         )
-    
+
+    def get_speech_defaults(self) -> Dict[str, Any]:
+        """Expose global speech defaults for UI consumers."""
+
+        return self.speech_manager.describe_general_settings()
+
+    def get_speech_provider_status(self, provider_name: str) -> Dict[str, Any]:
+        """Return credential metadata for a speech provider."""
+
+        return self.speech_manager.get_provider_credential_status(provider_name)
+
+    def get_speech_voice_options(
+        self, provider: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Return the available voice options for a speech provider."""
+
+        return self.speech_manager.list_tts_voice_options(provider)
+
+    def get_active_speech_voice(self) -> Dict[str, Optional[str]]:
+        """Return the active speech provider and voice name."""
+
+        provider, voice = self.speech_manager.get_active_tts_summary()
+        return {"provider": provider, "name": voice}
+
+    def update_speech_defaults(
+        self,
+        *,
+        tts_enabled: bool,
+        tts_provider: Optional[str],
+        stt_enabled: bool,
+        stt_provider: Optional[str],
+    ) -> Dict[str, Any]:
+        """Persist global speech defaults via the speech manager."""
+
+        self.speech_manager.configure_defaults(
+            tts_enabled=bool(tts_enabled),
+            tts_provider=tts_provider,
+            stt_enabled=bool(stt_enabled),
+            stt_provider=stt_provider,
+        )
+
+        return self.get_speech_defaults()
+
+    def update_elevenlabs_settings(
+        self,
+        *,
+        api_key: Optional[str] = None,
+        voice_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update ElevenLabs credentials or active voice selection."""
+
+        manager = self.speech_manager
+        result = {
+            "updated_api_key": False,
+            "updated_voice": False,
+        }
+
+        if api_key:
+            manager.set_elevenlabs_api_key(api_key)
+            result["updated_api_key"] = True
+
+        provider_key = manager.resolve_tts_provider(manager.get_default_tts_provider())
+
+        if voice_id and provider_key:
+            voices = manager.get_tts_voices(provider_key) or []
+            selected_voice: Optional[Dict[str, Any]] = None
+            for voice in voices:
+                if not isinstance(voice, dict):
+                    continue
+                if voice.get("voice_id") == voice_id or voice.get("name") == voice_id:
+                    selected_voice = voice
+                    break
+
+            if selected_voice is not None:
+                manager.set_tts_voice(selected_voice, provider_key)
+                result["updated_voice"] = True
+
+        result["provider"] = provider_key
+        return result
+
+    def update_google_speech_settings(self, credentials_path: str) -> None:
+        """Persist Google speech credentials via the speech manager."""
+
+        self.speech_manager.set_google_credentials(credentials_path)
+
+    def get_openai_speech_options(self) -> Dict[str, List[Tuple[str, Optional[str]]]]:
+        """Return the OpenAI speech option sets for UI rendering."""
+
+        return self.speech_manager.get_openai_option_sets()
+
+    def get_openai_speech_configuration(self) -> Dict[str, Optional[str]]:
+        """Return persisted OpenAI speech configuration values."""
+
+        return self.speech_manager.get_openai_display_config()
+
+    def update_openai_speech_settings(
+        self, display_payload: Dict[str, Any]
+    ) -> Dict[str, Optional[str]]:
+        """Validate and persist OpenAI speech settings supplied by the UI."""
+
+        prepared = self.speech_manager.normalize_openai_display_settings(display_payload)
+
+        self.speech_manager.set_openai_speech_config(
+            api_key=prepared.get("api_key"),
+            stt_provider=prepared.get("stt_provider"),
+            language=prepared.get("language"),
+            task=prepared.get("task"),
+            initial_prompt=prepared.get("initial_prompt"),
+            tts_provider=prepared.get("tts_provider"),
+        )
+
+        return prepared
+
+    def get_transcription_history(
+        self, *, formatted: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Return transcription history records from the speech manager."""
+
+        return self.speech_manager.get_transcription_history(formatted=formatted)
+
     async def close(self):
         """
         Perform cleanup operations.
