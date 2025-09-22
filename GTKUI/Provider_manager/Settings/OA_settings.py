@@ -1,14 +1,8 @@
 """Dedicated GTK window for configuring OpenAI provider defaults."""
 
 import logging
-import threading
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
-
-try:  # pragma: no cover - optional dependency for tests
-    from openai import OpenAI
-except ModuleNotFoundError:  # pragma: no cover - gracefully degrade if SDK missing
-    OpenAI = None
 
 import gi
 
@@ -271,28 +265,44 @@ class OpenAISettingsWindow(Gtk.Window):
         self._begin_model_refresh(settings)
 
     def _get_settings_snapshot(self) -> Dict[str, Any]:
-        try:
-            if hasattr(self.ATLAS, "get_openai_llm_settings"):
-                return dict(self.ATLAS.get_openai_llm_settings() or {})
-        except Exception as exc:  # pragma: no cover - defensive logging
-            logger.error("Failed to read OpenAI settings from ATLAS: %s", exc, exc_info=True)
-
-        try:
-            return dict(self.config_manager.get_openai_llm_settings() or {})
-        except Exception as exc:  # pragma: no cover - defensive logging
-            logger.error("Failed to read OpenAI settings from config manager: %s", exc, exc_info=True)
+        atlas = getattr(self, "ATLAS", None)
+        if atlas is None or not hasattr(atlas, "get_openai_llm_settings"):
+            logger.error("ATLAS facade for OpenAI settings is unavailable.")
             return {}
 
-    def _refresh_api_key_status(self) -> None:
         try:
-            has_key = self.config_manager.has_provider_api_key("OpenAI")
+            settings = atlas.get_openai_llm_settings() or {}
         except Exception as exc:  # pragma: no cover - defensive logging
-            logger.error("Unable to determine OpenAI API key status: %s", exc, exc_info=True)
-            status_text = "Unable to determine API key status."
-        else:
-            status_text = (
-                "An API key is saved for OpenAI." if has_key else "No API key saved for OpenAI."
-            )
+            logger.error("Failed to read OpenAI settings from ATLAS: %s", exc, exc_info=True)
+            return {}
+
+        if isinstance(settings, dict):
+            return dict(settings)
+
+        logger.error("Unexpected OpenAI settings payload: %r", settings)
+        return {}
+
+    def _refresh_api_key_status(self) -> None:
+        atlas = getattr(self, "ATLAS", None)
+        status_text = "Credential status is unavailable."
+
+        if atlas is not None and hasattr(atlas, "get_provider_api_key_status"):
+            try:
+                payload = atlas.get_provider_api_key_status("OpenAI") or {}
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.error("Unable to determine OpenAI API key status: %s", exc, exc_info=True)
+            else:
+                has_key = bool(payload.get("has_key"))
+                metadata = payload.get("metadata") if isinstance(payload, dict) else {}
+                hint = ""
+                if isinstance(metadata, dict):
+                    hint = metadata.get("hint") or ""
+
+                if has_key:
+                    suffix = f" ({hint})" if hint else ""
+                    status_text = f"An API key is saved for OpenAI.{suffix}"
+                else:
+                    status_text = "No API key saved for OpenAI."
 
         if hasattr(self.api_key_status_label, "set_label"):
             self.api_key_status_label.set_label(status_text)
@@ -370,70 +380,76 @@ class OpenAISettingsWindow(Gtk.Window):
         self.model_combo.append_text(placeholder)
         self.model_combo.set_active(0)
 
-        self._start_background_task(self._load_models_thread, dict(settings))
+        atlas = getattr(self, "ATLAS", None)
+        if atlas is None or not hasattr(atlas, "run_in_background") or not hasattr(atlas, "list_openai_models"):
+            logger.error("ATLAS background runner is unavailable; cannot refresh models.")
+            self._apply_model_results([], "Model discovery is unavailable.", settings.get("model"))
+            return
 
-    def _start_background_task(self, target, *args):
-        thread = threading.Thread(target=target, args=args, daemon=True)
-        thread.start()
-        return thread
-
-    def _load_models_thread(self, settings: Dict[str, Any]) -> None:
-        models, error = self._query_available_models(settings)
-        GLib.idle_add(self._apply_model_results, models, error, settings.get("model"))
-
-    def _query_available_models(self, settings: Dict[str, Any]) -> Tuple[List[str], Optional[str]]:
-        if OpenAI is None:
-            return [], "The OpenAI Python SDK is not installed."
-
-        api_key = self.config_manager.get_openai_api_key()
-        if not api_key:
-            return [], "Enter and save your OpenAI API key to load models."
-
-        client_kwargs: Dict[str, Any] = {"api_key": api_key}
-
-        base_url = self._stored_base_url
-        if base_url:
-            client_kwargs["base_url"] = base_url
-
+        base_override = self._stored_base_url
         organization = settings.get("organization")
-        if organization:
-            client_kwargs["organization"] = organization
+
+        def _handle_success(payload: Any) -> None:
+            GLib.idle_add(self._apply_model_payload, payload, settings.get("model"))
+
+        def _handle_error(exc: Exception) -> None:
+            logger.error("Failed to refresh OpenAI models: %s", exc, exc_info=True)
+            GLib.idle_add(
+                self._apply_model_results,
+                [],
+                str(exc),
+                settings.get("model"),
+            )
 
         try:
-            client = OpenAI(**client_kwargs)
-            response = client.models.list()
-        except Exception as exc:
-            logger.error("Failed to retrieve OpenAI models: %s", exc, exc_info=True)
-            return [], str(exc)
+            atlas.run_in_background(
+                lambda: atlas.list_openai_models(
+                    base_url=base_override if base_override is not None else settings.get("base_url"),
+                    organization=organization,
+                ),
+                on_success=_handle_success,
+                on_error=_handle_error,
+                thread_name="openai-model-refresh",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Unable to schedule OpenAI model refresh: %s", exc, exc_info=True)
+            self._apply_model_results([], str(exc), settings.get("model"))
 
+    def _apply_model_payload(self, payload: Any, preferred_model: Optional[str]) -> bool:
         models: List[str] = []
-        for entry in getattr(response, "data", []):
-            model_id = getattr(entry, "id", None)
-            if model_id:
-                models.append(model_id)
+        error: Optional[str] = None
 
-        models = sorted(set(models))
+        if isinstance(payload, dict):
+            models = payload.get("models") or []
+            error = payload.get("error")
+        elif isinstance(payload, (list, tuple)) and len(payload) >= 2:
+            models = payload[0] or []
+            error = payload[1]
+        elif payload:
+            error = str(payload)
 
-        prioritized = [
-            name
-            for name in models
-            if any(token in name for token in ("gpt", "omni", "o1", "o3", "chat"))
-        ]
-        if prioritized:
-            models = prioritized
+        if not isinstance(models, list):
+            if isinstance(models, (tuple, set)):
+                models = list(models)
+            else:
+                models = []
 
-        return models, None
+        if error is not None and not isinstance(error, str):
+            error = str(error)
+
+        return self._apply_model_results(models, error, preferred_model)
 
     def _apply_model_results(
         self, models: List[str], error: Optional[str], preferred_model: Optional[str]
     ) -> bool:
         if error:
-            logger.warning("Falling back to stored model because fetching failed: %s", error)
+            detail = error if isinstance(error, str) else str(error)
+            logger.warning("Falling back to stored model because fetching failed: %s", detail)
             fallback = preferred_model or "gpt-4o"
             self.model_combo.remove_all()
             self.model_combo.append_text(fallback)
             self.model_combo.set_active(0)
-            self._show_message("Model Load Failed", error, Gtk.MessageType.ERROR)
+            self._show_message("Model Load Failed", detail, Gtk.MessageType.ERROR)
             self._available_models = [fallback]
             return False
 

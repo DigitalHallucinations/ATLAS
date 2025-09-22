@@ -548,15 +548,23 @@ class ATLAS:
         return self.provider_manager.get_current_model()
 
     def get_openai_llm_settings(self) -> Dict[str, Any]:
-        """Expose the persisted OpenAI LLM defaults."""
+        """Expose the persisted OpenAI LLM defaults via the provider manager."""
 
-        provider_manager = getattr(self, "provider_manager", None)
-        if provider_manager is not None:
-            getter = getattr(provider_manager, "get_openai_llm_settings", None)
-            if callable(getter):
-                return getter()
+        settings = self._require_provider_manager().get_openai_llm_settings()
+        return dict(settings)
 
-        return self.config_manager.get_openai_llm_settings()
+    async def list_openai_models(
+        self,
+        *,
+        base_url: Optional[str] = None,
+        organization: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch available OpenAI models through the provider manager facade."""
+
+        return await self._require_provider_manager().list_openai_models(
+            base_url=base_url,
+            organization=organization,
+        )
 
     def set_openai_llm_settings(
         self,

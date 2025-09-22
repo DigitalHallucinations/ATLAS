@@ -2,6 +2,8 @@ import asyncio
 import math
 import sys
 import types
+from typing import Dict, Optional, Tuple
+from urllib.error import URLError
 
 if "gi" not in sys.modules:
     gi_stub = types.ModuleType("gi")
@@ -715,6 +717,56 @@ def test_huggingface_backend_helpers(provider_manager, monkeypatch):
     assert clear_calls[0] is provider_manager.huggingface_generator
 
 
+def test_list_openai_models_requires_api_key(provider_manager):
+    result = asyncio.run(provider_manager.list_openai_models())
+
+    assert result["models"] == []
+    assert "API key" in (result["error"] or "")
+
+
+def test_list_openai_models_fetches_and_prioritizes(provider_manager, monkeypatch):
+    provider_manager.config_manager.update_api_key("OpenAI", "sk-test")
+
+    payload = {
+        "data": [
+            {"id": "gpt-4o"},
+            {"id": "chat-awesome"},
+            {"id": "text-embedding-3-small"},
+        ]
+    }
+
+    async def fake_to_thread(callable_, *args, **kwargs):  # pragma: no cover - test helper
+        return payload
+
+    monkeypatch.setattr(provider_manager_module.asyncio, "to_thread", fake_to_thread)
+
+    result = asyncio.run(provider_manager.list_openai_models())
+
+    assert result["error"] is None
+    assert result["models"] == ["chat-awesome", "gpt-4o"]
+    assert result["base_url"].endswith("/v1")
+
+
+def test_list_openai_models_handles_network_error(provider_manager, monkeypatch):
+    provider_manager.config_manager.update_api_key("OpenAI", "sk-test")
+
+    async def fake_to_thread(callable_, *args, **kwargs):  # pragma: no cover - test helper
+        raise URLError("network down")
+
+    monkeypatch.setattr(provider_manager_module.asyncio, "to_thread", fake_to_thread)
+
+    result = asyncio.run(
+        provider_manager.list_openai_models(
+            base_url="https://alt.example/v1", organization="org-1234"
+        )
+    )
+
+    assert result["models"] == []
+    assert "network down" in (result["error"] or "")
+    assert result["base_url"] == "https://alt.example/v1"
+    assert result["organization"] == "org-1234"
+
+
 def test_save_huggingface_token_refreshes_generator(provider_manager):
     initial = provider_manager.ensure_huggingface_ready()
     assert initial["success"] is True
@@ -905,14 +957,30 @@ def test_generate_response_respects_function_calling_disabled(provider_manager):
     assert captured["function_calling"] is False
 
 
-def test_openai_settings_window_populates_defaults_and_saves(provider_manager, monkeypatch):
+def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     atlas_stub = types.SimpleNamespace()
 
     saved_payload = {}
+    model_calls: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
 
     def fake_set_openai_llm_settings(**kwargs):
         saved_payload.update(kwargs)
-        return {"success": True, "message": "saved"}
+        return {"success": True, "message": "saved", "data": dict(kwargs)}
+
+    async def fake_list_openai_models(*, base_url=None, organization=None):
+        model_calls["values"] = (base_url, organization)
+        return {"models": ["gpt-4o-mini", "gpt-4o"], "error": None}
+
+    def fake_run_in_background(factory, *, on_success=None, on_error=None, **_kwargs):
+        try:
+            result = asyncio.run(factory())
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if on_error is not None:
+                on_error(exc)
+        else:
+            if on_success is not None:
+                on_success(result)
+        return types.SimpleNamespace()
 
     atlas_stub.provider_manager = provider_manager
     atlas_stub.set_openai_llm_settings = fake_set_openai_llm_settings
@@ -929,11 +997,12 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
         "organization": "org-42",
     }
     atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
-
-    def fake_begin_refresh(self, settings):
-        self._apply_model_results(["gpt-4o-mini", "gpt-4o"], None, settings.get("model"))
-
-    monkeypatch.setattr(OpenAISettingsWindow, "_begin_model_refresh", fake_begin_refresh, raising=False)
+    atlas_stub.list_openai_models = fake_list_openai_models
+    atlas_stub.run_in_background = fake_run_in_background
+    atlas_stub.get_provider_api_key_status = lambda name: {
+        "has_key": True,
+        "metadata": {"hint": "••••"},
+    }
 
     window = OpenAISettingsWindow(atlas_stub, provider_manager.config_manager, None)
 
@@ -949,8 +1018,9 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
     status_text = getattr(window.api_key_status_label, "label", None)
     if status_text is None and hasattr(window.api_key_status_label, "get_text"):
         status_text = window.api_key_status_label.get_text()
-    assert status_text in {"An API key is saved for OpenAI.", "No API key saved for OpenAI."}
+    assert status_text == "An API key is saved for OpenAI. (••••)"
     assert window._stored_base_url == "https://example/v1"
+    assert model_calls["values"] == ("https://example/v1", "org-42")
 
     window.model_combo.set_active(1)
     window.temperature_spin.set_value(0.5)
@@ -980,7 +1050,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
     assert window.closed is True
 
 
-def test_openai_settings_window_saves_api_key(provider_manager, monkeypatch):
+def test_openai_settings_window_saves_api_key(provider_manager):
     atlas_stub = types.SimpleNamespace()
 
     atlas_stub.provider_manager = provider_manager
@@ -998,12 +1068,28 @@ def test_openai_settings_window_saves_api_key(provider_manager, monkeypatch):
     atlas_stub.set_openai_llm_settings = lambda **_: {"success": True, "message": "saved"}
     atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
 
-    monkeypatch.setattr(OpenAISettingsWindow, "_begin_model_refresh", lambda self, settings: None, raising=False)
+    async def fake_list_models(*, base_url=None, organization=None):
+        return {"models": ["gpt-4o"], "error": None}
 
-    def immediate_task(self, target, *args):
-        target(*args)
+    def fake_run_in_background(factory, *, on_success=None, on_error=None, **_kwargs):
+        try:
+            result = asyncio.run(factory())
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if on_error is not None:
+                on_error(exc)
+        else:
+            if on_success is not None:
+                on_success(result)
+        return types.SimpleNamespace()
 
-    monkeypatch.setattr(OpenAISettingsWindow, "_start_background_task", immediate_task, raising=False)
+    def fake_status(_name: str):
+        has_key = provider_manager.config_manager.has_provider_api_key("OpenAI")
+        metadata = {"hint": "••••"} if has_key else {}
+        return {"has_key": has_key, "metadata": metadata}
+
+    atlas_stub.list_openai_models = fake_list_models
+    atlas_stub.run_in_background = fake_run_in_background
+    atlas_stub.get_provider_api_key_status = fake_status
 
     window = OpenAISettingsWindow(atlas_stub, provider_manager.config_manager, None)
     window.api_key_entry.set_text("sk-test")
