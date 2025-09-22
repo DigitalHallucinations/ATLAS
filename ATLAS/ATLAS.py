@@ -260,6 +260,29 @@ class ATLAS:
                 summary["tts_voice"] = tts_voice or summary["tts_voice"]
 
         return summary
+
+    def format_chat_status(self, status_summary: Optional[Dict[str, str]] = None) -> str:
+        """Generate the human-readable chat status message for display."""
+
+        summary: Dict[str, str]
+        if status_summary is None:
+            try:
+                summary = self.get_chat_status_summary()
+            except Exception as exc:
+                self.logger.error("Failed to obtain chat status summary: %s", exc, exc_info=True)
+                summary = {}
+        else:
+            summary = status_summary
+
+        llm_provider = summary.get("llm_provider") or "Unknown"
+        llm_model = summary.get("llm_model") or "No model selected"
+        tts_provider = summary.get("tts_provider") or "None"
+        tts_voice = summary.get("tts_voice") or "Not Set"
+
+        return (
+            f"LLM: {llm_provider} • Model: {llm_model} • "
+            f"TTS: {tts_provider} (Voice: {tts_voice})"
+        )
     
     async def close(self):
         """

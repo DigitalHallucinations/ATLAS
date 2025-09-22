@@ -588,16 +588,12 @@ class ChatPage(Gtk.Window):
             except Exception as exc:
                 logger.error("Failed to fetch chat status summary: %s", exc, exc_info=True)
                 status_summary = {}
+        try:
+            status_message = self.ATLAS.format_chat_status(status_summary)
+        except Exception as exc:
+            logger.error("Failed to format chat status: %s", exc, exc_info=True)
+            status_message = "LLM: Unknown • Model: No model selected • TTS: None (Voice: Not Set)"
 
-        llm_provider = status_summary.get("llm_provider") or "Unknown"
-        llm_model = status_summary.get("llm_model") or "No model selected"
-        tts_provider = status_summary.get("tts_provider") or "None"
-        tts_voice = status_summary.get("tts_voice") or "Not Set"
-
-        status_message = (
-            f"LLM: {llm_provider} • Model: {llm_model} • "
-            f"TTS: {tts_provider} (Voice: {tts_voice})"
-        )
         self.status_label.set_text(status_message)
 
 
