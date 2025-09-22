@@ -239,28 +239,29 @@ class ChatPage(Gtk.Window):
         self.input_textview.grab_focus()
         self._set_busy_state(True)
 
-        def handle_success(response: str):
-            persona_name = self.ATLAS.get_active_persona_name()
+        def handle_success(persona_name: str, response: str):
+            display_name = persona_name or "Assistant"
 
             def update():
-                self.add_message_bubble(persona_name, response)
+                self.add_message_bubble(display_name, response)
                 self._on_response_complete()
                 return False
 
             GLib.idle_add(update)
 
-        def handle_error(exc: Exception):
+        def handle_error(persona_name: str, exc: Exception):
+            display_name = persona_name or "Assistant"
             logger.error(f"Error retrieving model response: {exc}")
 
             def update():
-                self.add_message_bubble("Assistant", f"Error: {exc}")
+                self.add_message_bubble(display_name, f"Error: {exc}")
                 self._on_response_complete()
                 return False
 
             GLib.idle_add(update)
 
-        self.chat_session.run_in_background(
-            lambda: self.chat_session.send_message(message),
+        self.ATLAS.send_chat_message_async(
+            message,
             on_success=handle_success,
             on_error=handle_error,
             thread_name="ChatResponseWorker",
