@@ -33,6 +33,14 @@ class ATLAS:
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
         self._default_status_tooltip = "Active LLM provider/model and TTS status"
 
+    def _require_provider_manager(self) -> ProviderManager:
+        """Return the initialized provider manager or raise an error if unavailable."""
+
+        if self.provider_manager is None:
+            raise RuntimeError("Provider manager is not initialized.")
+
+        return self.provider_manager
+
     async def initialize(self):
         """
         Asynchronously initialize the ATLAS instance.
@@ -108,6 +116,67 @@ class ATLAS:
         """Validate a HuggingFace API token via the provider manager."""
 
         return await self.provider_manager.test_huggingface_token(token)
+
+    def list_hf_models(self) -> Dict[str, Any]:
+        """List installed HuggingFace models via the provider manager."""
+
+        return self._require_provider_manager().list_hf_models()
+
+    async def load_hf_model(self, model_name: str, force_download: bool = False) -> Dict[str, Any]:
+        """Load a HuggingFace model using the provider manager helper."""
+
+        return await self._require_provider_manager().load_hf_model(
+            model_name, force_download=force_download
+        )
+
+    async def unload_hf_model(self) -> Dict[str, Any]:
+        """Unload the active HuggingFace model via the provider manager."""
+
+        return await self._require_provider_manager().unload_hf_model()
+
+    async def remove_hf_model(self, model_name: str) -> Dict[str, Any]:
+        """Remove a cached HuggingFace model through the provider manager."""
+
+        return await self._require_provider_manager().remove_hf_model(model_name)
+
+    async def download_hf_model(self, model_id: str, force: bool = False) -> Dict[str, Any]:
+        """Download a HuggingFace model through the provider manager."""
+
+        return await self._require_provider_manager().download_huggingface_model(model_id, force=force)
+
+    async def search_hf_models(
+        self,
+        search_query: str,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        """Search HuggingFace models using the provider manager helper."""
+
+        return await self._require_provider_manager().search_huggingface_models(
+            search_query,
+            filters,
+            limit=limit,
+        )
+
+    def update_hf_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist HuggingFace settings via the provider manager."""
+
+        return self._require_provider_manager().update_huggingface_settings(settings)
+
+    def clear_hf_cache(self) -> Dict[str, Any]:
+        """Clear cached HuggingFace artefacts through the provider manager."""
+
+        return self._require_provider_manager().clear_huggingface_cache()
+
+    def save_hf_token(self, token: Optional[str]) -> Dict[str, Any]:
+        """Save a Hugging Face token via the provider manager."""
+
+        return self._require_provider_manager().save_huggingface_token(token)
+
+    def get_provider_api_key_status(self, provider_name: str) -> Dict[str, Any]:
+        """Fetch credential metadata for a provider using the provider manager."""
+
+        return self._require_provider_manager().get_provider_api_key_status(provider_name)
 
     async def set_current_provider(self, provider: str):
         """
