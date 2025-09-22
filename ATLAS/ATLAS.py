@@ -1,6 +1,9 @@
 # ATLAS/ATLAS.py
 
+import getpass
+import json
 from concurrent.futures import Future
+from pathlib import Path
 from typing import (
     Any,
     AsyncIterator,
@@ -33,7 +36,8 @@ class ATLAS:
         self.logger = setup_logger(__name__)
         self.persona_path = self.config_manager.get_app_root()
         self.current_persona = None
-        self.user = "Bib"  # Placeholder; replace with system user retrieval
+        self._user_identifier: Optional[str] = None
+        self._user_display_name: Optional[str] = None
         self.provider_manager = None
         self.persona_manager = None
         self.chat_session = None
@@ -43,6 +47,127 @@ class ATLAS:
         self._message_dispatchers: List[Callable[[str, str], None]] = []
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
         self._default_status_tooltip = "Active LLM provider/model and TTS status"
+
+    def _resolve_user_identity(self) -> Tuple[str, str]:
+        """Return best-effort user identifier and display name."""
+
+        username: Optional[str] = None
+        display_name: Optional[str] = None
+
+        account_db = None
+        try:
+            from modules.user_accounts.user_account_db import UserAccountDatabase
+        except Exception as exc:  # pragma: no cover - optional dependency issues
+            self.logger.debug("User account database unavailable: %s", exc)
+        else:
+            try:
+                account_db = UserAccountDatabase()
+                preferred = self.config_manager.get_config("ACTIVE_USER")
+                account_record = None
+
+                if preferred:
+                    account_record = account_db.get_user(preferred)
+
+                if account_record is None:
+                    users = account_db.get_all_users()
+                    if users:
+                        account_record = users[0]
+
+                if account_record:
+                    username = str(account_record[1]) if account_record[1] else None
+                    recorded_name = account_record[4] if len(account_record) > 4 else None
+                    if recorded_name:
+                        display_name = str(recorded_name)
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                self.logger.debug("User account lookup failed: %s", exc)
+            finally:
+                if account_db is not None:
+                    try:
+                        account_db.close_connection()
+                    except Exception as exc:  # pragma: no cover - best effort cleanup
+                        self.logger.debug("Failed to close user account database: %s", exc)
+
+        app_root = Path(self.config_manager.get_app_root())
+        profiles_dir = app_root / "modules" / "user_accounts" / "user_profiles"
+        profile_candidates = []
+
+        if username:
+            profile_candidates.append(profiles_dir / f"{username}.json")
+
+        if profiles_dir.exists():
+            try:
+                for path in sorted(profiles_dir.glob("*.json")):
+                    if path not in profile_candidates:
+                        profile_candidates.append(path)
+            except Exception as exc:  # pragma: no cover - directory listing issues
+                self.logger.debug("Failed to enumerate user profiles: %s", exc)
+
+        for profile_path in profile_candidates:
+            if not profile_path.exists():
+                continue
+            try:
+                data = json.loads(profile_path.read_text(encoding="utf-8"))
+            except Exception as exc:  # pragma: no cover - malformed profile data
+                self.logger.debug("Failed to load user profile %s: %s", profile_path, exc)
+                continue
+
+            candidate_name = (
+                data.get("name")
+                or data.get("display_name")
+                or data.get("full_name")
+                or data.get("username")
+            )
+
+            if not username:
+                username = profile_path.stem
+
+            if candidate_name:
+                display_name = str(candidate_name)
+                break
+
+        if not username:
+            try:
+                username = getpass.getuser()
+            except Exception:  # pragma: no cover - system specific failures
+                username = None
+
+        if not username:
+            username = "User"
+
+        if not display_name:
+            display_name = username
+
+        return username, display_name
+
+    def _ensure_user_identity(self) -> Tuple[str, str]:
+        """Ensure user identifier and display name are loaded."""
+
+        if not self._user_identifier or not self._user_display_name:
+            username, display_name = self._resolve_user_identity()
+            self._user_identifier = username
+            self._user_display_name = display_name
+
+        return self._user_identifier, self._user_display_name
+
+    def get_user_display_name(self) -> str:
+        """Return the friendly name for the active user."""
+
+        _, display_name = self._ensure_user_identity()
+        return display_name
+
+    @property
+    def user(self) -> str:
+        """Backward-compatible accessor for the user display name."""
+
+        return self.get_user_display_name()
+
+    @user.setter
+    def user(self, value: str) -> None:
+        sanitized = (value or "").strip()
+        if not sanitized:
+            sanitized = "User"
+        self._user_identifier = sanitized
+        self._user_display_name = sanitized
 
     def _require_provider_manager(self) -> ProviderManager:
         """Return the initialized provider manager or raise an error if unavailable."""
@@ -57,7 +182,8 @@ class ATLAS:
         Asynchronously initialize the ATLAS instance.
         """
         self.provider_manager = await ProviderManager.create(self.config_manager)
-        self.persona_manager = PersonaManager(master=self, user=self.user)
+        user_identifier, _ = self._ensure_user_identity()
+        self.persona_manager = PersonaManager(master=self, user=user_identifier)
         self.chat_session = ChatSession(self)
         
         default_provider = self.config_manager.get_default_provider()
@@ -1043,7 +1169,7 @@ class ATLAS:
             response = await self.provider_manager.generate_response(
                 messages=messages,
                 current_persona=self.current_persona,
-                user=self.user,
+                user=self._ensure_user_identity()[0],
                 conversation_id=self.chat_session.conversation_id
             )
 
