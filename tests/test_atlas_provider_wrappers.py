@@ -2,6 +2,7 @@ import asyncio
 import asyncio
 import importlib
 import importlib
+import inspect
 import sys
 import types
 from pathlib import Path
@@ -230,6 +231,138 @@ def _build_atlas(atlas_class):
     atlas = atlas_class.__new__(atlas_class)
     atlas.provider_manager = None
     return atlas
+
+
+def test_run_in_background_delegates_to_task_runner(atlas_class, monkeypatch):
+    atlas = _build_atlas(atlas_class)
+    atlas.logger = Mock()
+
+    import ATLAS.ATLAS as atlas_module
+
+    sentinel = object()
+    captured = {}
+
+    def fake_runner(
+        factory,
+        *,
+        on_success=None,
+        on_error=None,
+        logger=None,
+        thread_name=None,
+    ):
+        captured.update(
+            {
+                "factory": factory,
+                "on_success": on_success,
+                "on_error": on_error,
+                "logger": logger,
+                "thread_name": thread_name,
+            }
+        )
+        return sentinel
+
+    monkeypatch.setattr(atlas_module, "run_async_in_thread", fake_runner)
+
+    async def sample():  # pragma: no cover - executed via background helper
+        return "ok"
+
+    future = atlas.run_in_background(sample, thread_name="provider-thread")
+
+    assert future is sentinel
+    assert captured["factory"] is sample
+    assert captured["logger"] is atlas.logger
+    assert captured["thread_name"] == "provider-thread"
+    assert captured["on_success"] is None
+    assert captured["on_error"] is None
+
+
+def test_set_current_provider_notifies_listeners(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    atlas.logger = Mock()
+
+    set_provider_mock = AsyncMock()
+    get_model_mock = Mock(return_value="gpt-4o")
+    atlas.provider_manager = SimpleNamespace(
+        set_current_provider=set_provider_mock,
+        get_current_model=get_model_mock,
+    )
+
+    set_provider_call = Mock()
+    set_model_call = Mock()
+    atlas.chat_session = SimpleNamespace(
+        set_provider=set_provider_call,
+        set_model=set_model_call,
+    )
+
+    atlas._provider_change_listeners = []
+    summary = {"provider": "OpenAI"}
+    atlas.get_chat_status_summary = Mock(return_value=summary)
+
+    listener = Mock()
+    atlas.add_provider_change_listener(listener)
+
+    asyncio.run(atlas.set_current_provider("OpenAI"))
+
+    set_provider_mock.assert_awaited_once_with("OpenAI")
+    set_provider_call.assert_called_once_with("OpenAI")
+    set_model_call.assert_called_once_with("gpt-4o")
+    listener.assert_called_once_with(summary)
+
+
+def test_set_current_provider_background_wrapper_uses_helper(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    atlas.logger = Mock()
+
+    async_call = AsyncMock()
+    atlas.set_current_provider = async_call
+
+    sentinel = object()
+    success = Mock()
+    error = Mock()
+    atlas.run_in_background = Mock(return_value=sentinel)
+
+    future = atlas.set_current_provider_in_background(
+        "OpenAI", on_success=success, on_error=error
+    )
+
+    (factory,), kwargs = atlas.run_in_background.call_args
+    coro = factory()
+    assert inspect.isawaitable(coro)
+    asyncio.run(coro)
+
+    async_call.assert_awaited_once_with("OpenAI")
+    assert kwargs["on_success"] is success
+    assert kwargs["on_error"] is error
+    assert kwargs["thread_name"] == "set-provider-OpenAI"
+    assert future is sentinel
+
+
+def test_update_api_key_background_wrapper_uses_helper(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    atlas.logger = Mock()
+
+    async_call = AsyncMock()
+    atlas.update_provider_api_key = async_call
+
+    sentinel = object()
+    success = Mock()
+    error = Mock()
+    atlas.run_in_background = Mock(return_value=sentinel)
+
+    future = atlas.update_provider_api_key_in_background(
+        "OpenAI", "token", on_success=success, on_error=error
+    )
+
+    (factory,), kwargs = atlas.run_in_background.call_args
+    coro = factory()
+    assert inspect.isawaitable(coro)
+    asyncio.run(coro)
+
+    async_call.assert_awaited_once_with("OpenAI", "token")
+    assert kwargs["on_success"] is success
+    assert kwargs["on_error"] is error
+    assert kwargs["thread_name"] == "update-api-key-OpenAI"
+    assert future is sentinel
 
 
 @pytest.mark.parametrize(

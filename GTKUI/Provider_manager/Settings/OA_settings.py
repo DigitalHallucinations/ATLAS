@@ -1,6 +1,5 @@
 """Dedicated GTK window for configuring OpenAI provider defaults."""
 
-import asyncio
 import logging
 import threading
 from typing import Any, Dict, List, Optional, Tuple
@@ -17,6 +16,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib
 
 from GTKUI.Utils.utils import create_box
+from modules.background_tasks import run_async_in_thread
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +41,28 @@ class OpenAISettingsWindow(Gtk.Window):
         self._api_key_visible = False
         self._base_url_is_valid = True
 
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_hexpand(True)
-        scroller.set_vexpand(True)
+        scroller_cls = getattr(Gtk, "ScrolledWindow", None)
+        if scroller_cls is not None:
+            scroller = scroller_cls()
+            if hasattr(scroller, "set_policy"):
+                scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        else:
+            scroller = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        if hasattr(scroller, "set_hexpand"):
+            scroller.set_hexpand(True)
+        if hasattr(scroller, "set_vexpand"):
+            scroller.set_vexpand(True)
+
+        if not hasattr(scroller, "set_child"):
+            def _set_child(child):
+                if hasattr(scroller, "append"):
+                    scroller.append(child)
+                else:  # pragma: no cover - defensive fallback for test stubs
+                    scroller.child = child
+
+            setattr(scroller, "set_child", _set_child)
+
         self.set_child(scroller)
 
         main_box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=12)
@@ -459,17 +477,59 @@ class OpenAISettingsWindow(Gtk.Window):
             self._show_message("Error", "Enter an API key before saving.", Gtk.MessageType.ERROR)
             return
 
-        self._start_background_task(self._persist_api_key, api_key)
+        def handle_success(result):
+            GLib.idle_add(self._handle_api_key_save_result, result)
 
-    def _persist_api_key(self, api_key: str) -> None:
-        try:
-            result = asyncio.run(self.ATLAS.update_provider_api_key("OpenAI", api_key))
-        except Exception as exc:  # pragma: no cover - defensive logging
+        def handle_error(exc: Exception) -> None:
             logger.error("Error saving OpenAI API key: %s", exc, exc_info=True)
-            GLib.idle_add(self._handle_api_key_save_result, {"success": False, "error": str(exc)})
+            GLib.idle_add(
+                self._handle_api_key_save_result,
+                {"success": False, "error": str(exc)},
+            )
+
+        helper = getattr(self.ATLAS, "update_provider_api_key_in_background", None)
+        if callable(helper):
+            try:
+                helper(
+                    "OpenAI",
+                    api_key,
+                    on_success=handle_success,
+                    on_error=handle_error,
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.error("Unable to schedule OpenAI API key save: %s", exc, exc_info=True)
+                self._show_message(
+                    "Error",
+                    f"Failed to save API key: {str(exc)}",
+                    Gtk.MessageType.ERROR,
+                )
             return
 
-        GLib.idle_add(self._handle_api_key_save_result, result)
+        updater = getattr(self.ATLAS, "update_provider_api_key", None)
+        if not callable(updater):
+            self._show_message(
+                "Error",
+                "Saving API keys is not supported in this build.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
+        try:
+            future = run_async_in_thread(
+                lambda: updater("OpenAI", api_key),
+                on_success=handle_success,
+                on_error=handle_error,
+                logger=logger,
+                thread_name="openai-api-key-fallback",
+            )
+            future.result()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Unable to start fallback API key save task: %s", exc, exc_info=True)
+            self._show_message(
+                "Error",
+                f"Failed to save API key: {str(exc)}",
+                Gtk.MessageType.ERROR,
+            )
 
     def _handle_api_key_save_result(self, result: Dict[str, Any]) -> bool:
         if isinstance(result, dict) and result.get("success"):

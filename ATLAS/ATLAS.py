@@ -1,13 +1,24 @@
 # ATLAS/ATLAS.py
 
 from concurrent.futures import Future
-from typing import List, Dict, Union, AsyncIterator, Optional, Any, Callable, Tuple
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.provider_manager import ProviderManager
 from ATLAS.persona_manager import PersonaManager
 from modules.Chat.chat_session import ChatSession
-from modules.Speech_Services.speech_manager import SpeechManager  
+from modules.Speech_Services.speech_manager import SpeechManager
+from modules.background_tasks import run_async_in_thread
 
 class ATLAS:
     """
@@ -289,6 +300,59 @@ class ATLAS:
         """Ensure the HuggingFace helper is initialized via the provider manager."""
 
         return self._require_provider_manager().ensure_huggingface_ready()
+
+    def run_in_background(
+        self,
+        coroutine_factory: Callable[[], Awaitable[Any]],
+        *,
+        on_success: Optional[Callable[[Any], None]] = None,
+        on_error: Optional[Callable[[Exception], None]] = None,
+        thread_name: Optional[str] = None,
+    ) -> Future:
+        """Execute an awaitable in a background thread using the shared task helper."""
+
+        return run_async_in_thread(
+            coroutine_factory,
+            on_success=on_success,
+            on_error=on_error,
+            logger=self.logger,
+            thread_name=thread_name,
+        )
+
+    def set_current_provider_in_background(
+        self,
+        provider: str,
+        *,
+        on_success: Optional[Callable[[Any], None]] = None,
+        on_error: Optional[Callable[[Exception], None]] = None,
+    ) -> Future:
+        """Schedule a provider switch without blocking the caller."""
+
+        thread_name = f"set-provider-{provider}" if provider else None
+        return self.run_in_background(
+            lambda: self.set_current_provider(provider),
+            on_success=on_success,
+            on_error=on_error,
+            thread_name=thread_name,
+        )
+
+    def update_provider_api_key_in_background(
+        self,
+        provider_name: str,
+        new_api_key: Optional[str],
+        *,
+        on_success: Optional[Callable[[Any], None]] = None,
+        on_error: Optional[Callable[[Exception], None]] = None,
+    ) -> Future:
+        """Persist provider credentials using a background worker thread."""
+
+        thread_name = f"update-api-key-{provider_name}" if provider_name else None
+        return self.run_in_background(
+            lambda: self.update_provider_api_key(provider_name, new_api_key),
+            on_success=on_success,
+            on_error=on_error,
+            thread_name=thread_name,
+        )
 
     async def refresh_current_provider(
         self, provider_name: Optional[str] = None

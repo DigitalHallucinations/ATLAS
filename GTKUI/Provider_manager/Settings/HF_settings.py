@@ -14,10 +14,8 @@ and schedules UI updates on the GTK main loop via GLib.idle_add.
 
 import gi
 import os
-import asyncio
-import threading
 import logging
-from typing import Any, Dict
+from typing import Any, Awaitable, Callable, Dict, Optional
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gdk, GLib
 
@@ -149,30 +147,37 @@ class HuggingFaceSettingsWindow(Gtk.Window):
     # Helpers: async runner, icon loaders, CSS
     # ---------------------------------------------------------------------
 
-    def _run_async(self, coro, success_callback=None, error_callback=None):
-        """
-        Runs an asynchronous coroutine in a separate thread to avoid blocking the UI.
+    def _run_async(
+        self,
+        coroutine_factory: Callable[[], Awaitable[Any]],
+        success_callback=None,
+        error_callback=None,
+        *,
+        thread_name: Optional[str] = None,
+    ):
+        """Execute an awaitable via the ATLAS background helper and marshal callbacks."""
 
-        Args:
-            coro (coroutine): The coroutine to execute.
-            success_callback (callable, optional): A function to call on successful completion.
-                                                   It will be called with the result of the coroutine.
-            error_callback (callable, optional): A function to call if an exception occurs.
-                                                 It will be called with the exception instance.
-        """
-        def runner():
-            try:
-                # Create a new event loop and run the coroutine.
-                result = asyncio.run(coro)
-                if success_callback:
-                    GLib.idle_add(success_callback, result)
-            except Exception as e:
-                if error_callback:
-                    GLib.idle_add(error_callback, e)
-                else:
-                    GLib.idle_add(self.show_message, "Error", f"An error occurred: {str(e)}", Gtk.MessageType.ERROR)
-        thread = threading.Thread(target=runner, daemon=True)
-        thread.start()
+        def on_success(result):
+            if success_callback:
+                GLib.idle_add(success_callback, result)
+
+        def on_error(exc: Exception):
+            if error_callback:
+                GLib.idle_add(error_callback, exc)
+            else:
+                GLib.idle_add(
+                    self.show_message,
+                    "Error",
+                    f"An error occurred: {str(exc)}",
+                    Gtk.MessageType.ERROR,
+                )
+
+        self.ATLAS.run_in_background(
+            coroutine_factory,
+            on_success=on_success if success_callback else None,
+            on_error=on_error,
+            thread_name=thread_name,
+        )
 
     def _dispatch_provider_result(self, result, *, success_message: str, failure_message: str, on_success=None):
         """Display feedback for provider manager operations."""
@@ -1023,7 +1028,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         selected_model = self.model_combo.get_active_text()
         if selected_model:
             self._run_async(
-                self.ATLAS.load_hf_model(selected_model),
+                lambda: self.ATLAS.load_hf_model(selected_model),
                 success_callback=lambda res, model=selected_model: self._dispatch_provider_result(
                     res,
                     success_message=f"Model '{model}' loaded successfully.",
@@ -1043,7 +1048,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         Callback for unloading the current model.
         """
         self._run_async(
-            self.ATLAS.unload_hf_model(),
+            self.ATLAS.unload_hf_model,
             success_callback=lambda res: self._dispatch_provider_result(
                 res,
                 success_message="Model unloaded successfully.",
@@ -1152,7 +1157,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             confirmation = self.confirm_dialog(f"Are you sure you want to remove the model '{selected_model}'?")
             if confirmation:
                 self._run_async(
-                    self.ATLAS.remove_hf_model(selected_model),
+                    lambda: self.ATLAS.remove_hf_model(selected_model),
                     success_callback=lambda res, model=selected_model: self._dispatch_provider_result(
                         res,
                         success_message=f"Model '{model}' removed successfully.",
@@ -1178,7 +1183,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             confirmation = self.confirm_dialog(f"Do you want to update the model '{selected_model}'?")
             if confirmation:
                 self._run_async(
-                    self.ATLAS.download_hf_model(selected_model, force=True),
+                    lambda: self.ATLAS.download_hf_model(selected_model, force=True),
                     success_callback=lambda res, model=selected_model: self._dispatch_provider_result(
                         res,
                         success_message=f"Model '{model}' updated successfully.",
@@ -1219,7 +1224,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             filter_args["library_name"] = library
 
         self._run_async(
-            self.ATLAS.search_hf_models(search_query, filter_args, limit=10),
+            lambda: self.ATLAS.search_hf_models(search_query, filter_args, limit=10),
             success_callback=self._handle_search_results,
             error_callback=lambda e: self.show_message(
                 "Error",
@@ -1292,7 +1297,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         confirmation = self.confirm_dialog(f"Do you want to download and install the model '{model_name}'?")
         if confirmation:
             self._run_async(
-                self.ATLAS.download_hf_model(model_name, force=True),
+                lambda: self.ATLAS.download_hf_model(model_name, force=True),
                 success_callback=lambda res, model=model_name: self._dispatch_provider_result(
                     res,
                     success_message=f"Model '{model}' downloaded and installed successfully.",
