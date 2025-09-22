@@ -1,4 +1,5 @@
 import asyncio
+import asyncio
 import importlib
 import importlib
 import sys
@@ -231,10 +232,34 @@ def _build_atlas(atlas_class):
     return atlas
 
 
-def test_hf_wrappers_require_provider_manager(atlas_class):
+@pytest.mark.parametrize(
+    "method_name, args, kwargs",
+    [
+        ("list_hf_models", (), {}),
+        ("ensure_huggingface_ready", (), {}),
+        ("get_provider_api_key_status", ("OpenAI",), {}),
+    ],
+)
+def test_sync_provider_wrappers_require_manager(atlas_class, method_name, args, kwargs):
     atlas = _build_atlas(atlas_class)
+
     with pytest.raises(RuntimeError):
-        atlas.list_hf_models()
+        getattr(atlas, method_name)(*args, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "method_name, args, kwargs",
+    [
+        ("load_hf_model", ("alpha",), {}),
+        ("update_provider_api_key", ("OpenAI", "token"), {}),
+        ("refresh_current_provider", ("OpenAI",), {}),
+    ],
+)
+def test_async_provider_wrappers_require_manager(atlas_class, method_name, args, kwargs):
+    atlas = _build_atlas(atlas_class)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(getattr(atlas, method_name)(*args, **kwargs))
 
 
 @pytest.mark.parametrize(
@@ -250,6 +275,7 @@ def test_hf_wrappers_require_provider_manager(atlas_class):
             ("llama", {"pipeline_tag": "text-generation"}),
             {"limit": 5},
         ),
+        ("update_provider_api_key", "update_provider_api_key", ("OpenAI", "token"), {}),
     ],
 )
 def test_async_hf_wrappers_delegate(atlas_class, wrapper_name, provider_attr, args, kwargs):
@@ -283,6 +309,7 @@ def test_async_hf_wrappers_propagate_exceptions(atlas_class):
         ("clear_hf_cache", "clear_huggingface_cache", tuple(), {}),
         ("save_hf_token", "save_huggingface_token", ("token",), {}),
         ("get_provider_api_key_status", "get_provider_api_key_status", ("HuggingFace",), {}),
+        ("ensure_huggingface_ready", "ensure_huggingface_ready", tuple(), {}),
     ],
 )
 def test_sync_hf_wrappers_delegate(atlas_class, wrapper_name, provider_attr, args, kwargs):
@@ -304,5 +331,72 @@ def test_sync_hf_wrappers_propagate_exceptions(atlas_class):
 
     with pytest.raises(ValueError) as excinfo:
         atlas.clear_hf_cache()
+
+    assert excinfo.value is failure
+
+
+def test_refresh_current_provider_delegates_when_active(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    set_mock = AsyncMock(return_value=None)
+    atlas.provider_manager = SimpleNamespace(
+        get_current_provider=Mock(return_value="OpenAI"),
+        set_current_provider=set_mock,
+    )
+
+    result = asyncio.run(atlas.refresh_current_provider("OpenAI"))
+
+    assert result == {
+        "success": True,
+        "message": "Provider OpenAI refreshed.",
+        "provider": "OpenAI",
+    }
+    set_mock.assert_awaited_once_with("OpenAI")
+
+
+def test_refresh_current_provider_skips_when_not_active(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    set_mock = AsyncMock(return_value=None)
+    atlas.provider_manager = SimpleNamespace(
+        get_current_provider=Mock(return_value="OpenAI"),
+        set_current_provider=set_mock,
+    )
+
+    result = asyncio.run(atlas.refresh_current_provider("Mistral"))
+
+    assert result == {
+        "success": False,
+        "error": "Provider 'Mistral' is not the active provider.",
+        "active_provider": "OpenAI",
+    }
+    set_mock.assert_not_called()
+
+
+def test_refresh_current_provider_without_active_provider(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    set_mock = AsyncMock(return_value=None)
+    atlas.provider_manager = SimpleNamespace(
+        get_current_provider=Mock(return_value=""),
+        set_current_provider=set_mock,
+    )
+
+    result = asyncio.run(atlas.refresh_current_provider())
+
+    assert result == {
+        "success": False,
+        "error": "No active provider is configured.",
+    }
+    set_mock.assert_not_called()
+
+
+def test_refresh_current_provider_propagates_error(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    failure = RuntimeError("boom")
+    atlas.provider_manager = SimpleNamespace(
+        get_current_provider=Mock(return_value="OpenAI"),
+        set_current_provider=AsyncMock(side_effect=failure),
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        asyncio.run(atlas.refresh_current_provider("OpenAI"))
 
     assert excinfo.value is failure
