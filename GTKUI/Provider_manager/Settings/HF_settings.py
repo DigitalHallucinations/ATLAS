@@ -197,8 +197,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
     def _get_provider_key_status(self, provider_name: str) -> Dict[str, Any]:
         """Fetch sanitized provider credential metadata from the backend manager."""
 
-        manager = getattr(self.ATLAS, "provider_manager", None)
-        getter = getattr(manager, "get_provider_api_key_status", None)
+        getter = getattr(self.ATLAS, "get_provider_api_key_status", None)
         if not callable(getter):
             logger.debug("Provider manager helper for credential status is unavailable.")
             return {"has_key": False, "metadata": {}}
@@ -995,7 +994,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         Populates the model, remove model, and update model combo boxes with
         the installed models obtained via the HuggingFace generator.
         """
-        result = self.ATLAS.provider_manager.list_hf_models()
+        result = self.ATLAS.list_hf_models()
         self.model_combo.remove_all()
         self.remove_model_combo.remove_all()
         self.update_model_combo.remove_all()
@@ -1024,7 +1023,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         selected_model = self.model_combo.get_active_text()
         if selected_model:
             self._run_async(
-                self.ATLAS.provider_manager.load_hf_model(selected_model),
+                self.ATLAS.load_hf_model(selected_model),
                 success_callback=lambda res, model=selected_model: self._dispatch_provider_result(
                     res,
                     success_message=f"Model '{model}' loaded successfully.",
@@ -1044,7 +1043,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         Callback for unloading the current model.
         """
         self._run_async(
-            self.ATLAS.provider_manager.unload_hf_model(),
+            self.ATLAS.unload_hf_model(),
             success_callback=lambda res: self._dispatch_provider_result(
                 res,
                 success_message="Model unloaded successfully.",
@@ -1109,7 +1108,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
                 "logging_level": self.log_level_combo.get_active_text(),
                 "current_model": self.model_combo.get_active_text(),
             }
-            result = self.ATLAS.provider_manager.update_huggingface_settings(settings)
+            result = self.ATLAS.update_hf_settings(settings)
             self._dispatch_provider_result(
                 result,
                 success_message="Your settings have been saved successfully.",
@@ -1135,7 +1134,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         confirmation = self.confirm_dialog("Are you sure you want to clear the Hugging Face cache?")
         if confirmation:
             try:
-                result = self.ATLAS.provider_manager.clear_huggingface_cache()
+                result = self.ATLAS.clear_hf_cache()
                 self._dispatch_provider_result(
                     result,
                     success_message="Cache cleared successfully.",
@@ -1153,7 +1152,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             confirmation = self.confirm_dialog(f"Are you sure you want to remove the model '{selected_model}'?")
             if confirmation:
                 self._run_async(
-                    self.ATLAS.provider_manager.remove_hf_model(selected_model),
+                    self.ATLAS.remove_hf_model(selected_model),
                     success_callback=lambda res, model=selected_model: self._dispatch_provider_result(
                         res,
                         success_message=f"Model '{model}' removed successfully.",
@@ -1179,7 +1178,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             confirmation = self.confirm_dialog(f"Do you want to update the model '{selected_model}'?")
             if confirmation:
                 self._run_async(
-                    self.ATLAS.provider_manager.download_huggingface_model(selected_model, force=True),
+                    self.ATLAS.download_hf_model(selected_model, force=True),
                     success_callback=lambda res, model=selected_model: self._dispatch_provider_result(
                         res,
                         success_message=f"Model '{model}' updated successfully.",
@@ -1220,7 +1219,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             filter_args["library_name"] = library
 
         self._run_async(
-            self.ATLAS.provider_manager.search_huggingface_models(search_query, filter_args, limit=10),
+            self.ATLAS.search_hf_models(search_query, filter_args, limit=10),
             success_callback=self._handle_search_results,
             error_callback=lambda e: self.show_message(
                 "Error",
@@ -1293,7 +1292,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         confirmation = self.confirm_dialog(f"Do you want to download and install the model '{model_name}'?")
         if confirmation:
             self._run_async(
-                self.ATLAS.provider_manager.download_huggingface_model(model_name, force=True),
+                self.ATLAS.download_hf_model(model_name, force=True),
                 success_callback=lambda res, model=model_name: self._dispatch_provider_result(
                     res,
                     success_message=f"Model '{model}' downloaded and installed successfully.",
@@ -1316,7 +1315,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         Persist the Hugging Face token using the provider manager helper.
         """
 
-        backend = getattr(getattr(self.ATLAS, "provider_manager", None), "save_huggingface_token", None)
+        backend = getattr(self.ATLAS, "save_hf_token", None)
         if not callable(backend):
             self.show_message(
                 "Error",
@@ -1360,7 +1359,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             return
 
         self._run_async(
-            self.ATLAS.provider_manager.test_huggingface_token(token_input or None),
+            self.ATLAS.test_huggingface_token(token_input or None),
             success_callback=self._handle_token_test_result,
             error_callback=lambda exc: self.show_message(
                 "Error",
