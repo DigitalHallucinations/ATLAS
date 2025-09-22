@@ -781,3 +781,9 @@ def test_set_google_credentials_factory_failure_rolls_back(speech_manager, monke
         speech_manager.set_google_credentials("/tmp/new.json")
 
     assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == "old.json"
+
+
+def test_get_google_credentials_path_reads_config(speech_manager):
+    speech_manager.config_manager.config["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/creds.json"
+
+    assert speech_manager.get_google_credentials_path() == "/tmp/creds.json"
