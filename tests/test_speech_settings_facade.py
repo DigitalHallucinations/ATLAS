@@ -177,3 +177,15 @@ def test_save_openai_tab_uses_facade(speech_settings):
     speech_settings.save_openai_tab()
 
     atlas.update_openai_speech_settings.assert_called_once()
+
+
+def test_save_google_tab_uses_facade(speech_settings):
+    atlas = SimpleNamespace(update_google_speech_settings=Mock())
+
+    speech_settings.ATLAS = atlas
+    speech_settings.google_credentials_entry = _FakeEntry(" /tmp/google.json ")
+    speech_settings.tab_dirty[2] = True
+
+    speech_settings.save_google_tab()
+
+    atlas.update_google_speech_settings.assert_called_once_with("/tmp/google.json")

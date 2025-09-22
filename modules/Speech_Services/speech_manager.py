@@ -366,6 +366,19 @@ class SpeechManager:
         if was_default_stt:
             self.set_default_stt_provider('google')
 
+    def get_google_credentials_path(self) -> Optional[str]:
+        """Return the persisted Google credentials path when available."""
+
+        getter = getattr(self.config_manager, "get_config", None)
+        if callable(getter):
+            return getter("GOOGLE_APPLICATION_CREDENTIALS")
+
+        config = getattr(self.config_manager, "config", {})
+        if isinstance(config, dict):
+            return config.get("GOOGLE_APPLICATION_CREDENTIALS")
+
+        return None
+
     def set_elevenlabs_api_key(self, api_key: str, *, persist: bool = True):
         """Persist the ElevenLabs API key and refresh the provider instance."""
 

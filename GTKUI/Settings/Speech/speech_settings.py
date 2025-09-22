@@ -551,7 +551,20 @@ class SpeechSettings(Gtk.Window):
         self.google_credentials_entry.set_tooltip_text("Enter the absolute path to the Google credentials JSON.")
         self.google_credentials_entry.set_visibility(True)
         self.google_credentials_entry.set_hexpand(True)
-        existing_google_creds = self.ATLAS.config_manager.get_config("GOOGLE_APPLICATION_CREDENTIALS") or ""
+        existing_google_creds = ""
+        getter = getattr(self.ATLAS, "get_google_speech_credentials_path", None)
+        if callable(getter):
+            try:
+                stored_creds = getter()
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.error(
+                    "Failed to load Google credentials path from façade: %s", exc, exc_info=True
+                )
+            else:
+                if isinstance(stored_creds, str):
+                    existing_google_creds = stored_creds
+                elif stored_creds is not None:
+                    existing_google_creds = str(stored_creds)
         self.google_credentials_entry.set_text(existing_google_creds)
         h.append(self.google_credentials_entry)
 

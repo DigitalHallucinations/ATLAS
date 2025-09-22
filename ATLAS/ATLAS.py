@@ -745,6 +745,11 @@ class ATLAS:
 
         self.speech_manager.set_google_credentials(credentials_path)
 
+    def get_google_speech_credentials_path(self) -> Optional[str]:
+        """Return the persisted Google speech credentials path."""
+
+        return self.speech_manager.get_google_credentials_path()
+
     def get_openai_speech_options(self) -> Dict[str, List[Tuple[str, Optional[str]]]]:
         """Return the OpenAI speech option sets for UI rendering."""
 
