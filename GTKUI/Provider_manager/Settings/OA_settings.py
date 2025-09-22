@@ -4,6 +4,7 @@ import asyncio
 import logging
 import threading
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 try:  # pragma: no cover - optional dependency for tests
     from openai import OpenAI
@@ -38,6 +39,7 @@ class OpenAISettingsWindow(Gtk.Window):
         self._current_settings: Dict[str, Any] = {}
         self._available_models: List[str] = []
         self._api_key_visible = False
+        self._base_url_is_valid = True
 
         main_box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=12)
         self.set_child(main_box)
@@ -157,6 +159,48 @@ class OpenAISettingsWindow(Gtk.Window):
         self.organization_entry.set_placeholder_text("org-1234")
         grid.attach(self.organization_entry, 1, row, 1, 1)
 
+        expander_cls = getattr(Gtk, "Expander", None)
+        advanced_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        advanced_box.set_margin_start(6)
+        advanced_box.set_margin_end(6)
+        advanced_box.set_margin_bottom(6)
+
+        if expander_cls is not None:
+            advanced_container = expander_cls(label="Advanced")
+            advanced_container.set_hexpand(True)
+            advanced_container.set_margin_top(6)
+            advanced_container.set_child(advanced_box)
+            main_box.append(advanced_container)
+        else:  # pragma: no cover - fallback for GTK stubs used in testing
+            fallback_wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            fallback_wrapper.set_margin_top(6)
+            main_box.append(fallback_wrapper)
+
+            header = Gtk.Label(label="Advanced")
+            header.set_xalign(0.0)
+            fallback_wrapper.append(header)
+            fallback_wrapper.append(advanced_box)
+
+        advanced_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
+        advanced_box.append(advanced_grid)
+
+        base_url_label = Gtk.Label(label="Custom Base URL:")
+        base_url_label.set_xalign(0.0)
+        advanced_grid.attach(base_url_label, 0, 0, 1, 1)
+
+        self.base_url_entry = Gtk.Entry()
+        self.base_url_entry.set_hexpand(True)
+        self.base_url_entry.set_placeholder_text("https://api.openai.com/v1")
+        if hasattr(self.base_url_entry, "connect"):
+            self.base_url_entry.connect("changed", self._on_base_url_changed)
+        advanced_grid.attach(self.base_url_entry, 1, 0, 1, 1)
+
+        self.base_url_feedback_label = Gtk.Label(label="Leave blank to use the official endpoint.")
+        self.base_url_feedback_label.set_xalign(0.0)
+        if hasattr(self.base_url_feedback_label, "add_css_class"):
+            self.base_url_feedback_label.add_css_class("dim-label")
+        advanced_box.append(self.base_url_feedback_label)
+
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         button_box.set_halign(Gtk.Align.END)
         main_box.append(button_box)
@@ -182,6 +226,7 @@ class OpenAISettingsWindow(Gtk.Window):
         settings = self._get_settings_snapshot()
         self._current_settings = dict(settings)
         self._stored_base_url = settings.get("base_url")
+        self._apply_base_url_to_entry(self._stored_base_url)
 
         self._refresh_api_key_status()
 
@@ -224,6 +269,68 @@ class OpenAISettingsWindow(Gtk.Window):
         else:  # pragma: no cover - testing stubs
             self.api_key_status_label.label = status_text
 
+    def _apply_base_url_to_entry(self, value: Optional[str]) -> None:
+        if hasattr(self, "base_url_entry"):
+            if value:
+                self.base_url_entry.set_text(value)
+            else:
+                self.base_url_entry.set_text("")
+        self._sync_base_url_state()
+
+    def _sanitize_base_url(self, raw: str) -> Tuple[Optional[str], bool]:
+        text = (raw or "").strip()
+        if not text:
+            return None, True
+
+        parsed = urlparse(text)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            return text, True
+
+        return None, False
+
+    def _update_base_url_feedback(self, valid: bool) -> None:
+        hint = (
+            "Leave blank to use the official endpoint."
+            if valid
+            else "Enter a valid HTTP(S) URL or leave blank."
+        )
+
+        if hasattr(self.base_url_entry, "set_tooltip_text"):
+            self.base_url_entry.set_tooltip_text(hint)
+
+        if hasattr(self.base_url_entry, "add_css_class"):
+            if valid:
+                self.base_url_entry.remove_css_class("error")
+            else:
+                self.base_url_entry.add_css_class("error")
+
+        if hasattr(self.base_url_feedback_label, "set_label"):
+            self.base_url_feedback_label.set_label(hint)
+        else:  # pragma: no cover - testing stubs
+            self.base_url_feedback_label.label = hint
+
+        if hasattr(self.base_url_feedback_label, "add_css_class"):
+            if valid:
+                self.base_url_feedback_label.remove_css_class("error")
+            else:
+                self.base_url_feedback_label.add_css_class("error")
+
+        self._base_url_is_valid = valid
+
+    def _sync_base_url_state(self) -> Tuple[Optional[str], bool]:
+        if hasattr(self, "base_url_entry"):
+            raw = self.base_url_entry.get_text()
+        else:
+            raw = ""
+
+        sanitized, valid = self._sanitize_base_url(raw)
+        self._stored_base_url = sanitized
+        self._update_base_url_feedback(valid)
+        return sanitized, valid
+
+    def _on_base_url_changed(self, _entry: Gtk.Entry) -> None:
+        self._sync_base_url_state()
+
     # ------------------------------------------------------------------
     # Model loading
     # ------------------------------------------------------------------
@@ -254,7 +361,7 @@ class OpenAISettingsWindow(Gtk.Window):
 
         client_kwargs: Dict[str, Any] = {"api_key": api_key}
 
-        base_url = settings.get("base_url") or self._stored_base_url
+        base_url = self._stored_base_url
         if base_url:
             client_kwargs["base_url"] = base_url
 
@@ -360,6 +467,7 @@ class OpenAISettingsWindow(Gtk.Window):
             self._refresh_api_key_status()
             refreshed = self._get_settings_snapshot()
             self._stored_base_url = refreshed.get("base_url")
+            self._apply_base_url_to_entry(self._stored_base_url)
             self._begin_model_refresh(refreshed)
         else:
             if isinstance(result, dict):
@@ -378,6 +486,15 @@ class OpenAISettingsWindow(Gtk.Window):
             )
             return
 
+        base_url, base_valid = self._sync_base_url_state()
+        if not base_valid:
+            self._show_message(
+                "Error",
+                "Enter a valid HTTP(S) base URL or leave the field blank.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
         payload = {
             "model": model,
             "temperature": self.temperature_spin.get_value(),
@@ -386,7 +503,7 @@ class OpenAISettingsWindow(Gtk.Window):
             "presence_penalty": self.presence_penalty_spin.get_value(),
             "max_tokens": self.max_tokens_spin.get_value_as_int(),
             "stream": self.stream_toggle.get_active(),
-            "base_url": self._stored_base_url,
+            "base_url": base_url,
             "organization": self.organization_entry.get_text().strip() or None,
         }
 

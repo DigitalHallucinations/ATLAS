@@ -904,6 +904,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
     window.max_tokens_spin.set_value(4096)
     window.stream_toggle.set_active(True)
     window.organization_entry.set_text("org-new")
+    window.base_url_entry.set_text("https://alt.example/v2")
 
     window.on_save_clicked(window.model_combo)
 
@@ -914,8 +915,9 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
     assert saved_payload["presence_penalty"] == -0.15
     assert saved_payload["max_tokens"] == 4096
     assert saved_payload["stream"] is True
-    assert saved_payload["base_url"] == "https://example/v1"
+    assert saved_payload["base_url"] == "https://alt.example/v2"
     assert saved_payload["organization"] == "org-new"
+    assert window._stored_base_url == "https://alt.example/v2"
     assert window._last_message[0] == "Success"
     assert window.closed is True
 

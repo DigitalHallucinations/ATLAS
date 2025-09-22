@@ -137,7 +137,7 @@ def test_set_openai_llm_settings_updates_state(config_manager):
         presence_penalty=-0.5,
         max_tokens=2048,
         stream=False,
-        base_url="https://example/v1",
+        base_url=" https://example/v1 ",
         organization="org-42",
     )
 
@@ -163,6 +163,15 @@ def test_set_openai_llm_settings_updates_state(config_manager):
 
 
 def test_set_openai_llm_settings_clears_optional_fields(config_manager):
+    config_manager.set_openai_llm_settings(
+        model="gpt-4o",
+        base_url="https://custom/v1",
+        organization="org-keep",
+    )
+
+    assert os.environ["OPENAI_BASE_URL"] == "https://custom/v1"
+    assert os.environ["OPENAI_ORGANIZATION"] == "org-keep"
+
     config_manager.set_openai_llm_settings(
         model="gpt-4o",
         base_url="  ",
