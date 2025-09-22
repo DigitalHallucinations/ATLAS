@@ -12,6 +12,7 @@ import logging
 
 from GTKUI.Utils.utils import create_box
 from .Settings.HF_settings import HuggingFaceSettingsWindow
+from .Settings.OA_settings import OpenAISettingsWindow
 
 class ProviderManagement:
     """
@@ -168,7 +169,9 @@ class ProviderManagement:
         if self.provider_window:
             GLib.idle_add(self.provider_window.close)
 
-        if provider_name == "HuggingFace":
+        if provider_name == "OpenAI":
+            self.show_openai_settings()
+        elif provider_name == "HuggingFace":
             try:
                 result = self.ATLAS.ensure_huggingface_ready()
             except AttributeError:
@@ -197,6 +200,13 @@ class ProviderManagement:
             self.show_huggingface_settings()
         else:
             self.show_provider_settings(provider_name)
+
+    def show_openai_settings(self):
+        """Display the OpenAI provider configuration dialog."""
+
+        settings_window = OpenAISettingsWindow(self.ATLAS, self.config_manager, self.parent_window)
+        settings_window.set_tooltip_text("Configure OpenAI default parameters and endpoints.")
+        settings_window.present()
 
     def show_huggingface_settings(self):
         """

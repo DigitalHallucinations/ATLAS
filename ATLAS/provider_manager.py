@@ -146,6 +146,61 @@ class ProviderManager:
         self.logger.info("API key for %s updated via provider manager.", provider_name)
         return self._build_result(True, message=message)
 
+    def set_openai_llm_settings(
+        self,
+        *,
+        model: Optional[str],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        stream: Optional[bool] = None,
+        base_url: Optional[str] = None,
+        organization: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist OpenAI LLM defaults via the config manager and refresh runtime state."""
+
+        try:
+            settings = self.config_manager.set_openai_llm_settings(
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=stream,
+                base_url=base_url,
+                organization=organization,
+            )
+        except Exception as exc:
+            self.logger.error("Failed to persist OpenAI settings: %s", exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
+
+        promoted_model = settings.get("model")
+        if promoted_model:
+            with self.model_manager.lock:
+                available = list(self.model_manager.models.get("OpenAI", []))
+                new_order = [promoted_model] + [name for name in available if name != promoted_model]
+                self.model_manager.models["OpenAI"] = new_order
+            self.model_manager.set_model(promoted_model, "OpenAI")
+            if self.current_llm_provider == "OpenAI":
+                self.current_model = promoted_model
+
+        message = "OpenAI settings saved."
+        refreshed = self.get_openai_llm_settings()
+        return self._build_result(True, message=message, data=refreshed)
+
+    def get_openai_llm_settings(self) -> Dict[str, Any]:
+        """Return configured OpenAI defaults or an empty payload on failure."""
+
+        getter = getattr(self.config_manager, "get_openai_llm_settings", None)
+        if not callable(getter):
+            self.logger.warning("Config manager does not expose OpenAI settings accessor.")
+            return {}
+
+        try:
+            settings = getter() or {}
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to load OpenAI settings: %s", exc, exc_info=True)
+            return {}
+
+        return settings
+
     @staticmethod
     def _mask_secret(secret: str) -> str:
         """Return a sanitized preview for a stored secret without leaking its value."""
@@ -629,9 +684,9 @@ class ProviderManager:
         messages: List[Dict[str, str]],
         model: str = None,
         provider: str = None,
-        max_tokens: int = 4000,
-        temperature: float = 0.0,
-        stream: bool = True,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        stream: Optional[bool] = None,
         current_persona=None,
         functions=None,
         llm_call_type: str = None
@@ -643,9 +698,9 @@ class ProviderManager:
             messages (List[Dict[str, str]]): The conversation messages.
             model (str, optional): The model to use. If None, uses the current model.
             provider (str, optional): The provider to use. If None, uses the current provider.
-            max_tokens (int, optional): Maximum number of tokens. Defaults to 4000.
-            temperature (float, optional): Sampling temperature. Defaults to 0.0.
-            stream (bool, optional): Whether to stream the response. Defaults to True.
+            max_tokens (int, optional): Maximum number of tokens. Uses saved default when omitted.
+            temperature (float, optional): Sampling temperature. Uses saved default when omitted.
+            stream (bool, optional): Whether to stream the response. Uses saved default when omitted.
             current_persona (optional): The current persona.
             functions (optional): Functions to use.
             llm_call_type (str, optional): The type of LLM call.
@@ -655,25 +710,51 @@ class ProviderManager:
         """
         # Determine provider and model
         requested_provider = provider if provider else self.current_llm_provider
-        requested_model = model if model else self.get_current_model()
+        if not requested_provider:
+            requested_provider = self.config_manager.get_default_provider()
+
+        defaults: Dict[str, Any] = {}
+        if requested_provider == "OpenAI":
+            defaults = self.get_openai_llm_settings()
+
+        resolved_model = model or defaults.get("model") or self.get_current_model()
+        if not resolved_model:
+            fallback_model = self.get_default_model_for_provider(requested_provider)
+            resolved_model = fallback_model
+
+        resolved_max_tokens = max_tokens if max_tokens is not None else defaults.get("max_tokens", 4000)
+        resolved_temperature = (
+            temperature if temperature is not None else defaults.get("temperature", 0.0)
+        )
+        resolved_stream = stream if stream is not None else defaults.get("stream", True)
 
         # Log the incoming parameters
-        self.logger.info(f"Generating response with Provider: {requested_provider}, Model: {requested_model}, Persona: {current_persona}")
+        self.logger.info(
+            "Generating response with Provider: %s, Model: %s, Persona: %s",
+            requested_provider,
+            resolved_model,
+            current_persona,
+        )
 
         # Switch provider if different
         if requested_provider != self.current_llm_provider:
             await self.switch_llm_provider(requested_provider)
 
         # Switch model if different
-        if requested_model != self.current_model:
-            await self.set_model(requested_model)
+        if resolved_model and resolved_model != self.current_model:
+            await self.set_model(resolved_model)
 
         # Use current functions if not provided
         if functions is None:
             functions = self.current_functions
 
         start_time = time.time()
-        self.logger.info(f"Starting API call to {requested_provider} with model {requested_model} for {llm_call_type}")
+        self.logger.info(
+            "Starting API call to %s with model %s for %s",
+            requested_provider,
+            resolved_model,
+            llm_call_type,
+        )
 
         try:
             if not self.generate_response_func:
@@ -683,10 +764,10 @@ class ProviderManager:
             response = await self.generate_response_func(
                 self.config_manager,
                 messages=messages,
-                model=requested_model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stream=stream,
+                model=resolved_model,
+                max_tokens=resolved_max_tokens,
+                temperature=resolved_temperature,
+                stream=resolved_stream,
                 current_persona=current_persona,
                 functions=functions
             )

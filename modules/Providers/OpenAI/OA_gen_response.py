@@ -4,7 +4,7 @@ from openai import AsyncOpenAI
 from ATLAS.model_manager import ModelManager
 
 from tenacity import retry, stop_after_attempt, wait_exponential
-from typing import List, Dict, Union, AsyncIterator
+from typing import List, Dict, Union, AsyncIterator, Optional
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.ToolManager import (
@@ -21,17 +21,29 @@ class OpenAIGenerator:
         if not self.api_key:
             self.logger.error("OpenAI API key not found in configuration")
             raise ValueError("OpenAI API key not found in configuration")
-        self.client = AsyncOpenAI(api_key=self.api_key)
-        self.model_manager = ModelManager(config_manager)  
+        settings = self.config_manager.get_openai_llm_settings()
+        client_kwargs = {"api_key": self.api_key}
+        base_url = settings.get("base_url")
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        organization = settings.get("organization")
+        if organization:
+            client_kwargs["organization"] = organization
+
+        self.client = AsyncOpenAI(**client_kwargs)
+        self.model_manager = ModelManager(config_manager)
+        default_model = settings.get("model")
+        if default_model:
+            self.model_manager.set_model(default_model, "OpenAI")
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def generate_response(
         self,
         messages: List[Dict[str, str]],
         model: str = None,
-        max_tokens: int = 4000,
-        temperature: float = 0.0,
-        stream: bool = True,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        stream: Optional[bool] = None,
         current_persona=None,
         conversation_manager=None,
         user=None,
@@ -39,15 +51,26 @@ class OpenAIGenerator:
         functions=None
     ) -> Union[str, AsyncIterator[str]]:
         try:
+            settings = self.config_manager.get_openai_llm_settings()
             current_model = self.model_manager.get_current_model()
-            
+
             if model and model != current_model:
                 self.model_manager.set_model(model, "OpenAI")
                 current_model = model
                 self.logger.info(f"Model changed to {model}")
             elif not model:
-                model = current_model
+                model = settings.get("model") or current_model
+                if model and model != current_model:
+                    self.model_manager.set_model(model, "OpenAI")
+                    current_model = model
                 self.logger.info(f"Using current model: {model}")
+
+            if max_tokens is None:
+                max_tokens = int(settings.get("max_tokens", 4000))
+            if temperature is None:
+                temperature = float(settings.get("temperature", 0.0))
+            if stream is None:
+                stream = bool(settings.get("stream", True))
 
             self.logger.info(f"Starting API call to OpenAI with model {model}")
             self.logger.info(f"Current persona: {current_persona}")

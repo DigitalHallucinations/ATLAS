@@ -27,6 +27,7 @@ class ConfigManager:
         
         # Load configurations from .env and config.yaml
         self.env_config = self._load_env_config()
+        self._yaml_path = self._compute_yaml_path()
         self.yaml_config = self._load_yaml_config()
         
         # Merge configurations, with YAML config overriding env config if there's overlap
@@ -61,6 +62,16 @@ class ConfigManager:
             "ElevenLabs": "XI_API_KEY",
         }
 
+    def _compute_yaml_path(self) -> str:
+        """Return the absolute path to the persistent YAML configuration file."""
+
+        return os.path.join(
+            self.env_config.get('APP_ROOT', '.'),
+            'ATLAS',
+            'config',
+            'atlas_config.yaml',
+        )
+
     def _load_env_config(self) -> Dict[str, Any]:
         """
         Loads environment variables into the configuration dictionary.
@@ -78,6 +89,8 @@ class ConfigManager:
             'ANTHROPIC_API_KEY': os.getenv('ANTHROPIC_API_KEY'),
             'GROK_API_KEY': os.getenv('GROK_API_KEY'),
             'XI_API_KEY': os.getenv('XI_API_KEY'),
+            'OPENAI_BASE_URL': os.getenv('OPENAI_BASE_URL'),
+            'OPENAI_ORGANIZATION': os.getenv('OPENAI_ORGANIZATION'),
             'APP_ROOT': os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         }
         self.logger.info(f"APP_ROOT is set to: {config['APP_ROOT']}")
@@ -90,9 +103,8 @@ class ConfigManager:
         Returns:
             Dict[str, Any]: A dictionary containing all loaded YAML configuration settings.
         """
-        # Construct the path to config.yaml based on APP_ROOT
-        yaml_path = os.path.join(self.env_config.get('APP_ROOT', '.'), 'ATLAS', 'config', 'atlas_config.yaml')
-        
+        yaml_path = getattr(self, '_yaml_path', None) or self._compute_yaml_path()
+
         if not os.path.exists(yaml_path):
             self.logger.error(f"Configuration file not found: {yaml_path}")
             return {}
@@ -188,6 +200,69 @@ class ConfigManager:
             elif key in self.config:
                 self.config[key] = None
 
+    def set_openai_llm_settings(
+        self,
+        *,
+        model: Optional[str],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        stream: Optional[bool] = None,
+        base_url: Optional[str] = None,
+        organization: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist OpenAI chat-completion defaults and related metadata."""
+
+        if not model:
+            raise ValueError("A default OpenAI model must be provided.")
+
+        normalized_temperature = 0.0 if temperature is None else float(temperature)
+        if not 0.0 <= normalized_temperature <= 2.0:
+            raise ValueError("Temperature must be between 0.0 and 2.0.")
+
+        normalized_max_tokens = 4000 if max_tokens is None else int(max_tokens)
+        if normalized_max_tokens <= 0:
+            raise ValueError("Max tokens must be a positive integer.")
+
+        normalized_stream = True if stream is None else bool(stream)
+
+        sanitized_base_url = (base_url or "").strip() or None
+        sanitized_org = (organization or "").strip() or None
+
+        settings_block = {}
+        existing = self.yaml_config.get('OPENAI_LLM')
+        if isinstance(existing, dict):
+            settings_block.update(existing)
+
+        settings_block.update(
+            {
+                'model': model,
+                'temperature': normalized_temperature,
+                'max_tokens': normalized_max_tokens,
+                'stream': normalized_stream,
+                'base_url': sanitized_base_url,
+                'organization': sanitized_org,
+            }
+        )
+
+        self.yaml_config['OPENAI_LLM'] = settings_block
+        self.config['OPENAI_LLM'] = dict(settings_block)
+
+        # Persist environment-backed values.
+        self._persist_env_value('DEFAULT_MODEL', model)
+        self.config['DEFAULT_MODEL'] = model
+
+        self._persist_env_value('OPENAI_BASE_URL', sanitized_base_url)
+        self._persist_env_value('OPENAI_ORGANIZATION', sanitized_org)
+
+        # Synchronize cached environment map for convenience.
+        self.env_config['DEFAULT_MODEL'] = model
+        self.env_config['OPENAI_BASE_URL'] = sanitized_base_url
+        self.env_config['OPENAI_ORGANIZATION'] = sanitized_org
+
+        self._write_yaml_config()
+
+        return dict(settings_block)
+
 
     def get_config(self, key: str, default: Any = None) -> Any:
         """
@@ -228,6 +303,24 @@ class ConfigManager:
             str: The name of the default model.
         """
         return self.get_config('DEFAULT_MODEL')
+
+    def get_openai_llm_settings(self) -> Dict[str, Any]:
+        """Return persisted OpenAI LLM defaults merged with environment values."""
+
+        defaults = {
+            'model': self.get_config('DEFAULT_MODEL', 'gpt-4o'),
+            'temperature': 0.0,
+            'max_tokens': 4000,
+            'stream': True,
+            'base_url': self.get_config('OPENAI_BASE_URL'),
+            'organization': self.get_config('OPENAI_ORGANIZATION'),
+        }
+
+        stored = self.get_config('OPENAI_LLM')
+        if isinstance(stored, dict):
+            defaults.update({k: stored.get(k, defaults.get(k)) for k in defaults.keys()})
+
+        return defaults
 
 
     def get_openai_api_key(self) -> str:
@@ -382,8 +475,9 @@ class ConfigManager:
         """
         Writes the current YAML configuration back to the config.yaml file.
         """
-        yaml_path = os.path.join(self.get_app_root(), 'config.yaml')
+        yaml_path = getattr(self, '_yaml_path', None) or self._compute_yaml_path()
         try:
+            os.makedirs(os.path.dirname(yaml_path), exist_ok=True)
             with open(yaml_path, 'w') as file:
                 yaml.dump(self.yaml_config, file)
             self.logger.info(f"Configuration written to {yaml_path}")
