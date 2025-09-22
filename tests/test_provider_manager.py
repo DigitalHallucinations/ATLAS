@@ -800,7 +800,7 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     assert provider_manager.current_model == "gpt-4o-mini"
 
 
-def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
+def test_openai_settings_window_populates_defaults_and_saves(provider_manager, monkeypatch):
     atlas_stub = types.SimpleNamespace()
 
     saved_payload = {}
@@ -819,6 +819,12 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
         "base_url": "https://example/v1",
         "organization": "org-42",
     }
+    atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
+
+    def fake_begin_refresh(self, settings):
+        self._apply_model_results(["gpt-4o-mini", "gpt-4o"], None, settings.get("model"))
+
+    monkeypatch.setattr(OpenAISettingsWindow, "_begin_model_refresh", fake_begin_refresh, raising=False)
 
     window = OpenAISettingsWindow(atlas_stub, provider_manager.config_manager, None)
 
@@ -826,14 +832,17 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert window.temperature_spin.get_value() == 0.65
     assert window.max_tokens_spin.get_value_as_int() == 2048
     assert window.stream_toggle.get_active() is False
-    assert window.base_url_entry.get_text() == "https://example/v1"
     assert window.organization_entry.get_text() == "org-42"
+    status_text = getattr(window.api_key_status_label, "label", None)
+    if status_text is None and hasattr(window.api_key_status_label, "get_text"):
+        status_text = window.api_key_status_label.get_text()
+    assert status_text in {"An API key is saved for OpenAI.", "No API key saved for OpenAI."}
+    assert window._stored_base_url == "https://example/v1"
 
     window.model_combo.set_active(1)
     window.temperature_spin.set_value(0.5)
     window.max_tokens_spin.set_value(4096)
     window.stream_toggle.set_active(True)
-    window.base_url_entry.set_text("https://new")
     window.organization_entry.set_text("org-new")
 
     window.on_save_clicked(window.model_combo)
@@ -842,7 +851,38 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert saved_payload["temperature"] == 0.5
     assert saved_payload["max_tokens"] == 4096
     assert saved_payload["stream"] is True
-    assert saved_payload["base_url"] == "https://new"
+    assert saved_payload["base_url"] == "https://example/v1"
     assert saved_payload["organization"] == "org-new"
     assert window._last_message[0] == "Success"
     assert window.closed is True
+
+
+def test_openai_settings_window_saves_api_key(provider_manager, monkeypatch):
+    atlas_stub = types.SimpleNamespace()
+
+    atlas_stub.provider_manager = provider_manager
+    atlas_stub.get_openai_llm_settings = lambda: {
+        "model": "gpt-4o",
+        "temperature": 0.0,
+        "max_tokens": 4000,
+        "stream": True,
+        "base_url": None,
+        "organization": None,
+    }
+    atlas_stub.set_openai_llm_settings = lambda **_: {"success": True, "message": "saved"}
+    atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
+
+    monkeypatch.setattr(OpenAISettingsWindow, "_begin_model_refresh", lambda self, settings: None, raising=False)
+
+    def immediate_task(self, target, *args):
+        target(*args)
+
+    monkeypatch.setattr(OpenAISettingsWindow, "_start_background_task", immediate_task, raising=False)
+
+    window = OpenAISettingsWindow(atlas_stub, provider_manager.config_manager, None)
+    window.api_key_entry.set_text("sk-test")
+
+    window.on_save_api_key_clicked(None)
+
+    assert provider_manager.config_manager.get_openai_api_key() == "sk-test"
+    assert window._last_message[0] == "Success"
