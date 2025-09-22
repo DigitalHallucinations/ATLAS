@@ -371,6 +371,7 @@ def test_update_api_key_background_wrapper_uses_helper(atlas_class):
         ("list_hf_models", (), {}),
         ("ensure_huggingface_ready", (), {}),
         ("get_provider_api_key_status", ("OpenAI",), {}),
+        ("get_openai_llm_settings", (), {}),
     ],
 )
 def test_sync_provider_wrappers_require_manager(atlas_class, method_name, args, kwargs):
@@ -386,6 +387,7 @@ def test_sync_provider_wrappers_require_manager(atlas_class, method_name, args, 
         ("load_hf_model", ("alpha",), {}),
         ("update_provider_api_key", ("OpenAI", "token"), {}),
         ("refresh_current_provider", ("OpenAI",), {}),
+        ("list_openai_models", (), {}),
     ],
 )
 def test_async_provider_wrappers_require_manager(atlas_class, method_name, args, kwargs):
@@ -421,6 +423,35 @@ def test_async_hf_wrappers_delegate(atlas_class, wrapper_name, provider_attr, ar
 
     assert result is expected
     async_mock.assert_awaited_once_with(*args, **kwargs)
+
+
+def test_get_openai_llm_settings_delegates(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    expected = {"model": "gpt-4o"}
+    atlas.provider_manager = SimpleNamespace(
+        get_openai_llm_settings=Mock(return_value=expected)
+    )
+
+    result = atlas.get_openai_llm_settings()
+
+    assert result == expected
+    atlas.provider_manager.get_openai_llm_settings.assert_called_once_with()
+
+
+def test_list_openai_models_delegates(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    expected = {"models": ["gpt-4o"], "error": None}
+    async_mock = AsyncMock(return_value=expected)
+    atlas.provider_manager = SimpleNamespace(list_openai_models=async_mock)
+
+    result = asyncio.run(
+        atlas.list_openai_models(base_url="https://api.example/v1", organization="org-1")
+    )
+
+    assert result is expected
+    async_mock.assert_awaited_once_with(
+        base_url="https://api.example/v1", organization="org-1"
+    )
 
 
 def test_async_hf_wrappers_propagate_exceptions(atlas_class):
