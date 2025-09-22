@@ -41,8 +41,14 @@ class OpenAISettingsWindow(Gtk.Window):
         self._api_key_visible = False
         self._base_url_is_valid = True
 
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_hexpand(True)
+        scroller.set_vexpand(True)
+        self.set_child(scroller)
+
         main_box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=12)
-        self.set_child(main_box)
+        scroller.set_child(main_box)
 
         grid = Gtk.Grid(column_spacing=12, row_spacing=8)
         main_box.append(grid)
