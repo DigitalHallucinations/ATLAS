@@ -44,9 +44,9 @@ class InfoPopup(Gtk.Window):
 
 
 class GeneralTab:
-    def __init__(self, persona_state, persona_manager):
+    def __init__(self, persona_state, atlas):
         self.state = persona_state
-        self.persona_manager = persona_manager
+        self._atlas = atlas
         self.persona_name = (
             persona_state.get('original_name')
             or persona_state.get('general', {}).get('name')
@@ -369,7 +369,7 @@ class GeneralTab:
     def _preview_locked_sections(self, general=None, flags=None):
         persona_name = self.persona_name or self.state.get('original_name') or None
         try:
-            return self.persona_manager.compute_locked_content(
+            return self._atlas.compute_persona_locked_content(
                 persona_name,
                 general=general,
                 flags=flags,
@@ -542,7 +542,7 @@ class GeneralTab:
             return
 
         name = persona.get('name') or self.persona_name
-        refreshed_state = self.persona_manager.get_editor_state(name)
+        refreshed_state = self._atlas.get_persona_editor_state(name)
         if refreshed_state is None:
             return
 
@@ -560,7 +560,7 @@ class GeneralTab:
         if not response or not response.get('success'):
             errors = (response or {}).get('errors') if response else None
             message = "; ".join(errors) if errors else failure_message
-            self.persona_manager.show_message('system', message)
+            self._atlas.show_persona_message('system', message)
             return False
 
         persona = response.get('persona')
@@ -576,8 +576,8 @@ class GeneralTab:
     ) -> bool:
         persona_name = self.persona_name
         if not persona_name:
-            self.persona_manager.show_message('system', 'Persona name is missing; unable to update settings.')
+            self._atlas.show_persona_message('system', 'Persona name is missing; unable to update settings.')
             return False
 
-        response = self.persona_manager.set_flag(persona_name, flag, enabled, extras)
+        response = self._atlas.set_persona_flag(persona_name, flag, enabled, extras)
         return self._handle_response(response, f"Unable to update flag '{flag}'.")

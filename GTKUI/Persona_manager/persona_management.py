@@ -204,7 +204,7 @@ class PersonaManagement:
             persona (str): The name of the persona to select.
         """
         self.ATLAS.load_persona(persona)
-        print(f"Persona '{persona}' selected with system prompt:\n{self.ATLAS.persona_manager.current_system_prompt}")
+        print(f"Persona '{persona}' selected with system prompt:\n{self.ATLAS.get_current_persona_prompt()}")
 
     # --------------------------- Settings ---------------------------
 
@@ -218,9 +218,9 @@ class PersonaManagement:
         if self.persona_window:
             self.persona_window.close()
 
-        state = self.ATLAS.persona_manager.get_editor_state(persona_name)
+        state = self.ATLAS.get_persona_editor_state(persona_name)
         if state is None:
-            self.ATLAS.persona_manager.show_message(
+            self.ATLAS.show_persona_message(
                 "error",
                 f"Unable to load persona '{persona_name}' for editing.",
             )
@@ -278,7 +278,7 @@ class PersonaManagement:
         main_vbox.append(stack)
 
         # General Tab (with scrollable box)
-        self.general_tab = GeneralTab(persona_state, self.ATLAS.persona_manager)
+        self.general_tab = GeneralTab(persona_state, self.ATLAS)
         general_box = self.general_tab.get_widget()
         scrolled_general_tab = Gtk.ScrolledWindow()
         scrolled_general_tab.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -404,7 +404,7 @@ class PersonaManagement:
             settings_window (Gtk.Window): The settings window to close after saving.
         """
         if not self._current_editor_state:
-            self.ATLAS.persona_manager.show_message(
+            self.ATLAS.show_persona_message(
                 "system",
                 "Persona data is unavailable; cannot save.",
             )
@@ -431,7 +431,7 @@ class PersonaManagement:
             'voice': self.voice_entry.get_text(),
         }
 
-        result = self.ATLAS.persona_manager.update_persona_from_form(
+        result = self.ATLAS.update_persona_from_editor(
             self._current_editor_state.get('original_name'),
             general_payload,
             persona_type_payload,
@@ -444,7 +444,7 @@ class PersonaManagement:
             target_name = general_payload['name']
             if persona_result:
                 target_name = persona_result.get('name') or target_name
-            refreshed_state = self.ATLAS.persona_manager.get_editor_state(target_name)
+            refreshed_state = self.ATLAS.get_persona_editor_state(target_name)
             if refreshed_state is not None:
                 self._current_editor_state.clear()
                 self._current_editor_state.update(refreshed_state)
@@ -452,4 +452,4 @@ class PersonaManagement:
             settings_window.destroy()
         else:
             error_text = "; ".join(result.get('errors', [])) or "Unable to save persona settings."
-            self.ATLAS.persona_manager.show_message("system", f"Failed to save persona: {error_text}")
+            self.ATLAS.show_persona_message("system", f"Failed to save persona: {error_text}")

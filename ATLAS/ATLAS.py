@@ -82,6 +82,14 @@ class ATLAS:
         """
         return self._initialized
 
+    def _require_persona_manager(self) -> PersonaManager:
+        """Return the initialized persona manager or raise an error if unavailable."""
+
+        if self.persona_manager is None:
+            raise RuntimeError("Persona manager is not initialized.")
+
+        return self.persona_manager
+
     def get_persona_names(self) -> List[str]:
         """
         Retrieve persona names from the PersonaManager.
@@ -89,7 +97,7 @@ class ATLAS:
         Returns:
             List[str]: A list of persona names.
         """
-        return self.persona_manager.persona_names
+        return self._require_persona_manager().persona_names
 
     def load_persona(self, persona: str):
         """
@@ -99,9 +107,99 @@ class ATLAS:
             persona (str): The name of the persona to load.
         """
         self.logger.info(f"Loading persona: {persona}")
-        self.persona_manager.updater(persona)
-        self.current_persona = self.persona_manager.current_persona  # Update the current_persona in ATLAS
+        manager = self._require_persona_manager()
+
+        manager.updater(persona)
+        self.current_persona = manager.current_persona  # Update the current_persona in ATLAS
         self.logger.info(f"Current persona set to: {self.current_persona}")
+
+    def get_active_persona_name(self) -> str:
+        """Return the human-friendly name of the active persona."""
+
+        manager = self._require_persona_manager()
+        persona = getattr(manager, "current_persona", None) or {}
+
+        if isinstance(persona, dict):
+            name = persona.get("name")
+            if name:
+                return str(name)
+
+        default_name = getattr(manager, "default_persona_name", None)
+        if default_name:
+            return str(default_name)
+
+        return "Assistant"
+
+    def get_current_persona_prompt(self) -> Optional[str]:
+        """Return the system prompt for the active persona when available."""
+
+        manager = self._require_persona_manager()
+        try:
+            return manager.get_current_persona_prompt()
+        except AttributeError:
+            persona = getattr(manager, "current_persona", None)
+            if isinstance(persona, dict):
+                return persona.get("system_prompt")
+            return None
+
+    def get_persona_editor_state(self, persona_name: str) -> Optional[Dict[str, Any]]:
+        """Fetch the structured editor state for the requested persona."""
+
+        return self._require_persona_manager().get_editor_state(persona_name)
+
+    def compute_persona_locked_content(
+        self,
+        persona_name: Optional[str] = None,
+        *,
+        general: Optional[Dict[str, Any]] = None,
+        flags: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, str]:
+        """Compute start/end locked content previews for persona editors."""
+
+        return self._require_persona_manager().compute_locked_content(
+            persona_name,
+            general=general,
+            flags=flags,
+        )
+
+    def set_persona_flag(
+        self,
+        persona_name: str,
+        flag: str,
+        enabled: Any,
+        extras: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Toggle persona flags using the persona manager facade."""
+
+        return self._require_persona_manager().set_flag(
+            persona_name,
+            flag,
+            enabled,
+            extras,
+        )
+
+    def update_persona_from_editor(
+        self,
+        persona_name: str,
+        general: Optional[Dict[str, Any]] = None,
+        persona_type: Optional[Dict[str, Any]] = None,
+        provider: Optional[Dict[str, Any]] = None,
+        speech: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Persist persona updates captured from the editor views."""
+
+        return self._require_persona_manager().update_persona_from_form(
+            persona_name,
+            general,
+            persona_type,
+            provider,
+            speech,
+        )
+
+    def show_persona_message(self, role: str, message: str) -> None:
+        """Proxy persona messages to the configured dispatcher."""
+
+        self._require_persona_manager().show_message(role, message)
 
     def get_available_providers(self) -> List[str]:
         """
