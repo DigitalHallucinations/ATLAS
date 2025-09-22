@@ -80,6 +80,8 @@ async def use_tool(
     current_persona,
     temperature_var,
     top_p_var,
+    frequency_penalty_var,
+    presence_penalty_var,
     conversation_manager,
     config_manager
 ):
@@ -153,6 +155,8 @@ async def use_tool(
                     messages,
                     temperature_var,
                     top_p_var,
+                    frequency_penalty_var,
+                    presence_penalty_var,
                     functions,
                     config_manager
                 )
@@ -189,6 +193,8 @@ async def call_model_with_new_prompt(
     messages,
     temperature_var,
     top_p_var,
+    frequency_penalty_var,
+    presence_penalty_var,
     functions,
     config_manager
 ):
@@ -201,6 +207,8 @@ async def call_model_with_new_prompt(
             model=config_manager.provider_manager.get_current_model(),
             temperature=temperature_var,
             top_p=top_p_var,
+            frequency_penalty=frequency_penalty_var,
+            presence_penalty=presence_penalty_var,
             functions=functions
         )
         logger.info(f"Model's response: {response}")

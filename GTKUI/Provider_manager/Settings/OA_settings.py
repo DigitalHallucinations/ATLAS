@@ -92,6 +92,46 @@ class OpenAISettingsWindow(Gtk.Window):
         grid.attach(self.temperature_spin, 1, row, 1, 1)
 
         row += 1
+        top_p_label = Gtk.Label(label="Top-p:")
+        top_p_label.set_xalign(0.0)
+        grid.attach(top_p_label, 0, row, 1, 1)
+        self.top_p_adjustment = Gtk.Adjustment(
+            lower=0.0, upper=1.0, step_increment=0.01, page_increment=0.05, value=1.0
+        )
+        self.top_p_spin = Gtk.SpinButton(adjustment=self.top_p_adjustment, digits=2)
+        self.top_p_spin.set_increments(0.01, 0.05)
+        self.top_p_spin.set_hexpand(True)
+        grid.attach(self.top_p_spin, 1, row, 1, 1)
+
+        row += 1
+        freq_label = Gtk.Label(label="Frequency Penalty:")
+        freq_label.set_xalign(0.0)
+        grid.attach(freq_label, 0, row, 1, 1)
+        self.frequency_penalty_adjustment = Gtk.Adjustment(
+            lower=-2.0, upper=2.0, step_increment=0.05, page_increment=0.1, value=0.0
+        )
+        self.frequency_penalty_spin = Gtk.SpinButton(
+            adjustment=self.frequency_penalty_adjustment, digits=2
+        )
+        self.frequency_penalty_spin.set_increments(0.05, 0.1)
+        self.frequency_penalty_spin.set_hexpand(True)
+        grid.attach(self.frequency_penalty_spin, 1, row, 1, 1)
+
+        row += 1
+        presence_label = Gtk.Label(label="Presence Penalty:")
+        presence_label.set_xalign(0.0)
+        grid.attach(presence_label, 0, row, 1, 1)
+        self.presence_penalty_adjustment = Gtk.Adjustment(
+            lower=-2.0, upper=2.0, step_increment=0.05, page_increment=0.1, value=0.0
+        )
+        self.presence_penalty_spin = Gtk.SpinButton(
+            adjustment=self.presence_penalty_adjustment, digits=2
+        )
+        self.presence_penalty_spin.set_increments(0.05, 0.1)
+        self.presence_penalty_spin.set_hexpand(True)
+        grid.attach(self.presence_penalty_spin, 1, row, 1, 1)
+
+        row += 1
         tokens_label = Gtk.Label(label="Max Tokens:")
         tokens_label.set_xalign(0.0)
         grid.attach(tokens_label, 0, row, 1, 1)
@@ -146,6 +186,9 @@ class OpenAISettingsWindow(Gtk.Window):
         self._refresh_api_key_status()
 
         self.temperature_spin.set_value(float(settings.get("temperature", 0.0)))
+        self.top_p_spin.set_value(float(settings.get("top_p", 1.0)))
+        self.frequency_penalty_spin.set_value(float(settings.get("frequency_penalty", 0.0)))
+        self.presence_penalty_spin.set_value(float(settings.get("presence_penalty", 0.0)))
         self.max_tokens_spin.set_value(float(settings.get("max_tokens", 4000)))
         self.stream_toggle.set_active(bool(settings.get("stream", True)))
         self.organization_entry.set_text(settings.get("organization") or "")
@@ -338,6 +381,9 @@ class OpenAISettingsWindow(Gtk.Window):
         payload = {
             "model": model,
             "temperature": self.temperature_spin.get_value(),
+            "top_p": self.top_p_spin.get_value(),
+            "frequency_penalty": self.frequency_penalty_spin.get_value(),
+            "presence_penalty": self.presence_penalty_spin.get_value(),
             "max_tokens": self.max_tokens_spin.get_value_as_int(),
             "stream": self.stream_toggle.get_active(),
             "base_url": self._stored_base_url,

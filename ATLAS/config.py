@@ -205,6 +205,9 @@ class ConfigManager:
         *,
         model: Optional[str],
         temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
         max_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
         base_url: Optional[str] = None,
@@ -218,6 +221,18 @@ class ConfigManager:
         normalized_temperature = 0.0 if temperature is None else float(temperature)
         if not 0.0 <= normalized_temperature <= 2.0:
             raise ValueError("Temperature must be between 0.0 and 2.0.")
+
+        normalized_top_p = 1.0 if top_p is None else float(top_p)
+        if not 0.0 <= normalized_top_p <= 1.0:
+            raise ValueError("Top-p must be between 0.0 and 1.0.")
+
+        normalized_frequency_penalty = 0.0 if frequency_penalty is None else float(frequency_penalty)
+        if not -2.0 <= normalized_frequency_penalty <= 2.0:
+            raise ValueError("Frequency penalty must be between -2.0 and 2.0.")
+
+        normalized_presence_penalty = 0.0 if presence_penalty is None else float(presence_penalty)
+        if not -2.0 <= normalized_presence_penalty <= 2.0:
+            raise ValueError("Presence penalty must be between -2.0 and 2.0.")
 
         normalized_max_tokens = 4000 if max_tokens is None else int(max_tokens)
         if normalized_max_tokens <= 0:
@@ -237,6 +252,9 @@ class ConfigManager:
             {
                 'model': model,
                 'temperature': normalized_temperature,
+                'top_p': normalized_top_p,
+                'frequency_penalty': normalized_frequency_penalty,
+                'presence_penalty': normalized_presence_penalty,
                 'max_tokens': normalized_max_tokens,
                 'stream': normalized_stream,
                 'base_url': sanitized_base_url,
@@ -310,6 +328,9 @@ class ConfigManager:
         defaults = {
             'model': self.get_config('DEFAULT_MODEL', 'gpt-4o'),
             'temperature': 0.0,
+            'top_p': 1.0,
+            'frequency_penalty': 0.0,
+            'presence_penalty': 0.0,
             'max_tokens': 4000,
             'stream': True,
             'base_url': self.get_config('OPENAI_BASE_URL'),

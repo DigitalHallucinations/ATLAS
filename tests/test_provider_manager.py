@@ -1,4 +1,5 @@
 import asyncio
+import math
 import sys
 import types
 
@@ -238,6 +239,7 @@ if "gi" not in sys.modules:
     gtk_module.CheckButton = CheckButton
     gtk_module.Entry = Entry
     gtk_module.Button = Button
+    gtk_module.Widget = _Widget
     gtk_module.MessageDialog = MessageDialog
     gtk_module.MessageType = MessageType
     gtk_module.ButtonsType = ButtonsType
@@ -266,6 +268,34 @@ if "gi" not in sys.modules:
     sys.modules["gi.repository.Gtk"] = gtk_module
     sys.modules["gi.repository.GLib"] = glib_module
     sys.modules["gi.repository.Gdk"] = gdk_module
+
+openai_stub = sys.modules.get("openai")
+if openai_stub is None:
+    openai_stub = types.ModuleType("openai")
+    sys.modules["openai"] = openai_stub
+
+
+class _ModelList:
+    def list(self):
+        return types.SimpleNamespace(data=[])
+
+
+class _OpenAI:
+    def __init__(self, *_args, **_kwargs):
+        self.models = _ModelList()
+
+
+class _AsyncOpenAI:
+    class _ChatCompletions:
+        async def create(self, *_args, **_kwargs):  # pragma: no cover - placeholder
+            return types.SimpleNamespace(choices=[])
+
+    def __init__(self, *_args, **_kwargs):
+        self.chat = types.SimpleNamespace(completions=self._ChatCompletions())
+
+
+openai_stub.OpenAI = getattr(openai_stub, "OpenAI", _OpenAI)
+openai_stub.AsyncOpenAI = getattr(openai_stub, "AsyncOpenAI", _AsyncOpenAI)
 
 if "tenacity" not in sys.modules:
     tenacity_stub = types.ModuleType("tenacity")
@@ -409,6 +439,9 @@ class DummyConfig:
         self._openai_settings = {
             "model": "gpt-4o",
             "temperature": 0.0,
+            "top_p": 1.0,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
             "max_tokens": 4000,
             "stream": True,
             "base_url": None,
@@ -426,6 +459,9 @@ class DummyConfig:
         *,
         model,
         temperature=None,
+        top_p=None,
+        frequency_penalty=None,
+        presence_penalty=None,
         max_tokens=None,
         stream=None,
         base_url=None,
@@ -436,6 +472,12 @@ class DummyConfig:
             self._default_model = model
         if temperature is not None:
             self._openai_settings["temperature"] = float(temperature)
+        if top_p is not None:
+            self._openai_settings["top_p"] = float(top_p)
+        if frequency_penalty is not None:
+            self._openai_settings["frequency_penalty"] = float(frequency_penalty)
+        if presence_penalty is not None:
+            self._openai_settings["presence_penalty"] = float(presence_penalty)
         if max_tokens is not None:
             self._openai_settings["max_tokens"] = int(max_tokens)
         if stream is not None:
@@ -456,6 +498,9 @@ class DummyConfig:
             "model": "gpt-4o",
             "max_tokens": 4000,
             "temperature": 0.0,
+            "top_p": 1.0,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
             "stream": True,
         }
 
@@ -786,6 +831,9 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     result = provider_manager.set_openai_llm_settings(
         model="gpt-4o-mini",
         temperature=0.6,
+        top_p=0.9,
+        frequency_penalty=0.1,
+        presence_penalty=-0.2,
         max_tokens=1024,
         stream=False,
         base_url="https://example/v1",
@@ -795,6 +843,9 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     assert result["success"] is True
     settings = provider_manager.get_openai_llm_settings()
     assert settings["model"] == "gpt-4o-mini"
+    assert math.isclose(settings["top_p"], 0.9)
+    assert math.isclose(settings["frequency_penalty"], 0.1)
+    assert math.isclose(settings["presence_penalty"], -0.2)
     assert settings["stream"] is False
     assert provider_manager.model_manager.models["OpenAI"][0] == "gpt-4o-mini"
     assert provider_manager.current_model == "gpt-4o-mini"
@@ -814,6 +865,9 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
     atlas_stub.get_openai_llm_settings = lambda: {
         "model": "gpt-4o-mini",
         "temperature": 0.65,
+        "top_p": 0.85,
+        "frequency_penalty": 0.05,
+        "presence_penalty": -0.1,
         "max_tokens": 2048,
         "stream": False,
         "base_url": "https://example/v1",
@@ -830,6 +884,9 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
 
     assert window.model_combo.get_active_text() == "gpt-4o-mini"
     assert window.temperature_spin.get_value() == 0.65
+    assert window.top_p_spin.get_value() == 0.85
+    assert math.isclose(window.frequency_penalty_spin.get_value(), 0.05)
+    assert math.isclose(window.presence_penalty_spin.get_value(), -0.1)
     assert window.max_tokens_spin.get_value_as_int() == 2048
     assert window.stream_toggle.get_active() is False
     assert window.organization_entry.get_text() == "org-42"
@@ -841,6 +898,9 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
 
     window.model_combo.set_active(1)
     window.temperature_spin.set_value(0.5)
+    window.top_p_spin.set_value(0.75)
+    window.frequency_penalty_spin.set_value(0.2)
+    window.presence_penalty_spin.set_value(-0.15)
     window.max_tokens_spin.set_value(4096)
     window.stream_toggle.set_active(True)
     window.organization_entry.set_text("org-new")
@@ -849,6 +909,9 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager, m
 
     assert saved_payload["model"] == "gpt-4o"
     assert saved_payload["temperature"] == 0.5
+    assert saved_payload["top_p"] == 0.75
+    assert saved_payload["frequency_penalty"] == 0.2
+    assert saved_payload["presence_penalty"] == -0.15
     assert saved_payload["max_tokens"] == 4096
     assert saved_payload["stream"] is True
     assert saved_payload["base_url"] == "https://example/v1"
@@ -864,6 +927,9 @@ def test_openai_settings_window_saves_api_key(provider_manager, monkeypatch):
     atlas_stub.get_openai_llm_settings = lambda: {
         "model": "gpt-4o",
         "temperature": 0.0,
+        "top_p": 1.0,
+        "frequency_penalty": 0.0,
+        "presence_penalty": 0.0,
         "max_tokens": 4000,
         "stream": True,
         "base_url": None,
@@ -881,6 +947,10 @@ def test_openai_settings_window_saves_api_key(provider_manager, monkeypatch):
 
     window = OpenAISettingsWindow(atlas_stub, provider_manager.config_manager, None)
     window.api_key_entry.set_text("sk-test")
+
+    assert window.top_p_spin.get_value() == 1.0
+    assert window.frequency_penalty_spin.get_value() == 0.0
+    assert window.presence_penalty_spin.get_value() == 0.0
 
     window.on_save_api_key_clicked(None)
 

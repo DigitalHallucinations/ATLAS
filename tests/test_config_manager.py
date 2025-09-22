@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 import types
@@ -131,6 +132,9 @@ def test_set_openai_llm_settings_updates_state(config_manager):
     result = config_manager.set_openai_llm_settings(
         model="gpt-4o-mini",
         temperature=0.75,
+        top_p=0.95,
+        frequency_penalty=0.25,
+        presence_penalty=-0.5,
         max_tokens=2048,
         stream=False,
         base_url="https://example/v1",
@@ -140,6 +144,9 @@ def test_set_openai_llm_settings_updates_state(config_manager):
     assert result["model"] == "gpt-4o-mini"
     stored = config_manager.config["OPENAI_LLM"]
     assert stored["temperature"] == 0.75
+    assert math.isclose(stored["top_p"], 0.95)
+    assert math.isclose(stored["frequency_penalty"], 0.25)
+    assert math.isclose(stored["presence_penalty"], -0.5)
     assert stored["max_tokens"] == 2048
     assert stored["stream"] is False
     assert stored["base_url"] == "https://example/v1"
@@ -167,3 +174,13 @@ def test_set_openai_llm_settings_clears_optional_fields(config_manager):
     assert stored["organization"] is None
     assert "OPENAI_BASE_URL" not in os.environ
     assert "OPENAI_ORGANIZATION" not in os.environ
+
+
+def test_get_openai_llm_settings_includes_sampling_defaults(config_manager):
+    snapshot = config_manager.get_openai_llm_settings()
+
+    assert snapshot["temperature"] == 0.0
+    assert snapshot["top_p"] == 1.0
+    assert snapshot["frequency_penalty"] == 0.0
+    assert snapshot["presence_penalty"] == 0.0
+    assert snapshot["max_tokens"] == 4000
