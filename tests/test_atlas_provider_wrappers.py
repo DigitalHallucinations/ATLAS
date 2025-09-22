@@ -400,3 +400,120 @@ def test_refresh_current_provider_propagates_error(atlas_class):
         asyncio.run(atlas.refresh_current_provider("OpenAI"))
 
     assert excinfo.value is failure
+
+
+def test_get_speech_defaults_delegates_to_manager(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    expected = {"tts_enabled": True}
+    atlas.speech_manager = SimpleNamespace(describe_general_settings=Mock(return_value=expected))
+
+    result = atlas.get_speech_defaults()
+
+    assert result is expected
+
+
+def test_get_speech_provider_status_delegates(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    expected = {"has_key": True}
+    atlas.speech_manager = SimpleNamespace(
+        get_provider_credential_status=Mock(return_value=expected)
+    )
+
+    result = atlas.get_speech_provider_status("ElevenLabs")
+
+    assert result is expected
+
+
+def test_update_speech_defaults_invokes_manager(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    configure_mock = Mock()
+    atlas.speech_manager = SimpleNamespace(
+        configure_defaults=configure_mock,
+        describe_general_settings=Mock(return_value={}),
+    )
+
+    atlas.update_speech_defaults(
+        tts_enabled=True,
+        tts_provider="eleven_labs",
+        stt_enabled=False,
+        stt_provider="google",
+    )
+
+    configure_mock.assert_called_once_with(
+        tts_enabled=True,
+        tts_provider="eleven_labs",
+        stt_enabled=False,
+        stt_provider="google",
+    )
+
+
+def test_update_elevenlabs_settings_updates_voice(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    voice = {"name": "Alpha", "voice_id": "alpha"}
+    atlas.speech_manager = SimpleNamespace(
+        set_elevenlabs_api_key=Mock(),
+        resolve_tts_provider=Mock(return_value="eleven_labs"),
+        get_default_tts_provider=Mock(return_value="eleven_labs"),
+        get_tts_voices=Mock(return_value=[voice]),
+        set_tts_voice=Mock(),
+    )
+
+    result = atlas.update_elevenlabs_settings(api_key="key", voice_id="alpha")
+
+    atlas.speech_manager.set_elevenlabs_api_key.assert_called_once_with("key")
+    atlas.speech_manager.set_tts_voice.assert_called_once_with(voice, "eleven_labs")
+    assert result["updated_api_key"] is True
+    assert result["updated_voice"] is True
+
+
+def test_get_openai_speech_options_delegates(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    expected = {"stt": []}
+    atlas.speech_manager = SimpleNamespace(get_openai_option_sets=Mock(return_value=expected))
+
+    assert atlas.get_openai_speech_options() is expected
+
+
+def test_update_openai_speech_settings_persists_prepared_values(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    prepared = {"api_key": "k", "stt_provider": "Whisper"}
+    atlas.speech_manager = SimpleNamespace(
+        normalize_openai_display_settings=Mock(return_value=prepared),
+        set_openai_speech_config=Mock(),
+    )
+
+    result = atlas.update_openai_speech_settings({"api_key": "k"})
+
+    atlas.speech_manager.normalize_openai_display_settings.assert_called_once_with({"api_key": "k"})
+    atlas.speech_manager.set_openai_speech_config.assert_called_once_with(
+        api_key="k",
+        stt_provider="Whisper",
+        language=prepared.get("language"),
+        task=prepared.get("task"),
+        initial_prompt=prepared.get("initial_prompt"),
+        tts_provider=prepared.get("tts_provider"),
+    )
+    assert result is prepared
+
+
+def test_get_transcription_history_delegates(atlas_class):
+    atlas = _build_atlas(atlas_class)
+    expected = [{"transcript": "hi"}]
+    atlas.speech_manager = SimpleNamespace(
+        describe_general_settings=Mock(return_value={}),
+        get_provider_credential_status=Mock(return_value={}),
+        list_tts_voice_options=Mock(return_value=[]),
+        get_active_tts_summary=Mock(return_value=(None, None)),
+        configure_defaults=Mock(),
+        resolve_tts_provider=Mock(return_value=None),
+        get_default_tts_provider=Mock(return_value=None),
+        get_tts_voices=Mock(return_value=[]),
+        set_tts_voice=Mock(),
+        get_openai_option_sets=Mock(return_value={}),
+        get_openai_display_config=Mock(return_value={}),
+        normalize_openai_display_settings=Mock(return_value={}),
+        set_openai_speech_config=Mock(),
+        get_transcription_history=Mock(return_value=expected),
+    )
+
+    assert atlas.get_transcription_history(formatted=True) is expected
