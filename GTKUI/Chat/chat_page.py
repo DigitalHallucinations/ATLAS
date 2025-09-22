@@ -215,7 +215,7 @@ class ChatPage(Gtk.Window):
         """
         Updates the window title and header label with the current persona's name.
         """
-        persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Chat')
+        persona_name = self.ATLAS.get_active_persona_name()
         self.set_title(persona_name)
         self.persona_title_label.set_text(persona_name)
 
@@ -240,7 +240,7 @@ class ChatPage(Gtk.Window):
         self._set_busy_state(True)
 
         def handle_success(response: str):
-            persona_name = self.ATLAS.persona_manager.current_persona.get('name', 'Assistant')
+            persona_name = self.ATLAS.get_active_persona_name()
 
             def update():
                 self.add_message_bubble(persona_name, response)
