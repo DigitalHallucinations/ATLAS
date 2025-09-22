@@ -366,55 +366,43 @@ class GeneralTab:
         width, height = layout.get_pixel_size()
         textview.set_size_request(-1, height + 10)
 
-    def update_start_locked(self, widget=None):
-        name = self.name_entry.get_text().strip() or "Assistant"
-        meaning = self.meaning_entry.get_text().strip()
-        if meaning:
-            start_locked = f"The name of the user you are speaking to is <<name>>. Your name is {name}: ({meaning})."
-        else:
-            start_locked = f"The name of the user you are speaking to is <<name>>. Your name is {name}."
+    def _preview_locked_sections(self, general=None, flags=None):
+        persona_name = self.persona_name or self.state.get('original_name') or None
+        try:
+            return self.persona_manager.compute_locked_content(
+                persona_name,
+                general=general,
+                flags=flags,
+            )
+        except AttributeError:
+            return {'start_locked': '', 'end_locked': ''}
 
-        buffer = self.start_view.get_buffer()
+    def _current_flag_payload(self) -> Dict[str, Any]:
+        flags_state = self.state.get('flags') or {}
+        persona_type_state = flags_state.get('type') or {}
+        return {
+            'user_profile_enabled': self.user_profile_enabled,
+            'sys_info_enabled': self.sys_info_enabled,
+            'type': persona_type_state,
+        }
+
+    def _set_buffer_text(self, view, text: str):
+        buffer = view.get_buffer()
         current_text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
-        if current_text.strip() != start_locked.strip():
-            buffer.set_text(start_locked, -1)
+        if current_text.strip() != (text or "").strip():
+            buffer.set_text(text or "", -1)
+
+    def update_start_locked(self, widget=None):
+        general = {
+            'name': self.name_entry.get_text(),
+            'meaning': self.meaning_entry.get_text(),
+        }
+        locked = self._preview_locked_sections(general=general)
+        self._set_buffer_text(self.start_view, locked.get('start_locked', ''))
 
     def update_end_locked(self):
-        dynamic_parts = []
-        if self.user_profile_enabled:
-            dynamic_parts.append("User Profile: <<Profile>>")
-        if self.medical_persona_enabled:
-            dynamic_parts.append("User EMR: <<emr>>")
-        if self.educational_persona:
-            subject_specialization = self.persona_type.get('educational_persona', {}).get('subject_specialization', 'General')
-            education_level = self.persona_type.get('educational_persona', {}).get('education_level', 'High School')
-            dynamic_parts.append(f"Subject: {subject_specialization}")
-            dynamic_parts.append(f"Level: {education_level}")
-            dynamic_parts.append("Provide explanations suitable for the student's level.")
-        if self.fitness_persona_enabled:
-            fitness_goal = self.persona_type.get('fitness_persona', {}).get('fitness_goal', 'Weight Loss')
-            exercise_preference = self.persona_type.get('fitness_persona', {}).get('exercise_preference', 'Gym Workouts')
-            dynamic_parts.append(f"Fitness Goal: {fitness_goal}")
-            dynamic_parts.append(f"Exercise Preference: {exercise_preference}")
-            dynamic_parts.append("Offer motivational support and track progress.")
-        if self.language_instructor:
-            target_language = self.persona_type.get('language_instructor', {}).get('target_language', 'Spanish')
-            proficiency_level = self.persona_type.get('language_instructor', {}).get('proficiency_level', 'Beginner')
-            dynamic_parts.append(f"Target Language: {target_language}")
-            dynamic_parts.append(f"Proficiency Level: {proficiency_level}")
-            dynamic_parts.append("Engage in conversation to practice the target language.")
-        if dynamic_parts:
-            dynamic_content = " ".join(dynamic_parts)
-            dynamic_content += " Clear responses and relevant information are key for a great user experience. Ask for clarity or offer input as needed."
-        else:
-            dynamic_content = ""
-
-        end_locked = dynamic_content
-
-        buffer = self.end_view.get_buffer()
-        current_text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
-        if current_text.strip() != end_locked.strip():
-            buffer.set_text(end_locked, -1)
+        locked = self._preview_locked_sections(flags=self._current_flag_payload())
+        self._set_buffer_text(self.end_view, locked.get('end_locked', ''))
 
     def update_sys_info_content(self):
         """
@@ -564,6 +552,7 @@ class GeneralTab:
         self.general_state = self.state.get('general', {})
         self.content_state = self.general_state.get('content', {})
         self._sync_flags_from_state()
+        self.update_start_locked()
         self.update_end_locked()
         self.update_sys_info_content()
 

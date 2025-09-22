@@ -2,6 +2,7 @@
 
 import os
 import json
+import copy
 from typing import Any, Dict, List, Optional
 from modules.user_accounts.user_data_manager import UserDataManager
 from ATLAS.config import ConfigManager
@@ -115,6 +116,8 @@ class PersonaManager:
 
         content = persona.get('content') or {}
 
+        locked_sections = self._build_locked_sections(persona)
+
         def _string(value: Any) -> str:
             return self._normalize_string(value)
 
@@ -140,6 +143,8 @@ class PersonaManager:
                     'start_locked': _string(content.get('start_locked')),
                     'editable_content': _string(content.get('editable_content')),
                     'end_locked': _string(content.get('end_locked')),
+                    'computed_start_locked': locked_sections['start_locked'],
+                    'computed_end_locked': locked_sections['end_locked'],
                 },
             },
             'flags': {
@@ -167,6 +172,126 @@ class PersonaManager:
         if persona is None:
             return None
         return self._build_editor_state(persona)
+
+    def _compute_start_locked_text(self, persona: Dict[str, Any]) -> str:
+        """Generate the default start_locked text for a persona."""
+
+        name = self._normalize_string(persona.get('name')).strip() or "Assistant"
+        meaning = self._normalize_string(persona.get('meaning')).strip()
+
+        base = f"The name of the user you are speaking to is <<name>>. Your name is {name}"
+        if meaning:
+            return f"{base}: ({meaning})."
+        return f"{base}."
+
+    def _type_entry(self, persona: Dict[str, Any], key: str) -> Dict[str, Any]:
+        persona_type = persona.get('type') or {}
+        entry = persona_type.get(key) or {}
+        if isinstance(entry, dict):
+            return entry
+        return {}
+
+    def _compute_end_locked_text(self, persona: Dict[str, Any]) -> str:
+        """Generate the dynamic end_locked text based on persona flags."""
+
+        dynamic_parts: List[str] = []
+
+        if self._as_bool(persona.get('user_profile_enabled')):
+            dynamic_parts.append("User Profile: <<Profile>>")
+
+        medical_entry = self._type_entry(persona, 'medical_persona')
+        if self._as_bool(medical_entry.get('enabled')):
+            dynamic_parts.append("User EMR: <<emr>>")
+
+        educational_entry = self._type_entry(persona, 'educational_persona')
+        if self._as_bool(educational_entry.get('enabled')):
+            subject = self._normalize_string(educational_entry.get('subject_specialization')).strip()
+            level = self._normalize_string(educational_entry.get('education_level')).strip()
+            subject = subject or "General"
+            level = level or "High School"
+            dynamic_parts.append(f"Subject: {subject}")
+            dynamic_parts.append(f"Level: {level}")
+            dynamic_parts.append("Provide explanations suitable for the student's level.")
+
+        fitness_entry = self._type_entry(persona, 'fitness_persona')
+        if self._as_bool(fitness_entry.get('enabled')):
+            goal = self._normalize_string(fitness_entry.get('fitness_goal')).strip()
+            preference = self._normalize_string(fitness_entry.get('exercise_preference')).strip()
+            goal = goal or "Weight Loss"
+            preference = preference or "Gym Workouts"
+            dynamic_parts.append(f"Fitness Goal: {goal}")
+            dynamic_parts.append(f"Exercise Preference: {preference}")
+            dynamic_parts.append("Offer motivational support and track progress.")
+
+        language_entry = self._type_entry(persona, 'language_instructor')
+        if self._as_bool(language_entry.get('enabled')):
+            target_language = self._normalize_string(language_entry.get('target_language')).strip()
+            proficiency_level = self._normalize_string(language_entry.get('proficiency_level')).strip()
+            target_language = target_language or "Spanish"
+            proficiency_level = proficiency_level or "Beginner"
+            dynamic_parts.append(f"Target Language: {target_language}")
+            dynamic_parts.append(f"Proficiency Level: {proficiency_level}")
+            dynamic_parts.append("Engage in conversation to practice the target language.")
+
+        if not dynamic_parts:
+            return ""
+
+        dynamic_content = " ".join(dynamic_parts)
+        dynamic_content += " Clear responses and relevant information are key for a great user experience. Ask for clarity or offer input as needed."
+        return dynamic_content
+
+    def _build_locked_sections(self, persona: Dict[str, Any]) -> Dict[str, str]:
+        """Return computed locked sections for the provided persona payload."""
+
+        return {
+            'start_locked': self._compute_start_locked_text(persona),
+            'end_locked': self._compute_end_locked_text(persona),
+        }
+
+    def compute_locked_content(
+        self,
+        persona_name: Optional[str] = None,
+        general: Optional[Dict[str, Any]] = None,
+        flags: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, str]:
+        """Compute preview locked content using persona data and optional overrides."""
+
+        persona: Dict[str, Any] = {}
+
+        if persona_name:
+            persona_data = self.get_persona(persona_name)
+            if persona_data:
+                persona = copy.deepcopy(persona_data)
+
+        if not persona:
+            persona = {}
+
+        general = general or {}
+        if 'name' in general:
+            persona['name'] = general.get('name')
+        if 'meaning' in general:
+            persona['meaning'] = general.get('meaning')
+
+        flags = flags or {}
+        if 'user_profile_enabled' in flags:
+            persona['user_profile_enabled'] = flags.get('user_profile_enabled')
+        if 'sys_info_enabled' in flags:
+            persona['sys_info_enabled'] = flags.get('sys_info_enabled')
+
+        type_overrides = flags.get('type') if isinstance(flags, dict) else None
+        if type_overrides:
+            persona_type = persona.setdefault('type', {})
+            for key, entry in type_overrides.items():
+                existing = dict(persona_type.get(key) or {})
+                if not isinstance(entry, dict):
+                    persona_type[key] = entry
+                    continue
+                updated = existing.copy()
+                for field, value in entry.items():
+                    updated[field] = value
+                persona_type[key] = updated
+
+        return self._build_locked_sections(persona)
 
     def updater(self, selected_persona_name: str):
         """Update the current persona."""
