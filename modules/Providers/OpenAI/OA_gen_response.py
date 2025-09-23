@@ -6,7 +6,7 @@ from openai import AsyncOpenAI
 from ATLAS.model_manager import ModelManager
 
 from tenacity import retry, stop_after_attempt, wait_exponential
-from typing import List, Dict, Union, AsyncIterator, Optional
+from typing import List, Dict, Union, AsyncIterator, Optional, Any
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.ToolManager import (
@@ -56,7 +56,8 @@ class OpenAIGenerator:
         conversation_id=None,
         functions=None,
         reasoning_effort: Optional[str] = None,
-        function_calling: Optional[bool] = None
+        function_calling: Optional[bool] = None,
+        json_mode: Optional[Any] = None
     ) -> Union[str, AsyncIterator[str]]:
         try:
             settings = self.config_manager.get_openai_llm_settings()
@@ -100,8 +101,14 @@ class OpenAIGenerator:
             else:
                 allow_function_calls = bool(function_calling)
 
+            force_json_mode = self._should_force_json(
+                json_mode if json_mode is not None else settings.get("json_mode")
+            )
+
             self.logger.info(f"Starting API call to OpenAI with model {model}")
             self.logger.info(f"Current persona: {current_persona}")
+            if force_json_mode:
+                self.logger.info("JSON response mode enabled for this request.")
 
             # Load functions if not provided
             if functions is None and current_persona:
@@ -160,21 +167,28 @@ class OpenAIGenerator:
                     "enabled" if allow_function_calls else "disabled",
                 )
 
-            response = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                n=1,
-                stop=None,
-                temperature=temperature,
-                top_p=top_p,
-                frequency_penalty=frequency_penalty,
-                presence_penalty=presence_penalty,
-                stream=stream,
-                functions=functions,
-                function_call=function_call_mode,
-            )
-            
+            request_kwargs = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "n": 1,
+                "stop": None,
+                "temperature": temperature,
+                "top_p": top_p,
+                "frequency_penalty": frequency_penalty,
+                "presence_penalty": presence_penalty,
+                "stream": stream,
+            }
+
+            if functions:
+                request_kwargs["functions"] = functions
+            if function_call_mode is not None:
+                request_kwargs["function_call"] = function_call_mode
+            if force_json_mode:
+                request_kwargs["response_format"] = {"type": "json_object"}
+
+            response = await self.client.chat.completions.create(**request_kwargs)
+
             self.logger.info("Received response from OpenAI API.")
 
             if stream:
@@ -212,7 +226,7 @@ class OpenAIGenerator:
                         presence_penalty,
                     )
                 self.logger.info("No function call detected in response.")
-                return message.content
+                return self._coerce_content_to_text(getattr(message, "content", ""))
 
         except Exception as e:
             self.logger.error(f"Error in OpenAI API call: {str(e)}", exc_info=True)
@@ -257,6 +271,47 @@ class OpenAIGenerator:
         if isinstance(target, dict):
             return target.get(attribute, default)
         return getattr(target, attribute, default)
+
+    def _coerce_content_to_text(self, content: Any) -> str:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: List[str] = []
+            for entry in content:
+                if isinstance(entry, dict):
+                    text = entry.get("text")
+                    if text is None and "content" in entry:
+                        text = entry.get("content")
+                    if text is not None:
+                        parts.append(str(text))
+                elif entry is not None:
+                    parts.append(str(entry))
+            return "".join(parts)
+        try:
+            return str(content)
+        except Exception:
+            return ""
+
+    def _should_force_json(self, value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if not normalized:
+                return False
+            if normalized in {"1", "true", "yes", "on", "json", "json_object"}:
+                return True
+            if normalized in {"0", "false", "no", "off", "text", "none"}:
+                return False
+            return False
+        try:
+            return bool(value)
+        except Exception:
+            return False
 
     def _stringify_function_arguments(self, arguments) -> str:
         if arguments is None:
@@ -521,9 +576,11 @@ class OpenAIGenerator:
     ):
         full_response = ""
         async for chunk in response:
-            if chunk.choices[0].delta.content is not None:
-                yield chunk.choices[0].delta.content
-                full_response += chunk.choices[0].delta.content
+            delta_content = chunk.choices[0].delta.content
+            text_delta = self._coerce_content_to_text(delta_content)
+            if text_delta:
+                yield text_delta
+                full_response += text_delta
             elif chunk.choices[0].delta.function_call:
                 function_call = chunk.choices[0].delta.function_call
                 self.logger.info(f"Function call detected during streaming: {function_call}")
@@ -541,8 +598,9 @@ class OpenAIGenerator:
                     frequency_penalty,
                     presence_penalty,
                 )
-                yield result
-                full_response += result
+                if result:
+                    yield result
+                    full_response += str(result)
 
         if conversation_manager:
             conversation_manager.add_message(user, conversation_id, "assistant", full_response)
@@ -604,7 +662,8 @@ async def generate_response(
     conversation_id=None,
     functions=None,
     reasoning_effort: Optional[str] = None,
-    function_calling: Optional[bool] = None
+    function_calling: Optional[bool] = None,
+    json_mode: Optional[Any] = None
 ) -> Union[str, AsyncIterator[str]]:
     generator = OpenAIGenerator(config_manager)
     return await generator.generate_response(
@@ -623,12 +682,26 @@ async def generate_response(
         conversation_id,
         functions,
         reasoning_effort,
-        function_calling
+        function_calling,
+        json_mode
     )
 
 async def process_streaming_response(response: AsyncIterator[Dict]) -> str:
     content = ""
     async for chunk in response:
-        if chunk.choices[0].delta.content is not None:
-            content += chunk.choices[0].delta.content
+        delta_content = chunk.choices[0].delta.content
+        if delta_content is None:
+            continue
+        if isinstance(delta_content, str):
+            content += delta_content
+        elif isinstance(delta_content, list):
+            for entry in delta_content:
+                if isinstance(entry, dict):
+                    text = entry.get("text")
+                    if text:
+                        content += str(text)
+                elif entry is not None:
+                    content += str(entry)
+        else:
+            content += str(delta_content)
     return content

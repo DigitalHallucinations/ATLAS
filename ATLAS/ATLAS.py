@@ -783,10 +783,13 @@ class ATLAS:
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        max_output_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
+        json_mode: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Persist OpenAI defaults through the provider manager facade."""
 
@@ -802,10 +805,13 @@ class ATLAS:
             frequency_penalty=frequency_penalty,
             presence_penalty=presence_penalty,
             max_tokens=max_tokens,
+            max_output_tokens=max_output_tokens,
             stream=stream,
             function_calling=function_calling,
             base_url=base_url,
             organization=organization,
+            reasoning_effort=reasoning_effort,
+            json_mode=json_mode,
         )
 
     def get_chat_status_summary(self) -> Dict[str, str]:

@@ -157,6 +157,7 @@ def test_set_openai_llm_settings_updates_state(config_manager):
     assert stored["reasoning_effort"] == "high"
     assert stored["base_url"] == "https://example/v1"
     assert stored["organization"] == "org-42"
+    assert stored["json_mode"] is False
 
     assert config_manager.config["DEFAULT_MODEL"] == "gpt-4o-mini"
     assert os.environ["DEFAULT_MODEL"] == "gpt-4o-mini"
@@ -207,3 +208,15 @@ def test_get_openai_llm_settings_includes_sampling_defaults(config_manager):
     assert snapshot["function_calling"] is True
     assert snapshot["max_output_tokens"] is None
     assert snapshot["reasoning_effort"] == "medium"
+    assert snapshot["json_mode"] is False
+
+
+def test_set_openai_llm_settings_persists_json_mode(config_manager):
+    config_manager.set_openai_llm_settings(model="gpt-4o", json_mode=True)
+
+    stored = config_manager.config["OPENAI_LLM"]
+    assert stored["json_mode"] is True
+
+    config_manager.set_openai_llm_settings(model="gpt-4o", json_mode=False)
+    stored = config_manager.config["OPENAI_LLM"]
+    assert stored["json_mode"] is False

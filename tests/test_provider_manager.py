@@ -451,6 +451,7 @@ class DummyConfig:
             "base_url": None,
             "organization": None,
             "reasoning_effort": "medium",
+            "json_mode": False,
         }
 
     def get_default_provider(self):
@@ -474,6 +475,7 @@ class DummyConfig:
         base_url=None,
         organization=None,
         reasoning_effort=None,
+        json_mode=None,
     ):
         if model:
             self._openai_settings["model"] = model
@@ -498,6 +500,8 @@ class DummyConfig:
         self._openai_settings["organization"] = organization
         if reasoning_effort is not None:
             self._openai_settings["reasoning_effort"] = reasoning_effort
+        if json_mode is not None:
+            self._openai_settings["json_mode"] = bool(json_mode)
         return dict(self._openai_settings)
 
     def get_app_root(self):
@@ -905,6 +909,7 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
         base_url="https://example/v1",
         organization="org-99",
         reasoning_effort="low",
+        json_mode=True,
     )
 
     assert result["success"] is True
@@ -917,6 +922,7 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     assert settings["function_calling"] is False
     assert settings["max_output_tokens"] == 256
     assert settings["reasoning_effort"] == "low"
+    assert settings["json_mode"] is True
     assert provider_manager.model_manager.models["OpenAI"][0] == "gpt-4o-mini"
     assert provider_manager.current_model == "gpt-4o-mini"
 
