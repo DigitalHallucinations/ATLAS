@@ -161,6 +161,8 @@ class ProviderManager:
         max_output_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
+        parallel_tool_calls: Optional[bool] = None,
+        tool_choice: Optional[str] = None,
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
@@ -179,6 +181,8 @@ class ProviderManager:
                 max_output_tokens=max_output_tokens,
                 stream=stream,
                 function_calling=function_calling,
+                parallel_tool_calls=parallel_tool_calls,
+                tool_choice=tool_choice,
                 base_url=base_url,
                 organization=organization,
                 reasoning_effort=reasoning_effort,
@@ -891,6 +895,10 @@ class ProviderManager:
         )
         resolved_stream = stream if stream is not None else defaults.get("stream", True)
         resolved_function_calling = defaults.get("function_calling", True)
+        resolved_parallel_tool_calls = defaults.get("parallel_tool_calls", True)
+        resolved_tool_choice = defaults.get("tool_choice")
+        if resolved_function_calling is False:
+            resolved_tool_choice = "none"
         resolved_reasoning_effort = (
             reasoning_effort
             if reasoning_effort is not None
@@ -946,6 +954,8 @@ class ProviderManager:
                     frequency_penalty=resolved_frequency_penalty,
                     presence_penalty=resolved_presence_penalty,
                     function_calling=resolved_function_calling,
+                    parallel_tool_calls=resolved_parallel_tool_calls,
+                    tool_choice=resolved_tool_choice,
                     max_output_tokens=resolved_max_output_tokens,
                     reasoning_effort=resolved_reasoning_effort,
                 )

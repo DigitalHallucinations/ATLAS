@@ -448,6 +448,8 @@ class DummyConfig:
             "max_output_tokens": None,
             "stream": True,
             "function_calling": True,
+            "parallel_tool_calls": True,
+            "tool_choice": None,
             "base_url": None,
             "organization": None,
             "reasoning_effort": "medium",
@@ -472,6 +474,8 @@ class DummyConfig:
         max_output_tokens=None,
         stream=None,
         function_calling=None,
+        parallel_tool_calls=None,
+        tool_choice=None,
         base_url=None,
         organization=None,
         reasoning_effort=None,
@@ -496,6 +500,10 @@ class DummyConfig:
             self._openai_settings["stream"] = bool(stream)
         if function_calling is not None:
             self._openai_settings["function_calling"] = bool(function_calling)
+        if parallel_tool_calls is not None:
+            self._openai_settings["parallel_tool_calls"] = bool(parallel_tool_calls)
+        if tool_choice is not None:
+            self._openai_settings["tool_choice"] = tool_choice
         self._openai_settings["base_url"] = base_url
         self._openai_settings["organization"] = organization
         if reasoning_effort is not None:
@@ -906,6 +914,8 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
         max_output_tokens=256,
         stream=False,
         function_calling=False,
+        parallel_tool_calls=False,
+        tool_choice="required",
         base_url="https://example/v1",
         organization="org-99",
         reasoning_effort="low",
@@ -920,9 +930,11 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     assert math.isclose(settings["presence_penalty"], -0.2)
     assert settings["stream"] is False
     assert settings["function_calling"] is False
+    assert settings["parallel_tool_calls"] is False
     assert settings["max_output_tokens"] == 256
     assert settings["reasoning_effort"] == "low"
     assert settings["json_mode"] is True
+    assert settings["tool_choice"] == "required"
     assert provider_manager.model_manager.models["OpenAI"][0] == "gpt-4o-mini"
     assert provider_manager.current_model == "gpt-4o-mini"
 
@@ -932,6 +944,8 @@ def test_generate_response_respects_function_calling_enabled(provider_manager):
 
     async def fake_generate_response(_config_manager, **kwargs):
         captured["function_calling"] = kwargs.get("function_calling")
+        captured["parallel_tool_calls"] = kwargs.get("parallel_tool_calls")
+        captured["tool_choice"] = kwargs.get("tool_choice")
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
@@ -948,6 +962,8 @@ def test_generate_response_respects_function_calling_enabled(provider_manager):
     result = asyncio.run(exercise())
     assert result == "ok"
     assert captured["function_calling"] is True
+    assert captured["parallel_tool_calls"] is True
+    assert captured["tool_choice"] is None
 
 
 def test_generate_response_respects_function_calling_disabled(provider_manager):
@@ -957,6 +973,8 @@ def test_generate_response_respects_function_calling_disabled(provider_manager):
 
     async def fake_generate_response(_config_manager, **kwargs):
         captured["function_calling"] = kwargs.get("function_calling")
+        captured["parallel_tool_calls"] = kwargs.get("parallel_tool_calls")
+        captured["tool_choice"] = kwargs.get("tool_choice")
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
@@ -973,6 +991,8 @@ def test_generate_response_respects_function_calling_disabled(provider_manager):
     result = asyncio.run(exercise())
     assert result == "ok"
     assert captured["function_calling"] is False
+    assert captured["parallel_tool_calls"] is True
+    assert captured["tool_choice"] == "none"
 
 
 def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
@@ -1012,6 +1032,8 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
         "max_output_tokens": 512,
         "stream": False,
         "function_calling": False,
+        "parallel_tool_calls": False,
+        "tool_choice": "required",
         "base_url": "https://example/v1",
         "organization": "org-42",
         "reasoning_effort": "high",
@@ -1035,6 +1057,8 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert window.max_output_tokens_spin.get_value_as_int() == 512
     assert window.stream_toggle.get_active() is False
     assert window.function_call_toggle.get_active() is False
+    assert window.parallel_tool_calls_toggle.get_active() is False
+    assert window.require_tool_toggle.get_active() is False
     assert window.organization_entry.get_text() == "org-42"
     assert window.reasoning_effort_combo.get_active_text() == "high"
     status_text = getattr(window.api_key_status_label, "label", None)
@@ -1053,6 +1077,8 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     window.max_output_tokens_spin.set_value(1024)
     window.stream_toggle.set_active(True)
     window.function_call_toggle.set_active(True)
+    window.parallel_tool_calls_toggle.set_active(True)
+    window.require_tool_toggle.set_active(True)
     window.organization_entry.set_text("org-new")
     window.base_url_entry.set_text("https://alt.example/v2")
     window.reasoning_effort_combo.set_active(1)
@@ -1068,9 +1094,11 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert saved_payload["max_output_tokens"] == 1024
     assert saved_payload["stream"] is True
     assert saved_payload["function_calling"] is True
+    assert saved_payload["parallel_tool_calls"] is True
     assert saved_payload["base_url"] == "https://alt.example/v2"
     assert saved_payload["organization"] == "org-new"
     assert saved_payload["reasoning_effort"] == "medium"
+    assert saved_payload["tool_choice"] == "required"
     assert window._stored_base_url == "https://alt.example/v2"
     assert window._last_message[0] == "Success"
     assert window.closed is True
