@@ -262,6 +262,16 @@ class OpenAISettingsWindow(Gtk.Window):
         advanced_grid.attach(self.json_mode_toggle, 0, advanced_row, 2, 1)
         advanced_row += 1
 
+        self.code_interpreter_toggle = Gtk.CheckButton(label="Enable OpenAI Code Interpreter")
+        self.code_interpreter_toggle.set_halign(Gtk.Align.START)
+        advanced_grid.attach(self.code_interpreter_toggle, 0, advanced_row, 2, 1)
+        advanced_row += 1
+
+        self.file_search_toggle = Gtk.CheckButton(label="Enable OpenAI File Search")
+        self.file_search_toggle.set_halign(Gtk.Align.START)
+        advanced_grid.attach(self.file_search_toggle, 0, advanced_row, 2, 1)
+        advanced_row += 1
+
         schema_label = Gtk.Label(label="Response JSON Schema (optional):")
         schema_label.set_xalign(0.0)
         advanced_grid.attach(schema_label, 0, advanced_row, 2, 1)
@@ -402,9 +412,17 @@ class OpenAISettingsWindow(Gtk.Window):
         self.parallel_tool_calls_toggle.set_active(bool(settings.get("parallel_tool_calls", True)))
         tool_choice_value = settings.get("tool_choice")
         self.require_tool_toggle.set_active(str(tool_choice_value).lower() == "required")
-        self._update_tool_controls_state()
         if hasattr(self, "json_mode_toggle"):
             self.json_mode_toggle.set_active(bool(settings.get("json_mode", False)))
+        if hasattr(self, "code_interpreter_toggle"):
+            self.code_interpreter_toggle.set_active(
+                bool(settings.get("enable_code_interpreter", False))
+            )
+        if hasattr(self, "file_search_toggle"):
+            self.file_search_toggle.set_active(
+                bool(settings.get("enable_file_search", False))
+            )
+        self._update_tool_controls_state()
         schema_payload = settings.get("json_schema") if isinstance(settings, dict) else None
         formatted_schema = self._format_json_schema(schema_payload)
         self._write_json_schema_text(formatted_schema)
@@ -906,11 +924,23 @@ class OpenAISettingsWindow(Gtk.Window):
             "reasoning_effort": reasoning_effort.lower(),
             "json_mode": self.json_mode_toggle.get_active() if hasattr(self, "json_mode_toggle") else False,
             "json_schema": raw_schema_text if raw_schema_text else "",
+            "enable_code_interpreter": (
+                self.code_interpreter_toggle.get_active()
+                if hasattr(self, "code_interpreter_toggle")
+                else False
+            ),
+            "enable_file_search": (
+                self.file_search_toggle.get_active()
+                if hasattr(self, "file_search_toggle")
+                else False
+            ),
         }
 
         function_calling_enabled = payload["function_calling"]
         if not function_calling_enabled:
             payload["tool_choice"] = "none"
+            payload["enable_code_interpreter"] = False
+            payload["enable_file_search"] = False
         elif self.require_tool_toggle.get_active():
             payload["tool_choice"] = "required"
         else:
@@ -974,8 +1004,19 @@ class OpenAISettingsWindow(Gtk.Window):
 
     def _update_tool_controls_state(self) -> None:
         enabled = self.function_call_toggle.get_active()
-        for widget in (self.parallel_tool_calls_toggle, self.require_tool_toggle):
+        widgets = [self.parallel_tool_calls_toggle, self.require_tool_toggle]
+        for attr in ("code_interpreter_toggle", "file_search_toggle"):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                widgets.append(widget)
+
+        for widget in widgets:
             if hasattr(widget, "set_sensitive"):
                 widget.set_sensitive(enabled)
-        if not enabled and self.require_tool_toggle.get_active():
-            self.require_tool_toggle.set_active(False)
+        if not enabled:
+            if self.require_tool_toggle.get_active():
+                self.require_tool_toggle.set_active(False)
+            for attr in ("code_interpreter_toggle", "file_search_toggle"):
+                widget = getattr(self, attr, None)
+                if widget is not None and widget.get_active():
+                    widget.set_active(False)

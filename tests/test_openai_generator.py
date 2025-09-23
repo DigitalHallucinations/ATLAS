@@ -60,6 +60,8 @@ class DummyConfig:
             "reasoning_effort": "high",
             "json_mode": False,
             "json_schema": None,
+            "enable_code_interpreter": False,
+            "enable_file_search": False,
         }
 
     def get_openai_api_key(self):
@@ -179,6 +181,8 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
         "tool_choice": None,
         "reasoning_effort": "medium",
         "json_schema": None,
+        "enable_code_interpreter": False,
+        "enable_file_search": False,
     })
     generator = oa_module.OpenAIGenerator(settings)
 
@@ -232,6 +236,8 @@ def test_chat_completion_includes_response_format(monkeypatch):
         "reasoning_effort": "medium",
         "json_mode": True,
         "json_schema": None,
+        "enable_code_interpreter": False,
+        "enable_file_search": False,
     })
 
     generator = oa_module.OpenAIGenerator(settings)
@@ -249,6 +255,65 @@ def test_chat_completion_includes_response_format(monkeypatch):
     kwargs = captured["kwargs"]
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["stream"] is False
+
+
+def test_chat_completion_appends_builtin_tools(monkeypatch):
+    captured = {}
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, **kwargs):
+                captured["kwargs"] = kwargs
+                message = SimpleNamespace(content="done", function_call=None, tool_calls=None)
+                return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.chat = DummyChat()
+            self.responses = SimpleNamespace()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
+
+    settings = DummyConfig({
+        "model": "gpt-4o",
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "frequency_penalty": 0.0,
+        "presence_penalty": 0.0,
+        "max_tokens": 4000,
+        "max_output_tokens": None,
+        "stream": False,
+        "function_calling": True,
+        "parallel_tool_calls": True,
+        "tool_choice": None,
+        "reasoning_effort": "medium",
+        "json_mode": False,
+        "json_schema": None,
+        "enable_code_interpreter": True,
+        "enable_file_search": True,
+    })
+
+    generator = oa_module.OpenAIGenerator(settings)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "hi"}],
+            stream=False,
+            functions=[{"name": "tool"}],
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "done"
+    tools = captured["kwargs"].get("tools")
+    assert tools is not None
+    assert {"type": "code_interpreter"} in tools
+    assert {"type": "file_search"} in tools
+    function_entries = [entry for entry in tools if entry.get("type") == "function"]
+    assert function_entries and function_entries[0]["function"]["name"] == "tool"
 
 
 def test_chat_completion_uses_json_schema(monkeypatch):
@@ -363,6 +428,60 @@ def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
     assert result == "tool-response"
     assert recorded["message"]["function_call"]["name"] == "my_tool"
     assert recorded["message"]["function_call"]["arguments"] == "{\"value\": 2}"
+
+
+def test_handle_function_call_formats_code_interpreter_output(monkeypatch):
+    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, **_kwargs):
+                raise AssertionError("chat.completions.create should not be invoked")
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.chat = DummyChat()
+            self.responses = SimpleNamespace()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+
+    generator = oa_module.OpenAIGenerator(DummyConfig())
+
+    async def fake_use_tool(*_args, **_kwargs):
+        raise AssertionError("use_tool should not be called for built-in tools")
+
+    monkeypatch.setattr(oa_module, "use_tool", fake_use_tool)
+
+    message = {
+        "type": "code_interpreter",
+        "code_interpreter": {
+            "outputs": [
+                {"type": "logs", "logs": "result: 42"},
+            ]
+        },
+    }
+
+    async def exercise():
+        return await generator.handle_function_call(
+            user="user",
+            conversation_id="conv",
+            message=message,
+            conversation_manager=None,
+            function_map=None,
+            functions=None,
+            current_persona=None,
+            temperature=0.0,
+            model="gpt-4o",
+            top_p=1.0,
+            frequency_penalty=0.0,
+            presence_penalty=0.0,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "result: 42"
 
 
 def test_chat_completion_sends_tool_preferences(monkeypatch):
