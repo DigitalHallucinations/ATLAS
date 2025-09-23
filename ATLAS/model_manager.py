@@ -23,6 +23,22 @@ class ModelManager:
         self.lock = threading.Lock()  # Add a lock for thread safety
         self.load_models()
 
+    def _normalize_models(self, models: List[str]) -> List[str]:
+        """Return a de-duplicated, stripped list of model names."""
+
+        seen = set()
+        normalized: List[str] = []
+        for entry in models:
+            if not isinstance(entry, str):
+                continue
+
+            name = entry.strip()
+            if name and name not in seen:
+                normalized.append(name)
+                seen.add(name)
+
+        return normalized
+
     def load_models(self) -> None:
         """
         Load available models for each provider from configuration files.
@@ -57,7 +73,10 @@ class ModelManager:
                             provider_models = json.load(f)
                         else:
                             provider_models = json.load(f).get('models', [])
-                    self.models[provider] = provider_models
+                    if provider == 'HuggingFace':
+                        self.models[provider] = provider_models
+                    else:
+                        self.models[provider] = self._normalize_models(provider_models)
                     self.logger.info(f"Successfully loaded models for {provider}: {self.models[provider]}")
                 except FileNotFoundError:
                     self.logger.warning(f"Model file not found for provider {provider} at {file_path}")
@@ -121,6 +140,39 @@ class ModelManager:
                 return {provider: self.models.get(provider, [])}
             return self.models.copy()
 
+    def update_models_for_provider(self, provider: str, models: List[str]) -> List[str]:
+        """Replace the cached models for a provider while preserving known fallbacks."""
+
+        normalized = self._normalize_models(models)
+
+        with self.lock:
+            existing = self.models.get(provider, []) or []
+            default_entry = None
+            if existing:
+                head = existing[0]
+                if isinstance(head, str) and head.strip():
+                    default_entry = head.strip()
+
+            if default_entry and default_entry not in normalized:
+                normalized.insert(0, default_entry)
+            elif default_entry:
+                normalized = [default_entry] + [name for name in normalized if name != default_entry]
+
+            seen = set(normalized)
+            for name in existing:
+                if isinstance(name, str):
+                    trimmed = name.strip()
+                    if trimmed and trimmed not in seen:
+                        normalized.append(trimmed)
+                        seen.add(trimmed)
+
+            self.models[provider] = normalized
+            self.logger.info(
+                "Updated cached models for %s. %d entries available.", provider, len(normalized)
+            )
+
+            return list(normalized)
+
     def get_token_limits_for_model(self, model_name: str) -> Tuple[int, int]:
         """
         Get the token limits for a specific model.
@@ -134,8 +186,15 @@ class ModelManager:
         # Define token limits for different models
         token_limits = {
             # OpenAI models
-            "gpt-4o": (4000, 128000),
-            "gpt-4o-mini": (12000, 128000),
+            "gpt-4o": (128000, 16384),
+            "gpt-4o-mini": (128000, 16384),
+            "gpt-4o-mini-tts": (4096, 4096),
+            "gpt-4o-transcribe": (4096, 4096),
+            "gpt-4o-mini-transcribe": (4096, 4096),
+            "gpt-4.1": (128000, 16384),
+            "gpt-4.1-mini": (128000, 16384),
+            "o1": (200000, 65536),
+            "o1-mini": (200000, 32768),
             # Google models
             "gemini-1.5-pro-latest": (8192, 32768),
             # Anthropic models
