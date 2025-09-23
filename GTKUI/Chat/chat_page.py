@@ -18,7 +18,6 @@ from gi.repository import Gtk, Gdk, GLib
 import logging
 
 from GTKUI.Utils.utils import apply_css
-from modules.Chat.chat_session import ChatHistoryExportError
 
 # Configure logging for the chat page.
 logger = logging.getLogger(__name__)
@@ -42,7 +41,6 @@ class ChatPage(Gtk.Window):
         """
         super().__init__()
         self.ATLAS = atlas
-        self.chat_session = atlas.chat_session
         self.set_default_size(700, 520)
 
         # Apply style classes to match the dark theme of the sidebar.
@@ -513,15 +511,17 @@ class ChatPage(Gtk.Window):
         """
         for child in list(self.chat_history.get_children()):
             self.chat_history.remove(child)
-        try:
-            self.chat_session.reset_conversation()
-        except Exception as exc:
-            logger.error(f"Failed to reset chat session: {exc}")
-            status_message = f"Failed to reset chat: {exc}"
+        result = self.ATLAS.reset_chat_history()
+        if result.get("success"):
+            status_message = result.get("message", "Chat cleared.")
         else:
-            status_message = "Chat cleared and session reset."
+            status_message = result.get("error", "Failed to reset chat history.")
         self.status_label.set_text(status_message)
-        GLib.timeout_add_seconds(2, lambda: (self.update_status_bar() or False))
+        if result.get("success"):
+            status_summary = result.get("status_summary")
+            GLib.timeout_add_seconds(
+                2, lambda: (self.update_status_bar(status_summary) or False)
+            )
 
     def on_export_chat(self, _btn):
         """Launch a modal dialog that lets the user export the chat history."""
@@ -552,17 +552,15 @@ class ChatPage(Gtk.Window):
                     self.status_label.set_text("No file selected for export.")
                     return
 
-                try:
-                    result = self.chat_session.export_history(path)
-                except ChatHistoryExportError as exc:
-                    logger.error("Export error: %s", exc)
-                    self.status_label.set_text(f"Export failed: {exc}")
-                except Exception as exc:  # Safety net for unexpected issues
-                    logger.error("Unexpected export error: %s", exc, exc_info=True)
-                    self.status_label.set_text(f"Export failed: {exc}")
+                result = self.ATLAS.export_chat_history(path)
+                if result.get("success"):
+                    self.status_label.set_text(
+                        result.get("message")
+                        or "Chat history exported successfully."
+                    )
                 else:
                     self.status_label.set_text(
-                        f"Exported {result.message_count} messages to: {result.path}"
+                        result.get("error") or "Export failed."
                     )
             else:
                 self.status_label.set_text("Export cancelled.")
