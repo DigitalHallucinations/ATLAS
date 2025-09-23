@@ -1,5 +1,7 @@
 # modules/Providers/OpenAI/OA_gen_response.py
 
+import json
+
 from openai import AsyncOpenAI
 from ATLAS.model_manager import ModelManager
 
@@ -42,6 +44,7 @@ class OpenAIGenerator:
         messages: List[Dict[str, str]],
         model: str = None,
         max_tokens: Optional[int] = None,
+        max_output_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         frequency_penalty: Optional[float] = None,
@@ -52,6 +55,7 @@ class OpenAIGenerator:
         user=None,
         conversation_id=None,
         functions=None,
+        reasoning_effort: Optional[str] = None,
         function_calling: Optional[bool] = None
     ) -> Union[str, AsyncIterator[str]]:
         try:
@@ -71,6 +75,13 @@ class OpenAIGenerator:
 
             if max_tokens is None:
                 max_tokens = int(settings.get("max_tokens", 4000))
+            if max_output_tokens is None:
+                stored_max_output = settings.get("max_output_tokens")
+                if stored_max_output is not None:
+                    try:
+                        max_output_tokens = int(stored_max_output)
+                    except (TypeError, ValueError):
+                        max_output_tokens = None
             if temperature is None:
                 temperature = float(settings.get("temperature", 0.0))
             if top_p is None:
@@ -81,6 +92,8 @@ class OpenAIGenerator:
                 presence_penalty = float(settings.get("presence_penalty", 0.0))
             if stream is None:
                 stream = bool(settings.get("stream", True))
+            if reasoning_effort is None:
+                reasoning_effort = settings.get("reasoning_effort")
 
             if function_calling is None:
                 allow_function_calls = bool(settings.get("function_calling", True))
@@ -118,6 +131,27 @@ class OpenAIGenerator:
             self.logger.info(f"Sending functions to OpenAI API: {functions}")
             self.logger.info(f"Sending function map to OpenAI API: {function_map}")
 
+            if self._is_reasoning_model(model):
+                self.logger.info("Routing request through the Responses API for reasoning model support.")
+                return await self._generate_via_responses_api(
+                    messages=messages,
+                    model=model,
+                    stream=stream,
+                    user=user,
+                    conversation_id=conversation_id,
+                    function_map=function_map,
+                    functions=functions,
+                    current_persona=current_persona,
+                    conversation_manager=conversation_manager,
+                    temperature=temperature,
+                    top_p=top_p,
+                    frequency_penalty=frequency_penalty,
+                    presence_penalty=presence_penalty,
+                    allow_function_calls=allow_function_calls,
+                    max_output_tokens=max_output_tokens,
+                    reasoning_effort=reasoning_effort,
+                )
+
             function_call_mode = None
             if functions:
                 function_call_mode = "auto" if allow_function_calls else "none"
@@ -153,7 +187,11 @@ class OpenAIGenerator:
                     functions,
                     current_persona,
                     temperature,
-                    conversation_manager
+                    conversation_manager,
+                    model,
+                    top_p,
+                    frequency_penalty,
+                    presence_penalty,
                 )
             else:
                 message = response.choices[0].message
@@ -180,6 +218,292 @@ class OpenAIGenerator:
             self.logger.error(f"Error in OpenAI API call: {str(e)}", exc_info=True)
             raise
 
+    def _is_reasoning_model(self, model: Optional[str]) -> bool:
+        return isinstance(model, str) and model.lower().startswith("o")
+
+    def _map_messages_to_responses_input(self, messages: List[Dict[str, str]]):
+        formatted = []
+        for message in messages:
+            role = message.get("role", "user") if isinstance(message, dict) else "user"
+            content = message.get("content") if isinstance(message, dict) else message
+            if content is None:
+                continue
+            if isinstance(content, list):
+                normalized_content = []
+                for item in content:
+                    if isinstance(item, dict):
+                        normalized_content.append(item)
+                    else:
+                        normalized_content.append({"type": "text", "text": str(item)})
+            else:
+                normalized_content = [{"type": "text", "text": str(content)}]
+
+            formatted.append({"role": role, "content": normalized_content})
+        return formatted
+
+    def _convert_functions_to_tools(self, functions):
+        if not functions:
+            return []
+
+        tools = []
+        for function in functions:
+            if isinstance(function, dict):
+                tools.append({"type": "function", "function": function})
+        return tools
+
+    def _safe_get(self, target, attribute: str, default=None):
+        if target is None:
+            return default
+        if isinstance(target, dict):
+            return target.get(attribute, default)
+        return getattr(target, attribute, default)
+
+    def _stringify_function_arguments(self, arguments) -> str:
+        if arguments is None:
+            return "{}"
+        if isinstance(arguments, str):
+            return arguments
+        try:
+            return json.dumps(arguments)
+        except (TypeError, ValueError):
+            return str(arguments)
+
+    def _extract_responses_tool_calls(self, response) -> List[Dict[str, Dict[str, str]]]:
+        tool_messages = []
+        outputs = self._safe_get(response, "output") or self._safe_get(response, "outputs")
+        if not outputs:
+            return tool_messages
+
+        for item in outputs:
+            item_type = self._safe_get(item, "type")
+            if item_type != "tool_call":
+                continue
+
+            tool_calls = self._safe_get(item, "tool_calls")
+            if tool_calls is None:
+                single_call = self._safe_get(item, "tool_call")
+                tool_calls = [single_call] if single_call else []
+
+            for call in tool_calls:
+                if not call:
+                    continue
+                function_payload = self._safe_get(call, "function") or {}
+                name = self._safe_get(function_payload, "name") or self._safe_get(call, "name")
+                arguments = self._safe_get(function_payload, "arguments")
+                if arguments is None:
+                    arguments = self._safe_get(call, "arguments")
+                if not name:
+                    continue
+                tool_messages.append(
+                    {
+                        "function_call": {
+                            "name": name,
+                            "arguments": self._stringify_function_arguments(arguments),
+                        }
+                    }
+                )
+
+        return tool_messages
+
+    def _get_response_text(self, response) -> str:
+        text = self._safe_get(response, "output_text")
+        if text:
+            return text
+
+        outputs = self._safe_get(response, "output") or self._safe_get(response, "outputs")
+        if not outputs:
+            return ""
+
+        parts = []
+        for item in outputs:
+            item_type = self._safe_get(item, "type")
+            if item_type == "output_text":
+                snippet = self._safe_get(item, "text")
+                if snippet:
+                    parts.append(snippet)
+            elif item_type == "message":
+                content_list = self._safe_get(item, "content") or []
+                for entry in content_list:
+                    snippet = self._safe_get(entry, "text")
+                    if snippet:
+                        parts.append(snippet)
+
+        return "".join(parts)
+
+    async def _generate_via_responses_api(
+        self,
+        messages,
+        model,
+        stream,
+        user,
+        conversation_id,
+        function_map,
+        functions,
+        current_persona,
+        conversation_manager,
+        temperature,
+        top_p,
+        frequency_penalty,
+        presence_penalty,
+        allow_function_calls,
+        max_output_tokens,
+        reasoning_effort,
+    ):
+        request_kwargs = {
+            "model": model,
+            "input": self._map_messages_to_responses_input(messages),
+        }
+
+        if allow_function_calls:
+            tools = self._convert_functions_to_tools(functions)
+            if tools:
+                request_kwargs["tools"] = tools
+
+        if max_output_tokens:
+            request_kwargs["max_output_tokens"] = int(max_output_tokens)
+
+        if reasoning_effort:
+            request_kwargs["reasoning"] = {"effort": reasoning_effort}
+
+        if stream:
+            return self._process_responses_stream(
+                request_kwargs=request_kwargs,
+                user=user,
+                conversation_id=conversation_id,
+                function_map=function_map,
+                functions=functions,
+                current_persona=current_persona,
+                conversation_manager=conversation_manager,
+                temperature=temperature,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
+                model=model,
+                allow_function_calls=allow_function_calls,
+            )
+
+        response = await self.client.responses.create(**request_kwargs)
+        return await self._handle_responses_completion(
+            response=response,
+            user=user,
+            conversation_id=conversation_id,
+            function_map=function_map,
+            functions=functions,
+            current_persona=current_persona,
+            temperature=temperature,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            model=model,
+            allow_function_calls=allow_function_calls,
+            conversation_manager=conversation_manager,
+        )
+
+    async def _handle_responses_completion(
+        self,
+        response,
+        user,
+        conversation_id,
+        function_map,
+        functions,
+        current_persona,
+        temperature,
+        top_p,
+        frequency_penalty,
+        presence_penalty,
+        model,
+        allow_function_calls,
+        conversation_manager,
+    ):
+        if allow_function_calls:
+            tool_messages = self._extract_responses_tool_calls(response)
+            if tool_messages:
+                results = []
+                for tool_message in tool_messages:
+                    result = await self.handle_function_call(
+                        user,
+                        conversation_id,
+                        tool_message,
+                        conversation_manager,
+                        function_map=function_map,
+                        functions=functions,
+                        current_persona=current_persona,
+                        temperature=temperature,
+                        model=model,
+                        top_p=top_p,
+                        frequency_penalty=frequency_penalty,
+                        presence_penalty=presence_penalty,
+                    )
+                    if result:
+                        results.append(result)
+                if results:
+                    return "\n".join(results)
+
+        return self._get_response_text(response)
+
+    async def _process_responses_stream(
+        self,
+        *,
+        request_kwargs,
+        user,
+        conversation_id,
+        function_map,
+        functions,
+        current_persona,
+        conversation_manager,
+        temperature,
+        top_p,
+        frequency_penalty,
+        presence_penalty,
+        model,
+        allow_function_calls,
+    ):
+        full_response = ""
+        final_response = None
+
+        async with self.client.responses.stream(**request_kwargs) as stream_response:
+            async for event in stream_response:
+                event_type = self._safe_get(event, "type") or self._safe_get(event, "event")
+                if event_type == "response.output_text.delta":
+                    delta = self._safe_get(event, "delta")
+                    if delta:
+                        yield delta
+                        full_response += delta
+                elif event_type == "response.refusal.delta":
+                    delta = self._safe_get(event, "delta")
+                    if delta:
+                        yield delta
+                        full_response += delta
+
+            getter = getattr(stream_response, "get_final_response", None)
+            if callable(getter):
+                final_response = await getter()
+
+        if allow_function_calls and final_response is not None:
+            tool_messages = self._extract_responses_tool_calls(final_response)
+            for tool_message in tool_messages:
+                tool_result = await self.handle_function_call(
+                    user,
+                    conversation_id,
+                    tool_message,
+                    conversation_manager,
+                    function_map,
+                    functions,
+                    current_persona,
+                    temperature,
+                    model,
+                    top_p,
+                    frequency_penalty,
+                    presence_penalty,
+                )
+                if tool_result:
+                    yield tool_result
+                    full_response += tool_result
+
+        if conversation_manager:
+            conversation_manager.add_message(user, conversation_id, "assistant", full_response)
+            self.logger.info("Full streaming response added to conversation history.")
+
     async def process_streaming_response(
         self,
         response: AsyncIterator[Dict],
@@ -189,7 +513,11 @@ class OpenAIGenerator:
         functions,
         current_persona,
         temperature,
-        conversation_manager
+        conversation_manager,
+        model,
+        top_p,
+        frequency_penalty,
+        presence_penalty,
     ):
         full_response = ""
         async for chunk in response:
@@ -208,7 +536,7 @@ class OpenAIGenerator:
                     functions,
                     current_persona,
                     temperature,
-                    response.model,
+                    model,
                     top_p,
                     frequency_penalty,
                     presence_penalty,
@@ -264,6 +592,7 @@ async def generate_response(
     messages: List[Dict[str, str]],
     model: str = None,
     max_tokens: int = 4000,
+    max_output_tokens: Optional[int] = None,
     temperature: float = 0.0,
     top_p: float = 1.0,
     frequency_penalty: float = 0.0,
@@ -274,6 +603,7 @@ async def generate_response(
     user=None,
     conversation_id=None,
     functions=None,
+    reasoning_effort: Optional[str] = None,
     function_calling: Optional[bool] = None
 ) -> Union[str, AsyncIterator[str]]:
     generator = OpenAIGenerator(config_manager)
@@ -281,6 +611,7 @@ async def generate_response(
         messages,
         model,
         max_tokens,
+        max_output_tokens,
         temperature,
         top_p,
         frequency_penalty,
@@ -291,6 +622,7 @@ async def generate_response(
         user,
         conversation_id,
         functions,
+        reasoning_effort,
         function_calling
     )
 

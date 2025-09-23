@@ -34,6 +34,7 @@ class OpenAISettingsWindow(Gtk.Window):
         self._available_models: List[str] = []
         self._api_key_visible = False
         self._base_url_is_valid = True
+        self._reasoning_effort_values: Tuple[str, ...] = ("low", "medium", "high")
 
         scroller_cls = getattr(Gtk, "ScrolledWindow", None)
         if scroller_cls is not None:
@@ -207,16 +208,48 @@ class OpenAISettingsWindow(Gtk.Window):
         advanced_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
         advanced_box.append(advanced_grid)
 
+        advanced_row = 0
+
+        max_output_label = Gtk.Label(label="Max Output Tokens (reasoning):")
+        max_output_label.set_xalign(0.0)
+        advanced_grid.attach(max_output_label, 0, advanced_row, 1, 1)
+
+        self.max_output_tokens_adjustment = Gtk.Adjustment(
+            lower=0, upper=128000, step_increment=128, page_increment=512, value=0
+        )
+        self.max_output_tokens_spin = Gtk.SpinButton(
+            adjustment=self.max_output_tokens_adjustment, digits=0
+        )
+        self.max_output_tokens_spin.set_increments(128, 512)
+        self.max_output_tokens_spin.set_hexpand(True)
+        if hasattr(self.max_output_tokens_spin, "set_tooltip_text"):
+            self.max_output_tokens_spin.set_tooltip_text(
+                "Set to 0 to use the model default."
+            )
+        advanced_grid.attach(self.max_output_tokens_spin, 1, advanced_row, 1, 1)
+        advanced_row += 1
+
+        reasoning_label = Gtk.Label(label="Reasoning Effort:")
+        reasoning_label.set_xalign(0.0)
+        advanced_grid.attach(reasoning_label, 0, advanced_row, 1, 1)
+
+        self.reasoning_effort_combo = Gtk.ComboBoxText()
+        for option in self._reasoning_effort_values:
+            self.reasoning_effort_combo.append_text(option)
+        self.reasoning_effort_combo.set_hexpand(True)
+        advanced_grid.attach(self.reasoning_effort_combo, 1, advanced_row, 1, 1)
+        advanced_row += 1
+
         base_url_label = Gtk.Label(label="Custom Base URL:")
         base_url_label.set_xalign(0.0)
-        advanced_grid.attach(base_url_label, 0, 0, 1, 1)
+        advanced_grid.attach(base_url_label, 0, advanced_row, 1, 1)
 
         self.base_url_entry = Gtk.Entry()
         self.base_url_entry.set_hexpand(True)
         self.base_url_entry.set_placeholder_text("https://api.openai.com/v1")
         if hasattr(self.base_url_entry, "connect"):
             self.base_url_entry.connect("changed", self._on_base_url_changed)
-        advanced_grid.attach(self.base_url_entry, 1, 0, 1, 1)
+        advanced_grid.attach(self.base_url_entry, 1, advanced_row, 1, 1)
 
         self.base_url_feedback_label = Gtk.Label(label="Leave blank to use the official endpoint.")
         self.base_url_feedback_label.set_xalign(0.0)
@@ -258,6 +291,17 @@ class OpenAISettingsWindow(Gtk.Window):
         self.frequency_penalty_spin.set_value(float(settings.get("frequency_penalty", 0.0)))
         self.presence_penalty_spin.set_value(float(settings.get("presence_penalty", 0.0)))
         self.max_tokens_spin.set_value(float(settings.get("max_tokens", 4000)))
+        max_output = settings.get("max_output_tokens")
+        if max_output is None:
+            self.max_output_tokens_spin.set_value(0)
+        else:
+            self.max_output_tokens_spin.set_value(float(max_output))
+        effort_value = (settings.get("reasoning_effort") or "medium").lower()
+        try:
+            effort_index = self._reasoning_effort_values.index(effort_value)
+        except ValueError:
+            effort_index = self._reasoning_effort_values.index("medium")
+        self.reasoning_effort_combo.set_active(effort_index)
         self.stream_toggle.set_active(bool(settings.get("stream", True)))
         self.function_call_toggle.set_active(bool(settings.get("function_calling", True)))
         self.organization_entry.set_text(settings.get("organization") or "")
@@ -583,6 +627,9 @@ class OpenAISettingsWindow(Gtk.Window):
             )
             return
 
+        max_output_value = self.max_output_tokens_spin.get_value_as_int()
+        reasoning_effort = self.reasoning_effort_combo.get_active_text() or "medium"
+
         payload = {
             "model": model,
             "temperature": self.temperature_spin.get_value(),
@@ -590,10 +637,12 @@ class OpenAISettingsWindow(Gtk.Window):
             "frequency_penalty": self.frequency_penalty_spin.get_value(),
             "presence_penalty": self.presence_penalty_spin.get_value(),
             "max_tokens": self.max_tokens_spin.get_value_as_int(),
+            "max_output_tokens": max_output_value if max_output_value > 0 else None,
             "stream": self.stream_toggle.get_active(),
             "function_calling": self.function_call_toggle.get_active(),
             "base_url": base_url,
             "organization": self.organization_entry.get_text().strip() or None,
+            "reasoning_effort": reasoning_effort.lower(),
         }
 
         try:

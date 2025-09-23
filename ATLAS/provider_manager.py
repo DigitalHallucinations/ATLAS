@@ -158,10 +158,12 @@ class ProviderManager:
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        max_output_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Persist OpenAI LLM defaults via the config manager and refresh runtime state."""
 
@@ -173,10 +175,12 @@ class ProviderManager:
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
                 max_tokens=max_tokens,
+                max_output_tokens=max_output_tokens,
                 stream=stream,
                 function_calling=function_calling,
                 base_url=base_url,
                 organization=organization,
+                reasoning_effort=reasoning_effort,
             )
         except Exception as exc:
             self.logger.error("Failed to persist OpenAI settings: %s", exc, exc_info=True)
@@ -816,6 +820,7 @@ class ProviderManager:
         model: str = None,
         provider: str = None,
         max_tokens: Optional[int] = None,
+        max_output_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         frequency_penalty: Optional[float] = None,
@@ -823,6 +828,7 @@ class ProviderManager:
         stream: Optional[bool] = None,
         current_persona=None,
         functions=None,
+        reasoning_effort: Optional[str] = None,
         llm_call_type: str = None
     ) -> Union[str, AsyncIterator[str]]:
         """
@@ -833,6 +839,7 @@ class ProviderManager:
             model (str, optional): The model to use. If None, uses the current model.
             provider (str, optional): The provider to use. If None, uses the current provider.
             max_tokens (int, optional): Maximum number of tokens. Uses saved default when omitted.
+            max_output_tokens (int, optional): Maximum number of output tokens for reasoning models.
             temperature (float, optional): Sampling temperature. Uses saved default when omitted.
             top_p (float, optional): Nucleus sampling value. Uses saved default when omitted.
             frequency_penalty (float, optional): Frequency penalty. Uses saved default when omitted.
@@ -840,6 +847,7 @@ class ProviderManager:
             stream (bool, optional): Whether to stream the response. Uses saved default when omitted.
             current_persona (optional): The current persona.
             functions (optional): Functions to use.
+            reasoning_effort (str, optional): Effort level for reasoning models.
             llm_call_type (str, optional): The type of LLM call.
 
         Returns:
@@ -860,6 +868,11 @@ class ProviderManager:
             resolved_model = fallback_model
 
         resolved_max_tokens = max_tokens if max_tokens is not None else defaults.get("max_tokens", 4000)
+        resolved_max_output_tokens = (
+            max_output_tokens
+            if max_output_tokens is not None
+            else defaults.get("max_output_tokens")
+        )
         resolved_temperature = (
             temperature if temperature is not None else defaults.get("temperature", 0.0)
         )
@@ -876,6 +889,11 @@ class ProviderManager:
         )
         resolved_stream = stream if stream is not None else defaults.get("stream", True)
         resolved_function_calling = defaults.get("function_calling", True)
+        resolved_reasoning_effort = (
+            reasoning_effort
+            if reasoning_effort is not None
+            else defaults.get("reasoning_effort")
+        )
 
         # Log the incoming parameters
         self.logger.info(
@@ -926,6 +944,8 @@ class ProviderManager:
                     frequency_penalty=resolved_frequency_penalty,
                     presence_penalty=resolved_presence_penalty,
                     function_calling=resolved_function_calling,
+                    max_output_tokens=resolved_max_output_tokens,
+                    reasoning_effort=resolved_reasoning_effort,
                 )
 
             response = await self.generate_response_func(
