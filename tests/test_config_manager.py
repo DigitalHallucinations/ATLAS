@@ -214,6 +214,8 @@ def test_get_openai_llm_settings_includes_sampling_defaults(config_manager):
     assert snapshot["json_mode"] is False
     assert snapshot["json_schema"] is None
     assert snapshot["tool_choice"] is None
+    assert snapshot["enable_code_interpreter"] is False
+    assert snapshot["enable_file_search"] is False
 
 
 def test_set_openai_llm_settings_persists_json_mode(config_manager):
@@ -282,3 +284,17 @@ def test_set_openai_llm_settings_tracks_tool_preferences(config_manager):
     config_manager.set_openai_llm_settings(model="gpt-4o", tool_choice=" ")
     stored = config_manager.config["OPENAI_LLM"]
     assert stored["tool_choice"] is None
+
+    config_manager.set_openai_llm_settings(
+        model="gpt-4o",
+        enable_code_interpreter=True,
+        enable_file_search=True,
+    )
+    stored = config_manager.config["OPENAI_LLM"]
+    assert stored["enable_code_interpreter"] is True
+    assert stored["enable_file_search"] is True
+
+    config_manager.set_openai_llm_settings(model="gpt-4o", function_calling=False)
+    stored = config_manager.config["OPENAI_LLM"]
+    assert stored["enable_code_interpreter"] is False
+    assert stored["enable_file_search"] is False

@@ -304,14 +304,217 @@ class OpenAIGenerator:
         return formatted
 
     def _convert_functions_to_tools(self, functions):
-        if not functions:
-            return []
-
         tools = []
+        try:
+            settings = self.config_manager.get_openai_llm_settings()
+        except Exception:
+            settings = {}
+
+        if isinstance(settings, dict):
+            if settings.get("enable_code_interpreter"):
+                tools.append({"type": "code_interpreter"})
+            if settings.get("enable_file_search"):
+                tools.append({"type": "file_search"})
+
+        if not functions:
+            return tools
+
         for function in functions:
             if isinstance(function, dict):
                 tools.append({"type": "function", "function": function})
         return tools
+
+    def _normalize_tool_call(self, call: Any) -> Optional[Dict[str, Any]]:
+        if not call:
+            return None
+
+        if isinstance(call, dict) and call.get("type") in {"function", "code_interpreter", "file_search"}:
+            normalized = dict(call)
+            if "raw_call" not in normalized:
+                normalized["raw_call"] = call
+            if normalized.get("type") == "function" and "function_call" not in normalized:
+                function_payload = normalized.get("function") or {}
+                if isinstance(function_payload, dict):
+                    name = self._safe_get(function_payload, "name")
+                    arguments = self._safe_get(function_payload, "arguments")
+                    if name:
+                        normalized["function_call"] = {
+                            "name": name,
+                            "arguments": self._stringify_function_arguments(arguments),
+                        }
+            return normalized
+
+        payload: Dict[str, Any] = {}
+        for key in (
+            "type",
+            "function",
+            "function_call",
+            "name",
+            "arguments",
+            "code_interpreter",
+            "file_search",
+            "id",
+        ):
+            value = self._safe_get(call, key)
+            if value is not None:
+                payload[key] = value
+
+        if not payload:
+            return None
+
+        call_type = payload.get("type")
+        function_payload = payload.get("function")
+        legacy_function_call = payload.get("function_call")
+
+        normalized: Dict[str, Any] = {"raw_call": dict(payload)}
+
+        if function_payload is None and isinstance(legacy_function_call, dict):
+            function_payload = legacy_function_call
+            call_type = call_type or "function"
+
+        if call_type is None and function_payload is not None:
+            call_type = "function"
+
+        if call_type == "function":
+            function_payload = function_payload or {}
+            name = self._safe_get(function_payload, "name") or payload.get("name")
+            arguments = self._safe_get(function_payload, "arguments")
+            if arguments is None:
+                arguments = payload.get("arguments")
+            if not name:
+                return None
+            normalized.update(
+                {
+                    "type": "function",
+                    "function_call": {
+                        "name": name,
+                        "arguments": self._stringify_function_arguments(arguments),
+                    },
+                }
+            )
+            return normalized
+
+        if call_type in {"code_interpreter", "file_search"}:
+            normalized["type"] = call_type
+            builtin_payload = payload.get(call_type)
+            if isinstance(builtin_payload, dict):
+                normalized[call_type] = builtin_payload
+            return normalized
+
+        return None
+
+    def _merge_builtin_tool_payload(
+        self,
+        tool_type: str,
+        existing: Any,
+        delta: Any,
+    ) -> Dict[str, Any]:
+        base: Dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
+        if not isinstance(delta, dict):
+            return base
+
+        def _merge_values(key: str, value: Any) -> None:
+            if isinstance(value, list):
+                previous = base.get(key)
+                if isinstance(previous, list):
+                    base[key] = previous + value
+                else:
+                    base[key] = list(value)
+            elif isinstance(value, dict):
+                previous = base.get(key)
+                merged_child = self._merge_builtin_tool_payload(tool_type, previous, value)
+                base[key] = merged_child
+            elif value is not None:
+                if key == "input" and tool_type == "code_interpreter":
+                    existing_text = str(base.get(key, ""))
+                    base[key] = existing_text + str(value)
+                else:
+                    base[key] = value
+
+        for key, value in delta.items():
+            _merge_values(key, value)
+
+        return base
+
+    def _format_builtin_tool_output(self, payload: Dict[str, Any]) -> Optional[str]:
+        tool_type = payload.get("type")
+        if tool_type == "code_interpreter":
+            interpreter = payload.get("code_interpreter")
+            if not isinstance(interpreter, dict):
+                interpreter = self._safe_get(payload.get("raw_call"), "code_interpreter") or {}
+            outputs = interpreter.get("outputs")
+            parts: List[str] = []
+            if isinstance(outputs, list):
+                for output in outputs:
+                    if not isinstance(output, dict):
+                        continue
+                    output_type = output.get("type")
+                    if output_type in {"logs", "output_text"}:
+                        text_value = output.get("text") or output.get("logs")
+                        if isinstance(text_value, list):
+                            text_value = "".join(str(item) for item in text_value if item is not None)
+                        if text_value:
+                            parts.append(str(text_value))
+                    elif output_type == "image":
+                        parts.append(
+                            "[Code Interpreter produced an image output that cannot be rendered here.]"
+                        )
+                    elif output_type == "file":
+                        file_id = output.get("id") or output.get("file_id")
+                        if file_id:
+                            parts.append(f"[Code Interpreter produced a downloadable file: {file_id}]")
+                    else:
+                        text_value = output.get("text") or output.get("logs") or output.get("output")
+                        if text_value:
+                            parts.append(str(text_value))
+            if not parts:
+                input_text = interpreter.get("input")
+                if input_text:
+                    parts.append(f"Code Interpreter executed:\n{input_text}")
+            combined = "\n".join(part.strip() for part in parts if part).strip()
+            return combined or None
+
+        if tool_type == "file_search":
+            search_payload = payload.get("file_search")
+            if not isinstance(search_payload, dict):
+                search_payload = self._safe_get(payload.get("raw_call"), "file_search") or {}
+            parts: List[str] = []
+            summary = search_payload.get("summary")
+            if summary:
+                parts.append(str(summary))
+            results = search_payload.get("results") or search_payload.get("output")
+            if isinstance(results, list):
+                for result in results:
+                    if not isinstance(result, dict):
+                        continue
+                    text_fragments: List[str] = []
+                    text_value = result.get("text")
+                    if text_value:
+                        text_fragments.append(str(text_value))
+                    content_entries = result.get("content")
+                    if isinstance(content_entries, list):
+                        for entry in content_entries:
+                            if isinstance(entry, dict):
+                                text = entry.get("text")
+                                if text:
+                                    text_fragments.append(str(text))
+                    if text_fragments:
+                        parts.append("\n".join(fragment.strip() for fragment in text_fragments if fragment))
+            content_entries = search_payload.get("content")
+            if isinstance(content_entries, list):
+                for entry in content_entries:
+                    if isinstance(entry, dict):
+                        text = entry.get("text")
+                        if text:
+                            parts.append(str(text))
+            if not parts:
+                query = search_payload.get("query")
+                if query:
+                    parts.append(f"File search query: {query}")
+            combined = "\n".join(part.strip() for part in parts if part).strip()
+            return combined or None
+
+        return None
 
     def _normalize_tool_choice(self, value):
         if value is None:
@@ -430,8 +633,8 @@ class OpenAIGenerator:
         except (TypeError, ValueError):
             return str(arguments)
 
-    def _extract_responses_tool_calls(self, response) -> List[Dict[str, Dict[str, str]]]:
-        tool_messages = []
+    def _extract_responses_tool_calls(self, response) -> List[Dict[str, Any]]:
+        tool_messages: List[Dict[str, Any]] = []
         outputs = self._safe_get(response, "output") or self._safe_get(response, "outputs")
         if not outputs:
             return tool_messages
@@ -447,28 +650,14 @@ class OpenAIGenerator:
                 tool_calls = [single_call] if single_call else []
 
             for call in tool_calls:
-                if not call:
-                    continue
-                function_payload = self._safe_get(call, "function") or {}
-                name = self._safe_get(function_payload, "name") or self._safe_get(call, "name")
-                arguments = self._safe_get(function_payload, "arguments")
-                if arguments is None:
-                    arguments = self._safe_get(call, "arguments")
-                if not name:
-                    continue
-                tool_messages.append(
-                    {
-                        "function_call": {
-                            "name": name,
-                            "arguments": self._stringify_function_arguments(arguments),
-                        }
-                    }
-                )
+                normalized = self._normalize_tool_call(call)
+                if normalized:
+                    tool_messages.append(normalized)
 
         return tool_messages
 
-    def _extract_chat_tool_calls(self, message) -> List[Dict[str, Dict[str, str]]]:
-        tool_messages: List[Dict[str, Dict[str, str]]] = []
+    def _extract_chat_tool_calls(self, message) -> List[Dict[str, Any]]:
+        tool_messages: List[Dict[str, Any]] = []
         tool_calls = self._safe_get(message, "tool_calls")
 
         if not tool_calls:
@@ -476,39 +665,18 @@ class OpenAIGenerator:
             tool_calls = [single_call] if single_call else []
 
         for call in tool_calls or []:
-            if not call:
-                continue
-            function_payload = self._safe_get(call, "function") or {}
-            name = self._safe_get(function_payload, "name") or self._safe_get(call, "name")
-            arguments = self._safe_get(function_payload, "arguments")
-            if arguments is None:
-                arguments = self._safe_get(call, "arguments")
-            if not name:
-                continue
-            tool_messages.append(
-                {
-                    "function_call": {
-                        "name": name,
-                        "arguments": self._stringify_function_arguments(arguments),
-                    }
-                }
-            )
+            normalized = self._normalize_tool_call(call)
+            if normalized:
+                tool_messages.append(normalized)
 
         if tool_messages:
             return tool_messages
 
         legacy_call = self._safe_get(message, "function_call")
-        name = self._safe_get(legacy_call, "name") if legacy_call else None
-        if name:
-            arguments = self._safe_get(legacy_call, "arguments")
-            tool_messages.append(
-                {
-                    "function_call": {
-                        "name": name,
-                        "arguments": self._stringify_function_arguments(arguments),
-                    }
-                }
-            )
+        if legacy_call:
+            normalized = self._normalize_tool_call({"type": "function", "function": legacy_call})
+            if normalized:
+                tool_messages.append(normalized)
 
         return tool_messages
 
@@ -521,42 +689,49 @@ class OpenAIGenerator:
         except (TypeError, ValueError):
             index = 0
 
-        entry = pending.setdefault(index, {"name": None, "arguments": ""})
+        entry = pending.setdefault(index, {"call": {}})
+        call = entry.setdefault("call", {})
 
         function_payload = self._safe_get(tool_call_delta, "function") or {}
-        name = self._safe_get(function_payload, "name") or self._safe_get(tool_call_delta, "name")
-        if name:
-            entry["name"] = name
-
-        arguments_delta = self._safe_get(function_payload, "arguments")
-        if arguments_delta is None:
-            arguments_delta = self._safe_get(tool_call_delta, "arguments")
-        if arguments_delta:
-            entry["arguments"] = entry.get("arguments", "") + str(arguments_delta)
+        call_type = self._safe_get(tool_call_delta, "type") or self._safe_get(function_payload, "type")
+        if call_type:
+            call["type"] = call_type
 
         call_id = self._safe_get(tool_call_delta, "id")
         if call_id:
-            entry["id"] = call_id
+            call["id"] = call_id
 
-        call_type = self._safe_get(tool_call_delta, "type") or self._safe_get(function_payload, "type")
-        if call_type:
-            entry["type"] = call_type
+        name = self._safe_get(function_payload, "name") or self._safe_get(tool_call_delta, "name")
+        arguments_delta = self._safe_get(function_payload, "arguments")
+        if arguments_delta is None:
+            arguments_delta = self._safe_get(tool_call_delta, "arguments")
 
-    def _finalize_pending_tool_calls(self, pending: Dict[int, Dict[str, Any]]) -> List[Dict[str, Dict[str, str]]]:
-        messages: List[Dict[str, Dict[str, str]]] = []
+        if function_payload or name or call_type == "function":
+            function_entry = call.setdefault("function", {})
+            if name:
+                function_entry["name"] = name
+            if arguments_delta:
+                existing_arguments = function_entry.get("arguments", "")
+                function_entry["arguments"] = existing_arguments + str(arguments_delta)
+            call.setdefault("type", "function")
+
+        for builtin_key in ("code_interpreter", "file_search"):
+            payload_delta = self._safe_get(tool_call_delta, builtin_key)
+            if payload_delta:
+                existing_payload = call.get(builtin_key) or {}
+                merged_payload = self._merge_builtin_tool_payload(
+                    builtin_key, existing_payload, payload_delta
+                )
+                call[builtin_key] = merged_payload
+                call["type"] = builtin_key
+
+    def _finalize_pending_tool_calls(self, pending: Dict[int, Dict[str, Any]]) -> List[Dict[str, Any]]:
+        messages: List[Dict[str, Any]] = []
         for _, payload in sorted(pending.items(), key=lambda item: item[0]):
-            name = payload.get("name")
-            if not name:
-                continue
-            arguments = payload.get("arguments")
-            messages.append(
-                {
-                    "function_call": {
-                        "name": name,
-                        "arguments": self._stringify_function_arguments(arguments),
-                    }
-                }
-            )
+            call = payload.get("call") if isinstance(payload, dict) else None
+            normalized = self._normalize_tool_call(call)
+            if normalized:
+                messages.append(normalized)
         return messages
 
     def _get_response_text(self, response) -> str:
@@ -868,11 +1043,40 @@ class OpenAIGenerator:
         frequency_penalty,
         presence_penalty,
     ):
-        self.logger.info(f"Handling function call: {message.get('function_call')}")
+        normalized = self._normalize_tool_call(message)
+        if not normalized and isinstance(message, dict):
+            normalized = self._normalize_tool_call(dict(message))
+
+        if not normalized:
+            self.logger.warning("Received unrecognized tool payload: %s", message)
+            return None
+
+        tool_type = normalized.get("type") or (
+            "function" if normalized.get("function_call") else None
+        )
+
+        if tool_type in {"code_interpreter", "file_search"}:
+            formatted_output = self._format_builtin_tool_output(normalized)
+            if formatted_output:
+                self.logger.info(
+                    "Returning output from OpenAI %s tool call.", tool_type
+                )
+                return formatted_output
+            self.logger.info(
+                "OpenAI %s tool call produced no textual output.", tool_type
+            )
+            return None
+
+        function_payload = normalized.get("function_call")
+        if not function_payload:
+            self.logger.warning("Tool payload missing function_call: %s", normalized)
+            return None
+
+        self.logger.info("Handling function call: %s", function_payload)
         tool_response = await use_tool(
             user,
             conversation_id,
-            message,
+            {"function_call": function_payload},
             conversation_manager,
             function_map,
             functions,
@@ -884,7 +1088,7 @@ class OpenAIGenerator:
             conversation_manager,
             self.config_manager
         )
-        
+
         if tool_response:
             self.logger.info(f"Tool response generated: {tool_response}")
             return tool_response

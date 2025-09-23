@@ -215,6 +215,8 @@ class ConfigManager:
         function_calling: Optional[bool] = None,
         parallel_tool_calls: Optional[bool] = None,
         tool_choice: Optional[str] = None,
+        enable_code_interpreter: Optional[bool] = None,
+        enable_file_search: Optional[bool] = None,
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
@@ -386,6 +388,18 @@ class ConfigManager:
         else:
             normalized_parallel_tool_calls = bool(parallel_tool_calls)
 
+        previous_code_interpreter = bool(settings_block.get('enable_code_interpreter', False))
+        if enable_code_interpreter is None:
+            normalized_code_interpreter = previous_code_interpreter
+        else:
+            normalized_code_interpreter = bool(enable_code_interpreter)
+
+        previous_file_search = bool(settings_block.get('enable_file_search', False))
+        if enable_file_search is None:
+            normalized_file_search = previous_file_search
+        else:
+            normalized_file_search = bool(enable_file_search)
+
         def _normalize_tool_choice(value: Optional[str], existing_value: Optional[str]) -> Optional[str]:
             if value is None:
                 return existing_value
@@ -400,6 +414,10 @@ class ConfigManager:
             return existing_value
 
         normalized_tool_choice = _normalize_tool_choice(tool_choice, settings_block.get('tool_choice'))
+
+        if not normalized_function_calling:
+            normalized_code_interpreter = False
+            normalized_file_search = False
 
         settings_block.update(
             {
@@ -419,6 +437,8 @@ class ConfigManager:
                 'organization': sanitized_org,
                 'json_mode': normalized_json_mode,
                 'json_schema': normalized_json_schema,
+                'enable_code_interpreter': normalized_code_interpreter,
+                'enable_file_search': normalized_file_search,
             }
         )
 
@@ -502,6 +522,8 @@ class ConfigManager:
             'organization': self.get_config('OPENAI_ORGANIZATION'),
             'json_mode': False,
             'json_schema': None,
+            'enable_code_interpreter': False,
+            'enable_file_search': False,
         }
 
         stored = self.get_config('OPENAI_LLM')

@@ -1103,6 +1103,8 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
         "organization": "org-42",
         "reasoning_effort": "high",
         "json_schema": None,
+        "enable_code_interpreter": True,
+        "enable_file_search": True,
     }
     atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
     atlas_stub.list_openai_models = fake_list_openai_models
@@ -1125,6 +1127,8 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert window.function_call_toggle.get_active() is False
     assert window.parallel_tool_calls_toggle.get_active() is False
     assert window.require_tool_toggle.get_active() is False
+    assert window.code_interpreter_toggle.get_active() is False
+    assert window.file_search_toggle.get_active() is False
     assert window.organization_entry.get_text() == "org-42"
     assert window.reasoning_effort_combo.get_active_text() == "high"
     status_text = getattr(window.api_key_status_label, "label", None)
@@ -1145,6 +1149,8 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     window.function_call_toggle.set_active(True)
     window.parallel_tool_calls_toggle.set_active(True)
     window.require_tool_toggle.set_active(True)
+    window.code_interpreter_toggle.set_active(True)
+    window.file_search_toggle.set_active(False)
     window.organization_entry.set_text("org-new")
     window.base_url_entry.set_text("https://alt.example/v2")
     window.reasoning_effort_combo.set_active(1)
@@ -1166,6 +1172,8 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert saved_payload["reasoning_effort"] == "medium"
     assert saved_payload["tool_choice"] == "required"
     assert saved_payload["json_schema"] == ""
+    assert saved_payload["enable_code_interpreter"] is True
+    assert saved_payload["enable_file_search"] is False
     assert window._stored_base_url == "https://alt.example/v2"
     assert window._last_message[0] == "Success"
     assert window.closed is True
