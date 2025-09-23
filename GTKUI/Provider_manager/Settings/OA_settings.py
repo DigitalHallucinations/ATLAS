@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 """Dedicated GTK window for configuring OpenAI provider defaults."""
 
+import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -35,6 +38,8 @@ class OpenAISettingsWindow(Gtk.Window):
         self._api_key_visible = False
         self._base_url_is_valid = True
         self._reasoning_effort_values: Tuple[str, ...] = ("low", "medium", "high")
+        self._json_schema_is_valid = True
+        self._json_schema_text_cache = ""
 
         scroller_cls = getattr(Gtk, "ScrolledWindow", None)
         if scroller_cls is not None:
@@ -257,6 +262,79 @@ class OpenAISettingsWindow(Gtk.Window):
         advanced_grid.attach(self.json_mode_toggle, 0, advanced_row, 2, 1)
         advanced_row += 1
 
+        schema_label = Gtk.Label(label="Response JSON Schema (optional):")
+        schema_label.set_xalign(0.0)
+        advanced_grid.attach(schema_label, 0, advanced_row, 2, 1)
+        advanced_row += 1
+
+        self._json_schema_buffer = None
+        self._json_schema_widget = None
+
+        text_view_cls = getattr(Gtk, "TextView", None)
+        text_buffer_cls = getattr(Gtk, "TextBuffer", None)
+        scrolled_cls = getattr(Gtk, "ScrolledWindow", None)
+
+        if text_view_cls is not None and text_buffer_cls is not None:
+            if scrolled_cls is not None:
+                schema_scroller = scrolled_cls()
+                if hasattr(schema_scroller, "set_policy"):
+                    schema_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+                if hasattr(schema_scroller, "set_hexpand"):
+                    schema_scroller.set_hexpand(True)
+                if hasattr(schema_scroller, "set_vexpand"):
+                    schema_scroller.set_vexpand(True)
+                if hasattr(schema_scroller, "set_min_content_height"):
+                    schema_scroller.set_min_content_height(140)
+            else:
+                schema_scroller = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+            self._json_schema_widget = text_view_cls()
+            try:
+                self._json_schema_buffer = text_buffer_cls()
+            except Exception:  # pragma: no cover - defensive fallback
+                self._json_schema_buffer = None
+
+            if (
+                self._json_schema_buffer is not None
+                and hasattr(self._json_schema_widget, "set_buffer")
+            ):
+                self._json_schema_widget.set_buffer(self._json_schema_buffer)
+
+            if hasattr(self._json_schema_widget, "set_wrap_mode"):
+                try:
+                    from gi.repository import Pango  # type: ignore
+
+                    self._json_schema_widget.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                except Exception:  # pragma: no cover - optional dependency may be absent
+                    pass
+
+            if hasattr(schema_scroller, "set_child"):
+                schema_scroller.set_child(self._json_schema_widget)
+            elif hasattr(schema_scroller, "append"):
+                schema_scroller.append(self._json_schema_widget)
+            else:  # pragma: no cover - fallback for simple stubs
+                schema_scroller.child = self._json_schema_widget
+
+            advanced_grid.attach(schema_scroller, 0, advanced_row, 2, 1)
+        else:
+            self._json_schema_widget = Gtk.Entry()
+            if hasattr(self._json_schema_widget, "set_placeholder_text"):
+                self._json_schema_widget.set_placeholder_text(
+                    '{"name": "atlas_response", "schema": {"type": "object"}}'
+                )
+            if hasattr(self._json_schema_widget, "set_hexpand"):
+                self._json_schema_widget.set_hexpand(True)
+            advanced_grid.attach(self._json_schema_widget, 0, advanced_row, 2, 1)
+
+        advanced_row += 1
+
+        self.json_schema_feedback_label = Gtk.Label(
+            label="Optional: provide a JSON schema to enforce structured responses."
+        )
+        self.json_schema_feedback_label.set_xalign(0.0)
+        advanced_grid.attach(self.json_schema_feedback_label, 0, advanced_row, 2, 1)
+        advanced_row += 1
+
         base_url_label = Gtk.Label(label="Custom Base URL:")
         base_url_label.set_xalign(0.0)
         advanced_grid.attach(base_url_label, 0, advanced_row, 1, 1)
@@ -327,6 +405,15 @@ class OpenAISettingsWindow(Gtk.Window):
         self._update_tool_controls_state()
         if hasattr(self, "json_mode_toggle"):
             self.json_mode_toggle.set_active(bool(settings.get("json_mode", False)))
+        schema_payload = settings.get("json_schema") if isinstance(settings, dict) else None
+        formatted_schema = self._format_json_schema(schema_payload)
+        self._write_json_schema_text(formatted_schema)
+        if formatted_schema:
+            self._update_json_schema_feedback(True, "JSON schema loaded from saved settings.")
+        else:
+            self._update_json_schema_feedback(
+                True, "Optional: provide a JSON schema to enforce structured responses."
+            )
         self.organization_entry.set_text(settings.get("organization") or "")
 
         self._begin_model_refresh(settings)
@@ -348,6 +435,77 @@ class OpenAISettingsWindow(Gtk.Window):
 
         logger.error("Unexpected OpenAI settings payload: %r", settings)
         return {}
+
+    def _format_json_schema(self, payload: Any) -> str:
+        if isinstance(payload, str):
+            text = payload.strip()
+            if text:
+                return text
+            return ""
+        if isinstance(payload, dict) and payload:
+            try:
+                return json.dumps(payload, indent=2, sort_keys=True)
+            except (TypeError, ValueError) as exc:  # pragma: no cover - defensive logging
+                logger.debug("Unable to format stored JSON schema: %s", exc)
+        return ""
+
+    def _write_json_schema_text(self, text: str) -> None:
+        self._json_schema_text_cache = text or ""
+        buffer = getattr(self, "_json_schema_buffer", None)
+        if buffer is not None and hasattr(buffer, "set_text"):
+            try:
+                buffer.set_text(self._json_schema_text_cache)
+                return
+            except Exception:  # pragma: no cover - safety for stubbed environments
+                pass
+
+        widget = getattr(self, "_json_schema_widget", None)
+        if widget is not None and hasattr(widget, "set_text"):
+            widget.set_text(self._json_schema_text_cache)
+            return
+
+        self._json_schema_text_cache = text or ""
+
+    def _read_json_schema_text(self) -> str:
+        buffer = getattr(self, "_json_schema_buffer", None)
+        if buffer is not None:
+            get_text = getattr(buffer, "get_text", None)
+            if callable(get_text):
+                try:
+                    start_iter = buffer.get_start_iter()
+                    end_iter = buffer.get_end_iter()
+                    value = get_text(start_iter, end_iter, True)
+                    return value if isinstance(value, str) else str(value or "")
+                except Exception:  # pragma: no cover - guard for stubbed GTK
+                    pass
+
+        widget = getattr(self, "_json_schema_widget", None)
+        if widget is not None and hasattr(widget, "get_text"):
+            try:
+                value = widget.get_text()
+                return value if isinstance(value, str) else str(value or "")
+            except Exception:  # pragma: no cover - guard for stubbed GTK
+                pass
+
+        cache = getattr(self, "_json_schema_text_cache", "")
+        return cache if isinstance(cache, str) else str(cache or "")
+
+    def _update_json_schema_feedback(self, valid: bool, message: str) -> None:
+        self._json_schema_is_valid = valid
+        label = getattr(self, "json_schema_feedback_label", None)
+        if label is None:
+            return
+
+        if hasattr(label, "set_label"):
+            label.set_label(message)
+        else:  # pragma: no cover - compatibility with GTK stubs
+            label.label = message
+
+        if hasattr(label, "add_css_class"):
+            if valid and hasattr(label, "remove_css_class"):
+                label.remove_css_class("error")
+            elif not valid:
+                label.add_css_class("error")
 
     def _refresh_api_key_status(self) -> None:
         atlas = getattr(self, "ATLAS", None)
@@ -712,6 +870,26 @@ class OpenAISettingsWindow(Gtk.Window):
         max_output_value = self.max_output_tokens_spin.get_value_as_int()
         reasoning_effort = self.reasoning_effort_combo.get_active_text() or "medium"
 
+        raw_schema_text = self._read_json_schema_text().strip()
+        if raw_schema_text:
+            try:
+                parsed_schema = json.loads(raw_schema_text)
+            except json.JSONDecodeError as exc:
+                message = f"Invalid JSON schema: {exc.msg}"
+                self._update_json_schema_feedback(False, message)
+                self._show_message("Error", message, Gtk.MessageType.ERROR)
+                return
+            if not isinstance(parsed_schema, dict):
+                message = "JSON schema must be a JSON object at the top level."
+                self._update_json_schema_feedback(False, message)
+                self._show_message("Error", message, Gtk.MessageType.ERROR)
+                return
+            self._update_json_schema_feedback(True, "JSON schema looks valid.")
+        else:
+            self._update_json_schema_feedback(
+                True, "Optional: provide a JSON schema to enforce structured responses."
+            )
+
         payload = {
             "model": model,
             "temperature": self.temperature_spin.get_value(),
@@ -727,6 +905,7 @@ class OpenAISettingsWindow(Gtk.Window):
             "organization": self.organization_entry.get_text().strip() or None,
             "reasoning_effort": reasoning_effort.lower(),
             "json_mode": self.json_mode_toggle.get_active() if hasattr(self, "json_mode_toggle") else False,
+            "json_schema": raw_schema_text if raw_schema_text else "",
         }
 
         function_calling_enabled = payload["function_calling"]
@@ -747,6 +926,12 @@ class OpenAISettingsWindow(Gtk.Window):
         if isinstance(result, dict) and result.get("success"):
             message = result.get("message", "OpenAI settings saved.")
             self._show_message("Success", message, Gtk.MessageType.INFO)
+            if raw_schema_text:
+                self._update_json_schema_feedback(True, "JSON schema saved successfully.")
+            else:
+                self._update_json_schema_feedback(
+                    True, "Optional: provide a JSON schema to enforce structured responses."
+                )
             self.close()
             return
 
@@ -757,6 +942,8 @@ class OpenAISettingsWindow(Gtk.Window):
         else:
             detail = str(result)
 
+        if raw_schema_text:
+            self._update_json_schema_feedback(False, detail)
         self._show_message("Error", detail, Gtk.MessageType.ERROR)
 
     def _show_message(self, title: str, message: str, message_type: Gtk.MessageType):

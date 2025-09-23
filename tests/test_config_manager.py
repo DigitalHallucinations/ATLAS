@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import sys
@@ -158,6 +159,7 @@ def test_set_openai_llm_settings_updates_state(config_manager):
     assert stored["base_url"] == "https://example/v1"
     assert stored["organization"] == "org-42"
     assert stored["json_mode"] is False
+    assert stored["json_schema"] is None
 
     assert config_manager.config["DEFAULT_MODEL"] == "gpt-4o-mini"
     assert os.environ["DEFAULT_MODEL"] == "gpt-4o-mini"
@@ -210,6 +212,7 @@ def test_get_openai_llm_settings_includes_sampling_defaults(config_manager):
     assert snapshot["max_output_tokens"] is None
     assert snapshot["reasoning_effort"] == "medium"
     assert snapshot["json_mode"] is False
+    assert snapshot["json_schema"] is None
     assert snapshot["tool_choice"] is None
 
 
@@ -222,6 +225,42 @@ def test_set_openai_llm_settings_persists_json_mode(config_manager):
     config_manager.set_openai_llm_settings(model="gpt-4o", json_mode=False)
     stored = config_manager.config["OPENAI_LLM"]
     assert stored["json_mode"] is False
+
+
+def test_set_openai_llm_settings_handles_json_schema(config_manager):
+    schema_payload = {
+        "name": "atlas_response",
+        "schema": {
+            "type": "object",
+            "properties": {"ok": {"type": "boolean"}},
+            "required": ["ok"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    }
+
+    config_manager.set_openai_llm_settings(
+        model="gpt-4o",
+        json_schema=json.dumps(schema_payload),
+    )
+
+    stored = config_manager.config["OPENAI_LLM"]
+    assert stored["json_schema"]["name"] == "atlas_response"
+    assert stored["json_schema"]["schema"]["required"] == ["ok"]
+    assert stored["json_mode"] is False
+
+    # Clearing the schema should persist an explicit null.
+    config_manager.set_openai_llm_settings(model="gpt-4o", json_schema=" ")
+    stored = config_manager.config["OPENAI_LLM"]
+    assert stored["json_schema"] is None
+
+
+def test_set_openai_llm_settings_rejects_invalid_schema(config_manager):
+    with pytest.raises(ValueError):
+        config_manager.set_openai_llm_settings(model="gpt-4o", json_schema="not json")
+
+    with pytest.raises(ValueError):
+        config_manager.set_openai_llm_settings(model="gpt-4o", json_schema={"name": "bad"})
 
 
 def test_set_openai_llm_settings_tracks_tool_preferences(config_manager):

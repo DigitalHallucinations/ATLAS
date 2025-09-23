@@ -59,7 +59,8 @@ class OpenAIGenerator:
         function_calling: Optional[bool] = None,
         parallel_tool_calls: Optional[bool] = None,
         tool_choice: Optional[Any] = None,
-        json_mode: Optional[Any] = None
+        json_mode: Optional[Any] = None,
+        json_schema: Optional[Any] = None,
     ) -> Union[str, AsyncIterator[str]]:
         try:
             settings = self.config_manager.get_openai_llm_settings()
@@ -115,13 +116,24 @@ class OpenAIGenerator:
             if not allow_function_calls:
                 normalized_tool_choice = "none"
 
-            force_json_mode = self._should_force_json(
-                json_mode if json_mode is not None else settings.get("json_mode")
+            configured_schema = (
+                json_schema if json_schema is not None else settings.get("json_schema")
             )
+            normalized_schema = self._prepare_json_schema(configured_schema)
+            force_json_mode = False
+            if normalized_schema is None:
+                force_json_mode = self._should_force_json(
+                    json_mode if json_mode is not None else settings.get("json_mode")
+                )
 
             self.logger.info(f"Starting API call to OpenAI with model {model}")
             self.logger.info(f"Current persona: {current_persona}")
-            if force_json_mode:
+            if normalized_schema is not None:
+                self.logger.info(
+                    "JSON schema response mode enabled for this request (schema name: %s).",
+                    normalized_schema.get("name"),
+                )
+            elif force_json_mode:
                 self.logger.info("JSON response mode enabled for this request.")
 
             # Load functions if not provided
@@ -205,7 +217,12 @@ class OpenAIGenerator:
                     request_kwargs["tool_choice"] = normalized_tool_choice
             if function_call_mode is not None:
                 request_kwargs["function_call"] = function_call_mode
-            if force_json_mode:
+            if normalized_schema is not None:
+                request_kwargs["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": normalized_schema,
+                }
+            elif force_json_mode:
                 request_kwargs["response_format"] = {"type": "json_object"}
 
             response = await self.client.chat.completions.create(**request_kwargs)
@@ -359,6 +376,49 @@ class OpenAIGenerator:
             return bool(value)
         except Exception:
             return False
+
+    def _prepare_json_schema(self, schema: Any) -> Optional[Dict[str, Any]]:
+        if schema is None:
+            return None
+
+        if isinstance(schema, (bytes, bytearray)):
+            schema = schema.decode("utf-8")
+
+        if isinstance(schema, str):
+            text = schema.strip()
+            if not text:
+                return None
+            try:
+                schema = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSON schema: {exc.msg}") from exc
+
+        if not isinstance(schema, dict):
+            raise ValueError("JSON schema must be provided as an object.")
+
+        if not schema:
+            return None
+
+        payload = dict(schema)
+        inner_schema = payload.get("schema")
+        if not isinstance(inner_schema, dict):
+            raise ValueError("JSON schema payload must include a 'schema' object.")
+
+        schema_name = payload.get("name") or "atlas_response"
+        normalized: Dict[str, Any] = {
+            "name": str(schema_name),
+            "schema": inner_schema,
+        }
+
+        if "strict" in payload:
+            normalized["strict"] = bool(payload["strict"])
+
+        try:
+            return json.loads(json.dumps(normalized))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"JSON schema payload could not be serialized: {exc}"
+            ) from exc
 
     def _stringify_function_arguments(self, arguments) -> str:
         if arguments is None:
@@ -852,7 +912,8 @@ async def generate_response(
     function_calling: Optional[bool] = None,
     parallel_tool_calls: Optional[bool] = None,
     tool_choice: Optional[Any] = None,
-    json_mode: Optional[Any] = None
+    json_mode: Optional[Any] = None,
+    json_schema: Optional[Any] = None
 ) -> Union[str, AsyncIterator[str]]:
     generator = OpenAIGenerator(config_manager)
     return await generator.generate_response(
@@ -874,7 +935,8 @@ async def generate_response(
         function_calling,
         parallel_tool_calls,
         tool_choice,
-        json_mode
+        json_mode,
+        json_schema
     )
 
 async def process_streaming_response(response: AsyncIterator[Dict]) -> str:

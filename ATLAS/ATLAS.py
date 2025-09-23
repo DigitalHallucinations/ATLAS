@@ -790,6 +790,7 @@ class ATLAS:
         organization: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
         json_mode: Optional[Any] = None,
+        json_schema: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Persist OpenAI defaults through the provider manager facade."""
 
@@ -812,6 +813,7 @@ class ATLAS:
             organization=organization,
             reasoning_effort=reasoning_effort,
             json_mode=json_mode,
+            json_schema=json_schema,
         )
 
     def get_chat_status_summary(self) -> Dict[str, str]:
