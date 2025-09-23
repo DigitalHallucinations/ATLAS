@@ -88,6 +88,44 @@ async def use_tool(
     logger.info(f"use_tool called for user: {user}, conversation_id: {conversation_id}")
     logger.info(f"Message received: {message}")
 
+    if not isinstance(message, dict):
+        normalized_message = {}
+        for attr in ("function_call", "tool_calls", "tool_call"):
+            value = getattr(message, attr, None)
+            if value is not None:
+                normalized_message[attr] = value
+        message = normalized_message
+
+    def _safe_get(target, key, default=None):
+        if isinstance(target, dict):
+            return target.get(key, default)
+        return getattr(target, key, default)
+
+    if not message.get("function_call"):
+        tool_calls_payload = message.get("tool_calls")
+        tool_call_entry = None
+        if isinstance(tool_calls_payload, list) and tool_calls_payload:
+            tool_call_entry = tool_calls_payload[0]
+        elif tool_calls_payload:
+            tool_call_entry = tool_calls_payload
+        if tool_call_entry is None:
+            tool_call_entry = message.get("tool_call")
+
+        if tool_call_entry:
+            function_payload = _safe_get(tool_call_entry, "function") or tool_call_entry
+            name = _safe_get(function_payload, "name") or _safe_get(tool_call_entry, "name")
+            arguments = _safe_get(function_payload, "arguments")
+            if arguments is None:
+                arguments = _safe_get(tool_call_entry, "arguments")
+            if name:
+                if not isinstance(arguments, str):
+                    try:
+                        arguments = json.dumps(arguments)
+                    except (TypeError, ValueError):
+                        arguments = str(arguments)
+                message = dict(message)
+                message["function_call"] = {"name": name, "arguments": arguments}
+
     if message.get("function_call"):
         function_name = message["function_call"].get("name")
         logger.info(f"Function call detected: {function_name}")

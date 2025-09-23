@@ -206,9 +206,11 @@ def test_get_openai_llm_settings_includes_sampling_defaults(config_manager):
     assert snapshot["presence_penalty"] == 0.0
     assert snapshot["max_tokens"] == 4000
     assert snapshot["function_calling"] is True
+    assert snapshot["parallel_tool_calls"] is True
     assert snapshot["max_output_tokens"] is None
     assert snapshot["reasoning_effort"] == "medium"
     assert snapshot["json_mode"] is False
+    assert snapshot["tool_choice"] is None
 
 
 def test_set_openai_llm_settings_persists_json_mode(config_manager):
@@ -220,3 +222,24 @@ def test_set_openai_llm_settings_persists_json_mode(config_manager):
     config_manager.set_openai_llm_settings(model="gpt-4o", json_mode=False)
     stored = config_manager.config["OPENAI_LLM"]
     assert stored["json_mode"] is False
+
+
+def test_set_openai_llm_settings_tracks_tool_preferences(config_manager):
+    config_manager.set_openai_llm_settings(
+        model="gpt-4o",
+        parallel_tool_calls=False,
+        tool_choice="required",
+    )
+
+    stored = config_manager.config["OPENAI_LLM"]
+    assert stored["parallel_tool_calls"] is False
+    assert stored["tool_choice"] == "required"
+
+    config_manager.set_openai_llm_settings(model="gpt-4o", tool_choice="none")
+    stored = config_manager.config["OPENAI_LLM"]
+    assert stored["parallel_tool_calls"] is False
+    assert stored["tool_choice"] == "none"
+
+    config_manager.set_openai_llm_settings(model="gpt-4o", tool_choice=" ")
+    stored = config_manager.config["OPENAI_LLM"]
+    assert stored["tool_choice"] is None

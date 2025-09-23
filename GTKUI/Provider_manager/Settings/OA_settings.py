@@ -173,6 +173,18 @@ class OpenAISettingsWindow(Gtk.Window):
         self.function_call_toggle = Gtk.CheckButton(label="Allow automatic tool calls")
         self.function_call_toggle.set_halign(Gtk.Align.START)
         grid.attach(self.function_call_toggle, 0, row, 2, 1)
+        if hasattr(self.function_call_toggle, "connect"):
+            self.function_call_toggle.connect("toggled", self._on_function_call_toggle_toggled)
+
+        row += 1
+        self.parallel_tool_calls_toggle = Gtk.CheckButton(label="Allow parallel tool calls")
+        self.parallel_tool_calls_toggle.set_halign(Gtk.Align.START)
+        grid.attach(self.parallel_tool_calls_toggle, 0, row, 2, 1)
+
+        row += 1
+        self.require_tool_toggle = Gtk.CheckButton(label="Require a tool call before responding")
+        self.require_tool_toggle.set_halign(Gtk.Align.START)
+        grid.attach(self.require_tool_toggle, 0, row, 2, 1)
 
         row += 1
         org_label = Gtk.Label(label="Organization (optional):")
@@ -309,6 +321,10 @@ class OpenAISettingsWindow(Gtk.Window):
         self.reasoning_effort_combo.set_active(effort_index)
         self.stream_toggle.set_active(bool(settings.get("stream", True)))
         self.function_call_toggle.set_active(bool(settings.get("function_calling", True)))
+        self.parallel_tool_calls_toggle.set_active(bool(settings.get("parallel_tool_calls", True)))
+        tool_choice_value = settings.get("tool_choice")
+        self.require_tool_toggle.set_active(str(tool_choice_value).lower() == "required")
+        self._update_tool_controls_state()
         if hasattr(self, "json_mode_toggle"):
             self.json_mode_toggle.set_active(bool(settings.get("json_mode", False)))
         self.organization_entry.set_text(settings.get("organization") or "")
@@ -647,11 +663,20 @@ class OpenAISettingsWindow(Gtk.Window):
             "max_output_tokens": max_output_value if max_output_value > 0 else None,
             "stream": self.stream_toggle.get_active(),
             "function_calling": self.function_call_toggle.get_active(),
+            "parallel_tool_calls": self.parallel_tool_calls_toggle.get_active(),
             "base_url": base_url,
             "organization": self.organization_entry.get_text().strip() or None,
             "reasoning_effort": reasoning_effort.lower(),
             "json_mode": self.json_mode_toggle.get_active() if hasattr(self, "json_mode_toggle") else False,
         }
+
+        function_calling_enabled = payload["function_calling"]
+        if not function_calling_enabled:
+            payload["tool_choice"] = "none"
+        elif self.require_tool_toggle.get_active():
+            payload["tool_choice"] = "required"
+        else:
+            payload["tool_choice"] = None
 
         try:
             result = self.ATLAS.set_openai_llm_settings(**payload)
@@ -697,3 +722,14 @@ class OpenAISettingsWindow(Gtk.Window):
 
         dialog.connect("response", lambda dlg, *_: dlg.destroy())
         GLib.idle_add(dialog.present)
+
+    def _on_function_call_toggle_toggled(self, _button: Gtk.CheckButton):
+        self._update_tool_controls_state()
+
+    def _update_tool_controls_state(self) -> None:
+        enabled = self.function_call_toggle.get_active()
+        for widget in (self.parallel_tool_calls_toggle, self.require_tool_toggle):
+            if hasattr(widget, "set_sensitive"):
+                widget.set_sensitive(enabled)
+        if not enabled and self.require_tool_toggle.get_active():
+            self.require_tool_toggle.set_active(False)

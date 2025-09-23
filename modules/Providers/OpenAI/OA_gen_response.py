@@ -57,6 +57,8 @@ class OpenAIGenerator:
         functions=None,
         reasoning_effort: Optional[str] = None,
         function_calling: Optional[bool] = None,
+        parallel_tool_calls: Optional[bool] = None,
+        tool_choice: Optional[Any] = None,
         json_mode: Optional[Any] = None
     ) -> Union[str, AsyncIterator[str]]:
         try:
@@ -101,6 +103,18 @@ class OpenAIGenerator:
             else:
                 allow_function_calls = bool(function_calling)
 
+            if parallel_tool_calls is None:
+                effective_parallel_tool_calls = bool(settings.get("parallel_tool_calls", True))
+            else:
+                effective_parallel_tool_calls = bool(parallel_tool_calls)
+
+            configured_tool_choice = (
+                tool_choice if tool_choice is not None else settings.get("tool_choice")
+            )
+            normalized_tool_choice = self._normalize_tool_choice(configured_tool_choice)
+            if not allow_function_calls:
+                normalized_tool_choice = "none"
+
             force_json_mode = self._should_force_json(
                 json_mode if json_mode is not None else settings.get("json_mode")
             )
@@ -134,8 +148,10 @@ class OpenAIGenerator:
             if not functions and not function_map:
                 self.logger.warning("Neither functions nor function map available to send to the model.")
 
+            tools_payload = self._convert_functions_to_tools(functions)
+
             # Log what is being sent to the API
-            self.logger.info(f"Sending functions to OpenAI API: {functions}")
+            self.logger.info(f"Sending tools to OpenAI API: {tools_payload}")
             self.logger.info(f"Sending function map to OpenAI API: {function_map}")
 
             if self._is_reasoning_model(model):
@@ -155,12 +171,14 @@ class OpenAIGenerator:
                     frequency_penalty=frequency_penalty,
                     presence_penalty=presence_penalty,
                     allow_function_calls=allow_function_calls,
+                    parallel_tool_calls=effective_parallel_tool_calls,
+                    tool_choice=normalized_tool_choice,
                     max_output_tokens=max_output_tokens,
                     reasoning_effort=reasoning_effort,
                 )
 
             function_call_mode = None
-            if functions:
+            if tools_payload:
                 function_call_mode = "auto" if allow_function_calls else "none"
                 self.logger.info(
                     "Automatic tool calling %s for this request.",
@@ -180,8 +198,11 @@ class OpenAIGenerator:
                 "stream": stream,
             }
 
-            if functions:
-                request_kwargs["functions"] = functions
+            if tools_payload:
+                request_kwargs["tools"] = tools_payload
+                request_kwargs["parallel_tool_calls"] = effective_parallel_tool_calls
+                if normalized_tool_choice is not None:
+                    request_kwargs["tool_choice"] = normalized_tool_choice
             if function_call_mode is not None:
                 request_kwargs["function_call"] = function_call_mode
             if force_json_mode:
@@ -209,23 +230,33 @@ class OpenAIGenerator:
                 )
             else:
                 message = response.choices[0].message
-                if hasattr(message, 'function_call') and message.function_call:
-                    self.logger.info(f"Function call detected in response: {message.function_call}")
-                    return await self.handle_function_call(
-                        user,
-                        conversation_id,
-                        message,
-                        conversation_manager,
-                        function_map,
-                        functions,
-                        current_persona,
-                        temperature,
-                        model,
-                        top_p,
-                        frequency_penalty,
-                        presence_penalty,
-                    )
-                self.logger.info("No function call detected in response.")
+                tool_messages = self._extract_chat_tool_calls(message)
+                if tool_messages:
+                    results = []
+                    for tool_message in tool_messages:
+                        self.logger.info(
+                            "Tool call detected in response: %s",
+                            tool_message.get("function_call"),
+                        )
+                        result = await self.handle_function_call(
+                            user,
+                            conversation_id,
+                            tool_message,
+                            conversation_manager,
+                            function_map,
+                            functions,
+                            current_persona,
+                            temperature,
+                            model,
+                            top_p,
+                            frequency_penalty,
+                            presence_penalty,
+                        )
+                        if result:
+                            results.append(result)
+                    if results:
+                        return "\n".join(str(item) for item in results)
+                self.logger.info("No function or tool call detected in response.")
                 return self._coerce_content_to_text(getattr(message, "content", ""))
 
         except Exception as e:
@@ -264,6 +295,22 @@ class OpenAIGenerator:
             if isinstance(function, dict):
                 tools.append({"type": "function", "function": function})
         return tools
+
+    def _normalize_tool_choice(self, value):
+        if value is None:
+            return None
+
+        if isinstance(value, dict):
+            return value
+
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if not normalized:
+                return None
+            if normalized in {"auto", "none", "required"}:
+                return normalized
+
+        return None
 
     def _safe_get(self, target, attribute: str, default=None):
         if target is None:
@@ -360,6 +407,98 @@ class OpenAIGenerator:
 
         return tool_messages
 
+    def _extract_chat_tool_calls(self, message) -> List[Dict[str, Dict[str, str]]]:
+        tool_messages: List[Dict[str, Dict[str, str]]] = []
+        tool_calls = self._safe_get(message, "tool_calls")
+
+        if not tool_calls:
+            single_call = self._safe_get(message, "tool_call")
+            tool_calls = [single_call] if single_call else []
+
+        for call in tool_calls or []:
+            if not call:
+                continue
+            function_payload = self._safe_get(call, "function") or {}
+            name = self._safe_get(function_payload, "name") or self._safe_get(call, "name")
+            arguments = self._safe_get(function_payload, "arguments")
+            if arguments is None:
+                arguments = self._safe_get(call, "arguments")
+            if not name:
+                continue
+            tool_messages.append(
+                {
+                    "function_call": {
+                        "name": name,
+                        "arguments": self._stringify_function_arguments(arguments),
+                    }
+                }
+            )
+
+        if tool_messages:
+            return tool_messages
+
+        legacy_call = self._safe_get(message, "function_call")
+        name = self._safe_get(legacy_call, "name") if legacy_call else None
+        if name:
+            arguments = self._safe_get(legacy_call, "arguments")
+            tool_messages.append(
+                {
+                    "function_call": {
+                        "name": name,
+                        "arguments": self._stringify_function_arguments(arguments),
+                    }
+                }
+            )
+
+        return tool_messages
+
+    def _update_pending_tool_calls(self, pending: Dict[int, Dict[str, Any]], tool_call_delta):
+        if not tool_call_delta:
+            return
+
+        try:
+            index = int(self._safe_get(tool_call_delta, "index"))
+        except (TypeError, ValueError):
+            index = 0
+
+        entry = pending.setdefault(index, {"name": None, "arguments": ""})
+
+        function_payload = self._safe_get(tool_call_delta, "function") or {}
+        name = self._safe_get(function_payload, "name") or self._safe_get(tool_call_delta, "name")
+        if name:
+            entry["name"] = name
+
+        arguments_delta = self._safe_get(function_payload, "arguments")
+        if arguments_delta is None:
+            arguments_delta = self._safe_get(tool_call_delta, "arguments")
+        if arguments_delta:
+            entry["arguments"] = entry.get("arguments", "") + str(arguments_delta)
+
+        call_id = self._safe_get(tool_call_delta, "id")
+        if call_id:
+            entry["id"] = call_id
+
+        call_type = self._safe_get(tool_call_delta, "type") or self._safe_get(function_payload, "type")
+        if call_type:
+            entry["type"] = call_type
+
+    def _finalize_pending_tool_calls(self, pending: Dict[int, Dict[str, Any]]) -> List[Dict[str, Dict[str, str]]]:
+        messages: List[Dict[str, Dict[str, str]]] = []
+        for _, payload in sorted(pending.items(), key=lambda item: item[0]):
+            name = payload.get("name")
+            if not name:
+                continue
+            arguments = payload.get("arguments")
+            messages.append(
+                {
+                    "function_call": {
+                        "name": name,
+                        "arguments": self._stringify_function_arguments(arguments),
+                    }
+                }
+            )
+        return messages
+
     def _get_response_text(self, response) -> str:
         text = self._safe_get(response, "output_text")
         if text:
@@ -401,6 +540,8 @@ class OpenAIGenerator:
         frequency_penalty,
         presence_penalty,
         allow_function_calls,
+        parallel_tool_calls,
+        tool_choice,
         max_output_tokens,
         reasoning_effort,
     ):
@@ -413,6 +554,9 @@ class OpenAIGenerator:
             tools = self._convert_functions_to_tools(functions)
             if tools:
                 request_kwargs["tools"] = tools
+                request_kwargs["parallel_tool_calls"] = parallel_tool_calls
+                if tool_choice is not None:
+                    request_kwargs["tool_choice"] = tool_choice
 
         if max_output_tokens:
             request_kwargs["max_output_tokens"] = int(max_output_tokens)
@@ -575,19 +719,37 @@ class OpenAIGenerator:
         presence_penalty,
     ):
         full_response = ""
+        pending_tool_calls: Dict[int, Dict[str, Any]] = {}
+
         async for chunk in response:
-            delta_content = chunk.choices[0].delta.content
+            choices = self._safe_get(chunk, "choices") or []
+            choice = choices[0] if choices else None
+            delta = self._safe_get(choice, "delta") or {}
+            delta_content = self._safe_get(delta, "content")
             text_delta = self._coerce_content_to_text(delta_content)
             if text_delta:
                 yield text_delta
                 full_response += text_delta
-            elif chunk.choices[0].delta.function_call:
-                function_call = chunk.choices[0].delta.function_call
-                self.logger.info(f"Function call detected during streaming: {function_call}")
+
+            tool_calls_delta = self._safe_get(delta, "tool_calls")
+            if tool_calls_delta:
+                for tool_call_delta in tool_calls_delta:
+                    self._update_pending_tool_calls(pending_tool_calls, tool_call_delta)
+
+            single_tool_call = self._safe_get(delta, "tool_call")
+            if single_tool_call:
+                self._update_pending_tool_calls(pending_tool_calls, single_tool_call)
+
+            function_call_delta = self._safe_get(delta, "function_call")
+            if function_call_delta:
+                self.logger.info(
+                    "Function call detected during streaming: %s",
+                    function_call_delta,
+                )
                 result = await self.handle_function_call(
                     user,
                     conversation_id,
-                    {"function_call": function_call},
+                    {"function_call": function_call_delta},
                     conversation_manager,
                     function_map,
                     functions,
@@ -601,6 +763,31 @@ class OpenAIGenerator:
                 if result:
                     yield result
                     full_response += str(result)
+
+        if pending_tool_calls:
+            tool_messages = self._finalize_pending_tool_calls(pending_tool_calls)
+            for tool_message in tool_messages:
+                self.logger.info(
+                    "Processing aggregated streaming tool call: %s",
+                    tool_message.get("function_call"),
+                )
+                tool_result = await self.handle_function_call(
+                    user,
+                    conversation_id,
+                    tool_message,
+                    conversation_manager,
+                    function_map,
+                    functions,
+                    current_persona,
+                    temperature,
+                    model,
+                    top_p,
+                    frequency_penalty,
+                    presence_penalty,
+                )
+                if tool_result:
+                    yield tool_result
+                    full_response += str(tool_result)
 
         if conversation_manager:
             conversation_manager.add_message(user, conversation_id, "assistant", full_response)
@@ -663,6 +850,8 @@ async def generate_response(
     functions=None,
     reasoning_effort: Optional[str] = None,
     function_calling: Optional[bool] = None,
+    parallel_tool_calls: Optional[bool] = None,
+    tool_choice: Optional[Any] = None,
     json_mode: Optional[Any] = None
 ) -> Union[str, AsyncIterator[str]]:
     generator = OpenAIGenerator(config_manager)
@@ -683,6 +872,8 @@ async def generate_response(
         functions,
         reasoning_effort,
         function_calling,
+        parallel_tool_calls,
+        tool_choice,
         json_mode
     )
 

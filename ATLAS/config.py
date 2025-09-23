@@ -212,6 +212,8 @@ class ConfigManager:
         max_output_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
+        parallel_tool_calls: Optional[bool] = None,
+        tool_choice: Optional[str] = None,
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
@@ -291,6 +293,27 @@ class ConfigManager:
         previous_json_mode = bool(settings_block.get('json_mode', False))
         normalized_json_mode = _normalize_json_mode(json_mode, previous_json_mode)
 
+        previous_parallel_tool_calls = bool(settings_block.get('parallel_tool_calls', True))
+        if parallel_tool_calls is None:
+            normalized_parallel_tool_calls = previous_parallel_tool_calls
+        else:
+            normalized_parallel_tool_calls = bool(parallel_tool_calls)
+
+        def _normalize_tool_choice(value: Optional[str], existing_value: Optional[str]) -> Optional[str]:
+            if value is None:
+                return existing_value
+
+            if isinstance(value, str):
+                normalized_value = value.strip().lower()
+                if not normalized_value:
+                    return None
+                if normalized_value in {"auto", "none", "required"}:
+                    return normalized_value
+
+            return existing_value
+
+        normalized_tool_choice = _normalize_tool_choice(tool_choice, settings_block.get('tool_choice'))
+
         settings_block.update(
             {
                 'model': model,
@@ -302,6 +325,8 @@ class ConfigManager:
                 'max_output_tokens': normalized_max_output_tokens,
                 'stream': normalized_stream,
                 'function_calling': normalized_function_calling,
+                'parallel_tool_calls': normalized_parallel_tool_calls,
+                'tool_choice': normalized_tool_choice,
                 'reasoning_effort': normalized_reasoning_effort,
                 'base_url': sanitized_base_url,
                 'organization': sanitized_org,
@@ -382,6 +407,8 @@ class ConfigManager:
             'max_output_tokens': None,
             'stream': True,
             'function_calling': True,
+            'parallel_tool_calls': True,
+            'tool_choice': None,
             'reasoning_effort': 'medium',
             'base_url': self.get_config('OPENAI_BASE_URL'),
             'organization': self.get_config('OPENAI_ORGANIZATION'),
