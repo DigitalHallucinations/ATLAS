@@ -454,6 +454,7 @@ class DummyConfig:
             "organization": None,
             "reasoning_effort": "medium",
             "json_mode": False,
+            "json_schema": None,
         }
 
     def get_default_provider(self):
@@ -480,6 +481,7 @@ class DummyConfig:
         organization=None,
         reasoning_effort=None,
         json_mode=None,
+        json_schema=None,
     ):
         if model:
             self._openai_settings["model"] = model
@@ -510,6 +512,8 @@ class DummyConfig:
             self._openai_settings["reasoning_effort"] = reasoning_effort
         if json_mode is not None:
             self._openai_settings["json_mode"] = bool(json_mode)
+        if json_schema is not None:
+            self._openai_settings["json_schema"] = json_schema
         return dict(self._openai_settings)
 
     def get_app_root(self):
@@ -994,6 +998,7 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     assert settings["max_output_tokens"] == 256
     assert settings["reasoning_effort"] == "low"
     assert settings["json_mode"] is True
+    assert settings["json_schema"] is None
     assert settings["tool_choice"] == "required"
     assert provider_manager.model_manager.models["OpenAI"][0] == "gpt-4o-mini"
     assert provider_manager.current_model == "gpt-4o-mini"
@@ -1097,6 +1102,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
         "base_url": "https://example/v1",
         "organization": "org-42",
         "reasoning_effort": "high",
+        "json_schema": None,
     }
     atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
     atlas_stub.list_openai_models = fake_list_openai_models
@@ -1159,6 +1165,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert saved_payload["organization"] == "org-new"
     assert saved_payload["reasoning_effort"] == "medium"
     assert saved_payload["tool_choice"] == "required"
+    assert saved_payload["json_schema"] == ""
     assert window._stored_base_url == "https://alt.example/v2"
     assert window._last_message[0] == "Success"
     assert window.closed is True
@@ -1180,6 +1187,7 @@ def test_openai_settings_window_saves_api_key(provider_manager):
         "base_url": None,
         "organization": None,
         "reasoning_effort": "medium",
+        "json_schema": None,
     }
     atlas_stub.set_openai_llm_settings = lambda **_: {"success": True, "message": "saved"}
     atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
@@ -1236,6 +1244,7 @@ def test_openai_settings_window_falls_back_to_cached_models(provider_manager):
         "base_url": None,
         "organization": None,
         "reasoning_effort": "medium",
+        "json_schema": None,
     }
     atlas_stub.set_openai_llm_settings = lambda **_: {"success": True, "message": "saved"}
 

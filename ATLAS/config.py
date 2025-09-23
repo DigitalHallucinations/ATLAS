@@ -1,5 +1,6 @@
 # ATLAS/config.py
 
+import json
 import os
 from typing import Dict, Any, Optional
 from modules.logging.logger import setup_logger
@@ -218,6 +219,7 @@ class ConfigManager:
         organization: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
         json_mode: Optional[Any] = None,
+        json_schema: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Persist OpenAI chat-completion defaults and related metadata."""
 
@@ -282,6 +284,86 @@ class ConfigManager:
             except Exception:
                 return existing
 
+        def _normalize_json_schema(
+            value: Any, existing: Optional[Dict[str, Any]]
+        ) -> Optional[Dict[str, Any]]:
+            if value is None:
+                return existing
+
+            if isinstance(value, (bytes, bytearray)):
+                value = value.decode("utf-8")
+
+            if isinstance(value, str):
+                text = value.strip()
+                if not text:
+                    return None
+                try:
+                    value = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"JSON schema must be valid JSON: {exc.msg}"
+                    ) from exc
+
+            if value is False:
+                return None
+
+            if not isinstance(value, dict):
+                raise ValueError("JSON schema must be provided as an object or JSON string.")
+
+            if not value:
+                return None
+
+            schema_payload = value.get("schema") if isinstance(value, dict) else None
+            schema_name = value.get("name") if isinstance(value, dict) else None
+
+            if schema_payload is None:
+                schema_payload = value
+                schema_like_keys = {
+                    "$schema",
+                    "$ref",
+                    "type",
+                    "properties",
+                    "items",
+                    "oneOf",
+                    "anyOf",
+                    "allOf",
+                    "definitions",
+                    "patternProperties",
+                }
+                if isinstance(schema_payload, dict) and not (
+                    schema_like_keys & set(schema_payload.keys())
+                ):
+                    raise ValueError(
+                        "JSON schema must include a 'schema' object or a valid schema definition."
+                    )
+
+            if not isinstance(schema_payload, dict):
+                raise ValueError("The 'schema' entry for the JSON schema must be an object.")
+
+            if schema_name is None:
+                if isinstance(existing, dict):
+                    schema_name = existing.get("name")
+                if not schema_name:
+                    schema_name = "atlas_response"
+
+            normalized: Dict[str, Any] = {
+                "name": str(schema_name).strip() or "atlas_response",
+                "schema": schema_payload,
+            }
+
+            strict_value = value.get("strict") if isinstance(value, dict) else None
+            if strict_value is None and isinstance(existing, dict):
+                strict_value = existing.get("strict")
+
+            if strict_value is not None:
+                normalized["strict"] = bool(strict_value)
+
+            # Deep-copy via JSON round-trip to avoid mutating caller-owned structures.
+            try:
+                return json.loads(json.dumps(normalized))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"JSON schema contains non-serializable content: {exc}") from exc
+
         sanitized_base_url = (base_url or "").strip() or None
         sanitized_org = (organization or "").strip() or None
 
@@ -292,6 +374,11 @@ class ConfigManager:
 
         previous_json_mode = bool(settings_block.get('json_mode', False))
         normalized_json_mode = _normalize_json_mode(json_mode, previous_json_mode)
+
+        previous_schema = settings_block.get('json_schema')
+        if not isinstance(previous_schema, dict):
+            previous_schema = None
+        normalized_json_schema = _normalize_json_schema(json_schema, previous_schema)
 
         previous_parallel_tool_calls = bool(settings_block.get('parallel_tool_calls', True))
         if parallel_tool_calls is None:
@@ -331,6 +418,7 @@ class ConfigManager:
                 'base_url': sanitized_base_url,
                 'organization': sanitized_org,
                 'json_mode': normalized_json_mode,
+                'json_schema': normalized_json_schema,
             }
         )
 
@@ -413,6 +501,7 @@ class ConfigManager:
             'base_url': self.get_config('OPENAI_BASE_URL'),
             'organization': self.get_config('OPENAI_ORGANIZATION'),
             'json_mode': False,
+            'json_schema': None,
         }
 
         stored = self.get_config('OPENAI_LLM')
