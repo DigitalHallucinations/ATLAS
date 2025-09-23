@@ -1,7 +1,10 @@
 import asyncio
 import importlib.util
+import os
 from pathlib import Path
 from types import SimpleNamespace
+
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "modules" / "Providers" / "OpenAI" / "OA_gen_response.py"
 _spec = importlib.util.spec_from_file_location("oa_module", MODULE_PATH)
@@ -22,6 +25,7 @@ class DummyConfig:
             "stream": False,
             "function_calling": True,
             "reasoning_effort": "high",
+            "json_mode": False,
         }
 
     def get_openai_api_key(self):
@@ -152,3 +156,54 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
     assert result == "tool-output"
     assert recorded["message"]["function_call"]["name"] == "my_tool"
     assert recorded["message"]["function_call"]["arguments"] == "{\"value\": 1}"
+
+
+def test_chat_completion_includes_response_format(monkeypatch):
+    captured = {}
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, **kwargs):
+                captured["kwargs"] = kwargs
+                message = SimpleNamespace(content='{"ok": true}', function_call=None)
+                return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.chat = DummyChat()
+            self.responses = SimpleNamespace()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
+
+    settings = DummyConfig({
+        "model": "gpt-4o",
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "frequency_penalty": 0.0,
+        "presence_penalty": 0.0,
+        "max_tokens": 4000,
+        "max_output_tokens": None,
+        "stream": False,
+        "function_calling": True,
+        "reasoning_effort": "medium",
+        "json_mode": True,
+    })
+
+    generator = oa_module.OpenAIGenerator(settings)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "return json"}],
+            model="gpt-4o",
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == '{"ok": true}'
+    kwargs = captured["kwargs"]
+    assert kwargs["response_format"] == {"type": "json_object"}
+    assert kwargs["stream"] is False

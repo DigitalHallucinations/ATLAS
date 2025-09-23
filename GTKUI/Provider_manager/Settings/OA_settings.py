@@ -240,6 +240,11 @@ class OpenAISettingsWindow(Gtk.Window):
         advanced_grid.attach(self.reasoning_effort_combo, 1, advanced_row, 1, 1)
         advanced_row += 1
 
+        self.json_mode_toggle = Gtk.CheckButton(label="Force JSON responses")
+        self.json_mode_toggle.set_halign(Gtk.Align.START)
+        advanced_grid.attach(self.json_mode_toggle, 0, advanced_row, 2, 1)
+        advanced_row += 1
+
         base_url_label = Gtk.Label(label="Custom Base URL:")
         base_url_label.set_xalign(0.0)
         advanced_grid.attach(base_url_label, 0, advanced_row, 1, 1)
@@ -304,6 +309,8 @@ class OpenAISettingsWindow(Gtk.Window):
         self.reasoning_effort_combo.set_active(effort_index)
         self.stream_toggle.set_active(bool(settings.get("stream", True)))
         self.function_call_toggle.set_active(bool(settings.get("function_calling", True)))
+        if hasattr(self, "json_mode_toggle"):
+            self.json_mode_toggle.set_active(bool(settings.get("json_mode", False)))
         self.organization_entry.set_text(settings.get("organization") or "")
 
         self._begin_model_refresh(settings)
@@ -643,6 +650,7 @@ class OpenAISettingsWindow(Gtk.Window):
             "base_url": base_url,
             "organization": self.organization_entry.get_text().strip() or None,
             "reasoning_effort": reasoning_effort.lower(),
+            "json_mode": self.json_mode_toggle.get_active() if hasattr(self, "json_mode_toggle") else False,
         }
 
         try:

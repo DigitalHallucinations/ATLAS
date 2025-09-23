@@ -164,6 +164,7 @@ class ProviderManager:
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
+        json_mode: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Persist OpenAI LLM defaults via the config manager and refresh runtime state."""
 
@@ -181,6 +182,7 @@ class ProviderManager:
                 base_url=base_url,
                 organization=organization,
                 reasoning_effort=reasoning_effort,
+                json_mode=json_mode,
             )
         except Exception as exc:
             self.logger.error("Failed to persist OpenAI settings: %s", exc, exc_info=True)

@@ -215,6 +215,7 @@ class ConfigManager:
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
+        json_mode: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Persist OpenAI chat-completion defaults and related metadata."""
 
@@ -260,6 +261,25 @@ class ConfigManager:
                     "Reasoning effort must be one of: low, medium, high."
                 )
 
+        def _normalize_json_mode(value: Any, existing: bool) -> bool:
+            if value is None:
+                return existing
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if not normalized:
+                    return existing
+                if normalized in {"1", "true", "yes", "on", "json", "json_object"}:
+                    return True
+                if normalized in {"0", "false", "no", "off", "text", "none"}:
+                    return False
+                return existing
+            try:
+                return bool(value)
+            except Exception:
+                return existing
+
         sanitized_base_url = (base_url or "").strip() or None
         sanitized_org = (organization or "").strip() or None
 
@@ -267,6 +287,9 @@ class ConfigManager:
         existing = self.yaml_config.get('OPENAI_LLM')
         if isinstance(existing, dict):
             settings_block.update(existing)
+
+        previous_json_mode = bool(settings_block.get('json_mode', False))
+        normalized_json_mode = _normalize_json_mode(json_mode, previous_json_mode)
 
         settings_block.update(
             {
@@ -282,6 +305,7 @@ class ConfigManager:
                 'reasoning_effort': normalized_reasoning_effort,
                 'base_url': sanitized_base_url,
                 'organization': sanitized_org,
+                'json_mode': normalized_json_mode,
             }
         )
 
@@ -361,6 +385,7 @@ class ConfigManager:
             'reasoning_effort': 'medium',
             'base_url': self.get_config('OPENAI_BASE_URL'),
             'organization': self.get_config('OPENAI_ORGANIZATION'),
+            'json_mode': False,
         }
 
         stored = self.get_config('OPENAI_LLM')
