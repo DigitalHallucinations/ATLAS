@@ -30,6 +30,8 @@ def config_manager(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "initial-key")
     monkeypatch.setenv("DEFAULT_PROVIDER", "OpenAI")
     monkeypatch.setenv("DEFAULT_MODEL", "gpt-4o")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_ORGANIZATION", raising=False)
 
     recorded = {}
 
@@ -161,6 +163,23 @@ def test_set_openai_llm_settings_updates_state(config_manager):
     assert (
         config_manager._recorded_set_key[(config_manager._env_path, "DEFAULT_MODEL")]
         == "gpt-4o-mini"
+    )
+
+
+def test_set_openai_llm_settings_rejects_invalid_base_url(config_manager):
+    initial_base_url = config_manager.config.get("OPENAI_BASE_URL")
+    initial_yaml_keys = set(config_manager.yaml_config.keys())
+
+    with pytest.raises(ValueError) as excinfo:
+        config_manager.set_openai_llm_settings(model="gpt-4o", base_url="ftp://example.com")
+
+    assert "HTTP(S)" in str(excinfo.value)
+    assert config_manager.config.get("OPENAI_BASE_URL") == initial_base_url
+    assert set(config_manager.yaml_config.keys()) == initial_yaml_keys
+    assert "OPENAI_BASE_URL" not in os.environ
+    assert not any(
+        key == (config_manager._env_path, "OPENAI_BASE_URL")
+        for key in config_manager._recorded_set_key
     )
 
 

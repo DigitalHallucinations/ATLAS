@@ -4,6 +4,7 @@ import sys
 import types
 from typing import Dict, Optional, Tuple
 from urllib.error import URLError
+from urllib.parse import urlparse
 
 if "gi" not in sys.modules:
     gi_stub = types.ModuleType("gi")
@@ -488,7 +489,13 @@ class DummyConfig:
             self._openai_settings["stream"] = bool(stream)
         if function_calling is not None:
             self._openai_settings["function_calling"] = bool(function_calling)
-        self._openai_settings["base_url"] = base_url
+        sanitized_base_url = (base_url or "").strip() or None
+        if sanitized_base_url is not None:
+            parsed = urlparse(sanitized_base_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                raise ValueError("Custom base URL must include an HTTP(S) scheme and hostname.")
+
+        self._openai_settings["base_url"] = sanitized_base_url
         self._openai_settings["organization"] = organization
         return dict(self._openai_settings)
 
@@ -909,6 +916,14 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     assert provider_manager.current_model == "gpt-4o-mini"
 
 
+def test_set_openai_llm_settings_rejects_invalid_base_url(provider_manager):
+    result = provider_manager.set_openai_llm_settings(model="gpt-4o", base_url="ftp://example.com")
+
+    assert result["success"] is False
+    assert "HTTP(S)" in result["error"]
+    assert provider_manager.config_manager._openai_settings["base_url"] is None
+
+
 def test_generate_response_respects_function_calling_enabled(provider_manager):
     captured = {}
 
@@ -1048,6 +1063,60 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert window._stored_base_url == "https://alt.example/v2"
     assert window._last_message[0] == "Success"
     assert window.closed is True
+
+
+def test_openai_settings_window_surfaces_backend_base_url_error(provider_manager):
+    atlas_stub = types.SimpleNamespace()
+
+    error_message = "Custom base URL must include an HTTP(S) scheme and hostname."
+
+    atlas_stub.provider_manager = provider_manager
+    atlas_stub.set_openai_llm_settings = lambda **_: {"success": False, "error": error_message}
+    atlas_stub.get_openai_llm_settings = lambda: {
+        "model": "gpt-4o",
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "frequency_penalty": 0.0,
+        "presence_penalty": 0.0,
+        "max_tokens": 4000,
+        "stream": True,
+        "function_calling": True,
+        "base_url": None,
+        "organization": None,
+    }
+    atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
+
+    async def fake_list_openai_models(*, base_url=None, organization=None):
+        return {"models": ["gpt-4o"], "error": None}
+
+    def fake_run_in_background(factory, *, on_success=None, on_error=None, **_kwargs):
+        try:
+            result = asyncio.run(factory())
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if on_error is not None:
+                on_error(exc)
+        else:
+            if on_success is not None:
+                on_success(result)
+        return types.SimpleNamespace()
+
+    atlas_stub.list_openai_models = fake_list_openai_models
+    atlas_stub.run_in_background = fake_run_in_background
+    atlas_stub.get_provider_api_key_status = lambda _name: {"has_key": False, "metadata": {}}
+
+    window = OpenAISettingsWindow(atlas_stub, provider_manager.config_manager, None)
+
+    window.base_url_entry.set_text("example.com")
+    window.on_save_clicked(window.model_combo)
+
+    assert window.closed is False
+    assert window._last_message[0] == "Error"
+    assert window._last_message[1] == error_message
+
+    feedback_text = getattr(window.base_url_feedback_label, "label", None)
+    if feedback_text is None and hasattr(window.base_url_feedback_label, "get_text"):
+        feedback_text = window.base_url_feedback_label.get_text()
+    assert feedback_text == error_message
 
 
 def test_openai_settings_window_saves_api_key(provider_manager):

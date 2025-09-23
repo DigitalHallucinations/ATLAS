@@ -178,6 +178,9 @@ class ProviderManager:
                 base_url=base_url,
                 organization=organization,
             )
+        except ValueError as exc:
+            self.logger.warning("Rejected OpenAI settings update: %s", exc)
+            return self._build_result(False, error=str(exc))
         except Exception as exc:
             self.logger.error("Failed to persist OpenAI settings: %s", exc, exc_info=True)
             return self._build_result(False, error=str(exc))

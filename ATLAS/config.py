@@ -2,6 +2,8 @@
 
 import os
 from typing import Dict, Any, Optional
+from urllib.parse import urlparse
+
 from modules.logging.logger import setup_logger
 from dotenv import load_dotenv, set_key, find_dotenv
 import yaml
@@ -243,6 +245,10 @@ class ConfigManager:
         normalized_function_calling = True if function_calling is None else bool(function_calling)
 
         sanitized_base_url = (base_url or "").strip() or None
+        if sanitized_base_url is not None:
+            parsed_base_url = urlparse(sanitized_base_url)
+            if parsed_base_url.scheme not in {"http", "https"} or not parsed_base_url.hostname:
+                raise ValueError("Custom base URL must include an HTTP(S) scheme and hostname.")
         sanitized_org = (organization or "").strip() or None
 
         settings_block = {}

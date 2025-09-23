@@ -2,7 +2,6 @@
 
 import logging
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlparse
 
 import gi
 
@@ -30,10 +29,10 @@ class OpenAISettingsWindow(Gtk.Window):
 
         self._last_message: Optional[Tuple[str, str, Gtk.MessageType]] = None
         self._stored_base_url: Optional[str] = None
+        self._default_base_url_hint = "Leave blank to use the official endpoint."
         self._current_settings: Dict[str, Any] = {}
         self._available_models: List[str] = []
         self._api_key_visible = False
-        self._base_url_is_valid = True
 
         scroller_cls = getattr(Gtk, "ScrolledWindow", None)
         if scroller_cls is not None:
@@ -218,11 +217,12 @@ class OpenAISettingsWindow(Gtk.Window):
             self.base_url_entry.connect("changed", self._on_base_url_changed)
         advanced_grid.attach(self.base_url_entry, 1, 0, 1, 1)
 
-        self.base_url_feedback_label = Gtk.Label(label="Leave blank to use the official endpoint.")
+        self.base_url_feedback_label = Gtk.Label(label=self._default_base_url_hint)
         self.base_url_feedback_label.set_xalign(0.0)
         if hasattr(self.base_url_feedback_label, "add_css_class"):
             self.base_url_feedback_label.add_css_class("dim-label")
         advanced_box.append(self.base_url_feedback_label)
+        self._set_base_url_feedback()
 
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         button_box.set_halign(Gtk.Align.END)
@@ -310,66 +310,53 @@ class OpenAISettingsWindow(Gtk.Window):
             self.api_key_status_label.label = status_text
 
     def _apply_base_url_to_entry(self, value: Optional[str]) -> None:
+        sanitized = (value or "").strip()
         if hasattr(self, "base_url_entry"):
-            if value:
-                self.base_url_entry.set_text(value)
+            if sanitized:
+                self.base_url_entry.set_text(sanitized)
             else:
                 self.base_url_entry.set_text("")
-        self._sync_base_url_state()
+        self._stored_base_url = sanitized or None
+        self._set_base_url_feedback()
 
-    def _sanitize_base_url(self, raw: str) -> Tuple[Optional[str], bool]:
-        text = (raw or "").strip()
-        if not text:
-            return None, True
+    def _set_base_url_feedback(self, message: Optional[str] = None, *, is_error: bool = False) -> None:
+        label_widget = getattr(self, "base_url_feedback_label", None)
+        entry_widget = getattr(self, "base_url_entry", None)
+        label_text = message or self._default_base_url_hint
 
-        parsed = urlparse(text)
-        if parsed.scheme in {"http", "https"} and parsed.netloc:
-            return text, True
+        if label_widget is not None:
+            if hasattr(label_widget, "set_label"):
+                label_widget.set_label(label_text)
+            else:  # pragma: no cover - testing stubs
+                label_widget.label = label_text
 
-        return None, False
+            if hasattr(label_widget, "add_css_class"):
+                if is_error:
+                    label_widget.add_css_class("error")
+                elif hasattr(label_widget, "remove_css_class"):
+                    label_widget.remove_css_class("error")
+            elif not is_error and hasattr(label_widget, "remove_css_class"):
+                label_widget.remove_css_class("error")
 
-    def _update_base_url_feedback(self, valid: bool) -> None:
-        hint = (
-            "Leave blank to use the official endpoint."
-            if valid
-            else "Enter a valid HTTP(S) URL or leave blank."
-        )
+        if entry_widget is not None:
+            tooltip_text = label_text if is_error else self._default_base_url_hint
+            if hasattr(entry_widget, "set_tooltip_text"):
+                entry_widget.set_tooltip_text(tooltip_text)
 
-        if hasattr(self.base_url_entry, "set_tooltip_text"):
-            self.base_url_entry.set_tooltip_text(hint)
-
-        if hasattr(self.base_url_entry, "add_css_class"):
-            if valid:
-                self.base_url_entry.remove_css_class("error")
-            else:
-                self.base_url_entry.add_css_class("error")
-
-        if hasattr(self.base_url_feedback_label, "set_label"):
-            self.base_url_feedback_label.set_label(hint)
-        else:  # pragma: no cover - testing stubs
-            self.base_url_feedback_label.label = hint
-
-        if hasattr(self.base_url_feedback_label, "add_css_class"):
-            if valid:
-                self.base_url_feedback_label.remove_css_class("error")
-            else:
-                self.base_url_feedback_label.add_css_class("error")
-
-        self._base_url_is_valid = valid
-
-    def _sync_base_url_state(self) -> Tuple[Optional[str], bool]:
-        if hasattr(self, "base_url_entry"):
-            raw = self.base_url_entry.get_text()
-        else:
-            raw = ""
-
-        sanitized, valid = self._sanitize_base_url(raw)
-        self._stored_base_url = sanitized
-        self._update_base_url_feedback(valid)
-        return sanitized, valid
+            if hasattr(entry_widget, "add_css_class"):
+                if is_error:
+                    entry_widget.add_css_class("error")
+                elif hasattr(entry_widget, "remove_css_class"):
+                    entry_widget.remove_css_class("error")
+            elif not is_error and hasattr(entry_widget, "remove_css_class"):
+                entry_widget.remove_css_class("error")
 
     def _on_base_url_changed(self, _entry: Gtk.Entry) -> None:
-        self._sync_base_url_state()
+        entry = getattr(self, "base_url_entry", None)
+        text = entry.get_text() if entry is not None else ""
+        sanitized = (text or "").strip()
+        self._stored_base_url = sanitized or None
+        self._set_base_url_feedback()
 
     # ------------------------------------------------------------------
     # Model loading
@@ -574,14 +561,10 @@ class OpenAISettingsWindow(Gtk.Window):
             )
             return
 
-        base_url, base_valid = self._sync_base_url_state()
-        if not base_valid:
-            self._show_message(
-                "Error",
-                "Enter a valid HTTP(S) base URL or leave the field blank.",
-                Gtk.MessageType.ERROR,
-            )
-            return
+        base_entry = getattr(self, "base_url_entry", None)
+        raw_base_url = base_entry.get_text() if base_entry is not None else ""
+        base_url = (raw_base_url or "").strip() or None
+        self._stored_base_url = base_url
 
         payload = {
             "model": model,
@@ -601,10 +584,16 @@ class OpenAISettingsWindow(Gtk.Window):
         except Exception as exc:
             logger.error("Error saving OpenAI settings: %s", exc, exc_info=True)
             self._show_message("Error", str(exc), Gtk.MessageType.ERROR)
+            self._set_base_url_feedback(str(exc), is_error=True)
             return
 
         if isinstance(result, dict) and result.get("success"):
             message = result.get("message", "OpenAI settings saved.")
+            data = result.get("data") if isinstance(result, dict) else None
+            if isinstance(data, dict) and "base_url" in data:
+                self._apply_base_url_to_entry(data.get("base_url"))
+            else:
+                self._set_base_url_feedback()
             self._show_message("Success", message, Gtk.MessageType.INFO)
             self.close()
             return
@@ -617,6 +606,7 @@ class OpenAISettingsWindow(Gtk.Window):
             detail = str(result)
 
         self._show_message("Error", detail, Gtk.MessageType.ERROR)
+        self._set_base_url_feedback(detail, is_error=True)
 
     def _show_message(self, title: str, message: str, message_type: Gtk.MessageType):
         self._last_message = (title, message, message_type)
