@@ -80,7 +80,41 @@ class ProviderManager:
         """
         Initializes the provider managers and sets the default provider.
         """
+        await self._prime_openai_models()
         await self.switch_llm_provider(self.current_llm_provider)
+
+    async def _prime_openai_models(self) -> None:
+        """Attempt to refresh cached OpenAI models during startup."""
+
+        checker = getattr(self.config_manager, "has_provider_api_key", None)
+        if not callable(checker) or not checker("OpenAI"):
+            return
+
+        try:
+            result = await self.list_openai_models()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.warning(
+                "Unable to refresh OpenAI models during startup: %s", exc, exc_info=True
+            )
+            return
+
+        if not isinstance(result, dict):
+            return
+
+        if result.get("error"):
+            self.logger.info(
+                "Skipping cached OpenAI model refresh because discovery failed: %s",
+                result["error"],
+            )
+            return
+
+        models = result.get("models") if isinstance(result.get("models"), list) else []
+        if models:
+            self.logger.info(
+                "Primed cached OpenAI model list with %d entries during startup.",
+                len(models),
+            )
+
 
     @staticmethod
     def _build_result(success: bool, *, message: str = "", error: str = "", data: Any = None) -> Dict[str, Any]:
@@ -334,6 +368,16 @@ class ProviderManager:
         ]
         if prioritized:
             unique_models = prioritized
+
+        if unique_models:
+            try:
+                self.model_manager.update_models_for_provider("OpenAI", unique_models)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.warning(
+                    "Failed to update cached OpenAI models after discovery: %s",
+                    exc,
+                    exc_info=True,
+                )
 
         return {
             "models": unique_models,

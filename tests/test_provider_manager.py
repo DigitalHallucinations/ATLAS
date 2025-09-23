@@ -627,7 +627,17 @@ def provider_manager(tmp_path, monkeypatch):
 
     def fake_load_models(self):
         self.models = {
-            "OpenAI": ["gpt-4o"],
+            "OpenAI": [
+                "gpt-4o",
+                "gpt-4o-mini",
+                "gpt-4o-mini-tts",
+                "gpt-4o-transcribe",
+                "gpt-4o-mini-transcribe",
+                "gpt-4.1",
+                "gpt-4.1-mini",
+                "o1",
+                "o1-mini",
+            ],
             "HuggingFace": ["alpha", "beta"],
             "Mistral": [],
             "Google": [],
@@ -645,6 +655,14 @@ def provider_manager(tmp_path, monkeypatch):
     yield manager
 
     ProviderManager._instance = None
+
+
+def test_openai_default_model_uses_cached_list(provider_manager):
+    default = provider_manager.get_default_model_for_provider("OpenAI")
+
+    assert default == "gpt-4o"
+    assert "gpt-4.1" in provider_manager.model_manager.models["OpenAI"]
+    assert "o1" in provider_manager.model_manager.models["OpenAI"]
 
 
 def test_huggingface_facade_handles_model_lifecycle(provider_manager):
@@ -765,6 +783,9 @@ def test_list_openai_models_fetches_and_prioritizes(provider_manager, monkeypatc
     assert result["error"] is None
     assert result["models"] == ["chat-awesome", "gpt-4o"]
     assert result["base_url"].endswith("/v1")
+    cached = provider_manager.model_manager.models["OpenAI"]
+    assert cached[0] == "gpt-4o"
+    assert "chat-awesome" in cached
 
 
 def test_list_openai_models_handles_network_error(provider_manager, monkeypatch):
@@ -785,6 +806,45 @@ def test_list_openai_models_handles_network_error(provider_manager, monkeypatch)
     assert "network down" in (result["error"] or "")
     assert result["base_url"] == "https://alt.example/v1"
     assert result["organization"] == "org-1234"
+
+
+def test_provider_manager_primes_openai_models_on_startup(tmp_path, monkeypatch):
+    ProviderManager._instance = None
+
+    def fake_load_models(self):
+        self.models = {
+            "OpenAI": ["gpt-4o"],
+            "HuggingFace": [],
+            "Mistral": [],
+            "Google": [],
+            "Anthropic": [],
+            "Grok": [],
+        }
+        self.current_model = None
+        self.current_provider = None
+
+    monkeypatch.setattr(
+        provider_manager_module.ModelManager, "load_models", fake_load_models, raising=False
+    )
+
+    payload = {"data": [{"id": "gpt-4.1"}, {"id": "o1"}, {"id": "gpt-4o"}]}
+
+    async def fake_to_thread(callable_, *args, **kwargs):  # pragma: no cover - helper
+        return payload
+
+    monkeypatch.setattr(provider_manager_module.asyncio, "to_thread", fake_to_thread)
+
+    config = DummyConfig(tmp_path.as_posix())
+    config.update_api_key("OpenAI", "sk-start")
+
+    manager = asyncio.run(ProviderManager.create(config))
+    try:
+        cached = manager.model_manager.models["OpenAI"]
+        assert cached[0] == "gpt-4o"
+        assert "gpt-4.1" in cached
+        assert "o1" in cached
+    finally:
+        ProviderManager._instance = None
 
 
 def test_save_huggingface_token_refreshes_generator(provider_manager):
@@ -1158,3 +1218,48 @@ def test_openai_settings_window_saves_api_key(provider_manager):
 
     assert provider_manager.config_manager.get_openai_api_key() == "sk-test"
     assert window._last_message[0] == "Success"
+
+
+def test_openai_settings_window_falls_back_to_cached_models(provider_manager):
+    atlas_stub = types.SimpleNamespace()
+
+    atlas_stub.provider_manager = provider_manager
+    atlas_stub.get_openai_llm_settings = lambda: {
+        "model": "gpt-4o",
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "frequency_penalty": 0.0,
+        "presence_penalty": 0.0,
+        "max_tokens": 4000,
+        "max_output_tokens": None,
+        "stream": True,
+        "base_url": None,
+        "organization": None,
+        "reasoning_effort": "medium",
+    }
+    atlas_stub.set_openai_llm_settings = lambda **_: {"success": True, "message": "saved"}
+
+    async def failing_list_models(*, base_url=None, organization=None):
+        raise RuntimeError("network down")
+
+    def fake_run_in_background(factory, *, on_success=None, on_error=None, **_kwargs):
+        try:
+            asyncio.run(factory())
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if on_error is not None:
+                on_error(exc)
+        else:  # pragma: no cover - defensive fallback
+            if on_success is not None:
+                on_success(None)
+        return types.SimpleNamespace()
+
+    atlas_stub.list_openai_models = failing_list_models
+    atlas_stub.run_in_background = fake_run_in_background
+    atlas_stub.get_provider_api_key_status = lambda _name: {"has_key": False, "metadata": {}}
+
+    window = OpenAISettingsWindow(atlas_stub, provider_manager.config_manager, None)
+
+    assert window.model_combo.get_active_text() == "gpt-4o"
+    assert "gpt-4.1" in window._available_models
+    assert "o1" in window._available_models
+    assert window._last_message[0] == "Model Load Failed"

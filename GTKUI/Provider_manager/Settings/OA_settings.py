@@ -482,6 +482,36 @@ class OpenAISettingsWindow(Gtk.Window):
             logger.error("Unable to schedule OpenAI model refresh: %s", exc, exc_info=True)
             self._apply_model_results([], str(exc), settings.get("model"))
 
+    def _load_cached_models(self) -> List[str]:
+        atlas = getattr(self, "ATLAS", None)
+        provider_manager = getattr(atlas, "provider_manager", None)
+        model_manager = getattr(provider_manager, "model_manager", None)
+
+        if model_manager is None:
+            return []
+
+        try:
+            available = model_manager.get_available_models("OpenAI")
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Unable to read cached OpenAI models: %s", exc, exc_info=True)
+            return []
+
+        if isinstance(available, dict):
+            models = available.get("OpenAI", [])
+        else:
+            models = available
+
+        seen: set[str] = set()
+        normalized: List[str] = []
+        for entry in models:
+            if isinstance(entry, str):
+                name = entry.strip()
+                if name and name not in seen:
+                    normalized.append(name)
+                    seen.add(name)
+
+        return normalized
+
     def _apply_model_payload(self, payload: Any, preferred_model: Optional[str]) -> bool:
         models: List[str] = []
         error: Optional[str] = None
@@ -509,32 +539,61 @@ class OpenAISettingsWindow(Gtk.Window):
     def _apply_model_results(
         self, models: List[str], error: Optional[str], preferred_model: Optional[str]
     ) -> bool:
+        cached_models = self._load_cached_models()
+
+        def _normalize(names: List[str]) -> List[str]:
+            seen: set[str] = set()
+            ordered: List[str] = []
+            for entry in names:
+                if isinstance(entry, str):
+                    name = entry.strip()
+                    if name and name not in seen:
+                        ordered.append(name)
+                        seen.add(name)
+            return ordered
+
+        combined_models = _normalize(models)
+        combined_models.extend([m for m in cached_models if m not in combined_models])
+
+        preferred = preferred_model.strip() if isinstance(preferred_model, str) else ""
+
         if error:
             detail = error if isinstance(error, str) else str(error)
-            logger.warning("Falling back to stored model because fetching failed: %s", detail)
-            fallback = preferred_model or "gpt-4o"
+            logger.warning(
+                "Falling back to cached OpenAI models because fetching failed: %s", detail
+            )
+            fallback_models = list(combined_models) if combined_models else list(cached_models)
+            if preferred:
+                if preferred in fallback_models:
+                    fallback_models = [preferred] + [m for m in fallback_models if m != preferred]
+                else:
+                    fallback_models = [preferred] + fallback_models
+            if not fallback_models:
+                fallback_models = [preferred or "gpt-4o"]
+
             self.model_combo.remove_all()
-            self.model_combo.append_text(fallback)
+            for name in fallback_models:
+                self.model_combo.append_text(name)
             self.model_combo.set_active(0)
             self._show_message("Model Load Failed", detail, Gtk.MessageType.ERROR)
-            self._available_models = [fallback]
+            self._available_models = list(fallback_models)
             return False
 
-        if preferred_model and preferred_model not in models:
-            models = [preferred_model] + [name for name in models if name != preferred_model]
+        if preferred and preferred not in combined_models:
+            combined_models.insert(0, preferred)
 
-        if not models:
-            models = [preferred_model or "gpt-4o"]
+        if not combined_models:
+            combined_models = [preferred or "gpt-4o"]
 
         self.model_combo.remove_all()
         active_index = 0
-        for idx, name in enumerate(models):
+        for idx, name in enumerate(combined_models):
             self.model_combo.append_text(name)
-            if preferred_model and name == preferred_model:
+            if preferred and name == preferred:
                 active_index = idx
 
         self.model_combo.set_active(active_index)
-        self._available_models = list(models)
+        self._available_models = list(combined_models)
         return False
 
     # ------------------------------------------------------------------
