@@ -19,7 +19,7 @@ from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.provider_manager import ProviderManager
 from ATLAS.persona_manager import PersonaManager
-from modules.Chat.chat_session import ChatSession
+from modules.Chat.chat_session import ChatHistoryExportError, ChatSession
 from modules.Speech_Services.speech_manager import SpeechManager
 from modules.background_tasks import run_async_in_thread
 
@@ -338,6 +338,90 @@ class ATLAS:
 
         self._require_persona_manager().show_message(role, message)
 
+    def _require_chat_session(self) -> ChatSession:
+        """Return the initialized chat session or raise an error if unavailable."""
+
+        session = getattr(self, "chat_session", None)
+        if session is None:
+            raise RuntimeError("Chat session is not initialized.")
+
+        return session
+
+    def reset_chat_history(self) -> Dict[str, Any]:
+        """Reset the active chat session and provide a normalized payload for the UI."""
+
+        try:
+            session = self._require_chat_session()
+        except RuntimeError as exc:
+            message = str(exc)
+            self.logger.error(message)
+            return {
+                "success": False,
+                "error": message,
+            }
+
+        try:
+            session.reset_conversation()
+        except Exception as exc:  # noqa: BLE001 - propagate details to the UI payload
+            message = f"Failed to reset chat history: {exc}"
+            self.logger.error(message, exc_info=True)
+            return {
+                "success": False,
+                "error": message,
+            }
+
+        payload: Dict[str, Any] = {
+            "success": True,
+            "message": "Chat cleared and session reset.",
+        }
+
+        try:
+            payload["status_summary"] = self.get_chat_status_summary()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.error(
+                "Failed to refresh chat status summary after reset: %s",
+                exc,
+                exc_info=True,
+            )
+
+        return payload
+
+    def export_chat_history(self, path: Union[str, Path]) -> Dict[str, Any]:
+        """Export the chat history and normalize the outcome for the UI layer."""
+
+        try:
+            session = self._require_chat_session()
+        except RuntimeError as exc:
+            message = str(exc)
+            self.logger.error(message)
+            return {
+                "success": False,
+                "error": message,
+            }
+
+        try:
+            result = session.export_history(path)
+        except ChatHistoryExportError as exc:
+            message = str(exc) or "Failed to export chat history."
+            return {
+                "success": False,
+                "error": message,
+            }
+        except Exception as exc:  # noqa: BLE001 - unexpected failure surfaced to UI
+            message = f"Unexpected error while exporting chat history: {exc}"
+            self.logger.error(message, exc_info=True)
+            return {
+                "success": False,
+                "error": message,
+            }
+
+        return {
+            "success": True,
+            "message": f"Exported {result.message_count} messages to: {result.path}",
+            "path": str(result.path),
+            "message_count": result.message_count,
+        }
+
     def send_chat_message_async(
         self,
         message: str,
@@ -354,9 +438,7 @@ class ATLAS:
         layer so UI components only handle widget updates.
         """
 
-        session = getattr(self, "chat_session", None)
-        if session is None:
-            raise RuntimeError("Chat session is not initialized.")
+        session = self._require_chat_session()
 
         def _invoke_success(response: str) -> None:
             if on_success is None:
