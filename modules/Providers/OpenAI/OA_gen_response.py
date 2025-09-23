@@ -87,6 +87,8 @@ class OpenAIGenerator:
             else:
                 allow_function_calls = bool(function_calling)
 
+            json_mode_enabled = bool(settings.get("json_mode", False))
+
             self.logger.info(f"Starting API call to OpenAI with model {model}")
             self.logger.info(f"Current persona: {current_persona}")
 
@@ -126,7 +128,7 @@ class OpenAIGenerator:
                     "enabled" if allow_function_calls else "disabled",
                 )
 
-            response = await self.client.chat.completions.create(
+            request_kwargs = dict(
                 model=model,
                 messages=messages,
                 max_tokens=max_tokens,
@@ -140,6 +142,12 @@ class OpenAIGenerator:
                 functions=functions,
                 function_call=function_call_mode,
             )
+
+            if json_mode_enabled:
+                request_kwargs["response_format"] = {"type": "json_object"}
+                self.logger.info("Requesting JSON-formatted responses from OpenAI.")
+
+            response = await self.client.chat.completions.create(**request_kwargs)
             
             self.logger.info("Received response from OpenAI API.")
 
@@ -157,6 +165,17 @@ class OpenAIGenerator:
                 )
             else:
                 message = response.choices[0].message
+                content = getattr(message, "content", None)
+                if isinstance(content, list):
+                    parts = []
+                    for part in content:
+                        if isinstance(part, dict):
+                            parts.append(part.get("text", ""))
+                        elif hasattr(part, "text"):
+                            parts.append(getattr(part, "text") or "")
+                    content = "".join(parts)
+                else:
+                    content = content if content is not None else ""
                 if hasattr(message, 'function_call') and message.function_call:
                     self.logger.info(f"Function call detected in response: {message.function_call}")
                     return await self.handle_function_call(
@@ -174,7 +193,7 @@ class OpenAIGenerator:
                         presence_penalty,
                     )
                 self.logger.info("No function call detected in response.")
-                return message.content
+                return content
 
         except Exception as e:
             self.logger.error(f"Error in OpenAI API call: {str(e)}", exc_info=True)

@@ -447,6 +447,7 @@ class DummyConfig:
             "max_tokens": 4000,
             "stream": True,
             "function_calling": True,
+            "json_mode": False,
             "base_url": None,
             "organization": None,
         }
@@ -468,6 +469,7 @@ class DummyConfig:
         max_tokens=None,
         stream=None,
         function_calling=None,
+        json_mode=None,
         base_url=None,
         organization=None,
     ):
@@ -488,6 +490,8 @@ class DummyConfig:
             self._openai_settings["stream"] = bool(stream)
         if function_calling is not None:
             self._openai_settings["function_calling"] = bool(function_calling)
+        if json_mode is not None:
+            self._openai_settings["json_mode"] = bool(json_mode)
         self._openai_settings["base_url"] = base_url
         self._openai_settings["organization"] = organization
         return dict(self._openai_settings)
@@ -893,6 +897,7 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
         max_tokens=1024,
         stream=False,
         function_calling=False,
+        json_mode=True,
         base_url="https://example/v1",
         organization="org-99",
     )
@@ -905,6 +910,7 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     assert math.isclose(settings["presence_penalty"], -0.2)
     assert settings["stream"] is False
     assert settings["function_calling"] is False
+    assert settings["json_mode"] is True
     assert provider_manager.model_manager.models["OpenAI"][0] == "gpt-4o-mini"
     assert provider_manager.current_model == "gpt-4o-mini"
 
@@ -993,6 +999,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
         "max_tokens": 2048,
         "stream": False,
         "function_calling": False,
+        "json_mode": True,
         "base_url": "https://example/v1",
         "organization": "org-42",
     }
@@ -1014,6 +1021,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert window.max_tokens_spin.get_value_as_int() == 2048
     assert window.stream_toggle.get_active() is False
     assert window.function_call_toggle.get_active() is False
+    assert window.json_mode_toggle.get_active() is True
     assert window.organization_entry.get_text() == "org-42"
     status_text = getattr(window.api_key_status_label, "label", None)
     if status_text is None and hasattr(window.api_key_status_label, "get_text"):
@@ -1030,6 +1038,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     window.max_tokens_spin.set_value(4096)
     window.stream_toggle.set_active(True)
     window.function_call_toggle.set_active(True)
+    window.json_mode_toggle.set_active(False)
     window.organization_entry.set_text("org-new")
     window.base_url_entry.set_text("https://alt.example/v2")
 
@@ -1038,6 +1047,7 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert saved_payload["model"] == "gpt-4o"
     assert saved_payload["temperature"] == 0.5
     assert saved_payload["top_p"] == 0.75
+    assert saved_payload["json_mode"] is False
     assert saved_payload["frequency_penalty"] == 0.2
     assert saved_payload["presence_penalty"] == -0.15
     assert saved_payload["max_tokens"] == 4096

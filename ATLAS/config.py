@@ -211,6 +211,7 @@ class ConfigManager:
         max_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
+        json_mode: Optional[bool] = None,
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -241,6 +242,7 @@ class ConfigManager:
 
         normalized_stream = True if stream is None else bool(stream)
         normalized_function_calling = True if function_calling is None else bool(function_calling)
+        normalized_json_mode = False if json_mode is None else bool(json_mode)
 
         sanitized_base_url = (base_url or "").strip() or None
         sanitized_org = (organization or "").strip() or None
@@ -260,6 +262,7 @@ class ConfigManager:
                 'max_tokens': normalized_max_tokens,
                 'stream': normalized_stream,
                 'function_calling': normalized_function_calling,
+                'json_mode': normalized_json_mode,
                 'base_url': sanitized_base_url,
                 'organization': sanitized_org,
             }
@@ -337,6 +340,7 @@ class ConfigManager:
             'max_tokens': 4000,
             'stream': True,
             'function_calling': True,
+            'json_mode': False,
             'base_url': self.get_config('OPENAI_BASE_URL'),
             'organization': self.get_config('OPENAI_ORGANIZATION'),
         }

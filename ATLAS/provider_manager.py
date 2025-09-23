@@ -160,6 +160,7 @@ class ProviderManager:
         max_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
+        json_mode: Optional[bool] = None,
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -175,6 +176,7 @@ class ProviderManager:
                 max_tokens=max_tokens,
                 stream=stream,
                 function_calling=function_calling,
+                json_mode=json_mode,
                 base_url=base_url,
                 organization=organization,
             )

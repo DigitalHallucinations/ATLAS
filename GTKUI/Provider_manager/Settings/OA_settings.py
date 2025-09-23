@@ -218,6 +218,10 @@ class OpenAISettingsWindow(Gtk.Window):
             self.base_url_entry.connect("changed", self._on_base_url_changed)
         advanced_grid.attach(self.base_url_entry, 1, 0, 1, 1)
 
+        self.json_mode_toggle = Gtk.CheckButton(label="Force JSON responses")
+        self.json_mode_toggle.set_halign(Gtk.Align.START)
+        advanced_grid.attach(self.json_mode_toggle, 0, 1, 2, 1)
+
         self.base_url_feedback_label = Gtk.Label(label="Leave blank to use the official endpoint.")
         self.base_url_feedback_label.set_xalign(0.0)
         if hasattr(self.base_url_feedback_label, "add_css_class"):
@@ -260,6 +264,7 @@ class OpenAISettingsWindow(Gtk.Window):
         self.max_tokens_spin.set_value(float(settings.get("max_tokens", 4000)))
         self.stream_toggle.set_active(bool(settings.get("stream", True)))
         self.function_call_toggle.set_active(bool(settings.get("function_calling", True)))
+        self.json_mode_toggle.set_active(bool(settings.get("json_mode", False)))
         self.organization_entry.set_text(settings.get("organization") or "")
 
         self._begin_model_refresh(settings)
@@ -592,6 +597,7 @@ class OpenAISettingsWindow(Gtk.Window):
             "max_tokens": self.max_tokens_spin.get_value_as_int(),
             "stream": self.stream_toggle.get_active(),
             "function_calling": self.function_call_toggle.get_active(),
+            "json_mode": self.json_mode_toggle.get_active(),
             "base_url": base_url,
             "organization": self.organization_entry.get_text().strip() or None,
         }
