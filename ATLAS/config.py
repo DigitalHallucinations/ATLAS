@@ -209,10 +209,12 @@ class ConfigManager:
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        max_output_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
         base_url: Optional[str] = None,
         organization: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Persist OpenAI chat-completion defaults and related metadata."""
 
@@ -239,8 +241,24 @@ class ConfigManager:
         if normalized_max_tokens <= 0:
             raise ValueError("Max tokens must be a positive integer.")
 
+        normalized_max_output_tokens = (
+            None if max_output_tokens is None else int(max_output_tokens)
+        )
+        if normalized_max_output_tokens is not None and normalized_max_output_tokens <= 0:
+            raise ValueError("Max output tokens must be a positive integer when provided.")
+
         normalized_stream = True if stream is None else bool(stream)
         normalized_function_calling = True if function_calling is None else bool(function_calling)
+
+        allowed_effort = {"low", "medium", "high"}
+        if reasoning_effort is None:
+            normalized_reasoning_effort = "medium"
+        else:
+            normalized_reasoning_effort = str(reasoning_effort).lower()
+            if normalized_reasoning_effort not in allowed_effort:
+                raise ValueError(
+                    "Reasoning effort must be one of: low, medium, high."
+                )
 
         sanitized_base_url = (base_url or "").strip() or None
         sanitized_org = (organization or "").strip() or None
@@ -258,8 +276,10 @@ class ConfigManager:
                 'frequency_penalty': normalized_frequency_penalty,
                 'presence_penalty': normalized_presence_penalty,
                 'max_tokens': normalized_max_tokens,
+                'max_output_tokens': normalized_max_output_tokens,
                 'stream': normalized_stream,
                 'function_calling': normalized_function_calling,
+                'reasoning_effort': normalized_reasoning_effort,
                 'base_url': sanitized_base_url,
                 'organization': sanitized_org,
             }
@@ -335,8 +355,10 @@ class ConfigManager:
             'frequency_penalty': 0.0,
             'presence_penalty': 0.0,
             'max_tokens': 4000,
+            'max_output_tokens': None,
             'stream': True,
             'function_calling': True,
+            'reasoning_effort': 'medium',
             'base_url': self.get_config('OPENAI_BASE_URL'),
             'organization': self.get_config('OPENAI_ORGANIZATION'),
         }

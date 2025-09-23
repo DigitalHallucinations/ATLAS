@@ -445,10 +445,12 @@ class DummyConfig:
             "frequency_penalty": 0.0,
             "presence_penalty": 0.0,
             "max_tokens": 4000,
+            "max_output_tokens": None,
             "stream": True,
             "function_calling": True,
             "base_url": None,
             "organization": None,
+            "reasoning_effort": "medium",
         }
 
     def get_default_provider(self):
@@ -466,10 +468,12 @@ class DummyConfig:
         frequency_penalty=None,
         presence_penalty=None,
         max_tokens=None,
+        max_output_tokens=None,
         stream=None,
         function_calling=None,
         base_url=None,
         organization=None,
+        reasoning_effort=None,
     ):
         if model:
             self._openai_settings["model"] = model
@@ -484,12 +488,16 @@ class DummyConfig:
             self._openai_settings["presence_penalty"] = float(presence_penalty)
         if max_tokens is not None:
             self._openai_settings["max_tokens"] = int(max_tokens)
+        if max_output_tokens is not None:
+            self._openai_settings["max_output_tokens"] = int(max_output_tokens)
         if stream is not None:
             self._openai_settings["stream"] = bool(stream)
         if function_calling is not None:
             self._openai_settings["function_calling"] = bool(function_calling)
         self._openai_settings["base_url"] = base_url
         self._openai_settings["organization"] = organization
+        if reasoning_effort is not None:
+            self._openai_settings["reasoning_effort"] = reasoning_effort
         return dict(self._openai_settings)
 
     def get_app_root(self):
@@ -891,10 +899,12 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
         frequency_penalty=0.1,
         presence_penalty=-0.2,
         max_tokens=1024,
+        max_output_tokens=256,
         stream=False,
         function_calling=False,
         base_url="https://example/v1",
         organization="org-99",
+        reasoning_effort="low",
     )
 
     assert result["success"] is True
@@ -905,6 +915,8 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     assert math.isclose(settings["presence_penalty"], -0.2)
     assert settings["stream"] is False
     assert settings["function_calling"] is False
+    assert settings["max_output_tokens"] == 256
+    assert settings["reasoning_effort"] == "low"
     assert provider_manager.model_manager.models["OpenAI"][0] == "gpt-4o-mini"
     assert provider_manager.current_model == "gpt-4o-mini"
 
@@ -991,10 +1003,12 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
         "frequency_penalty": 0.05,
         "presence_penalty": -0.1,
         "max_tokens": 2048,
+        "max_output_tokens": 512,
         "stream": False,
         "function_calling": False,
         "base_url": "https://example/v1",
         "organization": "org-42",
+        "reasoning_effort": "high",
     }
     atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
     atlas_stub.list_openai_models = fake_list_openai_models
@@ -1012,9 +1026,11 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert math.isclose(window.frequency_penalty_spin.get_value(), 0.05)
     assert math.isclose(window.presence_penalty_spin.get_value(), -0.1)
     assert window.max_tokens_spin.get_value_as_int() == 2048
+    assert window.max_output_tokens_spin.get_value_as_int() == 512
     assert window.stream_toggle.get_active() is False
     assert window.function_call_toggle.get_active() is False
     assert window.organization_entry.get_text() == "org-42"
+    assert window.reasoning_effort_combo.get_active_text() == "high"
     status_text = getattr(window.api_key_status_label, "label", None)
     if status_text is None and hasattr(window.api_key_status_label, "get_text"):
         status_text = window.api_key_status_label.get_text()
@@ -1028,10 +1044,12 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     window.frequency_penalty_spin.set_value(0.2)
     window.presence_penalty_spin.set_value(-0.15)
     window.max_tokens_spin.set_value(4096)
+    window.max_output_tokens_spin.set_value(1024)
     window.stream_toggle.set_active(True)
     window.function_call_toggle.set_active(True)
     window.organization_entry.set_text("org-new")
     window.base_url_entry.set_text("https://alt.example/v2")
+    window.reasoning_effort_combo.set_active(1)
 
     window.on_save_clicked(window.model_combo)
 
@@ -1041,10 +1059,12 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert saved_payload["frequency_penalty"] == 0.2
     assert saved_payload["presence_penalty"] == -0.15
     assert saved_payload["max_tokens"] == 4096
+    assert saved_payload["max_output_tokens"] == 1024
     assert saved_payload["stream"] is True
     assert saved_payload["function_calling"] is True
     assert saved_payload["base_url"] == "https://alt.example/v2"
     assert saved_payload["organization"] == "org-new"
+    assert saved_payload["reasoning_effort"] == "medium"
     assert window._stored_base_url == "https://alt.example/v2"
     assert window._last_message[0] == "Success"
     assert window.closed is True
@@ -1061,9 +1081,11 @@ def test_openai_settings_window_saves_api_key(provider_manager):
         "frequency_penalty": 0.0,
         "presence_penalty": 0.0,
         "max_tokens": 4000,
+        "max_output_tokens": None,
         "stream": True,
         "base_url": None,
         "organization": None,
+        "reasoning_effort": "medium",
     }
     atlas_stub.set_openai_llm_settings = lambda **_: {"success": True, "message": "saved"}
     atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
