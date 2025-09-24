@@ -10,6 +10,9 @@ and schedules UI updates via GLib.idle_add.
 """
 
 import os
+import tempfile
+from pathlib import Path
+from typing import Optional
 from concurrent.futures import Future
 from datetime import datetime
 import gi
@@ -186,6 +189,12 @@ class ChatPage(Gtk.Window):
         self.connect("close-request", self._on_close_request)
 
         self.awaiting_response = False
+        self._audio_output_dir = Path.home() / ".atlas" / "audio_responses"
+        try:
+            self._audio_output_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:  # pragma: no cover - filesystem issues are logged but non-fatal
+            logger.warning("Unable to create audio output directory: %s", exc)
+            self._audio_output_dir = Path.home()
         self._export_dialog = None
 
         self.present()
@@ -232,16 +241,21 @@ class ChatPage(Gtk.Window):
         if not message:
             return
         user_name = self.ATLAS.get_user_display_name()
-        self.add_message_bubble(user_name, message, is_user=True)
+        self.add_message_bubble(user_name, message, is_user=True, audio=None)
         buffer.set_text("")
         self.input_textview.grab_focus()
         self._set_busy_state(True)
 
-        def handle_success(persona_name: str, response: str):
+        def handle_success(persona_name: str, response_payload):
             display_name = persona_name or "Assistant"
 
             def update():
-                self.add_message_bubble(display_name, response)
+                normalized = self._normalize_response_payload(response_payload)
+                self.add_message_bubble(
+                    display_name,
+                    normalized["text"],
+                    audio=normalized.get("audio"),
+                )
                 self._on_response_complete()
                 return False
 
@@ -252,7 +266,7 @@ class ChatPage(Gtk.Window):
             logger.error(f"Error retrieving model response: {exc}")
 
             def update():
-                self.add_message_bubble(display_name, f"Error: {exc}")
+                self.add_message_bubble(display_name, f"Error: {exc}", audio=None)
                 self._on_response_complete()
                 return False
 
@@ -382,7 +396,7 @@ class ChatPage(Gtk.Window):
         else:
             self.status_spinner.stop()
 
-    def add_message_bubble(self, sender, message, is_user=False):
+    def add_message_bubble(self, sender, message, is_user=False, audio=None):
         """
         Adds a message bubble to the conversation history area.
 
@@ -417,9 +431,14 @@ class ChatPage(Gtk.Window):
         message_label.set_selectable(True)
         message_label.set_tooltip_text("Right-click for options")
 
-        bubble_box = Gtk.Box()
+        bubble_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         bubble_box.append(message_label)
         bubble_box.get_style_context().add_class("message-bubble")
+
+        if audio:
+            controls = self._build_audio_controls(audio)
+            if controls is not None:
+                bubble_box.append(controls)
 
         # Apply different styling based on whether the message is from the user or assistant.
         if is_user:
@@ -491,6 +510,95 @@ class ChatPage(Gtk.Window):
         s = Gtk.Box()
         s.set_hexpand(True)
         return s
+
+    def _normalize_response_payload(self, payload) -> dict:
+        if isinstance(payload, dict):
+            text = str(payload.get("text") or "")
+            audio_data = payload.get("audio")
+            audio_payload = None
+            if audio_data:
+                audio_payload = {
+                    "data": audio_data,
+                    "format": payload.get("audio_format"),
+                    "voice": payload.get("audio_voice"),
+                    "id": payload.get("audio_id"),
+                }
+            return {"text": text, "audio": audio_payload}
+
+        return {"text": str(payload or ""), "audio": None}
+
+    def _build_audio_controls(self, audio_payload: dict):
+        data = audio_payload.get("data")
+        if not isinstance(data, (bytes, bytearray)):
+            return None
+
+        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        controls.add_css_class("audio-response-box")
+
+        description = audio_payload.get("voice") or "Audio response"
+        label = Gtk.Label(label=str(description))
+        label.add_css_class("dim-label")
+        label.set_halign(Gtk.Align.START)
+        controls.append(label)
+
+        play_button = Gtk.Button(label="Play audio")
+        play_button.add_css_class("flat")
+        play_button.connect(
+            "clicked",
+            lambda *_: self._play_audio_bytes(bytes(data), audio_payload.get("format")),
+        )
+        controls.append(play_button)
+
+        save_button = Gtk.Button(label="Save audio")
+        save_button.add_css_class("flat")
+        save_button.connect(
+            "clicked",
+            lambda *_: self._save_audio_bytes(bytes(data), audio_payload.get("format")),
+        )
+        controls.append(save_button)
+
+        return controls
+
+    def _guess_audio_extension(self, fmt: Optional[str]) -> str:
+        if not fmt:
+            return ".wav"
+        normalized = fmt.lower().strip()
+        if not normalized.startswith("."):
+            normalized = f".{normalized}"
+        return normalized
+
+    def _play_audio_bytes(self, data: bytes, fmt: Optional[str]) -> None:
+        suffix = self._guess_audio_extension(fmt)
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
+                temp.write(data)
+                temp_path = Path(temp.name)
+        except Exception as exc:  # pragma: no cover - filesystem fallback
+            logger.error("Failed to write temporary audio file: %s", exc)
+            self.status_label.set_text("Unable to play audio (write error).")
+            return
+
+        uri = temp_path.as_uri()
+        try:
+            Gio.AppInfo.launch_default_for_uri(uri)
+        except Exception as exc:  # pragma: no cover - platform dependent
+            logger.error("Failed to launch audio player: %s", exc)
+            self.status_label.set_text("Unable to open audio player.")
+
+    def _save_audio_bytes(self, data: bytes, fmt: Optional[str]) -> None:
+        suffix = self._guess_audio_extension(fmt)
+        target_name = datetime.now().strftime("response-%Y%m%d-%H%M%S") + suffix
+        target_path = self._audio_output_dir / target_name
+
+        try:
+            with target_path.open("wb") as handle:
+                handle.write(data)
+        except Exception as exc:
+            logger.error("Failed to save audio response: %s", exc)
+            self.status_label.set_text("Unable to save audio response.")
+            return
+
+        self.status_label.set_text(f"Audio saved to {target_path}")
 
     def scroll_to_bottom(self):
         """

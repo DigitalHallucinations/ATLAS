@@ -202,6 +202,9 @@ class ProviderManager:
         reasoning_effort: Optional[str] = None,
         json_mode: Optional[Any] = None,
         json_schema: Optional[Any] = None,
+        audio_enabled: Optional[bool] = None,
+        audio_voice: Optional[str] = None,
+        audio_format: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Persist OpenAI LLM defaults via the config manager and refresh runtime state."""
 
@@ -223,6 +226,9 @@ class ProviderManager:
                 reasoning_effort=reasoning_effort,
                 json_mode=json_mode,
                 json_schema=json_schema,
+                audio_enabled=audio_enabled,
+                audio_voice=audio_voice,
+                audio_format=audio_format,
             )
         except Exception as exc:
             self.logger.error("Failed to persist OpenAI settings: %s", exc, exc_info=True)
@@ -951,6 +957,10 @@ class ProviderManager:
             else defaults.get("reasoning_effort")
         )
 
+        resolved_audio_enabled = defaults.get("audio_enabled", False)
+        resolved_audio_voice = defaults.get("audio_voice")
+        resolved_audio_format = defaults.get("audio_format")
+
         # Log the incoming parameters
         self.logger.info(
             "Generating response with Provider: %s, Model: %s, Persona: %s",
@@ -1004,6 +1014,9 @@ class ProviderManager:
                     tool_choice=resolved_tool_choice,
                     max_output_tokens=resolved_max_output_tokens,
                     reasoning_effort=resolved_reasoning_effort,
+                    audio_enabled=resolved_audio_enabled,
+                    audio_voice=resolved_audio_voice,
+                    audio_format=resolved_audio_format,
                 )
 
             response = await self.generate_response_func(

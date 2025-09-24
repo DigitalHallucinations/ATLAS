@@ -1,5 +1,6 @@
 # modules/Providers/OpenAI/OA_gen_response.py
 
+import base64
 import json
 
 from openai import AsyncOpenAI
@@ -61,6 +62,9 @@ class OpenAIGenerator:
         tool_choice: Optional[Any] = None,
         json_mode: Optional[Any] = None,
         json_schema: Optional[Any] = None,
+        audio_enabled: Optional[bool] = None,
+        audio_voice: Optional[str] = None,
+        audio_format: Optional[str] = None,
     ) -> Union[str, AsyncIterator[str]]:
         try:
             settings = self.config_manager.get_openai_llm_settings()
@@ -126,6 +130,21 @@ class OpenAIGenerator:
                     json_mode if json_mode is not None else settings.get("json_mode")
                 )
 
+            if audio_enabled is None:
+                effective_audio_enabled = bool(settings.get("audio_enabled", False))
+            else:
+                effective_audio_enabled = bool(audio_enabled)
+
+            effective_voice = audio_voice if audio_voice is not None else settings.get("audio_voice")
+            if isinstance(effective_voice, str):
+                effective_voice = effective_voice.strip() or None
+
+            effective_audio_format = (
+                audio_format if audio_format is not None else settings.get("audio_format")
+            )
+            if isinstance(effective_audio_format, str):
+                effective_audio_format = effective_audio_format.strip().lower() or None
+
             self.logger.info(f"Starting API call to OpenAI with model {model}")
             self.logger.info(f"Current persona: {current_persona}")
             if normalized_schema is not None:
@@ -187,6 +206,9 @@ class OpenAIGenerator:
                     tool_choice=normalized_tool_choice,
                     max_output_tokens=max_output_tokens,
                     reasoning_effort=reasoning_effort,
+                    audio_enabled=effective_audio_enabled,
+                    audio_voice=effective_voice,
+                    audio_format=effective_audio_format,
                 )
 
             function_call_mode = None
@@ -225,6 +247,13 @@ class OpenAIGenerator:
             elif force_json_mode:
                 request_kwargs["response_format"] = {"type": "json_object"}
 
+            if effective_audio_enabled:
+                request_kwargs["modalities"] = ["text", "audio"]
+                request_kwargs["audio"] = self._build_audio_request_payload(
+                    effective_voice,
+                    effective_audio_format,
+                )
+
             response = await self.client.chat.completions.create(**request_kwargs)
 
             self.logger.info("Received response from OpenAI API.")
@@ -244,6 +273,9 @@ class OpenAIGenerator:
                     top_p,
                     frequency_penalty,
                     presence_penalty,
+                    effective_audio_enabled,
+                    effective_voice,
+                    effective_audio_format,
                 )
             else:
                 message = response.choices[0].message
@@ -274,7 +306,17 @@ class OpenAIGenerator:
                     if results:
                         return "\n".join(str(item) for item in results)
                 self.logger.info("No function or tool call detected in response.")
-                return self._coerce_content_to_text(getattr(message, "content", ""))
+                text_response = self._coerce_content_to_text(getattr(message, "content", ""))
+                audio_payload = self._extract_chat_completion_audio(
+                    message,
+                    fallback_voice=effective_voice,
+                    fallback_format=effective_audio_format,
+                )
+                if audio_payload:
+                    combined = {"text": text_response}
+                    combined.update(audio_payload)
+                    return combined
+                return text_response
 
         except Exception as e:
             self.logger.error(f"Error in OpenAI API call: {str(e)}", exc_info=True)
@@ -515,6 +557,177 @@ class OpenAIGenerator:
             return combined or None
 
         return None
+
+    def _build_audio_request_payload(
+        self,
+        voice: Optional[str],
+        audio_format: Optional[str],
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        if isinstance(voice, str) and voice:
+            payload["voice"] = voice
+        if isinstance(audio_format, str) and audio_format:
+            payload["format"] = audio_format
+        return payload or {}
+
+    def _decode_audio_chunk(self, value: Any) -> Optional[bytes]:
+        if isinstance(value, (bytes, bytearray)):
+            data = bytes(value)
+            return data if data else None
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                return base64.b64decode(text)
+            except Exception:  # pragma: no cover - defensive decoding
+                return None
+        return None
+
+    def _collect_audio_chunks(self, payload: Any) -> List[bytes]:
+        chunks: List[bytes] = []
+        if payload is None:
+            return chunks
+        if isinstance(payload, list):
+            for entry in payload:
+                chunks.extend(self._collect_audio_chunks(entry))
+            return chunks
+        if isinstance(payload, dict):
+            for key in ("data", "audio", "chunk", "bytes"):
+                if key in payload:
+                    chunks.extend(self._collect_audio_chunks(payload[key]))
+            return chunks
+
+        direct = self._decode_audio_chunk(payload)
+        if direct:
+            chunks.append(direct)
+            return chunks
+
+        nested_data = self._safe_get(payload, "data")
+        if nested_data is not None and nested_data is not payload:
+            chunks.extend(self._collect_audio_chunks(nested_data))
+            return chunks
+
+        nested_chunk = self._safe_get(payload, "chunk")
+        if nested_chunk is not None and nested_chunk is not payload:
+            chunks.extend(self._collect_audio_chunks(nested_chunk))
+            return chunks
+
+        nested_audio = self._safe_get(payload, "audio")
+        if nested_audio is not None and nested_audio is not payload:
+            chunks.extend(self._collect_audio_chunks(nested_audio))
+            return chunks
+
+        return chunks
+
+    def _normalize_audio_payload(
+        self,
+        payload: Any,
+        *,
+        fallback_voice: Optional[str],
+        fallback_format: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        if payload is None:
+            return None
+
+        chunks = self._collect_audio_chunks(payload)
+        if not chunks:
+            return None
+
+        aggregated = b"".join(chunks)
+        if not aggregated:
+            return None
+
+        voice = self._safe_get(payload, "voice")
+        fmt = self._safe_get(payload, "format")
+        identifier = self._safe_get(payload, "id")
+
+        normalized: Dict[str, Any] = {
+            "audio": aggregated,
+            "audio_voice": voice or fallback_voice,
+            "audio_format": fmt or fallback_format,
+        }
+        if identifier:
+            normalized["audio_id"] = identifier
+        return normalized
+
+    def _extract_chat_completion_audio(
+        self,
+        message: Any,
+        *,
+        fallback_voice: Optional[str],
+        fallback_format: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        audio_payload = self._safe_get(message, "audio")
+        if not audio_payload and isinstance(message, dict):
+            audio_payload = message.get("audio")
+        if not audio_payload:
+            return None
+
+        return self._normalize_audio_payload(
+            audio_payload,
+            fallback_voice=fallback_voice,
+            fallback_format=fallback_format,
+        )
+
+    def _extract_streaming_audio_delta(
+        self,
+        delta: Any,
+        *,
+        fallback_voice: Optional[str],
+        fallback_format: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        if not delta:
+            return None
+        return self._normalize_audio_payload(
+            delta,
+            fallback_voice=fallback_voice,
+            fallback_format=fallback_format,
+        )
+
+    def _extract_responses_audio(
+        self,
+        response: Any,
+        *,
+        fallback_voice: Optional[str],
+        fallback_format: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        outputs = self._safe_get(response, "output") or self._safe_get(response, "outputs")
+        if not isinstance(outputs, list):
+            return self._normalize_audio_payload(
+                self._safe_get(response, "audio"),
+                fallback_voice=fallback_voice,
+                fallback_format=fallback_format,
+            )
+
+        for item in outputs:
+            item_type = self._safe_get(item, "type")
+            if item_type in {"output_audio", "audio"}:
+                payload = self._safe_get(item, "audio") or item
+                normalized = self._normalize_audio_payload(
+                    payload,
+                    fallback_voice=fallback_voice,
+                    fallback_format=fallback_format,
+                )
+                if normalized:
+                    return normalized
+
+        return None
+
+    def _extract_responses_audio_delta(
+        self,
+        delta: Any,
+        *,
+        fallback_voice: Optional[str],
+        fallback_format: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        if delta is None:
+            return None
+        return self._normalize_audio_payload(
+            delta,
+            fallback_voice=fallback_voice,
+            fallback_format=fallback_format,
+        )
 
     def _normalize_tool_choice(self, value):
         if value is None:
@@ -779,6 +992,9 @@ class OpenAIGenerator:
         tool_choice,
         max_output_tokens,
         reasoning_effort,
+        audio_enabled,
+        audio_voice,
+        audio_format,
     ):
         request_kwargs = {
             "model": model,
@@ -799,6 +1015,13 @@ class OpenAIGenerator:
         if reasoning_effort:
             request_kwargs["reasoning"] = {"effort": reasoning_effort}
 
+        if audio_enabled:
+            request_kwargs["modalities"] = ["text", "audio"]
+            request_kwargs["audio"] = self._build_audio_request_payload(
+                audio_voice,
+                audio_format,
+            )
+
         if stream:
             return self._process_responses_stream(
                 request_kwargs=request_kwargs,
@@ -814,6 +1037,9 @@ class OpenAIGenerator:
                 presence_penalty=presence_penalty,
                 model=model,
                 allow_function_calls=allow_function_calls,
+                audio_enabled=audio_enabled,
+                audio_voice=audio_voice,
+                audio_format=audio_format,
             )
 
         response = await self.client.responses.create(**request_kwargs)
@@ -831,6 +1057,8 @@ class OpenAIGenerator:
             model=model,
             allow_function_calls=allow_function_calls,
             conversation_manager=conversation_manager,
+            audio_voice=audio_voice,
+            audio_format=audio_format,
         )
 
     async def _handle_responses_completion(
@@ -848,6 +1076,8 @@ class OpenAIGenerator:
         model,
         allow_function_calls,
         conversation_manager,
+        audio_voice,
+        audio_format,
     ):
         if allow_function_calls:
             tool_messages = self._extract_responses_tool_calls(response)
@@ -873,7 +1103,18 @@ class OpenAIGenerator:
                 if results:
                     return "\n".join(results)
 
-        return self._get_response_text(response)
+        text = self._get_response_text(response)
+        audio_payload = self._extract_responses_audio(
+            response,
+            fallback_voice=audio_voice,
+            fallback_format=audio_format,
+        )
+        if audio_payload:
+            combined = {"text": text}
+            combined.update(audio_payload)
+            return combined
+
+        return text
 
     async def _process_responses_stream(
         self,
@@ -891,9 +1132,15 @@ class OpenAIGenerator:
         presence_penalty,
         model,
         allow_function_calls,
+        audio_enabled,
+        audio_voice,
+        audio_format,
     ):
         full_response = ""
         final_response = None
+        audio_chunks: List[bytes] = []
+        captured_audio_format: Optional[str] = audio_format
+        captured_audio_voice: Optional[str] = audio_voice
 
         async with self.client.responses.stream(**request_kwargs) as stream_response:
             async for event in stream_response:
@@ -908,6 +1155,24 @@ class OpenAIGenerator:
                     if delta:
                         yield delta
                         full_response += delta
+                elif (
+                    audio_enabled
+                    and event_type in {"response.output_audio.delta", "response.output_audio.done"}
+                ):
+                    delta = self._safe_get(event, "delta") or self._safe_get(event, "audio")
+                    audio_piece = self._extract_responses_audio_delta(
+                        delta,
+                        fallback_voice=captured_audio_voice,
+                        fallback_format=captured_audio_format,
+                    )
+                    if audio_piece:
+                        chunk_bytes = audio_piece.get("audio")
+                        if isinstance(chunk_bytes, (bytes, bytearray)) and chunk_bytes:
+                            audio_chunks.append(bytes(chunk_bytes))
+                        if audio_piece.get("audio_format"):
+                            captured_audio_format = audio_piece.get("audio_format")
+                        if audio_piece.get("audio_voice"):
+                            captured_audio_voice = audio_piece.get("audio_voice")
 
             getter = getattr(stream_response, "get_final_response", None)
             if callable(getter):
@@ -938,6 +1203,31 @@ class OpenAIGenerator:
             conversation_manager.add_message(user, conversation_id, "assistant", full_response)
             self.logger.info("Full streaming response added to conversation history.")
 
+        if audio_enabled and final_response is not None:
+            residual_audio = self._extract_responses_audio(
+                final_response,
+                fallback_voice=captured_audio_voice,
+                fallback_format=captured_audio_format,
+            )
+            if residual_audio and residual_audio.get("audio"):
+                audio_chunks.append(bytes(residual_audio["audio"]))
+                if residual_audio.get("audio_format"):
+                    captured_audio_format = residual_audio.get("audio_format")
+                if residual_audio.get("audio_voice"):
+                    captured_audio_voice = residual_audio.get("audio_voice")
+
+        if audio_chunks:
+            combined_audio = b"".join(audio_chunks)
+            if combined_audio:
+                yield {
+                    "text": full_response,
+                    "audio": combined_audio,
+                    "audio_format": captured_audio_format,
+                    "audio_voice": captured_audio_voice,
+                }
+
+        return
+
     async def process_streaming_response(
         self,
         response: AsyncIterator[Dict],
@@ -952,9 +1242,15 @@ class OpenAIGenerator:
         top_p,
         frequency_penalty,
         presence_penalty,
+        audio_enabled: bool,
+        audio_voice: Optional[str],
+        audio_format: Optional[str],
     ):
         full_response = ""
         pending_tool_calls: Dict[int, Dict[str, Any]] = {}
+        audio_chunks: List[bytes] = []
+        captured_audio_format: Optional[str] = audio_format
+        captured_audio_voice: Optional[str] = audio_voice
 
         async for chunk in response:
             choices = self._safe_get(chunk, "choices") or []
@@ -965,6 +1261,22 @@ class OpenAIGenerator:
             if text_delta:
                 yield text_delta
                 full_response += text_delta
+
+            if audio_enabled:
+                audio_delta = self._safe_get(delta, "audio")
+                audio_piece = self._extract_streaming_audio_delta(
+                    audio_delta,
+                    fallback_format=captured_audio_format,
+                    fallback_voice=captured_audio_voice,
+                )
+                if audio_piece:
+                    chunk_bytes = audio_piece.get("audio")
+                    if isinstance(chunk_bytes, (bytes, bytearray)) and chunk_bytes:
+                        audio_chunks.append(bytes(chunk_bytes))
+                    if audio_piece.get("audio_format"):
+                        captured_audio_format = audio_piece.get("audio_format")
+                    if audio_piece.get("audio_voice"):
+                        captured_audio_voice = audio_piece.get("audio_voice")
 
             tool_calls_delta = self._safe_get(delta, "tool_calls")
             if tool_calls_delta:
@@ -1027,6 +1339,16 @@ class OpenAIGenerator:
         if conversation_manager:
             conversation_manager.add_message(user, conversation_id, "assistant", full_response)
             self.logger.info("Full streaming response added to conversation history.")
+
+        if audio_chunks:
+            combined_audio = b"".join(audio_chunks)
+            if combined_audio:
+                yield {
+                    "text": full_response,
+                    "audio": combined_audio,
+                    "audio_format": captured_audio_format,
+                    "audio_voice": captured_audio_voice,
+                }
 
     async def handle_function_call(
         self,

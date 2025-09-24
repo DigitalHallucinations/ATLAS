@@ -40,6 +40,20 @@ class OpenAISettingsWindow(Gtk.Window):
         self._reasoning_effort_values: Tuple[str, ...] = ("low", "medium", "high")
         self._json_schema_is_valid = True
         self._json_schema_text_cache = ""
+        self._audio_voice_options: Tuple[str, ...] = (
+            "alloy",
+            "verse",
+            "aria",
+            "lumen",
+            "sage",
+        )
+        self._audio_format_options: Tuple[str, ...] = (
+            "wav",
+            "mp3",
+            "ogg",
+            "flac",
+            "aac",
+        )
 
         scroller_cls = getattr(Gtk, "ScrolledWindow", None)
         if scroller_cls is not None:
@@ -190,6 +204,33 @@ class OpenAISettingsWindow(Gtk.Window):
         self.require_tool_toggle = Gtk.CheckButton(label="Require a tool call before responding")
         self.require_tool_toggle.set_halign(Gtk.Align.START)
         grid.attach(self.require_tool_toggle, 0, row, 2, 1)
+
+        row += 1
+        self.audio_reply_toggle = Gtk.CheckButton(label="Enable audio replies")
+        self.audio_reply_toggle.set_halign(Gtk.Align.START)
+        if hasattr(self.audio_reply_toggle, "connect"):
+            self.audio_reply_toggle.connect("toggled", self._on_audio_toggle_toggled)
+        grid.attach(self.audio_reply_toggle, 0, row, 2, 1)
+
+        row += 1
+        audio_voice_label = Gtk.Label(label="Voice:")
+        audio_voice_label.set_xalign(0.0)
+        grid.attach(audio_voice_label, 0, row, 1, 1)
+        self.audio_voice_combo = Gtk.ComboBoxText()
+        for option in self._audio_voice_options:
+            self.audio_voice_combo.append_text(option)
+        self.audio_voice_combo.set_hexpand(True)
+        grid.attach(self.audio_voice_combo, 1, row, 1, 1)
+
+        row += 1
+        audio_format_label = Gtk.Label(label="Audio format:")
+        audio_format_label.set_xalign(0.0)
+        grid.attach(audio_format_label, 0, row, 1, 1)
+        self.audio_format_combo = Gtk.ComboBoxText()
+        for option in self._audio_format_options:
+            self.audio_format_combo.append_text(option)
+        self.audio_format_combo.set_hexpand(True)
+        grid.attach(self.audio_format_combo, 1, row, 1, 1)
 
         row += 1
         org_label = Gtk.Label(label="Organization (optional):")
@@ -412,6 +453,39 @@ class OpenAISettingsWindow(Gtk.Window):
         self.parallel_tool_calls_toggle.set_active(bool(settings.get("parallel_tool_calls", True)))
         tool_choice_value = settings.get("tool_choice")
         self.require_tool_toggle.set_active(str(tool_choice_value).lower() == "required")
+        audio_enabled = bool(settings.get("audio_enabled", False))
+        self.audio_reply_toggle.set_active(audio_enabled)
+        self._select_combo_value(
+            self.audio_voice_combo,
+            settings.get("audio_voice"),
+            fallback_value=self._audio_voice_options[0],
+        )
+        if hasattr(self.audio_voice_combo, "get_active_text"):
+            current_voice = self.audio_voice_combo.get_active_text()
+            target_voice = settings.get("audio_voice")
+            if (
+                not current_voice
+                and isinstance(target_voice, str)
+                and target_voice in self._audio_voice_options
+            ):
+                self.audio_voice_combo.set_active(self._audio_voice_options.index(target_voice))
+        self._select_combo_value(
+            self.audio_format_combo,
+            settings.get("audio_format"),
+            fallback_value=self._audio_format_options[0],
+        )
+        if hasattr(self.audio_format_combo, "get_active_text"):
+            current_format = self.audio_format_combo.get_active_text()
+            target_format = settings.get("audio_format")
+            if (
+                not current_format
+                and isinstance(target_format, str)
+                and target_format in self._audio_format_options
+            ):
+                self.audio_format_combo.set_active(
+                    self._audio_format_options.index(target_format)
+                )
+        self._update_audio_controls_state()
         if hasattr(self, "json_mode_toggle"):
             self.json_mode_toggle.set_active(bool(settings.get("json_mode", False)))
         if hasattr(self, "code_interpreter_toggle"):
@@ -613,6 +687,58 @@ class OpenAISettingsWindow(Gtk.Window):
 
     def _on_base_url_changed(self, _entry: Gtk.Entry) -> None:
         self._sync_base_url_state()
+
+    def _select_combo_value(
+        self,
+        combo: Gtk.ComboBoxText,
+        value: Optional[str],
+        *,
+        fallback_value: Optional[str] = None,
+    ) -> None:
+        model = getattr(combo, "get_model", None)
+        options: List[str] = []
+        if callable(model):
+            store = model()
+            if store is not None:
+                for index in range(store.get_n_items()):
+                    item = store.get_item(index)
+                    getter = getattr(item, "get_string", None)
+                    if callable(getter):
+                        text_value = getter()
+                        if isinstance(text_value, str):
+                            options.append(text_value)
+        else:  # pragma: no cover - compatibility with GTK stubs
+            stored_items = getattr(combo, "_items", None)
+            if isinstance(stored_items, list) and stored_items:
+                options = [str(item) for item in stored_items if isinstance(item, str)]
+            else:
+                active_text = getattr(combo, "get_active_text", None)
+                if callable(active_text):
+                    existing = active_text()
+                    if isinstance(existing, str):
+                        options = [existing]
+
+        normalized_options = [entry.lower() for entry in options]
+        target = (value or "").strip().lower()
+        try:
+            index = normalized_options.index(target) if target else -1
+        except ValueError:
+            index = -1
+
+        if index >= 0:
+            combo.set_active(index)
+        elif fallback_value and fallback_value.lower() in normalized_options:
+            combo.set_active(normalized_options.index(fallback_value.lower()))
+        elif options:
+            combo.set_active(0)
+
+    def _update_audio_controls_state(self) -> None:
+        is_enabled = self.audio_reply_toggle.get_active()
+        self.audio_voice_combo.set_sensitive(is_enabled)
+        self.audio_format_combo.set_sensitive(is_enabled)
+
+    def _on_audio_toggle_toggled(self, _toggle: Gtk.CheckButton) -> None:
+        self._update_audio_controls_state()
 
     # ------------------------------------------------------------------
     # Model loading
@@ -934,6 +1060,9 @@ class OpenAISettingsWindow(Gtk.Window):
                 if hasattr(self, "file_search_toggle")
                 else False
             ),
+            "audio_enabled": self.audio_reply_toggle.get_active(),
+            "audio_voice": self.audio_voice_combo.get_active_text(),
+            "audio_format": self.audio_format_combo.get_active_text(),
         }
 
         function_calling_enabled = payload["function_calling"]

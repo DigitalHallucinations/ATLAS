@@ -533,8 +533,8 @@ def test_chat_page_on_send_message_dispatches_via_atlas(monkeypatch):
 
     page.ATLAS.last_success("Persona", "Reply text")
 
-    page.add_message_bubble.assert_any_call("Tester", "Hello world", is_user=True)
-    page.add_message_bubble.assert_any_call("Persona", "Reply text")
+    page.add_message_bubble.assert_any_call("Tester", "Hello world", is_user=True, audio=None)
+    page.add_message_bubble.assert_any_call("Persona", "Reply text", audio=None)
     page._on_response_complete.assert_called()
 
 
@@ -559,5 +559,5 @@ def test_chat_page_on_send_message_handles_errors(monkeypatch):
     err = RuntimeError("failure")
     page.ATLAS.last_error("Helper", err)
 
-    page.add_message_bubble.assert_any_call("Helper", "Error: failure")
+    page.add_message_bubble.assert_any_call("Helper", "Error: failure", audio=None)
     page._on_response_complete.assert_called()

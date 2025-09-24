@@ -7,7 +7,7 @@ import os
 from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable, Dict, Iterator, Mapping, TypeVar, Union
+from typing import Any, Awaitable, Callable, Dict, Iterator, Mapping, TypeVar, Union
 
 from modules.background_tasks import run_async_in_thread
 
@@ -44,7 +44,7 @@ class ChatSession:
         self.current_model = self.ATLAS.get_default_model()
         self.ATLAS.logger.info(f"ChatSession initialized with provider: {self.current_provider} and model: {self.current_model}")
 
-    async def send_message(self, message: str) -> str:
+    async def send_message(self, message: str) -> Union[str, Dict[str, Any]]:
         new_persona_prompt = self.ATLAS.persona_manager.get_current_persona_prompt()
         # Check if persona has changed or if it's the first message
         if new_persona_prompt != self.current_persona_prompt or not self.conversation_history:
@@ -70,9 +70,29 @@ class ChatSession:
             self.ATLAS.logger.error(f"Error generating response: {e}", exc_info=True)
             raise
 
+        response_text: str
+        audio_payload: Dict[str, Any] = {}
+
+        if isinstance(response, dict):
+            response_text = str(response.get("text") or "")
+            audio_data = response.get("audio")
+            if audio_data:
+                audio_payload = {
+                    "audio": audio_data,
+                    "audio_format": response.get("audio_format"),
+                    "audio_voice": response.get("audio_voice"),
+                    "audio_id": response.get("audio_id"),
+                }
+        else:
+            response_text = str(response or "")
+
         await self.ATLAS.maybe_text_to_speech(response)
 
-        self.conversation_history.append({"role": "assistant", "content": response})
+        message_entry: Dict[str, Any] = {"role": "assistant", "content": response_text}
+        if audio_payload:
+            message_entry.update(audio_payload)
+
+        self.conversation_history.append(message_entry)
         self.messages_since_last_reminder += 1
         return response
 

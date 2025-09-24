@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import importlib.util
 import os
 import sys
@@ -62,6 +63,9 @@ class DummyConfig:
             "json_schema": None,
             "enable_code_interpreter": False,
             "enable_file_search": False,
+            "audio_enabled": False,
+            "audio_voice": "alloy",
+            "audio_format": "wav",
         }
 
     def get_openai_api_key(self):
@@ -255,6 +259,82 @@ def test_chat_completion_includes_response_format(monkeypatch):
     kwargs = captured["kwargs"]
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["stream"] is False
+    assert "modalities" not in kwargs
+    assert "audio" not in kwargs
+
+
+def test_chat_completion_audio_combines_text_and_audio(monkeypatch):
+    captured = {}
+    audio_part1 = b"hello"
+    audio_part2 = b"world"
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, **kwargs):
+                captured["kwargs"] = kwargs
+                nested_audio = {
+                    "data": [
+                        {"chunk": base64.b64encode(audio_part1).decode("ascii")},
+                        base64.b64encode(audio_part2).decode("ascii"),
+                    ],
+                    "voice": "verse",
+                    "format": "mp3",
+                    "id": "audio-123",
+                }
+                message = SimpleNamespace(content="Response text", audio=nested_audio)
+                return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.chat = DummyChat()
+            self.responses = SimpleNamespace()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
+
+    settings = DummyConfig({
+        "model": "gpt-4o",
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "frequency_penalty": 0.0,
+        "presence_penalty": 0.0,
+        "max_tokens": 4000,
+        "max_output_tokens": None,
+        "stream": False,
+        "function_calling": True,
+        "parallel_tool_calls": True,
+        "tool_choice": None,
+        "reasoning_effort": "medium",
+        "json_mode": False,
+        "json_schema": None,
+        "enable_code_interpreter": False,
+        "enable_file_search": False,
+        "audio_enabled": True,
+        "audio_voice": "verse",
+        "audio_format": "mp3",
+    })
+
+    generator = oa_module.OpenAIGenerator(settings)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "hi"}],
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result["text"] == "Response text"
+    assert result["audio"] == audio_part1 + audio_part2
+    assert result["audio_voice"] == "verse"
+    assert result["audio_format"] == "mp3"
+    assert result["audio_id"] == "audio-123"
+
+    kwargs = captured["kwargs"]
+    assert kwargs["modalities"] == ["text", "audio"]
+    assert kwargs["audio"] == {"voice": "verse", "format": "mp3"}
 
 
 def test_chat_completion_appends_builtin_tools(monkeypatch):
@@ -314,6 +394,82 @@ def test_chat_completion_appends_builtin_tools(monkeypatch):
     assert {"type": "file_search"} in tools
     function_entries = [entry for entry in tools if entry.get("type") == "function"]
     assert function_entries and function_entries[0]["function"]["name"] == "tool"
+    kwargs = captured["kwargs"]
+    assert "modalities" not in kwargs
+
+
+def test_chat_completion_streaming_yields_final_audio(monkeypatch):
+    captured = {}
+    audio_chunk = base64.b64encode(b"stream-audio").decode("ascii")
+
+    class DummyStream:
+        def __init__(self):
+            self._step = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._step == 0:
+                self._step += 1
+                delta = {"content": [{"text": "Hello"}]}
+                choice = SimpleNamespace(delta=delta)
+                return SimpleNamespace(choices=[choice])
+            if self._step == 1:
+                self._step += 1
+                delta = {"audio": {"data": audio_chunk}}
+                choice = SimpleNamespace(delta=delta)
+                return SimpleNamespace(choices=[choice])
+            raise StopAsyncIteration
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, **kwargs):
+                captured["kwargs"] = kwargs
+                return DummyStream()
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.chat = DummyChat()
+            self.responses = SimpleNamespace()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
+
+    settings = DummyConfig({
+        "model": "gpt-4o",
+        "audio_enabled": True,
+        "audio_voice": "assistant",
+        "audio_format": "wav",
+    })
+
+    generator = oa_module.OpenAIGenerator(settings)
+
+    async def exercise():
+        stream = await generator.generate_response(
+            messages=[{"role": "user", "content": "hi"}],
+            stream=True,
+        )
+        outputs = []
+        async for chunk in stream:
+            outputs.append(chunk)
+        return outputs
+
+    outputs = asyncio.run(exercise())
+
+    assert outputs[0] == "Hello"
+    final = outputs[-1]
+    assert isinstance(final, dict)
+    assert final["text"] == "Hello"
+    assert final["audio"] == base64.b64decode(audio_chunk)
+    assert final["audio_format"] == "wav"
+    assert final["audio_voice"] == "assistant"
+
+    kwargs = captured["kwargs"]
+    assert kwargs["modalities"] == ["text", "audio"]
+    assert kwargs["audio"] == {"voice": "assistant", "format": "wav"}
 
 
 def test_chat_completion_uses_json_schema(monkeypatch):
@@ -381,6 +537,175 @@ def test_chat_completion_uses_json_schema(monkeypatch):
         "type": "json_schema",
         "json_schema": schema_payload,
     }
+
+
+def test_responses_api_audio_request_and_payload(monkeypatch):
+    captured = {}
+    audio_bytes = b"reasoning-audio"
+    encoded = base64.b64encode(audio_bytes).decode("ascii")
+
+    class DummyResponses:
+        async def create(self, **kwargs):
+            captured["kwargs"] = kwargs
+            return SimpleNamespace(
+                output_text="Reasoned answer",
+                output=[
+                    {
+                        "type": "output_audio",
+                        "audio": {
+                            "data": encoded,
+                            "voice": "narrator",
+                            "format": "ogg",
+                            "id": "resp-audio",
+                        },
+                    }
+                ],
+            )
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, *args, **kwargs):
+                raise AssertionError("chat.completions.create should not be called")
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.responses = DummyResponses()
+            self.chat = DummyChat()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
+
+    settings = DummyConfig({
+        "model": "o1-mini",
+        "audio_enabled": True,
+        "audio_voice": "verse",
+        "audio_format": "wav",
+    })
+
+    generator = oa_module.OpenAIGenerator(settings)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Explain"}],
+            model="o1-mini",
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result["text"] == "Reasoned answer"
+    assert result["audio"] == audio_bytes
+    assert result["audio_voice"] == "narrator"
+    assert result["audio_format"] == "ogg"
+    assert result["audio_id"] == "resp-audio"
+
+    kwargs = captured["kwargs"]
+    assert kwargs["modalities"] == ["text", "audio"]
+    assert kwargs["audio"] == {"voice": "verse", "format": "wav"}
+
+
+def test_responses_streaming_emits_final_audio_chunk(monkeypatch):
+    captured = {}
+    encoded = base64.b64encode(b"stream-response").decode("ascii")
+
+    class DummyStream:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+            self._events = iter(
+                [
+                    {"type": "response.output_text.delta", "delta": "Hi"},
+                    {
+                        "type": "response.output_audio.delta",
+                        "delta": {"data": encoded, "voice": "delta-voice", "format": "mp3"},
+                    },
+                    {"type": "response.output_text.delta", "delta": " there"},
+                ]
+            )
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                event = next(self._events)
+            except StopIteration:
+                raise StopAsyncIteration
+            return event
+
+        async def get_final_response(self):
+            return SimpleNamespace(
+                output_text="Hi there",
+                output=[
+                    {
+                        "type": "output_audio",
+                        "audio": {"data": encoded, "voice": "delta-voice", "format": "mp3"},
+                    }
+                ],
+            )
+
+    class DummyResponses:
+        def stream(self, **kwargs):
+            return DummyStream(**kwargs)
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, *args, **kwargs):
+                raise AssertionError("chat.completions.create should not be called")
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.responses = DummyResponses()
+            self.chat = DummyChat()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
+
+    settings = DummyConfig({
+        "model": "o1-preview",
+        "audio_enabled": True,
+        "audio_voice": "verse",
+        "audio_format": "wav",
+    })
+
+    generator = oa_module.OpenAIGenerator(settings)
+
+    async def exercise():
+        stream = await generator.generate_response(
+            messages=[{"role": "user", "content": "Explain"}],
+            model="o1-preview",
+            stream=True,
+        )
+        outputs = []
+        async for chunk in stream:
+            outputs.append(chunk)
+        return outputs
+
+    outputs = asyncio.run(exercise())
+
+    assert outputs[0] == "Hi"
+    assert outputs[1] == " there"
+    final = outputs[-1]
+    assert isinstance(final, dict)
+    assert final["text"] == "Hi there"
+    decoded = base64.b64decode(encoded)
+    assert final["audio"].startswith(decoded)
+    assert len(final["audio"]) >= len(decoded)
+    assert final["audio_voice"] == "delta-voice"
+    assert final["audio_format"] == "mp3"
+
+    kwargs = captured["kwargs"]
+    assert kwargs["modalities"] == ["text", "audio"]
+    assert kwargs["audio"] == {"voice": "verse", "format": "wav"}
 
 
 def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
