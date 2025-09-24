@@ -700,13 +700,51 @@ class OpenAISettingsWindow(Gtk.Window):
         if callable(model):
             store = model()
             if store is not None:
-                for index in range(store.get_n_items()):
-                    item = store.get_item(index)
-                    getter = getattr(item, "get_string", None)
-                    if callable(getter):
-                        text_value = getter()
-                        if isinstance(text_value, str):
-                            options.append(text_value)
+                get_n_items = getattr(store, "get_n_items", None)
+                get_item = getattr(store, "get_item", None)
+                if callable(get_n_items) and callable(get_item):
+                    for index in range(get_n_items()):
+                        item = get_item(index)
+                        getter = getattr(item, "get_string", None)
+                        if callable(getter):
+                            text_value = getter()
+                            if isinstance(text_value, str):
+                                options.append(text_value)
+                else:
+                    foreach = getattr(store, "foreach", None)
+                    if callable(foreach):
+                        def _collect(model_obj, _path, tree_iter, _user_data):
+                            value_getter = getattr(model_obj, "get_value", None)
+                            text_value = None
+                            if callable(value_getter):
+                                text_value = value_getter(tree_iter, 0)
+                            elif isinstance(tree_iter, (list, tuple)) and tree_iter:
+                                possible = tree_iter[0]
+                                if isinstance(possible, str):
+                                    text_value = possible
+                            if isinstance(text_value, str):
+                                options.append(text_value)
+                            return False
+
+                        foreach(_collect, None)
+                    else:
+                        iterator = None
+                        if hasattr(store, "__iter__"):
+                            try:
+                                iterator = iter(store)
+                            except TypeError:
+                                iterator = None
+                        if iterator is not None:
+                            for row in iterator:
+                                text_value = None
+                                if isinstance(row, (list, tuple)) and row:
+                                    candidate = row[0]
+                                    if isinstance(candidate, str):
+                                        text_value = candidate
+                                elif isinstance(row, str):
+                                    text_value = row
+                                if isinstance(text_value, str):
+                                    options.append(text_value)
         else:  # pragma: no cover - compatibility with GTK stubs
             stored_items = getattr(combo, "_items", None)
             if isinstance(stored_items, list) and stored_items:
