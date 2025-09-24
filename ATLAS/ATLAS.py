@@ -791,6 +791,9 @@ class ATLAS:
         reasoning_effort: Optional[str] = None,
         json_mode: Optional[Any] = None,
         json_schema: Optional[Any] = None,
+        audio_enabled: Optional[bool] = None,
+        audio_voice: Optional[str] = None,
+        audio_format: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Persist OpenAI defaults through the provider manager facade."""
 
@@ -814,6 +817,9 @@ class ATLAS:
             reasoning_effort=reasoning_effort,
             json_mode=json_mode,
             json_schema=json_schema,
+            audio_enabled=audio_enabled,
+            audio_voice=audio_voice,
+            audio_format=audio_format,
         )
 
     def get_chat_status_summary(self) -> Dict[str, str]:
@@ -1009,16 +1015,31 @@ class ATLAS:
         await self.speech_manager.close()
         self.logger.info("ATLAS closed and all providers unloaded.")
 
-    async def maybe_text_to_speech(self, response_text: str) -> None:
+    async def maybe_text_to_speech(self, response_text: Any) -> None:
         """Run text-to-speech for the provided response when enabled.
 
         Args:
-            response_text (str): The response to vocalize.
+            response_text: The response payload to vocalize. May be a plain
+                string or a mapping containing ``text``/``audio`` fields.
 
         Raises:
             RuntimeError: If text-to-speech is enabled but synthesis fails.
         """
-        if not response_text:
+
+        payload_text = ""
+        audio_available = False
+
+        if isinstance(response_text, dict):
+            payload_text = str(response_text.get("text") or "")
+            audio_available = bool(response_text.get("audio"))
+        else:
+            payload_text = str(response_text or "")
+
+        if not payload_text:
+            return
+
+        if audio_available:
+            # Skip synthetic TTS when OpenAI already returned audio output.
             return
 
         if not self.speech_manager.get_tts_status():
@@ -1027,7 +1048,7 @@ class ATLAS:
         self.logger.debug("TTS enabled; synthesizing response text.")
 
         try:
-            await self.speech_manager.text_to_speech(response_text)
+            await self.speech_manager.text_to_speech(payload_text)
         except Exception as exc:
             self.logger.error("Text-to-speech failed: %s", exc, exc_info=True)
             raise RuntimeError("Text-to-speech failed") from exc

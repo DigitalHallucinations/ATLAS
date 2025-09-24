@@ -143,6 +143,9 @@ def test_set_openai_llm_settings_updates_state(config_manager):
         base_url=" https://example/v1 ",
         organization="org-42",
         reasoning_effort="high",
+        audio_enabled=True,
+        audio_voice="aria",
+        audio_format="MP3",
     )
 
     assert result["model"] == "gpt-4o-mini"
@@ -160,6 +163,9 @@ def test_set_openai_llm_settings_updates_state(config_manager):
     assert stored["organization"] == "org-42"
     assert stored["json_mode"] is False
     assert stored["json_schema"] is None
+    assert stored["audio_enabled"] is True
+    assert stored["audio_voice"] == "aria"
+    assert stored["audio_format"] == "mp3"
 
     assert config_manager.config["DEFAULT_MODEL"] == "gpt-4o-mini"
     assert os.environ["DEFAULT_MODEL"] == "gpt-4o-mini"
@@ -216,6 +222,9 @@ def test_get_openai_llm_settings_includes_sampling_defaults(config_manager):
     assert snapshot["tool_choice"] is None
     assert snapshot["enable_code_interpreter"] is False
     assert snapshot["enable_file_search"] is False
+    assert snapshot["audio_enabled"] is False
+    assert snapshot["audio_voice"] == "alloy"
+    assert snapshot["audio_format"] == "wav"
 
 
 def test_set_openai_llm_settings_persists_json_mode(config_manager):

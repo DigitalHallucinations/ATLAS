@@ -222,6 +222,9 @@ class ConfigManager:
         reasoning_effort: Optional[str] = None,
         json_mode: Optional[Any] = None,
         json_schema: Optional[Any] = None,
+        audio_enabled: Optional[bool] = None,
+        audio_voice: Optional[str] = None,
+        audio_format: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Persist OpenAI chat-completion defaults and related metadata."""
 
@@ -400,6 +403,33 @@ class ConfigManager:
         else:
             normalized_file_search = bool(enable_file_search)
 
+        previous_audio_enabled = bool(settings_block.get("audio_enabled", False))
+        if audio_enabled is None:
+            normalized_audio_enabled = previous_audio_enabled
+        else:
+            normalized_audio_enabled = bool(audio_enabled)
+
+        def _normalize_audio_string(value: Optional[str], existing: Optional[str]) -> Optional[str]:
+            if value is None:
+                return existing
+
+            if isinstance(value, str):
+                cleaned = value.strip()
+                if not cleaned:
+                    return None
+                return cleaned
+
+            return existing
+
+        previous_voice = settings_block.get("audio_voice")
+        previous_format = settings_block.get("audio_format")
+
+        normalized_audio_voice = _normalize_audio_string(audio_voice, previous_voice)
+
+        normalized_audio_format = _normalize_audio_string(audio_format, previous_format)
+        if isinstance(normalized_audio_format, str):
+            normalized_audio_format = normalized_audio_format.lower()
+
         def _normalize_tool_choice(value: Optional[str], existing_value: Optional[str]) -> Optional[str]:
             if value is None:
                 return existing_value
@@ -439,6 +469,9 @@ class ConfigManager:
                 'json_schema': normalized_json_schema,
                 'enable_code_interpreter': normalized_code_interpreter,
                 'enable_file_search': normalized_file_search,
+                'audio_enabled': normalized_audio_enabled,
+                'audio_voice': normalized_audio_voice,
+                'audio_format': normalized_audio_format,
             }
         )
 
@@ -524,6 +557,9 @@ class ConfigManager:
             'json_schema': None,
             'enable_code_interpreter': False,
             'enable_file_search': False,
+            'audio_enabled': False,
+            'audio_voice': 'alloy',
+            'audio_format': 'wav',
         }
 
         stored = self.get_config('OPENAI_LLM')

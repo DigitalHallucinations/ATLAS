@@ -455,6 +455,9 @@ class DummyConfig:
             "reasoning_effort": "medium",
             "json_mode": False,
             "json_schema": None,
+            "audio_enabled": False,
+            "audio_voice": "alloy",
+            "audio_format": "wav",
         }
 
     def get_default_provider(self):
@@ -482,6 +485,9 @@ class DummyConfig:
         reasoning_effort=None,
         json_mode=None,
         json_schema=None,
+        audio_enabled=None,
+        audio_voice=None,
+        audio_format=None,
     ):
         if model:
             self._openai_settings["model"] = model
@@ -514,6 +520,12 @@ class DummyConfig:
             self._openai_settings["json_mode"] = bool(json_mode)
         if json_schema is not None:
             self._openai_settings["json_schema"] = json_schema
+        if audio_enabled is not None:
+            self._openai_settings["audio_enabled"] = bool(audio_enabled)
+        if audio_voice is not None:
+            self._openai_settings["audio_voice"] = audio_voice
+        if audio_format is not None:
+            self._openai_settings["audio_format"] = audio_format
         return dict(self._openai_settings)
 
     def get_app_root(self):
@@ -984,6 +996,9 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
         organization="org-99",
         reasoning_effort="low",
         json_mode=True,
+        audio_enabled=True,
+        audio_voice="verse",
+        audio_format="wav",
     )
 
     assert result["success"] is True
@@ -1000,6 +1015,9 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     assert settings["json_mode"] is True
     assert settings["json_schema"] is None
     assert settings["tool_choice"] == "required"
+    assert settings["audio_enabled"] is True
+    assert settings["audio_voice"] == "verse"
+    assert settings["audio_format"] == "wav"
     assert provider_manager.model_manager.models["OpenAI"][0] == "gpt-4o-mini"
     assert provider_manager.current_model == "gpt-4o-mini"
 
@@ -1011,6 +1029,9 @@ def test_generate_response_respects_function_calling_enabled(provider_manager):
         captured["function_calling"] = kwargs.get("function_calling")
         captured["parallel_tool_calls"] = kwargs.get("parallel_tool_calls")
         captured["tool_choice"] = kwargs.get("tool_choice")
+        captured["audio_enabled"] = kwargs.get("audio_enabled")
+        captured["audio_voice"] = kwargs.get("audio_voice")
+        captured["audio_format"] = kwargs.get("audio_format")
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
@@ -1029,6 +1050,9 @@ def test_generate_response_respects_function_calling_enabled(provider_manager):
     assert captured["function_calling"] is True
     assert captured["parallel_tool_calls"] is True
     assert captured["tool_choice"] is None
+    assert captured["audio_enabled"] is False
+    assert captured["audio_voice"] == provider_manager.get_openai_llm_settings()["audio_voice"]
+    assert captured["audio_format"] == provider_manager.get_openai_llm_settings()["audio_format"]
 
 
 def test_generate_response_respects_function_calling_disabled(provider_manager):
@@ -1040,6 +1064,7 @@ def test_generate_response_respects_function_calling_disabled(provider_manager):
         captured["function_calling"] = kwargs.get("function_calling")
         captured["parallel_tool_calls"] = kwargs.get("parallel_tool_calls")
         captured["tool_choice"] = kwargs.get("tool_choice")
+        captured["audio_enabled"] = kwargs.get("audio_enabled")
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
@@ -1058,6 +1083,7 @@ def test_generate_response_respects_function_calling_disabled(provider_manager):
     assert captured["function_calling"] is False
     assert captured["parallel_tool_calls"] is True
     assert captured["tool_choice"] == "none"
+    assert captured["audio_enabled"] is False
 
 
 def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
@@ -1105,6 +1131,9 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
         "json_schema": None,
         "enable_code_interpreter": True,
         "enable_file_search": True,
+        "audio_enabled": True,
+        "audio_voice": "lumen",
+        "audio_format": "ogg",
     }
     atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
     atlas_stub.list_openai_models = fake_list_openai_models
@@ -1129,6 +1158,9 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert window.require_tool_toggle.get_active() is False
     assert window.code_interpreter_toggle.get_active() is False
     assert window.file_search_toggle.get_active() is False
+    assert window.audio_reply_toggle.get_active() is True
+    assert window.audio_voice_combo.get_active_text() == "lumen"
+    assert window.audio_format_combo.get_active_text() == "ogg"
     assert window.organization_entry.get_text() == "org-42"
     assert window.reasoning_effort_combo.get_active_text() == "high"
     status_text = getattr(window.api_key_status_label, "label", None)
@@ -1151,6 +1183,9 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     window.require_tool_toggle.set_active(True)
     window.code_interpreter_toggle.set_active(True)
     window.file_search_toggle.set_active(False)
+    window.audio_reply_toggle.set_active(True)
+    window.audio_voice_combo.set_active(0)
+    window.audio_format_combo.set_active(0)
     window.organization_entry.set_text("org-new")
     window.base_url_entry.set_text("https://alt.example/v2")
     window.reasoning_effort_combo.set_active(1)
@@ -1174,6 +1209,9 @@ def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     assert saved_payload["json_schema"] == ""
     assert saved_payload["enable_code_interpreter"] is True
     assert saved_payload["enable_file_search"] is False
+    assert saved_payload["audio_enabled"] is True
+    assert saved_payload["audio_voice"] == "alloy"
+    assert saved_payload["audio_format"] == "wav"
     assert window._stored_base_url == "https://alt.example/v2"
     assert window._last_message[0] == "Success"
     assert window.closed is True
@@ -1196,6 +1234,9 @@ def test_openai_settings_window_saves_api_key(provider_manager):
         "organization": None,
         "reasoning_effort": "medium",
         "json_schema": None,
+        "audio_enabled": False,
+        "audio_voice": "alloy",
+        "audio_format": "wav",
     }
     atlas_stub.set_openai_llm_settings = lambda **_: {"success": True, "message": "saved"}
     atlas_stub.update_provider_api_key = provider_manager.update_provider_api_key
