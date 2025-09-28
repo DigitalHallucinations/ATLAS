@@ -198,53 +198,80 @@ if "mistralai" not in sys.modules:
     mistral_stub.Mistral = _Mistral
     sys.modules["mistralai"] = mistral_stub
 
-if "google" not in sys.modules:
-    google_stub = types.ModuleType("google")
-    genai_module = types.ModuleType("google.generativeai")
-    cloud_module = types.ModuleType("google.cloud")
+sys.modules.pop("google", None)
+google_stub = types.ModuleType("google")
+google_stub.__path__ = []  # type: ignore[attr-defined]
+genai_module = types.ModuleType("google.generativeai")
+cloud_module = types.ModuleType("google.cloud")
 
-    class _GenerativeClient:  # pragma: no cover - placeholder
+class _GenerativeClient:  # pragma: no cover - placeholder
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    class GenerativeModel:
         def __init__(self, *_args, **_kwargs):
             pass
 
-        class GenerativeModel:
-            def __init__(self, *_args, **_kwargs):
-                pass
+        async def generate_content_async(self, *_args, **_kwargs):
+            return types.SimpleNamespace(text="")
 
-            async def generate_content_async(self, *_args, **_kwargs):
-                return types.SimpleNamespace(text="")
+genai_module.configure = lambda *_args, **_kwargs: None
+genai_module.GenerativeModel = _GenerativeClient.GenerativeModel
+google_stub.generativeai = genai_module
 
-    genai_module.configure = lambda *_args, **_kwargs: None
-    genai_module.GenerativeModel = _GenerativeClient.GenerativeModel
-    google_stub.generativeai = genai_module
+class _SpeechClient:  # pragma: no cover - placeholder
+    def synthesize_speech(self, *_args, **_kwargs):
+        return types.SimpleNamespace(audio_content=b"")
 
-    class _SpeechClient:  # pragma: no cover - placeholder
-        def synthesize_speech(self, *_args, **_kwargs):
-            return types.SimpleNamespace(audio_content=b"")
+    def list_voices(self, *_args, **_kwargs):
+        return types.SimpleNamespace(voices=[])
 
-        def list_voices(self, *_args, **_kwargs):
-            return types.SimpleNamespace(voices=[])
-
-    cloud_module.speech_v1p1beta1 = types.SimpleNamespace(
-        SpeechClient=_SpeechClient,
-        VoiceSelectionParams=lambda *_args, **_kwargs: None,
-        SynthesisInput=lambda *_args, **_kwargs: None,
-        AudioConfig=lambda *_args, **_kwargs: None,
-        AudioEncoding=types.SimpleNamespace(MP3="MP3"),
-        SsmlVoiceGender=lambda value: types.SimpleNamespace(name=str(value)),
-    )
-    google_stub.cloud = cloud_module
-    sys.modules["google"] = google_stub
-    sys.modules["google.generativeai"] = genai_module
-    sys.modules["google.cloud"] = cloud_module
+cloud_module.speech_v1p1beta1 = types.SimpleNamespace(
+    SpeechClient=_SpeechClient,
+    VoiceSelectionParams=lambda *_args, **_kwargs: None,
+    SynthesisInput=lambda *_args, **_kwargs: None,
+    AudioConfig=lambda *_args, **_kwargs: None,
+    AudioEncoding=types.SimpleNamespace(MP3="MP3"),
+    SsmlVoiceGender=lambda value: types.SimpleNamespace(name=str(value)),
+)
+google_stub.cloud = cloud_module
+sys.modules["google"] = google_stub
+sys.modules["google.generativeai"] = genai_module
+sys.modules["google.cloud"] = cloud_module
 
 if "anthropic" not in sys.modules:
     anthropic_stub = types.ModuleType("anthropic")
 
     class _AsyncAnthropic:  # pragma: no cover - placeholder
+        class _Stream:
+            def __init__(self):
+                self._final_response = types.SimpleNamespace(
+                    content=[types.SimpleNamespace(type="text", text="")]
+                )
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_exc):
+                return False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+            async def get_final_response(self):
+                return self._final_response
+
         class Messages:
             async def create(self, *_args, **_kwargs):
-                return types.SimpleNamespace(content=[])
+                return types.SimpleNamespace(
+                    content=[types.SimpleNamespace(type="text", text="")]
+                )
+
+            def stream(self, *_args, **_kwargs):
+                return _AsyncAnthropic._Stream()
 
         def __init__(self, *_args, **_kwargs):
             self.messages = self.Messages()

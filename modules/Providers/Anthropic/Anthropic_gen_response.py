@@ -1,11 +1,11 @@
 # modules/Providers/Anthropic/Anthropic_gen_response.py
 
 import asyncio
-from typing import List, Dict, Union, AsyncIterator, Optional
+from typing import List, Dict, Union, AsyncIterator, Optional, Any, Tuple
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
-from anthropic import AsyncAnthropic, APIError, HUMAN_PROMPT, AI_PROMPT, RateLimitError
+from anthropic import AsyncAnthropic, APIError, RateLimitError
 import json
 
 class AnthropicGenerator:
@@ -39,38 +39,37 @@ class AnthropicGenerator:
         current_persona=None,
         functions: Optional[List[Dict]] = None,
         **kwargs
-    ) -> Union[str, AsyncIterator[str]]:
+    ) -> Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]:
         try:
             model = model or self.default_model
             stream = self.streaming_enabled if stream is None else stream
-            prompt = self.convert_messages_to_prompt(messages)
-            
+
             self.logger.info(f"Generating response with Anthropic AI using model: {model}")
 
-            completion_params = {
+            system_prompt, message_payload = self._prepare_messages(messages)
+
+            message_params = {
                 "model": model,
-                "prompt": prompt,
-                "max_tokens_to_sample": max_tokens,
+                "messages": message_payload,
+                "max_output_tokens": max_tokens,
                 "temperature": temperature,
-                "stream": stream,
                 **kwargs
             }
 
+            if system_prompt:
+                message_params["system"] = system_prompt
+
             if self.function_calling_enabled and functions:
-                completion_params["functions"] = functions
+                message_params["tools"] = functions
 
             if stream:
-                response = await asyncio.wait_for(
-                    self.client.completions.create(**completion_params),
-                    timeout=self.timeout
-                )
-                return self.process_streaming_response(response)
+                return self.process_streaming_response(message_params)
             else:
                 response = await asyncio.wait_for(
-                    self.client.completions.create(**completion_params),
+                    self.client.messages.create(**message_params),
                     timeout=self.timeout
                 )
-                return self.process_function_call(response) if self.function_calling_enabled else response.completion
+                return self.process_function_call(response) if self.function_calling_enabled else self._extract_text_content(response.content)
 
         except RateLimitError as e:
             self.logger.warning(f"Rate limit reached. Retrying: {str(e)}")
@@ -85,46 +84,116 @@ class AnthropicGenerator:
             self.logger.error(f"Unexpected error with Anthropic: {str(e)}")
             raise
 
-    def convert_messages_to_prompt(self, messages: List[Dict[str, str]]) -> str:
-        prompt = ""
+    def _prepare_messages(self, messages: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
+        system_messages: List[str] = []
+        formatted_messages: List[Dict[str, Any]] = []
+
         for message in messages:
-            role = message['role']
-            content = message['content']
-            
-            if role == 'system':
-                prompt += f"{content}\n\n"
-            elif role == 'user':
-                prompt += f"{HUMAN_PROMPT} {content}\n\n"
-            elif role == 'assistant':
-                prompt += f"{AI_PROMPT} {content}\n\n"
-        
-        prompt += f"{AI_PROMPT}"
-        return prompt
+            role = message.get("role")
+            content = message.get("content", "")
 
-    async def process_streaming_response(self, response) -> AsyncIterator[str]:
-        async for chunk in response:
-            if chunk.completion:
-                yield chunk.completion
-            await asyncio.sleep(0)
+            if role == "system":
+                if isinstance(content, str):
+                    system_messages.append(content)
+                else:
+                    system_messages.append(str(content))
+                continue
 
-    async def process_response(self, response: Union[str, AsyncIterator[str]]) -> str:
+            if isinstance(content, list):
+                formatted_content = content
+            elif isinstance(content, str):
+                formatted_content = [{"type": "text", "text": content}]
+            else:
+                formatted_content = [{"type": "text", "text": str(content)}]
+
+            formatted_messages.append({
+                "role": role,
+                "content": formatted_content
+            })
+
+        system_prompt = "\n\n".join(system_messages).strip()
+        return system_prompt, formatted_messages
+
+    async def process_streaming_response(self, message_params: Dict[str, Any]) -> AsyncIterator[Union[str, Dict[str, Any]]]:
+        async with self.client.messages.stream(**message_params) as stream:
+            async for event in stream:
+                event_type = getattr(event, "type", None)
+
+                if event_type == "content_block_delta":
+                    delta = getattr(event, "delta", None)
+                    if delta and getattr(delta, "type", None) == "text_delta":
+                        text = getattr(delta, "text", "")
+                        if text:
+                            yield text
+                elif event_type == "content_block_start":
+                    block = getattr(event, "content_block", None)
+                    if block is None:
+                        continue
+                    block_type = getattr(block, "type", None)
+                    if block_type is None and isinstance(block, dict):
+                        block_type = block.get("type")
+                    if block_type == "tool_use":
+                        block_dict = block if isinstance(block, dict) else None
+                        tool_payload = {
+                            "function_call": {
+                                "name": getattr(block, "name", None) or (block_dict.get("name") if block_dict else None),
+                                "arguments": getattr(block, "input", None) or (block_dict.get("input") if block_dict else {}),
+                                "id": getattr(block, "id", None) or (block_dict.get("id") if block_dict else None),
+                            }
+                        }
+                        yield tool_payload
+
+            final_response = await stream.get_final_response()
+            if self.function_calling_enabled:
+                function_call = self.process_function_call(final_response)
+                if isinstance(function_call, dict):
+                    yield function_call
+
+    def _extract_text_content(self, content_blocks: List[Any]) -> str:
+        collected_text: List[str] = []
+        for block in content_blocks or []:
+            block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
+            if block_type == "text":
+                text = getattr(block, "text", None)
+                if text is None and isinstance(block, dict):
+                    text = block.get("text")
+                if text:
+                    collected_text.append(text)
+        return "".join(collected_text)
+
+    async def process_response(self, response: Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]) -> str:
         if isinstance(response, str):
             return response
         else:
             full_response = ""
             async for chunk in response:
-                full_response += chunk
+                if isinstance(chunk, str):
+                    full_response += chunk
             return full_response
 
     def process_function_call(self, response):
-        if hasattr(response, 'function_call'):
-            return {
-                "function_call": {
-                    "name": response.function_call.name,
-                    "arguments": json.loads(response.function_call.arguments)
+        content_blocks = getattr(response, "content", None) or []
+        for block in content_blocks:
+            block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
+            if block_type == "tool_use":
+                name = getattr(block, "name", None) or (block.get("name") if isinstance(block, dict) else None)
+                arguments = getattr(block, "input", None) or (block.get("input") if isinstance(block, dict) else None)
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError:
+                        pass
+                return {
+                    "function_call": {
+                        "name": name,
+                        "arguments": arguments
+                    }
                 }
-            }
-        return response.completion
+
+        text_content = self._extract_text_content(content_blocks)
+        if text_content:
+            return text_content
+        return ""
 
     def set_streaming(self, enabled: bool):
         self.streaming_enabled = enabled
@@ -163,11 +232,11 @@ async def generate_response(
     current_persona=None,
     functions: Optional[List[Dict]] = None,
     **kwargs
-) -> Union[str, AsyncIterator[str]]:
+) -> Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]:
     generator = setup_anthropic_generator(config_manager)
     return await generator.generate_response(messages, model, max_tokens, temperature, stream, current_persona, functions, **kwargs)
 
-async def process_response(response: Union[str, AsyncIterator[str]]) -> str:
+async def process_response(response: Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]) -> str:
     generator = AnthropicGenerator(ConfigManager())
     return await generator.process_response(response)
 
