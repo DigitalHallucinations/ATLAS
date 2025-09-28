@@ -344,6 +344,24 @@ def test_anthropic_generate_response_sync_running_loop_error(monkeypatch):
     assert "use the async Anthropic API instead" in str(error)
 
 
+def test_anthropic_generator_uses_default_config(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+    monkeypatch.setenv("DEFAULT_PROVIDER", "OpenAI")
+
+    from modules.Providers.Anthropic import Anthropic_gen_response as anthropic_module
+
+    class _StubClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    monkeypatch.setattr(anthropic_module, "AsyncAnthropic", _StubClient)
+
+    generator = anthropic_module.AnthropicGenerator()
+
+    assert generator.api_key == "anthropic-key"
+
+
 def _build_atlas(atlas_class):
     atlas = atlas_class.__new__(atlas_class)
     atlas.provider_manager = None

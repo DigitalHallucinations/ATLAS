@@ -9,8 +9,8 @@ from anthropic import AsyncAnthropic, APIError, RateLimitError
 import json
 
 class AnthropicGenerator:
-    def __init__(self, config_manager=ConfigManager):
-        self.config_manager = config_manager
+    def __init__(self, config_manager: Optional[ConfigManager] = None):
+        self.config_manager = config_manager or ConfigManager()
         self.logger = setup_logger(__name__)
         self.api_key = self.config_manager.get_anthropic_api_key()
         if not self.api_key:
@@ -219,7 +219,7 @@ class AnthropicGenerator:
         self.retry_delay = retry_delay
         self.logger.info(f"Retry delay set to: {retry_delay} seconds")
 
-def setup_anthropic_generator(config_manager: ConfigManager):
+def setup_anthropic_generator(config_manager: Optional[ConfigManager] = None):
     return AnthropicGenerator(config_manager)
 
 async def generate_response(
@@ -237,7 +237,7 @@ async def generate_response(
     return await generator.generate_response(messages, model, max_tokens, temperature, stream, current_persona, functions, **kwargs)
 
 async def process_response(response: Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]) -> str:
-    generator = AnthropicGenerator(ConfigManager())
+    generator = setup_anthropic_generator()
     return await generator.process_response(response)
 
 def generate_response_sync(
