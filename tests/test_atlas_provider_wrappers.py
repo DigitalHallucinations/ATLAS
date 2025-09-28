@@ -12,6 +12,58 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 
+if "tenacity" not in sys.modules:
+    tenacity_stub = types.ModuleType("tenacity")
+
+    def _retry(*_args, **_kwargs):  # pragma: no cover - stub helper
+        def decorator(func):
+            return func
+
+        return decorator
+
+    tenacity_stub.retry = _retry
+    tenacity_stub.stop_after_attempt = lambda *_args, **_kwargs: None  # pragma: no cover - stub helper
+    tenacity_stub.wait_exponential = lambda *_args, **_kwargs: None  # pragma: no cover - stub helper
+    tenacity_stub.retry_if_exception_type = lambda *_args, **_kwargs: None  # pragma: no cover - stub helper
+    sys.modules["tenacity"] = tenacity_stub
+
+if "yaml" not in sys.modules:
+    yaml_stub = types.ModuleType("yaml")
+    yaml_stub.safe_load = lambda *_args, **_kwargs: {}
+    yaml_stub.dump = lambda *_args, **_kwargs: ""
+    sys.modules["yaml"] = yaml_stub
+
+if "dotenv" not in sys.modules:
+    dotenv_stub = types.ModuleType("dotenv")
+    dotenv_stub.load_dotenv = lambda *_args, **_kwargs: None
+    dotenv_stub.set_key = lambda *_args, **_kwargs: None
+    dotenv_stub.find_dotenv = lambda *_args, **_kwargs: ""
+    sys.modules["dotenv"] = dotenv_stub
+
+if "anthropic" not in sys.modules:
+    anthropic_stub = types.ModuleType("anthropic")
+
+    class _StubAsyncAnthropic:
+        def __init__(self, *_, **__):
+            pass
+
+        class _Messages:
+            async def create(self, *_, **__):  # pragma: no cover - stub helper
+                return types.SimpleNamespace(content=[])
+
+            def stream(self, *_, **__):  # pragma: no cover - stub helper
+                raise RuntimeError("stream not supported in stub")
+
+        @property
+        def messages(self):  # pragma: no cover - stub helper
+            return _StubAsyncAnthropic._Messages()
+
+    anthropic_stub.AsyncAnthropic = _StubAsyncAnthropic
+    anthropic_stub.APIError = Exception
+    anthropic_stub.RateLimitError = Exception
+    sys.modules["anthropic"] = anthropic_stub
+
+
 @pytest.fixture
 def atlas_class(monkeypatch):
     """Provide the ATLAS class with provider manager dependencies stubbed."""
@@ -225,6 +277,71 @@ def atlas_class(monkeypatch):
     importlib.import_module("ATLAS")
     atlas_module = importlib.import_module("ATLAS.ATLAS")
     return atlas_module.ATLAS
+
+
+def _stub_anthropic_generator_factory(collected_instances, streaming_enabled=True):
+    class _StubAnthropicGenerator:
+        def __init__(self, *_args, **_kwargs):
+            self.streaming_enabled = streaming_enabled
+            collected_instances.append(self)
+
+        async def generate_response(self, *_args, stream=None, **_kwargs):
+            self.last_stream = stream
+
+            async def _iter():
+                yield "hello"
+                yield " world"
+
+            return _iter()
+
+        async def process_response(self, response):
+            chunks = []
+            async for part in response:
+                chunks.append(part)
+            return "".join(chunks)
+
+    return _StubAnthropicGenerator
+
+
+def test_anthropic_generate_response_sync_returns_text(monkeypatch):
+    from modules.Providers.Anthropic import Anthropic_gen_response as anthropic
+
+    instances = []
+    monkeypatch.setattr(
+        anthropic,
+        "setup_anthropic_generator",
+        lambda _cfg: _stub_anthropic_generator_factory(instances)(),
+    )
+
+    result = anthropic.generate_response_sync(Mock(), messages=[{"role": "user", "content": "hi"}])
+
+    assert isinstance(result, str)
+    assert result == "hello world"
+    assert instances and instances[0].last_stream is True
+
+
+def test_anthropic_generate_response_sync_running_loop_error(monkeypatch):
+    from modules.Providers.Anthropic import Anthropic_gen_response as anthropic
+
+    instances = []
+    monkeypatch.setattr(
+        anthropic,
+        "setup_anthropic_generator",
+        lambda _cfg: _stub_anthropic_generator_factory(instances)(),
+    )
+
+    loop = asyncio.new_event_loop()
+    try:
+        async def _invoke():
+            with pytest.raises(RuntimeError) as excinfo:
+                anthropic.generate_response_sync(Mock(), messages=[])
+            return excinfo.value
+
+        error = loop.run_until_complete(_invoke())
+    finally:
+        loop.close()
+
+    assert "use the async Anthropic API instead" in str(error)
 
 
 def _build_atlas(atlas_class):
