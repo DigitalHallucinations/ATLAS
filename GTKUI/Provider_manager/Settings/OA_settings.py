@@ -35,6 +35,7 @@ class OpenAISettingsWindow(Gtk.Window):
         self._stored_base_url: Optional[str] = None
         self._current_settings: Dict[str, Any] = {}
         self._available_models: List[str] = []
+        self._model_placeholder: str = "Loading models…"
         self._api_key_visible = False
         self._base_url_is_valid = True
         self._reasoning_effort_values: Tuple[str, ...] = ("low", "medium", "high")
@@ -782,7 +783,7 @@ class OpenAISettingsWindow(Gtk.Window):
     # Model loading
     # ------------------------------------------------------------------
     def _begin_model_refresh(self, settings: Dict[str, Any]) -> None:
-        placeholder = settings.get("model") or "Loading models…"
+        placeholder = settings.get("model") or self._model_placeholder
         self.model_combo.remove_all()
         self.model_combo.append_text(placeholder)
         self.model_combo.set_active(0)
@@ -1037,6 +1038,22 @@ class OpenAISettingsWindow(Gtk.Window):
         if not model:
             self._show_message(
                 "Error", "Please choose a default model before saving.", Gtk.MessageType.ERROR
+            )
+            return
+
+        if model == self._model_placeholder:
+            self._show_message(
+                "Error",
+                f"Please choose a default model instead of \"{self._model_placeholder}\".",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
+        if self._available_models and model not in self._available_models:
+            self._show_message(
+                "Error",
+                "The selected default model is not available. Please choose another option.",
+                Gtk.MessageType.ERROR,
             )
             return
 
