@@ -250,8 +250,28 @@ def generate_response_sync(
     """
     Synchronous version of generate_response for compatibility with non-async code.
     """
-    loop = asyncio.get_event_loop()
-    response = loop.run_until_complete(generate_response(config_manager, messages, model, stream=stream, **kwargs))
-    if stream:
-        return loop.run_until_complete(process_response(response))
-    return response
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            response = loop.run_until_complete(
+                generate_response(config_manager, messages, model, stream=stream, **kwargs)
+            )
+            if stream:
+                result = loop.run_until_complete(process_response(response))
+            else:
+                result = response
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            return result
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
+    else:
+        response = loop.run_until_complete(
+            generate_response(config_manager, messages, model, stream=stream, **kwargs)
+        )
+        if stream:
+            return loop.run_until_complete(process_response(response))
+        return response
