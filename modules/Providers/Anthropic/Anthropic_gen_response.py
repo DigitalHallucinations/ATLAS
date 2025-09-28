@@ -247,31 +247,30 @@ def generate_response_sync(
     stream: Optional[bool] = None,
     **kwargs
 ) -> str:
-    """
-    Synchronous version of generate_response for compatibility with non-async code.
-    """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            response = loop.run_until_complete(
-                generate_response(config_manager, messages, model, stream=stream, **kwargs)
-            )
-            if stream:
-                result = loop.run_until_complete(process_response(response))
-            else:
-                result = response
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            return result
-        finally:
-            asyncio.set_event_loop(None)
-            loop.close()
-    else:
-        response = loop.run_until_complete(
-            generate_response(config_manager, messages, model, stream=stream, **kwargs)
+    """Synchronous wrapper for :meth:`AnthropicGenerator.generate_response`."""
+
+    generator = setup_anthropic_generator(config_manager)
+    resolved_stream = generator.streaming_enabled if stream is None else bool(stream)
+
+    async def _execute() -> str:
+        response = await generator.generate_response(
+            messages,
+            model,
+            stream=resolved_stream,
+            **kwargs,
         )
-        if stream:
-            return loop.run_until_complete(process_response(response))
-        return response
+        if resolved_stream:
+            return await generator.process_response(response)
+        return response  # type: ignore[return-value]
+
+    coroutine = _execute()
+    try:
+        return asyncio.run(coroutine)
+    except RuntimeError as exc:
+        coroutine.close()
+        if "asyncio.run() cannot be called" in str(exc):
+            raise RuntimeError(
+                "generate_response_sync cannot be called while an event loop is running; "
+                "use the async Anthropic API instead."
+            ) from exc
+        raise
