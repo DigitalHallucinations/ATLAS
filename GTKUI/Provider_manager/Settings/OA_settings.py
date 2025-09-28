@@ -1105,6 +1105,7 @@ class OpenAISettingsWindow(Gtk.Window):
 
         function_calling_enabled = payload["function_calling"]
         if not function_calling_enabled:
+            payload["parallel_tool_calls"] = False
             payload["tool_choice"] = "none"
             payload["enable_code_interpreter"] = False
             payload["enable_file_search"] = False
@@ -1181,6 +1182,8 @@ class OpenAISettingsWindow(Gtk.Window):
             if hasattr(widget, "set_sensitive"):
                 widget.set_sensitive(enabled)
         if not enabled:
+            if self.parallel_tool_calls_toggle.get_active():
+                self.parallel_tool_calls_toggle.set_active(False)
             if self.require_tool_toggle.get_active():
                 self.require_tool_toggle.set_active(False)
             for attr in ("code_interpreter_toggle", "file_search_toggle"):
