@@ -457,6 +457,75 @@ def test_anthropic_generator_uses_default_config(monkeypatch):
     assert generator.api_key == "anthropic-key"
 
 
+def test_anthropic_generator_allows_additional_retry_attempt(monkeypatch):
+    from modules.Providers.Anthropic import Anthropic_gen_response as anthropic_module
+
+    calls = {"count": 0}
+    failures_before_success = 2
+
+    class _StubMessages:
+        async def create(self, *_, **__):
+            calls["count"] += 1
+            if calls["count"] <= failures_before_success:
+                raise anthropic_module.RateLimitError("rate limited")
+            return types.SimpleNamespace(content=[])
+
+    class _StubClient:
+        def __init__(self, *_args, **_kwargs):
+            self.messages = _StubMessages()
+
+    monkeypatch.setattr(anthropic_module, "AsyncAnthropic", _StubClient)
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep_mock)
+
+    config = SimpleNamespace(
+        get_anthropic_api_key=lambda: "key",
+        get_anthropic_settings=lambda: {"max_retries": 2, "retry_delay": 0},
+    )
+
+    async def _run():
+        generator = anthropic_module.AnthropicGenerator(config)
+        return await generator._create_message_with_retry({})
+
+    result = asyncio.run(_run())
+
+    assert isinstance(result, types.SimpleNamespace)
+    assert calls["count"] == 3  # 1 initial attempt + 2 additional retries
+
+
+def test_anthropic_generator_stops_after_configured_additional_retries(monkeypatch):
+    from modules.Providers.Anthropic import Anthropic_gen_response as anthropic_module
+
+    calls = {"count": 0}
+
+    class _StubMessages:
+        async def create(self, *_, **__):
+            calls["count"] += 1
+            raise anthropic_module.RateLimitError("rate limited")
+
+    class _StubClient:
+        def __init__(self, *_args, **_kwargs):
+            self.messages = _StubMessages()
+
+    monkeypatch.setattr(anthropic_module, "AsyncAnthropic", _StubClient)
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep_mock)
+
+    config = SimpleNamespace(
+        get_anthropic_api_key=lambda: "key",
+        get_anthropic_settings=lambda: {"max_retries": 2, "retry_delay": 0},
+    )
+
+    async def _run():
+        generator = anthropic_module.AnthropicGenerator(config)
+        with pytest.raises(anthropic_module.RateLimitError):
+            await generator._create_message_with_retry({})
+
+    asyncio.run(_run())
+
+    assert calls["count"] == 3
+
+
 def _build_atlas(atlas_class):
     atlas = atlas_class.__new__(atlas_class)
     atlas.provider_manager = None
