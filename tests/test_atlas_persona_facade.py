@@ -17,6 +17,18 @@ if "dotenv" not in sys.modules:
     dotenv_stub.find_dotenv = lambda *_args, **_kwargs: ""
     sys.modules["dotenv"] = dotenv_stub
 
+if "anthropic" not in sys.modules:
+    anthropic_stub = types.ModuleType("anthropic")
+
+    class _StubAsyncAnthropic:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    anthropic_stub.AsyncAnthropic = _StubAsyncAnthropic
+    anthropic_stub.APIError = Exception
+    anthropic_stub.RateLimitError = Exception
+    sys.modules["anthropic"] = anthropic_stub
+
 if "huggingface_hub" not in sys.modules:
     hf_stub = types.ModuleType("huggingface_hub")
 
@@ -148,7 +160,6 @@ for module_name in [
     "modules.Providers.OpenAI.OA_gen_response",
     "modules.Providers.Mistral.Mistral_gen_response",
     "modules.Providers.Google.GG_gen_response",
-    "modules.Providers.Anthropic.Anthropic_gen_response",
 ]:
     if module_name not in sys.modules:
         module = types.ModuleType(module_name)
@@ -157,7 +168,69 @@ for module_name in [
             return ""
 
         module.generate_response = _async_response
+
+        if module_name.endswith("Anthropic_gen_response"):
+            class _StubAnthropicGenerator:
+                def __init__(self, *_args, **_kwargs):
+                    self.default_model = "claude-3-opus-20240229"
+
+                async def generate_response(self, *_args, **_kwargs):  # pragma: no cover
+                    return ""
+
+                async def process_streaming_response(self, response):  # pragma: no cover
+                    items = []
+                    async for entry in response:
+                        items.append(entry)
+                    return "".join(items)
+
+                def set_default_model(self, model):
+                    self.default_model = model
+
+                def set_streaming(self, _value):
+                    return None
+
+                def set_function_calling(self, _value):
+                    return None
+
+                def set_timeout(self, _value):
+                    return None
+
+                def set_max_retries(self, _value):
+                    return None
+
+                def set_retry_delay(self, _value):
+                    return None
+
+            module.AnthropicGenerator = _StubAnthropicGenerator
+            module.setup_anthropic_generator = lambda _cfg=None: _StubAnthropicGenerator()
+
+            class _StubAsyncAnthropic:
+                def __init__(self, *_args, **_kwargs):
+                    pass
+
+            module.AsyncAnthropic = _StubAsyncAnthropic
+            module.APIError = RuntimeError
+            module.RateLimitError = RuntimeError
+
         sys.modules[module_name] = module
+
+if "tenacity" not in sys.modules:
+    tenacity_stub = types.ModuleType("tenacity")
+
+    def _identity_decorator(*_args, **_kwargs):
+        def _wrap(func):
+            return func
+
+        if _args and callable(_args[0]) and len(_args) == 1 and not _kwargs:
+            return _args[0]
+        return _wrap
+
+    tenacity_stub.retry = _identity_decorator
+    tenacity_stub.stop_after_attempt = lambda *_args, **_kwargs: None
+    tenacity_stub.wait_exponential = lambda *_args, **_kwargs: None
+    tenacity_stub.retry_if_exception_type = lambda *_args, **_kwargs: None
+
+    sys.modules["tenacity"] = tenacity_stub
 
 if "modules.Speech_Services.Google_stt" not in sys.modules:
     google_stt_module = types.ModuleType("modules.Speech_Services.Google_stt")

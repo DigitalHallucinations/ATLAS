@@ -569,6 +569,119 @@ class ConfigManager:
         return defaults
 
 
+    def set_anthropic_settings(
+        self,
+        *,
+        model: Optional[str] = None,
+        stream: Optional[bool] = None,
+        function_calling: Optional[bool] = None,
+        timeout: Optional[int] = None,
+        max_retries: Optional[int] = None,
+        retry_delay: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Persist Anthropic defaults while validating incoming payloads."""
+
+        defaults = {
+            'model': 'claude-3-opus-20240229',
+            'stream': True,
+            'function_calling': False,
+            'timeout': 60,
+            'max_retries': 3,
+            'retry_delay': 5,
+        }
+
+        settings_block = dict(defaults)
+        existing = self.yaml_config.get('ANTHROPIC_LLM')
+        if isinstance(existing, dict):
+            for key in settings_block.keys():
+                if key in existing and existing[key] is not None:
+                    settings_block[key] = existing[key]
+
+        def _normalize_model(value: Optional[str], previous: Optional[str]) -> str:
+            if value is None:
+                return previous or defaults['model']
+            if not isinstance(value, str):
+                raise ValueError("Model must be provided as a string.")
+            cleaned = value.strip()
+            if not cleaned:
+                raise ValueError("Model cannot be empty.")
+            return cleaned
+
+        def _normalize_bool(value: Optional[bool], previous: bool) -> bool:
+            if value is None:
+                return bool(previous)
+            return bool(value)
+
+        def _normalize_int(
+            value: Optional[Any],
+            previous: int,
+            *,
+            field: str,
+            minimum: int,
+        ) -> int:
+            if value is None:
+                return int(previous)
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{field} must be an integer.") from exc
+            if parsed < minimum:
+                raise ValueError(f"{field} must be >= {minimum}.")
+            return parsed
+
+        settings_block['model'] = _normalize_model(model, settings_block.get('model'))
+        settings_block['stream'] = _normalize_bool(stream, settings_block.get('stream', True))
+        settings_block['function_calling'] = _normalize_bool(
+            function_calling,
+            settings_block.get('function_calling', False),
+        )
+        settings_block['timeout'] = _normalize_int(
+            timeout,
+            settings_block.get('timeout', defaults['timeout']),
+            field='Timeout',
+            minimum=1,
+        )
+        settings_block['max_retries'] = _normalize_int(
+            max_retries,
+            settings_block.get('max_retries', defaults['max_retries']),
+            field='Max retries',
+            minimum=0,
+        )
+        settings_block['retry_delay'] = _normalize_int(
+            retry_delay,
+            settings_block.get('retry_delay', defaults['retry_delay']),
+            field='Retry delay',
+            minimum=0,
+        )
+
+        self.yaml_config['ANTHROPIC_LLM'] = dict(settings_block)
+        self.config['ANTHROPIC_LLM'] = dict(settings_block)
+
+        self._write_yaml_config()
+
+        return dict(settings_block)
+
+    def get_anthropic_settings(self) -> Dict[str, Any]:
+        """Return Anthropic defaults merged with persisted overrides."""
+
+        defaults = {
+            'model': 'claude-3-opus-20240229',
+            'stream': True,
+            'function_calling': False,
+            'timeout': 60,
+            'max_retries': 3,
+            'retry_delay': 5,
+        }
+
+        stored = self.get_config('ANTHROPIC_LLM')
+        if isinstance(stored, dict):
+            for key in defaults.keys():
+                if key in stored and stored[key] is not None:
+                    defaults[key] = stored[key]
+
+        return defaults
+
+
     def get_openai_api_key(self) -> str:
         """
         Retrieves the OpenAI API key from the configuration.

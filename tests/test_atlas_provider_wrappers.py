@@ -63,6 +63,24 @@ if "anthropic" not in sys.modules:
     anthropic_stub.RateLimitError = Exception
     sys.modules["anthropic"] = anthropic_stub
 
+if "tenacity" not in sys.modules:
+    tenacity_stub = types.ModuleType("tenacity")
+
+    def _identity_decorator(*_args, **_kwargs):
+        def _wrap(func):
+            return func
+
+        if _args and callable(_args[0]) and len(_args) == 1 and not _kwargs:
+            return _args[0]
+        return _wrap
+
+    tenacity_stub.retry = _identity_decorator
+    tenacity_stub.stop_after_attempt = lambda *_args, **_kwargs: None
+    tenacity_stub.wait_exponential = lambda *_args, **_kwargs: None
+    tenacity_stub.retry_if_exception_type = lambda *_args, **_kwargs: None
+
+    sys.modules["tenacity"] = tenacity_stub
+
 
 @pytest.fixture
 def atlas_class(monkeypatch):
@@ -163,13 +181,56 @@ def atlas_class(monkeypatch):
             return ""
 
         module.generate_response = _generate_response
+
+        if name.endswith("Anthropic.Anthropic_gen_response"):
+            class _StubAnthropicGenerator:
+                def __init__(self, *_args, **_kwargs):
+                    self.default_model = "claude-3-opus-20240229"
+
+                async def generate_response(self, *_args, **_kwargs):  # pragma: no cover
+                    return ""
+
+                async def process_streaming_response(self, response):  # pragma: no cover
+                    chunks = []
+                    async for entry in response:
+                        chunks.append(entry)
+                    return "".join(chunks)
+
+                def set_default_model(self, model):
+                    self.default_model = model
+
+                def set_streaming(self, _value):
+                    return None
+
+                def set_function_calling(self, _value):
+                    return None
+
+                def set_timeout(self, _value):
+                    return None
+
+                def set_max_retries(self, _value):
+                    return None
+
+                def set_retry_delay(self, _value):
+                    return None
+
+            module.AnthropicGenerator = _StubAnthropicGenerator
+            module.setup_anthropic_generator = lambda _cfg=None: _StubAnthropicGenerator()
+
+            class _StubAsyncAnthropic:
+                def __init__(self, *_args, **_kwargs):
+                    pass
+
+            module.AsyncAnthropic = _StubAsyncAnthropic
+            module.APIError = RuntimeError
+            module.RateLimitError = RuntimeError
+
         return module
 
     for provider_module in [
         "modules.Providers.OpenAI.OA_gen_response",
         "modules.Providers.Mistral.Mistral_gen_response",
         "modules.Providers.Google.GG_gen_response",
-        "modules.Providers.Anthropic.Anthropic_gen_response",
     ]:
         ensure_module(provider_module, _make_async_provider_module(provider_module))
 

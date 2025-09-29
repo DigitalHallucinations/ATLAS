@@ -24,7 +24,7 @@ from modules.Providers.Grok.grok_generate_response import GrokGenerator
 from modules.Providers.OpenAI.OA_gen_response import generate_response as openai_generate_response
 from modules.Providers.Mistral.Mistral_gen_response import generate_response as mistral_generate_response
 from modules.Providers.Google.GG_gen_response import generate_response as google_generate_response
-from modules.Providers.Anthropic.Anthropic_gen_response import generate_response as anthropic_generate_response
+from modules.Providers.Anthropic.Anthropic_gen_response import AnthropicGenerator
 
 
 class ProviderManager:
@@ -55,6 +55,7 @@ class ProviderManager:
         self.process_streaming_response_func = None
         self.huggingface_generator = None
         self.grok_generator = None
+        self.anthropic_generator: Optional[AnthropicGenerator] = None
         self.current_functions = None
         self.providers = {}
         self.chat_session = None  
@@ -128,6 +129,15 @@ class ProviderManager:
         else:
             payload["error"] = error or message or "Unknown error"
         return payload
+
+    def _ensure_anthropic_generator(self) -> AnthropicGenerator:
+        if self.anthropic_generator is None:
+            self.anthropic_generator = AnthropicGenerator(self.config_manager)
+        return self.anthropic_generator
+
+    async def _anthropic_generate_response(self, _config_manager, **kwargs):
+        generator = self._ensure_anthropic_generator()
+        return await generator.generate_response(**kwargs)
 
     async def update_provider_api_key(
         self, provider_name: str, new_api_key: Optional[str]
@@ -263,6 +273,97 @@ class ProviderManager:
             return {}
 
         return settings
+
+    def set_anthropic_settings(
+        self,
+        *,
+        model: Optional[str] = None,
+        stream: Optional[bool] = None,
+        function_calling: Optional[bool] = None,
+        timeout: Optional[int] = None,
+        max_retries: Optional[int] = None,
+        retry_delay: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Persist Anthropic defaults and refresh the active generator when possible."""
+
+        try:
+            settings = self.config_manager.set_anthropic_settings(
+                model=model,
+                stream=stream,
+                function_calling=function_calling,
+                timeout=timeout,
+                max_retries=max_retries,
+                retry_delay=retry_delay,
+            )
+        except Exception as exc:
+            self.logger.error("Failed to persist Anthropic settings: %s", exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
+
+        generator: Optional[AnthropicGenerator] = None
+        try:
+            generator = self._ensure_anthropic_generator()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.warning(
+                "Anthropic settings saved but generator could not be refreshed: %s",
+                exc,
+                exc_info=True,
+            )
+        else:
+            try:
+                generator.set_default_model(settings.get("model"))
+                generator.set_streaming(settings.get("stream", True))
+                generator.set_function_calling(settings.get("function_calling", False))
+                generator.set_timeout(settings.get("timeout", 60))
+                generator.set_max_retries(settings.get("max_retries", 3))
+                generator.set_retry_delay(settings.get("retry_delay", 5))
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.warning(
+                    "Unable to apply Anthropic settings to the live generator: %s",
+                    exc,
+                    exc_info=True,
+                )
+
+        promoted_model = settings.get("model")
+        if promoted_model:
+            with self.model_manager.lock:
+                current = list(self.model_manager.models.get("Anthropic", []))
+                reordered = [promoted_model] + [name for name in current if name != promoted_model]
+                self.model_manager.models["Anthropic"] = reordered or [promoted_model]
+            self.model_manager.set_model(promoted_model, "Anthropic")
+            if self.current_llm_provider == "Anthropic":
+                self.current_model = promoted_model
+
+        message = "Anthropic settings saved."
+        return self._build_result(True, message=message, data=settings)
+
+    def get_anthropic_settings(self) -> Dict[str, Any]:
+        """Retrieve Anthropic defaults, returning an empty mapping on failure."""
+
+        getter = getattr(self.config_manager, "get_anthropic_settings", None)
+        if not callable(getter):
+            self.logger.warning("Config manager does not expose Anthropic settings accessor.")
+            return {}
+
+        try:
+            settings = getter() or {}
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to load Anthropic settings: %s", exc, exc_info=True)
+            return {}
+
+        return settings
+
+    def get_models_for_provider(self, provider: str) -> List[str]:
+        """Return cached model names for the requested provider."""
+
+        try:
+            models = self.model_manager.get_available_models(provider).get(provider, [])
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error(
+                "Failed to read cached models for %s: %s", provider, exc, exc_info=True
+            )
+            return []
+
+        return list(models)
 
     async def list_openai_models(
         self,
@@ -782,11 +883,13 @@ class ProviderManager:
                     if hasattr(self.model_manager, "current_provider"):
                         self.model_manager.current_provider = "HuggingFace"
             elif llm_provider == "Anthropic":
-                self.generate_response_func = anthropic_generate_response
-                self.process_streaming_response_func = None
                 self.grok_generator = None
                 self.huggingface_generator = None
-                default_model = self.get_default_model_for_provider("Anthropic")
+                generator = self._ensure_anthropic_generator()
+                self.generate_response_func = self._anthropic_generate_response
+                self.process_streaming_response_func = generator.process_streaming_response
+
+                default_model = generator.default_model or self.get_default_model_for_provider("Anthropic")
                 if default_model:
                     await self.set_model(default_model)
                 else:

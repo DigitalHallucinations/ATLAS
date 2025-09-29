@@ -24,6 +24,41 @@ class AnthropicGenerator:
         self.retry_delay = 5
         self.timeout = 60
 
+        settings: Dict[str, Any] = {}
+        getter = getattr(self.config_manager, "get_anthropic_settings", None)
+        if callable(getter):
+            try:
+                settings = getter() or {}
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.warning(
+                    "Unable to load persisted Anthropic settings: %s", exc, exc_info=True
+                )
+
+        if isinstance(settings, dict):
+            model = settings.get("model")
+            if isinstance(model, str) and model.strip():
+                self.default_model = model.strip()
+
+            stream = settings.get("stream")
+            if stream is not None:
+                self.streaming_enabled = bool(stream)
+
+            fn_calling = settings.get("function_calling")
+            if fn_calling is not None:
+                self.function_calling_enabled = bool(fn_calling)
+
+            timeout = settings.get("timeout")
+            if isinstance(timeout, (int, float)) and timeout > 0:
+                self.timeout = int(timeout)
+
+            max_retries = settings.get("max_retries")
+            if isinstance(max_retries, (int, float)) and max_retries >= 0:
+                self.max_retries = int(max_retries)
+
+            retry_delay = settings.get("retry_delay")
+            if isinstance(retry_delay, (int, float)) and retry_delay >= 0:
+                self.retry_delay = int(retry_delay)
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),

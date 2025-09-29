@@ -11,6 +11,7 @@ import logging
 from GTKUI.Utils.utils import create_box
 from .Settings.HF_settings import HuggingFaceSettingsWindow
 from .Settings.OA_settings import OpenAISettingsWindow
+from .Settings.Anthropic_settings import AnthropicSettingsWindow
 
 class ProviderManagement:
     """
@@ -186,6 +187,8 @@ class ProviderManagement:
                 return
 
             self.show_huggingface_settings()
+        elif provider_name == "Anthropic":
+            self.show_anthropic_settings()
         else:
             self.show_provider_settings(provider_name)
 
@@ -202,6 +205,13 @@ class ProviderManagement:
         """
         settings_window = HuggingFaceSettingsWindow(self.ATLAS, self.config_manager, self.parent_window)
         settings_window.set_tooltip_text("Configure HuggingFace provider options and credentials.")
+        settings_window.present()
+
+    def show_anthropic_settings(self):
+        """Display the Anthropic provider configuration dialog."""
+
+        settings_window = AnthropicSettingsWindow(self.ATLAS, self.config_manager, self.parent_window)
+        settings_window.set_tooltip_text("Configure Anthropic defaults and retry behaviour.")
         settings_window.present()
 
     # ------------------------ Settings Window ------------------------

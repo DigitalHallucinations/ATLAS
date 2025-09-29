@@ -761,6 +761,12 @@ class ATLAS:
         settings = self._require_provider_manager().get_openai_llm_settings()
         return dict(settings)
 
+    def get_anthropic_settings(self) -> Dict[str, Any]:
+        """Return Anthropic defaults via the provider manager facade."""
+
+        settings = self._require_provider_manager().get_anthropic_settings()
+        return dict(settings)
+
     async def list_openai_models(
         self,
         *,
@@ -821,6 +827,41 @@ class ATLAS:
             audio_voice=audio_voice,
             audio_format=audio_format,
         )
+
+    def set_anthropic_settings(
+        self,
+        *,
+        model: str,
+        stream: bool,
+        function_calling: bool,
+        timeout: int,
+        max_retries: int,
+        retry_delay: int,
+    ) -> Dict[str, Any]:
+        """Persist Anthropic defaults through the provider manager facade."""
+
+        manager = self._require_provider_manager()
+        setter = getattr(manager, "set_anthropic_settings", None)
+        if not callable(setter):
+            raise AttributeError("Provider manager does not support Anthropic settings updates.")
+
+        return setter(
+            model=model,
+            stream=stream,
+            function_calling=function_calling,
+            timeout=timeout,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+        )
+
+    def get_models_for_provider(self, provider: str) -> List[str]:
+        """Return cached model names for the requested provider."""
+
+        manager = self._require_provider_manager()
+        getter = getattr(manager, "get_models_for_provider", None)
+        if not callable(getter):
+            return []
+        return getter(provider)
 
     def get_chat_status_summary(self) -> Dict[str, str]:
         """Return a consolidated snapshot of chat-related status information."""
