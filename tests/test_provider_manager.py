@@ -503,6 +503,7 @@ import ATLAS.provider_manager as provider_manager_module
 from ATLAS.provider_manager import ProviderManager
 from GTKUI.Provider_manager.Settings.OA_settings import OpenAISettingsWindow
 from GTKUI.Provider_manager.Settings.Anthropic_settings import AnthropicSettingsWindow
+from GTKUI.Provider_manager.Settings import Anthropic_settings
 
 
 class DummyConfig:
@@ -1476,6 +1477,65 @@ def test_anthropic_settings_window_saves_api_key(provider_manager):
     assert window.api_key_status_label.label.startswith("An API key is saved for Anthropic.")
     assert "••••5678" in window.api_key_status_label.label
     assert window.api_key_entry.placeholder == "Saved key: ••••5678"
+
+
+def test_anthropic_settings_window_fallback_is_non_blocking(provider_manager, monkeypatch):
+    atlas_stub = types.SimpleNamespace()
+
+    status_payload: Dict[str, object] = {"has_key": False, "metadata": {}}
+
+    atlas_stub.get_anthropic_settings = lambda: {
+        "model": "claude-3-opus-20240229",
+        "stream": True,
+        "function_calling": False,
+        "timeout": 60,
+        "max_retries": 3,
+        "retry_delay": 5,
+    }
+    atlas_stub.get_models_for_provider = lambda name: ["claude-3-opus-20240229"]
+
+    def fake_update_provider_api_key(provider, api_key):
+        status_payload.update({"has_key": True, "metadata": {"hint": "••••4321"}})
+        return {"success": True, "message": "saved"}
+
+    atlas_stub.update_provider_api_key = fake_update_provider_api_key
+    atlas_stub.get_provider_api_key_status = lambda name: dict(status_payload)
+
+    window = AnthropicSettingsWindow(atlas_stub, provider_manager.config_manager, None)
+
+    state = {"scheduled": False, "button_disabled_before_success": False}
+
+    class _FakeFuture:
+        def result(self):  # pragma: no cover - ensuring the old blocking call is gone
+            raise AssertionError("future.result() should not be invoked")
+
+    def fake_run_async_in_thread(factory, *, on_success=None, on_error=None, **_kwargs):
+        state["scheduled"] = True
+        state["button_disabled_before_success"] = not getattr(window.save_key_button, "sensitive", True)
+        try:
+            result = factory()
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            if on_error is not None:
+                on_error(exc)
+        else:
+            if on_success is not None:
+                on_success(result)
+        return _FakeFuture()
+
+    monkeypatch.setattr(
+        Anthropic_settings,
+        "run_async_in_thread",
+        fake_run_async_in_thread,
+    )
+
+    window.api_key_entry.set_text("fallback-key")
+    window.on_save_api_key_clicked(None)
+
+    assert state["scheduled"] is True
+    assert state["button_disabled_before_success"] is True
+    assert getattr(window.save_key_button, "sensitive", True) is True
+    assert window._last_message[0] == "Success"
+    assert window.api_key_entry.get_text() == ""
 
 
 def test_openai_settings_window_falls_back_to_cached_models(provider_manager):
