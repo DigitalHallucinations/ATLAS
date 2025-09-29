@@ -4,6 +4,7 @@
 
 import asyncio
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
 
@@ -274,15 +275,34 @@ class AnthropicGenerator:
                     collected_text.append(text)
         return "".join(collected_text)
 
-    async def process_response(self, response: Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]) -> str:
+    async def process_response(
+        self, response: Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]
+    ) -> Union[str, Dict[str, Any]]:
+        """Consume a streamed response and return aggregated text or structured data.
+
+        The first non-text chunk (typically a function-call payload) is returned
+        immediately. Otherwise, all text fragments are concatenated and returned
+        as a single string.
+        """
+
         if isinstance(response, str):
             return response
-        else:
-            full_response = ""
-            async for chunk in response:
-                if isinstance(chunk, str):
-                    full_response += chunk
-            return full_response
+
+        collected_text: List[str] = []
+        async for chunk in response:
+            if isinstance(chunk, str):
+                collected_text.append(chunk)
+                continue
+
+            if isinstance(chunk, dict):
+                return chunk
+
+            if isinstance(chunk, Mapping):
+                return dict(chunk)
+
+            return chunk  # type: ignore[return-value]
+
+        return "".join(collected_text)
 
     def process_function_call(self, response):
         content_blocks = getattr(response, "content", None) or []
@@ -358,7 +378,9 @@ async def generate_response(
     generator = setup_anthropic_generator(config_manager)
     return await generator.generate_response(messages, model, max_tokens, temperature, stream, current_persona, functions, **kwargs)
 
-async def process_response(response: Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]) -> str:
+async def process_response(
+    response: Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]
+) -> Union[str, Dict[str, Any]]:
     generator = setup_anthropic_generator()
     return await generator.process_response(response)
 
@@ -368,13 +390,17 @@ def generate_response_sync(
     model: Optional[str] = None,
     stream: Optional[bool] = None,
     **kwargs
-) -> str:
-    """Synchronous wrapper for :meth:`AnthropicGenerator.generate_response`."""
+) -> Union[str, Dict[str, Any]]:
+    """Synchronous wrapper for :meth:`AnthropicGenerator.generate_response`.
+
+    Returns either the aggregated text content or the first structured payload
+    encountered when streaming is enabled.
+    """
 
     generator = setup_anthropic_generator(config_manager)
     resolved_stream = generator.streaming_enabled if stream is None else bool(stream)
 
-    async def _execute() -> str:
+    async def _execute() -> Union[str, Dict[str, Any]]:
         response = await generator.generate_response(
             messages,
             model,

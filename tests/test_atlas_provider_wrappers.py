@@ -340,26 +340,37 @@ def atlas_class(monkeypatch):
     return atlas_module.ATLAS
 
 
-def _stub_anthropic_generator_factory(collected_instances, streaming_enabled=True):
+def _stub_anthropic_generator_factory(
+    collected_instances,
+    streaming_enabled=True,
+    stream_sequence=None,
+):
+    if stream_sequence is None:
+        stream_sequence = ["hello", " world"]
+
     class _StubAnthropicGenerator:
         def __init__(self, *_args, **_kwargs):
             self.streaming_enabled = streaming_enabled
+            self.stream_sequence = stream_sequence
             collected_instances.append(self)
 
         async def generate_response(self, *_args, stream=None, **_kwargs):
             self.last_stream = stream
 
             async def _iter():
-                yield "hello"
-                yield " world"
+                for chunk in self.stream_sequence:
+                    yield chunk
 
             return _iter()
 
         async def process_response(self, response):
-            chunks = []
+            collected = []
             async for part in response:
-                chunks.append(part)
-            return "".join(chunks)
+                if isinstance(part, str):
+                    collected.append(part)
+                    continue
+                return part
+            return "".join(collected)
 
     return _StubAnthropicGenerator
 
@@ -378,6 +389,29 @@ def test_anthropic_generate_response_sync_returns_text(monkeypatch):
 
     assert isinstance(result, str)
     assert result == "hello world"
+    assert instances and instances[0].last_stream is True
+
+
+def test_anthropic_generate_response_sync_streams_function_call(monkeypatch):
+    from modules.Providers.Anthropic import Anthropic_gen_response as anthropic
+
+    instances = []
+    streamed_call = {"function_call": {"name": "my_tool", "arguments": {"x": 1}}}
+    monkeypatch.setattr(
+        anthropic,
+        "setup_anthropic_generator",
+        lambda _cfg: _stub_anthropic_generator_factory(
+            instances,
+            stream_sequence=["ignored text", streamed_call],
+        )(),
+    )
+
+    result = anthropic.generate_response_sync(
+        Mock(),
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    assert result == streamed_call
     assert instances and instances[0].last_stream is True
 
 
