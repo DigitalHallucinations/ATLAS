@@ -11,6 +11,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib
 
 from GTKUI.Utils.utils import create_box
+from modules.background_tasks import run_async_in_thread
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,37 @@ class AnthropicSettingsWindow(Gtk.Window):
         grid = Gtk.Grid(column_spacing=12, row_spacing=8)
         container.append(grid)
 
+        self._api_key_visible = False
+        self._default_api_key_placeholder = "Enter your Anthropic API key"
+
         row = 0
+        api_label = Gtk.Label(label="Anthropic API Key:")
+        api_label.set_xalign(0.0)
+        grid.attach(api_label, 0, row, 1, 1)
+
+        api_entry_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        grid.attach(api_entry_box, 1, row, 1, 1)
+
+        self.api_key_entry = Gtk.Entry()
+        self.api_key_entry.set_hexpand(True)
+        if hasattr(self.api_key_entry, "set_visibility"):
+            self.api_key_entry.set_visibility(False)
+        if hasattr(self.api_key_entry, "set_invisible_char"):
+            self.api_key_entry.set_invisible_char("•")
+        self.api_key_entry.set_placeholder_text(self._default_api_key_placeholder)
+        self.api_key_entry.set_tooltip_text("Enter your Anthropic API key.")
+        api_entry_box.append(self.api_key_entry)
+
+        self.api_key_toggle = Gtk.Button(label="Show")
+        self.api_key_toggle.connect("clicked", self._on_api_key_toggle_clicked)
+        api_entry_box.append(self.api_key_toggle)
+
+        row += 1
+        self.api_key_status_label = Gtk.Label(label="")
+        self.api_key_status_label.set_xalign(0.0)
+        grid.attach(self.api_key_status_label, 0, row, 2, 1)
+
+        row += 1
         model_label = Gtk.Label(label="Default Model:")
         model_label.set_xalign(0.0)
         grid.attach(model_label, 0, row, 1, 1)
@@ -83,13 +114,19 @@ class AnthropicSettingsWindow(Gtk.Window):
         grid.attach(self.retry_delay_spin, 1, row, 1, 1)
 
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        if hasattr(button_box, "set_halign"):
+            button_box.set_halign(Gtk.Align.END)
         container.append(button_box)
 
         cancel_button = Gtk.Button(label="Cancel")
         cancel_button.connect("clicked", self.on_cancel_clicked)
         button_box.append(cancel_button)
 
-        save_button = Gtk.Button(label="Save")
+        save_key_button = Gtk.Button(label="Save API Key")
+        save_key_button.connect("clicked", self.on_save_api_key_clicked)
+        button_box.append(save_key_button)
+
+        save_button = Gtk.Button(label="Save Settings")
         save_button.connect("clicked", self.on_save_clicked)
         button_box.append(save_button)
 
@@ -158,8 +195,70 @@ class AnthropicSettingsWindow(Gtk.Window):
         if isinstance(retry_delay, (int, float)) and retry_delay >= 0:
             self.retry_delay_spin.set_value(int(retry_delay))
 
+        self._refresh_api_key_status()
+
     def on_cancel_clicked(self, *_args) -> None:
         self.close()
+
+    def on_save_api_key_clicked(self, *_args) -> None:
+        api_key = (self.api_key_entry.get_text() or "").strip()
+        if not api_key:
+            self._show_message("Error", "Enter an API key before saving.", Gtk.MessageType.ERROR)
+            return
+
+        def handle_success(result):
+            GLib.idle_add(self._handle_api_key_save_result, result)
+
+        def handle_error(exc: Exception) -> None:
+            logger.error("Error saving Anthropic API key: %s", exc, exc_info=True)
+            GLib.idle_add(
+                self._handle_api_key_save_result,
+                {"success": False, "error": str(exc)},
+            )
+
+        helper = getattr(self.ATLAS, "update_provider_api_key_in_background", None)
+        if callable(helper):
+            try:
+                helper(
+                    "Anthropic",
+                    api_key,
+                    on_success=handle_success,
+                    on_error=handle_error,
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.error("Unable to schedule Anthropic API key save: %s", exc, exc_info=True)
+                self._show_message(
+                    "Error",
+                    f"Failed to save API key: {str(exc)}",
+                    Gtk.MessageType.ERROR,
+                )
+            return
+
+        updater = getattr(self.ATLAS, "update_provider_api_key", None)
+        if not callable(updater):
+            self._show_message(
+                "Error",
+                "Saving API keys is not supported in this build.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
+        try:
+            future = run_async_in_thread(
+                lambda: updater("Anthropic", api_key),
+                on_success=handle_success,
+                on_error=handle_error,
+                logger=logger,
+                thread_name="anthropic-api-key-fallback",
+            )
+            future.result()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Unable to start fallback API key save task: %s", exc, exc_info=True)
+            self._show_message(
+                "Error",
+                f"Failed to save API key: {str(exc)}",
+                Gtk.MessageType.ERROR,
+            )
 
     def on_save_clicked(self, *_args) -> None:
         selected_model = self.model_combo.get_active_text()
@@ -204,6 +303,75 @@ class AnthropicSettingsWindow(Gtk.Window):
         elif result is not None:
             detail = str(result)
         self._show_message("Error", detail, Gtk.MessageType.ERROR)
+
+    def _handle_api_key_save_result(self, result: Dict[str, object]) -> bool:
+        if isinstance(result, dict) and result.get("success"):
+            message = result.get("message") or "API key saved."
+            self._show_message("Success", message, Gtk.MessageType.INFO)
+            self.api_key_entry.set_text("")
+            self._refresh_api_key_status()
+        else:
+            if isinstance(result, dict):
+                detail = result.get("error") or result.get("message") or "Unable to save API key."
+            else:
+                detail = str(result)
+            self._show_message("Error", detail, Gtk.MessageType.ERROR)
+
+        return False
+
+    def _on_api_key_toggle_clicked(self, _button: Gtk.Button) -> None:
+        self._api_key_visible = not self._api_key_visible
+
+        if hasattr(self.api_key_entry, "set_visibility"):
+            self.api_key_entry.set_visibility(self._api_key_visible)
+        else:  # pragma: no cover - testing stubs
+            self.api_key_entry.visibility = self._api_key_visible
+
+        label = "Hide" if self._api_key_visible else "Show"
+        if hasattr(self.api_key_toggle, "set_label"):
+            self.api_key_toggle.set_label(label)
+        else:  # pragma: no cover - testing stubs
+            self.api_key_toggle.label = label
+
+    def _refresh_api_key_status(self) -> None:
+        status_text = "Credential status is unavailable."
+        placeholder = self._default_api_key_placeholder
+        tooltip = "Enter your Anthropic API key."
+
+        atlas = getattr(self, "ATLAS", None)
+        if atlas is not None and hasattr(atlas, "get_provider_api_key_status"):
+            try:
+                payload = atlas.get_provider_api_key_status("Anthropic") or {}
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.error("Unable to determine Anthropic API key status: %s", exc, exc_info=True)
+            else:
+                has_key = bool(payload.get("has_key"))
+                metadata = payload.get("metadata") if isinstance(payload, dict) else {}
+                hint = ""
+                if isinstance(metadata, dict):
+                    hint = metadata.get("hint") or ""
+
+                if has_key:
+                    suffix = f" ({hint})" if hint else ""
+                    status_text = f"An API key is saved for Anthropic.{suffix}"
+                    if hint:
+                        placeholder = f"Saved key: {hint}"
+                        tooltip = f"A saved Anthropic key is active ({hint}). Enter a new key to replace it."
+                    else:
+                        tooltip = "An Anthropic API key is saved. Enter a new key to replace it."
+                else:
+                    status_text = "No API key saved for Anthropic."
+                    tooltip = "Enter your Anthropic API key."
+
+        if hasattr(self.api_key_entry, "set_placeholder_text"):
+            self.api_key_entry.set_placeholder_text(placeholder)
+        if hasattr(self.api_key_entry, "set_tooltip_text"):
+            self.api_key_entry.set_tooltip_text(tooltip)
+
+        if hasattr(self.api_key_status_label, "set_label"):
+            self.api_key_status_label.set_label(status_text)
+        else:  # pragma: no cover - testing stubs
+            self.api_key_status_label.label = status_text
 
     def _show_message(self, title: str, message: str, message_type: Gtk.MessageType) -> None:
         self._last_message = (title, message, message_type)
