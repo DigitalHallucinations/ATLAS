@@ -644,7 +644,7 @@ class ConfigManager:
         settings_block['max_retries'] = _normalize_int(
             max_retries,
             settings_block.get('max_retries', defaults['max_retries']),
-            field='Max retries',
+            field='Additional retries (after first attempt)',
             minimum=0,
         )
         settings_block['retry_delay'] = _normalize_int(

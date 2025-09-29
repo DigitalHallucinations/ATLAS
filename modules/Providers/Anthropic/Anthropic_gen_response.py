@@ -348,7 +348,9 @@ class AnthropicGenerator:
     def set_max_retries(self, max_retries: int):
         retries_value = _normalise_positive_int(max_retries, self.max_retries, minimum=0)
         self.max_retries = retries_value
-        self.logger.info(f"Max retries set to: {retries_value}")
+        self.logger.info(
+            f"Max retries (additional attempts) set to: {retries_value}"
+        )
 
     def set_retry_delay(self, retry_delay: int):
         retry_delay_value = _normalise_positive_int(retry_delay, self.retry_delay, minimum=0)
@@ -356,8 +358,10 @@ class AnthropicGenerator:
         self.logger.info(f"Retry delay set to: {retry_delay_value} seconds")
 
     def _build_retry_schedule(self) -> _RetrySchedule:
-        configured_attempts = _normalise_positive_int(self.max_retries, self.max_retries, minimum=0)
-        attempts = max(1, configured_attempts)
+        configured_attempts = _normalise_positive_int(
+            self.max_retries, self.max_retries, minimum=0
+        )
+        attempts = max(1, configured_attempts + 1)
         delay = _normalise_positive_int(self.retry_delay, self.retry_delay, minimum=0)
         return _RetrySchedule(attempts=attempts, base_delay=delay or 1)
 

@@ -113,7 +113,7 @@ class AnthropicSettingsWindow(Gtk.Window):
         grid.attach(self.timeout_spin, 1, row, 1, 1)
 
         row += 1
-        retries_label = Gtk.Label(label="Max retries:")
+        retries_label = Gtk.Label(label="Additional retries (after first attempt):")
         retries_label.set_xalign(0.0)
         grid.attach(retries_label, 0, row, 1, 1)
         self.retries_adjustment = Gtk.Adjustment(lower=0, upper=10, step_increment=1, page_increment=1, value=3)
