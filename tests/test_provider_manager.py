@@ -1437,6 +1437,47 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
     assert window.closed is True
 
 
+def test_anthropic_settings_window_saves_api_key(provider_manager):
+    atlas_stub = types.SimpleNamespace()
+
+    status_payload: Dict[str, object] = {"has_key": False, "metadata": {}}
+    saved_call: Dict[str, object] = {}
+
+    atlas_stub.get_anthropic_settings = lambda: {
+        "model": "claude-3-opus-20240229",
+        "stream": True,
+        "function_calling": False,
+        "timeout": 60,
+        "max_retries": 3,
+        "retry_delay": 5,
+    }
+    atlas_stub.get_models_for_provider = lambda name: ["claude-3-opus-20240229"]
+
+    def fake_update_in_background(provider, api_key, *, on_success=None, on_error=None):
+        saved_call["provider"] = provider
+        saved_call["api_key"] = api_key
+        status_payload.update({"has_key": True, "metadata": {"hint": "••••5678"}})
+        if on_success is not None:
+            on_success({"success": True, "message": "API key saved."})
+
+    atlas_stub.update_provider_api_key_in_background = fake_update_in_background
+    atlas_stub.get_provider_api_key_status = lambda name: dict(status_payload)
+
+    window = AnthropicSettingsWindow(atlas_stub, provider_manager.config_manager, None)
+
+    assert window.api_key_status_label.label == "No API key saved for Anthropic."
+
+    window.api_key_entry.set_text("test-key")
+    window.on_save_api_key_clicked(None)
+
+    assert saved_call == {"provider": "Anthropic", "api_key": "test-key"}
+    assert window._last_message[0] == "Success"
+    assert window.api_key_entry.get_text() == ""
+    assert window.api_key_status_label.label.startswith("An API key is saved for Anthropic.")
+    assert "••••5678" in window.api_key_status_label.label
+    assert window.api_key_entry.placeholder == "Saved key: ••••5678"
+
+
 def test_openai_settings_window_falls_back_to_cached_models(provider_manager):
     atlas_stub = types.SimpleNamespace()
 
