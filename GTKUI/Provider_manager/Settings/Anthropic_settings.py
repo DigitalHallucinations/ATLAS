@@ -39,6 +39,15 @@ class AnthropicSettingsWindow(Gtk.Window):
 
         self._api_key_visible = False
         self._default_api_key_placeholder = "Enter your Anthropic API key"
+        self._defaults: Dict[str, object] = {
+            "model": "claude-3-opus-20240229",
+            "stream": True,
+            "function_calling": False,
+            "timeout": 60,
+            "max_retries": 3,
+            "retry_delay": 5,
+        }
+        self._initial_settings: Dict[str, object] = {}
 
         row = 0
         api_label = Gtk.Label(label="Anthropic API Key:")
@@ -74,16 +83,22 @@ class AnthropicSettingsWindow(Gtk.Window):
 
         self.model_combo = Gtk.ComboBoxText()
         self.model_combo.set_hexpand(True)
+        if hasattr(self.model_combo, "connect"):
+            self.model_combo.connect("changed", self._update_save_button_state)
         grid.attach(self.model_combo, 1, row, 1, 1)
 
         row += 1
         self.streaming_toggle = Gtk.CheckButton(label="Enable streaming responses")
         self.streaming_toggle.set_halign(Gtk.Align.START)
+        if hasattr(self.streaming_toggle, "connect"):
+            self.streaming_toggle.connect("toggled", self._update_save_button_state)
         grid.attach(self.streaming_toggle, 0, row, 2, 1)
 
         row += 1
         self.function_call_toggle = Gtk.CheckButton(label="Enable tool/function calling")
         self.function_call_toggle.set_halign(Gtk.Align.START)
+        if hasattr(self.function_call_toggle, "connect"):
+            self.function_call_toggle.connect("toggled", self._update_save_button_state)
         grid.attach(self.function_call_toggle, 0, row, 2, 1)
 
         row += 1
@@ -93,6 +108,8 @@ class AnthropicSettingsWindow(Gtk.Window):
         self.timeout_adjustment = Gtk.Adjustment(lower=5, upper=600, step_increment=5, page_increment=10, value=60)
         self.timeout_spin = Gtk.SpinButton(adjustment=self.timeout_adjustment, digits=0)
         self.timeout_spin.set_hexpand(True)
+        if hasattr(self.timeout_spin, "connect"):
+            self.timeout_spin.connect("value-changed", self._update_save_button_state)
         grid.attach(self.timeout_spin, 1, row, 1, 1)
 
         row += 1
@@ -102,6 +119,8 @@ class AnthropicSettingsWindow(Gtk.Window):
         self.retries_adjustment = Gtk.Adjustment(lower=0, upper=10, step_increment=1, page_increment=1, value=3)
         self.max_retries_spin = Gtk.SpinButton(adjustment=self.retries_adjustment, digits=0)
         self.max_retries_spin.set_hexpand(True)
+        if hasattr(self.max_retries_spin, "connect"):
+            self.max_retries_spin.connect("value-changed", self._update_save_button_state)
         grid.attach(self.max_retries_spin, 1, row, 1, 1)
 
         row += 1
@@ -111,6 +130,8 @@ class AnthropicSettingsWindow(Gtk.Window):
         self.delay_adjustment = Gtk.Adjustment(lower=0, upper=120, step_increment=1, page_increment=5, value=5)
         self.retry_delay_spin = Gtk.SpinButton(adjustment=self.delay_adjustment, digits=0)
         self.retry_delay_spin.set_hexpand(True)
+        if hasattr(self.retry_delay_spin, "connect"):
+            self.retry_delay_spin.connect("value-changed", self._update_save_button_state)
         grid.attach(self.retry_delay_spin, 1, row, 1, 1)
 
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -122,13 +143,23 @@ class AnthropicSettingsWindow(Gtk.Window):
         cancel_button.connect("clicked", self.on_cancel_clicked)
         button_box.append(cancel_button)
 
+        reset_button = Gtk.Button(label="Reset to defaults")
+        reset_button.connect("clicked", self._on_reset_clicked)
+        button_box.append(reset_button)
+        self.reset_button = reset_button
+
         save_key_button = Gtk.Button(label="Save API Key")
         save_key_button.connect("clicked", self.on_save_api_key_clicked)
         button_box.append(save_key_button)
 
         save_button = Gtk.Button(label="Save Settings")
         save_button.connect("clicked", self.on_save_clicked)
+        if hasattr(save_button, "set_sensitive"):
+            save_button.set_sensitive(False)
+        else:  # pragma: no cover - testing stubs
+            save_button.sensitive = False
         button_box.append(save_button)
+        self.save_button = save_button
 
         self._available_models: List[str] = []
         self._load_models()
@@ -161,21 +192,8 @@ class AnthropicSettingsWindow(Gtk.Window):
                 logger.warning("Failed to load Anthropic settings: %s", exc, exc_info=True)
 
         model = settings.get("model") if isinstance(settings, dict) else None
-        if isinstance(model, str) and model.strip():
-            active_model = model.strip()
-        else:
-            active_model = ""
-
-        if active_model and active_model not in self._available_models:
-            self.model_combo.append_text(active_model)
-            self._available_models.append(active_model)
-
-        if self._available_models:
-            try:
-                index = self._available_models.index(active_model) if active_model else 0
-            except ValueError:
-                index = 0
-            self.model_combo.set_active(index)
+        active_model = model.strip() if isinstance(model, str) and model.strip() else ""
+        self._activate_model(active_model or str(self._defaults["model"]))
 
         stream = settings.get("stream") if isinstance(settings, dict) else True
         self.streaming_toggle.set_active(bool(stream))
@@ -195,7 +213,17 @@ class AnthropicSettingsWindow(Gtk.Window):
         if isinstance(retry_delay, (int, float)) and retry_delay >= 0:
             self.retry_delay_spin.set_value(int(retry_delay))
 
+        self._initial_settings = {
+            "model": self.model_combo.get_active_text(),
+            "stream": self.streaming_toggle.get_active(),
+            "function_calling": self.function_call_toggle.get_active(),
+            "timeout": self.timeout_spin.get_value_as_int(),
+            "max_retries": self.max_retries_spin.get_value_as_int(),
+            "retry_delay": self.retry_delay_spin.get_value_as_int(),
+        }
+
         self._refresh_api_key_status()
+        self._update_save_button_state()
 
     def on_cancel_clicked(self, *_args) -> None:
         self.close()
@@ -261,19 +289,10 @@ class AnthropicSettingsWindow(Gtk.Window):
             )
 
     def on_save_clicked(self, *_args) -> None:
-        selected_model = self.model_combo.get_active_text()
-        if not selected_model:
+        payload = self._collect_payload()
+        if payload is None:
             self._show_message("Error", "Select a model before saving.", Gtk.MessageType.ERROR)
             return
-
-        payload = {
-            "model": selected_model,
-            "stream": self.streaming_toggle.get_active(),
-            "function_calling": self.function_call_toggle.get_active(),
-            "timeout": self.timeout_spin.get_value_as_int(),
-            "max_retries": self.max_retries_spin.get_value_as_int(),
-            "retry_delay": self.retry_delay_spin.get_value_as_int(),
-        }
 
         setter = getattr(self.ATLAS, "set_anthropic_settings", None)
         if not callable(setter):
@@ -294,6 +313,8 @@ class AnthropicSettingsWindow(Gtk.Window):
         if isinstance(result, dict) and result.get("success"):
             message = result.get("message") or "Anthropic settings saved."
             self._show_message("Success", message, Gtk.MessageType.INFO)
+            self._initial_settings = dict(payload)
+            self._update_save_button_state()
             self.close()
             return
 
@@ -372,6 +393,54 @@ class AnthropicSettingsWindow(Gtk.Window):
             self.api_key_status_label.set_label(status_text)
         else:  # pragma: no cover - testing stubs
             self.api_key_status_label.label = status_text
+
+    def _collect_payload(self) -> Optional[Dict[str, object]]:
+        selected_model = self.model_combo.get_active_text()
+        if not selected_model:
+            return None
+
+        return {
+            "model": selected_model,
+            "stream": self.streaming_toggle.get_active(),
+            "function_calling": self.function_call_toggle.get_active(),
+            "timeout": self.timeout_spin.get_value_as_int(),
+            "max_retries": self.max_retries_spin.get_value_as_int(),
+            "retry_delay": self.retry_delay_spin.get_value_as_int(),
+        }
+
+    def _activate_model(self, model: str) -> None:
+        if model and model not in self._available_models:
+            self.model_combo.append_text(model)
+            self._available_models.append(model)
+
+        if self._available_models:
+            try:
+                index = self._available_models.index(model) if model else 0
+            except ValueError:
+                index = 0
+            self.model_combo.set_active(index)
+
+    def _on_reset_clicked(self, *_args) -> None:
+        defaults = dict(self._defaults)
+        self._activate_model(str(defaults.get("model", "")))
+        self.streaming_toggle.set_active(bool(defaults.get("stream", True)))
+        self.function_call_toggle.set_active(bool(defaults.get("function_calling", False)))
+        self.timeout_spin.set_value(int(defaults.get("timeout", 60)))
+        self.max_retries_spin.set_value(int(defaults.get("max_retries", 3)))
+        self.retry_delay_spin.set_value(int(defaults.get("retry_delay", 5)))
+        self._update_save_button_state()
+
+    def _update_save_button_state(self, *_args) -> None:
+        if not hasattr(self, "save_button"):
+            return
+
+        payload = self._collect_payload()
+        dirty = payload is not None and payload != self._initial_settings
+        enabled = bool(payload) and dirty
+        if hasattr(self.save_button, "set_sensitive"):
+            self.save_button.set_sensitive(enabled)
+        else:  # pragma: no cover - testing stubs
+            self.save_button.sensitive = enabled
 
     def _show_message(self, title: str, message: str, message_type: Gtk.MessageType) -> None:
         self._last_message = (title, message, message_type)

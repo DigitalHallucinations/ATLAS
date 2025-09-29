@@ -1,12 +1,35 @@
 # modules/Providers/Anthropic/Anthropic_gen_response.py
 
+"""Async response generation helpers for the Anthropic provider."""
+
 import asyncio
-from typing import List, Dict, Union, AsyncIterator, Optional, Any, Tuple
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import json
+from dataclasses import dataclass
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
+
+from anthropic import APIError, AsyncAnthropic, RateLimitError
+
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
-from anthropic import AsyncAnthropic, APIError, RateLimitError
-import json
+
+
+@dataclass(frozen=True)
+class _RetrySchedule:
+    """Simple container describing retry attempt and delay information."""
+
+    attempts: int
+    base_delay: int
+
+
+def _normalise_positive_int(value: Any, fallback: int, *, minimum: int = 0) -> int:
+    """Validate and coerce integer configuration values."""
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return max(fallback, minimum)
+
+    return max(parsed, minimum)
 
 class AnthropicGenerator:
     def __init__(self, config_manager: Optional[ConfigManager] = None):
@@ -59,11 +82,6 @@ class AnthropicGenerator:
             if isinstance(retry_delay, (int, float)) and retry_delay >= 0:
                 self.retry_delay = int(retry_delay)
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type(RateLimitError)
-    )
     async def generate_response(
         self,
         messages: List[Dict[str, str]],
@@ -99,12 +117,11 @@ class AnthropicGenerator:
 
             if stream:
                 return self.process_streaming_response(message_params)
-            else:
-                response = await asyncio.wait_for(
-                    self.client.messages.create(**message_params),
-                    timeout=self.timeout
-                )
-                return self.process_function_call(response) if self.function_calling_enabled else self._extract_text_content(response.content)
+
+            response = await self._create_message_with_retry(message_params)
+            if self.function_calling_enabled:
+                return self.process_function_call(response)
+            return self._extract_text_content(response.content)
 
         except RateLimitError as e:
             self.logger.warning(f"Rate limit reached. Retrying: {str(e)}")
@@ -118,6 +135,35 @@ class AnthropicGenerator:
         except Exception as e:
             self.logger.error(f"Unexpected error with Anthropic: {str(e)}")
             raise
+
+    async def _create_message_with_retry(self, message_params: Dict[str, Any]):
+        """Send a non-streaming request honouring the configured retry policy."""
+
+        schedule = self._build_retry_schedule()
+        base_delay = max(1, schedule.base_delay)
+        attempt = 1
+
+        while True:
+            try:
+                return await asyncio.wait_for(
+                    self.client.messages.create(**message_params),
+                    timeout=self.timeout,
+                )
+            except RateLimitError as exc:
+                if attempt >= schedule.attempts:
+                    self.logger.warning(
+                        "Rate limit reached during attempt %s; no more retries.", attempt
+                    )
+                    raise
+
+                delay = min(base_delay * (2 ** (attempt - 1)), 60)
+                self.logger.warning(
+                    "Rate limit reached during attempt %s. Retrying in %s seconds.",
+                    attempt,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                attempt += 1
 
     def _prepare_messages(self, messages: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
         system_messages: List[str] = []
@@ -150,39 +196,71 @@ class AnthropicGenerator:
         return system_prompt, formatted_messages
 
     async def process_streaming_response(self, message_params: Dict[str, Any]) -> AsyncIterator[Union[str, Dict[str, Any]]]:
-        async with self.client.messages.stream(**message_params) as stream:
-            async for event in stream:
-                event_type = getattr(event, "type", None)
+        schedule = self._build_retry_schedule()
+        base_delay = max(1, schedule.base_delay)
 
-                if event_type == "content_block_delta":
-                    delta = getattr(event, "delta", None)
-                    if delta and getattr(delta, "type", None) == "text_delta":
-                        text = getattr(delta, "text", "")
-                        if text:
-                            yield text
-                elif event_type == "content_block_start":
-                    block = getattr(event, "content_block", None)
-                    if block is None:
-                        continue
-                    block_type = getattr(block, "type", None)
-                    if block_type is None and isinstance(block, dict):
-                        block_type = block.get("type")
-                    if block_type == "tool_use":
-                        block_dict = block if isinstance(block, dict) else None
-                        tool_payload = {
-                            "function_call": {
-                                "name": getattr(block, "name", None) or (block_dict.get("name") if block_dict else None),
-                                "arguments": getattr(block, "input", None) or (block_dict.get("input") if block_dict else {}),
-                                "id": getattr(block, "id", None) or (block_dict.get("id") if block_dict else None),
-                            }
-                        }
-                        yield tool_payload
+        attempt = 1
+        while True:
+            try:
+                async with self.client.messages.stream(**message_params) as stream:
+                    async for event in stream:
+                        event_type = getattr(event, "type", None)
 
-            final_response = await stream.get_final_response()
-            if self.function_calling_enabled:
-                function_call = self.process_function_call(final_response)
-                if isinstance(function_call, dict):
-                    yield function_call
+                        if event_type == "content_block_delta":
+                            delta = getattr(event, "delta", None)
+                            if delta and getattr(delta, "type", None) == "text_delta":
+                                text = getattr(delta, "text", "")
+                                if text:
+                                    yield text
+                        elif event_type == "content_block_start":
+                            block = getattr(event, "content_block", None)
+                            if block is None:
+                                continue
+                            block_type = getattr(block, "type", None)
+                            if block_type is None and isinstance(block, dict):
+                                block_type = block.get("type")
+                            if block_type == "tool_use":
+                                block_dict = block if isinstance(block, dict) else None
+                                tool_payload = {
+                                    "function_call": {
+                                        "name": getattr(block, "name", None)
+                                        or (block_dict.get("name") if block_dict else None),
+                                        "arguments": getattr(block, "input", None)
+                                        or (block_dict.get("input") if block_dict else {}),
+                                        "id": getattr(block, "id", None)
+                                        or (block_dict.get("id") if block_dict else None),
+                                    }
+                                }
+                                yield tool_payload
+
+                    final_response = await stream.get_final_response()
+                    if self.function_calling_enabled:
+                        function_call = self.process_function_call(final_response)
+                        if isinstance(function_call, dict):
+                            yield function_call
+                    return
+
+            except RateLimitError as exc:
+                if attempt >= schedule.attempts:
+                    self.logger.warning(
+                        "Rate limit reached during streaming attempt %s; no more retries.",
+                        attempt,
+                    )
+                    raise
+
+                delay = min(base_delay * (2 ** (attempt - 1)), 60)
+                self.logger.warning(
+                    "Rate limit reached during streaming attempt %s. Retrying in %s seconds.",
+                    attempt,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                attempt += 1
+            except asyncio.TimeoutError:
+                self.logger.error(
+                    "Streaming request timed out after %s seconds", self.timeout
+                )
+                raise
 
     def _extract_text_content(self, content_blocks: List[Any]) -> str:
         collected_text: List[str] = []
@@ -243,16 +321,25 @@ class AnthropicGenerator:
         self.logger.info(f"Default model set to: {model}")
 
     def set_timeout(self, timeout: int):
-        self.timeout = timeout
-        self.logger.info(f"Timeout set to: {timeout} seconds")
+        timeout_value = _normalise_positive_int(timeout, self.timeout, minimum=1)
+        self.timeout = timeout_value
+        self.logger.info(f"Timeout set to: {timeout_value} seconds")
 
     def set_max_retries(self, max_retries: int):
-        self.max_retries = max_retries
-        self.logger.info(f"Max retries set to: {max_retries}")
+        retries_value = _normalise_positive_int(max_retries, self.max_retries, minimum=0)
+        self.max_retries = retries_value
+        self.logger.info(f"Max retries set to: {retries_value}")
 
     def set_retry_delay(self, retry_delay: int):
-        self.retry_delay = retry_delay
-        self.logger.info(f"Retry delay set to: {retry_delay} seconds")
+        retry_delay_value = _normalise_positive_int(retry_delay, self.retry_delay, minimum=0)
+        self.retry_delay = retry_delay_value
+        self.logger.info(f"Retry delay set to: {retry_delay_value} seconds")
+
+    def _build_retry_schedule(self) -> _RetrySchedule:
+        configured_attempts = _normalise_positive_int(self.max_retries, self.max_retries, minimum=0)
+        attempts = max(1, configured_attempts)
+        delay = _normalise_positive_int(self.retry_delay, self.retry_delay, minimum=0)
+        return _RetrySchedule(attempts=attempts, base_delay=delay or 1)
 
 def setup_anthropic_generator(config_manager: Optional[ConfigManager] = None):
     return AnthropicGenerator(config_manager)
