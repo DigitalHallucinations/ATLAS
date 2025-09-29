@@ -177,6 +177,36 @@ def test_set_openai_llm_settings_updates_state(config_manager):
     )
 
 
+def test_set_anthropic_settings_updates_state(config_manager):
+    result = config_manager.set_anthropic_settings(
+        model="claude-3-sonnet-20240229",
+        stream=False,
+        function_calling=True,
+        timeout=120,
+        max_retries=5,
+        retry_delay=9,
+    )
+
+    assert result["model"] == "claude-3-sonnet-20240229"
+    stored = config_manager.config["ANTHROPIC_LLM"]
+    assert stored["stream"] is False
+    assert stored["function_calling"] is True
+    assert stored["timeout"] == 120
+    assert stored["max_retries"] == 5
+    assert stored["retry_delay"] == 9
+
+
+def test_get_anthropic_settings_returns_defaults(config_manager):
+    snapshot = config_manager.get_anthropic_settings()
+
+    assert snapshot["model"] == "claude-3-opus-20240229"
+    assert snapshot["stream"] is True
+    assert snapshot["function_calling"] is False
+    assert snapshot["timeout"] == 60
+    assert snapshot["max_retries"] == 3
+    assert snapshot["retry_delay"] == 5
+
+
 def test_set_openai_llm_settings_clears_optional_fields(config_manager):
     config_manager.set_openai_llm_settings(
         model="gpt-4o",

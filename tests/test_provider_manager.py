@@ -271,6 +271,35 @@ if "gi" not in sys.modules:
     sys.modules["gi.repository.GLib"] = glib_module
     sys.modules["gi.repository.Gdk"] = gdk_module
 
+if "anthropic" not in sys.modules:
+    anthropic_module = types.ModuleType("anthropic")
+
+    class _StubAsyncAnthropic:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    anthropic_module.AsyncAnthropic = _StubAsyncAnthropic
+    anthropic_module.APIError = Exception
+    anthropic_module.RateLimitError = Exception
+    sys.modules["anthropic"] = anthropic_module
+
+if "tenacity" not in sys.modules:
+    tenacity_module = types.ModuleType("tenacity")
+
+    def _identity_decorator(*_args, **_kwargs):
+        def _wrap(func):
+            return func
+
+        if _args and callable(_args[0]) and len(_args) == 1 and not _kwargs:
+            return _args[0]
+        return _wrap
+
+    tenacity_module.retry = _identity_decorator
+    tenacity_module.stop_after_attempt = lambda *_args, **_kwargs: None
+    tenacity_module.wait_exponential = lambda *_args, **_kwargs: None
+    tenacity_module.retry_if_exception_type = lambda *_args, **_kwargs: None
+    sys.modules["tenacity"] = tenacity_module
+
 openai_stub = sys.modules.get("openai")
 if openai_stub is None:
     openai_stub = types.ModuleType("openai")
@@ -417,19 +446,63 @@ def _ensure_async_function_module(module_name: str, return_value: str):
         return return_value
 
     stub.generate_response = _generate_response
+
+    if module_name.endswith("Anthropic_gen_response"):
+        class _StubAnthropicGenerator:
+            def __init__(self, *_args, **_kwargs):
+                self.default_model = "claude-3-opus-20240229"
+
+            async def generate_response(self, *args, **kwargs):  # pragma: no cover - placeholder
+                return return_value
+
+            async def process_streaming_response(self, response):  # pragma: no cover - placeholder
+                chunks = []
+                async for item in response:
+                    chunks.append(item)
+                return "".join(chunks)
+
+            def set_default_model(self, model):
+                self.default_model = model
+
+            def set_streaming(self, _value):
+                return None
+
+            def set_function_calling(self, _value):
+                return None
+
+            def set_timeout(self, _value):
+                return None
+
+            def set_max_retries(self, _value):
+                return None
+
+            def set_retry_delay(self, _value):
+                return None
+
+        stub.AnthropicGenerator = _StubAnthropicGenerator
+        stub.setup_anthropic_generator = lambda _cfg=None: _StubAnthropicGenerator()
+
+        class _StubAsyncAnthropic:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+        stub.AsyncAnthropic = _StubAsyncAnthropic
+        stub.APIError = RuntimeError
+        stub.RateLimitError = RuntimeError
+
     sys.modules[module_name] = stub
 
 
 _ensure_async_function_module("modules.Providers.OpenAI.OA_gen_response", "openai")
 _ensure_async_function_module("modules.Providers.Mistral.Mistral_gen_response", "mistral")
 _ensure_async_function_module("modules.Providers.Google.GG_gen_response", "google")
-_ensure_async_function_module("modules.Providers.Anthropic.Anthropic_gen_response", "anthropic")
 
 import pytest
 
 import ATLAS.provider_manager as provider_manager_module
 from ATLAS.provider_manager import ProviderManager
 from GTKUI.Provider_manager.Settings.OA_settings import OpenAISettingsWindow
+from GTKUI.Provider_manager.Settings.Anthropic_settings import AnthropicSettingsWindow
 
 
 class DummyConfig:
@@ -458,6 +531,14 @@ class DummyConfig:
             "audio_enabled": False,
             "audio_voice": "alloy",
             "audio_format": "wav",
+        }
+        self._anthropic_settings = {
+            "model": "claude-3-opus-20240229",
+            "stream": True,
+            "function_calling": False,
+            "timeout": 60,
+            "max_retries": 3,
+            "retry_delay": 5,
         }
 
     def get_default_provider(self):
@@ -527,6 +608,33 @@ class DummyConfig:
         if audio_format is not None:
             self._openai_settings["audio_format"] = audio_format
         return dict(self._openai_settings)
+
+    def get_anthropic_settings(self):
+        return dict(self._anthropic_settings)
+
+    def set_anthropic_settings(
+        self,
+        *,
+        model=None,
+        stream=None,
+        function_calling=None,
+        timeout=None,
+        max_retries=None,
+        retry_delay=None,
+    ):
+        if model is not None:
+            self._anthropic_settings["model"] = model
+        if stream is not None:
+            self._anthropic_settings["stream"] = bool(stream)
+        if function_calling is not None:
+            self._anthropic_settings["function_calling"] = bool(function_calling)
+        if timeout is not None:
+            self._anthropic_settings["timeout"] = int(timeout)
+        if max_retries is not None:
+            self._anthropic_settings["max_retries"] = int(max_retries)
+        if retry_delay is not None:
+            self._anthropic_settings["retry_delay"] = int(retry_delay)
+        return dict(self._anthropic_settings)
 
     def get_app_root(self):
         return self._root_path
@@ -1277,6 +1385,58 @@ def test_openai_settings_window_saves_api_key(provider_manager):
     assert window._last_message[0] == "Success"
 
 
+def test_anthropic_settings_window_dispatches_updates(provider_manager):
+    atlas_stub = types.SimpleNamespace()
+
+    saved_payload: Dict[str, object] = {}
+    atlas_stub.provider_manager = provider_manager
+    atlas_stub.get_anthropic_settings = lambda: {
+        "model": "claude-3-opus-20240229",
+        "stream": True,
+        "function_calling": False,
+        "timeout": 75,
+        "max_retries": 2,
+        "retry_delay": 6,
+    }
+    atlas_stub.get_models_for_provider = lambda name: [
+        "claude-3-opus-20240229",
+        "claude-3-sonnet-20240229",
+    ]
+
+    def fake_set_anthropic_settings(**kwargs):
+        saved_payload.update(kwargs)
+        return {"success": True, "message": "saved", "data": dict(kwargs)}
+
+    atlas_stub.set_anthropic_settings = fake_set_anthropic_settings
+
+    window = AnthropicSettingsWindow(atlas_stub, provider_manager.config_manager, None)
+
+    assert window.model_combo.get_active_text() == "claude-3-opus-20240229"
+    assert window.streaming_toggle.get_active() is True
+    assert window.function_call_toggle.get_active() is False
+    assert window.timeout_spin.get_value_as_int() == 75
+    assert window.max_retries_spin.get_value_as_int() == 2
+    assert window.retry_delay_spin.get_value_as_int() == 6
+
+    window.model_combo.set_active(1)
+    window.streaming_toggle.set_active(False)
+    window.function_call_toggle.set_active(True)
+    window.timeout_spin.set_value(180)
+    window.max_retries_spin.set_value(6)
+    window.retry_delay_spin.set_value(15)
+
+    window.on_save_clicked(None)
+
+    assert saved_payload["model"] == "claude-3-sonnet-20240229"
+    assert saved_payload["stream"] is False
+    assert saved_payload["function_calling"] is True
+    assert saved_payload["timeout"] == 180
+    assert saved_payload["max_retries"] == 6
+    assert saved_payload["retry_delay"] == 15
+    assert window._last_message[0] == "Success"
+    assert window.closed is True
+
+
 def test_openai_settings_window_falls_back_to_cached_models(provider_manager):
     atlas_stub = types.SimpleNamespace()
 
@@ -1321,3 +1481,65 @@ def test_openai_settings_window_falls_back_to_cached_models(provider_manager):
     assert "gpt-4.1" in window._available_models
     assert "o1" in window._available_models
     assert window._last_message[0] == "Model Load Failed"
+
+
+def test_provider_manager_set_anthropic_settings_updates_generator(provider_manager, monkeypatch):
+    captured: Dict[str, object] = {}
+
+    class _StubGenerator:
+        def __init__(self):
+            self.default_model = "claude-3-opus-20240229"
+
+        async def generate_response(self, **_kwargs):  # pragma: no cover - not exercised
+            return "ok"
+
+        async def process_streaming_response(self, response):  # pragma: no cover - defensive
+            chunks = []
+            async for part in response:
+                chunks.append(part)
+            return "".join(chunks)
+
+        def set_default_model(self, value):
+            captured["model"] = value
+            self.default_model = value
+
+        def set_streaming(self, value):
+            captured["stream"] = value
+
+        def set_function_calling(self, value):
+            captured["function_calling"] = value
+
+        def set_timeout(self, value):
+            captured["timeout"] = value
+
+        def set_max_retries(self, value):
+            captured["max_retries"] = value
+
+        def set_retry_delay(self, value):
+            captured["retry_delay"] = value
+
+    stub = _StubGenerator()
+    monkeypatch.setattr(provider_manager, "_ensure_anthropic_generator", lambda: stub)
+
+    provider_manager.current_llm_provider = "Anthropic"
+
+    result = provider_manager.set_anthropic_settings(
+        model="claude-3-haiku-20240229",
+        stream=False,
+        function_calling=True,
+        timeout=90,
+        max_retries=4,
+        retry_delay=12,
+    )
+
+    assert result["success"] is True
+    data = result.get("data", {})
+    assert data["model"] == "claude-3-haiku-20240229"
+    assert captured["model"] == "claude-3-haiku-20240229"
+    assert captured["stream"] is False
+    assert captured["function_calling"] is True
+    assert captured["timeout"] == 90
+    assert captured["max_retries"] == 4
+    assert captured["retry_delay"] == 12
+    assert provider_manager.current_model == "claude-3-haiku-20240229"
+    assert provider_manager.model_manager.models["Anthropic"][0] == "claude-3-haiku-20240229"
