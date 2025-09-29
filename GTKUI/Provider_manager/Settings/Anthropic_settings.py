@@ -151,6 +151,7 @@ class AnthropicSettingsWindow(Gtk.Window):
         save_key_button = Gtk.Button(label="Save API Key")
         save_key_button.connect("clicked", self.on_save_api_key_clicked)
         button_box.append(save_key_button)
+        self.save_key_button = save_key_button
 
         save_button = Gtk.Button(label="Save Settings")
         save_button.connect("clicked", self.on_save_clicked)
@@ -234,6 +235,8 @@ class AnthropicSettingsWindow(Gtk.Window):
             self._show_message("Error", "Enter an API key before saving.", Gtk.MessageType.ERROR)
             return
 
+        self._set_save_key_button_sensitive(False)
+
         def handle_success(result):
             GLib.idle_add(self._handle_api_key_save_result, result)
 
@@ -260,6 +263,7 @@ class AnthropicSettingsWindow(Gtk.Window):
                     f"Failed to save API key: {str(exc)}",
                     Gtk.MessageType.ERROR,
                 )
+                self._set_save_key_button_sensitive(True)
             return
 
         updater = getattr(self.ATLAS, "update_provider_api_key", None)
@@ -269,17 +273,17 @@ class AnthropicSettingsWindow(Gtk.Window):
                 "Saving API keys is not supported in this build.",
                 Gtk.MessageType.ERROR,
             )
+            self._set_save_key_button_sensitive(True)
             return
 
         try:
-            future = run_async_in_thread(
+            run_async_in_thread(
                 lambda: updater("Anthropic", api_key),
                 on_success=handle_success,
                 on_error=handle_error,
                 logger=logger,
                 thread_name="anthropic-api-key-fallback",
             )
-            future.result()
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.error("Unable to start fallback API key save task: %s", exc, exc_info=True)
             self._show_message(
@@ -287,6 +291,7 @@ class AnthropicSettingsWindow(Gtk.Window):
                 f"Failed to save API key: {str(exc)}",
                 Gtk.MessageType.ERROR,
             )
+            self._set_save_key_button_sensitive(True)
 
     def on_save_clicked(self, *_args) -> None:
         payload = self._collect_payload()
@@ -326,6 +331,7 @@ class AnthropicSettingsWindow(Gtk.Window):
         self._show_message("Error", detail, Gtk.MessageType.ERROR)
 
     def _handle_api_key_save_result(self, result: Dict[str, object]) -> bool:
+        self._set_save_key_button_sensitive(True)
         if isinstance(result, dict) and result.get("success"):
             message = result.get("message") or "API key saved."
             self._show_message("Success", message, Gtk.MessageType.INFO)
@@ -339,6 +345,16 @@ class AnthropicSettingsWindow(Gtk.Window):
             self._show_message("Error", detail, Gtk.MessageType.ERROR)
 
         return False
+
+    def _set_save_key_button_sensitive(self, enabled: bool) -> None:
+        button = getattr(self, "save_key_button", None)
+        if button is None:
+            return
+
+        if hasattr(button, "set_sensitive"):
+            button.set_sensitive(enabled)
+        else:  # pragma: no cover - testing stubs
+            button.sensitive = enabled
 
     def _on_api_key_toggle_clicked(self, _button: Gtk.Button) -> None:
         self._api_key_visible = not self._api_key_visible
