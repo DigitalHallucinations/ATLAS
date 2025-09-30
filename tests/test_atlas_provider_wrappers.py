@@ -215,6 +215,18 @@ def atlas_class(monkeypatch):
                 def set_retry_delay(self, _value):
                     return None
 
+                def set_stop_sequences(self, _value):
+                    return None
+
+                def set_tool_choice(self, *_args, **_kwargs):
+                    return None
+
+                def set_metadata(self, *_args, **_kwargs):
+                    return None
+
+                def set_thinking(self, *_args, **_kwargs):
+                    return None
+
             module.AnthropicGenerator = _StubAnthropicGenerator
             module.setup_anthropic_generator = lambda _cfg=None: _StubAnthropicGenerator()
 

@@ -2,7 +2,8 @@
 
 import json
 import os
-from typing import Dict, Any, Optional, List
+from collections.abc import Mapping, Sequence
+from typing import Dict, Any, Optional, List, Tuple
 
 _UNSET = object()
 from modules.logging.logger import setup_logger
@@ -586,6 +587,11 @@ class ConfigManager:
         max_retries: Optional[int] = None,
         retry_delay: Optional[int] = None,
         stop_sequences: Any = _UNSET,
+        tool_choice: Any = _UNSET,
+        tool_choice_name: Any = _UNSET,
+        metadata: Any = _UNSET,
+        thinking: Optional[bool] = None,
+        thinking_budget: Any = _UNSET,
     ) -> Dict[str, Any]:
         """Persist Anthropic defaults while validating incoming payloads."""
 
@@ -601,6 +607,11 @@ class ConfigManager:
             'max_retries': 3,
             'retry_delay': 5,
             'stop_sequences': [],
+            'tool_choice': 'auto',
+            'tool_choice_name': None,
+            'metadata': {},
+            'thinking': False,
+            'thinking_budget': None,
         }
 
         settings_block = dict(defaults)
@@ -618,6 +629,8 @@ class ConfigManager:
                             )
                         elif key == 'stop_sequences':
                             settings_block[key] = self._coerce_stop_sequences(existing[key])
+                        elif key == 'metadata':
+                            settings_block[key] = self._coerce_metadata(existing[key])
                         else:
                             settings_block[key] = existing[key]
                     except ValueError as exc:  # pragma: no cover - defensive logging
@@ -757,6 +770,30 @@ class ConfigManager:
         if stop_sequences is not _UNSET:
             settings_block['stop_sequences'] = self._coerce_stop_sequences(stop_sequences)
 
+        if tool_choice is not _UNSET:
+            choice, choice_name = self._normalise_tool_choice(
+                tool_choice,
+                tool_choice_name if tool_choice_name is not _UNSET else settings_block.get('tool_choice_name'),
+                previous_choice=settings_block.get('tool_choice'),
+                previous_name=settings_block.get('tool_choice_name'),
+            )
+            settings_block['tool_choice'] = choice
+            settings_block['tool_choice_name'] = choice_name
+
+        if metadata is not _UNSET:
+            settings_block['metadata'] = self._coerce_metadata(metadata)
+
+        if thinking is not None:
+            settings_block['thinking'] = bool(thinking)
+
+        if thinking_budget is not _UNSET:
+            settings_block['thinking_budget'] = _normalize_optional_int(
+                thinking_budget,
+                settings_block.get('thinking_budget'),
+                field='Thinking budget tokens',
+                minimum=1,
+            )
+
         self.yaml_config['ANTHROPIC_LLM'] = dict(settings_block)
         self.config['ANTHROPIC_LLM'] = dict(settings_block)
 
@@ -779,6 +816,11 @@ class ConfigManager:
             'max_retries': 3,
             'retry_delay': 5,
             'stop_sequences': [],
+            'tool_choice': 'auto',
+            'tool_choice_name': None,
+            'metadata': {},
+            'thinking': False,
+            'thinking_budget': None,
         }
 
         stored = self.get_config('ANTHROPIC_LLM')
@@ -795,6 +837,8 @@ class ConfigManager:
                             )
                         elif key == 'stop_sequences':
                             defaults[key] = self._coerce_stop_sequences(stored[key])
+                        elif key == 'metadata':
+                            defaults[key] = self._coerce_metadata(stored[key])
                         else:
                             defaults[key] = stored[key]
                     except ValueError as exc:  # pragma: no cover - defensive logging
@@ -859,6 +903,136 @@ class ConfigManager:
             raise ValueError("Stop sequences cannot contain more than 4 entries.")
 
         return tokens
+
+    def _normalise_tool_choice(
+        self,
+        value: Any,
+        provided_name: Any,
+        *,
+        previous_choice: Optional[str],
+        previous_name: Optional[str],
+    ) -> Tuple[str, Optional[str]]:
+        """Validate tool choice inputs and map to Anthropic API expectations."""
+
+        alias_map = {
+            "required": "any",
+        }
+
+        choice_value: Optional[str]
+        name_value: Optional[str] = None
+
+        if isinstance(value, Mapping):
+            raw_type = str(value.get("type", "")).strip().lower()
+            choice_value = alias_map.get(raw_type, raw_type)
+            if value.get("name") is not None:
+                provided_name = value.get("name")
+        elif isinstance(value, str):
+            cleaned = value.strip().lower()
+            choice_value = alias_map.get(cleaned, cleaned)
+        elif value in {None, ""}:
+            choice_value = None
+        else:
+            choice_value = None
+
+        if choice_value not in {"auto", "any", "none", "tool"}:
+            choice_value = previous_choice or "auto"
+
+        if choice_value == "tool":
+            name_candidate: Optional[str]
+            if provided_name in {None, ""}:
+                name_candidate = previous_name
+            else:
+                name_candidate = str(provided_name).strip()
+
+            if not name_candidate:
+                self.logger.warning(
+                    "Specific Anthropic tool choice ignored because no tool name was provided.",
+                )
+                return "auto", None
+
+            name_value = name_candidate
+        else:
+            name_value = None
+
+        return choice_value or "auto", name_value
+
+    @staticmethod
+    def _coerce_metadata(value: Any) -> Dict[str, str]:
+        """Normalise metadata payloads to a mapping of string keys and values."""
+
+        if value is None or value == "" or (isinstance(value, Mapping) and not value):
+            return {}
+
+        items: List[Tuple[Any, Any]] = []
+
+        def _append_from_mapping(mapping: Mapping[Any, Any]) -> None:
+            for key, val in mapping.items():
+                items.append((key, val))
+
+        if isinstance(value, Mapping):
+            _append_from_mapping(value)
+        elif isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return {}
+            parsed: Any
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+
+            if isinstance(parsed, Mapping):
+                _append_from_mapping(parsed)
+            elif isinstance(parsed, Sequence) and not isinstance(parsed, (str, bytes, bytearray)):
+                for entry in parsed:
+                    if isinstance(entry, Mapping):
+                        _append_from_mapping(entry)
+                    elif isinstance(entry, Sequence) and len(entry) == 2:
+                        items.append((entry[0], entry[1]))
+                    else:
+                        raise ValueError(
+                            "Metadata entries supplied as a list must be key/value pairs.",
+                        )
+            else:
+                segments = [segment.strip() for segment in text.replace("\n", ",").split(",")]
+                for segment in segments:
+                    if not segment:
+                        continue
+                    if "=" not in segment:
+                        raise ValueError(
+                            "Metadata text must use key=value syntax or valid JSON.",
+                        )
+                    key, val = segment.split("=", 1)
+                    items.append((key, val))
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            for entry in value:
+                if isinstance(entry, Mapping):
+                    _append_from_mapping(entry)
+                elif isinstance(entry, Sequence) and len(entry) == 2:
+                    items.append((entry[0], entry[1]))
+                else:
+                    raise ValueError(
+                        "Metadata entries supplied as a list must be key/value pairs.",
+                    )
+        else:
+            raise ValueError(
+                "Metadata must be a mapping, JSON string, or iterable of key/value pairs.",
+            )
+
+        metadata: Dict[str, str] = {}
+        for key, val in items:
+            if key in {None, ""}:
+                raise ValueError("Metadata keys must be non-empty strings.")
+            cleaned_key = str(key).strip()
+            if not cleaned_key:
+                raise ValueError("Metadata keys must be non-empty strings.")
+            cleaned_val = "" if val is None else str(val).strip()
+            metadata[cleaned_key] = cleaned_val
+
+        if len(metadata) > 16:
+            raise ValueError("Metadata cannot contain more than 16 entries.")
+
+        return metadata
 
 
     def get_openai_api_key(self) -> str:

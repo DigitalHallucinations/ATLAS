@@ -5,7 +5,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
 
@@ -122,6 +122,120 @@ def _normalise_stop_sequences(value: Any) -> List[str]:
     return entries[:4]
 
 
+def _normalise_metadata(value: Any) -> Dict[str, str]:
+    """Normalise metadata inputs to Anthropic's expected mapping structure."""
+
+    if value in {None, "", {}}:
+        return {}
+
+    metadata: Dict[str, str] = {}
+
+    def _record(entry_key: Any, entry_value: Any) -> None:
+        if entry_key in {None, ""}:
+            return
+        key_text = str(entry_key).strip()
+        if not key_text:
+            return
+        metadata[key_text] = "" if entry_value is None else str(entry_value).strip()
+
+    if isinstance(value, Mapping):
+        for key, val in value.items():
+            _record(key, val)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {}
+        parsed: Any
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            parsed = None
+
+        if isinstance(parsed, Mapping):
+            for key, val in parsed.items():
+                _record(key, val)
+        elif isinstance(parsed, Sequence) and not isinstance(parsed, (str, bytes, bytearray)):
+            for entry in parsed:
+                if isinstance(entry, Mapping):
+                    for key, val in entry.items():
+                        _record(key, val)
+                elif isinstance(entry, Sequence) and len(entry) == 2:
+                    _record(entry[0], entry[1])
+        else:
+            segments = [segment.strip() for segment in text.replace("\n", ",").split(",")]
+            for segment in segments:
+                if not segment or "=" not in segment:
+                    continue
+                key, val = segment.split("=", 1)
+                _record(key, val)
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        for entry in value:
+            if isinstance(entry, Mapping):
+                for key, val in entry.items():
+                    _record(key, val)
+            elif isinstance(entry, Sequence) and len(entry) == 2:
+                _record(entry[0], entry[1])
+
+    if len(metadata) > 16:
+        return dict(list(metadata.items())[:16])
+
+    return metadata
+
+
+def _normalise_tool_choice(value: Any, name: Any) -> Tuple[str, Optional[str]]:
+    """Convert tool selection preferences into Anthropic's tool_choice schema."""
+
+    choice: Optional[str]
+    provided_name = name
+
+    if isinstance(value, Mapping):
+        choice = str(value.get("type", "")).strip().lower()
+        if value.get("name") is not None:
+            provided_name = value.get("name")
+    elif isinstance(value, str):
+        choice = value.strip().lower()
+    else:
+        choice = None
+
+    alias_map = {"required": "any"}
+    resolved_choice = alias_map.get(choice or "", choice or "")
+
+    if resolved_choice not in {"auto", "any", "none", "tool"}:
+        resolved_choice = "auto"
+
+    if resolved_choice == "tool":
+        tool_name = None if provided_name in {None, ""} else str(provided_name).strip()
+        if not tool_name:
+            return "auto", None
+        return "tool", tool_name
+
+    return resolved_choice, None
+
+
+def _build_tool_choice_payload(choice: str, tool_name: Optional[str]) -> Optional[Dict[str, str]]:
+    """Return the payload for Anthropic's ``tool_choice`` argument."""
+
+    if choice == "auto" or not choice:
+        return None
+
+    if choice == "tool" and tool_name:
+        return {"type": "tool", "name": tool_name}
+
+    return {"type": choice}
+
+
+def _build_thinking_payload(enabled: bool, budget: Optional[int]) -> Optional[Dict[str, Any]]:
+    """Construct the ``thinking`` parameter respecting optional budget hints."""
+
+    if not enabled:
+        return None
+
+    payload: Dict[str, Any] = {"type": "enabled"}
+    if isinstance(budget, (int, float)) and int(budget) > 0:
+        payload["budget_tokens"] = int(budget)
+    return payload
+
+
 class AnthropicGenerator:
     def __init__(self, config_manager: Optional[ConfigManager] = None):
         self.config_manager = config_manager or ConfigManager()
@@ -142,6 +256,11 @@ class AnthropicGenerator:
         self.retry_delay = 5
         self.timeout = 60
         self.stop_sequences: List[str] = []
+        self.tool_choice: str = "auto"
+        self.tool_choice_name: Optional[str] = None
+        self.metadata: Dict[str, str] = {}
+        self.thinking_enabled: bool = False
+        self.thinking_budget: Optional[int] = None
 
         settings: Dict[str, Any] = {}
         getter = getattr(self.config_manager, "get_anthropic_settings", None)
@@ -198,6 +317,30 @@ class AnthropicGenerator:
             stored_stop_sequences = settings.get("stop_sequences")
             if stored_stop_sequences is not None:
                 self.stop_sequences = _normalise_stop_sequences(stored_stop_sequences)
+
+            stored_tool_choice = settings.get("tool_choice")
+            stored_tool_choice_name = settings.get("tool_choice_name")
+            choice, choice_name = _normalise_tool_choice(
+                stored_tool_choice,
+                stored_tool_choice_name,
+            )
+            self.tool_choice = choice
+            self.tool_choice_name = choice_name
+
+            stored_metadata = settings.get("metadata")
+            if stored_metadata is not None:
+                self.metadata = _normalise_metadata(stored_metadata)
+
+            stored_thinking = settings.get("thinking")
+            if stored_thinking is not None:
+                self.thinking_enabled = bool(stored_thinking)
+
+            stored_thinking_budget = settings.get("thinking_budget")
+            if stored_thinking_budget is not None:
+                self.thinking_budget = _normalise_optional_positive_int(
+                    stored_thinking_budget,
+                    self.thinking_budget,
+                )
 
             timeout = settings.get("timeout")
             if isinstance(timeout, (int, float)) and timeout > 0:
@@ -278,8 +421,24 @@ class AnthropicGenerator:
             if system_prompt:
                 message_params["system"] = system_prompt
 
+            if self.metadata:
+                message_params["metadata"] = dict(self.metadata)
+
+            thinking_payload = _build_thinking_payload(
+                self.thinking_enabled,
+                self.thinking_budget,
+            )
+            if thinking_payload is not None:
+                message_params["thinking"] = thinking_payload
+
             if self.function_calling_enabled and functions:
                 message_params["tools"] = functions
+                tool_choice_payload = _build_tool_choice_payload(
+                    self.tool_choice,
+                    self.tool_choice_name,
+                )
+                if tool_choice_payload is not None:
+                    message_params["tool_choice"] = tool_choice_payload
 
             if stream:
                 return self.process_streaming_response(message_params)
@@ -616,6 +775,38 @@ class AnthropicGenerator:
             )
         else:
             self.logger.info("Stop sequences cleared")
+
+    def set_tool_choice(self, tool_choice: Any, tool_name: Optional[str] = None):
+        choice, name = _normalise_tool_choice(tool_choice, tool_name)
+        self.tool_choice = choice
+        self.tool_choice_name = name
+        if choice == "tool" and name:
+            self.logger.info("Tool choice set to specific tool: %s", name)
+        else:
+            self.logger.info("Tool choice set to: %s", choice)
+
+    def set_metadata(self, metadata: Optional[Any]):
+        self.metadata = _normalise_metadata(metadata)
+        if self.metadata:
+            self.logger.info("Metadata set with %s entries", len(self.metadata))
+        else:
+            self.logger.info("Metadata cleared")
+
+    def set_thinking(self, enabled: Optional[bool], budget: Optional[Any] = None):
+        if enabled is not None:
+            self.thinking_enabled = bool(enabled)
+        if budget is not None:
+            self.thinking_budget = _normalise_optional_positive_int(budget, self.thinking_budget)
+        if self.thinking_enabled:
+            if self.thinking_budget:
+                self.logger.info(
+                    "Thinking enabled with budget: %s tokens",
+                    self.thinking_budget,
+                )
+            else:
+                self.logger.info("Thinking enabled with provider defaults")
+        else:
+            self.logger.info("Thinking disabled")
 
     def _build_retry_schedule(self) -> _RetrySchedule:
         configured_attempts = _normalise_positive_int(

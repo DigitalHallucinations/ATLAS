@@ -288,6 +288,11 @@ class ProviderManager:
         max_retries: Optional[int] = None,
         retry_delay: Optional[int] = None,
         stop_sequences: Any = ConfigManager.UNSET,
+        tool_choice: Any = ConfigManager.UNSET,
+        tool_choice_name: Any = ConfigManager.UNSET,
+        metadata: Any = ConfigManager.UNSET,
+        thinking: Optional[bool] = None,
+        thinking_budget: Any = ConfigManager.UNSET,
     ) -> Dict[str, Any]:
         """Persist Anthropic defaults and refresh the active generator when possible."""
 
@@ -304,6 +309,11 @@ class ProviderManager:
                 max_retries=max_retries,
                 retry_delay=retry_delay,
                 stop_sequences=stop_sequences,
+                tool_choice=tool_choice,
+                tool_choice_name=tool_choice_name,
+                metadata=metadata,
+                thinking=thinking,
+                thinking_budget=thinking_budget,
             )
         except Exception as exc:
             self.logger.error("Failed to persist Anthropic settings: %s", exc, exc_info=True)
@@ -331,6 +341,15 @@ class ProviderManager:
                 generator.set_max_retries(settings.get("max_retries", 3))
                 generator.set_retry_delay(settings.get("retry_delay", 5))
                 generator.set_stop_sequences(settings.get("stop_sequences", []))
+                generator.set_tool_choice(
+                    settings.get("tool_choice"),
+                    settings.get("tool_choice_name"),
+                )
+                generator.set_metadata(settings.get("metadata"))
+                generator.set_thinking(
+                    settings.get("thinking"),
+                    settings.get("thinking_budget"),
+                )
             except Exception as exc:  # pragma: no cover - defensive logging
                 self.logger.warning(
                     "Unable to apply Anthropic settings to the live generator: %s",

@@ -482,6 +482,18 @@ def _ensure_async_function_module(module_name: str, return_value: str):
             def set_retry_delay(self, _value):
                 return None
 
+            def set_stop_sequences(self, _value):
+                return None
+
+            def set_tool_choice(self, *_args, **_kwargs):
+                return None
+
+            def set_metadata(self, *_args, **_kwargs):
+                return None
+
+            def set_thinking(self, *_args, **_kwargs):
+                return None
+
         stub.AnthropicGenerator = _StubAnthropicGenerator
         stub.setup_anthropic_generator = lambda _cfg=None: _StubAnthropicGenerator()
 
@@ -548,6 +560,11 @@ class DummyConfig:
             "max_retries": 3,
             "retry_delay": 5,
             "stop_sequences": [],
+            "tool_choice": "auto",
+            "tool_choice_name": None,
+            "metadata": {},
+            "thinking": False,
+            "thinking_budget": None,
         }
 
     def get_default_provider(self):
@@ -635,6 +652,11 @@ class DummyConfig:
         max_retries=None,
         retry_delay=None,
         stop_sequences=None,
+        tool_choice=None,
+        tool_choice_name=None,
+        metadata=None,
+        thinking=None,
+        thinking_budget=None,
     ):
         if model is not None:
             self._anthropic_settings["model"] = model
@@ -672,6 +694,23 @@ class DummyConfig:
                     if str(item).strip()
                 ]
             self._anthropic_settings["stop_sequences"] = items
+        if tool_choice is not None:
+            self._anthropic_settings["tool_choice"] = str(tool_choice)
+        if tool_choice_name is not None:
+            self._anthropic_settings["tool_choice_name"] = (
+                str(tool_choice_name).strip() if str(tool_choice_name).strip() else None
+            )
+        if metadata is not None:
+            if isinstance(metadata, dict):
+                self._anthropic_settings["metadata"] = dict(metadata)
+            else:
+                self._anthropic_settings["metadata"] = {}
+        if thinking is not None:
+            self._anthropic_settings["thinking"] = bool(thinking)
+        if thinking_budget is not None:
+            self._anthropic_settings["thinking_budget"] = (
+                int(thinking_budget) if str(thinking_budget).strip() else None
+            )
         return dict(self._anthropic_settings)
 
     def get_app_root(self):
@@ -1440,6 +1479,11 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
         "max_retries": 2,
         "retry_delay": 6,
         "stop_sequences": ["END"],
+        "tool_choice": "auto",
+        "tool_choice_name": None,
+        "metadata": {"team": "atlas"},
+        "thinking": False,
+        "thinking_budget": None,
     }
     atlas_stub.get_models_for_provider = lambda name: [
         "claude-3-opus-20240229",
@@ -1465,10 +1509,16 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
     assert window.timeout_spin.get_value_as_int() == 75
     assert window.max_retries_spin.get_value_as_int() == 2
     assert window.retry_delay_spin.get_value_as_int() == 6
+    assert window.metadata_entry.get_text() == "team=atlas"
+    assert window._get_tool_choice_value() == "auto"
+    assert window.tool_name_entry.get_text() == ""
+    assert window.thinking_toggle.get_active() is False
 
     window.model_combo.set_active(1)
     window.streaming_toggle.set_active(False)
     window.function_call_toggle.set_active(True)
+    window.tool_choice_combo.set_active(3)
+    window.tool_name_entry.set_text("calendar")
     window.temperature_spin.set_value(0.55)
     window.top_p_spin.set_value(0.85)
     window.top_k_spin.set_value(25)
@@ -1477,6 +1527,9 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
     window.timeout_spin.set_value(180)
     window.max_retries_spin.set_value(6)
     window.retry_delay_spin.set_value(15)
+    window.metadata_entry.set_text("team=qa, priority=high")
+    window.thinking_toggle.set_active(True)
+    window.thinking_budget_spin.set_value(3072)
 
     window.on_save_clicked(None)
 
@@ -1491,6 +1544,11 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
     assert saved_payload["timeout"] == 180
     assert saved_payload["max_retries"] == 6
     assert saved_payload["retry_delay"] == 15
+    assert saved_payload["tool_choice"] == "tool"
+    assert saved_payload["tool_choice_name"] == "calendar"
+    assert saved_payload["metadata"] == {"team": "qa", "priority": "high"}
+    assert saved_payload["thinking"] is True
+    assert saved_payload["thinking_budget"] == 3072
     assert window._last_message[0] == "Success"
     assert window.closed is True
 
@@ -1701,6 +1759,15 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
         def set_stop_sequences(self, value):
             captured["stop_sequences"] = value
 
+        def set_tool_choice(self, choice, name=None):
+            captured["tool_choice"] = (choice, name)
+
+        def set_metadata(self, value):
+            captured["metadata"] = value
+
+        def set_thinking(self, enabled, budget=None):
+            captured["thinking"] = (enabled, budget)
+
     stub = _StubGenerator()
     monkeypatch.setattr(provider_manager, "_ensure_anthropic_generator", lambda: stub)
 
@@ -1718,6 +1785,11 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
         max_retries=4,
         retry_delay=12,
         stop_sequences=["END", "STOP"],
+        tool_choice="tool",
+        tool_choice_name="calendar_lookup",
+        metadata={"team": "qa"},
+        thinking=True,
+        thinking_budget=4096,
     )
 
     assert result["success"] is True
@@ -1739,5 +1811,14 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
     assert captured["max_retries"] == 4
     assert captured["retry_delay"] == 12
     assert captured["stop_sequences"] == ["END", "STOP"]
+    assert captured["tool_choice"] == ("tool", "calendar_lookup")
+    assert captured["metadata"] == {"team": "qa"}
+    assert captured["thinking"] == (True, 4096)
+
+    assert data["tool_choice"] == "tool"
+    assert data["tool_choice_name"] == "calendar_lookup"
+    assert data["metadata"] == {"team": "qa"}
+    assert data["thinking"] is True
+    assert data["thinking_budget"] == 4096
     assert provider_manager.current_model == "claude-3-haiku-20240229"
     assert provider_manager.model_manager.models["Anthropic"][0] == "claude-3-haiku-20240229"
