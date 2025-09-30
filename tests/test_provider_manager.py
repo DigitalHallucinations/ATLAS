@@ -576,6 +576,7 @@ class DummyConfig:
             "safety_settings": [],
             "response_mime_type": None,
             "system_instruction": None,
+            "max_output_tokens": None,
         }
 
     def get_default_provider(self):
@@ -1293,6 +1294,83 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
     assert settings["safety_settings"][0]["threshold"] == "BLOCK_LOW_AND_ABOVE"
     assert provider_manager.model_manager.models["Google"][0] == "gemini-1.5-flash-latest"
     assert provider_manager.current_model == "gemini-1.5-flash-latest"
+
+
+def test_generate_response_uses_google_defaults(provider_manager):
+    safety_settings = [{"category": "HARM_CATEGORY_DEROGATORY", "threshold": "BLOCK_LOW"}]
+
+    provider_manager.config_manager.set_google_llm_settings(
+        model="gemini-1.5-flash-latest",
+        temperature=0.25,
+        top_p=0.9,
+        top_k=32,
+        candidate_count=2,
+        stop_sequences=["STOP"],
+        safety_settings=safety_settings,
+        response_mime_type="text/plain",
+        system_instruction="Follow the instructions.",
+    )
+    provider_manager.config_manager._google_settings["max_output_tokens"] = 12345
+
+    captured = {}
+
+    async def fake_generate_response(_config_manager, **kwargs):
+        captured.update(kwargs)
+        return "ok"
+
+    provider_manager.generate_response_func = fake_generate_response
+    provider_manager.providers["Google"] = fake_generate_response
+    provider_manager.current_llm_provider = "Google"
+    provider_manager.current_model = "gemini-1.5-flash-latest"
+
+    async def exercise():
+        return await provider_manager.generate_response(
+            messages=[{"role": "user", "content": "hi"}],
+            provider="Google",
+        )
+
+    result = asyncio.run(exercise())
+    assert result == "ok"
+    assert captured["temperature"] == 0.25
+    assert captured["top_p"] == 0.9
+    assert captured["top_k"] == 32
+    assert captured["candidate_count"] == 2
+    assert captured["stop_sequences"] == ["STOP"]
+    assert captured["safety_settings"] == safety_settings
+    assert captured["response_mime_type"] == "text/plain"
+    assert captured["system_instruction"] == "Follow the instructions."
+    assert captured["max_tokens"] == 12345
+
+
+def test_generate_response_google_omits_hardcoded_max_tokens(provider_manager):
+    provider_manager.config_manager.set_google_llm_settings(
+        model="gemini-1.5-pro-latest",
+        temperature=0.0,
+        top_p=0.8,
+    )
+    provider_manager.config_manager._google_settings["max_output_tokens"] = None
+
+    captured = {}
+
+    async def fake_generate_response(_config_manager, **kwargs):
+        captured.update(kwargs)
+        return "ok"
+
+    provider_manager.generate_response_func = fake_generate_response
+    provider_manager.providers["Google"] = fake_generate_response
+    provider_manager.current_llm_provider = "Google"
+    provider_manager.current_model = "gemini-1.5-pro-latest"
+
+    async def exercise():
+        return await provider_manager.generate_response(
+            messages=[{"role": "user", "content": "hello"}],
+            provider="Google",
+        )
+
+    result = asyncio.run(exercise())
+    assert result == "ok"
+    assert "max_tokens" in captured
+    assert captured["max_tokens"] is None
 
 
 def test_generate_response_respects_function_calling_enabled(provider_manager):
