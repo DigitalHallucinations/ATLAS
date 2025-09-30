@@ -167,6 +167,36 @@ def test_set_google_llm_settings_updates_state(config_manager):
     assert config_manager.config["GOOGLE_LLM"]["max_output_tokens"] == 16000
 
 
+def test_set_google_llm_settings_normalizes_string_payloads(config_manager):
+    snapshot = config_manager.set_google_llm_settings(
+        model="gemini-1.5-pro",
+        temperature="0.4",
+        top_p="0.8",
+        top_k="27",
+        candidate_count="2",
+        max_output_tokens="4100",
+        stream="false",
+        function_calling="0",
+        response_schema='{"type": "object"}',
+        response_mime_type="",
+    )
+
+    assert snapshot["temperature"] == 0.4
+    assert snapshot["top_p"] == 0.8
+    assert snapshot["top_k"] == 27
+    assert snapshot["candidate_count"] == 2
+    assert snapshot["max_output_tokens"] == 4100
+    assert snapshot["stream"] is False
+    assert snapshot["function_calling"] is False
+    assert snapshot["response_mime_type"] == "application/json"
+    assert snapshot["response_schema"] == {"type": "object"}
+
+    persisted = config_manager.get_google_llm_settings()
+    assert persisted["stream"] is False
+    assert persisted["function_calling"] is False
+    assert persisted["temperature"] == 0.4
+
+
 def test_set_google_llm_settings_autofills_json_mime_for_schema(config_manager):
     snapshot = config_manager.set_google_llm_settings(
         model="gemini-1.5-flash",
