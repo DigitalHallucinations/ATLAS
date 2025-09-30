@@ -72,10 +72,24 @@ class GoogleSettingsWindow(Gtk.Window):
             "system_instruction": "",
             "stream": True,
             "function_calling": True,
+            "function_call_mode": "auto",
+            "allowed_function_names": [],
             "response_schema": {},
         }
         self._safety_controls: Dict[str, Tuple[Gtk.CheckButton, Gtk.ComboBoxText]] = {}
         self._available_models: List[str] = []
+        self._function_call_mode_options: List[Tuple[str, str]] = [
+            ("auto", "Automatic"),
+            ("any", "Allow any function"),
+            ("none", "Disable function calls"),
+            ("require", "Require allowed functions"),
+        ]
+        self._function_call_mode_label_map = {
+            label: value for value, label in self._function_call_mode_options
+        }
+        self._function_call_mode_index_map = {
+            value: index for index, (value, _label) in enumerate(self._function_call_mode_options)
+        }
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -218,7 +232,34 @@ class GoogleSettingsWindow(Gtk.Window):
         self.function_call_toggle.set_tooltip_text(
             "Allow Gemini to invoke persona tools and function calls by default."
         )
+        self.function_call_toggle.connect("toggled", self._on_function_call_toggled)
         grid.attach(self.function_call_toggle, 0, row, 2, 1)
+
+        row += 1
+        function_mode_label = Gtk.Label(label="Function call mode:")
+        function_mode_label.set_xalign(0.0)
+        grid.attach(function_mode_label, 0, row, 1, 1)
+
+        self.function_call_mode_combo = Gtk.ComboBoxText()
+        for _value, label in self._function_call_mode_options:
+            self.function_call_mode_combo.append_text(label)
+        self.function_call_mode_combo.set_tooltip_text(
+            "Select how Gemini should decide when to call tools."
+        )
+        grid.attach(self.function_call_mode_combo, 1, row, 1, 1)
+
+        row += 1
+        allowed_functions_label = Gtk.Label(label="Allowed function names:")
+        allowed_functions_label.set_xalign(0.0)
+        grid.attach(allowed_functions_label, 0, row, 1, 1)
+
+        self.allowed_functions_entry = Gtk.Entry()
+        self.allowed_functions_entry.set_hexpand(True)
+        self.allowed_functions_entry.set_placeholder_text("Comma-separated whitelist of functions")
+        self.allowed_functions_entry.set_tooltip_text(
+            "Optional whitelist restricting Gemini function calls to specific tools."
+        )
+        grid.attach(self.allowed_functions_entry, 1, row, 1, 1)
 
         row += 1
         max_output_label = Gtk.Label(label="Max output tokens:")
@@ -433,6 +474,35 @@ class GoogleSettingsWindow(Gtk.Window):
             bool(self._defaults.get("function_calling", True))
         )
 
+        mode_value = str(self._defaults.get("function_call_mode") or "auto").strip().lower()
+        mode_index = self._function_call_mode_index_map.get(mode_value, 0)
+        try:
+            self.function_call_mode_combo.set_active(mode_index)
+        except Exception:
+            pass
+
+        allowed_names_value = self._defaults.get("allowed_function_names", [])
+        if isinstance(allowed_names_value, str):
+            allowed_tokens = [
+                token.strip()
+                for token in allowed_names_value.split(",")
+                if token.strip()
+            ]
+        elif isinstance(allowed_names_value, Sequence):
+            allowed_tokens = [
+                str(token).strip()
+                for token in allowed_names_value
+                if isinstance(token, str) and str(token).strip()
+            ]
+        else:
+            allowed_tokens = []
+        try:
+            self.allowed_functions_entry.set_text(", ".join(allowed_tokens))
+        except Exception:
+            pass
+
+        self._update_tool_controls_sensitive()
+
         max_output_tokens = self._defaults.get("max_output_tokens")
         if isinstance(max_output_tokens, (int, float)) and max_output_tokens > 0:
             self.max_output_tokens_spin.set_value(int(max_output_tokens))
@@ -645,6 +715,9 @@ class GoogleSettingsWindow(Gtk.Window):
     # Event handlers
     # ------------------------------------------------------------------
 
+    def _on_function_call_toggled(self, toggle: Gtk.CheckButton) -> None:
+        self._update_tool_controls_sensitive(toggle.get_active())
+
     def _on_top_k_toggled(self, toggle: Gtk.CheckButton) -> None:
         active = toggle.get_active()
         self.top_k_spin.set_sensitive(active)
@@ -691,6 +764,8 @@ class GoogleSettingsWindow(Gtk.Window):
             "system_instruction": self._sanitize_system_instruction(),
             "stream": self.stream_toggle.get_active(),
             "function_calling": self.function_call_toggle.get_active(),
+            "function_call_mode": self._get_selected_function_call_mode(),
+            "allowed_function_names": self._parse_allowed_function_names(),
             "response_schema": None,
         }
 
@@ -699,6 +774,10 @@ class GoogleSettingsWindow(Gtk.Window):
         except ValueError as exc:
             self._show_message("Validation", str(exc), Gtk.MessageType.WARNING)
             return
+
+        if not payload["function_calling"]:
+            payload["function_call_mode"] = "none"
+            payload["allowed_function_names"] = []
 
         schema = payload["response_schema"]
         if schema not in (None, "", {}):
@@ -747,6 +826,18 @@ class GoogleSettingsWindow(Gtk.Window):
     # Helpers
     # ------------------------------------------------------------------
 
+    def _update_tool_controls_sensitive(self, enabled: Optional[bool] = None) -> None:
+        if enabled is None:
+            enabled = self.function_call_toggle.get_active()
+        try:
+            self.function_call_mode_combo.set_sensitive(bool(enabled))
+        except Exception:
+            pass
+        try:
+            self.allowed_functions_entry.set_sensitive(bool(enabled))
+        except Exception:
+            pass
+
     def _parse_stop_sequences(self) -> List[str]:
         text = self.stop_sequences_entry.get_text()
         if not text:
@@ -757,6 +848,27 @@ class GoogleSettingsWindow(Gtk.Window):
             if cleaned:
                 tokens.append(cleaned)
         return tokens
+
+    def _get_selected_function_call_mode(self) -> str:
+        try:
+            label = self.function_call_mode_combo.get_active_text() or ""
+        except Exception:
+            label = ""
+        return self._function_call_mode_label_map.get(label, "auto")
+
+    def _parse_allowed_function_names(self) -> List[str]:
+        try:
+            text = self.allowed_functions_entry.get_text()
+        except Exception:
+            text = ""
+        if not text:
+            return []
+        names: List[str] = []
+        for chunk in text.replace("\n", ",").split(","):
+            cleaned = chunk.strip()
+            if cleaned and cleaned not in names:
+                names.append(cleaned)
+        return names
 
     def _collect_safety_settings(self) -> List[Dict[str, str]]:
         settings: List[Dict[str, str]] = []

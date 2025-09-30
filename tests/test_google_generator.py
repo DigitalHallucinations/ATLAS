@@ -142,7 +142,14 @@ def test_google_generator_streams_function_call(monkeypatch):
 
     monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
 
-    generator = google_module.GoogleGeminiGenerator(DummyConfig())
+    generator = google_module.GoogleGeminiGenerator(
+        DummyConfig(
+            settings={
+                "function_call_mode": "require",
+                "allowed_function_names": ["tool_action"],
+            }
+        )
+    )
 
     async def exercise():
         stream = await generator.generate_response(
@@ -178,6 +185,11 @@ def test_google_generator_streams_function_call(monkeypatch):
     declarations = list(tools[0].function_declarations)
     assert declarations[0].name == "tool_action"
     assert declarations[0].description == "A sample tool"
+    tool_config = kwargs["tool_config"]
+    assert tool_config["function_calling_config"]["mode"] == "REQUIRE"
+    assert tool_config["function_calling_config"]["allowed_function_names"] == [
+        "tool_action"
+    ]
 
 
 def test_google_generator_defaults_json_mime_when_schema_present(monkeypatch):
@@ -229,6 +241,43 @@ def test_google_generator_defaults_json_mime_when_schema_present(monkeypatch):
 
     asyncio.run(exercise_with_explicit_schema())
     assert call_kwargs[-1]["response_mime_type"] == "application/json"
+
+
+def test_google_generator_disables_tool_config_when_functions_off(monkeypatch):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    captured_kwargs = {}
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "done"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+
+        def generate_content(self, contents, **kwargs):
+            captured_kwargs.update(kwargs)
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    config = DummyConfig(settings={"function_call_mode": "any"})
+    generator = google_module.GoogleGeminiGenerator(config)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            enable_functions=False,
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+    assert result == "done"
+    tool_config = captured_kwargs["tool_config"]
+    assert tool_config["function_calling_config"]["mode"] == "NONE"
+    assert "allowed_function_names" not in tool_config["function_calling_config"]
 
 
 def test_google_generator_streaming_runs_off_event_loop(monkeypatch):

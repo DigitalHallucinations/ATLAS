@@ -143,6 +143,8 @@ def test_set_google_llm_settings_updates_state(config_manager):
         ],
         response_mime_type="application/json",
         system_instruction="Respond in JSON.",
+        function_call_mode="require",
+        allowed_function_names=["tool_a", "tool_b"],
     )
 
     assert result["model"] == "gemini-1.5-flash"
@@ -158,6 +160,8 @@ def test_set_google_llm_settings_updates_state(config_manager):
     ]
     assert stored["response_mime_type"] == "application/json"
     assert stored["system_instruction"] == "Respond in JSON."
+    assert stored["function_call_mode"] == "require"
+    assert stored["allowed_function_names"] == ["tool_a", "tool_b"]
     assert config_manager.config["GOOGLE_LLM"]["top_k"] == 32
     assert config_manager.config["GOOGLE_LLM"]["max_output_tokens"] == 16000
 
@@ -183,6 +187,14 @@ def test_set_google_llm_settings_rejects_non_json_mime_with_schema(config_manage
         )
 
 
+def test_set_google_llm_settings_rejects_invalid_function_mode(config_manager):
+    with pytest.raises(ValueError):
+        config_manager.set_google_llm_settings(
+            model="gemini-1.5-flash",
+            function_call_mode="unsupported",
+        )
+
+
 def test_get_google_llm_settings_returns_copy(config_manager):
     config_manager.set_google_llm_settings(
         model="gemini-1.5-pro",
@@ -190,11 +202,17 @@ def test_get_google_llm_settings_returns_copy(config_manager):
         safety_settings=[
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_LOW_AND_ABOVE"}
         ],
+        allowed_function_names=["alpha", "beta"],
     )
 
     retrieved = config_manager.get_google_llm_settings()
     retrieved["stop_sequences"].append("NEW")
+    retrieved["allowed_function_names"].append("gamma")
     assert config_manager.config["GOOGLE_LLM"]["stop_sequences"] == ["DONE"]
+    assert config_manager.config["GOOGLE_LLM"]["allowed_function_names"] == [
+        "alpha",
+        "beta",
+    ]
 
 
 def test_set_google_llm_settings_allows_clearing_max_output_tokens(config_manager):
