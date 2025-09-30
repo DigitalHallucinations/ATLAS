@@ -1,8 +1,10 @@
 import asyncio
+import copy
 import importlib.util
 import os
-import copy
 import sys
+import threading
+import time
 import types
 from pathlib import Path
 from types import SimpleNamespace
@@ -176,6 +178,59 @@ def test_google_generator_streams_function_call(monkeypatch):
     declarations = list(tools[0].function_declarations)
     assert declarations[0].name == "tool_action"
     assert declarations[0].description == "A sample tool"
+
+
+def test_google_generator_streaming_runs_off_event_loop(monkeypatch):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    iteration_threads = []
+
+    class DummyResponse:
+        def __iter__(self):
+            iteration_threads.append(threading.get_ident())
+            for index in range(3):
+                time.sleep(0.01)
+                yield SimpleNamespace(text=f"chunk-{index}", candidates=[])
+
+        @property
+        def candidates(self):
+            return []
+
+        @property
+        def text(self):
+            return ""
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+
+        def generate_content(self, contents, **kwargs):
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    generator = google_module.GoogleGeminiGenerator(DummyConfig())
+
+    async def exercise():
+        loop_thread_id = threading.get_ident()
+        stream = await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            model="gemini-streaming-test",
+            stream=True,
+        )
+
+        observed = []
+
+        async for item in stream:
+            observed.append(item)
+
+        return loop_thread_id, observed
+
+    loop_thread, observed_chunks = asyncio.run(exercise())
+
+    assert observed_chunks == ["chunk-0", "chunk-1", "chunk-2"]
+    assert iteration_threads, "Streaming iterator was not consumed"
+    assert all(tid != loop_thread for tid in iteration_threads)
 
 
 def test_google_generator_applies_persisted_settings(monkeypatch):

@@ -1,6 +1,7 @@
 # modules/Providers/Google/GG_gen_response.py
 
 import asyncio
+import contextlib
 import copy
 import json
 from typing import Any, AsyncIterator, Dict, Iterable, List, Mapping, Optional, Union
@@ -534,39 +535,69 @@ class GoogleGeminiGenerator:
                         calls.append(normalized)
         return calls
 
+    def _iter_stream_payloads(self, chunk):
+        if getattr(chunk, "text", None):
+            yield chunk.text
+
+        for candidate in getattr(chunk, "candidates", []) or []:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) if content is not None else None
+            if not parts:
+                continue
+
+            for part in parts:
+                text_value = None
+                function_call = None
+
+                if isinstance(part, dict):
+                    if "text" in part:
+                        text_value = part.get("text")
+                    function_call = part.get("function_call")
+                else:
+                    text_value = getattr(part, "text", None)
+                    function_call = getattr(part, "function_call", None)
+
+                if text_value:
+                    yield text_value
+
+                normalized_call = self._normalize_function_call(function_call)
+                if normalized_call:
+                    yield {"function_call": normalized_call}
+
     async def stream_response(
         self, response
     ) -> AsyncIterator[Union[str, Dict[str, Dict[str, str]]]]:
-        for chunk in response:
-            if getattr(chunk, "text", None):
-                yield chunk.text
+        loop = asyncio.get_running_loop()
+        queue: "asyncio.Queue[tuple[str, Optional[Union[str, Dict[str, Dict[str, str]]]]]]" = (
+            asyncio.Queue()
+        )
 
-            for candidate in getattr(chunk, "candidates", []) or []:
-                content = getattr(candidate, "content", None)
-                parts = getattr(content, "parts", None) if content is not None else None
-                if not parts:
-                    continue
+        def producer():
+            try:
+                for chunk in response:
+                    for payload in self._iter_stream_payloads(chunk):
+                        loop.call_soon_threadsafe(queue.put_nowait, ("data", payload))
+            except Exception as exc:  # pragma: no cover - defensive
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
 
-                for part in parts:
-                    text_value = None
-                    function_call = None
+        producer_task = asyncio.create_task(asyncio.to_thread(producer))
 
-                    if isinstance(part, dict):
-                        if "text" in part:
-                            text_value = part.get("text")
-                        function_call = part.get("function_call")
-                    else:
-                        text_value = getattr(part, "text", None)
-                        function_call = getattr(part, "function_call", None)
-
-                    if text_value:
-                        yield text_value
-
-                    normalized_call = self._normalize_function_call(function_call)
-                    if normalized_call:
-                        yield {"function_call": normalized_call}
-
-            await asyncio.sleep(0)
+        try:
+            while True:
+                kind, payload = await queue.get()
+                if kind == "data":
+                    yield payload  # type: ignore[misc]
+                elif kind == "error":
+                    raise payload  # type: ignore[misc]
+                elif kind == "done":
+                    break
+        finally:
+            if not producer_task.done():
+                producer_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await producer_task
 
     async def process_response(self, response) -> str:
         if isinstance(response, AsyncIterator):
