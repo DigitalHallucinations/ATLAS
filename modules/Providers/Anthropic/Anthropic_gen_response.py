@@ -125,7 +125,7 @@ def _normalise_stop_sequences(value: Any) -> List[str]:
 def _normalise_metadata(value: Any) -> Dict[str, str]:
     """Normalise metadata inputs to Anthropic's expected mapping structure."""
 
-    if value in {None, "", {}}:
+    if value in (None, "", {}):
         return {}
 
     metadata: Dict[str, str] = {}

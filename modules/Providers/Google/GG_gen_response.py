@@ -335,7 +335,7 @@ class GoogleGeminiGenerator:
             )
 
             request_kwargs = {
-                "generation_config": genai.types.GenerationConfig(
+                "generation_config": genai_types.GenerationConfig(
                     **{
                         key: value
                         for key, value in {

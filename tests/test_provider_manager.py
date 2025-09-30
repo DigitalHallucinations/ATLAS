@@ -6,8 +6,14 @@ import types
 from typing import Dict, Optional, Tuple
 from urllib.error import URLError
 
-if "gi" not in sys.modules:
+needs_stub = True
+existing_gi = sys.modules.get("gi")
+if existing_gi is not None and getattr(existing_gi, "_provider_manager_stub", False):
+    needs_stub = False
+
+if needs_stub:
     gi_stub = types.ModuleType("gi")
+    gi_stub._provider_manager_stub = True
 
     def _require_version(_name, _version):  # pragma: no cover - simple stub
         return None
@@ -679,6 +685,7 @@ class DummyConfig:
             "function_calling": True,
             "function_call_mode": "auto",
             "allowed_function_names": [],
+            "cached_allowed_function_names": [],
             "response_schema": {},
         }
 
@@ -849,6 +856,7 @@ class DummyConfig:
         function_call_mode=None,
         allowed_function_names=None,
         response_schema=None,
+        cached_allowed_function_names=None,
     ):
         if model:
             self._google_settings["model"] = model
@@ -903,6 +911,22 @@ class DummyConfig:
                     if str(item).strip()
                 ]
             self._google_settings["allowed_function_names"] = names
+            if cached_allowed_function_names is None:
+                cached_allowed_function_names = names
+        if cached_allowed_function_names is not None:
+            if isinstance(cached_allowed_function_names, str):
+                cached_names = [
+                    part.strip()
+                    for part in cached_allowed_function_names.split(",")
+                    if part.strip()
+                ]
+            else:
+                cached_names = [
+                    str(item).strip()
+                    for item in (cached_allowed_function_names or [])
+                    if str(item).strip()
+                ]
+            self._google_settings["cached_allowed_function_names"] = cached_names
         if response_schema is not None:
             if response_schema in ("", {}, None):
                 self._google_settings["response_schema"] = {}
@@ -1409,12 +1433,96 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
         "persona_tool",
         "helper",
     ]
+    assert atlas.saved_payload["cached_allowed_function_names"] == [
+        "persona_tool",
+        "helper",
+    ]
     assert atlas.saved_payload["response_schema"] == {
         "type": "object",
         "properties": {"value": {"type": "integer"}},
     }
     assert atlas.last_provider == "Google"
     assert atlas.refresh_calls == 1
+
+
+def test_google_settings_restores_allowlist_cache_when_reenabled(tmp_path):
+    class StubAtlas:
+        def __init__(self):
+            self.saved_payloads = []
+            self.refresh_calls = 0
+            self.last_provider = None
+            self._settings = {
+                "model": "gemini-1.5-pro-latest",
+                "function_calling": True,
+                "function_call_mode": "auto",
+                "allowed_function_names": ["alpha_tool", "beta_tool"],
+                "cached_allowed_function_names": ["alpha_tool", "beta_tool"],
+            }
+
+        def get_models_for_provider(self, provider_name):
+            assert provider_name == "Google"
+            return ["gemini-1.5-pro-latest"]
+
+        def get_google_llm_settings(self):
+            return dict(self._settings)
+
+        def get_provider_api_key_status(self, provider_name):
+            return {"has_key": False}
+
+        def set_google_llm_settings(self, **payload):
+            self.saved_payloads.append(payload)
+            for key in (
+                "function_calling",
+                "function_call_mode",
+                "allowed_function_names",
+                "cached_allowed_function_names",
+            ):
+                if key in payload:
+                    self._settings[key] = payload[key]
+            return {"success": True, "message": "saved"}
+
+        def run_in_background(self, func, on_error=None, thread_name=None):
+            try:
+                func()
+            except Exception as exc:  # pragma: no cover - defensive
+                if on_error is not None:
+                    on_error(exc)
+
+        def refresh_current_provider(self, provider_name):
+            self.refresh_calls += 1
+            self.last_provider = provider_name
+
+    atlas = StubAtlas()
+    config = DummyConfig(tmp_path.as_posix())
+
+    window = GoogleSettingsWindow(atlas, config, None)
+    window.allowed_functions_entry.set_text("alpha_tool, beta_tool")
+    window.function_call_toggle.set_active(False)
+    window._on_function_call_toggled(window.function_call_toggle)
+    window.on_save_clicked()
+
+    assert atlas.saved_payloads[0]["allowed_function_names"] == []
+    assert atlas.saved_payloads[0]["cached_allowed_function_names"] == [
+        "alpha_tool",
+        "beta_tool",
+    ]
+
+    window = GoogleSettingsWindow(atlas, config, None)
+    assert window.function_call_toggle.get_active() is False
+    window.allowed_functions_entry.set_text("")
+    window.function_call_toggle.set_active(True)
+    window._on_function_call_toggled(window.function_call_toggle)
+    assert window.allowed_functions_entry.get_text() == "alpha_tool, beta_tool"
+    window.on_save_clicked()
+
+    assert atlas.saved_payloads[1]["allowed_function_names"] == [
+        "alpha_tool",
+        "beta_tool",
+    ]
+    assert atlas.saved_payloads[1]["cached_allowed_function_names"] == [
+        "alpha_tool",
+        "beta_tool",
+    ]
 
 
 def test_google_settings_supports_extended_safety_categories(tmp_path):
