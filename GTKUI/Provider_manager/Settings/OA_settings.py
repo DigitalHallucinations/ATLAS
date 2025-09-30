@@ -83,16 +83,28 @@ class OpenAISettingsWindow(Gtk.Window):
         main_box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=12)
         scroller.set_child(main_box)
 
-        grid = Gtk.Grid(column_spacing=12, row_spacing=8)
-        main_box.append(grid)
+        self.settings_notebook = Gtk.Notebook()
+        if hasattr(self.settings_notebook, "set_hexpand"):
+            self.settings_notebook.set_hexpand(True)
+        if hasattr(self.settings_notebook, "set_vexpand"):
+            self.settings_notebook.set_vexpand(True)
+        main_box.append(self.settings_notebook)
+
+        general_box = create_box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=12,
+            margin=6,
+        )
+        general_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
+        general_box.append(general_grid)
 
         row = 0
         api_label = Gtk.Label(label="OpenAI API Key:")
         api_label.set_xalign(0.0)
-        grid.attach(api_label, 0, row, 1, 1)
+        general_grid.attach(api_label, 0, row, 1, 1)
 
         api_entry_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        grid.attach(api_entry_box, 1, row, 1, 1)
+        general_grid.attach(api_entry_box, 1, row, 1, 1)
 
         self.api_key_entry = Gtk.Entry()
         self.api_key_entry.set_hexpand(True)
@@ -110,44 +122,44 @@ class OpenAISettingsWindow(Gtk.Window):
         row += 1
         self.api_key_status_label = Gtk.Label(label="")
         self.api_key_status_label.set_xalign(0.0)
-        grid.attach(self.api_key_status_label, 0, row, 2, 1)
+        general_grid.attach(self.api_key_status_label, 0, row, 2, 1)
 
         row += 1
         model_label = Gtk.Label(label="Default Model:")
         model_label.set_xalign(0.0)
-        grid.attach(model_label, 0, row, 1, 1)
+        general_grid.attach(model_label, 0, row, 1, 1)
         self.model_combo = Gtk.ComboBoxText()
         self.model_combo.set_hexpand(True)
-        grid.attach(self.model_combo, 1, row, 1, 1)
+        general_grid.attach(self.model_combo, 1, row, 1, 1)
 
         row += 1
         temp_label = Gtk.Label(label="Temperature:")
         temp_label.set_xalign(0.0)
-        grid.attach(temp_label, 0, row, 1, 1)
+        general_grid.attach(temp_label, 0, row, 1, 1)
         self.temperature_adjustment = Gtk.Adjustment(
             lower=0.0, upper=2.0, step_increment=0.05, page_increment=0.1, value=0.0
         )
         self.temperature_spin = Gtk.SpinButton(adjustment=self.temperature_adjustment, digits=2)
         self.temperature_spin.set_increments(0.05, 0.1)
         self.temperature_spin.set_hexpand(True)
-        grid.attach(self.temperature_spin, 1, row, 1, 1)
+        general_grid.attach(self.temperature_spin, 1, row, 1, 1)
 
         row += 1
         top_p_label = Gtk.Label(label="Top-p:")
         top_p_label.set_xalign(0.0)
-        grid.attach(top_p_label, 0, row, 1, 1)
+        general_grid.attach(top_p_label, 0, row, 1, 1)
         self.top_p_adjustment = Gtk.Adjustment(
             lower=0.0, upper=1.0, step_increment=0.01, page_increment=0.05, value=1.0
         )
         self.top_p_spin = Gtk.SpinButton(adjustment=self.top_p_adjustment, digits=2)
         self.top_p_spin.set_increments(0.01, 0.05)
         self.top_p_spin.set_hexpand(True)
-        grid.attach(self.top_p_spin, 1, row, 1, 1)
+        general_grid.attach(self.top_p_spin, 1, row, 1, 1)
 
         row += 1
         freq_label = Gtk.Label(label="Frequency Penalty:")
         freq_label.set_xalign(0.0)
-        grid.attach(freq_label, 0, row, 1, 1)
+        general_grid.attach(freq_label, 0, row, 1, 1)
         self.frequency_penalty_adjustment = Gtk.Adjustment(
             lower=-2.0, upper=2.0, step_increment=0.05, page_increment=0.1, value=0.0
         )
@@ -156,12 +168,12 @@ class OpenAISettingsWindow(Gtk.Window):
         )
         self.frequency_penalty_spin.set_increments(0.05, 0.1)
         self.frequency_penalty_spin.set_hexpand(True)
-        grid.attach(self.frequency_penalty_spin, 1, row, 1, 1)
+        general_grid.attach(self.frequency_penalty_spin, 1, row, 1, 1)
 
         row += 1
         presence_label = Gtk.Label(label="Presence Penalty:")
         presence_label.set_xalign(0.0)
-        grid.attach(presence_label, 0, row, 1, 1)
+        general_grid.attach(presence_label, 0, row, 1, 1)
         self.presence_penalty_adjustment = Gtk.Adjustment(
             lower=-2.0, upper=2.0, step_increment=0.05, page_increment=0.1, value=0.0
         )
@@ -170,100 +182,107 @@ class OpenAISettingsWindow(Gtk.Window):
         )
         self.presence_penalty_spin.set_increments(0.05, 0.1)
         self.presence_penalty_spin.set_hexpand(True)
-        grid.attach(self.presence_penalty_spin, 1, row, 1, 1)
+        general_grid.attach(self.presence_penalty_spin, 1, row, 1, 1)
 
         row += 1
         tokens_label = Gtk.Label(label="Max Tokens:")
         tokens_label.set_xalign(0.0)
-        grid.attach(tokens_label, 0, row, 1, 1)
+        general_grid.attach(tokens_label, 0, row, 1, 1)
         self.max_tokens_adjustment = Gtk.Adjustment(
             lower=1, upper=128000, step_increment=128, page_increment=512, value=4000
         )
         self.max_tokens_spin = Gtk.SpinButton(adjustment=self.max_tokens_adjustment, digits=0)
         self.max_tokens_spin.set_increments(128, 512)
         self.max_tokens_spin.set_hexpand(True)
-        grid.attach(self.max_tokens_spin, 1, row, 1, 1)
-
-        row += 1
-        self.stream_toggle = Gtk.CheckButton(label="Enable streaming responses")
-        self.stream_toggle.set_halign(Gtk.Align.START)
-        grid.attach(self.stream_toggle, 0, row, 2, 1)
-
-        row += 1
-        self.function_call_toggle = Gtk.CheckButton(label="Allow automatic tool calls")
-        self.function_call_toggle.set_halign(Gtk.Align.START)
-        grid.attach(self.function_call_toggle, 0, row, 2, 1)
-        if hasattr(self.function_call_toggle, "connect"):
-            self.function_call_toggle.connect("toggled", self._on_function_call_toggle_toggled)
-
-        row += 1
-        self.parallel_tool_calls_toggle = Gtk.CheckButton(label="Allow parallel tool calls")
-        self.parallel_tool_calls_toggle.set_halign(Gtk.Align.START)
-        grid.attach(self.parallel_tool_calls_toggle, 0, row, 2, 1)
-
-        row += 1
-        self.require_tool_toggle = Gtk.CheckButton(label="Require a tool call before responding")
-        self.require_tool_toggle.set_halign(Gtk.Align.START)
-        grid.attach(self.require_tool_toggle, 0, row, 2, 1)
-
-        row += 1
-        self.audio_reply_toggle = Gtk.CheckButton(label="Enable audio replies")
-        self.audio_reply_toggle.set_halign(Gtk.Align.START)
-        if hasattr(self.audio_reply_toggle, "connect"):
-            self.audio_reply_toggle.connect("toggled", self._on_audio_toggle_toggled)
-        grid.attach(self.audio_reply_toggle, 0, row, 2, 1)
-
-        row += 1
-        audio_voice_label = Gtk.Label(label="Voice:")
-        audio_voice_label.set_xalign(0.0)
-        grid.attach(audio_voice_label, 0, row, 1, 1)
-        self.audio_voice_combo = Gtk.ComboBoxText()
-        for option in self._audio_voice_options:
-            self.audio_voice_combo.append_text(option)
-        self.audio_voice_combo.set_hexpand(True)
-        grid.attach(self.audio_voice_combo, 1, row, 1, 1)
-
-        row += 1
-        audio_format_label = Gtk.Label(label="Audio format:")
-        audio_format_label.set_xalign(0.0)
-        grid.attach(audio_format_label, 0, row, 1, 1)
-        self.audio_format_combo = Gtk.ComboBoxText()
-        for option in self._audio_format_options:
-            self.audio_format_combo.append_text(option)
-        self.audio_format_combo.set_hexpand(True)
-        grid.attach(self.audio_format_combo, 1, row, 1, 1)
+        general_grid.attach(self.max_tokens_spin, 1, row, 1, 1)
 
         row += 1
         org_label = Gtk.Label(label="Organization (optional):")
         org_label.set_xalign(0.0)
-        grid.attach(org_label, 0, row, 1, 1)
+        general_grid.attach(org_label, 0, row, 1, 1)
         self.organization_entry = Gtk.Entry()
         self.organization_entry.set_hexpand(True)
         self.organization_entry.set_placeholder_text("org-1234")
-        grid.attach(self.organization_entry, 1, row, 1, 1)
+        general_grid.attach(self.organization_entry, 1, row, 1, 1)
 
-        expander_cls = getattr(Gtk, "Expander", None)
-        advanced_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        advanced_box.set_margin_start(6)
-        advanced_box.set_margin_end(6)
-        advanced_box.set_margin_bottom(6)
+        row += 1
+        self.stream_toggle = Gtk.CheckButton(label="Enable streaming responses")
+        self.stream_toggle.set_halign(Gtk.Align.START)
+        general_grid.attach(self.stream_toggle, 0, row, 2, 1)
 
-        if expander_cls is not None:
-            advanced_container = expander_cls(label="Advanced")
-            advanced_container.set_hexpand(True)
-            advanced_container.set_margin_top(6)
-            advanced_container.set_child(advanced_box)
-            main_box.append(advanced_container)
-        else:  # pragma: no cover - fallback for GTK stubs used in testing
-            fallback_wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            fallback_wrapper.set_margin_top(6)
-            main_box.append(fallback_wrapper)
+        self._append_settings_page(general_box, "General")
 
-            header = Gtk.Label(label="Advanced")
-            header.set_xalign(0.0)
-            fallback_wrapper.append(header)
-            fallback_wrapper.append(advanced_box)
+        tools_box = create_box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=12,
+            margin=6,
+        )
+        tools_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
+        tools_box.append(tools_grid)
 
+        tools_row = 0
+
+        self.function_call_toggle = Gtk.CheckButton(label="Allow automatic tool calls")
+        self.function_call_toggle.set_halign(Gtk.Align.START)
+        tools_grid.attach(self.function_call_toggle, 0, tools_row, 2, 1)
+        if hasattr(self.function_call_toggle, "connect"):
+            self.function_call_toggle.connect("toggled", self._on_function_call_toggle_toggled)
+        tools_row += 1
+
+        self.parallel_tool_calls_toggle = Gtk.CheckButton(label="Allow parallel tool calls")
+        self.parallel_tool_calls_toggle.set_halign(Gtk.Align.START)
+        tools_grid.attach(self.parallel_tool_calls_toggle, 0, tools_row, 2, 1)
+        tools_row += 1
+
+        self.require_tool_toggle = Gtk.CheckButton(label="Require a tool call before responding")
+        self.require_tool_toggle.set_halign(Gtk.Align.START)
+        tools_grid.attach(self.require_tool_toggle, 0, tools_row, 2, 1)
+
+        self._append_settings_page(tools_box, "Tools")
+
+        audio_box = create_box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=12,
+            margin=6,
+        )
+        audio_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
+        audio_box.append(audio_grid)
+
+        audio_row = 0
+
+        self.audio_reply_toggle = Gtk.CheckButton(label="Enable audio replies")
+        self.audio_reply_toggle.set_halign(Gtk.Align.START)
+        if hasattr(self.audio_reply_toggle, "connect"):
+            self.audio_reply_toggle.connect("toggled", self._on_audio_toggle_toggled)
+        audio_grid.attach(self.audio_reply_toggle, 0, audio_row, 2, 1)
+        audio_row += 1
+
+        audio_voice_label = Gtk.Label(label="Voice:")
+        audio_voice_label.set_xalign(0.0)
+        audio_grid.attach(audio_voice_label, 0, audio_row, 1, 1)
+        self.audio_voice_combo = Gtk.ComboBoxText()
+        for option in self._audio_voice_options:
+            self.audio_voice_combo.append_text(option)
+        self.audio_voice_combo.set_hexpand(True)
+        audio_grid.attach(self.audio_voice_combo, 1, audio_row, 1, 1)
+        audio_row += 1
+
+        audio_format_label = Gtk.Label(label="Audio format:")
+        audio_format_label.set_xalign(0.0)
+        audio_grid.attach(audio_format_label, 0, audio_row, 1, 1)
+        self.audio_format_combo = Gtk.ComboBoxText()
+        for option in self._audio_format_options:
+            self.audio_format_combo.append_text(option)
+        self.audio_format_combo.set_hexpand(True)
+        audio_grid.attach(self.audio_format_combo, 1, audio_row, 1, 1)
+
+        self._append_settings_page(audio_box, "Audio")
+
+        advanced_box = create_box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+            margin=6,
+        )
         advanced_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
         advanced_box.append(advanced_grid)
 
@@ -398,6 +417,8 @@ class OpenAISettingsWindow(Gtk.Window):
             self.base_url_entry.connect("changed", self._on_base_url_changed)
         advanced_grid.attach(self.base_url_entry, 1, advanced_row, 1, 1)
 
+        self._append_settings_page(advanced_box, "Advanced")
+
         self.base_url_feedback_label = Gtk.Label(label="Leave blank to use the official endpoint.")
         self.base_url_feedback_label.set_xalign(0.0)
         if hasattr(self.base_url_feedback_label, "add_css_class"):
@@ -421,6 +442,30 @@ class OpenAISettingsWindow(Gtk.Window):
         button_box.append(save_button)
 
         self._populate_defaults()
+
+    def _append_settings_page(self, child: Gtk.Widget, title: str) -> None:
+        if not hasattr(self, "settings_notebook") or self.settings_notebook is None:
+            return
+
+        label = Gtk.Label(label=title)
+        if hasattr(label, "set_xalign"):
+            label.set_xalign(0.0)
+
+        notebook = self.settings_notebook
+        append_page = getattr(notebook, "append_page", None)
+        if callable(append_page):
+            append_page(child, label)
+            return
+
+        if hasattr(notebook, "append"):
+            wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            wrapper.append(label)
+            wrapper.append(child)
+            notebook.append(wrapper)
+            return
+
+        if hasattr(notebook, "set_child"):
+            notebook.set_child(child)
 
     # ------------------------------------------------------------------
     # Initialization helpers
