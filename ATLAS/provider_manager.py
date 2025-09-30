@@ -1086,6 +1086,12 @@ class ProviderManager:
         max_output_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
+        candidate_count: Optional[int] = None,
+        stop_sequences: Optional[Any] = None,
+        safety_settings: Optional[Any] = None,
+        response_mime_type: Optional[str] = None,
+        system_instruction: Optional[str] = None,
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
         stream: Optional[bool] = None,
@@ -1124,22 +1130,60 @@ class ProviderManager:
         defaults: Dict[str, Any] = {}
         if requested_provider == "OpenAI":
             defaults = self.get_openai_llm_settings()
+        elif requested_provider == "Google":
+            defaults = self.get_google_llm_settings()
 
         resolved_model = model or defaults.get("model") or self.get_current_model()
         if not resolved_model:
             fallback_model = self.get_default_model_for_provider(requested_provider)
             resolved_model = fallback_model
 
-        resolved_max_tokens = max_tokens if max_tokens is not None else defaults.get("max_tokens", 4000)
+        default_max_tokens = defaults.get("max_tokens")
+        default_max_output_tokens = defaults.get("max_output_tokens")
         resolved_max_output_tokens = (
             max_output_tokens
             if max_output_tokens is not None
-            else defaults.get("max_output_tokens")
+            else default_max_output_tokens
         )
+        if requested_provider == "Google":
+            if max_tokens is not None:
+                resolved_max_tokens = max_tokens
+            elif resolved_max_output_tokens is not None:
+                resolved_max_tokens = resolved_max_output_tokens
+            else:
+                resolved_max_tokens = default_max_tokens
+        else:
+            fallback_max_tokens = default_max_tokens
+            if fallback_max_tokens is None and requested_provider == "OpenAI":
+                fallback_max_tokens = 4000
+            resolved_max_tokens = (
+                max_tokens if max_tokens is not None else fallback_max_tokens
+            )
+
         resolved_temperature = (
             temperature if temperature is not None else defaults.get("temperature", 0.0)
         )
         resolved_top_p = top_p if top_p is not None else defaults.get("top_p", 1.0)
+        resolved_top_k = top_k if top_k is not None else defaults.get("top_k")
+        resolved_candidate_count = (
+            candidate_count if candidate_count is not None else defaults.get("candidate_count")
+        )
+        resolved_stop_sequences = (
+            stop_sequences if stop_sequences is not None else defaults.get("stop_sequences")
+        )
+        resolved_safety_settings = (
+            safety_settings if safety_settings is not None else defaults.get("safety_settings")
+        )
+        resolved_response_mime_type = (
+            response_mime_type
+            if response_mime_type is not None
+            else defaults.get("response_mime_type")
+        )
+        resolved_system_instruction = (
+            system_instruction
+            if system_instruction is not None
+            else defaults.get("system_instruction")
+        )
         resolved_frequency_penalty = (
             frequency_penalty
             if frequency_penalty is not None
@@ -1229,6 +1273,18 @@ class ProviderManager:
                     top_p=resolved_top_p,
                     max_output_tokens=resolved_max_output_tokens,
                 )
+            elif requested_provider == "Google":
+                call_kwargs.update(
+                    top_p=resolved_top_p,
+                    top_k=resolved_top_k,
+                    candidate_count=resolved_candidate_count,
+                    stop_sequences=resolved_stop_sequences,
+                    safety_settings=resolved_safety_settings,
+                    response_mime_type=resolved_response_mime_type,
+                    system_instruction=resolved_system_instruction,
+                )
+                if resolved_max_output_tokens is not None and max_tokens is None:
+                    call_kwargs["max_tokens"] = resolved_max_output_tokens
 
             response = await self.generate_response_func(
                 self.config_manager,
