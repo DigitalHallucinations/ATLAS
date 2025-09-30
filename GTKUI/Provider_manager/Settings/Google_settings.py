@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """GTK dialog for configuring Google Gemini provider defaults."""
 
+import json
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -56,6 +57,7 @@ class GoogleSettingsWindow(Gtk.Window):
             "system_instruction": "",
             "stream": True,
             "function_calling": True,
+            "response_schema": {},
         }
         self._safety_controls: Dict[str, Tuple[Gtk.CheckButton, Gtk.ComboBoxText]] = {}
         self._available_models: List[str] = []
@@ -272,6 +274,29 @@ class GoogleSettingsWindow(Gtk.Window):
         grid.attach(system_scroller, 1, row, 1, 1)
 
         row += 1
+        schema_label = Gtk.Label(label="Response schema (JSON):")
+        schema_label.set_xalign(0.0)
+        grid.attach(schema_label, 0, row, 1, 1)
+
+        schema_scroller = Gtk.ScrolledWindow()
+        schema_scroller.set_hexpand(True)
+        schema_scroller.set_vexpand(True)
+        schema_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.response_schema_view = Gtk.TextView()
+        self.response_schema_view.set_hexpand(True)
+        self.response_schema_view.set_vexpand(True)
+        self.response_schema_view.set_tooltip_text(
+            "Optional JSON schema enforcing Gemini responses. Leave blank to disable."
+        )
+        if hasattr(self.response_schema_view, "set_wrap_mode") and hasattr(Gtk, "WrapMode"):
+            try:
+                self.response_schema_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            except Exception:
+                pass
+        schema_scroller.set_child(self.response_schema_view)
+        grid.attach(schema_scroller, 1, row, 1, 1)
+
+        row += 1
         safety_frame = Gtk.Frame(label="Safety filters")
         safety_frame.set_tooltip_text(
             "Configure safety filters to block responses from specific harm categories."
@@ -415,6 +440,23 @@ class GoogleSettingsWindow(Gtk.Window):
         if buffer is not None:
             try:
                 buffer.set_text(system_instruction)
+            except Exception:
+                pass
+
+        schema_buffer = self.response_schema_view.get_buffer()
+        if schema_buffer is not None:
+            schema_value = self._defaults.get("response_schema")
+            if isinstance(schema_value, str):
+                text_value = schema_value.strip()
+            elif isinstance(schema_value, dict) and schema_value:
+                try:
+                    text_value = json.dumps(schema_value, indent=2, sort_keys=True)
+                except (TypeError, ValueError):
+                    text_value = ""
+            else:
+                text_value = ""
+            try:
+                schema_buffer.set_text(text_value)
             except Exception:
                 pass
 
@@ -612,7 +654,14 @@ class GoogleSettingsWindow(Gtk.Window):
             "system_instruction": self._sanitize_system_instruction(),
             "stream": self.stream_toggle.get_active(),
             "function_calling": self.function_call_toggle.get_active(),
+            "response_schema": None,
         }
+
+        try:
+            payload["response_schema"] = self._collect_response_schema()
+        except ValueError as exc:
+            self._show_message("Validation", str(exc), Gtk.MessageType.WARNING)
+            return
 
         setter = getattr(self.ATLAS, "set_google_llm_settings", None)
         if not callable(setter):
@@ -691,6 +740,30 @@ class GoogleSettingsWindow(Gtk.Window):
             except Exception:
                 text = ""
         return text.strip()
+
+    def _collect_response_schema(self) -> Any:
+        buffer = self.response_schema_view.get_buffer()
+        if buffer is None:
+            return ""
+        try:
+            start_iter = buffer.get_start_iter()
+            end_iter = buffer.get_end_iter()
+            text = buffer.get_text(start_iter, end_iter, True)
+        except Exception:
+            try:
+                text = buffer.get_text(None, None, True)
+            except Exception:
+                text = ""
+        cleaned = text.strip()
+        if not cleaned:
+            return ""
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Response schema must be valid JSON: {exc.msg}.") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("Response schema must be a JSON object.")
+        return parsed
 
     def _select_safety_threshold(self, combo: Gtk.ComboBoxText, threshold: str) -> None:
         normalized = threshold.strip().upper()

@@ -3,7 +3,7 @@
 import asyncio
 import copy
 import json
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional, Union
+from typing import Any, AsyncIterator, Dict, Iterable, List, Mapping, Optional, Union
 
 import google.generativeai as genai
 from google.generativeai import types as genai_types
@@ -46,6 +46,7 @@ class GoogleGeminiGenerator:
         response_mime_type: Optional[str] = None,
         system_instruction: Optional[str] = None,
         enable_functions: bool = True,
+        response_schema: Optional[Any] = None,
     ) -> Union[str, AsyncIterator[Union[str, Dict[str, Dict[str, str]]]]]:
         try:
             contents = self._convert_messages_to_contents(messages)
@@ -75,6 +76,7 @@ class GoogleGeminiGenerator:
                 'stop_sequences': [],
                 'max_output_tokens': 32000,
                 'stream': True,
+                'response_schema': None,
             }
 
             def _parse_bool(value: Optional[Any]) -> Optional[bool]:
@@ -222,6 +224,48 @@ class GoogleGeminiGenerator:
                     effective_system_instruction.strip() or None
                 )
 
+            def _normalise_schema(candidate: Optional[Any]) -> Optional[Dict[str, Any]]:
+                source = (
+                    candidate
+                    if candidate is not None
+                    else stored_settings.get('response_schema')
+                )
+                if source is None or source == {}:
+                    return None
+                if isinstance(source, str):
+                    text = source.strip()
+                    if not text:
+                        return None
+                    try:
+                        parsed = json.loads(text)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(
+                            "Response schema must be valid JSON."
+                        ) from exc
+                    if not isinstance(parsed, Mapping):
+                        raise ValueError(
+                            "Response schema JSON must describe an object."
+                        )
+                    return dict(parsed)
+                if isinstance(source, Mapping):
+                    try:
+                        serialised = json.dumps(source)
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(
+                            "Response schema must contain JSON-serialisable values."
+                        ) from exc
+                    parsed = json.loads(serialised)
+                    if not isinstance(parsed, Mapping):
+                        raise ValueError(
+                            "Response schema must be a JSON object."
+                        )
+                    return dict(parsed)
+                raise ValueError(
+                    "Response schema must be provided as a mapping or JSON object string."
+                )
+
+            effective_response_schema = _normalise_schema(response_schema)
+
             model_instance = genai.GenerativeModel(model_name=effective_model)
             self.logger.info(
                 "Generating response with Google Gemini using model: %s",
@@ -240,6 +284,9 @@ class GoogleGeminiGenerator:
                             "candidate_count": effective_candidate_count,
                             "stop_sequences": effective_stop_sequences
                             or None,
+                            "response_schema": copy.deepcopy(effective_response_schema)
+                            if effective_response_schema is not None
+                            else None,
                         }.items()
                         if value is not None
                     }

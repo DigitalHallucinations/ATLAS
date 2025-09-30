@@ -506,6 +506,7 @@ class ConfigManager:
         defaults: Dict[str, Any] = {
             'stream': True,
             'function_calling': True,
+            'response_schema': {},
         }
 
         settings = self.yaml_config.get('GOOGLE_LLM')
@@ -525,6 +526,17 @@ class ConfigManager:
             default=True,
         )
 
+        try:
+            merged['response_schema'] = self._coerce_response_schema(
+                merged.get('response_schema')
+            )
+        except ValueError as exc:
+            self.logger.warning(
+                "Ignoring persisted Google response schema due to validation error: %s",
+                exc,
+            )
+            merged['response_schema'] = {}
+
         return merged
 
     def set_google_llm_settings(
@@ -542,6 +554,7 @@ class ConfigManager:
         system_instruction: Optional[str] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
+        response_schema: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Persist default configuration for the Google Gemini provider.
 
@@ -559,6 +572,7 @@ class ConfigManager:
             system_instruction: Optional default system instruction prompt.
             stream: Optional flag to toggle streaming responses by default.
             function_calling: Optional flag that enables Gemini tool calling by default.
+            response_schema: Optional JSON schema applied to structured responses.
 
         Returns:
             dict: Persisted Google defaults.
@@ -579,6 +593,7 @@ class ConfigManager:
             'system_instruction': None,
             'stream': True,
             'function_calling': True,
+            'response_schema': {},
         }
 
         existing_settings = {}
@@ -814,6 +829,24 @@ class ConfigManager:
         settings_block['max_output_tokens'] = _normalize_max_output_tokens(
             max_output_tokens,
             settings_block.get('max_output_tokens', defaults['max_output_tokens']),
+        )
+        
+        def _normalize_response_schema(
+            value: Optional[Any],
+            previous: Any,
+        ) -> Dict[str, Any]:
+            if value is None:
+                try:
+                    return self._coerce_response_schema(previous)
+                except ValueError:
+                    return {}
+            if value in ({}, ""):
+                return {}
+            return self._coerce_response_schema(value)
+
+        settings_block['response_schema'] = _normalize_response_schema(
+            response_schema,
+            settings_block.get('response_schema', defaults['response_schema']),
         )
 
         self.yaml_config['GOOGLE_LLM'] = copy.deepcopy(settings_block)
@@ -1384,6 +1417,41 @@ class ConfigManager:
             raise ValueError("Metadata cannot contain more than 16 entries.")
 
         return metadata
+
+    @staticmethod
+    def _coerce_response_schema(value: Any) -> Dict[str, Any]:
+        """Coerce response schema payloads into JSON-safe mappings."""
+
+        if value is None or value == "" or value == {}:
+            return {}
+
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return {}
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError("Response schema must be valid JSON.") from exc
+            if not isinstance(parsed, Mapping):
+                raise ValueError("Response schema JSON must describe an object.")
+            return dict(parsed)
+
+        if isinstance(value, Mapping):
+            try:
+                serialised = json.dumps(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "Response schema must contain JSON-serialisable values."
+                ) from exc
+            parsed = json.loads(serialised)
+            if not isinstance(parsed, Mapping):
+                raise ValueError("Response schema must be a JSON object.")
+            return dict(parsed)
+
+        raise ValueError(
+            "Response schema must be provided as a mapping or JSON object string."
+        )
 
 
     def get_openai_api_key(self) -> str:

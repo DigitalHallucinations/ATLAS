@@ -7,6 +7,8 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 class _DummyGenerationConfig:
     def __init__(self, **kwargs):
@@ -210,6 +212,10 @@ def test_google_generator_applies_persisted_settings(monkeypatch):
         "response_mime_type": "application/json",
         "system_instruction": "Respond in JSON.",
         "stream": False,
+        "response_schema": {
+            "type": "object",
+            "properties": {"message": {"type": "string"}},
+        },
     }
     config = DummyConfig(settings=settings)
     generator = google_module.GoogleGeminiGenerator(config)
@@ -233,6 +239,10 @@ def test_google_generator_applies_persisted_settings(monkeypatch):
     assert captured["kwargs"]["response_mime_type"] == "application/json"
     assert captured["kwargs"]["system_instruction"] == "Respond in JSON."
     assert captured["kwargs"]["stream"] is False
+    assert captured["kwargs"]["generation_config"].kwargs["response_schema"] == {
+        "type": "object",
+        "properties": {"message": {"type": "string"}},
+    }
     assert config._settings["stop_sequences"] == ["###"]
 
 
@@ -274,6 +284,10 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
         "response_mime_type": "application/json",
         "system_instruction": "Config instruction",
         "stream": False,
+        "response_schema": {
+            "type": "object",
+            "properties": {"config": {"type": "string"}},
+        },
     }
     config = DummyConfig(settings=base_settings)
     generator = google_module.GoogleGeminiGenerator(config)
@@ -295,6 +309,10 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
             safety_settings=override_safety,
             response_mime_type="text/plain",
             system_instruction="Follow call input.",
+            response_schema={
+                "type": "object",
+                "properties": {"call": {"type": "number"}},
+            },
         )
         if hasattr(response, "__anext__"):
             chunks = []
@@ -317,7 +335,43 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
     assert captured["kwargs"]["response_mime_type"] == "text/plain"
     assert captured["kwargs"]["system_instruction"] == "Follow call input."
     assert captured["kwargs"]["stream"] is True
+    assert captured["kwargs"]["generation_config"].kwargs["response_schema"] == {
+        "type": "object",
+        "properties": {"call": {"type": "number"}},
+    }
     assert config._settings["stop_sequences"] == ["CONFIG"]
+
+
+def test_google_generator_rejects_invalid_schema(monkeypatch):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "Hello"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+
+        def generate_content(self, contents, **kwargs):
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    config = DummyConfig(settings={"model": "gemini"})
+    generator = google_module.GoogleGeminiGenerator(config)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            response_schema="{invalid",
+        )
+
+    with pytest.raises(ValueError) as excinfo:
+        asyncio.run(exercise())
+
+    assert "Response schema" in str(excinfo.value)
 
 
 def test_google_generator_skips_tool_payload_when_disabled(monkeypatch):
