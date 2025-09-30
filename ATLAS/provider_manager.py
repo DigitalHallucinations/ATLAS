@@ -293,6 +293,8 @@ class ProviderManager:
         allowed_function_names: Optional[Any] = None,
         response_schema: Optional[Any] = None,
         cached_allowed_function_names: Optional[Any] = None,
+        seed: Optional[Any] = None,
+        response_logprobs: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Persist Google Gemini defaults and promote the saved model when possible.
 
@@ -312,6 +314,8 @@ class ProviderManager:
             function_call_mode: Optional Gemini tool calling mode preference.
             allowed_function_names: Optional whitelist restricting Gemini tool access.
             response_schema: Optional JSON schema enforced for responses.
+            seed: Optional deterministic seed for Gemini responses.
+            response_logprobs: Optional flag requesting log probability details.
         """
 
         setter = getattr(self.config_manager, "set_google_llm_settings", None)
@@ -340,6 +344,8 @@ class ProviderManager:
                 allowed_function_names=allowed_function_names,
                 response_schema=response_schema,
                 cached_allowed_function_names=cached_allowed_function_names,
+                seed=seed,
+                response_logprobs=response_logprobs,
             )
         except Exception as exc:
             self.logger.error("Failed to persist Google settings: %s", exc, exc_info=True)
@@ -1125,6 +1131,8 @@ class ProviderManager:
         response_mime_type: Optional[str] = None,
         system_instruction: Optional[str] = None,
         response_schema: Optional[Any] = None,
+        seed: Optional[int] = None,
+        response_logprobs: Optional[bool] = None,
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
         stream: Optional[bool] = None,
@@ -1144,6 +1152,12 @@ class ProviderManager:
             max_output_tokens (int, optional): Maximum number of output tokens for reasoning models.
             temperature (float, optional): Sampling temperature. Uses saved default when omitted.
             top_p (float, optional): Nucleus sampling value. Uses saved default when omitted.
+            safety_settings (optional): Safety settings for supported providers.
+            response_mime_type (optional): MIME type hint when supported.
+            system_instruction (optional): Default system instruction payload.
+            response_schema (optional): Structured response schema when supported.
+            seed (int, optional): Deterministic seed when supported by the provider.
+            response_logprobs (bool, optional): Request log probabilities when available.
             frequency_penalty (float, optional): Frequency penalty. Uses saved default when omitted.
             presence_penalty (float, optional): Presence penalty. Uses saved default when omitted.
             stream (bool, optional): Whether to stream the response. Uses saved default when omitted.
@@ -1226,6 +1240,14 @@ class ProviderManager:
             resolved_response_schema = None
         if isinstance(resolved_response_schema, dict) and not resolved_response_schema:
             resolved_response_schema = None
+        resolved_seed = seed if seed is not None else defaults.get("seed")
+        if isinstance(resolved_seed, str) and not str(resolved_seed).strip():
+            resolved_seed = None
+        resolved_response_logprobs = (
+            response_logprobs
+            if response_logprobs is not None
+            else defaults.get("response_logprobs")
+        )
         resolved_frequency_penalty = (
             frequency_penalty
             if frequency_penalty is not None
@@ -1332,6 +1354,10 @@ class ProviderManager:
                     response_schema=resolved_response_schema,
                     enable_functions=bool(resolved_function_calling),
                 )
+                if resolved_seed is not None:
+                    call_kwargs["seed"] = resolved_seed
+                if resolved_response_logprobs is not None:
+                    call_kwargs["response_logprobs"] = bool(resolved_response_logprobs)
                 if resolved_max_output_tokens is not None and max_tokens is None:
                     call_kwargs["max_tokens"] = resolved_max_output_tokens
 

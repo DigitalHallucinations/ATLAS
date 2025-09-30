@@ -49,6 +49,8 @@ class GoogleGeminiGenerator:
         system_instruction: Optional[str] = None,
         enable_functions: bool = True,
         response_schema: Optional[Any] = None,
+        seed: Optional[int] = None,
+        response_logprobs: Optional[bool] = None,
     ) -> Union[str, AsyncIterator[Union[str, Dict[str, Dict[str, str]]]]]:
         try:
             contents = self._convert_messages_to_contents(messages)
@@ -81,6 +83,8 @@ class GoogleGeminiGenerator:
                 'max_output_tokens': 32000,
                 'stream': True,
                 'response_schema': None,
+                'seed': None,
+                'response_logprobs': False,
             }
 
             resolver = GoogleSettingsResolver(
@@ -135,6 +139,17 @@ class GoogleGeminiGenerator:
                 field='Candidate count',
                 minimum=1,
                 allow_invalid_stored=True,
+            )
+
+            effective_seed = resolver.resolve_seed(
+                seed,
+                allow_invalid_stored=True,
+            )
+
+            effective_response_logprobs = resolver.resolve_bool(
+                'response_logprobs',
+                response_logprobs,
+                default=defaults['response_logprobs'],
             )
 
             if stop_sequences is not None:
@@ -277,24 +292,29 @@ class GoogleGeminiGenerator:
                 effective_model,
             )
 
+            generation_config_payload = {
+                "max_output_tokens": effective_max_tokens,
+                "temperature": effective_temperature,
+                "top_p": effective_top_p,
+                "top_k": effective_top_k,
+                "candidate_count": effective_candidate_count,
+                "stop_sequences": effective_stop_sequences or None,
+                "response_schema": copy.deepcopy(effective_response_schema)
+                if effective_response_schema is not None
+                else None,
+            }
+
+            if effective_seed is not None:
+                generation_config_payload["seed"] = effective_seed
+
+            if effective_response_logprobs:
+                generation_config_payload["response_logprobs"] = bool(
+                    effective_response_logprobs
+                )
+
             request_kwargs = {
                 "generation_config": genai_types.GenerationConfig(
-                    **{
-                        key: value
-                        for key, value in {
-                            "max_output_tokens": effective_max_tokens,
-                            "temperature": effective_temperature,
-                            "top_p": effective_top_p,
-                            "top_k": effective_top_k,
-                            "candidate_count": effective_candidate_count,
-                            "stop_sequences": effective_stop_sequences
-                            or None,
-                            "response_schema": copy.deepcopy(effective_response_schema)
-                            if effective_response_schema is not None
-                            else None,
-                        }.items()
-                        if value is not None
-                    }
+                    **{key: value for key, value in generation_config_payload.items() if value is not None}
                 ),
                 "stream": effective_stream,
             }

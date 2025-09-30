@@ -474,6 +474,8 @@ def test_google_generator_applies_persisted_settings(monkeypatch):
             "type": "object",
             "properties": {"message": {"type": "string"}},
         },
+        "seed": 77,
+        "response_logprobs": True,
     }
     config = DummyConfig(settings=settings)
     generator = google_module.GoogleGeminiGenerator(config)
@@ -493,6 +495,8 @@ def test_google_generator_applies_persisted_settings(monkeypatch):
     assert generation_config.kwargs["top_k"] == 32
     assert generation_config.kwargs["candidate_count"] == 3
     assert generation_config.kwargs["stop_sequences"] == ["###"]
+    assert generation_config.kwargs["seed"] == 77
+    assert generation_config.kwargs["response_logprobs"] is True
     assert captured["kwargs"]["safety_settings"] == settings["safety_settings"]
     assert captured["kwargs"]["response_mime_type"] == "application/json"
     assert captured["kwargs"]["system_instruction"] == "Respond in JSON."
@@ -637,6 +641,8 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
             "type": "object",
             "properties": {"config": {"type": "string"}},
         },
+        "seed": 555,
+        "response_logprobs": True,
     }
     config = DummyConfig(settings=base_settings)
     generator = google_module.GoogleGeminiGenerator(config)
@@ -662,6 +668,8 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
                 "type": "object",
                 "properties": {"call": {"type": "number"}},
             },
+            seed=202,
+            response_logprobs=False,
         )
         if hasattr(response, "__anext__"):
             chunks = []
@@ -680,6 +688,8 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
     assert generation_config.kwargs["top_k"] == 8
     assert generation_config.kwargs["candidate_count"] == 2
     assert generation_config.kwargs["stop_sequences"] == ["CALL"]
+    assert generation_config.kwargs["seed"] == 202
+    assert "response_logprobs" not in generation_config.kwargs
     assert captured["kwargs"]["safety_settings"] == override_safety
     assert captured["kwargs"]["response_mime_type"] == "text/plain"
     assert captured["kwargs"]["system_instruction"] == "Follow call input."
@@ -689,6 +699,8 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
         "properties": {"call": {"type": "number"}},
     }
     assert config._settings["stop_sequences"] == ["CONFIG"]
+    assert config._settings["seed"] == 555
+    assert config._settings["response_logprobs"] is True
 
 
 def test_google_generator_rejects_invalid_schema(monkeypatch):

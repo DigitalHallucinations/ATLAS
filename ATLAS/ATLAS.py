@@ -853,6 +853,8 @@ class ATLAS:
         allowed_function_names: Optional[Any] = None,
         response_schema: Optional[Any] = None,
         cached_allowed_function_names: Optional[Any] = None,
+        seed: Optional[Any] = None,
+        response_logprobs: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Persist Google defaults through the provider manager facade."""
 
@@ -878,6 +880,8 @@ class ATLAS:
             allowed_function_names=allowed_function_names,
             response_schema=response_schema,
             cached_allowed_function_names=cached_allowed_function_names,
+            seed=seed,
+            response_logprobs=response_logprobs,
         )
 
     def set_anthropic_settings(

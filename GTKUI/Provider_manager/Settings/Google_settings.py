@@ -76,6 +76,8 @@ class GoogleSettingsWindow(Gtk.Window):
             "allowed_function_names": [],
             "cached_allowed_function_names": [],
             "response_schema": {},
+            "seed": None,
+            "response_logprobs": False,
         }
         self._allowed_function_cache: List[str] = []
         self._safety_controls: Dict[str, Tuple[Gtk.CheckButton, Gtk.ComboBoxText]] = {}
@@ -238,6 +240,48 @@ class GoogleSettingsWindow(Gtk.Window):
             "Number of candidates to request per prompt. Higher values increase cost."
         )
         general_grid.attach(self.candidate_spin, 1, general_row, 1, 1)
+
+        general_row += 1
+        seed_label = Gtk.Label(label="Deterministic seed:")
+        seed_label.set_xalign(0.0)
+        general_grid.attach(seed_label, 0, general_row, 1, 1)
+
+        seed_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        general_grid.attach(seed_box, 1, general_row, 1, 1)
+
+        self.seed_toggle = Gtk.CheckButton(label="Enable")
+        self.seed_toggle.set_tooltip_text(
+            "Provide a fixed random seed to reproduce Gemini outputs."
+        )
+        self.seed_toggle.connect("toggled", self._on_seed_toggled)
+        seed_box.append(self.seed_toggle)
+
+        self.seed_adjustment = Gtk.Adjustment(
+            lower=0,
+            upper=2_147_483_647,
+            step_increment=1,
+            page_increment=1000,
+            value=0,
+        )
+        self.seed_spin = Gtk.SpinButton(adjustment=self.seed_adjustment, digits=0)
+        self.seed_spin.set_sensitive(False)
+        self.seed_spin.set_tooltip_text(
+            "Use zero or leave disabled for non-deterministic behaviour."
+        )
+        seed_box.append(self.seed_spin)
+
+        general_row += 1
+        logprob_label = Gtk.Label(label="Log probabilities:")
+        logprob_label.set_xalign(0.0)
+        general_grid.attach(logprob_label, 0, general_row, 1, 1)
+
+        self.response_logprobs_toggle = Gtk.CheckButton(
+            label="Include token log probabilities"
+        )
+        self.response_logprobs_toggle.set_tooltip_text(
+            "Request per-token log probabilities when generating responses."
+        )
+        general_grid.attach(self.response_logprobs_toggle, 1, general_row, 1, 1)
 
         general_row += 1
         self.stream_toggle = Gtk.CheckButton(label="Enable streaming responses")
@@ -532,6 +576,18 @@ class GoogleSettingsWindow(Gtk.Window):
         if isinstance(candidate_count, (int, float)) and candidate_count > 0:
             self.candidate_spin.set_value(int(candidate_count))
 
+        seed_value = self._defaults.get("seed")
+        if isinstance(seed_value, (int, float)) and seed_value >= 0:
+            self.seed_toggle.set_active(True)
+            self.seed_spin.set_value(int(seed_value))
+        else:
+            self.seed_toggle.set_active(False)
+            self.seed_spin.set_value(0)
+
+        self.response_logprobs_toggle.set_active(
+            bool(self._defaults.get("response_logprobs", False))
+        )
+
         self.stream_toggle.set_active(bool(self._defaults.get("stream", True)))
         self.function_call_toggle.set_active(
             bool(self._defaults.get("function_calling", True))
@@ -812,6 +868,9 @@ class GoogleSettingsWindow(Gtk.Window):
         active = toggle.get_active()
         self.top_k_spin.set_sensitive(active)
 
+    def _on_seed_toggled(self, toggle: Gtk.CheckButton) -> None:
+        self.seed_spin.set_sensitive(toggle.get_active())
+
     def _on_safety_toggle_toggled(self, toggle: Gtk.CheckButton, category: str) -> None:
         combo = self._safety_controls.get(category, (None, None))[1]
         if combo is None:
@@ -849,6 +908,11 @@ class GoogleSettingsWindow(Gtk.Window):
             list(self._allowed_function_cache) if functions_enabled else []
         )
 
+        if self.seed_toggle.get_active():
+            seed_payload: int | str = self.seed_spin.get_value_as_int()
+        else:
+            seed_payload = ""
+
         payload = {
             "model": model,
             "temperature": round(self.temperature_spin.get_value(), 2),
@@ -870,6 +934,8 @@ class GoogleSettingsWindow(Gtk.Window):
             "allowed_function_names": payload_allowed_names,
             "cached_allowed_function_names": list(self._allowed_function_cache),
             "response_schema": None,
+            "seed": seed_payload,
+            "response_logprobs": self.response_logprobs_toggle.get_active(),
         }
 
         try:

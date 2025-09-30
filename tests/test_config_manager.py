@@ -145,6 +145,8 @@ def test_set_google_llm_settings_updates_state(config_manager):
         system_instruction="Respond in JSON.",
         function_call_mode="require",
         allowed_function_names=["tool_a", "tool_b"],
+        seed=12345,
+        response_logprobs=True,
     )
 
     assert result["model"] == "gemini-1.5-flash"
@@ -163,8 +165,11 @@ def test_set_google_llm_settings_updates_state(config_manager):
     assert stored["function_call_mode"] == "require"
     assert stored["allowed_function_names"] == ["tool_a", "tool_b"]
     assert stored["cached_allowed_function_names"] == ["tool_a", "tool_b"]
+    assert stored["seed"] == 12345
+    assert stored["response_logprobs"] is True
     assert config_manager.config["GOOGLE_LLM"]["top_k"] == 32
     assert config_manager.config["GOOGLE_LLM"]["max_output_tokens"] == 16000
+    assert config_manager.config["GOOGLE_LLM"]["seed"] == 12345
 
 
 def test_set_google_llm_settings_normalizes_string_payloads(config_manager):
@@ -179,6 +184,8 @@ def test_set_google_llm_settings_normalizes_string_payloads(config_manager):
         function_calling="0",
         response_schema='{"type": "object"}',
         response_mime_type="",
+        seed="73",
+        response_logprobs="true",
     )
 
     assert snapshot["temperature"] == 0.4
@@ -190,11 +197,14 @@ def test_set_google_llm_settings_normalizes_string_payloads(config_manager):
     assert snapshot["function_calling"] is False
     assert snapshot["response_mime_type"] == "application/json"
     assert snapshot["response_schema"] == {"type": "object"}
+    assert snapshot["seed"] == 73
+    assert snapshot["response_logprobs"] is True
 
     persisted = config_manager.get_google_llm_settings()
     assert persisted["stream"] is False
     assert persisted["function_calling"] is False
     assert persisted["temperature"] == 0.4
+    assert persisted["seed"] == 73
 
 
 def test_set_google_llm_settings_autofills_json_mime_for_schema(config_manager):
@@ -255,15 +265,26 @@ def test_set_google_llm_settings_allows_clearing_max_output_tokens(config_manage
     config_manager.set_google_llm_settings(
         model="gemini-1.5-flash",
         max_output_tokens=4096,
+        seed=321,
     )
 
     config_manager.set_google_llm_settings(
         model="gemini-1.5-flash",
         max_output_tokens="",
+        seed="",
     )
 
     snapshot = config_manager.get_google_llm_settings()
     assert snapshot["max_output_tokens"] is None
+    assert snapshot["seed"] is None
+
+
+def test_set_google_llm_settings_rejects_negative_seed(config_manager):
+    with pytest.raises(ValueError):
+        config_manager.set_google_llm_settings(
+            model="gemini-1.5-flash",
+            seed=-10,
+        )
 
 
 def test_set_google_llm_settings_caches_allowlist_when_disabled(config_manager):
