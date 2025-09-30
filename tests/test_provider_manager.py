@@ -85,6 +85,9 @@ if "gi" not in sys.modules:
         def append(self, child):
             self.children.append(child)
 
+        def set_child(self, child):
+            self.child = child
+
     class Grid(_Widget):
         def __init__(self, column_spacing=0, row_spacing=0):
             super().__init__()
@@ -96,6 +99,15 @@ if "gi" not in sys.modules:
             self.attachments.append((child, column, row, width, height))
             self.children.append(child)
 
+    class Frame(_Widget):
+        def __init__(self, label=""):
+            super().__init__()
+            self.label = label
+            self.child = None
+
+        def set_child(self, child):
+            self.child = child
+
     class Label(_Widget):
         def __init__(self, label=""):
             super().__init__()
@@ -106,6 +118,9 @@ if "gi" not in sys.modules:
 
         def set_yalign(self, value):
             self.yalign = value
+
+        def set_label(self, value):
+            self.label = value
 
     class ComboBoxText(_Widget):
         def __init__(self):
@@ -162,12 +177,16 @@ if "gi" not in sys.modules:
             super().__init__()
             self.label = label
             self.active = False
+            self._handlers = {}
 
         def set_active(self, value):
             self.active = bool(value)
 
         def get_active(self):
             return self.active
+
+        def connect(self, signal, callback, *args):  # pragma: no cover - minimal signal support
+            self._handlers.setdefault(signal, []).append((callback, args))
 
     class Entry(_Widget):
         def __init__(self):
@@ -184,6 +203,48 @@ if "gi" not in sys.modules:
         def set_placeholder_text(self, text):
             self.placeholder = text
 
+    class TextBuffer:
+        def __init__(self):
+            self.text = ""
+
+        def set_text(self, text):
+            self.text = text
+
+        def get_text(self, _start=None, _end=None, _include_hidden_chars=True):
+            return self.text
+
+        def get_start_iter(self):
+            return 0
+
+        def get_end_iter(self):
+            return len(self.text)
+
+    class TextView(_Widget):
+        def __init__(self):
+            super().__init__()
+            self.buffer = TextBuffer()
+
+        def get_buffer(self):
+            return self.buffer
+
+        def set_buffer(self, buffer):
+            self.buffer = buffer
+
+        def set_wrap_mode(self, mode):
+            self.wrap_mode = mode
+
+    class ScrolledWindow(_Widget):
+        def __init__(self):
+            super().__init__()
+            self.child = None
+            self.policy = (None, None)
+
+        def set_policy(self, horizontal, vertical):
+            self.policy = (horizontal, vertical)
+
+        def set_child(self, child):
+            self.child = child
+
     class Button(_Widget):
         def __init__(self, label=""):
             super().__init__()
@@ -192,6 +253,20 @@ if "gi" not in sys.modules:
 
         def connect(self, signal, callback):
             self._handlers.setdefault(signal, []).append(callback)
+
+    class Notebook(_Widget):
+        def __init__(self):
+            super().__init__()
+            self.pages = []
+
+        def append_page(self, child, tab_label):
+            self.pages.append((child, tab_label))
+
+        def append(self, child):
+            self.children.append(child)
+
+        def set_child(self, child):
+            self.child = child
 
     class MessageType:
         ERROR = "error"
@@ -234,16 +309,25 @@ if "gi" not in sys.modules:
         AUTOMATIC = "automatic"
         NEVER = "never"
 
+    class WrapMode:
+        WORD_CHAR = "word_char"
+        WORD = "word"
+
     gtk_module.Window = Window
     gtk_module.Box = Box
     gtk_module.Grid = Grid
+    gtk_module.Frame = Frame
     gtk_module.Label = Label
     gtk_module.ComboBoxText = ComboBoxText
     gtk_module.Adjustment = Adjustment
     gtk_module.SpinButton = SpinButton
     gtk_module.CheckButton = CheckButton
     gtk_module.Entry = Entry
+    gtk_module.TextView = TextView
+    gtk_module.TextBuffer = TextBuffer
+    gtk_module.ScrolledWindow = ScrolledWindow
     gtk_module.Button = Button
+    gtk_module.Notebook = Notebook
     gtk_module.Widget = _Widget
     gtk_module.MessageDialog = MessageDialog
     gtk_module.MessageType = MessageType
@@ -252,6 +336,7 @@ if "gi" not in sys.modules:
     gtk_module.Align = Align
     gtk_module.AccessibleRole = AccessibleRole
     gtk_module.PolicyType = PolicyType
+    gtk_module.WrapMode = WrapMode
 
     repository_module = types.ModuleType("gi.repository")
     repository_module.Gtk = gtk_module
@@ -519,6 +604,7 @@ from ATLAS.provider_manager import ProviderManager
 from GTKUI.Provider_manager.Settings.OA_settings import OpenAISettingsWindow
 from GTKUI.Provider_manager.Settings.Anthropic_settings import AnthropicSettingsWindow
 from GTKUI.Provider_manager.Settings import Anthropic_settings
+from GTKUI.Provider_manager.Settings.Google_settings import GoogleSettingsWindow
 
 
 class DummyConfig:
@@ -1173,6 +1259,63 @@ def test_test_huggingface_token_failure(provider_manager, monkeypatch):
     assert result["success"] is False
     assert "invalid token" in result["error"]
     assert stub_instance.called_with == "explicit-token"
+
+
+def test_google_settings_round_trips_custom_fields(tmp_path):
+    class StubAtlas:
+        def __init__(self):
+            self.saved_payload = None
+            self.refresh_calls = 0
+            self.last_provider = None
+
+        def get_models_for_provider(self, provider_name):
+            assert provider_name == "Google"
+            return ["gemini-1.5-pro-latest"]
+
+        def get_google_llm_settings(self):
+            return {
+                "model": "gemini-1.5-pro-latest",
+                "response_mime_type": "text/plain",
+                "system_instruction": "Keep it short.",
+            }
+
+        def get_provider_api_key_status(self, provider_name):
+            return {"has_key": False}
+
+        def set_google_llm_settings(self, **payload):
+            self.saved_payload = payload
+            return {"success": True, "message": "saved"}
+
+        def run_in_background(self, func, on_error=None, thread_name=None):
+            try:
+                func()
+            except Exception as exc:  # pragma: no cover - defensive
+                if on_error is not None:
+                    on_error(exc)
+
+        def refresh_current_provider(self, provider_name):
+            self.refresh_calls += 1
+            self.last_provider = provider_name
+
+    atlas = StubAtlas()
+    config = DummyConfig(tmp_path.as_posix())
+
+    window = GoogleSettingsWindow(atlas, config, None)
+
+    assert window.response_mime_entry.get_text() == "text/plain"
+    buffer = window.system_instruction_view.get_buffer()
+    assert buffer.get_text(None, None, True) == "Keep it short."
+
+    window.response_mime_entry.set_text("  application/json  ")
+    buffer.set_text("  Follow policy.  ")
+
+    window.on_save_clicked()
+
+    assert atlas.saved_payload is not None
+    assert atlas.saved_payload["response_mime_type"] == "application/json"
+    assert atlas.saved_payload["system_instruction"] == "Follow policy."
+    assert atlas.last_provider == "Google"
+    assert atlas.refresh_calls == 1
 
 
 def test_update_provider_api_key_refreshes_active_provider(provider_manager, monkeypatch):

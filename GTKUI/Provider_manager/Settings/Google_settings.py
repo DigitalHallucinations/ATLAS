@@ -52,6 +52,8 @@ class GoogleSettingsWindow(Gtk.Window):
             "max_output_tokens": 32000,
             "stop_sequences": [],
             "safety_settings": [],
+            "response_mime_type": "",
+            "system_instruction": "",
         }
         self._safety_controls: Dict[str, Tuple[Gtk.CheckButton, Gtk.ComboBoxText]] = {}
         self._available_models: List[str] = []
@@ -219,6 +221,39 @@ class GoogleSettingsWindow(Gtk.Window):
         grid.attach(self.stop_sequences_entry, 1, row, 1, 1)
 
         row += 1
+        mime_label = Gtk.Label(label="Response MIME type:")
+        mime_label.set_xalign(0.0)
+        grid.attach(mime_label, 0, row, 1, 1)
+
+        self.response_mime_entry = Gtk.Entry()
+        self.response_mime_entry.set_hexpand(True)
+        self.response_mime_entry.set_placeholder_text("e.g. text/plain or application/json")
+        self.response_mime_entry.set_tooltip_text(
+            "Optional MIME type for responses when using multimodal Gemini features."
+        )
+        grid.attach(self.response_mime_entry, 1, row, 1, 1)
+
+        row += 1
+        system_label = Gtk.Label(label="System instruction:")
+        system_label.set_xalign(0.0)
+        grid.attach(system_label, 0, row, 1, 1)
+
+        system_scroller = Gtk.ScrolledWindow()
+        system_scroller.set_hexpand(True)
+        system_scroller.set_vexpand(True)
+        system_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.system_instruction_view = Gtk.TextView()
+        self.system_instruction_view.set_hexpand(True)
+        self.system_instruction_view.set_vexpand(True)
+        if hasattr(self.system_instruction_view, "set_wrap_mode") and hasattr(Gtk, "WrapMode"):
+            try:
+                self.system_instruction_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            except Exception:
+                pass
+        system_scroller.set_child(self.system_instruction_view)
+        grid.attach(system_scroller, 1, row, 1, 1)
+
+        row += 1
         safety_frame = Gtk.Frame(label="Safety filters")
         safety_frame.set_tooltip_text(
             "Configure safety filters to block responses from specific harm categories."
@@ -348,6 +383,17 @@ class GoogleSettingsWindow(Gtk.Window):
         else:
             tokens = []
         self.stop_sequences_entry.set_text(", ".join(tokens))
+
+        response_mime_type = str(self._defaults.get("response_mime_type") or "").strip()
+        self.response_mime_entry.set_text(response_mime_type)
+
+        system_instruction = str(self._defaults.get("system_instruction") or "")
+        buffer = self.system_instruction_view.get_buffer()
+        if buffer is not None:
+            try:
+                buffer.set_text(system_instruction)
+            except Exception:
+                pass
 
         safety_settings = self._defaults.get("safety_settings", [])
         if isinstance(safety_settings, Sequence):
@@ -539,6 +585,8 @@ class GoogleSettingsWindow(Gtk.Window):
             ),
             "stop_sequences": self._parse_stop_sequences(),
             "safety_settings": self._collect_safety_settings(),
+            "response_mime_type": self._sanitize_response_mime_type(),
+            "system_instruction": self._sanitize_system_instruction(),
         }
 
         setter = getattr(self.ATLAS, "set_google_llm_settings", None)
@@ -595,6 +643,29 @@ class GoogleSettingsWindow(Gtk.Window):
             threshold = self._SAFETY_THRESHOLDS[index][1]
             settings.append({"category": category, "threshold": threshold})
         return settings
+
+    def _sanitize_response_mime_type(self) -> str:
+        text = ""
+        try:
+            text = self.response_mime_entry.get_text()
+        except Exception:
+            return ""
+        return text.strip()
+
+    def _sanitize_system_instruction(self) -> str:
+        buffer = self.system_instruction_view.get_buffer()
+        if buffer is None:
+            return ""
+        try:
+            start_iter = buffer.get_start_iter()
+            end_iter = buffer.get_end_iter()
+            text = buffer.get_text(start_iter, end_iter, True)
+        except Exception:
+            try:
+                text = buffer.get_text(None, None, True)
+            except Exception:
+                text = ""
+        return text.strip()
 
     def _select_safety_threshold(self, combo: Gtk.ComboBoxText, threshold: str) -> None:
         normalized = threshold.strip().upper()
