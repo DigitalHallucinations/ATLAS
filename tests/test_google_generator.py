@@ -246,6 +246,42 @@ def test_google_generator_applies_persisted_settings(monkeypatch):
     assert config._settings["stop_sequences"] == ["###"]
 
 
+def test_google_generator_omits_max_tokens_when_disabled(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "Hello"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            captured["model_name"] = model_name
+
+        def generate_content(self, contents, **kwargs):
+            captured["contents"] = contents
+            captured["kwargs"] = kwargs
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    config = DummyConfig(settings={"max_output_tokens": None, "stream": False})
+    generator = google_module.GoogleGeminiGenerator(config)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "Hello"
+    generation_config = captured["kwargs"]["generation_config"]
+    assert "max_output_tokens" not in generation_config.kwargs
+
+
 def test_google_generator_prefers_call_overrides(monkeypatch):
     captured = {}
 

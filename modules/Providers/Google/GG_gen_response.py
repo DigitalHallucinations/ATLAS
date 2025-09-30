@@ -187,14 +187,18 @@ class GoogleGeminiGenerator:
                 else:
                     effective_stop_sequences = []
 
+            stored_has_max_tokens = 'max_output_tokens' in stored_settings
             stored_max_tokens = stored_settings.get('max_output_tokens')
             if max_tokens is not None:
                 effective_max_tokens = int(max_tokens)
-            elif stored_max_tokens is not None:
-                try:
-                    effective_max_tokens = int(stored_max_tokens)
-                except (TypeError, ValueError):
-                    effective_max_tokens = defaults['max_output_tokens']
+            elif stored_has_max_tokens:
+                if stored_max_tokens is None:
+                    effective_max_tokens = None
+                else:
+                    try:
+                        effective_max_tokens = int(stored_max_tokens)
+                    except (TypeError, ValueError):
+                        effective_max_tokens = defaults['max_output_tokens']
             else:
                 effective_max_tokens = defaults['max_output_tokens']
 
