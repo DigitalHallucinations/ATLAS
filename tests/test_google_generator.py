@@ -91,12 +91,16 @@ spec.loader.exec_module(google_module)
 class DummyConfig:
     def __init__(self, settings=None):
         self._settings = settings or {}
+        self.notifications = []
 
     def get_google_api_key(self):
         return "test-key"
 
     def get_google_llm_settings(self):
         return copy.deepcopy(self._settings)
+
+    def notify_ui_warning(self, message):
+        self.notifications.append(message)
 
 
 def test_google_generator_streams_function_call(monkeypatch):
@@ -278,6 +282,105 @@ def test_google_generator_disables_tool_config_when_functions_off(monkeypatch):
     tool_config = captured_kwargs["tool_config"]
     assert tool_config["function_calling_config"]["mode"] == "NONE"
     assert "allowed_function_names" not in tool_config["function_calling_config"]
+
+
+def test_google_generator_prunes_allowlist_to_declared_tools(monkeypatch):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    captured_kwargs = {}
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "done"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+
+        def generate_content(self, contents, **kwargs):
+            captured_kwargs.update(kwargs)
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    config = DummyConfig(
+        settings={
+            "function_call_mode": "require",
+            "allowed_function_names": [
+                "alpha_tool",
+                "ghost_tool",
+                "beta_tool",
+            ],
+        }
+    )
+    generator = google_module.GoogleGeminiGenerator(config)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+            functions=[
+                {"name": "alpha_tool", "description": "Alpha"},
+                {"name": "beta_tool", "description": "Beta"},
+            ],
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "done"
+    tool_config = captured_kwargs["tool_config"]["function_calling_config"]
+    assert tool_config["mode"] == "REQUIRE"
+    assert tool_config["allowed_function_names"] == ["alpha_tool", "beta_tool"]
+    assert config.notifications[-1] == (
+        "Removed unsupported Google Gemini tool allowlist entries: ghost_tool"
+    )
+
+
+def test_google_generator_omits_allowlist_when_every_entry_pruned(monkeypatch):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    captured_kwargs = {}
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "done"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+
+        def generate_content(self, contents, **kwargs):
+            captured_kwargs.update(kwargs)
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    config = DummyConfig(
+        settings={
+            "function_call_mode": "auto",
+            "allowed_function_names": ["orphan_tool"],
+        }
+    )
+    generator = google_module.GoogleGeminiGenerator(config)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+            functions=[{"name": "different_tool", "description": "Other"}],
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "done"
+    tool_config = captured_kwargs["tool_config"]["function_calling_config"]
+    assert tool_config["mode"] == "AUTO"
+    assert "allowed_function_names" not in tool_config
+    assert config.notifications[-1] == (
+        "Removed unsupported Google Gemini tool allowlist entries: orphan_tool"
+    )
 
 
 def test_google_generator_streaming_runs_off_event_loop(monkeypatch):
