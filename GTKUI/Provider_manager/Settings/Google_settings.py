@@ -49,6 +49,7 @@ class GoogleSettingsWindow(Gtk.Window):
             "top_p": 1.0,
             "top_k": None,
             "candidate_count": 1,
+            "max_output_tokens": 32000,
             "stop_sequences": [],
             "safety_settings": [],
         }
@@ -183,6 +184,28 @@ class GoogleSettingsWindow(Gtk.Window):
         grid.attach(self.candidate_spin, 1, row, 1, 1)
 
         row += 1
+        max_output_label = Gtk.Label(label="Max output tokens:")
+        max_output_label.set_xalign(0.0)
+        grid.attach(max_output_label, 0, row, 1, 1)
+
+        self.max_output_tokens_adjustment = Gtk.Adjustment(
+            lower=0,
+            upper=128000,
+            step_increment=128,
+            page_increment=1024,
+            value=32000,
+        )
+        self.max_output_tokens_spin = Gtk.SpinButton(
+            adjustment=self.max_output_tokens_adjustment,
+            digits=0,
+        )
+        self.max_output_tokens_spin.set_hexpand(True)
+        self.max_output_tokens_spin.set_tooltip_text(
+            "Optional limit for response tokens. Set to 0 to remove the cap."
+        )
+        grid.attach(self.max_output_tokens_spin, 1, row, 1, 1)
+
+        row += 1
         stop_label = Gtk.Label(label="Stop sequences:")
         stop_label.set_xalign(0.0)
         grid.attach(stop_label, 0, row, 1, 1)
@@ -310,6 +333,12 @@ class GoogleSettingsWindow(Gtk.Window):
         candidate_count = self._defaults.get("candidate_count", 1)
         if isinstance(candidate_count, (int, float)) and candidate_count > 0:
             self.candidate_spin.set_value(int(candidate_count))
+
+        max_output_tokens = self._defaults.get("max_output_tokens")
+        if isinstance(max_output_tokens, (int, float)) and max_output_tokens > 0:
+            self.max_output_tokens_spin.set_value(int(max_output_tokens))
+        else:
+            self.max_output_tokens_spin.set_value(0)
 
         stop_sequences = self._defaults.get("stop_sequences", [])
         if isinstance(stop_sequences, str):
@@ -503,6 +532,11 @@ class GoogleSettingsWindow(Gtk.Window):
             "top_p": round(self.top_p_spin.get_value(), 2),
             "top_k": top_k_payload,
             "candidate_count": self.candidate_spin.get_value_as_int(),
+            "max_output_tokens": (
+                self.max_output_tokens_spin.get_value_as_int()
+                if self.max_output_tokens_spin.get_value_as_int() > 0
+                else ""
+            ),
             "stop_sequences": self._parse_stop_sequences(),
             "safety_settings": self._collect_safety_settings(),
         }

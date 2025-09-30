@@ -136,6 +136,7 @@ def test_set_google_llm_settings_updates_state(config_manager):
         top_p=0.9,
         top_k=32,
         candidate_count=2,
+        max_output_tokens=16000,
         stop_sequences=["STOP"],
         safety_settings=[
             {"category": "HARM_CATEGORY_DEROGATORY", "threshold": "BLOCK_NONE"}
@@ -150,6 +151,7 @@ def test_set_google_llm_settings_updates_state(config_manager):
     assert stored["top_p"] == 0.9
     assert stored["top_k"] == 32
     assert stored["candidate_count"] == 2
+    assert stored["max_output_tokens"] == 16000
     assert stored["stop_sequences"] == ["STOP"]
     assert stored["safety_settings"] == [
         {"category": "HARM_CATEGORY_DEROGATORY", "threshold": "BLOCK_NONE"}
@@ -157,6 +159,7 @@ def test_set_google_llm_settings_updates_state(config_manager):
     assert stored["response_mime_type"] == "application/json"
     assert stored["system_instruction"] == "Respond in JSON."
     assert config_manager.config["GOOGLE_LLM"]["top_k"] == 32
+    assert config_manager.config["GOOGLE_LLM"]["max_output_tokens"] == 16000
 
 
 def test_get_google_llm_settings_returns_copy(config_manager):
@@ -171,6 +174,21 @@ def test_get_google_llm_settings_returns_copy(config_manager):
     retrieved = config_manager.get_google_llm_settings()
     retrieved["stop_sequences"].append("NEW")
     assert config_manager.config["GOOGLE_LLM"]["stop_sequences"] == ["DONE"]
+
+
+def test_set_google_llm_settings_allows_clearing_max_output_tokens(config_manager):
+    config_manager.set_google_llm_settings(
+        model="gemini-1.5-flash",
+        max_output_tokens=4096,
+    )
+
+    config_manager.set_google_llm_settings(
+        model="gemini-1.5-flash",
+        max_output_tokens="",
+    )
+
+    snapshot = config_manager.get_google_llm_settings()
+    assert snapshot["max_output_tokens"] is None
 
 def test_set_openai_llm_settings_updates_state(config_manager):
     result = config_manager.set_openai_llm_settings(

@@ -282,12 +282,26 @@ class ProviderManager:
         top_p: Optional[float] = None,
         top_k: Optional[Any] = None,
         candidate_count: Optional[int] = None,
+        max_output_tokens: Optional[Any] = None,
         stop_sequences: Optional[Any] = None,
         safety_settings: Optional[Any] = None,
         response_mime_type: Optional[str] = None,
         system_instruction: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Persist Google Gemini defaults and promote the saved model when possible."""
+        """Persist Google Gemini defaults and promote the saved model when possible.
+
+        Args:
+            model: Default Gemini model identifier.
+            temperature: Sampling temperature between 0 and 2.
+            top_p: Nucleus sampling parameter between 0 and 1.
+            top_k: Optional integer limiting candidate tokens considered.
+            candidate_count: Optional integer specifying number of candidates.
+            max_output_tokens: Optional integer limiting the maximum response length.
+            stop_sequences: Optional iterable of stop strings.
+            safety_settings: Optional safety configuration.
+            response_mime_type: Optional MIME hint for the response.
+            system_instruction: Optional default system instruction.
+        """
 
         setter = getattr(self.config_manager, "set_google_llm_settings", None)
         if not callable(setter):
@@ -304,6 +318,7 @@ class ProviderManager:
                 top_p=top_p,
                 top_k=top_k,
                 candidate_count=candidate_count,
+                max_output_tokens=max_output_tokens,
                 stop_sequences=stop_sequences,
                 safety_settings=safety_settings,
                 response_mime_type=response_mime_type,
