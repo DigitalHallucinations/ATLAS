@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import copy
 import json
-from typing import Any, AsyncIterator, Dict, Iterable, List, Mapping, Optional, Union
+from typing import Any, AsyncIterator, Dict, Iterable, List, Mapping, Optional, Set, Union
 
 import google.generativeai as genai
 from google.generativeai import types as genai_types
@@ -52,8 +52,10 @@ class GoogleGeminiGenerator:
         try:
             contents = self._convert_messages_to_contents(messages)
             tools = None
+            declared_function_names: Set[str] = set()
             if enable_functions:
                 tools = self._build_tools_payload(functions, current_persona)
+                declared_function_names = self._extract_declared_function_names(tools)
 
             stored_settings: Dict[str, Any] = {}
             getter = getattr(self.config_manager, "get_google_llm_settings", None)
@@ -309,12 +311,30 @@ class GoogleGeminiGenerator:
                         resolved_allowed_names.append(cleaned)
                         seen_names.add(cleaned)
 
+            discarded_allowed_names: List[str] = []
+
             if not enable_functions:
                 effective_function_call_mode = 'none'
                 effective_allowed_names: List[str] = []
             else:
                 effective_function_call_mode = resolved_function_call_mode
-                effective_allowed_names = resolved_allowed_names
+                effective_allowed_names = list(resolved_allowed_names)
+
+                if not tools:
+                    if effective_allowed_names:
+                        discarded_allowed_names.extend(effective_allowed_names)
+                    effective_allowed_names = []
+                elif declared_function_names:
+                    filtered_allowed_names: List[str] = []
+                    for name in effective_allowed_names:
+                        if name in declared_function_names:
+                            filtered_allowed_names.append(name)
+                        else:
+                            discarded_allowed_names.append(name)
+                    effective_allowed_names = filtered_allowed_names
+                elif effective_allowed_names:
+                    discarded_allowed_names.extend(effective_allowed_names)
+                    effective_allowed_names = []
 
             function_calling_config: Dict[str, Any] = {
                 "mode": effective_function_call_mode.upper(),
@@ -323,6 +343,14 @@ class GoogleGeminiGenerator:
                 function_calling_config["allowed_function_names"] = list(
                     effective_allowed_names
                 )
+
+            if discarded_allowed_names:
+                unique_discarded = list(dict.fromkeys(discarded_allowed_names))
+                self.logger.warning(
+                    "Discarded Gemini allowlist entries not declared as tools: %s",
+                    ", ".join(unique_discarded),
+                )
+                self._notify_allowlist_pruned(unique_discarded)
 
             tool_config_payload: Dict[str, Any] = {
                 "function_calling_config": function_calling_config
@@ -523,6 +551,30 @@ class GoogleGeminiGenerator:
 
         return [genai_types.Tool(function_declarations=declared_functions)]
 
+    def _extract_declared_function_names(
+        self, tools_payload: Optional[List[genai_types.Tool]]
+    ) -> Set[str]:
+        declared: Set[str] = set()
+        if not tools_payload:
+            return declared
+
+        for tool in tools_payload:
+            declarations = getattr(tool, "function_declarations", None)
+            if not declarations:
+                continue
+            try:
+                iterator = list(declarations)
+            except TypeError:
+                iterator = [declarations]
+            for declaration in iterator:
+                name = getattr(declaration, "name", None)
+                if isinstance(name, str):
+                    cleaned = name.strip()
+                    if cleaned:
+                        declared.add(cleaned)
+
+        return declared
+
     def _to_function_declaration(self, payload) -> Optional[genai_types.FunctionDeclaration]:
         if not isinstance(payload, dict):
             return None
@@ -541,6 +593,28 @@ class GoogleGeminiGenerator:
             description=description,
             parameters=parameters,
         )
+
+    def _notify_allowlist_pruned(self, discarded_names: Iterable[str]) -> None:
+        if not discarded_names:
+            return
+
+        message = (
+            "Removed unsupported Google Gemini tool allowlist entries: "
+            + ", ".join(discarded_names)
+        )
+
+        for attr in (
+            "notify_ui_warning",
+            "notify_ui",
+            "queue_notification",
+            "queue_ui_notification",
+            "send_notification",
+        ):
+            notifier = getattr(self.config_manager, attr, None)
+            if callable(notifier):
+                with contextlib.suppress(Exception):
+                    notifier(message)
+                break
 
     def _normalize_function_call(self, payload) -> Optional[Dict[str, str]]:
         if payload is None:
