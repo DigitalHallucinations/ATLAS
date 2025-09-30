@@ -508,6 +508,7 @@ class ConfigManager:
             'function_calling': True,
             'function_call_mode': 'auto',
             'allowed_function_names': [],
+            'cached_allowed_function_names': [],
             'response_schema': {},
         }
 
@@ -551,6 +552,17 @@ class ConfigManager:
             merged['allowed_function_names'] = []
 
         try:
+            merged['cached_allowed_function_names'] = self._coerce_allowed_function_names(
+                merged.get('cached_allowed_function_names')
+            )
+        except ValueError as exc:
+            self.logger.warning(
+                "Ignoring persisted Google cached allowed names due to validation error: %s",
+                exc,
+            )
+            merged['cached_allowed_function_names'] = []
+
+        try:
             merged['response_schema'] = self._coerce_response_schema(
                 merged.get('response_schema')
             )
@@ -581,6 +593,7 @@ class ConfigManager:
         function_call_mode: Optional[str] = None,
         allowed_function_names: Optional[Any] = None,
         response_schema: Optional[Any] = None,
+        cached_allowed_function_names: Any = _UNSET,
     ) -> Dict[str, Any]:
         """Persist default configuration for the Google Gemini provider.
 
@@ -599,6 +612,8 @@ class ConfigManager:
             stream: Optional flag to toggle streaming responses by default.
             function_calling: Optional flag that enables Gemini tool calling by default.
             response_schema: Optional JSON schema applied to structured responses.
+            cached_allowed_function_names: Optional sequence preserving the allowlist
+                when tool calling is temporarily disabled.
 
         Returns:
             dict: Persisted Google defaults.
@@ -621,6 +636,7 @@ class ConfigManager:
             'function_calling': True,
             'function_call_mode': 'auto',
             'allowed_function_names': [],
+            'cached_allowed_function_names': [],
             'response_schema': {},
         }
 
@@ -895,14 +911,52 @@ class ConfigManager:
                 ) from exc
             return names
 
-        settings_block['allowed_function_names'] = _normalize_allowed_function_names(
+        previous_allowed = settings_block.get('allowed_function_names', defaults['allowed_function_names'])
+        if not previous_allowed:
+            previous_allowed = settings_block.get(
+                'cached_allowed_function_names', defaults['cached_allowed_function_names']
+            )
+        normalized_allowed = _normalize_allowed_function_names(
             allowed_function_names,
-            settings_block.get('allowed_function_names', defaults['allowed_function_names']),
+            previous_allowed,
         )
+
+        try:
+            existing_cache = self._coerce_allowed_function_names(
+                settings_block.get('cached_allowed_function_names', defaults['cached_allowed_function_names'])
+            )
+        except ValueError:
+            existing_cache = []
+
+        if cached_allowed_function_names is _UNSET:
+            cache_source: Any = normalized_allowed if normalized_allowed else existing_cache
+        else:
+            cache_source = cached_allowed_function_names
+
+        try:
+            normalized_cache = self._coerce_allowed_function_names(cache_source)
+        except ValueError as exc:
+            raise ValueError(
+                "Cached allowed function names must be a sequence of non-empty strings."
+            ) from exc
+
+        settings_block['cached_allowed_function_names'] = normalized_cache
+
         if settings_block['function_calling'] is False:
             settings_block['function_call_mode'] = 'none'
+
         if settings_block['function_call_mode'] == 'none':
             settings_block['allowed_function_names'] = []
+        else:
+            if (
+                not normalized_allowed
+                and normalized_cache
+                and cached_allowed_function_names is _UNSET
+                and allowed_function_names is None
+            ):
+                settings_block['allowed_function_names'] = list(normalized_cache)
+            else:
+                settings_block['allowed_function_names'] = normalized_allowed
         settings_block['max_output_tokens'] = _normalize_max_output_tokens(
             max_output_tokens,
             settings_block.get('max_output_tokens', defaults['max_output_tokens']),

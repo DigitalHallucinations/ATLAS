@@ -292,6 +292,7 @@ class ProviderManager:
         function_call_mode: Optional[str] = None,
         allowed_function_names: Optional[Any] = None,
         response_schema: Optional[Any] = None,
+        cached_allowed_function_names: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Persist Google Gemini defaults and promote the saved model when possible.
 
@@ -338,6 +339,7 @@ class ProviderManager:
                 function_call_mode=function_call_mode,
                 allowed_function_names=allowed_function_names,
                 response_schema=response_schema,
+                cached_allowed_function_names=cached_allowed_function_names,
             )
         except Exception as exc:
             self.logger.error("Failed to persist Google settings: %s", exc, exc_info=True)

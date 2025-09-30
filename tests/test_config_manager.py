@@ -162,6 +162,7 @@ def test_set_google_llm_settings_updates_state(config_manager):
     assert stored["system_instruction"] == "Respond in JSON."
     assert stored["function_call_mode"] == "require"
     assert stored["allowed_function_names"] == ["tool_a", "tool_b"]
+    assert stored["cached_allowed_function_names"] == ["tool_a", "tool_b"]
     assert config_manager.config["GOOGLE_LLM"]["top_k"] == 32
     assert config_manager.config["GOOGLE_LLM"]["max_output_tokens"] == 16000
 
@@ -208,8 +209,13 @@ def test_get_google_llm_settings_returns_copy(config_manager):
     retrieved = config_manager.get_google_llm_settings()
     retrieved["stop_sequences"].append("NEW")
     retrieved["allowed_function_names"].append("gamma")
+    retrieved["cached_allowed_function_names"].append("delta")
     assert config_manager.config["GOOGLE_LLM"]["stop_sequences"] == ["DONE"]
     assert config_manager.config["GOOGLE_LLM"]["allowed_function_names"] == [
+        "alpha",
+        "beta",
+    ]
+    assert config_manager.config["GOOGLE_LLM"]["cached_allowed_function_names"] == [
         "alpha",
         "beta",
     ]
@@ -228,6 +234,32 @@ def test_set_google_llm_settings_allows_clearing_max_output_tokens(config_manage
 
     snapshot = config_manager.get_google_llm_settings()
     assert snapshot["max_output_tokens"] is None
+
+
+def test_set_google_llm_settings_caches_allowlist_when_disabled(config_manager):
+    config_manager.set_google_llm_settings(
+        model="gemini-1.5-pro",
+        allowed_function_names=["alpha", "beta"],
+    )
+
+    disabled = config_manager.set_google_llm_settings(
+        model="gemini-1.5-pro",
+        function_calling=False,
+        allowed_function_names=[],
+        cached_allowed_function_names=["alpha", "beta"],
+    )
+
+    assert disabled["allowed_function_names"] == []
+    assert disabled["cached_allowed_function_names"] == ["alpha", "beta"]
+
+    reenabled = config_manager.set_google_llm_settings(
+        model="gemini-1.5-pro",
+        function_calling=True,
+        function_call_mode="auto",
+    )
+
+    assert reenabled["allowed_function_names"] == ["alpha", "beta"]
+    assert reenabled["cached_allowed_function_names"] == ["alpha", "beta"]
 
 def test_set_openai_llm_settings_updates_state(config_manager):
     result = config_manager.set_openai_llm_settings(

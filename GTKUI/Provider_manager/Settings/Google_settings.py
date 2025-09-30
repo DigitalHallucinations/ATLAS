@@ -74,8 +74,10 @@ class GoogleSettingsWindow(Gtk.Window):
             "function_calling": True,
             "function_call_mode": "auto",
             "allowed_function_names": [],
+            "cached_allowed_function_names": [],
             "response_schema": {},
         }
+        self._allowed_function_cache: List[str] = []
         self._safety_controls: Dict[str, Tuple[Gtk.CheckButton, Gtk.ComboBoxText]] = {}
         self._available_models: List[str] = []
         self._function_call_mode_options: List[Tuple[str, str]] = [
@@ -432,22 +434,32 @@ class GoogleSettingsWindow(Gtk.Window):
         save_button.connect("clicked", self.on_save_clicked)
         action_box.append(save_button)
 
+        def _assign_child(widget: Gtk.Widget) -> None:
+            setter = getattr(self, "set_child", None)
+            if callable(setter):
+                setter(widget)
+            else:
+                try:
+                    setattr(self, "child", widget)
+                except Exception:
+                    pass
+
         set_action_widget = getattr(notebook, "set_action_widget", None)
         pack_type = getattr(Gtk, "PackType", None)
         if callable(set_action_widget) and pack_type is not None and hasattr(pack_type, "END"):
             try:
                 set_action_widget(action_box, pack_type.END)
-                self.set_child(notebook)
+                _assign_child(notebook)
             except Exception:
                 fallback_box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=0, margin=0)
                 fallback_box.append(notebook)
                 fallback_box.append(action_box)
-                self.set_child(fallback_box)
+                _assign_child(fallback_box)
         else:
             fallback_box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=0, margin=0)
             fallback_box.append(notebook)
             fallback_box.append(action_box)
-            self.set_child(fallback_box)
+            _assign_child(fallback_box)
 
         self._load_models()
         self._load_settings()
@@ -533,6 +545,13 @@ class GoogleSettingsWindow(Gtk.Window):
             pass
 
         allowed_names_value = self._defaults.get("allowed_function_names", [])
+        cached_names_value = self._defaults.get("cached_allowed_function_names", [])
+        if (
+            (not allowed_names_value)
+            and isinstance(cached_names_value, Sequence)
+            and cached_names_value
+        ):
+            allowed_names_value = cached_names_value
         if isinstance(allowed_names_value, str):
             allowed_tokens = [
                 token.strip()
@@ -547,6 +566,7 @@ class GoogleSettingsWindow(Gtk.Window):
             ]
         else:
             allowed_tokens = []
+        self._allowed_function_cache = list(allowed_tokens)
         try:
             self.allowed_functions_entry.set_text(", ".join(allowed_tokens))
         except Exception:
@@ -767,7 +787,26 @@ class GoogleSettingsWindow(Gtk.Window):
     # ------------------------------------------------------------------
 
     def _on_function_call_toggled(self, toggle: Gtk.CheckButton) -> None:
-        self._update_tool_controls_sensitive(toggle.get_active())
+        enabled = toggle.get_active()
+        if not enabled:
+            cached_names = self._parse_allowed_function_names()
+            if cached_names:
+                self._allowed_function_cache = list(cached_names)
+        else:
+            if not self._allowed_function_cache:
+                self._allowed_function_cache = self._parse_allowed_function_names()
+            try:
+                current_text = self.allowed_functions_entry.get_text()
+            except Exception:
+                current_text = ""
+            if (current_text or "").strip() == "" and self._allowed_function_cache:
+                try:
+                    self.allowed_functions_entry.set_text(
+                        ", ".join(self._allowed_function_cache)
+                    )
+                except Exception:
+                    pass
+        self._update_tool_controls_sensitive(enabled)
 
     def _on_top_k_toggled(self, toggle: Gtk.CheckButton) -> None:
         active = toggle.get_active()
@@ -798,6 +837,18 @@ class GoogleSettingsWindow(Gtk.Window):
         else:
             top_k_payload = ""
 
+        functions_enabled = self.function_call_toggle.get_active()
+        parsed_allowed_names = self._parse_allowed_function_names()
+        if functions_enabled:
+            self._allowed_function_cache = list(parsed_allowed_names)
+        else:
+            if parsed_allowed_names:
+                self._allowed_function_cache = list(parsed_allowed_names)
+
+        payload_allowed_names = (
+            list(self._allowed_function_cache) if functions_enabled else []
+        )
+
         payload = {
             "model": model,
             "temperature": round(self.temperature_spin.get_value(), 2),
@@ -814,9 +865,10 @@ class GoogleSettingsWindow(Gtk.Window):
             "response_mime_type": self._sanitize_response_mime_type(),
             "system_instruction": self._sanitize_system_instruction(),
             "stream": self.stream_toggle.get_active(),
-            "function_calling": self.function_call_toggle.get_active(),
+            "function_calling": functions_enabled,
             "function_call_mode": self._get_selected_function_call_mode(),
-            "allowed_function_names": self._parse_allowed_function_names(),
+            "allowed_function_names": payload_allowed_names,
+            "cached_allowed_function_names": list(self._allowed_function_cache),
             "response_schema": None,
         }
 
@@ -828,7 +880,6 @@ class GoogleSettingsWindow(Gtk.Window):
 
         if not payload["function_calling"]:
             payload["function_call_mode"] = "none"
-            payload["allowed_function_names"] = []
 
         schema = payload["response_schema"]
         if schema not in (None, "", {}):
