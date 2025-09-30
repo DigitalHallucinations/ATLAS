@@ -664,6 +664,7 @@ class DummyConfig:
             "system_instruction": None,
             "max_output_tokens": 32000,
             "stream": True,
+            "function_calling": True,
         }
 
     def get_default_provider(self):
@@ -829,6 +830,7 @@ class DummyConfig:
         system_instruction=None,
         max_output_tokens=None,
         stream=None,
+        function_calling=None,
     ):
         if model:
             self._google_settings["model"] = model
@@ -865,6 +867,8 @@ class DummyConfig:
             self._google_settings["max_output_tokens"] = int(max_output_tokens)
         if stream is not None:
             self._google_settings["stream"] = bool(stream)
+        if function_calling is not None:
+            self._google_settings["function_calling"] = bool(function_calling)
 
         return dict(self._google_settings)
 
@@ -1282,6 +1286,7 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
                 "response_mime_type": "text/plain",
                 "system_instruction": "Keep it short.",
                 "stream": False,
+                "function_calling": False,
             }
 
         def get_provider_api_key_status(self, provider_name):
@@ -1311,10 +1316,12 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
     buffer = window.system_instruction_view.get_buffer()
     assert buffer.get_text(None, None, True) == "Keep it short."
     assert window.stream_toggle.get_active() is False
+    assert window.function_call_toggle.get_active() is False
 
     window.response_mime_entry.set_text("  application/json  ")
     buffer.set_text("  Follow policy.  ")
     window.stream_toggle.set_active(True)
+    window.function_call_toggle.set_active(True)
 
     window.on_save_clicked()
 
@@ -1322,6 +1329,7 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
     assert atlas.saved_payload["response_mime_type"] == "application/json"
     assert atlas.saved_payload["system_instruction"] == "Follow policy."
     assert atlas.saved_payload["stream"] is True
+    assert atlas.saved_payload["function_calling"] is True
     assert atlas.last_provider == "Google"
     assert atlas.refresh_calls == 1
 
@@ -1439,6 +1447,7 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_LOW_AND_ABOVE"}
         ],
         stream=False,
+        function_calling=False,
     )
 
     assert result["success"] is True
@@ -1455,6 +1464,7 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
     assert settings["safety_settings"][0]["category"] == "HARM_CATEGORY_DANGEROUS_CONTENT"
     assert settings["safety_settings"][0]["threshold"] == "BLOCK_LOW_AND_ABOVE"
     assert settings["stream"] is False
+    assert settings["function_calling"] is False
     assert provider_manager.model_manager.models["Google"][0] == "gemini-1.5-flash-latest"
     assert provider_manager.current_model == "gemini-1.5-flash-latest"
 
@@ -1505,6 +1515,7 @@ def test_generate_response_uses_google_defaults(provider_manager):
     assert captured["system_instruction"] == "Follow the instructions."
     assert captured["max_tokens"] == 12345
     assert captured["stream"] is False
+    assert captured["enable_functions"] is True
 
 
 def test_generate_response_google_omits_hardcoded_max_tokens(provider_manager):
@@ -1539,6 +1550,37 @@ def test_generate_response_google_omits_hardcoded_max_tokens(provider_manager):
     assert result == "ok"
     assert "max_tokens" in captured
     assert captured["max_tokens"] is None
+    assert captured["enable_functions"] is True
+
+
+def test_generate_response_google_skips_functions_when_disabled(provider_manager):
+    provider_manager.config_manager.set_google_llm_settings(
+        model="gemini-1.5-pro-latest",
+        function_calling=False,
+    )
+
+    captured = {}
+
+    async def fake_generate_response(_config_manager, **kwargs):
+        captured.update(kwargs)
+        return "ok"
+
+    provider_manager.generate_response_func = fake_generate_response
+    provider_manager.providers["Google"] = fake_generate_response
+    provider_manager.current_llm_provider = "Google"
+    provider_manager.current_model = "gemini-1.5-pro-latest"
+    provider_manager.current_functions = [{"name": "persona_tool"}]
+
+    async def exercise():
+        return await provider_manager.generate_response(
+            messages=[{"role": "user", "content": "hello"}],
+            provider="Google",
+        )
+
+    result = asyncio.run(exercise())
+    assert result == "ok"
+    assert captured["functions"] is None
+    assert captured["enable_functions"] is False
 
 
 def test_generate_response_respects_function_calling_enabled(provider_manager):

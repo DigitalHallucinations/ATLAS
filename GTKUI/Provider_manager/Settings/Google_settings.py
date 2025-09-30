@@ -55,6 +55,7 @@ class GoogleSettingsWindow(Gtk.Window):
             "response_mime_type": "",
             "system_instruction": "",
             "stream": True,
+            "function_calling": True,
         }
         self._safety_controls: Dict[str, Tuple[Gtk.CheckButton, Gtk.ComboBoxText]] = {}
         self._available_models: List[str] = []
@@ -193,6 +194,14 @@ class GoogleSettingsWindow(Gtk.Window):
             "Toggle to stream token updates during Gemini completions."
         )
         grid.attach(self.stream_toggle, 0, row, 2, 1)
+
+        row += 1
+        self.function_call_toggle = Gtk.CheckButton(label="Enable tool calling")
+        self.function_call_toggle.set_halign(Gtk.Align.START)
+        self.function_call_toggle.set_tooltip_text(
+            "Allow Gemini to invoke persona tools and function calls by default."
+        )
+        grid.attach(self.function_call_toggle, 0, row, 2, 1)
 
         row += 1
         max_output_label = Gtk.Label(label="Max output tokens:")
@@ -379,6 +388,9 @@ class GoogleSettingsWindow(Gtk.Window):
             self.candidate_spin.set_value(int(candidate_count))
 
         self.stream_toggle.set_active(bool(self._defaults.get("stream", True)))
+        self.function_call_toggle.set_active(
+            bool(self._defaults.get("function_calling", True))
+        )
 
         max_output_tokens = self._defaults.get("max_output_tokens")
         if isinstance(max_output_tokens, (int, float)) and max_output_tokens > 0:
@@ -599,6 +611,7 @@ class GoogleSettingsWindow(Gtk.Window):
             "response_mime_type": self._sanitize_response_mime_type(),
             "system_instruction": self._sanitize_system_instruction(),
             "stream": self.stream_toggle.get_active(),
+            "function_calling": self.function_call_toggle.get_active(),
         }
 
         setter = getattr(self.ATLAS, "set_google_llm_settings", None)

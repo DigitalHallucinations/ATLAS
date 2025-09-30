@@ -503,7 +503,10 @@ class ConfigManager:
     def get_google_llm_settings(self) -> Dict[str, Any]:
         """Return the persisted Google LLM defaults, if configured."""
 
-        defaults: Dict[str, Any] = {'stream': True}
+        defaults: Dict[str, Any] = {
+            'stream': True,
+            'function_calling': True,
+        }
 
         settings = self.yaml_config.get('GOOGLE_LLM')
         if isinstance(settings, dict):
@@ -515,6 +518,10 @@ class ConfigManager:
         merged.update(normalized)
         merged['stream'] = self._coerce_optional_bool(
             merged.get('stream'),
+            default=True,
+        )
+        merged['function_calling'] = self._coerce_optional_bool(
+            merged.get('function_calling'),
             default=True,
         )
 
@@ -534,6 +541,7 @@ class ConfigManager:
         response_mime_type: Optional[str] = None,
         system_instruction: Optional[str] = None,
         stream: Optional[bool] = None,
+        function_calling: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Persist default configuration for the Google Gemini provider.
 
@@ -549,6 +557,8 @@ class ConfigManager:
             safety_settings: Optional safety filter configuration.
             response_mime_type: Optional MIME type hint for responses.
             system_instruction: Optional default system instruction prompt.
+            stream: Optional flag to toggle streaming responses by default.
+            function_calling: Optional flag that enables Gemini tool calling by default.
 
         Returns:
             dict: Persisted Google defaults.
@@ -568,6 +578,7 @@ class ConfigManager:
             'response_mime_type': None,
             'system_instruction': None,
             'stream': True,
+            'function_calling': True,
         }
 
         existing_settings = {}
@@ -721,7 +732,7 @@ class ConfigManager:
             cleaned = str(value).strip()
             return cleaned or None
 
-        def _normalize_stream(
+        def _normalize_toggle(
             value: Optional[Any],
             previous: Any,
             *,
@@ -790,10 +801,15 @@ class ConfigManager:
             system_instruction,
             settings_block.get('system_instruction', defaults['system_instruction']),
         )
-        settings_block['stream'] = _normalize_stream(
+        settings_block['stream'] = _normalize_toggle(
             stream,
             settings_block.get('stream', defaults['stream']),
             default=defaults['stream'],
+        )
+        settings_block['function_calling'] = _normalize_toggle(
+            function_calling,
+            settings_block.get('function_calling', defaults['function_calling']),
+            default=defaults['function_calling'],
         )
         settings_block['max_output_tokens'] = _normalize_max_output_tokens(
             max_output_tokens,

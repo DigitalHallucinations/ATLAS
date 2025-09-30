@@ -288,6 +288,7 @@ class ProviderManager:
         response_mime_type: Optional[str] = None,
         system_instruction: Optional[str] = None,
         stream: Optional[bool] = None,
+        function_calling: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Persist Google Gemini defaults and promote the saved model when possible.
 
@@ -303,6 +304,7 @@ class ProviderManager:
             response_mime_type: Optional MIME hint for the response.
             system_instruction: Optional default system instruction.
             stream: Optional flag toggling streaming responses by default.
+            function_calling: Optional flag toggling Gemini tool calling by default.
         """
 
         setter = getattr(self.config_manager, "set_google_llm_settings", None)
@@ -326,6 +328,7 @@ class ProviderManager:
                 response_mime_type=response_mime_type,
                 system_instruction=system_instruction,
                 stream=stream,
+                function_calling=function_calling,
             )
         except Exception as exc:
             self.logger.error("Failed to persist Google settings: %s", exc, exc_info=True)
@@ -1214,6 +1217,8 @@ class ProviderManager:
         )
         resolved_stream = stream if stream is not None else defaults.get("stream", True)
         resolved_function_calling = defaults.get("function_calling", True)
+        if resolved_function_calling is None:
+            resolved_function_calling = True
         resolved_parallel_tool_calls = defaults.get("parallel_tool_calls", True)
         resolved_tool_choice = defaults.get("tool_choice")
         if resolved_function_calling is False:
@@ -1247,6 +1252,9 @@ class ProviderManager:
         # Use current functions if not provided
         if functions is None:
             functions = self.current_functions
+
+        if resolved_function_calling is False:
+            functions = None
 
         start_time = time.time()
         self.logger.info(
@@ -1300,6 +1308,7 @@ class ProviderManager:
                     safety_settings=resolved_safety_settings,
                     response_mime_type=resolved_response_mime_type,
                     system_instruction=resolved_system_instruction,
+                    enable_functions=bool(resolved_function_calling),
                 )
                 if resolved_max_output_tokens is not None and max_tokens is None:
                     call_kwargs["max_tokens"] = resolved_max_output_tokens
