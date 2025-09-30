@@ -517,12 +517,30 @@ class ConfigManager:
         top_p: Optional[float] = None,
         top_k: Optional[Any] = None,
         candidate_count: Optional[Any] = None,
+        max_output_tokens: Optional[Any] = None,
         stop_sequences: Optional[Any] = None,
         safety_settings: Optional[Any] = None,
         response_mime_type: Optional[str] = None,
         system_instruction: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Persist default configuration for the Google Gemini provider."""
+        """Persist default configuration for the Google Gemini provider.
+
+        Args:
+            model: Default Gemini model identifier.
+            temperature: Sampling temperature between 0 and 2.
+            top_p: Nucleus sampling threshold between 0 and 1.
+            top_k: Optional integer limiting candidate tokens considered.
+            candidate_count: Optional integer specifying number of returned candidates.
+            max_output_tokens: Optional integer limiting response length. ``None`` clears
+                the limit while ``32000`` is used by default when not overridden.
+            stop_sequences: Optional collection of strings used to halt generation.
+            safety_settings: Optional safety filter configuration.
+            response_mime_type: Optional MIME type hint for responses.
+            system_instruction: Optional default system instruction prompt.
+
+        Returns:
+            dict: Persisted Google defaults.
+        """
 
         if not isinstance(model, str) or not model.strip():
             raise ValueError("A default Google model must be provided.")
@@ -532,6 +550,7 @@ class ConfigManager:
             'top_p': 1.0,
             'top_k': None,
             'candidate_count': 1,
+            'max_output_tokens': 32000,
             'stop_sequences': [],
             'safety_settings': [],
             'response_mime_type': None,
@@ -715,6 +734,24 @@ class ConfigManager:
             field='Candidate count',
             minimum=1,
         )
+        def _normalize_max_output_tokens(
+            value: Optional[Any],
+            previous: Optional[int],
+        ) -> Optional[int]:
+            if value is None:
+                return previous
+            if value == "":
+                return None
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "Max output tokens must be an integer or left blank."
+                ) from exc
+            if parsed <= 0:
+                return None
+            return parsed
+
         settings_block['stop_sequences'] = _normalize_stop_sequences(
             stop_sequences,
             settings_block.get('stop_sequences', defaults['stop_sequences']),
@@ -730,6 +767,10 @@ class ConfigManager:
         settings_block['system_instruction'] = _normalize_optional_text(
             system_instruction,
             settings_block.get('system_instruction', defaults['system_instruction']),
+        )
+        settings_block['max_output_tokens'] = _normalize_max_output_tokens(
+            max_output_tokens,
+            settings_block.get('max_output_tokens', defaults['max_output_tokens']),
         )
 
         self.yaml_config['GOOGLE_LLM'] = copy.deepcopy(settings_block)

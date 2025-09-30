@@ -576,7 +576,7 @@ class DummyConfig:
             "safety_settings": [],
             "response_mime_type": None,
             "system_instruction": None,
-            "max_output_tokens": None,
+            "max_output_tokens": 32000,
         }
 
     def get_default_provider(self):
@@ -740,6 +740,7 @@ class DummyConfig:
         safety_settings=None,
         response_mime_type=None,
         system_instruction=None,
+        max_output_tokens=None,
     ):
         if model:
             self._google_settings["model"] = model
@@ -769,6 +770,11 @@ class DummyConfig:
             self._google_settings["response_mime_type"] = response_mime_type
         if system_instruction is not None:
             self._google_settings["system_instruction"] = system_instruction
+        if max_output_tokens in ("", None):
+            if max_output_tokens == "":
+                self._google_settings["max_output_tokens"] = None
+        elif max_output_tokens is not None:
+            self._google_settings["max_output_tokens"] = int(max_output_tokens)
 
         return dict(self._google_settings)
 
@@ -1276,6 +1282,7 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
         top_p=0.8,
         top_k=64,
         candidate_count=2,
+        max_output_tokens=4096,
         stop_sequences=["STOP", "END"],
         safety_settings=[
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_LOW_AND_ABOVE"}
@@ -1283,12 +1290,14 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
     )
 
     assert result["success"] is True
+    assert result["data"]["max_output_tokens"] == 4096
     settings = provider_manager.config_manager.get_google_llm_settings()
     assert settings["model"] == "gemini-1.5-flash-latest"
     assert math.isclose(settings["temperature"], 0.55)
     assert math.isclose(settings["top_p"], 0.8)
     assert settings["top_k"] == 64
     assert settings["candidate_count"] == 2
+    assert settings["max_output_tokens"] == 4096
     assert settings["stop_sequences"] == ["STOP", "END"]
     assert settings["safety_settings"][0]["category"] == "HARM_CATEGORY_DANGEROUS_CONTENT"
     assert settings["safety_settings"][0]["threshold"] == "BLOCK_LOW_AND_ABOVE"
@@ -1309,8 +1318,8 @@ def test_generate_response_uses_google_defaults(provider_manager):
         safety_settings=safety_settings,
         response_mime_type="text/plain",
         system_instruction="Follow the instructions.",
+        max_output_tokens=12345,
     )
-    provider_manager.config_manager._google_settings["max_output_tokens"] = 12345
 
     captured = {}
 
@@ -1348,7 +1357,10 @@ def test_generate_response_google_omits_hardcoded_max_tokens(provider_manager):
         temperature=0.0,
         top_p=0.8,
     )
-    provider_manager.config_manager._google_settings["max_output_tokens"] = None
+    provider_manager.config_manager.set_google_llm_settings(
+        model="gemini-1.5-pro-latest",
+        max_output_tokens="",
+    )
 
     captured = {}
 
