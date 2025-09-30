@@ -282,10 +282,12 @@ class ProviderManager:
         function_calling: Optional[bool] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
+        top_k: Any = ConfigManager.UNSET,
         max_output_tokens: Optional[int] = None,
         timeout: Optional[int] = None,
         max_retries: Optional[int] = None,
         retry_delay: Optional[int] = None,
+        stop_sequences: Any = ConfigManager.UNSET,
     ) -> Dict[str, Any]:
         """Persist Anthropic defaults and refresh the active generator when possible."""
 
@@ -296,10 +298,12 @@ class ProviderManager:
                 function_calling=function_calling,
                 temperature=temperature,
                 top_p=top_p,
+                top_k=top_k,
                 max_output_tokens=max_output_tokens,
                 timeout=timeout,
                 max_retries=max_retries,
                 retry_delay=retry_delay,
+                stop_sequences=stop_sequences,
             )
         except Exception as exc:
             self.logger.error("Failed to persist Anthropic settings: %s", exc, exc_info=True)
@@ -321,10 +325,12 @@ class ProviderManager:
                 generator.set_function_calling(settings.get("function_calling", False))
                 generator.set_temperature(settings.get("temperature", 0.0))
                 generator.set_top_p(settings.get("top_p", 1.0))
+                generator.set_top_k(settings.get("top_k"))
                 generator.set_max_output_tokens(settings.get("max_output_tokens"))
                 generator.set_timeout(settings.get("timeout", 60))
                 generator.set_max_retries(settings.get("max_retries", 3))
                 generator.set_retry_delay(settings.get("retry_delay", 5))
+                generator.set_stop_sequences(settings.get("stop_sequences", []))
             except Exception as exc:  # pragma: no cover - defensive logging
                 self.logger.warning(
                     "Unable to apply Anthropic settings to the live generator: %s",

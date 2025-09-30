@@ -836,10 +836,12 @@ class ATLAS:
         function_calling: bool,
         temperature: float,
         top_p: float,
+        top_k: Any = ConfigManager.UNSET,
         max_output_tokens: Optional[int],
         timeout: int,
         max_retries: int,
         retry_delay: int,
+        stop_sequences: Any = ConfigManager.UNSET,
     ) -> Dict[str, Any]:
         """Persist Anthropic defaults through the provider manager facade."""
 
@@ -854,10 +856,12 @@ class ATLAS:
             function_calling=function_calling,
             temperature=temperature,
             top_p=top_p,
+            top_k=top_k,
             max_output_tokens=max_output_tokens,
             timeout=timeout,
             max_retries=max_retries,
             retry_delay=retry_delay,
+            stop_sequences=stop_sequences,
         )
 
     def get_models_for_provider(self, provider: str) -> List[str]:

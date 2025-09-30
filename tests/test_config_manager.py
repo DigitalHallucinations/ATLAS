@@ -184,22 +184,28 @@ def test_set_anthropic_settings_updates_state(config_manager):
         function_calling=True,
         temperature=0.25,
         top_p=0.8,
+        top_k=42,
         max_output_tokens=1024,
         timeout=120,
         max_retries=5,
         retry_delay=9,
+        stop_sequences=["END", "<|stop|>"]
     )
 
     assert result["model"] == "claude-3-sonnet-20240229"
+    assert result["top_k"] == 42
+    assert result["stop_sequences"] == ["END", "<|stop|>"]
     stored = config_manager.config["ANTHROPIC_LLM"]
     assert stored["stream"] is False
     assert stored["function_calling"] is True
     assert math.isclose(stored["temperature"], 0.25)
     assert math.isclose(stored["top_p"], 0.8)
+    assert stored["top_k"] == 42
     assert stored["max_output_tokens"] == 1024
     assert stored["timeout"] == 120
     assert stored["max_retries"] == 5
     assert stored["retry_delay"] == 9
+    assert stored["stop_sequences"] == ["END", "<|stop|>"]
 
 
 def test_get_anthropic_settings_returns_defaults(config_manager):
@@ -210,10 +216,12 @@ def test_get_anthropic_settings_returns_defaults(config_manager):
     assert snapshot["function_calling"] is False
     assert snapshot["temperature"] == 0.0
     assert snapshot["top_p"] == 1.0
+    assert snapshot["top_k"] is None
     assert snapshot["max_output_tokens"] is None
     assert snapshot["timeout"] == 60
     assert snapshot["max_retries"] == 3
     assert snapshot["retry_delay"] == 5
+    assert snapshot["stop_sequences"] == []
 
 
 def test_set_openai_llm_settings_clears_optional_fields(config_manager):
