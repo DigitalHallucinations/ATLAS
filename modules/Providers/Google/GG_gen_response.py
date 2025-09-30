@@ -277,6 +277,57 @@ class GoogleGeminiGenerator:
             ):
                 effective_response_mime_type = "application/json"
 
+            valid_modes = {"auto", "any", "none", "require"}
+
+            stored_mode = stored_settings.get('function_call_mode')
+            if isinstance(stored_mode, str):
+                cleaned_mode = stored_mode.strip().lower()
+                if cleaned_mode in valid_modes:
+                    resolved_function_call_mode = cleaned_mode
+                else:
+                    resolved_function_call_mode = 'auto'
+            else:
+                resolved_function_call_mode = 'auto'
+
+            allowed_names_source = stored_settings.get('allowed_function_names')
+            resolved_allowed_names: List[str] = []
+            if isinstance(allowed_names_source, str):
+                resolved_allowed_names = [
+                    token.strip()
+                    for token in allowed_names_source.split(',')
+                    if token.strip()
+                ]
+            elif isinstance(allowed_names_source, Iterable) and not isinstance(
+                allowed_names_source, (bytes, bytearray, str)
+            ):
+                seen_names = set()
+                for item in allowed_names_source:
+                    if not isinstance(item, str):
+                        continue
+                    cleaned = item.strip()
+                    if cleaned and cleaned not in seen_names:
+                        resolved_allowed_names.append(cleaned)
+                        seen_names.add(cleaned)
+
+            if not enable_functions:
+                effective_function_call_mode = 'none'
+                effective_allowed_names: List[str] = []
+            else:
+                effective_function_call_mode = resolved_function_call_mode
+                effective_allowed_names = resolved_allowed_names
+
+            function_calling_config: Dict[str, Any] = {
+                "mode": effective_function_call_mode.upper(),
+            }
+            if effective_allowed_names:
+                function_calling_config["allowed_function_names"] = list(
+                    effective_allowed_names
+                )
+
+            tool_config_payload: Dict[str, Any] = {
+                "function_calling_config": function_calling_config
+            }
+
             model_instance = genai.GenerativeModel(model_name=effective_model)
             self.logger.info(
                 "Generating response with Google Gemini using model: %s",
@@ -306,6 +357,9 @@ class GoogleGeminiGenerator:
             }
             if tools:
                 request_kwargs["tools"] = tools
+
+            if tool_config_payload:
+                request_kwargs["tool_config"] = tool_config_payload
 
             if effective_safety_settings:
                 if isinstance(effective_safety_settings, (list, dict)):

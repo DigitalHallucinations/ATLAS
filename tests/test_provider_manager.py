@@ -667,6 +667,8 @@ class DummyConfig:
             "max_output_tokens": 32000,
             "stream": True,
             "function_calling": True,
+            "function_call_mode": "auto",
+            "allowed_function_names": [],
             "response_schema": {},
         }
 
@@ -834,6 +836,8 @@ class DummyConfig:
         max_output_tokens=None,
         stream=None,
         function_calling=None,
+        function_call_mode=None,
+        allowed_function_names=None,
         response_schema=None,
     ):
         if model:
@@ -873,6 +877,22 @@ class DummyConfig:
             self._google_settings["stream"] = bool(stream)
         if function_calling is not None:
             self._google_settings["function_calling"] = bool(function_calling)
+        if function_call_mode is not None:
+            self._google_settings["function_call_mode"] = str(function_call_mode)
+        if allowed_function_names is not None:
+            if isinstance(allowed_function_names, str):
+                names = [
+                    part.strip()
+                    for part in allowed_function_names.split(",")
+                    if part.strip()
+                ]
+            else:
+                names = [
+                    str(item).strip()
+                    for item in (allowed_function_names or [])
+                    if str(item).strip()
+                ]
+            self._google_settings["allowed_function_names"] = names
         if response_schema is not None:
             if response_schema in ("", {}, None):
                 self._google_settings["response_schema"] = {}
@@ -1356,6 +1376,10 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
     buffer.set_text("  Follow policy.  ")
     window.stream_toggle.set_active(True)
     window.function_call_toggle.set_active(True)
+    window.function_call_mode_combo.set_active(
+        window._function_call_mode_index_map["require"]
+    )
+    window.allowed_functions_entry.set_text(" persona_tool , helper ")
     schema_buffer.set_text(
         "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"value\": {\n      \"type\": \"integer\"\n    }\n  }\n}"
     )
@@ -1367,6 +1391,11 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
     assert atlas.saved_payload["system_instruction"] == "Follow policy."
     assert atlas.saved_payload["stream"] is True
     assert atlas.saved_payload["function_calling"] is True
+    assert atlas.saved_payload["function_call_mode"] == "require"
+    assert atlas.saved_payload["allowed_function_names"] == [
+        "persona_tool",
+        "helper",
+    ]
     assert atlas.saved_payload["response_schema"] == {
         "type": "object",
         "properties": {"value": {"type": "integer"}},
@@ -1623,6 +1652,8 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
         ],
         stream=False,
         function_calling=False,
+        function_call_mode="none",
+        allowed_function_names=["tool_action"],
         response_schema={
             "type": "object",
             "properties": {"result": {"type": "string"}},
@@ -1648,6 +1679,8 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
     assert settings["safety_settings"][0]["threshold"] == "BLOCK_LOW_AND_ABOVE"
     assert settings["stream"] is False
     assert settings["function_calling"] is False
+    assert settings["function_call_mode"] == "none"
+    assert settings["allowed_function_names"] == ["tool_action"]
     assert settings["response_schema"] == {
         "type": "object",
         "properties": {"result": {"type": "string"}},
@@ -1685,12 +1718,27 @@ def test_generate_response_uses_google_defaults(provider_manager):
             "type": "object",
             "properties": {"text": {"type": "string"}},
         },
+        function_call_mode="require",
+        allowed_function_names=["persona_tool"],
     )
 
     captured = {}
 
     async def fake_generate_response(_config_manager, **kwargs):
         captured.update(kwargs)
+        settings = _config_manager.get_google_llm_settings()
+        mode = str(settings.get("function_call_mode", "auto")).strip().lower()
+        allowed = settings.get("allowed_function_names", []) or []
+        if kwargs.get("enable_functions", True):
+            payload_mode = mode.upper()
+            payload_allowed = list(allowed)
+        else:
+            payload_mode = "NONE"
+            payload_allowed = []
+        payload = {"function_calling_config": {"mode": payload_mode}}
+        if payload_allowed:
+            payload["function_calling_config"]["allowed_function_names"] = payload_allowed
+        captured["tool_config"] = payload
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
@@ -1721,6 +1769,10 @@ def test_generate_response_uses_google_defaults(provider_manager):
         "type": "object",
         "properties": {"text": {"type": "string"}},
     }
+    assert captured["tool_config"]["function_calling_config"]["mode"] == "REQUIRE"
+    assert captured["tool_config"]["function_calling_config"]["allowed_function_names"] == [
+        "persona_tool"
+    ]
 
 
 def test_generate_response_google_omits_hardcoded_max_tokens(provider_manager):
@@ -1738,6 +1790,19 @@ def test_generate_response_google_omits_hardcoded_max_tokens(provider_manager):
 
     async def fake_generate_response(_config_manager, **kwargs):
         captured.update(kwargs)
+        settings = _config_manager.get_google_llm_settings()
+        mode = str(settings.get("function_call_mode", "auto")).strip().lower()
+        allowed = settings.get("allowed_function_names", []) or []
+        if kwargs.get("enable_functions", True):
+            payload_mode = mode.upper()
+            payload_allowed = list(allowed)
+        else:
+            payload_mode = "NONE"
+            payload_allowed = []
+        payload = {"function_calling_config": {"mode": payload_mode}}
+        if payload_allowed:
+            payload["function_calling_config"]["allowed_function_names"] = payload_allowed
+        captured["tool_config"] = payload
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
@@ -1768,6 +1833,19 @@ def test_generate_response_google_skips_functions_when_disabled(provider_manager
 
     async def fake_generate_response(_config_manager, **kwargs):
         captured.update(kwargs)
+        settings = _config_manager.get_google_llm_settings()
+        mode = str(settings.get("function_call_mode", "auto")).strip().lower()
+        allowed = settings.get("allowed_function_names", []) or []
+        if kwargs.get("enable_functions", True):
+            payload_mode = mode.upper()
+            payload_allowed = list(allowed)
+        else:
+            payload_mode = "NONE"
+            payload_allowed = []
+        payload = {"function_calling_config": {"mode": payload_mode}}
+        if payload_allowed:
+            payload["function_calling_config"]["allowed_function_names"] = payload_allowed
+        captured["tool_config"] = payload
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
@@ -1786,6 +1864,7 @@ def test_generate_response_google_skips_functions_when_disabled(provider_manager
     assert result == "ok"
     assert captured["functions"] is None
     assert captured["enable_functions"] is False
+    assert captured["tool_config"]["function_calling_config"]["mode"] == "NONE"
 
 
 def test_generate_response_respects_function_calling_enabled(provider_manager):

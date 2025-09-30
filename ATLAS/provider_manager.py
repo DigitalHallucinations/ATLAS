@@ -289,6 +289,8 @@ class ProviderManager:
         system_instruction: Optional[str] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
+        function_call_mode: Optional[str] = None,
+        allowed_function_names: Optional[Any] = None,
         response_schema: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Persist Google Gemini defaults and promote the saved model when possible.
@@ -306,6 +308,8 @@ class ProviderManager:
             system_instruction: Optional default system instruction.
             stream: Optional flag toggling streaming responses by default.
             function_calling: Optional flag toggling Gemini tool calling by default.
+            function_call_mode: Optional Gemini tool calling mode preference.
+            allowed_function_names: Optional whitelist restricting Gemini tool access.
             response_schema: Optional JSON schema enforced for responses.
         """
 
@@ -331,6 +335,8 @@ class ProviderManager:
                 system_instruction=system_instruction,
                 stream=stream,
                 function_calling=function_calling,
+                function_call_mode=function_call_mode,
+                allowed_function_names=allowed_function_names,
                 response_schema=response_schema,
             )
         except Exception as exc:

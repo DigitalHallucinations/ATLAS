@@ -506,6 +506,8 @@ class ConfigManager:
         defaults: Dict[str, Any] = {
             'stream': True,
             'function_calling': True,
+            'function_call_mode': 'auto',
+            'allowed_function_names': [],
             'response_schema': {},
         }
 
@@ -525,6 +527,28 @@ class ConfigManager:
             merged.get('function_calling'),
             default=True,
         )
+        try:
+            merged['function_call_mode'] = self._coerce_function_call_mode(
+                merged.get('function_call_mode'),
+                default='auto',
+            )
+        except ValueError as exc:
+            self.logger.warning(
+                "Ignoring persisted Google function call mode due to validation error: %s",
+                exc,
+            )
+            merged['function_call_mode'] = 'auto'
+
+        try:
+            merged['allowed_function_names'] = self._coerce_allowed_function_names(
+                merged.get('allowed_function_names')
+            )
+        except ValueError as exc:
+            self.logger.warning(
+                "Ignoring persisted Google allowed function names due to validation error: %s",
+                exc,
+            )
+            merged['allowed_function_names'] = []
 
         try:
             merged['response_schema'] = self._coerce_response_schema(
@@ -554,6 +578,8 @@ class ConfigManager:
         system_instruction: Optional[str] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
+        function_call_mode: Optional[str] = None,
+        allowed_function_names: Optional[Any] = None,
         response_schema: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Persist default configuration for the Google Gemini provider.
@@ -593,6 +619,8 @@ class ConfigManager:
             'system_instruction': None,
             'stream': True,
             'function_calling': True,
+            'function_call_mode': 'auto',
+            'allowed_function_names': [],
             'response_schema': {},
         }
 
@@ -826,6 +854,55 @@ class ConfigManager:
             settings_block.get('function_calling', defaults['function_calling']),
             default=defaults['function_calling'],
         )
+
+        def _normalize_function_call_mode(
+            value: Optional[str],
+            previous: Optional[str],
+        ) -> str:
+            candidate = value if value is not None else previous
+            if candidate in {None, ""}:
+                candidate = defaults['function_call_mode']
+            if isinstance(candidate, str):
+                cleaned = candidate.strip().lower()
+                try:
+                    return self._coerce_function_call_mode(cleaned, default=defaults['function_call_mode'])
+                except ValueError as exc:
+                    raise ValueError(
+                        "Function call mode must be one of: auto, any, none, require."
+                    ) from exc
+            raise ValueError(
+                "Function call mode must be a string value."
+            )
+
+        settings_block['function_call_mode'] = _normalize_function_call_mode(
+            function_call_mode,
+            settings_block.get('function_call_mode', defaults['function_call_mode']),
+        )
+
+        def _normalize_allowed_function_names(
+            value: Optional[Any],
+            previous: Any,
+        ) -> List[str]:
+            if value is None:
+                source = previous
+            else:
+                source = value
+            try:
+                names = self._coerce_allowed_function_names(source)
+            except ValueError as exc:
+                raise ValueError(
+                    "Allowed function names must be a sequence of non-empty strings."
+                ) from exc
+            return names
+
+        settings_block['allowed_function_names'] = _normalize_allowed_function_names(
+            allowed_function_names,
+            settings_block.get('allowed_function_names', defaults['allowed_function_names']),
+        )
+        if settings_block['function_calling'] is False:
+            settings_block['function_call_mode'] = 'none'
+        if settings_block['function_call_mode'] == 'none':
+            settings_block['allowed_function_names'] = []
         settings_block['max_output_tokens'] = _normalize_max_output_tokens(
             max_output_tokens,
             settings_block.get('max_output_tokens', defaults['max_output_tokens']),
@@ -1302,6 +1379,54 @@ class ConfigManager:
             return bool(value)
 
         return bool(numeric)
+
+    @staticmethod
+    def _coerce_function_call_mode(value: Any, *, default: str) -> str:
+        """Validate Gemini function call mode values against supported options."""
+
+        valid_modes = {"auto", "any", "none", "require"}
+
+        if value in {None, ""}:
+            return default
+
+        if isinstance(value, str):
+            candidate = value.strip().lower()
+            if candidate in valid_modes:
+                return candidate
+        raise ValueError("Function call mode must be one of: auto, any, none, require.")
+
+    @staticmethod
+    def _coerce_allowed_function_names(value: Any) -> List[str]:
+        """Normalise allowed function names as a list of distinct strings."""
+
+        if value in (None, "", []):
+            return []
+
+        names: List[str] = []
+        if isinstance(value, str):
+            tokens = [part.strip() for part in value.split(',') if part and part.strip()]
+            names.extend(tokens)
+        elif isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+            for item in value:
+                if item in {None, ""}:
+                    continue
+                if not isinstance(item, str):
+                    raise ValueError("Allowed function names must be strings.")
+                cleaned = item.strip()
+                if cleaned:
+                    names.append(cleaned)
+        else:
+            raise ValueError(
+                "Allowed function names must be provided as a comma-separated string or sequence of strings."
+            )
+
+        seen = set()
+        deduped: List[str] = []
+        for name in names:
+            if name not in seen:
+                deduped.append(name)
+                seen.add(name)
+        return deduped
 
     def _normalise_tool_choice(
         self,
