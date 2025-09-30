@@ -287,6 +287,7 @@ class ProviderManager:
         safety_settings: Optional[Any] = None,
         response_mime_type: Optional[str] = None,
         system_instruction: Optional[str] = None,
+        stream: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Persist Google Gemini defaults and promote the saved model when possible.
 
@@ -301,6 +302,7 @@ class ProviderManager:
             safety_settings: Optional safety configuration.
             response_mime_type: Optional MIME hint for the response.
             system_instruction: Optional default system instruction.
+            stream: Optional flag toggling streaming responses by default.
         """
 
         setter = getattr(self.config_manager, "set_google_llm_settings", None)
@@ -323,6 +325,7 @@ class ProviderManager:
                 safety_settings=safety_settings,
                 response_mime_type=response_mime_type,
                 system_instruction=system_instruction,
+                stream=stream,
             )
         except Exception as exc:
             self.logger.error("Failed to persist Google settings: %s", exc, exc_info=True)

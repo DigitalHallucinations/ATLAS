@@ -54,6 +54,7 @@ class GoogleSettingsWindow(Gtk.Window):
             "safety_settings": [],
             "response_mime_type": "",
             "system_instruction": "",
+            "stream": True,
         }
         self._safety_controls: Dict[str, Tuple[Gtk.CheckButton, Gtk.ComboBoxText]] = {}
         self._available_models: List[str] = []
@@ -184,6 +185,14 @@ class GoogleSettingsWindow(Gtk.Window):
             "Number of candidates to request per prompt. Higher values increase cost."
         )
         grid.attach(self.candidate_spin, 1, row, 1, 1)
+
+        row += 1
+        self.stream_toggle = Gtk.CheckButton(label="Enable streaming responses")
+        self.stream_toggle.set_halign(Gtk.Align.START)
+        self.stream_toggle.set_tooltip_text(
+            "Toggle to stream token updates during Gemini completions."
+        )
+        grid.attach(self.stream_toggle, 0, row, 2, 1)
 
         row += 1
         max_output_label = Gtk.Label(label="Max output tokens:")
@@ -368,6 +377,8 @@ class GoogleSettingsWindow(Gtk.Window):
         candidate_count = self._defaults.get("candidate_count", 1)
         if isinstance(candidate_count, (int, float)) and candidate_count > 0:
             self.candidate_spin.set_value(int(candidate_count))
+
+        self.stream_toggle.set_active(bool(self._defaults.get("stream", True)))
 
         max_output_tokens = self._defaults.get("max_output_tokens")
         if isinstance(max_output_tokens, (int, float)) and max_output_tokens > 0:
@@ -587,6 +598,7 @@ class GoogleSettingsWindow(Gtk.Window):
             "safety_settings": self._collect_safety_settings(),
             "response_mime_type": self._sanitize_response_mime_type(),
             "system_instruction": self._sanitize_system_instruction(),
+            "stream": self.stream_toggle.get_active(),
         }
 
         setter = getattr(self.ATLAS, "set_google_llm_settings", None)

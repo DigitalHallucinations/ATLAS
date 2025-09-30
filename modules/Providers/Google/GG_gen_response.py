@@ -39,7 +39,7 @@ class GoogleGeminiGenerator:
         top_k: Optional[int] = None,
         candidate_count: Optional[int] = None,
         stop_sequences: Optional[Iterable[str]] = None,
-        stream: bool = True,
+        stream: Optional[bool] = None,
         current_persona=None,
         functions=None,
         safety_settings: Optional[Any] = None,
@@ -71,7 +71,33 @@ class GoogleGeminiGenerator:
                 'candidate_count': 1,
                 'stop_sequences': [],
                 'max_output_tokens': 32000,
+                'stream': True,
             }
+
+            def _parse_bool(value: Optional[Any]) -> Optional[bool]:
+                if isinstance(value, bool):
+                    return value
+                if value is None:
+                    return None
+                if isinstance(value, str):
+                    cleaned = value.strip().lower()
+                    if cleaned in {"", "none"}:
+                        return None
+                    if cleaned in {"true", "1", "yes", "on"}:
+                        return True
+                    if cleaned in {"false", "0", "no", "off"}:
+                        return False
+                return bool(value)
+
+            provided_stream = _parse_bool(stream)
+            if provided_stream is None:
+                stored_stream = _parse_bool(stored_settings.get('stream'))
+                if stored_stream is None:
+                    effective_stream = defaults['stream']
+                else:
+                    effective_stream = stored_stream
+            else:
+                effective_stream = provided_stream
 
             def _resolve_model(candidate: Optional[str]) -> str:
                 if candidate:
@@ -215,7 +241,7 @@ class GoogleGeminiGenerator:
                         if value is not None
                     }
                 ),
-                "stream": stream,
+                "stream": effective_stream,
             }
             if tools:
                 request_kwargs["tools"] = tools
@@ -240,7 +266,7 @@ class GoogleGeminiGenerator:
                 **request_kwargs,
             )
 
-            if stream:
+            if effective_stream:
                 return self.stream_response(response)
 
             function_calls = self._extract_function_calls(response)
