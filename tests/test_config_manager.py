@@ -189,12 +189,22 @@ def test_set_anthropic_settings_updates_state(config_manager):
         timeout=120,
         max_retries=5,
         retry_delay=9,
-        stop_sequences=["END", "<|stop|>"]
+        stop_sequences=["END", "<|stop|>"],
+        tool_choice="tool",
+        tool_choice_name="calendar_lookup",
+        metadata={"team": "atlas", "priority": "high"},
+        thinking=True,
+        thinking_budget=2048,
     )
 
     assert result["model"] == "claude-3-sonnet-20240229"
     assert result["top_k"] == 42
     assert result["stop_sequences"] == ["END", "<|stop|>"]
+    assert result["tool_choice"] == "tool"
+    assert result["tool_choice_name"] == "calendar_lookup"
+    assert result["metadata"] == {"team": "atlas", "priority": "high"}
+    assert result["thinking"] is True
+    assert result["thinking_budget"] == 2048
     stored = config_manager.config["ANTHROPIC_LLM"]
     assert stored["stream"] is False
     assert stored["function_calling"] is True
@@ -206,6 +216,11 @@ def test_set_anthropic_settings_updates_state(config_manager):
     assert stored["max_retries"] == 5
     assert stored["retry_delay"] == 9
     assert stored["stop_sequences"] == ["END", "<|stop|>"]
+    assert stored["tool_choice"] == "tool"
+    assert stored["tool_choice_name"] == "calendar_lookup"
+    assert stored["metadata"] == {"team": "atlas", "priority": "high"}
+    assert stored["thinking"] is True
+    assert stored["thinking_budget"] == 2048
 
 
 def test_get_anthropic_settings_returns_defaults(config_manager):
@@ -222,6 +237,11 @@ def test_get_anthropic_settings_returns_defaults(config_manager):
     assert snapshot["max_retries"] == 3
     assert snapshot["retry_delay"] == 5
     assert snapshot["stop_sequences"] == []
+    assert snapshot["tool_choice"] == "auto"
+    assert snapshot["tool_choice_name"] is None
+    assert snapshot["metadata"] == {}
+    assert snapshot["thinking"] is False
+    assert snapshot["thinking_budget"] is None
 
 
 def test_set_openai_llm_settings_clears_optional_fields(config_manager):
