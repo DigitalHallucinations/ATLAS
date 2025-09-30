@@ -20,11 +20,26 @@ class GoogleSettingsWindow(Gtk.Window):
     """Collect Google Gemini defaults such as model selection and safety filters."""
 
     _SAFETY_CATEGORIES: Tuple[Tuple[str, str], ...] = (
-        ("Harassment / Abuse", "HARM_CATEGORY_HARASSMENT_ABUSE"),
+        ("Harassment / Abuse", "HARM_CATEGORY_HARASSMENT"),
         ("Hate Speech", "HARM_CATEGORY_HATE_SPEECH"),
         ("Sexually Explicit", "HARM_CATEGORY_SEXUALLY_EXPLICIT"),
         ("Dangerous Content", "HARM_CATEGORY_DANGEROUS_CONTENT"),
+        ("Civic Integrity", "HARM_CATEGORY_CIVIC_INTEGRITY"),
+        ("Derogatory", "HARM_CATEGORY_DEROGATORY"),
+        ("Toxicity", "HARM_CATEGORY_TOXICITY"),
+        ("Violence", "HARM_CATEGORY_VIOLENCE"),
+        ("Sexual Content", "HARM_CATEGORY_SEXUAL"),
+        ("Medical Advice", "HARM_CATEGORY_MEDICAL"),
+        ("Self-Harm / Dangerous Acts", "HARM_CATEGORY_DANGEROUS"),
+        ("Unspecified / Other", "HARM_CATEGORY_UNSPECIFIED"),
     )
+
+    _SAFETY_CATEGORY_ALIASES: Dict[str, str] = {
+        "HARM_CATEGORY_HARASSMENT_ABUSE": "HARM_CATEGORY_HARASSMENT",
+        "HARM_CATEGORY_SEXUAL_CONTENT": "HARM_CATEGORY_SEXUAL",
+        "HARM_CATEGORY_SELF_HARM": "HARM_CATEGORY_DANGEROUS",
+        "HARM_CATEGORY_DANGEROUS_ACTS": "HARM_CATEGORY_DANGEROUS",
+    }
 
     _SAFETY_THRESHOLDS: Tuple[Tuple[str, str], ...] = (
         ("Allow all content", "BLOCK_NONE"),
@@ -299,7 +314,8 @@ class GoogleSettingsWindow(Gtk.Window):
         row += 1
         safety_frame = Gtk.Frame(label="Safety filters")
         safety_frame.set_tooltip_text(
-            "Configure safety filters to block responses from specific harm categories."
+            "Configure safety filters to block responses from categories such as "
+            "Harassment, Hate Speech, Derogatory, Self-Harm, and more."
         )
         main_box.append(safety_frame)
 
@@ -491,13 +507,34 @@ class GoogleSettingsWindow(Gtk.Window):
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            current = entry.get("category") or entry.get("harmCategory")
-            if current == category:
-                threshold = entry.get("threshold") or entry.get("thresholdValue") or entry.get("harmBlockThreshold")
-                if not threshold:
-                    continue
-                return {"category": category, "threshold": str(threshold)}
+            current = (
+                entry.get("category")
+                or entry.get("harmCategory")
+                or entry.get("name")
+            )
+            canonical = self._canonicalize_safety_category(current)
+            if canonical != category:
+                continue
+            threshold = (
+                entry.get("threshold")
+                or entry.get("thresholdValue")
+                or entry.get("harmBlockThreshold")
+            )
+            if not threshold:
+                continue
+            return {"category": category, "threshold": str(threshold)}
         return None
+
+    @classmethod
+    def _canonicalize_safety_category(cls, category: Optional[Any]) -> Optional[str]:
+        if category is None:
+            return None
+        cleaned = str(category).strip()
+        if not cleaned:
+            return None
+        normalized = cleaned.upper()
+        canonical = cls._SAFETY_CATEGORY_ALIASES.get(normalized, normalized)
+        return canonical or None
 
     # ------------------------------------------------------------------
     # API key helpers
@@ -727,11 +764,14 @@ class GoogleSettingsWindow(Gtk.Window):
             toggle, combo = controls
             if not toggle.get_active():
                 continue
-            index = combo.get_active()
+            index = self._get_combo_active_index(combo)
             if index < 0:
                 index = 2
             threshold = self._SAFETY_THRESHOLDS[index][1]
-            settings.append({"category": category, "threshold": threshold})
+            canonical = self._canonicalize_safety_category(category)
+            if not canonical:
+                continue
+            settings.append({"category": canonical, "threshold": threshold})
         return settings
 
     def _sanitize_response_mime_type(self) -> str:
@@ -787,6 +827,31 @@ class GoogleSettingsWindow(Gtk.Window):
             if value == normalized:
                 combo.set_active(idx)
                 break
+
+    def _get_combo_active_index(self, combo: Gtk.ComboBoxText) -> int:
+        getter = getattr(combo, "get_active", None)
+        if callable(getter):
+            try:
+                value = getter()
+            except Exception:
+                value = None
+            if isinstance(value, int):
+                return value
+        for attr in ("active", "_active"):
+            value = getattr(combo, attr, None)
+            if isinstance(value, int):
+                return value
+        text_getter = getattr(combo, "get_active_text", None)
+        if callable(text_getter):
+            try:
+                caption = text_getter()
+            except Exception:
+                caption = None
+            if caption:
+                for idx, (label, _value) in enumerate(self._SAFETY_THRESHOLDS):
+                    if label == caption:
+                        return idx
+        return -1
 
     def _trigger_provider_refresh(self) -> None:
         refresher = getattr(self.ATLAS, "run_in_background", None)

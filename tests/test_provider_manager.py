@@ -1375,6 +1375,103 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
     assert atlas.refresh_calls == 1
 
 
+def test_google_settings_supports_extended_safety_categories(tmp_path):
+    class StubAtlas:
+        def __init__(self):
+            self.saved_payload = None
+            self.refresh_calls = 0
+            self.last_provider = None
+
+        def get_models_for_provider(self, provider_name):
+            assert provider_name == "Google"
+            return ["gemini-1.5-pro-latest"]
+
+        def get_google_llm_settings(self):
+            return {
+                "model": "gemini-1.5-pro-latest",
+                "safety_settings": [
+                    {"category": "HARM_CATEGORY_DEROGATORY", "threshold": "BLOCK_ONLY_HIGH"},
+                    {"category": "HARM_CATEGORY_HARASSMENT_ABUSE", "threshold": "BLOCK_LOW_AND_ABOVE"},
+                    {"category": "HARM_CATEGORY_SELF_HARM", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                ],
+            }
+
+        def get_provider_api_key_status(self, provider_name):
+            return {"has_key": False}
+
+        def set_google_llm_settings(self, **payload):
+            self.saved_payload = payload
+            return {"success": True, "message": "saved"}
+
+        def run_in_background(self, func, on_error=None, thread_name=None):
+            try:
+                func()
+            except Exception as exc:  # pragma: no cover - defensive
+                if on_error is not None:
+                    on_error(exc)
+
+        def refresh_current_provider(self, provider_name):
+            self.refresh_calls += 1
+            self.last_provider = provider_name
+
+    atlas = StubAtlas()
+    config = DummyConfig(tmp_path.as_posix())
+
+    window = GoogleSettingsWindow(atlas, config, None)
+
+    controls = window._safety_controls
+    assert "HARM_CATEGORY_DEROGATORY" in controls
+    assert "HARM_CATEGORY_CIVIC_INTEGRITY" in controls
+    assert "HARM_CATEGORY_DANGEROUS" in controls
+
+    der_toggle, der_combo = controls["HARM_CATEGORY_DEROGATORY"]
+    harassment_toggle, harassment_combo = controls["HARM_CATEGORY_HARASSMENT"]
+    dangerous_toggle, dangerous_combo = controls["HARM_CATEGORY_DANGEROUS"]
+
+    assert der_toggle.get_active() is True
+    assert (
+        window._SAFETY_THRESHOLDS[window._get_combo_active_index(der_combo)][1]
+        == "BLOCK_ONLY_HIGH"
+    )
+    assert harassment_toggle.get_active() is True
+    assert (
+        window._SAFETY_THRESHOLDS[window._get_combo_active_index(harassment_combo)][1]
+        == "BLOCK_LOW_AND_ABOVE"
+    )
+    assert dangerous_toggle.get_active() is True
+    assert (
+        window._SAFETY_THRESHOLDS[window._get_combo_active_index(dangerous_combo)][1]
+        == "BLOCK_MEDIUM_AND_ABOVE"
+    )
+
+    der_combo.set_active(0)
+    harassment_combo.set_active(2)
+    dangerous_combo.set_active(3)
+
+    civic_toggle, civic_combo = controls["HARM_CATEGORY_CIVIC_INTEGRITY"]
+    civic_toggle.set_active(True)
+    civic_combo.set_active(1)
+
+    captured = {}
+
+    def fake_show_message(title, message, message_type):
+        captured.update({"title": title, "message": message, "type": message_type})
+
+    window._show_message = fake_show_message  # type: ignore[method-assign]
+
+    window.on_save_clicked()
+
+    assert atlas.saved_payload is not None
+    assert atlas.saved_payload["safety_settings"] == [
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_ONLY_HIGH"},
+        {"category": "HARM_CATEGORY_DEROGATORY", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS", "threshold": "BLOCK_LOW_AND_ABOVE"},
+    ]
+    assert captured.get("title") == "Success"
+    assert atlas.last_provider == "Google"
+    assert atlas.refresh_calls == 1
+
 def test_google_settings_rejects_invalid_schema(tmp_path):
     class StubAtlas:
         def __init__(self):
