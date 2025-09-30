@@ -504,6 +504,61 @@ def test_google_generator_applies_persisted_settings(monkeypatch):
     assert config._settings["stop_sequences"] == ["###"]
 
 
+def test_google_generator_normalises_string_settings(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "Hello"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            captured["model_name"] = model_name
+
+        def generate_content(self, contents, **kwargs):
+            captured["contents"] = contents
+            captured["kwargs"] = kwargs
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    settings = {
+        "temperature": "0.75",
+        "top_p": "0.5",
+        "top_k": "11",
+        "candidate_count": "4",
+        "stream": "false",
+        "max_output_tokens": "8192",
+        "response_schema": '{"type": "object", "properties": {"value": {"type": "string"}}}',
+    }
+    config = DummyConfig(settings=settings)
+    generator = google_module.GoogleGeminiGenerator(config)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}]
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "Hello"
+    generation_config = captured["kwargs"]["generation_config"]
+    assert generation_config.kwargs["temperature"] == 0.75
+    assert generation_config.kwargs["top_p"] == 0.5
+    assert generation_config.kwargs["top_k"] == 11
+    assert generation_config.kwargs["candidate_count"] == 4
+    assert generation_config.kwargs["max_output_tokens"] == 8192
+    assert captured["kwargs"]["stream"] is False
+    assert captured["kwargs"]["response_mime_type"] == "application/json"
+    assert generation_config.kwargs["response_schema"] == {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+    }
+
+
 def test_google_generator_omits_max_tokens_when_disabled(monkeypatch):
     captured = {}
 

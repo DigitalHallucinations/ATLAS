@@ -4,9 +4,10 @@ import copy
 import json
 import os
 from collections.abc import Mapping, Sequence
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 _UNSET = object()
+from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
 from modules.logging.logger import setup_logger
 from dotenv import load_dotenv, set_key, find_dotenv
 import yaml
@@ -520,12 +521,15 @@ class ConfigManager:
 
         merged: Dict[str, Any] = copy.deepcopy(defaults)
         merged.update(normalized)
-        merged['stream'] = self._coerce_optional_bool(
-            merged.get('stream'),
+        resolver = GoogleSettingsResolver(stored=normalized, defaults=defaults)
+        merged['stream'] = resolver.resolve_bool(
+            'stream',
+            None,
             default=True,
         )
-        merged['function_calling'] = self._coerce_optional_bool(
-            merged.get('function_calling'),
+        merged['function_calling'] = resolver.resolve_bool(
+            'function_calling',
+            None,
             default=True,
         )
         try:
@@ -563,8 +567,9 @@ class ConfigManager:
             merged['cached_allowed_function_names'] = []
 
         try:
-            merged['response_schema'] = self._coerce_response_schema(
-                merged.get('response_schema')
+            merged['response_schema'] = resolver.resolve_response_schema(
+                None,
+                allow_invalid_stored=True,
             )
         except ValueError as exc:
             self.logger.warning(
@@ -648,60 +653,6 @@ class ConfigManager:
         settings_block: Dict[str, Any] = copy.deepcopy(defaults)
         settings_block.update(existing_settings)
         settings_block['model'] = model.strip()
-
-        def _normalize_float(
-            value: Optional[Any],
-            previous: float,
-            *,
-            field: str,
-            minimum: float,
-            maximum: float,
-        ) -> float:
-            if value is None:
-                return float(previous)
-            try:
-                parsed = float(value)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"{field} must be a number.") from exc
-            if parsed < minimum or parsed > maximum:
-                raise ValueError(f"{field} must be between {minimum} and {maximum}.")
-            return parsed
-
-        def _normalize_optional_int(
-            value: Optional[Any],
-            previous: Optional[int],
-            *,
-            field: str,
-            minimum: int,
-        ) -> Optional[int]:
-            if value is None:
-                return previous
-            if value == "":
-                return None
-            try:
-                parsed = int(value)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"{field} must be an integer or left blank.") from exc
-            if parsed < minimum:
-                raise ValueError(f"{field} must be >= {minimum}.")
-            return parsed
-
-        def _normalize_int(
-            value: Optional[Any],
-            previous: Optional[int],
-            *,
-            field: str,
-            minimum: int,
-        ) -> int:
-            if value is None:
-                return int(previous) if previous is not None else minimum
-            try:
-                parsed = int(value)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"{field} must be an integer.") from exc
-            if parsed < minimum:
-                raise ValueError(f"{field} must be >= {minimum}.")
-            return parsed
 
         def _normalize_stop_sequences(
             value: Optional[Any],
@@ -791,58 +742,37 @@ class ConfigManager:
             cleaned = str(value).strip()
             return cleaned or None
 
-        def _normalize_toggle(
-            value: Optional[Any],
-            previous: Any,
-            *,
-            default: bool,
-        ) -> bool:
-            candidate = previous if value is None else value
-            return self._coerce_optional_bool(candidate, default=default)
+        resolver = GoogleSettingsResolver(
+            stored=existing_settings,
+            defaults=defaults,
+        )
 
-        settings_block['temperature'] = _normalize_float(
+        settings_block['temperature'] = resolver.resolve_float(
+            'temperature',
             temperature,
-            float(settings_block.get('temperature', defaults['temperature'])),
             field='Temperature',
             minimum=0.0,
             maximum=2.0,
         )
-        settings_block['top_p'] = _normalize_float(
+        settings_block['top_p'] = resolver.resolve_float(
+            'top_p',
             top_p,
-            float(settings_block.get('top_p', defaults['top_p'])),
             field='Top-p',
             minimum=0.0,
             maximum=1.0,
         )
-        settings_block['top_k'] = _normalize_optional_int(
+        settings_block['top_k'] = resolver.resolve_optional_int(
+            'top_k',
             top_k,
-            settings_block.get('top_k', defaults['top_k']),
             field='Top-k',
             minimum=1,
         )
-        settings_block['candidate_count'] = _normalize_int(
+        settings_block['candidate_count'] = resolver.resolve_int(
+            'candidate_count',
             candidate_count,
-            settings_block.get('candidate_count', defaults['candidate_count']),
             field='Candidate count',
             minimum=1,
         )
-        def _normalize_max_output_tokens(
-            value: Optional[Any],
-            previous: Optional[int],
-        ) -> Optional[int]:
-            if value is None:
-                return previous
-            if value == "":
-                return None
-            try:
-                parsed = int(value)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    "Max output tokens must be an integer or left blank."
-                ) from exc
-            if parsed <= 0:
-                return None
-            return parsed
 
         settings_block['stop_sequences'] = _normalize_stop_sequences(
             stop_sequences,
@@ -860,40 +790,42 @@ class ConfigManager:
             system_instruction,
             settings_block.get('system_instruction', defaults['system_instruction']),
         )
-        settings_block['stream'] = _normalize_toggle(
+        settings_block['stream'] = resolver.resolve_bool(
+            'stream',
             stream,
-            settings_block.get('stream', defaults['stream']),
             default=defaults['stream'],
         )
-        settings_block['function_calling'] = _normalize_toggle(
+        settings_block['function_calling'] = resolver.resolve_bool(
+            'function_calling',
             function_calling,
-            settings_block.get('function_calling', defaults['function_calling']),
             default=defaults['function_calling'],
         )
 
-        def _normalize_function_call_mode(
-            value: Optional[str],
-            previous: Optional[str],
-        ) -> str:
-            candidate = value if value is not None else previous
-            if candidate in {None, ""}:
-                candidate = defaults['function_call_mode']
-            if isinstance(candidate, str):
-                cleaned = candidate.strip().lower()
-                try:
-                    return self._coerce_function_call_mode(cleaned, default=defaults['function_call_mode'])
-                except ValueError as exc:
-                    raise ValueError(
-                        "Function call mode must be one of: auto, any, none, require."
-                    ) from exc
+        candidate_mode: Any
+        if function_call_mode is not None:
+            candidate_mode = function_call_mode
+        else:
+            candidate_mode = existing_settings.get(
+                'function_call_mode', defaults['function_call_mode']
+            )
+
+        if candidate_mode in {None, ""}:
+            candidate_mode = defaults['function_call_mode']
+
+        if isinstance(candidate_mode, str):
+            try:
+                settings_block['function_call_mode'] = self._coerce_function_call_mode(
+                    candidate_mode,
+                    default=defaults['function_call_mode'],
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    "Function call mode must be one of: auto, any, none, require."
+                ) from exc
+        else:
             raise ValueError(
                 "Function call mode must be a string value."
             )
-
-        settings_block['function_call_mode'] = _normalize_function_call_mode(
-            function_call_mode,
-            settings_block.get('function_call_mode', defaults['function_call_mode']),
-        )
 
         def _normalize_allowed_function_names(
             value: Optional[Any],
@@ -957,43 +889,28 @@ class ConfigManager:
                 settings_block['allowed_function_names'] = list(normalized_cache)
             else:
                 settings_block['allowed_function_names'] = normalized_allowed
-        settings_block['max_output_tokens'] = _normalize_max_output_tokens(
+        settings_block['max_output_tokens'] = resolver.resolve_max_output_tokens(
             max_output_tokens,
-            settings_block.get('max_output_tokens', defaults['max_output_tokens']),
         )
-        
-        def _normalize_response_schema(
-            value: Optional[Any],
-            previous: Any,
-        ) -> Dict[str, Any]:
-            if value is None:
-                try:
-                    schema = self._coerce_response_schema(previous)
-                except ValueError:
-                    schema = {}
-            elif value in ({}, ""):
-                schema = {}
-            else:
-                schema = self._coerce_response_schema(value)
 
-            if schema:
-                mime_value = settings_block.get('response_mime_type') or ''
-                normalized_mime = str(mime_value).strip().lower()
-                if not normalized_mime:
-                    settings_block['response_mime_type'] = 'application/json'
-                elif normalized_mime != 'application/json':
-                    raise ValueError(
-                        "Response MIME type must be 'application/json' when a response schema is provided."
-                    )
-                else:
-                    settings_block['response_mime_type'] = 'application/json'
-
-            return schema
-
-        settings_block['response_schema'] = _normalize_response_schema(
+        schema = resolver.resolve_response_schema(
             response_schema,
-            settings_block.get('response_schema', defaults['response_schema']),
+            allow_invalid_stored=True,
         )
+
+        if schema:
+            mime_value = settings_block.get('response_mime_type') or ''
+            normalized_mime = str(mime_value).strip().lower()
+            if not normalized_mime:
+                settings_block['response_mime_type'] = 'application/json'
+            elif normalized_mime != 'application/json':
+                raise ValueError(
+                    "Response MIME type must be 'application/json' when a response schema is provided."
+                )
+            else:
+                settings_block['response_mime_type'] = 'application/json'
+
+        settings_block['response_schema'] = schema
 
         self.yaml_config['GOOGLE_LLM'] = copy.deepcopy(settings_block)
         self.config['GOOGLE_LLM'] = copy.deepcopy(settings_block)
@@ -1409,32 +1326,6 @@ class ConfigManager:
         return tokens
 
     @staticmethod
-    def _coerce_optional_bool(value: Any, *, default: bool) -> bool:
-        """Interpret optional boolean values from user-provided payloads."""
-
-        if isinstance(value, bool):
-            return value
-
-        if value is None:
-            return default
-
-        if isinstance(value, str):
-            cleaned = value.strip().lower()
-            if cleaned in {"", "none"}:
-                return default
-            if cleaned in {"true", "1", "yes", "on"}:
-                return True
-            if cleaned in {"false", "0", "no", "off"}:
-                return False
-
-        try:
-            numeric = int(value)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            return bool(value)
-
-        return bool(numeric)
-
-    @staticmethod
     def _coerce_function_call_mode(value: Any, *, default: str) -> str:
         """Validate Gemini function call mode values against supported options."""
 
@@ -1611,41 +1502,6 @@ class ConfigManager:
             raise ValueError("Metadata cannot contain more than 16 entries.")
 
         return metadata
-
-    @staticmethod
-    def _coerce_response_schema(value: Any) -> Dict[str, Any]:
-        """Coerce response schema payloads into JSON-safe mappings."""
-
-        if value is None or value == "" or value == {}:
-            return {}
-
-        if isinstance(value, str):
-            text = value.strip()
-            if not text:
-                return {}
-            try:
-                parsed = json.loads(text)
-            except json.JSONDecodeError as exc:
-                raise ValueError("Response schema must be valid JSON.") from exc
-            if not isinstance(parsed, Mapping):
-                raise ValueError("Response schema JSON must describe an object.")
-            return dict(parsed)
-
-        if isinstance(value, Mapping):
-            try:
-                serialised = json.dumps(value)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    "Response schema must contain JSON-serialisable values."
-                ) from exc
-            parsed = json.loads(serialised)
-            if not isinstance(parsed, Mapping):
-                raise ValueError("Response schema must be a JSON object.")
-            return dict(parsed)
-
-        raise ValueError(
-            "Response schema must be provided as a mapping or JSON object string."
-        )
 
 
     def get_openai_api_key(self) -> str:

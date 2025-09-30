@@ -15,6 +15,7 @@ from ATLAS.ToolManager import (
     load_functions_from_json,
 )
 from ATLAS.config import ConfigManager
+from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
 from modules.logging.logger import setup_logger
 
 
@@ -82,30 +83,16 @@ class GoogleGeminiGenerator:
                 'response_schema': None,
             }
 
-            def _parse_bool(value: Optional[Any]) -> Optional[bool]:
-                if isinstance(value, bool):
-                    return value
-                if value is None:
-                    return None
-                if isinstance(value, str):
-                    cleaned = value.strip().lower()
-                    if cleaned in {"", "none"}:
-                        return None
-                    if cleaned in {"true", "1", "yes", "on"}:
-                        return True
-                    if cleaned in {"false", "0", "no", "off"}:
-                        return False
-                return bool(value)
+            resolver = GoogleSettingsResolver(
+                stored=stored_settings,
+                defaults=defaults,
+            )
 
-            provided_stream = _parse_bool(stream)
-            if provided_stream is None:
-                stored_stream = _parse_bool(stored_settings.get('stream'))
-                if stored_stream is None:
-                    effective_stream = defaults['stream']
-                else:
-                    effective_stream = stored_stream
-            else:
-                effective_stream = provided_stream
+            effective_stream = resolver.resolve_bool(
+                'stream',
+                stream,
+                default=defaults['stream'],
+            )
 
             def _resolve_model(candidate: Optional[str]) -> str:
                 if candidate:
@@ -119,58 +106,35 @@ class GoogleGeminiGenerator:
 
             effective_model = _resolve_model(model)
 
-            def _resolve_float(
-                provided: Optional[float],
-                key: str,
-                default: float,
-            ) -> float:
-                if provided is not None:
-                    return float(provided)
-                stored_value = stored_settings.get(key)
-                if stored_value is not None:
-                    try:
-                        return float(stored_value)
-                    except (TypeError, ValueError):
-                        pass
-                return default
-
-            def _resolve_optional_int(
-                provided: Optional[int],
-                key: str,
-                default: Optional[int],
-            ) -> Optional[int]:
-                if provided is not None:
-                    return int(provided)
-                stored_value = stored_settings.get(key)
-                if stored_value is None:
-                    return default
-                try:
-                    return int(stored_value)
-                except (TypeError, ValueError):
-                    return default
-
-            def _resolve_int(
-                provided: Optional[int],
-                key: str,
-                default: int,
-            ) -> int:
-                if provided is not None:
-                    return int(provided)
-                stored_value = stored_settings.get(key)
-                if stored_value is not None:
-                    try:
-                        return int(stored_value)
-                    except (TypeError, ValueError):
-                        pass
-                return default
-
-            effective_temperature = _resolve_float(
-                temperature, 'temperature', defaults['temperature']
+            effective_temperature = resolver.resolve_float(
+                'temperature',
+                temperature,
+                field='Temperature',
+                minimum=0.0,
+                maximum=2.0,
+                allow_invalid_stored=True,
             )
-            effective_top_p = _resolve_float(top_p, 'top_p', defaults['top_p'])
-            effective_top_k = _resolve_optional_int(top_k, 'top_k', defaults['top_k'])
-            effective_candidate_count = _resolve_int(
-                candidate_count, 'candidate_count', defaults['candidate_count']
+            effective_top_p = resolver.resolve_float(
+                'top_p',
+                top_p,
+                field='Top-p',
+                minimum=0.0,
+                maximum=1.0,
+                allow_invalid_stored=True,
+            )
+            effective_top_k = resolver.resolve_optional_int(
+                'top_k',
+                top_k,
+                field='Top-k',
+                minimum=1,
+                allow_invalid_stored=True,
+            )
+            effective_candidate_count = resolver.resolve_int(
+                'candidate_count',
+                candidate_count,
+                field='Candidate count',
+                minimum=1,
+                allow_invalid_stored=True,
             )
 
             if stop_sequences is not None:
@@ -190,20 +154,10 @@ class GoogleGeminiGenerator:
                 else:
                     effective_stop_sequences = []
 
-            stored_has_max_tokens = 'max_output_tokens' in stored_settings
-            stored_max_tokens = stored_settings.get('max_output_tokens')
-            if max_tokens is not None:
-                effective_max_tokens = int(max_tokens)
-            elif stored_has_max_tokens:
-                if stored_max_tokens is None:
-                    effective_max_tokens = None
-                else:
-                    try:
-                        effective_max_tokens = int(stored_max_tokens)
-                    except (TypeError, ValueError):
-                        effective_max_tokens = defaults['max_output_tokens']
-            else:
-                effective_max_tokens = defaults['max_output_tokens']
+            effective_max_tokens = resolver.resolve_max_output_tokens(
+                max_tokens,
+                allow_invalid_stored=True,
+            )
 
             effective_safety_settings = (
                 safety_settings
@@ -231,47 +185,8 @@ class GoogleGeminiGenerator:
                     effective_system_instruction.strip() or None
                 )
 
-            def _normalise_schema(candidate: Optional[Any]) -> Optional[Dict[str, Any]]:
-                source = (
-                    candidate
-                    if candidate is not None
-                    else stored_settings.get('response_schema')
-                )
-                if source is None or source == {}:
-                    return None
-                if isinstance(source, str):
-                    text = source.strip()
-                    if not text:
-                        return None
-                    try:
-                        parsed = json.loads(text)
-                    except json.JSONDecodeError as exc:
-                        raise ValueError(
-                            "Response schema must be valid JSON."
-                        ) from exc
-                    if not isinstance(parsed, Mapping):
-                        raise ValueError(
-                            "Response schema JSON must describe an object."
-                        )
-                    return dict(parsed)
-                if isinstance(source, Mapping):
-                    try:
-                        serialised = json.dumps(source)
-                    except (TypeError, ValueError) as exc:
-                        raise ValueError(
-                            "Response schema must contain JSON-serialisable values."
-                        ) from exc
-                    parsed = json.loads(serialised)
-                    if not isinstance(parsed, Mapping):
-                        raise ValueError(
-                            "Response schema must be a JSON object."
-                        )
-                    return dict(parsed)
-                raise ValueError(
-                    "Response schema must be provided as a mapping or JSON object string."
-                )
-
-            effective_response_schema = _normalise_schema(response_schema)
+            resolved_schema = resolver.resolve_response_schema(response_schema)
+            effective_response_schema = resolved_schema or None
 
             if (
                 effective_response_schema is not None
