@@ -503,11 +503,22 @@ class ConfigManager:
     def get_google_llm_settings(self) -> Dict[str, Any]:
         """Return the persisted Google LLM defaults, if configured."""
 
+        defaults: Dict[str, Any] = {'stream': True}
+
         settings = self.yaml_config.get('GOOGLE_LLM')
         if isinstance(settings, dict):
-            return copy.deepcopy(settings)
+            normalized = copy.deepcopy(settings)
+        else:
+            normalized = {}
 
-        return {}
+        merged: Dict[str, Any] = copy.deepcopy(defaults)
+        merged.update(normalized)
+        merged['stream'] = self._coerce_optional_bool(
+            merged.get('stream'),
+            default=True,
+        )
+
+        return merged
 
     def set_google_llm_settings(
         self,
@@ -522,6 +533,7 @@ class ConfigManager:
         safety_settings: Optional[Any] = None,
         response_mime_type: Optional[str] = None,
         system_instruction: Optional[str] = None,
+        stream: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Persist default configuration for the Google Gemini provider.
 
@@ -555,6 +567,7 @@ class ConfigManager:
             'safety_settings': [],
             'response_mime_type': None,
             'system_instruction': None,
+            'stream': True,
         }
 
         existing_settings = {}
@@ -708,6 +721,15 @@ class ConfigManager:
             cleaned = str(value).strip()
             return cleaned or None
 
+        def _normalize_stream(
+            value: Optional[Any],
+            previous: Any,
+            *,
+            default: bool,
+        ) -> bool:
+            candidate = previous if value is None else value
+            return self._coerce_optional_bool(candidate, default=default)
+
         settings_block['temperature'] = _normalize_float(
             temperature,
             float(settings_block.get('temperature', defaults['temperature'])),
@@ -767,6 +789,11 @@ class ConfigManager:
         settings_block['system_instruction'] = _normalize_optional_text(
             system_instruction,
             settings_block.get('system_instruction', defaults['system_instruction']),
+        )
+        settings_block['stream'] = _normalize_stream(
+            stream,
+            settings_block.get('stream', defaults['stream']),
+            default=defaults['stream'],
         )
         settings_block['max_output_tokens'] = _normalize_max_output_tokens(
             max_output_tokens,
@@ -1185,6 +1212,32 @@ class ConfigManager:
             raise ValueError("Stop sequences cannot contain more than 4 entries.")
 
         return tokens
+
+    @staticmethod
+    def _coerce_optional_bool(value: Any, *, default: bool) -> bool:
+        """Interpret optional boolean values from user-provided payloads."""
+
+        if isinstance(value, bool):
+            return value
+
+        if value is None:
+            return default
+
+        if isinstance(value, str):
+            cleaned = value.strip().lower()
+            if cleaned in {"", "none"}:
+                return default
+            if cleaned in {"true", "1", "yes", "on"}:
+                return True
+            if cleaned in {"false", "0", "no", "off"}:
+                return False
+
+        try:
+            numeric = int(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return bool(value)
+
+        return bool(numeric)
 
     def _normalise_tool_choice(
         self,

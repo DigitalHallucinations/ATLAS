@@ -209,6 +209,7 @@ def test_google_generator_applies_persisted_settings(monkeypatch):
         ],
         "response_mime_type": "application/json",
         "system_instruction": "Respond in JSON.",
+        "stream": False,
     }
     config = DummyConfig(settings=settings)
     generator = google_module.GoogleGeminiGenerator(config)
@@ -216,7 +217,6 @@ def test_google_generator_applies_persisted_settings(monkeypatch):
     async def exercise():
         return await generator.generate_response(
             messages=[{"role": "user", "content": "Hello"}],
-            stream=False,
         )
 
     result = asyncio.run(exercise())
@@ -232,6 +232,7 @@ def test_google_generator_applies_persisted_settings(monkeypatch):
     assert captured["kwargs"]["safety_settings"] == settings["safety_settings"]
     assert captured["kwargs"]["response_mime_type"] == "application/json"
     assert captured["kwargs"]["system_instruction"] == "Respond in JSON."
+    assert captured["kwargs"]["stream"] is False
     assert config._settings["stop_sequences"] == ["###"]
 
 
@@ -244,6 +245,10 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
         def __init__(self):
             self.text = "Call"
             self.candidates = []
+            self._chunks = [SimpleNamespace(text="Call", candidates=[])]
+
+        def __iter__(self):
+            return iter(self._chunks)
 
     class DummyModel:
         def __init__(self, model_name):
@@ -268,6 +273,7 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
         ],
         "response_mime_type": "application/json",
         "system_instruction": "Config instruction",
+        "stream": False,
     }
     config = DummyConfig(settings=base_settings)
     generator = google_module.GoogleGeminiGenerator(config)
@@ -277,7 +283,7 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
     ]
 
     async def exercise():
-        return await generator.generate_response(
+        response = await generator.generate_response(
             messages=[{"role": "user", "content": "Hi"}],
             model="call-model",
             temperature=0.1,
@@ -285,15 +291,21 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
             top_k=8,
             candidate_count=2,
             stop_sequences=["CALL"],
-            stream=False,
+            stream=True,
             safety_settings=override_safety,
             response_mime_type="text/plain",
             system_instruction="Follow call input.",
         )
+        if hasattr(response, "__anext__"):
+            chunks = []
+            async for item in response:
+                chunks.append(item)
+            return chunks
+        return response
 
     result = asyncio.run(exercise())
 
-    assert result == "Call"
+    assert result == ["Call"]
     assert captured["model_name"] == "call-model"
     generation_config = captured["kwargs"]["generation_config"]
     assert generation_config.kwargs["temperature"] == 0.1
@@ -304,5 +316,6 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
     assert captured["kwargs"]["safety_settings"] == override_safety
     assert captured["kwargs"]["response_mime_type"] == "text/plain"
     assert captured["kwargs"]["system_instruction"] == "Follow call input."
+    assert captured["kwargs"]["stream"] is True
     assert config._settings["stop_sequences"] == ["CONFIG"]
 

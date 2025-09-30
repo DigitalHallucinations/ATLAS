@@ -663,6 +663,7 @@ class DummyConfig:
             "response_mime_type": None,
             "system_instruction": None,
             "max_output_tokens": 32000,
+            "stream": True,
         }
 
     def get_default_provider(self):
@@ -827,6 +828,7 @@ class DummyConfig:
         response_mime_type=None,
         system_instruction=None,
         max_output_tokens=None,
+        stream=None,
     ):
         if model:
             self._google_settings["model"] = model
@@ -861,6 +863,8 @@ class DummyConfig:
                 self._google_settings["max_output_tokens"] = None
         elif max_output_tokens is not None:
             self._google_settings["max_output_tokens"] = int(max_output_tokens)
+        if stream is not None:
+            self._google_settings["stream"] = bool(stream)
 
         return dict(self._google_settings)
 
@@ -1277,6 +1281,7 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
                 "model": "gemini-1.5-pro-latest",
                 "response_mime_type": "text/plain",
                 "system_instruction": "Keep it short.",
+                "stream": False,
             }
 
         def get_provider_api_key_status(self, provider_name):
@@ -1305,15 +1310,18 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
     assert window.response_mime_entry.get_text() == "text/plain"
     buffer = window.system_instruction_view.get_buffer()
     assert buffer.get_text(None, None, True) == "Keep it short."
+    assert window.stream_toggle.get_active() is False
 
     window.response_mime_entry.set_text("  application/json  ")
     buffer.set_text("  Follow policy.  ")
+    window.stream_toggle.set_active(True)
 
     window.on_save_clicked()
 
     assert atlas.saved_payload is not None
     assert atlas.saved_payload["response_mime_type"] == "application/json"
     assert atlas.saved_payload["system_instruction"] == "Follow policy."
+    assert atlas.saved_payload["stream"] is True
     assert atlas.last_provider == "Google"
     assert atlas.refresh_calls == 1
 
@@ -1430,10 +1438,12 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
         safety_settings=[
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_LOW_AND_ABOVE"}
         ],
+        stream=False,
     )
 
     assert result["success"] is True
     assert result["data"]["max_output_tokens"] == 4096
+    assert result["data"]["stream"] is False
     settings = provider_manager.config_manager.get_google_llm_settings()
     assert settings["model"] == "gemini-1.5-flash-latest"
     assert math.isclose(settings["temperature"], 0.55)
@@ -1444,6 +1454,7 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
     assert settings["stop_sequences"] == ["STOP", "END"]
     assert settings["safety_settings"][0]["category"] == "HARM_CATEGORY_DANGEROUS_CONTENT"
     assert settings["safety_settings"][0]["threshold"] == "BLOCK_LOW_AND_ABOVE"
+    assert settings["stream"] is False
     assert provider_manager.model_manager.models["Google"][0] == "gemini-1.5-flash-latest"
     assert provider_manager.current_model == "gemini-1.5-flash-latest"
 
@@ -1462,6 +1473,7 @@ def test_generate_response_uses_google_defaults(provider_manager):
         response_mime_type="text/plain",
         system_instruction="Follow the instructions.",
         max_output_tokens=12345,
+        stream=False,
     )
 
     captured = {}
@@ -1492,6 +1504,7 @@ def test_generate_response_uses_google_defaults(provider_manager):
     assert captured["response_mime_type"] == "text/plain"
     assert captured["system_instruction"] == "Follow the instructions."
     assert captured["max_tokens"] == 12345
+    assert captured["stream"] is False
 
 
 def test_generate_response_google_omits_hardcoded_max_tokens(provider_manager):
