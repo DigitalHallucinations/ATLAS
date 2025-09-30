@@ -319,3 +319,54 @@ def test_google_generator_prefers_call_overrides(monkeypatch):
     assert captured["kwargs"]["stream"] is True
     assert config._settings["stop_sequences"] == ["CONFIG"]
 
+
+def test_google_generator_skips_tool_payload_when_disabled(monkeypatch):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "No tools"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+
+        def generate_content(self, contents, **kwargs):
+            DummyModel.captured = {
+                "contents": contents,
+                "kwargs": kwargs,
+            }
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    seen = {"called": False}
+
+    def _unexpected_build(self, functions, current_persona):
+        seen["called"] = True
+        return ["unexpected"]
+
+    monkeypatch.setattr(
+        google_module.GoogleGeminiGenerator,
+        "_build_tools_payload",
+        _unexpected_build,
+    )
+
+    generator = google_module.GoogleGeminiGenerator(DummyConfig())
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+            stream=False,
+            enable_functions=False,
+            functions=[{"name": "persona_tool"}],
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "No tools"
+    assert seen["called"] is False
+    kwargs = DummyModel.captured["kwargs"]
+    assert "tools" not in kwargs
+

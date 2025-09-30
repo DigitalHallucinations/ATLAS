@@ -45,10 +45,13 @@ class GoogleGeminiGenerator:
         safety_settings: Optional[Any] = None,
         response_mime_type: Optional[str] = None,
         system_instruction: Optional[str] = None,
+        enable_functions: bool = True,
     ) -> Union[str, AsyncIterator[Union[str, Dict[str, Dict[str, str]]]]]:
         try:
             contents = self._convert_messages_to_contents(messages)
-            tools = self._build_tools_payload(functions, current_persona)
+            tools = None
+            if enable_functions:
+                tools = self._build_tools_payload(functions, current_persona)
 
             stored_settings: Dict[str, Any] = {}
             getter = getattr(self.config_manager, "get_google_llm_settings", None)
@@ -546,6 +549,7 @@ async def generate_response(
     safety_settings: Optional[Any] = None,
     response_mime_type: Optional[str] = None,
     system_instruction: Optional[str] = None,
+    enable_functions: bool = True,
 ):
     generator = setup_google_gemini_generator(config_manager)
     return await generator.generate_response(
@@ -563,6 +567,7 @@ async def generate_response(
         safety_settings=safety_settings,
         response_mime_type=response_mime_type,
         system_instruction=system_instruction,
+        enable_functions=enable_functions,
     )
 
 
