@@ -415,6 +415,67 @@ def test_anthropic_generate_response_sync_streams_function_call(monkeypatch):
     assert instances and instances[0].last_stream is True
 
 
+def test_anthropic_stream_timeout(caplog):
+    from modules.Providers.Anthropic import Anthropic_gen_response as anthropic
+
+    class _StubConfig:
+        @staticmethod
+        def get_anthropic_api_key():
+            return "test-key"
+
+        @staticmethod
+        def get_anthropic_settings():
+            return {}
+
+    class _HangingStream:
+        def __init__(self):
+            self.closed = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            self.closed = True
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.sleep(1)
+
+        async def get_final_response(self):  # pragma: no cover - not reached on timeout
+            return types.SimpleNamespace(content=[])
+
+    class _StubMessages:
+        def __init__(self, stream_instance):
+            self._stream_instance = stream_instance
+
+        def stream(self, *_, **__):
+            return self._stream_instance
+
+    hanging_stream = _HangingStream()
+    client = SimpleNamespace(messages=_StubMessages(hanging_stream))
+
+    caplog.set_level(
+        "ERROR", logger="modules.Providers.Anthropic.Anthropic_gen_response"
+    )
+
+    async def _run_test():
+        generator = anthropic.AnthropicGenerator(config_manager=_StubConfig())
+        generator.client = client
+        generator.timeout = 0.05
+
+        response = generator.process_streaming_response({"model": "dummy", "messages": []})
+
+        with pytest.raises(asyncio.TimeoutError):
+            await anext(response)
+
+    asyncio.run(_run_test())
+
+    assert hanging_stream.closed is True
+    assert any("timed out" in record.message for record in caplog.records)
+
+
 def test_anthropic_generate_response_sync_running_loop_error(monkeypatch):
     from modules.Providers.Anthropic import Anthropic_gen_response as anthropic
 

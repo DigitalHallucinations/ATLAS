@@ -124,14 +124,14 @@ class AnthropicGenerator:
                 return self.process_function_call(response)
             return self._extract_text_content(response.content)
 
+        except asyncio.TimeoutError:
+            self.logger.error(f"Request timed out after {self.timeout} seconds")
+            raise
         except RateLimitError as e:
             self.logger.warning(f"Rate limit reached. Retrying: {str(e)}")
             raise
         except APIError as e:
             self.logger.error(f"Anthropic API error: {str(e)}")
-            raise
-        except asyncio.TimeoutError:
-            self.logger.error(f"Request timed out after {self.timeout} seconds")
             raise
         except Exception as e:
             self.logger.error(f"Unexpected error with Anthropic: {str(e)}")
@@ -201,46 +201,51 @@ class AnthropicGenerator:
         base_delay = max(1, schedule.base_delay)
 
         attempt = 1
+        timeout_ctx = getattr(asyncio, "timeout", None)
         while True:
             try:
-                async with self.client.messages.stream(**message_params) as stream:
-                    async for event in stream:
-                        event_type = getattr(event, "type", None)
+                if timeout_ctx is not None:
+                    async with timeout_ctx(self.timeout):
+                        async with self.client.messages.stream(**message_params) as stream:
+                            async for event in stream:
+                                for chunk in self._translate_stream_event(event):
+                                    yield chunk
 
-                        if event_type == "content_block_delta":
-                            delta = getattr(event, "delta", None)
-                            if delta and getattr(delta, "type", None) == "text_delta":
-                                text = getattr(delta, "text", "")
-                                if text:
-                                    yield text
-                        elif event_type == "content_block_start":
-                            block = getattr(event, "content_block", None)
-                            if block is None:
-                                continue
-                            block_type = getattr(block, "type", None)
-                            if block_type is None and isinstance(block, dict):
-                                block_type = block.get("type")
-                            if block_type == "tool_use":
-                                block_dict = block if isinstance(block, dict) else None
-                                tool_payload = {
-                                    "function_call": {
-                                        "name": getattr(block, "name", None)
-                                        or (block_dict.get("name") if block_dict else None),
-                                        "arguments": getattr(block, "input", None)
-                                        or (block_dict.get("input") if block_dict else {}),
-                                        "id": getattr(block, "id", None)
-                                        or (block_dict.get("id") if block_dict else None),
-                                    }
-                                }
-                                yield tool_payload
+                            final_response = await stream.get_final_response()
+                            if self.function_calling_enabled:
+                                function_call = self.process_function_call(final_response)
+                                if isinstance(function_call, dict):
+                                    yield function_call
+                            return
+                else:
+                    stream_cm = self.client.messages.stream(**message_params)
+                    stream = await asyncio.wait_for(
+                        stream_cm.__aenter__(), timeout=self.timeout
+                    )
+                    try:
+                        async for event in self._iterate_stream_with_wait_for(stream):
+                            for chunk in self._translate_stream_event(event):
+                                yield chunk
 
-                    final_response = await stream.get_final_response()
-                    if self.function_calling_enabled:
-                        function_call = self.process_function_call(final_response)
-                        if isinstance(function_call, dict):
-                            yield function_call
-                    return
+                        final_response = await asyncio.wait_for(
+                            stream.get_final_response(), timeout=self.timeout
+                        )
+                        if self.function_calling_enabled:
+                            function_call = self.process_function_call(final_response)
+                            if isinstance(function_call, dict):
+                                yield function_call
+                        return
+                    finally:
+                        await asyncio.wait_for(
+                            stream_cm.__aexit__(None, None, None), timeout=self.timeout
+                        )
 
+            except asyncio.TimeoutError:
+                self.logger.error(
+                    "Streaming request timed out after %s seconds without receiving data",
+                    self.timeout,
+                )
+                raise
             except RateLimitError as exc:
                 if attempt >= schedule.attempts:
                     self.logger.warning(
@@ -257,11 +262,44 @@ class AnthropicGenerator:
                 )
                 await asyncio.sleep(delay)
                 attempt += 1
-            except asyncio.TimeoutError:
-                self.logger.error(
-                    "Streaming request timed out after %s seconds", self.timeout
-                )
-                raise
+
+    async def _iterate_stream_with_wait_for(self, stream):
+        while True:
+            try:
+                event = await asyncio.wait_for(stream.__anext__(), timeout=self.timeout)
+            except StopAsyncIteration:
+                break
+            yield event
+
+    def _translate_stream_event(self, event):
+        event_type = getattr(event, "type", None)
+
+        if event_type == "content_block_delta":
+            delta = getattr(event, "delta", None)
+            if delta and getattr(delta, "type", None) == "text_delta":
+                text = getattr(delta, "text", "")
+                if text:
+                    yield text
+        elif event_type == "content_block_start":
+            block = getattr(event, "content_block", None)
+            if block is None:
+                return
+            block_type = getattr(block, "type", None)
+            if block_type is None and isinstance(block, dict):
+                block_type = block.get("type")
+            if block_type == "tool_use":
+                block_dict = block if isinstance(block, dict) else None
+                tool_payload = {
+                    "function_call": {
+                        "name": getattr(block, "name", None)
+                        or (block_dict.get("name") if block_dict else None),
+                        "arguments": getattr(block, "input", None)
+                        or (block_dict.get("input") if block_dict else {}),
+                        "id": getattr(block, "id", None)
+                        or (block_dict.get("id") if block_dict else None),
+                    }
+                }
+                yield tool_payload
 
     def _extract_text_content(self, content_blocks: List[Any]) -> str:
         collected_text: List[str] = []
