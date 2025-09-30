@@ -1,8 +1,9 @@
 # modules/Providers/Google/GG_gen_response.py
 
 import asyncio
+import copy
 import json
-from typing import AsyncIterator, Dict, Iterable, List, Optional, Union
+from typing import Any, AsyncIterator, Dict, Iterable, List, Optional, Union
 
 import google.generativeai as genai
 from google.generativeai import types as genai_types
@@ -30,31 +31,208 @@ class GoogleGeminiGenerator:
     async def generate_response(
         self,
         messages: List[Dict[str, str]],
-        model: str = "gemini-1.5-pro-latest",
-        max_tokens: int = 32000,
-        temperature: float = 0.0,
+        model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        *,
+        top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
+        candidate_count: Optional[int] = None,
+        stop_sequences: Optional[Iterable[str]] = None,
         stream: bool = True,
         current_persona=None,
         functions=None,
+        safety_settings: Optional[Any] = None,
+        response_mime_type: Optional[str] = None,
+        system_instruction: Optional[str] = None,
     ) -> Union[str, AsyncIterator[Union[str, Dict[str, Dict[str, str]]]]]:
         try:
             contents = self._convert_messages_to_contents(messages)
             tools = self._build_tools_payload(functions, current_persona)
 
-            model_instance = genai.GenerativeModel(model_name=model)
+            stored_settings: Dict[str, Any] = {}
+            getter = getattr(self.config_manager, "get_google_llm_settings", None)
+            if callable(getter):
+                try:
+                    candidate_settings = getter() or {}
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    self.logger.warning(
+                        "Failed to load Google LLM defaults: %s", exc, exc_info=True
+                    )
+                    candidate_settings = {}
+                if isinstance(candidate_settings, dict):
+                    stored_settings = candidate_settings
+
+            defaults = {
+                'model': 'gemini-1.5-pro-latest',
+                'temperature': 0.0,
+                'top_p': 1.0,
+                'top_k': None,
+                'candidate_count': 1,
+                'stop_sequences': [],
+                'max_output_tokens': 32000,
+            }
+
+            def _resolve_model(candidate: Optional[str]) -> str:
+                if candidate:
+                    cleaned = str(candidate).strip()
+                    if cleaned:
+                        return cleaned
+                stored_model = stored_settings.get('model')
+                if isinstance(stored_model, str) and stored_model.strip():
+                    return stored_model.strip()
+                return defaults['model']
+
+            effective_model = _resolve_model(model)
+
+            def _resolve_float(
+                provided: Optional[float],
+                key: str,
+                default: float,
+            ) -> float:
+                if provided is not None:
+                    return float(provided)
+                stored_value = stored_settings.get(key)
+                if stored_value is not None:
+                    try:
+                        return float(stored_value)
+                    except (TypeError, ValueError):
+                        pass
+                return default
+
+            def _resolve_optional_int(
+                provided: Optional[int],
+                key: str,
+                default: Optional[int],
+            ) -> Optional[int]:
+                if provided is not None:
+                    return int(provided)
+                stored_value = stored_settings.get(key)
+                if stored_value is None:
+                    return default
+                try:
+                    return int(stored_value)
+                except (TypeError, ValueError):
+                    return default
+
+            def _resolve_int(
+                provided: Optional[int],
+                key: str,
+                default: int,
+            ) -> int:
+                if provided is not None:
+                    return int(provided)
+                stored_value = stored_settings.get(key)
+                if stored_value is not None:
+                    try:
+                        return int(stored_value)
+                    except (TypeError, ValueError):
+                        pass
+                return default
+
+            effective_temperature = _resolve_float(
+                temperature, 'temperature', defaults['temperature']
+            )
+            effective_top_p = _resolve_float(top_p, 'top_p', defaults['top_p'])
+            effective_top_k = _resolve_optional_int(top_k, 'top_k', defaults['top_k'])
+            effective_candidate_count = _resolve_int(
+                candidate_count, 'candidate_count', defaults['candidate_count']
+            )
+
+            if stop_sequences is not None:
+                effective_stop_sequences = [
+                    str(item).strip()
+                    for item in stop_sequences
+                    if isinstance(item, str) and item.strip()
+                ]
+            else:
+                stored_stop_sequences = stored_settings.get('stop_sequences')
+                if isinstance(stored_stop_sequences, (list, tuple, set)):
+                    effective_stop_sequences = [
+                        str(item).strip()
+                        for item in stored_stop_sequences
+                        if isinstance(item, str) and item.strip()
+                    ]
+                else:
+                    effective_stop_sequences = []
+
+            stored_max_tokens = stored_settings.get('max_output_tokens')
+            if max_tokens is not None:
+                effective_max_tokens = int(max_tokens)
+            elif stored_max_tokens is not None:
+                try:
+                    effective_max_tokens = int(stored_max_tokens)
+                except (TypeError, ValueError):
+                    effective_max_tokens = defaults['max_output_tokens']
+            else:
+                effective_max_tokens = defaults['max_output_tokens']
+
+            effective_safety_settings = (
+                safety_settings
+                if safety_settings is not None
+                else stored_settings.get('safety_settings')
+            )
+
+            effective_response_mime_type = (
+                response_mime_type
+                if response_mime_type is not None
+                else stored_settings.get('response_mime_type')
+            )
+            if isinstance(effective_response_mime_type, str):
+                effective_response_mime_type = (
+                    effective_response_mime_type.strip() or None
+                )
+
+            effective_system_instruction = (
+                system_instruction
+                if system_instruction is not None
+                else stored_settings.get('system_instruction')
+            )
+            if isinstance(effective_system_instruction, str):
+                effective_system_instruction = (
+                    effective_system_instruction.strip() or None
+                )
+
+            model_instance = genai.GenerativeModel(model_name=effective_model)
             self.logger.info(
-                "Generating response with Google Gemini using model: %s", model
+                "Generating response with Google Gemini using model: %s",
+                effective_model,
             )
 
             request_kwargs = {
                 "generation_config": genai.types.GenerationConfig(
-                    max_output_tokens=max_tokens,
-                    temperature=temperature,
+                    **{
+                        key: value
+                        for key, value in {
+                            "max_output_tokens": effective_max_tokens,
+                            "temperature": effective_temperature,
+                            "top_p": effective_top_p,
+                            "top_k": effective_top_k,
+                            "candidate_count": effective_candidate_count,
+                            "stop_sequences": effective_stop_sequences
+                            or None,
+                        }.items()
+                        if value is not None
+                    }
                 ),
                 "stream": stream,
             }
             if tools:
                 request_kwargs["tools"] = tools
+
+            if effective_safety_settings:
+                if isinstance(effective_safety_settings, (list, dict)):
+                    request_kwargs["safety_settings"] = copy.deepcopy(
+                        effective_safety_settings
+                    )
+                else:
+                    request_kwargs["safety_settings"] = effective_safety_settings
+
+            if effective_response_mime_type:
+                request_kwargs["response_mime_type"] = effective_response_mime_type
+
+            if effective_system_instruction:
+                request_kwargs["system_instruction"] = effective_system_instruction
 
             response = await asyncio.to_thread(
                 model_instance.generate_content,
@@ -328,16 +506,37 @@ def setup_google_gemini_generator(config_manager: ConfigManager):
 async def generate_response(
     config_manager: ConfigManager,
     messages: List[Dict[str, str]],
-    model: str = "gemini-1.5-pro-latest",
-    max_tokens: int = 32000,
-    temperature: float = 0.0,
+    model: Optional[str] = None,
+    max_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+    *,
+    top_p: Optional[float] = None,
+    top_k: Optional[int] = None,
+    candidate_count: Optional[int] = None,
+    stop_sequences: Optional[Iterable[str]] = None,
     stream: bool = True,
     current_persona=None,
     functions=None,
+    safety_settings: Optional[Any] = None,
+    response_mime_type: Optional[str] = None,
+    system_instruction: Optional[str] = None,
 ):
     generator = setup_google_gemini_generator(config_manager)
     return await generator.generate_response(
-        messages, model, max_tokens, temperature, stream, current_persona, functions
+        messages=messages,
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        candidate_count=candidate_count,
+        stop_sequences=stop_sequences,
+        stream=stream,
+        current_persona=current_persona,
+        functions=functions,
+        safety_settings=safety_settings,
+        response_mime_type=response_mime_type,
+        system_instruction=system_instruction,
     )
 
 

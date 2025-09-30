@@ -1,6 +1,7 @@
 import asyncio
 import importlib.util
 import os
+import copy
 import sys
 import types
 from pathlib import Path
@@ -84,8 +85,14 @@ spec.loader.exec_module(google_module)
 
 
 class DummyConfig:
+    def __init__(self, settings=None):
+        self._settings = settings or {}
+
     def get_google_api_key(self):
         return "test-key"
+
+    def get_google_llm_settings(self):
+        return copy.deepcopy(self._settings)
 
 
 def test_google_generator_streams_function_call(monkeypatch):
@@ -167,4 +174,135 @@ def test_google_generator_streams_function_call(monkeypatch):
     declarations = list(tools[0].function_declarations)
     assert declarations[0].name == "tool_action"
     assert declarations[0].description == "A sample tool"
+
+
+def test_google_generator_applies_persisted_settings(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "Hello"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            captured["model_name"] = model_name
+
+        def generate_content(self, contents, **kwargs):
+            captured["contents"] = contents
+            captured["kwargs"] = kwargs
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    settings = {
+        "model": "gemini-from-config",
+        "temperature": 0.65,
+        "top_p": 0.8,
+        "top_k": 32,
+        "candidate_count": 3,
+        "stop_sequences": ["###"],
+        "safety_settings": [
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_LOW_AND_ABOVE"}
+        ],
+        "response_mime_type": "application/json",
+        "system_instruction": "Respond in JSON.",
+    }
+    config = DummyConfig(settings=settings)
+    generator = google_module.GoogleGeminiGenerator(config)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "Hello"
+    assert captured["model_name"] == "gemini-from-config"
+    generation_config = captured["kwargs"]["generation_config"]
+    assert generation_config.kwargs["temperature"] == 0.65
+    assert generation_config.kwargs["top_p"] == 0.8
+    assert generation_config.kwargs["top_k"] == 32
+    assert generation_config.kwargs["candidate_count"] == 3
+    assert generation_config.kwargs["stop_sequences"] == ["###"]
+    assert captured["kwargs"]["safety_settings"] == settings["safety_settings"]
+    assert captured["kwargs"]["response_mime_type"] == "application/json"
+    assert captured["kwargs"]["system_instruction"] == "Respond in JSON."
+    assert config._settings["stop_sequences"] == ["###"]
+
+
+def test_google_generator_prefers_call_overrides(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "Call"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            captured["model_name"] = model_name
+
+        def generate_content(self, contents, **kwargs):
+            captured["contents"] = contents
+            captured["kwargs"] = kwargs
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    base_settings = {
+        "model": "gemini-config",
+        "temperature": 0.9,
+        "top_p": 0.95,
+        "top_k": 64,
+        "candidate_count": 5,
+        "stop_sequences": ["CONFIG"],
+        "safety_settings": [
+            {"category": "CONFIG", "threshold": "BLOCK_ONLY_HIGH"}
+        ],
+        "response_mime_type": "application/json",
+        "system_instruction": "Config instruction",
+    }
+    config = DummyConfig(settings=base_settings)
+    generator = google_module.GoogleGeminiGenerator(config)
+
+    override_safety = [
+        {"category": "CALL", "threshold": "BLOCK_LOW_AND_ABOVE"}
+    ]
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            model="call-model",
+            temperature=0.1,
+            top_p=0.3,
+            top_k=8,
+            candidate_count=2,
+            stop_sequences=["CALL"],
+            stream=False,
+            safety_settings=override_safety,
+            response_mime_type="text/plain",
+            system_instruction="Follow call input.",
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "Call"
+    assert captured["model_name"] == "call-model"
+    generation_config = captured["kwargs"]["generation_config"]
+    assert generation_config.kwargs["temperature"] == 0.1
+    assert generation_config.kwargs["top_p"] == 0.3
+    assert generation_config.kwargs["top_k"] == 8
+    assert generation_config.kwargs["candidate_count"] == 2
+    assert generation_config.kwargs["stop_sequences"] == ["CALL"]
+    assert captured["kwargs"]["safety_settings"] == override_safety
+    assert captured["kwargs"]["response_mime_type"] == "text/plain"
+    assert captured["kwargs"]["system_instruction"] == "Follow call input."
+    assert config._settings["stop_sequences"] == ["CONFIG"]
 

@@ -129,6 +129,49 @@ def test_set_hf_token_updates_state(config_manager):
     )
 
 
+def test_set_google_llm_settings_updates_state(config_manager):
+    result = config_manager.set_google_llm_settings(
+        model="gemini-1.5-flash",
+        temperature=0.55,
+        top_p=0.9,
+        top_k=32,
+        candidate_count=2,
+        stop_sequences=["STOP"],
+        safety_settings=[
+            {"category": "HARM_CATEGORY_DEROGATORY", "threshold": "BLOCK_NONE"}
+        ],
+        response_mime_type="application/json",
+        system_instruction="Respond in JSON.",
+    )
+
+    assert result["model"] == "gemini-1.5-flash"
+    stored = config_manager.get_google_llm_settings()
+    assert stored["temperature"] == 0.55
+    assert stored["top_p"] == 0.9
+    assert stored["top_k"] == 32
+    assert stored["candidate_count"] == 2
+    assert stored["stop_sequences"] == ["STOP"]
+    assert stored["safety_settings"] == [
+        {"category": "HARM_CATEGORY_DEROGATORY", "threshold": "BLOCK_NONE"}
+    ]
+    assert stored["response_mime_type"] == "application/json"
+    assert stored["system_instruction"] == "Respond in JSON."
+    assert config_manager.config["GOOGLE_LLM"]["top_k"] == 32
+
+
+def test_get_google_llm_settings_returns_copy(config_manager):
+    config_manager.set_google_llm_settings(
+        model="gemini-1.5-pro",
+        stop_sequences=["DONE"],
+        safety_settings=[
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_LOW_AND_ABOVE"}
+        ],
+    )
+
+    retrieved = config_manager.get_google_llm_settings()
+    retrieved["stop_sequences"].append("NEW")
+    assert config_manager.config["GOOGLE_LLM"]["stop_sequences"] == ["DONE"]
+
 def test_set_openai_llm_settings_updates_state(config_manager):
     result = config_manager.set_openai_llm_settings(
         model="gpt-4o-mini",
