@@ -837,12 +837,27 @@ class ConfigManager:
         ) -> Dict[str, Any]:
             if value is None:
                 try:
-                    return self._coerce_response_schema(previous)
+                    schema = self._coerce_response_schema(previous)
                 except ValueError:
-                    return {}
-            if value in ({}, ""):
-                return {}
-            return self._coerce_response_schema(value)
+                    schema = {}
+            elif value in ({}, ""):
+                schema = {}
+            else:
+                schema = self._coerce_response_schema(value)
+
+            if schema:
+                mime_value = settings_block.get('response_mime_type') or ''
+                normalized_mime = str(mime_value).strip().lower()
+                if not normalized_mime:
+                    settings_block['response_mime_type'] = 'application/json'
+                elif normalized_mime != 'application/json':
+                    raise ValueError(
+                        "Response MIME type must be 'application/json' when a response schema is provided."
+                    )
+                else:
+                    settings_block['response_mime_type'] = 'application/json'
+
+            return schema
 
         settings_block['response_schema'] = _normalize_response_schema(
             response_schema,

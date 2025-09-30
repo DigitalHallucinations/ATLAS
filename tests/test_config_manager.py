@@ -162,6 +162,27 @@ def test_set_google_llm_settings_updates_state(config_manager):
     assert config_manager.config["GOOGLE_LLM"]["max_output_tokens"] == 16000
 
 
+def test_set_google_llm_settings_autofills_json_mime_for_schema(config_manager):
+    snapshot = config_manager.set_google_llm_settings(
+        model="gemini-1.5-flash",
+        response_schema={"type": "object"},
+        response_mime_type="",
+    )
+
+    assert snapshot["response_mime_type"] == "application/json"
+    stored = config_manager.get_google_llm_settings()
+    assert stored["response_mime_type"] == "application/json"
+
+
+def test_set_google_llm_settings_rejects_non_json_mime_with_schema(config_manager):
+    with pytest.raises(ValueError):
+        config_manager.set_google_llm_settings(
+            model="gemini-1.5-flash",
+            response_schema={"type": "object"},
+            response_mime_type="text/plain",
+        )
+
+
 def test_get_google_llm_settings_returns_copy(config_manager):
     config_manager.set_google_llm_settings(
         model="gemini-1.5-pro",
