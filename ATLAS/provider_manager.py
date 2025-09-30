@@ -280,6 +280,9 @@ class ProviderManager:
         model: Optional[str] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
         timeout: Optional[int] = None,
         max_retries: Optional[int] = None,
         retry_delay: Optional[int] = None,
@@ -291,6 +294,9 @@ class ProviderManager:
                 model=model,
                 stream=stream,
                 function_calling=function_calling,
+                temperature=temperature,
+                top_p=top_p,
+                max_output_tokens=max_output_tokens,
                 timeout=timeout,
                 max_retries=max_retries,
                 retry_delay=retry_delay,
@@ -313,6 +319,9 @@ class ProviderManager:
                 generator.set_default_model(settings.get("model"))
                 generator.set_streaming(settings.get("stream", True))
                 generator.set_function_calling(settings.get("function_calling", False))
+                generator.set_temperature(settings.get("temperature", 0.0))
+                generator.set_top_p(settings.get("top_p", 1.0))
+                generator.set_max_output_tokens(settings.get("max_output_tokens"))
                 generator.set_timeout(settings.get("timeout", 60))
                 generator.set_max_retries(settings.get("max_retries", 3))
                 generator.set_retry_delay(settings.get("retry_delay", 5))
@@ -1121,6 +1130,12 @@ class ProviderManager:
                     audio_voice=resolved_audio_voice,
                     audio_format=resolved_audio_format,
                 )
+            elif requested_provider == "Anthropic":
+                call_kwargs.pop("max_tokens", None)
+                call_kwargs.update(
+                    top_p=resolved_top_p,
+                    max_output_tokens=resolved_max_output_tokens,
+                )
 
             response = await self.generate_response_func(
                 self.config_manager,
@@ -1178,6 +1193,12 @@ class ProviderManager:
                 top_p=fallback_config.get('top_p', 1.0),
                 frequency_penalty=fallback_config.get('frequency_penalty', 0.0),
                 presence_penalty=fallback_config.get('presence_penalty', 0.0),
+            )
+        elif fallback_provider == "Anthropic":
+            call_kwargs.pop("max_tokens", None)
+            call_kwargs.update(
+                top_p=fallback_config.get('top_p', 1.0),
+                max_output_tokens=fallback_config.get('max_output_tokens'),
             )
 
         return await fallback_function(

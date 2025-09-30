@@ -43,6 +43,9 @@ class AnthropicSettingsWindow(Gtk.Window):
             "model": "claude-3-opus-20240229",
             "stream": True,
             "function_calling": False,
+            "temperature": 0.0,
+            "top_p": 1.0,
+            "max_output_tokens": None,
             "timeout": 60,
             "max_retries": 3,
             "retry_delay": 5,
@@ -100,6 +103,53 @@ class AnthropicSettingsWindow(Gtk.Window):
         if hasattr(self.function_call_toggle, "connect"):
             self.function_call_toggle.connect("toggled", self._update_save_button_state)
         grid.attach(self.function_call_toggle, 0, row, 2, 1)
+
+        row += 1
+        temperature_label = Gtk.Label(label="Sampling temperature:")
+        temperature_label.set_xalign(0.0)
+        grid.attach(temperature_label, 0, row, 1, 1)
+        self.temperature_adjustment = Gtk.Adjustment(
+            lower=0.0, upper=1.0, step_increment=0.05, page_increment=0.1, value=0.0
+        )
+        self.temperature_spin = Gtk.SpinButton(
+            adjustment=self.temperature_adjustment, digits=2
+        )
+        self.temperature_spin.set_increments(0.05, 0.1)
+        self.temperature_spin.set_hexpand(True)
+        if hasattr(self.temperature_spin, "connect"):
+            self.temperature_spin.connect("value-changed", self._update_save_button_state)
+        grid.attach(self.temperature_spin, 1, row, 1, 1)
+
+        row += 1
+        top_p_label = Gtk.Label(label="Top-p (nucleus sampling):")
+        top_p_label.set_xalign(0.0)
+        grid.attach(top_p_label, 0, row, 1, 1)
+        self.top_p_adjustment = Gtk.Adjustment(
+            lower=0.0, upper=1.0, step_increment=0.05, page_increment=0.1, value=1.0
+        )
+        self.top_p_spin = Gtk.SpinButton(adjustment=self.top_p_adjustment, digits=2)
+        self.top_p_spin.set_increments(0.05, 0.1)
+        self.top_p_spin.set_hexpand(True)
+        if hasattr(self.top_p_spin, "connect"):
+            self.top_p_spin.connect("value-changed", self._update_save_button_state)
+        grid.attach(self.top_p_spin, 1, row, 1, 1)
+
+        row += 1
+        max_output_label = Gtk.Label(label="Max output tokens (0 = auto):")
+        max_output_label.set_xalign(0.0)
+        grid.attach(max_output_label, 0, row, 1, 1)
+        self.max_output_adjustment = Gtk.Adjustment(
+            lower=0, upper=32000, step_increment=64, page_increment=512, value=0
+        )
+        self.max_output_tokens_spin = Gtk.SpinButton(
+            adjustment=self.max_output_adjustment, digits=0
+        )
+        self.max_output_tokens_spin.set_hexpand(True)
+        if hasattr(self.max_output_tokens_spin, "connect"):
+            self.max_output_tokens_spin.connect(
+                "value-changed", self._update_save_button_state
+            )
+        grid.attach(self.max_output_tokens_spin, 1, row, 1, 1)
 
         row += 1
         timeout_label = Gtk.Label(label="Request timeout (seconds):")
@@ -202,6 +252,22 @@ class AnthropicSettingsWindow(Gtk.Window):
         function_calling = settings.get("function_calling") if isinstance(settings, dict) else False
         self.function_call_toggle.set_active(bool(function_calling))
 
+        temperature = settings.get("temperature") if isinstance(settings, dict) else self._defaults["temperature"]
+        if isinstance(temperature, (int, float)):
+            self.temperature_spin.set_value(float(temperature))
+
+        top_p = settings.get("top_p") if isinstance(settings, dict) else self._defaults["top_p"]
+        if isinstance(top_p, (int, float)):
+            self.top_p_spin.set_value(float(top_p))
+
+        max_output_tokens = (
+            settings.get("max_output_tokens") if isinstance(settings, dict) else None
+        )
+        if isinstance(max_output_tokens, (int, float)) and max_output_tokens > 0:
+            self.max_output_tokens_spin.set_value(int(max_output_tokens))
+        else:
+            self.max_output_tokens_spin.set_value(0)
+
         timeout = settings.get("timeout") if isinstance(settings, dict) else 60
         if isinstance(timeout, (int, float)) and timeout > 0:
             self.timeout_spin.set_value(int(timeout))
@@ -218,6 +284,13 @@ class AnthropicSettingsWindow(Gtk.Window):
             "model": self.model_combo.get_active_text(),
             "stream": self.streaming_toggle.get_active(),
             "function_calling": self.function_call_toggle.get_active(),
+            "temperature": round(self.temperature_spin.get_value(), 2),
+            "top_p": round(self.top_p_spin.get_value(), 2),
+            "max_output_tokens": (
+                self.max_output_tokens_spin.get_value_as_int()
+                if self.max_output_tokens_spin.get_value_as_int() > 0
+                else None
+            ),
             "timeout": self.timeout_spin.get_value_as_int(),
             "max_retries": self.max_retries_spin.get_value_as_int(),
             "retry_delay": self.retry_delay_spin.get_value_as_int(),
@@ -419,6 +492,13 @@ class AnthropicSettingsWindow(Gtk.Window):
             "model": selected_model,
             "stream": self.streaming_toggle.get_active(),
             "function_calling": self.function_call_toggle.get_active(),
+            "temperature": round(self.temperature_spin.get_value(), 2),
+            "top_p": round(self.top_p_spin.get_value(), 2),
+            "max_output_tokens": (
+                self.max_output_tokens_spin.get_value_as_int()
+                if self.max_output_tokens_spin.get_value_as_int() > 0
+                else None
+            ),
             "timeout": self.timeout_spin.get_value_as_int(),
             "max_retries": self.max_retries_spin.get_value_as_int(),
             "retry_delay": self.retry_delay_spin.get_value_as_int(),
@@ -441,6 +521,13 @@ class AnthropicSettingsWindow(Gtk.Window):
         self._activate_model(str(defaults.get("model", "")))
         self.streaming_toggle.set_active(bool(defaults.get("stream", True)))
         self.function_call_toggle.set_active(bool(defaults.get("function_calling", False)))
+        self.temperature_spin.set_value(float(defaults.get("temperature", 0.0)))
+        self.top_p_spin.set_value(float(defaults.get("top_p", 1.0)))
+        default_max_output = defaults.get("max_output_tokens")
+        if isinstance(default_max_output, (int, float)) and default_max_output:
+            self.max_output_tokens_spin.set_value(int(default_max_output))
+        else:
+            self.max_output_tokens_spin.set_value(0)
         self.timeout_spin.set_value(int(defaults.get("timeout", 60)))
         self.max_retries_spin.set_value(int(defaults.get("max_retries", 3)))
         self.retry_delay_spin.set_value(int(defaults.get("retry_delay", 5)))
