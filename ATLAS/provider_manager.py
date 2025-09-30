@@ -289,6 +289,7 @@ class ProviderManager:
         system_instruction: Optional[str] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
+        response_schema: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Persist Google Gemini defaults and promote the saved model when possible.
 
@@ -305,6 +306,7 @@ class ProviderManager:
             system_instruction: Optional default system instruction.
             stream: Optional flag toggling streaming responses by default.
             function_calling: Optional flag toggling Gemini tool calling by default.
+            response_schema: Optional JSON schema enforced for responses.
         """
 
         setter = getattr(self.config_manager, "set_google_llm_settings", None)
@@ -329,6 +331,7 @@ class ProviderManager:
                 system_instruction=system_instruction,
                 stream=stream,
                 function_calling=function_calling,
+                response_schema=response_schema,
             )
         except Exception as exc:
             self.logger.error("Failed to persist Google settings: %s", exc, exc_info=True)
@@ -1113,6 +1116,7 @@ class ProviderManager:
         safety_settings: Optional[Any] = None,
         response_mime_type: Optional[str] = None,
         system_instruction: Optional[str] = None,
+        response_schema: Optional[Any] = None,
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
         stream: Optional[bool] = None,
@@ -1205,6 +1209,15 @@ class ProviderManager:
             if system_instruction is not None
             else defaults.get("system_instruction")
         )
+        resolved_response_schema = (
+            response_schema
+            if response_schema is not None
+            else defaults.get("response_schema")
+        )
+        if isinstance(resolved_response_schema, str) and not resolved_response_schema.strip():
+            resolved_response_schema = None
+        if isinstance(resolved_response_schema, dict) and not resolved_response_schema:
+            resolved_response_schema = None
         resolved_frequency_penalty = (
             frequency_penalty
             if frequency_penalty is not None
@@ -1308,6 +1321,7 @@ class ProviderManager:
                     safety_settings=resolved_safety_settings,
                     response_mime_type=resolved_response_mime_type,
                     system_instruction=resolved_system_instruction,
+                    response_schema=resolved_response_schema,
                     enable_functions=bool(resolved_function_calling),
                 )
                 if resolved_max_output_tokens is not None and max_tokens is None:
@@ -1360,6 +1374,7 @@ class ProviderManager:
             "stream": fallback_config.get('stream', True),
             "current_persona": fallback_config.get('current_persona'),
             "functions": fallback_config.get('functions'),
+            "response_schema": fallback_config.get('response_schema'),
             "llm_call_type": llm_call_type,
             **kwargs,
         }

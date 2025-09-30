@@ -1,4 +1,5 @@
 import asyncio
+import json
 import math
 import sys
 import types
@@ -271,6 +272,7 @@ if "gi" not in sys.modules:
     class MessageType:
         ERROR = "error"
         INFO = "info"
+        WARNING = "warning"
 
     class ButtonsType:
         OK = "ok"
@@ -665,6 +667,7 @@ class DummyConfig:
             "max_output_tokens": 32000,
             "stream": True,
             "function_calling": True,
+            "response_schema": {},
         }
 
     def get_default_provider(self):
@@ -831,6 +834,7 @@ class DummyConfig:
         max_output_tokens=None,
         stream=None,
         function_calling=None,
+        response_schema=None,
     ):
         if model:
             self._google_settings["model"] = model
@@ -869,6 +873,27 @@ class DummyConfig:
             self._google_settings["stream"] = bool(stream)
         if function_calling is not None:
             self._google_settings["function_calling"] = bool(function_calling)
+        if response_schema is not None:
+            if response_schema in ("", {}, None):
+                self._google_settings["response_schema"] = {}
+            elif isinstance(response_schema, str):
+                text = response_schema.strip()
+                if not text:
+                    self._google_settings["response_schema"] = {}
+                else:
+                    try:
+                        parsed = json.loads(text)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError("Response schema must be valid JSON.") from exc
+                    if not isinstance(parsed, dict):
+                        raise ValueError("Response schema must be a JSON object.")
+                    self._google_settings["response_schema"] = parsed
+            elif isinstance(response_schema, dict):
+                self._google_settings["response_schema"] = dict(response_schema)
+            else:
+                raise ValueError(
+                    "Response schema must be provided as a mapping or JSON string."
+                )
 
         return dict(self._google_settings)
 
@@ -1287,6 +1312,10 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
                 "system_instruction": "Keep it short.",
                 "stream": False,
                 "function_calling": False,
+                "response_schema": {
+                    "type": "object",
+                    "properties": {"answer": {"type": "string"}},
+                },
             }
 
         def get_provider_api_key_status(self, provider_name):
@@ -1317,11 +1346,19 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
     assert buffer.get_text(None, None, True) == "Keep it short."
     assert window.stream_toggle.get_active() is False
     assert window.function_call_toggle.get_active() is False
+    schema_buffer = window.response_schema_view.get_buffer()
+    assert json.loads(schema_buffer.get_text(None, None, True)) == {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+    }
 
     window.response_mime_entry.set_text("  application/json  ")
     buffer.set_text("  Follow policy.  ")
     window.stream_toggle.set_active(True)
     window.function_call_toggle.set_active(True)
+    schema_buffer.set_text(
+        "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"value\": {\n      \"type\": \"integer\"\n    }\n  }\n}"
+    )
 
     window.on_save_clicked()
 
@@ -1330,8 +1367,49 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
     assert atlas.saved_payload["system_instruction"] == "Follow policy."
     assert atlas.saved_payload["stream"] is True
     assert atlas.saved_payload["function_calling"] is True
+    assert atlas.saved_payload["response_schema"] == {
+        "type": "object",
+        "properties": {"value": {"type": "integer"}},
+    }
     assert atlas.last_provider == "Google"
     assert atlas.refresh_calls == 1
+
+
+def test_google_settings_rejects_invalid_schema(tmp_path):
+    class StubAtlas:
+        def __init__(self):
+            self.saved_payload = None
+
+        def get_models_for_provider(self, _provider_name):
+            return ["gemini-1.5-pro-latest"]
+
+        def get_google_llm_settings(self):
+            return {"model": "gemini-1.5-pro-latest"}
+
+        def get_provider_api_key_status(self, _provider_name):
+            return {"has_key": False}
+
+        def set_google_llm_settings(self, **payload):
+            self.saved_payload = payload
+            return {"success": True, "message": "saved"}
+
+    atlas = StubAtlas()
+    config = DummyConfig(tmp_path.as_posix())
+
+    window = GoogleSettingsWindow(atlas, config, None)
+    captured = {}
+
+    def fake_show_message(title, message, message_type):
+        captured.update({"title": title, "message": message, "type": message_type})
+
+    window._show_message = fake_show_message  # type: ignore[method-assign]
+    schema_buffer = window.response_schema_view.get_buffer()
+    schema_buffer.set_text("not json")
+
+    window.on_save_clicked()
+
+    assert atlas.saved_payload is None
+    assert "Response schema must be valid JSON" in captured.get("message", "")
 
 
 def test_update_provider_api_key_refreshes_active_provider(provider_manager, monkeypatch):
@@ -1448,11 +1526,19 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
         ],
         stream=False,
         function_calling=False,
+        response_schema={
+            "type": "object",
+            "properties": {"result": {"type": "string"}},
+        },
     )
 
     assert result["success"] is True
     assert result["data"]["max_output_tokens"] == 4096
     assert result["data"]["stream"] is False
+    assert result["data"]["response_schema"] == {
+        "type": "object",
+        "properties": {"result": {"type": "string"}},
+    }
     settings = provider_manager.config_manager.get_google_llm_settings()
     assert settings["model"] == "gemini-1.5-flash-latest"
     assert math.isclose(settings["temperature"], 0.55)
@@ -1465,8 +1551,22 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
     assert settings["safety_settings"][0]["threshold"] == "BLOCK_LOW_AND_ABOVE"
     assert settings["stream"] is False
     assert settings["function_calling"] is False
+    assert settings["response_schema"] == {
+        "type": "object",
+        "properties": {"result": {"type": "string"}},
+    }
     assert provider_manager.model_manager.models["Google"][0] == "gemini-1.5-flash-latest"
     assert provider_manager.current_model == "gemini-1.5-flash-latest"
+
+
+def test_set_google_llm_settings_rejects_invalid_schema(provider_manager):
+    result = provider_manager.set_google_llm_settings(
+        model="gemini-1.5-pro-latest",
+        response_schema="{invalid",
+    )
+
+    assert result["success"] is False
+    assert "Response schema" in result["error"]
 
 
 def test_generate_response_uses_google_defaults(provider_manager):
@@ -1484,6 +1584,10 @@ def test_generate_response_uses_google_defaults(provider_manager):
         system_instruction="Follow the instructions.",
         max_output_tokens=12345,
         stream=False,
+        response_schema={
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+        },
     )
 
     captured = {}
@@ -1516,6 +1620,10 @@ def test_generate_response_uses_google_defaults(provider_manager):
     assert captured["max_tokens"] == 12345
     assert captured["stream"] is False
     assert captured["enable_functions"] is True
+    assert captured["response_schema"] == {
+        "type": "object",
+        "properties": {"text": {"type": "string"}},
+    }
 
 
 def test_generate_response_google_omits_hardcoded_max_tokens(provider_manager):
