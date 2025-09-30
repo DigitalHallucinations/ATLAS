@@ -511,6 +511,8 @@ class ConfigManager:
             'allowed_function_names': [],
             'cached_allowed_function_names': [],
             'response_schema': {},
+            'seed': None,
+            'response_logprobs': False,
         }
 
         settings = self.yaml_config.get('GOOGLE_LLM')
@@ -531,6 +533,22 @@ class ConfigManager:
             'function_calling',
             None,
             default=True,
+        )
+        try:
+            merged['seed'] = resolver.resolve_seed(
+                None,
+                allow_invalid_stored=True,
+            )
+        except ValueError as exc:
+            self.logger.warning(
+                "Ignoring persisted Google seed due to validation error: %s",
+                exc,
+            )
+            merged['seed'] = None
+        merged['response_logprobs'] = resolver.resolve_bool(
+            'response_logprobs',
+            None,
+            default=False,
         )
         try:
             merged['function_call_mode'] = self._coerce_function_call_mode(
@@ -599,6 +617,8 @@ class ConfigManager:
         allowed_function_names: Optional[Any] = None,
         response_schema: Optional[Any] = None,
         cached_allowed_function_names: Any = _UNSET,
+        seed: Optional[Any] = None,
+        response_logprobs: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Persist default configuration for the Google Gemini provider.
 
@@ -619,6 +639,8 @@ class ConfigManager:
             response_schema: Optional JSON schema applied to structured responses.
             cached_allowed_function_names: Optional sequence preserving the allowlist
                 when tool calling is temporarily disabled.
+            seed: Optional deterministic seed applied to Gemini generations.
+            response_logprobs: Optional flag requesting token log probabilities.
 
         Returns:
             dict: Persisted Google defaults.
@@ -643,6 +665,8 @@ class ConfigManager:
             'allowed_function_names': [],
             'cached_allowed_function_names': [],
             'response_schema': {},
+            'seed': None,
+            'response_logprobs': False,
         }
 
         existing_settings = {}
@@ -799,6 +823,15 @@ class ConfigManager:
             'function_calling',
             function_calling,
             default=defaults['function_calling'],
+        )
+        settings_block['seed'] = resolver.resolve_seed(
+            seed,
+            allow_invalid_stored=True,
+        )
+        settings_block['response_logprobs'] = resolver.resolve_bool(
+            'response_logprobs',
+            response_logprobs,
+            default=defaults['response_logprobs'],
         )
 
         candidate_mode: Any

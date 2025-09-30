@@ -124,6 +124,37 @@ class GoogleSettingsResolver:
 
         return self._coerce_max_output_tokens(default_value)
 
+    def resolve_seed(
+        self,
+        provided: Optional[Any],
+        *,
+        allow_invalid_stored: bool = False,
+    ) -> Optional[int]:
+        """Resolve the optional ``seed`` parameter allowing blank inputs."""
+
+        key = "seed"
+
+        if provided is not None:
+            return self._coerce_seed(provided)
+
+        if key in self._stored:
+            try:
+                return self._coerce_seed(self._stored.get(key))
+            except ValueError:
+                if not allow_invalid_stored:
+                    raise
+        candidate = self._defaults.get(key)
+
+        if candidate in {None, ""}:
+            return None
+
+        try:
+            return self._coerce_seed(candidate)
+        except ValueError:
+            if allow_invalid_stored:
+                return None
+            raise
+
     def resolve_bool(
         self,
         key: str,
@@ -238,6 +269,21 @@ class GoogleSettingsResolver:
 
         if parsed <= 0:
             return None
+
+        return parsed
+
+    @staticmethod
+    def _coerce_seed(value: Any) -> Optional[int]:
+        if value in {None, ""}:
+            return None
+
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Seed must be a non-negative integer or left blank.") from exc
+
+        if parsed < 0:
+            raise ValueError("Seed must be a non-negative integer or left blank.")
 
         return parsed
 

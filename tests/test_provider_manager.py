@@ -857,6 +857,8 @@ class DummyConfig:
         allowed_function_names=None,
         response_schema=None,
         cached_allowed_function_names=None,
+        seed=None,
+        response_logprobs=None,
     ):
         if model:
             self._google_settings["model"] = model
@@ -891,6 +893,10 @@ class DummyConfig:
                 self._google_settings["max_output_tokens"] = None
         elif max_output_tokens is not None:
             self._google_settings["max_output_tokens"] = int(max_output_tokens)
+        if seed in ("", None):
+            self._google_settings["seed"] = None
+        elif seed is not None:
+            self._google_settings["seed"] = int(seed)
         if stream is not None:
             self._google_settings["stream"] = bool(stream)
         if function_calling is not None:
@@ -948,6 +954,8 @@ class DummyConfig:
                 raise ValueError(
                     "Response schema must be provided as a mapping or JSON string."
                 )
+        if response_logprobs is not None:
+            self._google_settings["response_logprobs"] = bool(response_logprobs)
 
         return dict(self._google_settings)
 
@@ -1779,6 +1787,8 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
             "type": "object",
             "properties": {"result": {"type": "string"}},
         },
+        seed=2024,
+        response_logprobs=True,
     )
 
     assert result["success"] is True
@@ -1788,6 +1798,8 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
         "type": "object",
         "properties": {"result": {"type": "string"}},
     }
+    assert result["data"]["seed"] == 2024
+    assert result["data"]["response_logprobs"] is True
     settings = provider_manager.config_manager.get_google_llm_settings()
     assert settings["model"] == "gemini-1.5-flash-latest"
     assert math.isclose(settings["temperature"], 0.55)
@@ -1806,6 +1818,8 @@ def test_set_google_llm_settings_updates_provider_state(provider_manager):
         "type": "object",
         "properties": {"result": {"type": "string"}},
     }
+    assert settings["seed"] == 2024
+    assert settings["response_logprobs"] is True
     assert provider_manager.model_manager.models["Google"][0] == "gemini-1.5-flash-latest"
     assert provider_manager.current_model == "gemini-1.5-flash-latest"
 
