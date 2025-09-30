@@ -46,6 +46,9 @@ if "gi" not in sys.modules:
         def set_margin_end(self, value):
             self.margin_end = value
 
+        def set_sensitive(self, value):
+            self.sensitive = value
+
     class Window(_Widget):
         def __init__(self, title=""):
             super().__init__()
@@ -537,6 +540,9 @@ class DummyConfig:
             "model": "claude-3-opus-20240229",
             "stream": True,
             "function_calling": False,
+            "temperature": 0.0,
+            "top_p": 1.0,
+            "max_output_tokens": None,
             "timeout": 60,
             "max_retries": 3,
             "retry_delay": 5,
@@ -619,6 +625,9 @@ class DummyConfig:
         model=None,
         stream=None,
         function_calling=None,
+        temperature=None,
+        top_p=None,
+        max_output_tokens=None,
         timeout=None,
         max_retries=None,
         retry_delay=None,
@@ -629,6 +638,16 @@ class DummyConfig:
             self._anthropic_settings["stream"] = bool(stream)
         if function_calling is not None:
             self._anthropic_settings["function_calling"] = bool(function_calling)
+        if temperature is not None:
+            self._anthropic_settings["temperature"] = float(temperature)
+        if top_p is not None:
+            self._anthropic_settings["top_p"] = float(top_p)
+        if max_output_tokens is not None:
+            self._anthropic_settings["max_output_tokens"] = (
+                int(max_output_tokens)
+                if max_output_tokens is not None
+                else None
+            )
         if timeout is not None:
             self._anthropic_settings["timeout"] = int(timeout)
         if max_retries is not None:
@@ -1395,6 +1414,9 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
         "model": "claude-3-opus-20240229",
         "stream": True,
         "function_calling": False,
+        "temperature": 0.1,
+        "top_p": 0.95,
+        "max_output_tokens": None,
         "timeout": 75,
         "max_retries": 2,
         "retry_delay": 6,
@@ -1415,6 +1437,9 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
     assert window.model_combo.get_active_text() == "claude-3-opus-20240229"
     assert window.streaming_toggle.get_active() is True
     assert window.function_call_toggle.get_active() is False
+    assert round(window.temperature_spin.get_value(), 2) == 0.1
+    assert round(window.top_p_spin.get_value(), 2) == 0.95
+    assert window.max_output_tokens_spin.get_value_as_int() == 0
     assert window.timeout_spin.get_value_as_int() == 75
     assert window.max_retries_spin.get_value_as_int() == 2
     assert window.retry_delay_spin.get_value_as_int() == 6
@@ -1422,6 +1447,9 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
     window.model_combo.set_active(1)
     window.streaming_toggle.set_active(False)
     window.function_call_toggle.set_active(True)
+    window.temperature_spin.set_value(0.55)
+    window.top_p_spin.set_value(0.85)
+    window.max_output_tokens_spin.set_value(4096)
     window.timeout_spin.set_value(180)
     window.max_retries_spin.set_value(6)
     window.retry_delay_spin.set_value(15)
@@ -1431,6 +1459,9 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
     assert saved_payload["model"] == "claude-3-sonnet-20240229"
     assert saved_payload["stream"] is False
     assert saved_payload["function_calling"] is True
+    assert math.isclose(saved_payload["temperature"], 0.55)
+    assert math.isclose(saved_payload["top_p"], 0.85)
+    assert saved_payload["max_output_tokens"] == 4096
     assert saved_payload["timeout"] == 180
     assert saved_payload["max_retries"] == 6
     assert saved_payload["retry_delay"] == 15
@@ -1448,6 +1479,9 @@ def test_anthropic_settings_window_saves_api_key(provider_manager):
         "model": "claude-3-opus-20240229",
         "stream": True,
         "function_calling": False,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "max_output_tokens": None,
         "timeout": 60,
         "max_retries": 3,
         "retry_delay": 5,
@@ -1488,6 +1522,9 @@ def test_anthropic_settings_window_fallback_is_non_blocking(provider_manager, mo
         "model": "claude-3-opus-20240229",
         "stream": True,
         "function_calling": False,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "max_output_tokens": None,
         "timeout": 60,
         "max_retries": 3,
         "retry_delay": 5,
@@ -1610,6 +1647,15 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
         def set_function_calling(self, value):
             captured["function_calling"] = value
 
+        def set_temperature(self, value):
+            captured["temperature"] = value
+
+        def set_top_p(self, value):
+            captured["top_p"] = value
+
+        def set_max_output_tokens(self, value):
+            captured["max_output_tokens"] = value
+
         def set_timeout(self, value):
             captured["timeout"] = value
 
@@ -1628,6 +1674,9 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
         model="claude-3-haiku-20240229",
         stream=False,
         function_calling=True,
+        temperature=0.4,
+        top_p=0.88,
+        max_output_tokens=2048,
         timeout=90,
         max_retries=4,
         retry_delay=12,
@@ -1636,9 +1685,15 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
     assert result["success"] is True
     data = result.get("data", {})
     assert data["model"] == "claude-3-haiku-20240229"
+    assert math.isclose(data["temperature"], 0.4)
+    assert math.isclose(data["top_p"], 0.88)
+    assert data["max_output_tokens"] == 2048
     assert captured["model"] == "claude-3-haiku-20240229"
     assert captured["stream"] is False
     assert captured["function_calling"] is True
+    assert math.isclose(captured["temperature"], 0.4)
+    assert math.isclose(captured["top_p"], 0.88)
+    assert captured["max_output_tokens"] == 2048
     assert captured["timeout"] == 90
     assert captured["max_retries"] == 4
     assert captured["retry_delay"] == 12

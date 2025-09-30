@@ -32,6 +32,50 @@ def _normalise_positive_int(value: Any, fallback: int, *, minimum: int = 0) -> i
 
     return max(parsed, minimum)
 
+
+def _normalise_probability(
+    value: Any,
+    fallback: float,
+    *,
+    minimum: float = 0.0,
+    maximum: float = 1.0,
+) -> float:
+    """Normalise probability-like parameters to the expected range."""
+
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = fallback
+
+    if parsed < minimum:
+        return minimum
+    if parsed > maximum:
+        return maximum
+    return parsed
+
+
+def _normalise_optional_positive_int(
+    value: Any,
+    fallback: Optional[int],
+    *,
+    minimum: int = 1,
+) -> Optional[int]:
+    """Return ``None`` or a positive integer respecting the configured minimum."""
+
+    if value in {None, ""}:
+        return fallback if fallback is None else max(int(fallback), minimum)
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback if fallback is None else max(int(fallback), minimum)
+
+    if parsed < minimum:
+        return fallback if fallback is None else max(int(fallback), minimum)
+
+    return parsed
+
+
 class AnthropicGenerator:
     def __init__(self, config_manager: Optional[ConfigManager] = None):
         self.config_manager = config_manager or ConfigManager()
@@ -44,6 +88,9 @@ class AnthropicGenerator:
         self.default_model = "claude-3-opus-20240229"
         self.streaming_enabled = True
         self.function_calling_enabled = False
+        self.temperature = 0.0
+        self.top_p = 1.0
+        self.max_output_tokens: Optional[int] = None
         self.max_retries = 3
         self.retry_delay = 5
         self.timeout = 60
@@ -71,6 +118,26 @@ class AnthropicGenerator:
             if fn_calling is not None:
                 self.function_calling_enabled = bool(fn_calling)
 
+            stored_temperature = settings.get("temperature")
+            if isinstance(stored_temperature, (int, float)):
+                self.temperature = _normalise_probability(
+                    stored_temperature, self.temperature
+                )
+
+            stored_top_p = settings.get("top_p")
+            if isinstance(stored_top_p, (int, float)):
+                self.top_p = _normalise_probability(
+                    stored_top_p, self.top_p
+                )
+
+            stored_max_output = settings.get("max_output_tokens")
+            if stored_max_output is not None:
+                self.max_output_tokens = _normalise_optional_positive_int(
+                    stored_max_output, self.max_output_tokens
+                )
+            else:
+                self.max_output_tokens = None
+
             timeout = settings.get("timeout")
             if isinstance(timeout, (int, float)) and timeout > 0:
                 self.timeout = int(timeout)
@@ -87,8 +154,9 @@ class AnthropicGenerator:
         self,
         messages: List[Dict[str, str]],
         model: Optional[str] = None,
-        max_tokens: int = 4096,
-        temperature: float = 0.0,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
         current_persona=None,
         functions: Optional[List[Dict]] = None,
@@ -97,6 +165,20 @@ class AnthropicGenerator:
         try:
             model = model or self.default_model
             stream = self.streaming_enabled if stream is None else stream
+            if "max_tokens" in kwargs and max_output_tokens is None:
+                max_output_tokens = kwargs.pop("max_tokens")
+            temperature = _normalise_probability(
+                temperature if temperature is not None else self.temperature,
+                self.temperature,
+            )
+            top_p = _normalise_probability(
+                top_p if top_p is not None else self.top_p,
+                self.top_p,
+            )
+            resolved_max_output_tokens = _normalise_optional_positive_int(
+                max_output_tokens,
+                self.max_output_tokens,
+            )
 
             self.logger.info(f"Generating response with Anthropic AI using model: {model}")
 
@@ -105,10 +187,13 @@ class AnthropicGenerator:
             message_params = {
                 "model": model,
                 "messages": message_payload,
-                "max_output_tokens": max_tokens,
                 "temperature": temperature,
+                "top_p": top_p,
                 **kwargs
             }
+
+            if resolved_max_output_tokens is not None:
+                message_params["max_output_tokens"] = resolved_max_output_tokens
 
             if system_prompt:
                 message_params["system"] = system_prompt
@@ -378,6 +463,29 @@ class AnthropicGenerator:
         self.default_model = model
         self.logger.info(f"Default model set to: {model}")
 
+    def set_temperature(self, temperature: float):
+        self.temperature = _normalise_probability(temperature, self.temperature)
+        self.logger.info(f"Temperature set to: {self.temperature}")
+
+    def set_top_p(self, top_p: float):
+        self.top_p = _normalise_probability(top_p, self.top_p)
+        self.logger.info(f"Top-p set to: {self.top_p}")
+
+    def set_max_output_tokens(self, max_output_tokens: Optional[int]):
+        if max_output_tokens in {None, ""}:
+            self.max_output_tokens = None
+            self.logger.info("Max output tokens cleared (no limit)")
+            return
+        self.max_output_tokens = _normalise_optional_positive_int(
+            max_output_tokens, self.max_output_tokens
+        )
+        if self.max_output_tokens is None:
+            self.logger.info("Max output tokens cleared (no limit)")
+        else:
+            self.logger.info(
+                "Max output tokens set to: %s", self.max_output_tokens
+            )
+
     def set_timeout(self, timeout: int):
         timeout_value = _normalise_positive_int(timeout, self.timeout, minimum=1)
         self.timeout = timeout_value
@@ -410,15 +518,26 @@ async def generate_response(
     config_manager: ConfigManager,
     messages: List[Dict[str, str]],
     model: Optional[str] = None,
-    max_tokens: int = 4096,
-    temperature: float = 0.0,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    max_output_tokens: Optional[int] = None,
     stream: Optional[bool] = None,
     current_persona=None,
     functions: Optional[List[Dict]] = None,
     **kwargs
 ) -> Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]:
     generator = setup_anthropic_generator(config_manager)
-    return await generator.generate_response(messages, model, max_tokens, temperature, stream, current_persona, functions, **kwargs)
+    return await generator.generate_response(
+        messages,
+        model,
+        temperature=temperature,
+        top_p=top_p,
+        max_output_tokens=max_output_tokens,
+        stream=stream,
+        current_persona=current_persona,
+        functions=functions,
+        **kwargs,
+    )
 
 async def process_response(
     response: Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]

@@ -575,6 +575,9 @@ class ConfigManager:
         model: Optional[str] = None,
         stream: Optional[bool] = None,
         function_calling: Optional[bool] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
         timeout: Optional[int] = None,
         max_retries: Optional[int] = None,
         retry_delay: Optional[int] = None,
@@ -585,6 +588,9 @@ class ConfigManager:
             'model': 'claude-3-opus-20240229',
             'stream': True,
             'function_calling': False,
+            'temperature': 0.0,
+            'top_p': 1.0,
+            'max_output_tokens': None,
             'timeout': 60,
             'max_retries': 3,
             'retry_delay': 5,
@@ -612,6 +618,50 @@ class ConfigManager:
                 return bool(previous)
             return bool(value)
 
+        def _normalize_float(
+            value: Optional[Any],
+            previous: float,
+            *,
+            field: str,
+            minimum: float,
+            maximum: float,
+        ) -> float:
+            candidate: Optional[float]
+            if value is None:
+                candidate = float(previous)
+            else:
+                try:
+                    candidate = float(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{field} must be a number.") from exc
+            if candidate is None or not minimum <= candidate <= maximum:
+                raise ValueError(
+                    f"{field} must be between {minimum} and {maximum}."
+                )
+            return candidate
+
+        def _normalize_optional_int(
+            value: Optional[Any],
+            previous: Optional[int],
+            *,
+            field: str,
+            minimum: int,
+        ) -> Optional[int]:
+            if value is None:
+                candidate = previous
+            elif value == "":
+                candidate = None
+            else:
+                try:
+                    candidate = int(value)  # type: ignore[assignment]
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{field} must be an integer or left blank.") from exc
+            if candidate is None:
+                return None
+            if candidate < minimum:
+                raise ValueError(f"{field} must be >= {minimum}.")
+            return candidate
+
         def _normalize_int(
             value: Optional[Any],
             previous: int,
@@ -634,6 +684,26 @@ class ConfigManager:
         settings_block['function_calling'] = _normalize_bool(
             function_calling,
             settings_block.get('function_calling', False),
+        )
+        settings_block['temperature'] = _normalize_float(
+            temperature,
+            float(settings_block.get('temperature', defaults['temperature'])),
+            field='Temperature',
+            minimum=0.0,
+            maximum=1.0,
+        )
+        settings_block['top_p'] = _normalize_float(
+            top_p,
+            float(settings_block.get('top_p', defaults['top_p'])),
+            field='Top-p',
+            minimum=0.0,
+            maximum=1.0,
+        )
+        settings_block['max_output_tokens'] = _normalize_optional_int(
+            max_output_tokens,
+            settings_block.get('max_output_tokens', defaults['max_output_tokens']),
+            field='Max output tokens',
+            minimum=1,
         )
         settings_block['timeout'] = _normalize_int(
             timeout,
@@ -668,6 +738,9 @@ class ConfigManager:
             'model': 'claude-3-opus-20240229',
             'stream': True,
             'function_calling': False,
+            'temperature': 0.0,
+            'top_p': 1.0,
+            'max_output_tokens': None,
             'timeout': 60,
             'max_retries': 3,
             'retry_delay': 5,

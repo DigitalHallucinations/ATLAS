@@ -182,6 +182,9 @@ def test_set_anthropic_settings_updates_state(config_manager):
         model="claude-3-sonnet-20240229",
         stream=False,
         function_calling=True,
+        temperature=0.25,
+        top_p=0.8,
+        max_output_tokens=1024,
         timeout=120,
         max_retries=5,
         retry_delay=9,
@@ -191,6 +194,9 @@ def test_set_anthropic_settings_updates_state(config_manager):
     stored = config_manager.config["ANTHROPIC_LLM"]
     assert stored["stream"] is False
     assert stored["function_calling"] is True
+    assert math.isclose(stored["temperature"], 0.25)
+    assert math.isclose(stored["top_p"], 0.8)
+    assert stored["max_output_tokens"] == 1024
     assert stored["timeout"] == 120
     assert stored["max_retries"] == 5
     assert stored["retry_delay"] == 9
@@ -202,6 +208,9 @@ def test_get_anthropic_settings_returns_defaults(config_manager):
     assert snapshot["model"] == "claude-3-opus-20240229"
     assert snapshot["stream"] is True
     assert snapshot["function_calling"] is False
+    assert snapshot["temperature"] == 0.0
+    assert snapshot["top_p"] == 1.0
+    assert snapshot["max_output_tokens"] is None
     assert snapshot["timeout"] == 60
     assert snapshot["max_retries"] == 3
     assert snapshot["retry_delay"] == 5
