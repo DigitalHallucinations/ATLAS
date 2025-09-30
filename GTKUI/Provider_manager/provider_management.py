@@ -12,6 +12,7 @@ from GTKUI.Utils.utils import create_box
 from .Settings.HF_settings import HuggingFaceSettingsWindow
 from .Settings.OA_settings import OpenAISettingsWindow
 from .Settings.Anthropic_settings import AnthropicSettingsWindow
+from .Settings.Google_settings import GoogleSettingsWindow
 
 class ProviderManagement:
     """
@@ -160,6 +161,8 @@ class ProviderManagement:
 
         if provider_name == "OpenAI":
             self.show_openai_settings()
+        elif provider_name == "Google":
+            self.show_google_settings()
         elif provider_name == "HuggingFace":
             try:
                 result = self.ATLAS.ensure_huggingface_ready()
@@ -212,6 +215,13 @@ class ProviderManagement:
 
         settings_window = AnthropicSettingsWindow(self.ATLAS, self.config_manager, self.parent_window)
         settings_window.set_tooltip_text("Configure Anthropic defaults and retry behaviour.")
+        settings_window.present()
+
+    def show_google_settings(self):
+        """Display the Google provider configuration dialog."""
+
+        settings_window = GoogleSettingsWindow(self.ATLAS, self.config_manager, self.parent_window)
+        settings_window.set_tooltip_text("Configure Google Gemini defaults and safety filters.")
         settings_window.present()
 
     # ------------------------ Settings Window ------------------------

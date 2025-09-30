@@ -566,6 +566,17 @@ class DummyConfig:
             "thinking": False,
             "thinking_budget": None,
         }
+        self._google_settings = {
+            "model": "gemini-1.5-pro-latest",
+            "temperature": 0.0,
+            "top_p": 1.0,
+            "top_k": None,
+            "candidate_count": 1,
+            "stop_sequences": [],
+            "safety_settings": [],
+            "response_mime_type": None,
+            "system_instruction": None,
+        }
 
     def get_default_provider(self):
         return "OpenAI"
@@ -712,6 +723,53 @@ class DummyConfig:
                 int(thinking_budget) if str(thinking_budget).strip() else None
             )
         return dict(self._anthropic_settings)
+
+    def get_google_llm_settings(self):
+        return dict(self._google_settings)
+
+    def set_google_llm_settings(
+        self,
+        *,
+        model,
+        temperature=None,
+        top_p=None,
+        top_k=None,
+        candidate_count=None,
+        stop_sequences=None,
+        safety_settings=None,
+        response_mime_type=None,
+        system_instruction=None,
+    ):
+        if model:
+            self._google_settings["model"] = model
+        if temperature is not None:
+            self._google_settings["temperature"] = float(temperature)
+        if top_p is not None:
+            self._google_settings["top_p"] = float(top_p)
+        if top_k in ("", None):
+            self._google_settings["top_k"] = None
+        elif top_k is not None:
+            self._google_settings["top_k"] = int(top_k)
+        if candidate_count is not None:
+            self._google_settings["candidate_count"] = int(candidate_count)
+        if stop_sequences is not None:
+            if isinstance(stop_sequences, str):
+                items = [part.strip() for part in stop_sequences.split(",") if part.strip()]
+            else:
+                items = [
+                    str(item).strip()
+                    for item in (stop_sequences or [])
+                    if str(item).strip()
+                ]
+            self._google_settings["stop_sequences"] = items
+        if safety_settings is not None:
+            self._google_settings["safety_settings"] = list(safety_settings)
+        if response_mime_type is not None:
+            self._google_settings["response_mime_type"] = response_mime_type
+        if system_instruction is not None:
+            self._google_settings["system_instruction"] = system_instruction
+
+        return dict(self._google_settings)
 
     def get_app_root(self):
         return self._root_path
@@ -1205,6 +1263,36 @@ def test_set_openai_llm_settings_updates_provider_state(provider_manager):
     assert settings["audio_format"] == "wav"
     assert provider_manager.model_manager.models["OpenAI"][0] == "gpt-4o-mini"
     assert provider_manager.current_model == "gpt-4o-mini"
+
+
+def test_set_google_llm_settings_updates_provider_state(provider_manager):
+    provider_manager.model_manager.models["Google"] = ["gemini-1.5-pro-latest", "legacy"]
+    provider_manager.current_llm_provider = "Google"
+
+    result = provider_manager.set_google_llm_settings(
+        model="gemini-1.5-flash-latest",
+        temperature=0.55,
+        top_p=0.8,
+        top_k=64,
+        candidate_count=2,
+        stop_sequences=["STOP", "END"],
+        safety_settings=[
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_LOW_AND_ABOVE"}
+        ],
+    )
+
+    assert result["success"] is True
+    settings = provider_manager.config_manager.get_google_llm_settings()
+    assert settings["model"] == "gemini-1.5-flash-latest"
+    assert math.isclose(settings["temperature"], 0.55)
+    assert math.isclose(settings["top_p"], 0.8)
+    assert settings["top_k"] == 64
+    assert settings["candidate_count"] == 2
+    assert settings["stop_sequences"] == ["STOP", "END"]
+    assert settings["safety_settings"][0]["category"] == "HARM_CATEGORY_DANGEROUS_CONTENT"
+    assert settings["safety_settings"][0]["threshold"] == "BLOCK_LOW_AND_ABOVE"
+    assert provider_manager.model_manager.models["Google"][0] == "gemini-1.5-flash-latest"
+    assert provider_manager.current_model == "gemini-1.5-flash-latest"
 
 
 def test_generate_response_respects_function_calling_enabled(provider_manager):

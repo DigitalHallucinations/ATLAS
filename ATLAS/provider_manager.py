@@ -274,6 +274,74 @@ class ProviderManager:
 
         return settings
 
+    def set_google_llm_settings(
+        self,
+        *,
+        model: str,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        top_k: Optional[Any] = None,
+        candidate_count: Optional[int] = None,
+        stop_sequences: Optional[Any] = None,
+        safety_settings: Optional[Any] = None,
+        response_mime_type: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist Google Gemini defaults and promote the saved model when possible."""
+
+        setter = getattr(self.config_manager, "set_google_llm_settings", None)
+        if not callable(setter):
+            self.logger.error("Config manager does not expose Google settings setter.")
+            return self._build_result(
+                False,
+                error="Configuration backend does not support Google provider defaults.",
+            )
+
+        try:
+            settings = setter(
+                model=model,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                candidate_count=candidate_count,
+                stop_sequences=stop_sequences,
+                safety_settings=safety_settings,
+                response_mime_type=response_mime_type,
+                system_instruction=system_instruction,
+            )
+        except Exception as exc:
+            self.logger.error("Failed to persist Google settings: %s", exc, exc_info=True)
+            return self._build_result(False, error=str(exc))
+
+        promoted_model = settings.get("model") if isinstance(settings, dict) else None
+        if isinstance(promoted_model, str) and promoted_model:
+            with self.model_manager.lock:
+                current = list(self.model_manager.models.get("Google", []))
+                reordered = [promoted_model] + [name for name in current if name != promoted_model]
+                self.model_manager.models["Google"] = reordered or [promoted_model]
+            self.model_manager.set_model(promoted_model, "Google")
+            if self.current_llm_provider == "Google":
+                self.current_model = promoted_model
+
+        message = "Google settings saved."
+        return self._build_result(True, message=message, data=settings)
+
+    def get_google_llm_settings(self) -> Dict[str, Any]:
+        """Return persisted Google Gemini defaults, if available."""
+
+        getter = getattr(self.config_manager, "get_google_llm_settings", None)
+        if not callable(getter):
+            self.logger.warning("Config manager does not expose Google settings accessor.")
+            return {}
+
+        try:
+            settings = getter() or {}
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to load Google settings: %s", exc, exc_info=True)
+            return {}
+
+        return settings
+
     def set_anthropic_settings(
         self,
         *,
