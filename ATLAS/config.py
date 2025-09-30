@@ -2,12 +2,15 @@
 
 import json
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+
+_UNSET = object()
 from modules.logging.logger import setup_logger
 from dotenv import load_dotenv, set_key, find_dotenv
 import yaml
 
 class ConfigManager:
+    UNSET = _UNSET
     """
     Manages configuration settings for the application, including loading
     environment variables and handling API keys for various providers.
@@ -577,10 +580,12 @@ class ConfigManager:
         function_calling: Optional[bool] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
+        top_k: Any = _UNSET,
         max_output_tokens: Optional[int] = None,
         timeout: Optional[int] = None,
         max_retries: Optional[int] = None,
         retry_delay: Optional[int] = None,
+        stop_sequences: Any = _UNSET,
     ) -> Dict[str, Any]:
         """Persist Anthropic defaults while validating incoming payloads."""
 
@@ -590,10 +595,12 @@ class ConfigManager:
             'function_calling': False,
             'temperature': 0.0,
             'top_p': 1.0,
+            'top_k': None,
             'max_output_tokens': None,
             'timeout': 60,
             'max_retries': 3,
             'retry_delay': 5,
+            'stop_sequences': [],
         }
 
         settings_block = dict(defaults)
@@ -601,7 +608,24 @@ class ConfigManager:
         if isinstance(existing, dict):
             for key in settings_block.keys():
                 if key in existing and existing[key] is not None:
-                    settings_block[key] = existing[key]
+                    try:
+                        if key == 'top_k':
+                            settings_block[key] = self._coerce_optional_bounded_int(
+                                existing[key],
+                                field='Top-k',
+                                minimum=1,
+                                maximum=500,
+                            )
+                        elif key == 'stop_sequences':
+                            settings_block[key] = self._coerce_stop_sequences(existing[key])
+                        else:
+                            settings_block[key] = existing[key]
+                    except ValueError as exc:  # pragma: no cover - defensive logging
+                        self.logger.warning(
+                            "Ignoring persisted Anthropic %s override: %s",
+                            key,
+                            exc,
+                        )
 
         def _normalize_model(value: Optional[str], previous: Optional[str]) -> str:
             if value is None:
@@ -699,6 +723,13 @@ class ConfigManager:
             minimum=0.0,
             maximum=1.0,
         )
+        if top_k is not _UNSET:
+            settings_block['top_k'] = self._coerce_optional_bounded_int(
+                top_k,
+                field='Top-k',
+                minimum=1,
+                maximum=500,
+            )
         settings_block['max_output_tokens'] = _normalize_optional_int(
             max_output_tokens,
             settings_block.get('max_output_tokens', defaults['max_output_tokens']),
@@ -723,6 +754,8 @@ class ConfigManager:
             field='Retry delay',
             minimum=0,
         )
+        if stop_sequences is not _UNSET:
+            settings_block['stop_sequences'] = self._coerce_stop_sequences(stop_sequences)
 
         self.yaml_config['ANTHROPIC_LLM'] = dict(settings_block)
         self.config['ANTHROPIC_LLM'] = dict(settings_block)
@@ -740,19 +773,92 @@ class ConfigManager:
             'function_calling': False,
             'temperature': 0.0,
             'top_p': 1.0,
+            'top_k': None,
             'max_output_tokens': None,
             'timeout': 60,
             'max_retries': 3,
             'retry_delay': 5,
+            'stop_sequences': [],
         }
 
         stored = self.get_config('ANTHROPIC_LLM')
         if isinstance(stored, dict):
             for key in defaults.keys():
                 if key in stored and stored[key] is not None:
-                    defaults[key] = stored[key]
+                    try:
+                        if key == 'top_k':
+                            defaults[key] = self._coerce_optional_bounded_int(
+                                stored[key],
+                                field='Top-k',
+                                minimum=1,
+                                maximum=500,
+                            )
+                        elif key == 'stop_sequences':
+                            defaults[key] = self._coerce_stop_sequences(stored[key])
+                        else:
+                            defaults[key] = stored[key]
+                    except ValueError as exc:  # pragma: no cover - defensive logging
+                        self.logger.warning(
+                            "Ignoring persisted Anthropic %s override while loading: %s",
+                            key,
+                            exc,
+                        )
 
         return defaults
+
+    @staticmethod
+    def _coerce_optional_bounded_int(
+        value: Any,
+        *,
+        field: str,
+        minimum: int,
+        maximum: int,
+    ) -> Optional[int]:
+        """Validate an optional integer ensuring it falls within provided bounds."""
+
+        if value in {None, ""}:
+            return None
+
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field} must be an integer or left blank.") from exc
+
+        if parsed < minimum or parsed > maximum:
+            raise ValueError(
+                f"{field} must be between {minimum} and {maximum}."
+            )
+
+        return parsed
+
+    @staticmethod
+    def _coerce_stop_sequences(value: Any) -> List[str]:
+        """Coerce stop sequences supplied as a CSV string or list of strings."""
+
+        if value is None or value == "":
+            return []
+
+        tokens: List[str] = []
+        if isinstance(value, str):
+            tokens = [part.strip() for part in value.split(',') if part.strip()]
+        elif isinstance(value, (list, tuple, set)):
+            for item in value:
+                if item in {None, ""}:
+                    continue
+                if not isinstance(item, str):
+                    raise ValueError("Stop sequences must be strings.")
+                cleaned = item.strip()
+                if cleaned:
+                    tokens.append(cleaned)
+        else:
+            raise ValueError(
+                "Stop sequences must be provided as a comma-separated string or list of strings."
+            )
+
+        if len(tokens) > 4:
+            raise ValueError("Stop sequences cannot contain more than 4 entries.")
+
+        return tokens
 
 
     def get_openai_api_key(self) -> str:

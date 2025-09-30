@@ -4,6 +4,7 @@
 
 import asyncio
 import json
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
@@ -76,6 +77,51 @@ def _normalise_optional_positive_int(
     return parsed
 
 
+def _normalise_optional_bounded_int(
+    value: Any,
+    fallback: Optional[int],
+    *,
+    minimum: int,
+    maximum: int,
+) -> Optional[int]:
+    """Return ``None`` or an integer constrained to the provided bounds."""
+
+    if value in {None, ""}:
+        return None if fallback is None else max(min(int(fallback), maximum), minimum)
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None if fallback is None else max(min(int(fallback), maximum), minimum)
+
+    if parsed < minimum or parsed > maximum:
+        return None if fallback is None else max(min(int(fallback), maximum), minimum)
+
+    return parsed
+
+
+def _normalise_stop_sequences(value: Any) -> List[str]:
+    """Convert stop sequences into a cleaned list limited to four entries."""
+
+    if value is None or value == "":
+        return []
+
+    if isinstance(value, str):
+        entries = [part.strip() for part in value.split(",") if part.strip()]
+    elif isinstance(value, (list, tuple, set)):
+        entries = []
+        for item in value:
+            if item in {None, ""}:
+                continue
+            text = str(item).strip()
+            if text:
+                entries.append(text)
+    else:
+        return []
+
+    return entries[:4]
+
+
 class AnthropicGenerator:
     def __init__(self, config_manager: Optional[ConfigManager] = None):
         self.config_manager = config_manager or ConfigManager()
@@ -90,10 +136,12 @@ class AnthropicGenerator:
         self.function_calling_enabled = False
         self.temperature = 0.0
         self.top_p = 1.0
+        self.top_k: Optional[int] = None
         self.max_output_tokens: Optional[int] = None
         self.max_retries = 3
         self.retry_delay = 5
         self.timeout = 60
+        self.stop_sequences: List[str] = []
 
         settings: Dict[str, Any] = {}
         getter = getattr(self.config_manager, "get_anthropic_settings", None)
@@ -130,6 +178,15 @@ class AnthropicGenerator:
                     stored_top_p, self.top_p
                 )
 
+            stored_top_k = settings.get("top_k")
+            if stored_top_k is not None:
+                self.top_k = _normalise_optional_bounded_int(
+                    stored_top_k,
+                    self.top_k,
+                    minimum=1,
+                    maximum=500,
+                )
+
             stored_max_output = settings.get("max_output_tokens")
             if stored_max_output is not None:
                 self.max_output_tokens = _normalise_optional_positive_int(
@@ -137,6 +194,10 @@ class AnthropicGenerator:
                 )
             else:
                 self.max_output_tokens = None
+
+            stored_stop_sequences = settings.get("stop_sequences")
+            if stored_stop_sequences is not None:
+                self.stop_sequences = _normalise_stop_sequences(stored_stop_sequences)
 
             timeout = settings.get("timeout")
             if isinstance(timeout, (int, float)) and timeout > 0:
@@ -156,10 +217,12 @@ class AnthropicGenerator:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
         max_output_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
         current_persona=None,
         functions: Optional[List[Dict]] = None,
+        stop_sequences: Optional[Any] = None,
         **kwargs
     ) -> Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]:
         try:
@@ -180,6 +243,17 @@ class AnthropicGenerator:
                 self.max_output_tokens,
             )
 
+            resolved_top_k = _normalise_optional_bounded_int(
+                top_k if top_k is not None else self.top_k,
+                self.top_k,
+                minimum=1,
+                maximum=500,
+            )
+
+            resolved_stop_sequences = _normalise_stop_sequences(
+                stop_sequences if stop_sequences is not None else self.stop_sequences
+            )
+
             self.logger.info(f"Generating response with Anthropic AI using model: {model}")
 
             system_prompt, message_payload = self._prepare_messages(messages)
@@ -194,6 +268,12 @@ class AnthropicGenerator:
 
             if resolved_max_output_tokens is not None:
                 message_params["max_output_tokens"] = resolved_max_output_tokens
+
+            if resolved_top_k is not None:
+                message_params["top_k"] = resolved_top_k
+
+            if resolved_stop_sequences:
+                message_params["stop_sequences"] = resolved_stop_sequences
 
             if system_prompt:
                 message_params["system"] = system_prompt
@@ -330,6 +410,11 @@ class AnthropicGenerator:
                     "Streaming request timed out after %s seconds without receiving data",
                     self.timeout,
                 )
+                if not getattr(self.logger, "propagate", True):
+                    logging.getLogger().error(
+                        "Streaming request timed out after %s seconds without receiving data",
+                        self.timeout,
+                    )
                 raise
             except RateLimitError as exc:
                 if attempt >= schedule.attempts:
@@ -471,6 +556,24 @@ class AnthropicGenerator:
         self.top_p = _normalise_probability(top_p, self.top_p)
         self.logger.info(f"Top-p set to: {self.top_p}")
 
+    def set_top_k(self, top_k: Optional[int]):
+        if top_k in {None, ""}:
+            self.top_k = None
+            self.logger.info("Top-k cleared (default behavior will be used)")
+            return
+
+        resolved = _normalise_optional_bounded_int(
+            top_k,
+            self.top_k,
+            minimum=1,
+            maximum=500,
+        )
+        self.top_k = resolved
+        if resolved is None:
+            self.logger.info("Top-k cleared (default behavior will be used)")
+        else:
+            self.logger.info(f"Top-k set to: {resolved}")
+
     def set_max_output_tokens(self, max_output_tokens: Optional[int]):
         if max_output_tokens in {None, ""}:
             self.max_output_tokens = None
@@ -503,6 +606,17 @@ class AnthropicGenerator:
         self.retry_delay = retry_delay_value
         self.logger.info(f"Retry delay set to: {retry_delay_value} seconds")
 
+    def set_stop_sequences(self, stop_sequences: Optional[Any]):
+        sequences = _normalise_stop_sequences(stop_sequences)
+        self.stop_sequences = sequences
+        if sequences:
+            self.logger.info(
+                "Stop sequences set to: %s",
+                ", ".join(sequences),
+            )
+        else:
+            self.logger.info("Stop sequences cleared")
+
     def _build_retry_schedule(self) -> _RetrySchedule:
         configured_attempts = _normalise_positive_int(
             self.max_retries, self.max_retries, minimum=0
@@ -520,10 +634,12 @@ async def generate_response(
     model: Optional[str] = None,
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
+    top_k: Optional[int] = None,
     max_output_tokens: Optional[int] = None,
     stream: Optional[bool] = None,
     current_persona=None,
     functions: Optional[List[Dict]] = None,
+    stop_sequences: Optional[Any] = None,
     **kwargs
 ) -> Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]:
     generator = setup_anthropic_generator(config_manager)
@@ -532,10 +648,12 @@ async def generate_response(
         model,
         temperature=temperature,
         top_p=top_p,
+        top_k=top_k,
         max_output_tokens=max_output_tokens,
         stream=stream,
         current_persona=current_persona,
         functions=functions,
+        stop_sequences=stop_sequences,
         **kwargs,
     )
 

@@ -542,10 +542,12 @@ class DummyConfig:
             "function_calling": False,
             "temperature": 0.0,
             "top_p": 1.0,
+            "top_k": None,
             "max_output_tokens": None,
             "timeout": 60,
             "max_retries": 3,
             "retry_delay": 5,
+            "stop_sequences": [],
         }
 
     def get_default_provider(self):
@@ -627,10 +629,12 @@ class DummyConfig:
         function_calling=None,
         temperature=None,
         top_p=None,
+        top_k=None,
         max_output_tokens=None,
         timeout=None,
         max_retries=None,
         retry_delay=None,
+        stop_sequences=None,
     ):
         if model is not None:
             self._anthropic_settings["model"] = model
@@ -642,6 +646,10 @@ class DummyConfig:
             self._anthropic_settings["temperature"] = float(temperature)
         if top_p is not None:
             self._anthropic_settings["top_p"] = float(top_p)
+        if top_k is not None:
+            self._anthropic_settings["top_k"] = (
+                int(top_k) if top_k not in {"", None} else None
+            )
         if max_output_tokens is not None:
             self._anthropic_settings["max_output_tokens"] = (
                 int(max_output_tokens)
@@ -654,6 +662,16 @@ class DummyConfig:
             self._anthropic_settings["max_retries"] = int(max_retries)
         if retry_delay is not None:
             self._anthropic_settings["retry_delay"] = int(retry_delay)
+        if stop_sequences is not None:
+            if isinstance(stop_sequences, str):
+                items = [part.strip() for part in stop_sequences.split(",") if part.strip()]
+            else:
+                items = [
+                    str(item).strip()
+                    for item in (stop_sequences or [])
+                    if str(item).strip()
+                ]
+            self._anthropic_settings["stop_sequences"] = items
         return dict(self._anthropic_settings)
 
     def get_app_root(self):
@@ -1416,10 +1434,12 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
         "function_calling": False,
         "temperature": 0.1,
         "top_p": 0.95,
+        "top_k": 12,
         "max_output_tokens": None,
         "timeout": 75,
         "max_retries": 2,
         "retry_delay": 6,
+        "stop_sequences": ["END"],
     }
     atlas_stub.get_models_for_provider = lambda name: [
         "claude-3-opus-20240229",
@@ -1439,7 +1459,9 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
     assert window.function_call_toggle.get_active() is False
     assert round(window.temperature_spin.get_value(), 2) == 0.1
     assert round(window.top_p_spin.get_value(), 2) == 0.95
+    assert window.top_k_spin.get_value_as_int() == 12
     assert window.max_output_tokens_spin.get_value_as_int() == 0
+    assert window.stop_sequences_entry.get_text() == "END"
     assert window.timeout_spin.get_value_as_int() == 75
     assert window.max_retries_spin.get_value_as_int() == 2
     assert window.retry_delay_spin.get_value_as_int() == 6
@@ -1449,7 +1471,9 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
     window.function_call_toggle.set_active(True)
     window.temperature_spin.set_value(0.55)
     window.top_p_spin.set_value(0.85)
+    window.top_k_spin.set_value(25)
     window.max_output_tokens_spin.set_value(4096)
+    window.stop_sequences_entry.set_text("END, FINISH")
     window.timeout_spin.set_value(180)
     window.max_retries_spin.set_value(6)
     window.retry_delay_spin.set_value(15)
@@ -1461,7 +1485,9 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
     assert saved_payload["function_calling"] is True
     assert math.isclose(saved_payload["temperature"], 0.55)
     assert math.isclose(saved_payload["top_p"], 0.85)
+    assert saved_payload["top_k"] == 25
     assert saved_payload["max_output_tokens"] == 4096
+    assert saved_payload["stop_sequences"] == ["END", "FINISH"]
     assert saved_payload["timeout"] == 180
     assert saved_payload["max_retries"] == 6
     assert saved_payload["retry_delay"] == 15
@@ -1481,10 +1507,12 @@ def test_anthropic_settings_window_saves_api_key(provider_manager):
         "function_calling": False,
         "temperature": 0.0,
         "top_p": 1.0,
+        "top_k": None,
         "max_output_tokens": None,
         "timeout": 60,
         "max_retries": 3,
         "retry_delay": 5,
+        "stop_sequences": [],
     }
     atlas_stub.get_models_for_provider = lambda name: ["claude-3-opus-20240229"]
 
@@ -1524,10 +1552,12 @@ def test_anthropic_settings_window_fallback_is_non_blocking(provider_manager, mo
         "function_calling": False,
         "temperature": 0.0,
         "top_p": 1.0,
+        "top_k": None,
         "max_output_tokens": None,
         "timeout": 60,
         "max_retries": 3,
         "retry_delay": 5,
+        "stop_sequences": [],
     }
     atlas_stub.get_models_for_provider = lambda name: ["claude-3-opus-20240229"]
 
@@ -1653,6 +1683,9 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
         def set_top_p(self, value):
             captured["top_p"] = value
 
+        def set_top_k(self, value):
+            captured["top_k"] = value
+
         def set_max_output_tokens(self, value):
             captured["max_output_tokens"] = value
 
@@ -1665,6 +1698,9 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
         def set_retry_delay(self, value):
             captured["retry_delay"] = value
 
+        def set_stop_sequences(self, value):
+            captured["stop_sequences"] = value
+
     stub = _StubGenerator()
     monkeypatch.setattr(provider_manager, "_ensure_anthropic_generator", lambda: stub)
 
@@ -1676,10 +1712,12 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
         function_calling=True,
         temperature=0.4,
         top_p=0.88,
+        top_k=55,
         max_output_tokens=2048,
         timeout=90,
         max_retries=4,
         retry_delay=12,
+        stop_sequences=["END", "STOP"],
     )
 
     assert result["success"] is True
@@ -1687,15 +1725,19 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
     assert data["model"] == "claude-3-haiku-20240229"
     assert math.isclose(data["temperature"], 0.4)
     assert math.isclose(data["top_p"], 0.88)
+    assert data["top_k"] == 55
     assert data["max_output_tokens"] == 2048
+    assert data["stop_sequences"] == ["END", "STOP"]
     assert captured["model"] == "claude-3-haiku-20240229"
     assert captured["stream"] is False
     assert captured["function_calling"] is True
     assert math.isclose(captured["temperature"], 0.4)
     assert math.isclose(captured["top_p"], 0.88)
+    assert captured["top_k"] == 55
     assert captured["max_output_tokens"] == 2048
     assert captured["timeout"] == 90
     assert captured["max_retries"] == 4
     assert captured["retry_delay"] == 12
+    assert captured["stop_sequences"] == ["END", "STOP"]
     assert provider_manager.current_model == "claude-3-haiku-20240229"
     assert provider_manager.model_manager.models["Anthropic"][0] == "claude-3-haiku-20240229"

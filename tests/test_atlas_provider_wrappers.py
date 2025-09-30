@@ -7,6 +7,7 @@ import sys
 import types
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Dict
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -516,6 +517,8 @@ def test_anthropic_generator_uses_default_config(monkeypatch):
     generator = anthropic_module.AnthropicGenerator()
 
     assert generator.api_key == "anthropic-key"
+    assert generator.top_k is None
+    assert generator.stop_sequences == []
 
 
 def test_anthropic_generator_allows_additional_retry_attempt(monkeypatch):
@@ -541,11 +544,18 @@ def test_anthropic_generator_allows_additional_retry_attempt(monkeypatch):
 
     config = SimpleNamespace(
         get_anthropic_api_key=lambda: "key",
-        get_anthropic_settings=lambda: {"max_retries": 2, "retry_delay": 0},
+        get_anthropic_settings=lambda: {
+            "max_retries": 2,
+            "retry_delay": 0,
+            "top_k": 33,
+            "stop_sequences": ["END"],
+        },
     )
 
     async def _run():
         generator = anthropic_module.AnthropicGenerator(config)
+        assert generator.top_k == 33
+        assert generator.stop_sequences == ["END"]
         return await generator._create_message_with_retry({})
 
     result = asyncio.run(_run())
@@ -574,17 +584,65 @@ def test_anthropic_generator_stops_after_configured_additional_retries(monkeypat
 
     config = SimpleNamespace(
         get_anthropic_api_key=lambda: "key",
-        get_anthropic_settings=lambda: {"max_retries": 2, "retry_delay": 0},
+        get_anthropic_settings=lambda: {
+            "max_retries": 2,
+            "retry_delay": 0,
+            "top_k": 44,
+            "stop_sequences": ["END", "STOP"],
+        },
     )
 
     async def _run():
         generator = anthropic_module.AnthropicGenerator(config)
+        assert generator.top_k == 44
+        assert generator.stop_sequences == ["END", "STOP"]
         with pytest.raises(anthropic_module.RateLimitError):
             await generator._create_message_with_retry({})
 
     asyncio.run(_run())
 
     assert calls["count"] == 3
+
+
+def test_anthropic_generator_merges_sampling_overrides(monkeypatch):
+    from modules.Providers.Anthropic import Anthropic_gen_response as anthropic_module
+
+    captured: Dict[str, Any] = {}
+
+    class _StubMessages:
+        async def create(self, *_, **kwargs):
+            captured.update(kwargs)
+            return types.SimpleNamespace(content=[])
+
+    class _StubClient:
+        def __init__(self, *_args, **_kwargs):
+            self.messages = _StubMessages()
+
+    monkeypatch.setattr(anthropic_module, "AsyncAnthropic", _StubClient)
+
+    config = SimpleNamespace(
+        get_anthropic_api_key=lambda: "key",
+        get_anthropic_settings=lambda: {
+            "top_k": 13,
+            "stop_sequences": ["DEFAULT"],
+        },
+    )
+
+    async def _run():
+        generator = anthropic_module.AnthropicGenerator(config)
+        await generator.generate_response(
+            messages=[{"role": "user", "content": "hi"}],
+            top_k=7,
+            stop_sequences=["END", "STOP"],
+            max_output_tokens=256,
+            stream=False,
+        )
+
+    asyncio.run(_run())
+
+    assert captured["top_k"] == 7
+    assert captured["stop_sequences"] == ["END", "STOP"]
+    assert captured["max_output_tokens"] == 256
 
 
 def _build_atlas(atlas_class):
