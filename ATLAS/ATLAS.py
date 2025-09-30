@@ -761,6 +761,12 @@ class ATLAS:
         settings = self._require_provider_manager().get_openai_llm_settings()
         return dict(settings)
 
+    def get_google_llm_settings(self) -> Dict[str, Any]:
+        """Expose the persisted Google Gemini defaults via the provider manager."""
+
+        settings = self._require_provider_manager().get_google_llm_settings()
+        return dict(settings)
+
     def get_anthropic_settings(self) -> Dict[str, Any]:
         """Return Anthropic defaults via the provider manager facade."""
 
@@ -826,6 +832,38 @@ class ATLAS:
             audio_enabled=audio_enabled,
             audio_voice=audio_voice,
             audio_format=audio_format,
+        )
+
+    def set_google_llm_settings(
+        self,
+        *,
+        model: str,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        top_k: Optional[Any] = None,
+        candidate_count: Optional[int] = None,
+        stop_sequences: Optional[Any] = None,
+        safety_settings: Optional[Any] = None,
+        response_mime_type: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist Google defaults through the provider manager facade."""
+
+        manager = self._require_provider_manager()
+        setter = getattr(manager, "set_google_llm_settings", None)
+        if not callable(setter):
+            raise AttributeError("Provider manager does not support Google settings updates.")
+
+        return setter(
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            candidate_count=candidate_count,
+            stop_sequences=stop_sequences,
+            safety_settings=safety_settings,
+            response_mime_type=response_mime_type,
+            system_instruction=system_instruction,
         )
 
     def set_anthropic_settings(
