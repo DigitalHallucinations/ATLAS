@@ -28,15 +28,34 @@ class AnthropicSettingsWindow(Gtk.Window):
         if parent_window is not None:
             self.set_transient_for(parent_window)
         self.set_modal(True)
-        self.set_default_size(420, 260)
+        self.set_default_size(480, 360)
 
         self._last_message: Optional[Tuple[str, str, Gtk.MessageType]] = None
 
         container = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=12)
         self.set_child(container)
 
-        grid = Gtk.Grid(column_spacing=12, row_spacing=8)
-        container.append(grid)
+        notebook = Gtk.Notebook()
+        notebook.set_hexpand(True)
+        notebook.set_vexpand(True)
+        container.append(notebook)
+
+        general_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
+        general_grid.set_margin_top(6)
+        general_grid.set_margin_bottom(6)
+        general_grid.set_margin_start(6)
+        general_grid.set_margin_end(6)
+        notebook.append_page(general_grid, Gtk.Label(label="General"))
+
+        advanced_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
+        advanced_grid.set_margin_top(6)
+        advanced_grid.set_margin_bottom(6)
+        advanced_grid.set_margin_start(6)
+        advanced_grid.set_margin_end(6)
+        advanced_scroller = Gtk.ScrolledWindow()
+        advanced_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        advanced_scroller.set_child(advanced_grid)
+        notebook.append_page(advanced_scroller, Gtk.Label(label="Advanced"))
 
         self._api_key_visible = False
         self._default_api_key_placeholder = "Enter your Anthropic API key"
@@ -63,10 +82,10 @@ class AnthropicSettingsWindow(Gtk.Window):
         row = 0
         api_label = Gtk.Label(label="Anthropic API Key:")
         api_label.set_xalign(0.0)
-        grid.attach(api_label, 0, row, 1, 1)
+        general_grid.attach(api_label, 0, row, 1, 1)
 
         api_entry_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        grid.attach(api_entry_box, 1, row, 1, 1)
+        general_grid.attach(api_entry_box, 1, row, 1, 1)
 
         self.api_key_entry = Gtk.Entry()
         self.api_key_entry.set_hexpand(True)
@@ -85,25 +104,25 @@ class AnthropicSettingsWindow(Gtk.Window):
         row += 1
         self.api_key_status_label = Gtk.Label(label="")
         self.api_key_status_label.set_xalign(0.0)
-        grid.attach(self.api_key_status_label, 0, row, 2, 1)
+        general_grid.attach(self.api_key_status_label, 0, row, 2, 1)
 
         row += 1
         model_label = Gtk.Label(label="Default Model:")
         model_label.set_xalign(0.0)
-        grid.attach(model_label, 0, row, 1, 1)
+        general_grid.attach(model_label, 0, row, 1, 1)
 
         self.model_combo = Gtk.ComboBoxText()
         self.model_combo.set_hexpand(True)
         if hasattr(self.model_combo, "connect"):
             self.model_combo.connect("changed", self._update_save_button_state)
-        grid.attach(self.model_combo, 1, row, 1, 1)
+        general_grid.attach(self.model_combo, 1, row, 1, 1)
 
         row += 1
         self.streaming_toggle = Gtk.CheckButton(label="Enable streaming responses")
         self.streaming_toggle.set_halign(Gtk.Align.START)
         if hasattr(self.streaming_toggle, "connect"):
             self.streaming_toggle.connect("toggled", self._update_save_button_state)
-        grid.attach(self.streaming_toggle, 0, row, 2, 1)
+        general_grid.attach(self.streaming_toggle, 0, row, 2, 1)
 
         row += 1
         self.function_call_toggle = Gtk.CheckButton(label="Enable tool/function calling")
@@ -111,12 +130,12 @@ class AnthropicSettingsWindow(Gtk.Window):
         if hasattr(self.function_call_toggle, "connect"):
             self.function_call_toggle.connect("toggled", self._update_save_button_state)
             self.function_call_toggle.connect("toggled", self._update_tool_choice_state)
-        grid.attach(self.function_call_toggle, 0, row, 2, 1)
+        general_grid.attach(self.function_call_toggle, 0, row, 2, 1)
 
         row += 1
         tool_choice_label = Gtk.Label(label="Tool behaviour:")
         tool_choice_label.set_xalign(0.0)
-        grid.attach(tool_choice_label, 0, row, 1, 1)
+        general_grid.attach(tool_choice_label, 0, row, 1, 1)
 
         self.tool_choice_combo = Gtk.ComboBoxText()
         self.tool_choice_combo.set_hexpand(True)
@@ -132,12 +151,12 @@ class AnthropicSettingsWindow(Gtk.Window):
         if hasattr(self.tool_choice_combo, "connect"):
             self.tool_choice_combo.connect("changed", self._update_tool_choice_state)
             self.tool_choice_combo.connect("changed", self._update_save_button_state)
-        grid.attach(self.tool_choice_combo, 1, row, 1, 1)
+        general_grid.attach(self.tool_choice_combo, 1, row, 1, 1)
 
         row += 1
         preferred_tool_label = Gtk.Label(label="Preferred tool name:")
         preferred_tool_label.set_xalign(0.0)
-        grid.attach(preferred_tool_label, 0, row, 1, 1)
+        general_grid.attach(preferred_tool_label, 0, row, 1, 1)
 
         self.tool_name_entry = Gtk.Entry()
         self.tool_name_entry.set_hexpand(True)
@@ -145,12 +164,12 @@ class AnthropicSettingsWindow(Gtk.Window):
         if hasattr(self.tool_name_entry, "connect"):
             self.tool_name_entry.connect("changed", self._update_save_button_state)
             self.tool_name_entry.connect("changed", self._update_tool_choice_state)
-        grid.attach(self.tool_name_entry, 1, row, 1, 1)
+        general_grid.attach(self.tool_name_entry, 1, row, 1, 1)
 
-        row += 1
+        advanced_row = 0
         temperature_label = Gtk.Label(label="Sampling temperature:")
         temperature_label.set_xalign(0.0)
-        grid.attach(temperature_label, 0, row, 1, 1)
+        advanced_grid.attach(temperature_label, 0, advanced_row, 1, 1)
         self.temperature_adjustment = Gtk.Adjustment(
             lower=0.0, upper=1.0, step_increment=0.05, page_increment=0.1, value=0.0
         )
@@ -161,12 +180,12 @@ class AnthropicSettingsWindow(Gtk.Window):
         self.temperature_spin.set_hexpand(True)
         if hasattr(self.temperature_spin, "connect"):
             self.temperature_spin.connect("value-changed", self._update_save_button_state)
-        grid.attach(self.temperature_spin, 1, row, 1, 1)
+        advanced_grid.attach(self.temperature_spin, 1, advanced_row, 1, 1)
 
-        row += 1
+        advanced_row += 1
         top_p_label = Gtk.Label(label="Top-p (nucleus sampling):")
         top_p_label.set_xalign(0.0)
-        grid.attach(top_p_label, 0, row, 1, 1)
+        advanced_grid.attach(top_p_label, 0, advanced_row, 1, 1)
         self.top_p_adjustment = Gtk.Adjustment(
             lower=0.0, upper=1.0, step_increment=0.05, page_increment=0.1, value=1.0
         )
@@ -175,12 +194,12 @@ class AnthropicSettingsWindow(Gtk.Window):
         self.top_p_spin.set_hexpand(True)
         if hasattr(self.top_p_spin, "connect"):
             self.top_p_spin.connect("value-changed", self._update_save_button_state)
-        grid.attach(self.top_p_spin, 1, row, 1, 1)
+        advanced_grid.attach(self.top_p_spin, 1, advanced_row, 1, 1)
 
-        row += 1
+        advanced_row += 1
         top_k_label = Gtk.Label(label="Top-k (0 = default):")
         top_k_label.set_xalign(0.0)
-        grid.attach(top_k_label, 0, row, 1, 1)
+        advanced_grid.attach(top_k_label, 0, advanced_row, 1, 1)
         self.top_k_adjustment = Gtk.Adjustment(
             lower=0, upper=500, step_increment=1, page_increment=10, value=0
         )
@@ -190,12 +209,12 @@ class AnthropicSettingsWindow(Gtk.Window):
         self.top_k_spin.set_hexpand(True)
         if hasattr(self.top_k_spin, "connect"):
             self.top_k_spin.connect("value-changed", self._update_save_button_state)
-        grid.attach(self.top_k_spin, 1, row, 1, 1)
+        advanced_grid.attach(self.top_k_spin, 1, advanced_row, 1, 1)
 
-        row += 1
+        advanced_row += 1
         max_output_label = Gtk.Label(label="Max output tokens (0 = auto):")
         max_output_label.set_xalign(0.0)
-        grid.attach(max_output_label, 0, row, 1, 1)
+        advanced_grid.attach(max_output_label, 0, advanced_row, 1, 1)
         self.max_output_adjustment = Gtk.Adjustment(
             lower=0, upper=32000, step_increment=64, page_increment=512, value=0
         )
@@ -207,12 +226,12 @@ class AnthropicSettingsWindow(Gtk.Window):
             self.max_output_tokens_spin.connect(
                 "value-changed", self._update_save_button_state
             )
-        grid.attach(self.max_output_tokens_spin, 1, row, 1, 1)
+        advanced_grid.attach(self.max_output_tokens_spin, 1, advanced_row, 1, 1)
 
-        row += 1
+        advanced_row += 1
         stop_sequences_label = Gtk.Label(label="Stop sequences:")
         stop_sequences_label.set_xalign(0.0)
-        grid.attach(stop_sequences_label, 0, row, 1, 1)
+        advanced_grid.attach(stop_sequences_label, 0, advanced_row, 1, 1)
 
         self.stop_sequences_entry = Gtk.Entry()
         self.stop_sequences_entry.set_hexpand(True)
@@ -221,75 +240,75 @@ class AnthropicSettingsWindow(Gtk.Window):
         )
         if hasattr(self.stop_sequences_entry, "connect"):
             self.stop_sequences_entry.connect("changed", self._update_save_button_state)
-        grid.attach(self.stop_sequences_entry, 1, row, 1, 1)
+        advanced_grid.attach(self.stop_sequences_entry, 1, advanced_row, 1, 1)
 
-        row += 1
+        advanced_row += 1
         stop_sequences_help = Gtk.Label(
             label="Example: END, <|stop|>"
         )
         stop_sequences_help.set_xalign(0.0)
         if hasattr(stop_sequences_help, "add_css_class"):
             stop_sequences_help.add_css_class("dim-label")
-        grid.attach(stop_sequences_help, 0, row, 2, 1)
+        advanced_grid.attach(stop_sequences_help, 0, advanced_row, 2, 1)
 
-        row += 1
+        advanced_row += 1
         metadata_label = Gtk.Label(label="Request metadata:")
         metadata_label.set_xalign(0.0)
-        grid.attach(metadata_label, 0, row, 1, 1)
+        advanced_grid.attach(metadata_label, 0, advanced_row, 1, 1)
 
         self.metadata_entry = Gtk.Entry()
         self.metadata_entry.set_hexpand(True)
         self.metadata_entry.set_placeholder_text("key=value, team=research")
         if hasattr(self.metadata_entry, "connect"):
             self.metadata_entry.connect("changed", self._update_save_button_state)
-        grid.attach(self.metadata_entry, 1, row, 1, 1)
+        advanced_grid.attach(self.metadata_entry, 1, advanced_row, 1, 1)
 
-        row += 1
+        advanced_row += 1
         metadata_help = Gtk.Label(
             label="Comma separated pairs or JSON. Max 16 entries."
         )
         metadata_help.set_xalign(0.0)
         if hasattr(metadata_help, "add_css_class"):
             metadata_help.add_css_class("dim-label")
-        grid.attach(metadata_help, 0, row, 2, 1)
+        advanced_grid.attach(metadata_help, 0, advanced_row, 2, 1)
 
-        row += 1
+        advanced_row += 1
         timeout_label = Gtk.Label(label="Request timeout (seconds):")
         timeout_label.set_xalign(0.0)
-        grid.attach(timeout_label, 0, row, 1, 1)
+        advanced_grid.attach(timeout_label, 0, advanced_row, 1, 1)
         self.timeout_adjustment = Gtk.Adjustment(lower=5, upper=600, step_increment=5, page_increment=10, value=60)
         self.timeout_spin = Gtk.SpinButton(adjustment=self.timeout_adjustment, digits=0)
         self.timeout_spin.set_hexpand(True)
         if hasattr(self.timeout_spin, "connect"):
             self.timeout_spin.connect("value-changed", self._update_save_button_state)
-        grid.attach(self.timeout_spin, 1, row, 1, 1)
+        advanced_grid.attach(self.timeout_spin, 1, advanced_row, 1, 1)
 
-        row += 1
+        advanced_row += 1
         retries_label = Gtk.Label(label="Additional retries (after first attempt):")
         retries_label.set_xalign(0.0)
-        grid.attach(retries_label, 0, row, 1, 1)
+        advanced_grid.attach(retries_label, 0, advanced_row, 1, 1)
         self.retries_adjustment = Gtk.Adjustment(lower=0, upper=10, step_increment=1, page_increment=1, value=3)
         self.max_retries_spin = Gtk.SpinButton(adjustment=self.retries_adjustment, digits=0)
         self.max_retries_spin.set_hexpand(True)
         if hasattr(self.max_retries_spin, "connect"):
             self.max_retries_spin.connect("value-changed", self._update_save_button_state)
-        grid.attach(self.max_retries_spin, 1, row, 1, 1)
+        advanced_grid.attach(self.max_retries_spin, 1, advanced_row, 1, 1)
 
-        row += 1
+        advanced_row += 1
         delay_label = Gtk.Label(label="Retry delay (seconds):")
         delay_label.set_xalign(0.0)
-        grid.attach(delay_label, 0, row, 1, 1)
+        advanced_grid.attach(delay_label, 0, advanced_row, 1, 1)
         self.delay_adjustment = Gtk.Adjustment(lower=0, upper=120, step_increment=1, page_increment=5, value=5)
         self.retry_delay_spin = Gtk.SpinButton(adjustment=self.delay_adjustment, digits=0)
         self.retry_delay_spin.set_hexpand(True)
         if hasattr(self.retry_delay_spin, "connect"):
             self.retry_delay_spin.connect("value-changed", self._update_save_button_state)
-        grid.attach(self.retry_delay_spin, 1, row, 1, 1)
+        advanced_grid.attach(self.retry_delay_spin, 1, advanced_row, 1, 1)
 
-        row += 1
+        advanced_row += 1
         thinking_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         thinking_box.set_halign(Gtk.Align.START)
-        grid.attach(thinking_box, 0, row, 2, 1)
+        advanced_grid.attach(thinking_box, 0, advanced_row, 2, 1)
 
         self.thinking_toggle = Gtk.CheckButton(label="Enable Claude thinking outputs (beta)")
         if hasattr(self.thinking_toggle, "connect"):
