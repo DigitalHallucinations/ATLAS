@@ -91,25 +91,28 @@ class GoogleSettingsWindow(Gtk.Window):
             value: index for index, (value, _label) in enumerate(self._function_call_mode_options)
         }
 
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_hexpand(True)
-        scroller.set_vexpand(True)
-        self.set_child(scroller)
+        notebook = Gtk.Notebook()
+        notebook.set_hexpand(True)
+        notebook.set_vexpand(True)
+        self.notebook = notebook
 
-        main_box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=12)
-        scroller.set_child(main_box)
+        credentials_box = create_box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=12,
+            margin=12,
+        )
+        notebook.append_page(credentials_box, Gtk.Label(label="Credentials"))
 
-        grid = Gtk.Grid(column_spacing=12, row_spacing=8)
-        main_box.append(grid)
+        credentials_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
+        credentials_box.append(credentials_grid)
 
         row = 0
         api_label = Gtk.Label(label="Google API Key:")
         api_label.set_xalign(0.0)
-        grid.attach(api_label, 0, row, 1, 1)
+        credentials_grid.attach(api_label, 0, row, 1, 1)
 
         api_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        grid.attach(api_box, 1, row, 1, 1)
+        credentials_grid.attach(api_box, 1, row, 1, 1)
 
         self.api_key_entry = Gtk.Entry()
         self.api_key_entry.set_hexpand(True)
@@ -137,22 +140,38 @@ class GoogleSettingsWindow(Gtk.Window):
         self.api_key_status_label = Gtk.Label(label="")
         self.api_key_status_label.set_xalign(0.0)
         self.api_key_status_label.set_hexpand(True)
-        grid.attach(self.api_key_status_label, 0, row, 2, 1)
+        credentials_grid.attach(self.api_key_status_label, 0, row, 2, 1)
 
-        row += 1
+        general_scroller = Gtk.ScrolledWindow()
+        general_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        general_scroller.set_hexpand(True)
+        general_scroller.set_vexpand(True)
+        notebook.append_page(general_scroller, Gtk.Label(label="General"))
+
+        general_box = create_box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=12,
+            margin=12,
+        )
+        general_scroller.set_child(general_box)
+
+        general_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
+        general_box.append(general_grid)
+
+        general_row = 0
         model_label = Gtk.Label(label="Default model:")
         model_label.set_xalign(0.0)
-        grid.attach(model_label, 0, row, 1, 1)
+        general_grid.attach(model_label, 0, general_row, 1, 1)
 
         self.model_combo = Gtk.ComboBoxText()
         self.model_combo.set_hexpand(True)
         self.model_combo.set_tooltip_text("Pick the default Gemini model used for completions.")
-        grid.attach(self.model_combo, 1, row, 1, 1)
+        general_grid.attach(self.model_combo, 1, general_row, 1, 1)
 
-        row += 1
+        general_row += 1
         temp_label = Gtk.Label(label="Temperature:")
         temp_label.set_xalign(0.0)
-        grid.attach(temp_label, 0, row, 1, 1)
+        general_grid.attach(temp_label, 0, general_row, 1, 1)
 
         self.temperature_adjustment = Gtk.Adjustment(
             lower=0.0, upper=2.0, step_increment=0.05, page_increment=0.1, value=0.0
@@ -164,12 +183,12 @@ class GoogleSettingsWindow(Gtk.Window):
         self.temperature_spin.set_tooltip_text(
             "Higher values introduce more randomness. Range 0.0 – 2.0."
         )
-        grid.attach(self.temperature_spin, 1, row, 1, 1)
+        general_grid.attach(self.temperature_spin, 1, general_row, 1, 1)
 
-        row += 1
+        general_row += 1
         top_p_label = Gtk.Label(label="Top-p:")
         top_p_label.set_xalign(0.0)
-        grid.attach(top_p_label, 0, row, 1, 1)
+        general_grid.attach(top_p_label, 0, general_row, 1, 1)
 
         self.top_p_adjustment = Gtk.Adjustment(
             lower=0.0, upper=1.0, step_increment=0.01, page_increment=0.05, value=1.0
@@ -179,15 +198,15 @@ class GoogleSettingsWindow(Gtk.Window):
         self.top_p_spin.set_tooltip_text(
             "Nucleus sampling parameter. Lower values focus on the most likely tokens."
         )
-        grid.attach(self.top_p_spin, 1, row, 1, 1)
+        general_grid.attach(self.top_p_spin, 1, general_row, 1, 1)
 
-        row += 1
+        general_row += 1
         top_k_label = Gtk.Label(label="Top-k override:")
         top_k_label.set_xalign(0.0)
-        grid.attach(top_k_label, 0, row, 1, 1)
+        general_grid.attach(top_k_label, 0, general_row, 1, 1)
 
         top_k_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        grid.attach(top_k_box, 1, row, 1, 1)
+        general_grid.attach(top_k_box, 1, general_row, 1, 1)
 
         self.top_k_toggle = Gtk.CheckButton(label="Enable")
         self.top_k_toggle.set_tooltip_text(
@@ -204,10 +223,10 @@ class GoogleSettingsWindow(Gtk.Window):
         self.top_k_spin.set_sensitive(False)
         top_k_box.append(self.top_k_spin)
 
-        row += 1
+        general_row += 1
         candidate_label = Gtk.Label(label="Candidate count:")
         candidate_label.set_xalign(0.0)
-        grid.attach(candidate_label, 0, row, 1, 1)
+        general_grid.attach(candidate_label, 0, general_row, 1, 1)
 
         self.candidate_adjustment = Gtk.Adjustment(
             lower=1, upper=8, step_increment=1, page_increment=1, value=1
@@ -216,29 +235,29 @@ class GoogleSettingsWindow(Gtk.Window):
         self.candidate_spin.set_tooltip_text(
             "Number of candidates to request per prompt. Higher values increase cost."
         )
-        grid.attach(self.candidate_spin, 1, row, 1, 1)
+        general_grid.attach(self.candidate_spin, 1, general_row, 1, 1)
 
-        row += 1
+        general_row += 1
         self.stream_toggle = Gtk.CheckButton(label="Enable streaming responses")
         self.stream_toggle.set_halign(Gtk.Align.START)
         self.stream_toggle.set_tooltip_text(
             "Toggle to stream token updates during Gemini completions."
         )
-        grid.attach(self.stream_toggle, 0, row, 2, 1)
+        general_grid.attach(self.stream_toggle, 0, general_row, 2, 1)
 
-        row += 1
+        general_row += 1
         self.function_call_toggle = Gtk.CheckButton(label="Enable tool calling")
         self.function_call_toggle.set_halign(Gtk.Align.START)
         self.function_call_toggle.set_tooltip_text(
             "Allow Gemini to invoke persona tools and function calls by default."
         )
         self.function_call_toggle.connect("toggled", self._on_function_call_toggled)
-        grid.attach(self.function_call_toggle, 0, row, 2, 1)
+        general_grid.attach(self.function_call_toggle, 0, general_row, 2, 1)
 
-        row += 1
+        general_row += 1
         function_mode_label = Gtk.Label(label="Function call mode:")
         function_mode_label.set_xalign(0.0)
-        grid.attach(function_mode_label, 0, row, 1, 1)
+        general_grid.attach(function_mode_label, 0, general_row, 1, 1)
 
         self.function_call_mode_combo = Gtk.ComboBoxText()
         for _value, label in self._function_call_mode_options:
@@ -246,12 +265,12 @@ class GoogleSettingsWindow(Gtk.Window):
         self.function_call_mode_combo.set_tooltip_text(
             "Select how Gemini should decide when to call tools."
         )
-        grid.attach(self.function_call_mode_combo, 1, row, 1, 1)
+        general_grid.attach(self.function_call_mode_combo, 1, general_row, 1, 1)
 
-        row += 1
+        general_row += 1
         allowed_functions_label = Gtk.Label(label="Allowed function names:")
         allowed_functions_label.set_xalign(0.0)
-        grid.attach(allowed_functions_label, 0, row, 1, 1)
+        general_grid.attach(allowed_functions_label, 0, general_row, 1, 1)
 
         self.allowed_functions_entry = Gtk.Entry()
         self.allowed_functions_entry.set_hexpand(True)
@@ -259,12 +278,12 @@ class GoogleSettingsWindow(Gtk.Window):
         self.allowed_functions_entry.set_tooltip_text(
             "Optional whitelist restricting Gemini function calls to specific tools."
         )
-        grid.attach(self.allowed_functions_entry, 1, row, 1, 1)
+        general_grid.attach(self.allowed_functions_entry, 1, general_row, 1, 1)
 
-        row += 1
+        general_row += 1
         max_output_label = Gtk.Label(label="Max output tokens:")
         max_output_label.set_xalign(0.0)
-        grid.attach(max_output_label, 0, row, 1, 1)
+        general_grid.attach(max_output_label, 0, general_row, 1, 1)
 
         self.max_output_tokens_adjustment = Gtk.Adjustment(
             lower=0,
@@ -281,12 +300,12 @@ class GoogleSettingsWindow(Gtk.Window):
         self.max_output_tokens_spin.set_tooltip_text(
             "Optional limit for response tokens. Set to 0 to remove the cap."
         )
-        grid.attach(self.max_output_tokens_spin, 1, row, 1, 1)
+        general_grid.attach(self.max_output_tokens_spin, 1, general_row, 1, 1)
 
-        row += 1
+        general_row += 1
         stop_label = Gtk.Label(label="Stop sequences:")
         stop_label.set_xalign(0.0)
-        grid.attach(stop_label, 0, row, 1, 1)
+        general_grid.attach(stop_label, 0, general_row, 1, 1)
 
         self.stop_sequences_entry = Gtk.Entry()
         self.stop_sequences_entry.set_hexpand(True)
@@ -294,12 +313,12 @@ class GoogleSettingsWindow(Gtk.Window):
         self.stop_sequences_entry.set_tooltip_text(
             "Provide comma separated stop strings. Generation halts when a match is produced."
         )
-        grid.attach(self.stop_sequences_entry, 1, row, 1, 1)
+        general_grid.attach(self.stop_sequences_entry, 1, general_row, 1, 1)
 
-        row += 1
+        general_row += 1
         mime_label = Gtk.Label(label="Response MIME type:")
         mime_label.set_xalign(0.0)
-        grid.attach(mime_label, 0, row, 1, 1)
+        general_grid.attach(mime_label, 0, general_row, 1, 1)
 
         self.response_mime_entry = Gtk.Entry()
         self.response_mime_entry.set_hexpand(True)
@@ -307,12 +326,12 @@ class GoogleSettingsWindow(Gtk.Window):
         self.response_mime_entry.set_tooltip_text(
             "Optional MIME type for responses when using multimodal Gemini features."
         )
-        grid.attach(self.response_mime_entry, 1, row, 1, 1)
+        general_grid.attach(self.response_mime_entry, 1, general_row, 1, 1)
 
-        row += 1
+        general_row += 1
         system_label = Gtk.Label(label="System instruction:")
         system_label.set_xalign(0.0)
-        grid.attach(system_label, 0, row, 1, 1)
+        general_grid.attach(system_label, 0, general_row, 1, 1)
 
         system_scroller = Gtk.ScrolledWindow()
         system_scroller.set_hexpand(True)
@@ -327,12 +346,12 @@ class GoogleSettingsWindow(Gtk.Window):
             except Exception:
                 pass
         system_scroller.set_child(self.system_instruction_view)
-        grid.attach(system_scroller, 1, row, 1, 1)
+        general_grid.attach(system_scroller, 1, general_row, 1, 1)
 
-        row += 1
+        general_row += 1
         schema_label = Gtk.Label(label="Response schema (JSON):")
         schema_label.set_xalign(0.0)
-        grid.attach(schema_label, 0, row, 1, 1)
+        general_grid.attach(schema_label, 0, general_row, 1, 1)
 
         schema_scroller = Gtk.ScrolledWindow()
         schema_scroller.set_hexpand(True)
@@ -350,18 +369,34 @@ class GoogleSettingsWindow(Gtk.Window):
             except Exception:
                 pass
         schema_scroller.set_child(self.response_schema_view)
-        grid.attach(schema_scroller, 1, row, 1, 1)
+        general_grid.attach(schema_scroller, 1, general_row, 1, 1)
 
-        row += 1
+        safety_scroller = Gtk.ScrolledWindow()
+        safety_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        safety_scroller.set_hexpand(True)
+        safety_scroller.set_vexpand(True)
+        notebook.append_page(safety_scroller, Gtk.Label(label="Safety"))
+
+        safety_box = create_box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=12,
+            margin=12,
+        )
+        safety_scroller.set_child(safety_box)
+
         safety_frame = Gtk.Frame(label="Safety filters")
         safety_frame.set_tooltip_text(
             "Configure safety filters to block responses from categories such as "
             "Harassment, Hate Speech, Derogatory, Self-Harm, and more."
         )
-        main_box.append(safety_frame)
+        safety_box.append(safety_frame)
 
-        safety_box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=12)
-        safety_frame.set_child(safety_box)
+        safety_filters_box = create_box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=8,
+            margin=12,
+        )
+        safety_frame.set_child(safety_filters_box)
 
         for friendly, category in self._SAFETY_CATEGORIES:
             row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -381,22 +416,38 @@ class GoogleSettingsWindow(Gtk.Window):
             combo.set_tooltip_text("Select the severity threshold to block for this category.")
             row_box.append(combo)
 
-            safety_box.append(row_box)
+            safety_filters_box.append(row_box)
             self._safety_controls[category] = (toggle, combo)
 
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        button_box.set_halign(Gtk.Align.END)
-        main_box.append(button_box)
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        action_box.set_halign(Gtk.Align.END)
 
         cancel_button = Gtk.Button(label="Cancel")
         cancel_button.set_tooltip_text("Close without saving changes.")
         cancel_button.connect("clicked", lambda *_args: self.close())
-        button_box.append(cancel_button)
+        action_box.append(cancel_button)
 
         save_button = Gtk.Button(label="Save Settings")
         save_button.set_tooltip_text("Persist defaults and refresh the Google provider.")
         save_button.connect("clicked", self.on_save_clicked)
-        button_box.append(save_button)
+        action_box.append(save_button)
+
+        set_action_widget = getattr(notebook, "set_action_widget", None)
+        pack_type = getattr(Gtk, "PackType", None)
+        if callable(set_action_widget) and pack_type is not None and hasattr(pack_type, "END"):
+            try:
+                set_action_widget(action_box, pack_type.END)
+                self.set_child(notebook)
+            except Exception:
+                fallback_box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=0, margin=0)
+                fallback_box.append(notebook)
+                fallback_box.append(action_box)
+                self.set_child(fallback_box)
+        else:
+            fallback_box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=0, margin=0)
+            fallback_box.append(notebook)
+            fallback_box.append(action_box)
+            self.set_child(fallback_box)
 
         self._load_models()
         self._load_settings()

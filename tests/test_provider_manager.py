@@ -269,6 +269,9 @@ if "gi" not in sys.modules:
         def set_child(self, child):
             self.child = child
 
+        def set_action_widget(self, child, pack_type):
+            self.action_widget = (child, pack_type)
+
     class MessageType:
         ERROR = "error"
         INFO = "info"
@@ -304,6 +307,10 @@ if "gi" not in sys.modules:
         START = "start"
         END = "end"
 
+    class PackType:
+        START = "start"
+        END = "end"
+
     class AccessibleRole:
         BUTTON = "button"
 
@@ -330,6 +337,7 @@ if "gi" not in sys.modules:
     gtk_module.ScrolledWindow = ScrolledWindow
     gtk_module.Button = Button
     gtk_module.Notebook = Notebook
+    gtk_module.PackType = PackType
     gtk_module.Widget = _Widget
     gtk_module.MessageDialog = MessageDialog
     gtk_module.MessageType = MessageType
@@ -360,6 +368,8 @@ if "gi" not in sys.modules:
     sys.modules["gi.repository.Gtk"] = gtk_module
     sys.modules["gi.repository.GLib"] = glib_module
     sys.modules["gi.repository.Gdk"] = gdk_module
+
+from gi.repository import Gtk
 
 if "anthropic" not in sys.modules:
     anthropic_module = types.ModuleType("anthropic")
@@ -1360,6 +1370,9 @@ def test_google_settings_round_trips_custom_fields(tmp_path):
     config = DummyConfig(tmp_path.as_posix())
 
     window = GoogleSettingsWindow(atlas, config, None)
+
+    assert isinstance(window.child, Gtk.Notebook)
+    assert getattr(window.child, "action_widget", None) is not None
 
     assert window.response_mime_entry.get_text() == "text/plain"
     buffer = window.system_instruction_view.get_buffer()
