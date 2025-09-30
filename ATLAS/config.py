@@ -1,5 +1,6 @@
 # ATLAS/config.py
 
+import copy
 import json
 import os
 from collections.abc import Mapping, Sequence
@@ -497,6 +498,246 @@ class ConfigManager:
         self._write_yaml_config()
 
         return dict(settings_block)
+
+
+    def get_google_llm_settings(self) -> Dict[str, Any]:
+        """Return the persisted Google LLM defaults, if configured."""
+
+        settings = self.yaml_config.get('GOOGLE_LLM')
+        if isinstance(settings, dict):
+            return copy.deepcopy(settings)
+
+        return {}
+
+    def set_google_llm_settings(
+        self,
+        *,
+        model: str,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        top_k: Optional[Any] = None,
+        candidate_count: Optional[Any] = None,
+        stop_sequences: Optional[Any] = None,
+        safety_settings: Optional[Any] = None,
+        response_mime_type: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist default configuration for the Google Gemini provider."""
+
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("A default Google model must be provided.")
+
+        defaults = {
+            'temperature': 0.0,
+            'top_p': 1.0,
+            'top_k': None,
+            'candidate_count': 1,
+            'stop_sequences': [],
+            'safety_settings': [],
+            'response_mime_type': None,
+            'system_instruction': None,
+        }
+
+        existing_settings = {}
+        stored_block = self.yaml_config.get('GOOGLE_LLM')
+        if isinstance(stored_block, dict):
+            existing_settings = copy.deepcopy(stored_block)
+
+        settings_block: Dict[str, Any] = copy.deepcopy(defaults)
+        settings_block.update(existing_settings)
+        settings_block['model'] = model.strip()
+
+        def _normalize_float(
+            value: Optional[Any],
+            previous: float,
+            *,
+            field: str,
+            minimum: float,
+            maximum: float,
+        ) -> float:
+            if value is None:
+                return float(previous)
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{field} must be a number.") from exc
+            if parsed < minimum or parsed > maximum:
+                raise ValueError(f"{field} must be between {minimum} and {maximum}.")
+            return parsed
+
+        def _normalize_optional_int(
+            value: Optional[Any],
+            previous: Optional[int],
+            *,
+            field: str,
+            minimum: int,
+        ) -> Optional[int]:
+            if value is None:
+                return previous
+            if value == "":
+                return None
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{field} must be an integer or left blank.") from exc
+            if parsed < minimum:
+                raise ValueError(f"{field} must be >= {minimum}.")
+            return parsed
+
+        def _normalize_int(
+            value: Optional[Any],
+            previous: Optional[int],
+            *,
+            field: str,
+            minimum: int,
+        ) -> int:
+            if value is None:
+                return int(previous) if previous is not None else minimum
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{field} must be an integer.") from exc
+            if parsed < minimum:
+                raise ValueError(f"{field} must be >= {minimum}.")
+            return parsed
+
+        def _normalize_stop_sequences(
+            value: Optional[Any],
+            previous: Any,
+        ) -> List[str]:
+            if value is None:
+                if isinstance(previous, list):
+                    return list(previous)
+                if previous in {None, ""}:
+                    return []
+                return self._coerce_stop_sequences(previous)
+            return self._coerce_stop_sequences(value)
+
+        def _coerce_safety_settings(
+            value: Optional[Any],
+            previous: Any,
+        ) -> List[Dict[str, str]]:
+            if value is None:
+                return copy.deepcopy(previous) if isinstance(previous, list) else []
+
+            if value in ({}, []):
+                return []
+
+            normalized: List[Dict[str, str]] = []
+
+            if isinstance(value, Mapping):
+                for category, threshold in value.items():
+                    cleaned_category = str(category).strip()
+                    if not cleaned_category:
+                        continue
+                    if threshold in {None, ""}:
+                        raise ValueError("Safety setting threshold cannot be empty.")
+                    normalized.append(
+                        {
+                            'category': cleaned_category,
+                            'threshold': str(threshold).strip(),
+                        }
+                    )
+                return normalized
+
+            if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+                for entry in value:
+                    if entry is None:
+                        continue
+                    if isinstance(entry, str) and not entry.strip():
+                        continue
+                    if not isinstance(entry, Mapping):
+                        raise ValueError(
+                            "Safety settings must be provided as mappings or mapping sequences."
+                        )
+                    category = (
+                        entry.get('category')
+                        or entry.get('harmCategory')
+                        or entry.get('name')
+                    )
+                    threshold = (
+                        entry.get('threshold')
+                        or entry.get('thresholdValue')
+                        or entry.get('harmBlockThreshold')
+                    )
+                    if not category:
+                        raise ValueError(
+                            "Safety setting entries must include a category value."
+                        )
+                    if threshold in {None, ""}:
+                        raise ValueError(
+                            "Safety setting entries must include a threshold value."
+                        )
+                    normalized.append(
+                        {
+                            'category': str(category).strip(),
+                            'threshold': str(threshold).strip(),
+                        }
+                    )
+                return normalized
+
+            raise ValueError(
+                "Safety settings must be provided as a mapping or list of mappings."
+            )
+
+        def _normalize_optional_text(
+            value: Optional[Any],
+            previous: Optional[str],
+        ) -> Optional[str]:
+            if value is None:
+                return previous
+            cleaned = str(value).strip()
+            return cleaned or None
+
+        settings_block['temperature'] = _normalize_float(
+            temperature,
+            float(settings_block.get('temperature', defaults['temperature'])),
+            field='Temperature',
+            minimum=0.0,
+            maximum=2.0,
+        )
+        settings_block['top_p'] = _normalize_float(
+            top_p,
+            float(settings_block.get('top_p', defaults['top_p'])),
+            field='Top-p',
+            minimum=0.0,
+            maximum=1.0,
+        )
+        settings_block['top_k'] = _normalize_optional_int(
+            top_k,
+            settings_block.get('top_k', defaults['top_k']),
+            field='Top-k',
+            minimum=1,
+        )
+        settings_block['candidate_count'] = _normalize_int(
+            candidate_count,
+            settings_block.get('candidate_count', defaults['candidate_count']),
+            field='Candidate count',
+            minimum=1,
+        )
+        settings_block['stop_sequences'] = _normalize_stop_sequences(
+            stop_sequences,
+            settings_block.get('stop_sequences', defaults['stop_sequences']),
+        )
+        settings_block['safety_settings'] = _coerce_safety_settings(
+            safety_settings,
+            settings_block.get('safety_settings', defaults['safety_settings']),
+        )
+        settings_block['response_mime_type'] = _normalize_optional_text(
+            response_mime_type,
+            settings_block.get('response_mime_type', defaults['response_mime_type']),
+        )
+        settings_block['system_instruction'] = _normalize_optional_text(
+            system_instruction,
+            settings_block.get('system_instruction', defaults['system_instruction']),
+        )
+
+        self.yaml_config['GOOGLE_LLM'] = copy.deepcopy(settings_block)
+        self.config['GOOGLE_LLM'] = copy.deepcopy(settings_block)
+
+        self._write_yaml_config()
+
+        return copy.deepcopy(settings_block)
 
 
     def get_config(self, key: str, default: Any = None) -> Any:
