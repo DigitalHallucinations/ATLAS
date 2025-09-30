@@ -663,6 +663,22 @@ class GoogleSettingsWindow(Gtk.Window):
             self._show_message("Validation", str(exc), Gtk.MessageType.WARNING)
             return
 
+        schema = payload["response_schema"]
+        if schema not in (None, "", {}):
+            current_mime = payload.get("response_mime_type") or ""
+            normalized_mime = current_mime.strip().lower()
+            if normalized_mime and normalized_mime != "application/json":
+                self._show_message(
+                    "Validation",
+                    (
+                        "Response MIME type must be 'application/json' when a response "
+                        "schema is provided."
+                    ),
+                    Gtk.MessageType.WARNING,
+                )
+                return
+            payload["response_mime_type"] = "application/json"
+
         setter = getattr(self.ATLAS, "set_google_llm_settings", None)
         if not callable(setter):
             self._show_message(

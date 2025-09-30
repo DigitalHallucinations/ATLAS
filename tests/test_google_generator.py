@@ -180,6 +180,57 @@ def test_google_generator_streams_function_call(monkeypatch):
     assert declarations[0].description == "A sample tool"
 
 
+def test_google_generator_defaults_json_mime_when_schema_present(monkeypatch):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    call_kwargs = []
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "done"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+
+        def generate_content(self, contents, **kwargs):
+            call_kwargs.append(kwargs)
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    config = DummyConfig(
+        settings={
+            "response_schema": {"type": "object"},
+            "response_mime_type": "",
+            "stream": False,
+        }
+    )
+    generator = google_module.GoogleGeminiGenerator(config)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+    assert result == "done"
+    assert call_kwargs[-1]["response_mime_type"] == "application/json"
+
+    async def exercise_with_explicit_schema():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            stream=False,
+            response_schema={"type": "object"},
+            response_mime_type=None,
+        )
+
+    asyncio.run(exercise_with_explicit_schema())
+    assert call_kwargs[-1]["response_mime_type"] == "application/json"
+
+
 def test_google_generator_streaming_runs_off_event_loop(monkeypatch):
     monkeypatch.setattr(genai, "configure", lambda **_: None)
 

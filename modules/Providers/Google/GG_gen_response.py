@@ -271,6 +271,12 @@ class GoogleGeminiGenerator:
 
             effective_response_schema = _normalise_schema(response_schema)
 
+            if (
+                effective_response_schema is not None
+                and not effective_response_mime_type
+            ):
+                effective_response_mime_type = "application/json"
+
             model_instance = genai.GenerativeModel(model_name=effective_model)
             self.logger.info(
                 "Generating response with Google Gemini using model: %s",
