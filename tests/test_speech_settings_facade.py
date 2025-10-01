@@ -184,8 +184,18 @@ def test_save_google_tab_uses_facade(speech_settings):
 
     speech_settings.ATLAS = atlas
     speech_settings.google_credentials_entry = _FakeEntry(" /tmp/google.json ")
+    speech_settings._google_voice_lookup = {"Preferred": {"name": "Preferred"}}
+    speech_settings.google_voice_combo = _FakeCombo("Preferred")
+    speech_settings._google_language_lookup = {"Auto detect": None, "en-US": "en-US"}
+    speech_settings.google_language_combo = _FakeCombo("en-US")
+    speech_settings.google_autopunct_switch = _FakeSwitch(True)
     speech_settings.tab_dirty[2] = True
 
     speech_settings.save_google_tab()
 
-    atlas.update_google_speech_settings.assert_called_once_with("/tmp/google.json")
+    atlas.update_google_speech_settings.assert_called_once_with(
+        "/tmp/google.json",
+        tts_voice={"name": "Preferred"},
+        stt_language="en-US",
+        auto_punctuation=True,
+    )

@@ -22,7 +22,7 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib
 import os
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from GTKUI.Utils.utils import apply_css
 logger = logging.getLogger(__name__)
@@ -536,6 +536,19 @@ class SpeechSettings(Gtk.Window):
         google_box.set_margin_start(6)
         google_box.set_margin_end(6)
 
+        google_settings: Dict[str, Any] = {}
+        settings_getter = getattr(self.ATLAS, "get_google_speech_settings", None)
+        if callable(settings_getter):
+            try:
+                stored_settings = settings_getter() or {}
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.error(
+                    "Failed to load Google speech settings from façade: %s", exc, exc_info=True
+                )
+            else:
+                if isinstance(stored_settings, dict):
+                    google_settings = stored_settings
+
         # Row: label + entry + eye toggle (optional) + file picker
         row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
 
@@ -628,8 +641,145 @@ class SpeechSettings(Gtk.Window):
         note_label.set_tooltip_text("One set of Google creds powers both text-to-speech and speech-to-text.")
         google_box.append(note_label)
 
+        # Google TTS voice selection
+        voice_frame = Gtk.Frame(label="Google TTS Voice")
+        voice_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        voice_box.set_margin_top(6)
+        voice_box.set_margin_bottom(6)
+        voice_box.set_margin_start(6)
+        voice_box.set_margin_end(6)
+
+        self.google_voice_combo = Gtk.ComboBoxText()
+        self.google_voice_combo.set_tooltip_text("Select the Google Cloud voice for text-to-speech output.")
+        self._google_voice_lookup: Dict[str, Any] = {}
+        voice_labels = []
+
+        default_voice_label = "Use default voice"
+        self.google_voice_combo.append_text(default_voice_label)
+        self._google_voice_lookup[default_voice_label] = None
+        voice_labels.append(default_voice_label)
+
+        stored_voice_name = (
+            google_settings.get("tts_voice") if isinstance(google_settings, dict) else None
+        )
+        active_voice_label = default_voice_label
+        language_codes: List[str] = []
+
+        try:
+            voice_options = self.ATLAS.get_speech_voice_options("google") or []
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Failed to load Google voice options: %s", exc, exc_info=True)
+            voice_options = []
+
+        for voice in voice_options:
+            if not isinstance(voice, dict):
+                continue
+            name = voice.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            codes = voice.get("language_codes")
+            primary_code = None
+            if isinstance(codes, (list, tuple)) and codes:
+                for code in codes:
+                    if isinstance(code, str) and code:
+                        language_codes.append(code)
+                        primary_code = primary_code or code
+            label = f"{name} ({primary_code})" if primary_code else name
+            self.google_voice_combo.append_text(label)
+            self._google_voice_lookup[label] = dict(voice)
+            voice_labels.append(label)
+            if stored_voice_name and stored_voice_name == name:
+                active_voice_label = label
+
+        if active_voice_label in voice_labels:
+            self.google_voice_combo.set_active(voice_labels.index(active_voice_label))
+        else:
+            self.google_voice_combo.set_active(0)
+
+        self.google_voice_combo.connect("changed", lambda *_args: self.mark_dirty(2))
+        voice_box.append(self.google_voice_combo)
+        voice_frame.set_child(voice_box)
+        google_box.append(voice_frame)
+
+        # Google STT language selection
+        language_frame = Gtk.Frame(label="Google STT Language")
+        language_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        language_box.set_margin_top(6)
+        language_box.set_margin_bottom(6)
+        language_box.set_margin_start(6)
+        language_box.set_margin_end(6)
+
+        stored_language = (
+            google_settings.get("stt_language") if isinstance(google_settings, dict) else None
+        )
+        if isinstance(stored_language, str) and stored_language:
+            language_codes.append(stored_language)
+
+        unique_languages = []
+        seen_codes = set()
+        for code in language_codes:
+            if not isinstance(code, str):
+                continue
+            normalized = code.strip()
+            if not normalized or normalized in seen_codes:
+                continue
+            seen_codes.add(normalized)
+            unique_languages.append(normalized)
+
+        unique_languages.sort()
+
+        self.google_language_combo = Gtk.ComboBoxText()
+        self.google_language_combo.set_tooltip_text(
+            "Choose the language code Google STT should expect (e.g., en-US)."
+        )
+        self._google_language_lookup: Dict[str, Optional[str]] = {}
+
+        default_language_label = "Auto detect"
+        self.google_language_combo.append_text(default_language_label)
+        self._google_language_lookup[default_language_label] = None
+        active_language_label = default_language_label
+
+        for code in unique_languages:
+            self.google_language_combo.append_text(code)
+            self._google_language_lookup[code] = code
+            if stored_language and stored_language == code:
+                active_language_label = code
+
+        language_labels = list(self._google_language_lookup.keys())
+        if active_language_label in language_labels:
+            self.google_language_combo.set_active(language_labels.index(active_language_label))
+        else:
+            self.google_language_combo.set_active(0)
+        self.google_language_combo.connect("changed", lambda *_args: self.mark_dirty(2))
+
+        language_box.append(self.google_language_combo)
+        language_frame.set_child(language_box)
+        google_box.append(language_frame)
+
+        # Automatic punctuation toggle
+        autopunc_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        autopunc_label = Gtk.Label(label="Enable automatic punctuation:")
+        autopunc_label.set_tooltip_text(
+            "When enabled, Google STT will insert punctuation automatically during transcription."
+        )
+        autopunc_label.set_xalign(0.0)
+        self.google_autopunct_switch = Gtk.Switch()
+        autopunc_default = True
+        if isinstance(google_settings, dict) and "auto_punctuation" in google_settings:
+            autopunc_default = bool(google_settings.get("auto_punctuation"))
+        self.google_autopunct_switch.set_active(autopunc_default)
+
+        def _on_autopunc_toggled(_switch, _state):
+            self.mark_dirty(2)
+            return False
+
+        self.google_autopunct_switch.connect("state-set", _on_autopunc_toggled)
+        autopunc_box.append(autopunc_label)
+        autopunc_box.append(self.google_autopunct_switch)
+        google_box.append(autopunc_box)
+
         save_button = Gtk.Button(label="Save Google Settings")
-        save_button.set_tooltip_text("Save the Google credentials path.")
+        save_button.set_tooltip_text("Save Google credentials and speech preferences.")
         save_button.connect("clicked", lambda w: self.save_google_tab())
         google_box.append(save_button)
 
@@ -652,8 +802,44 @@ class SpeechSettings(Gtk.Window):
             self._show_message("Error", "Google credentials path cannot be empty.", Gtk.MessageType.ERROR)
             return
 
+        selected_voice_option: Optional[Any] = None
+        selected_voice_name: Optional[str] = None
+        if hasattr(self, "google_voice_combo"):
+            try:
+                active_voice_label = self.google_voice_combo.get_active_text()
+            except AttributeError:
+                active_voice_label = None
+            if active_voice_label:
+                voice_payload = self._google_voice_lookup.get(active_voice_label)
+                selected_voice_option = voice_payload
+                if isinstance(voice_payload, dict):
+                    selected_voice_name = voice_payload.get("name") or voice_payload.get("voice_id")
+                elif isinstance(voice_payload, str):
+                    selected_voice_name = voice_payload
+
+        selected_language: Optional[str] = None
+        if hasattr(self, "google_language_combo"):
+            try:
+                active_language_label = self.google_language_combo.get_active_text()
+            except AttributeError:
+                active_language_label = None
+            if active_language_label:
+                selected_language = self._google_language_lookup.get(active_language_label)
+
+        auto_punctuation = None
+        if hasattr(self, "google_autopunct_switch"):
+            try:
+                auto_punctuation = bool(self.google_autopunct_switch.get_active())
+            except AttributeError:
+                auto_punctuation = None
+
         try:
-            self.ATLAS.update_google_speech_settings(google_creds)
+            self.ATLAS.update_google_speech_settings(
+                google_creds,
+                tts_voice=selected_voice_option or selected_voice_name,
+                stt_language=selected_language,
+                auto_punctuation=auto_punctuation,
+            )
         except Exception as exc:
             logger.error(f"Failed to save Google credentials: {exc}", exc_info=True)
             self._show_message("Error", f"Failed to save Google credentials: {exc}", Gtk.MessageType.ERROR)

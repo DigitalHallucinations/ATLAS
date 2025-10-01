@@ -132,6 +132,66 @@ def _normalize_text(raw_value: Optional[str]) -> Optional[str]:
     return stripped or None
 
 
+def _normalize_google_voice_preference(
+    raw_voice: Optional[Any],
+    existing_voice: Optional[str],
+) -> Optional[str]:
+    if raw_voice is None:
+        return existing_voice
+
+    if isinstance(raw_voice, dict):
+        candidate = (
+            raw_voice.get("name")
+            or raw_voice.get("voice_id")
+            or raw_voice.get("id")
+        )
+        if isinstance(candidate, str):
+            candidate = candidate.strip()
+            if candidate:
+                return candidate
+        return existing_voice
+
+    if isinstance(raw_voice, str):
+        stripped = raw_voice.strip()
+        return stripped or None
+
+    return existing_voice
+
+
+def _normalize_google_language_preference(
+    raw_language: Optional[str],
+    existing_language: Optional[str],
+) -> Optional[str]:
+    if raw_language is None:
+        return existing_language
+    if isinstance(raw_language, str):
+        stripped = raw_language.strip()
+        return stripped or None
+    return existing_language
+
+
+def _normalize_google_autopunctuation(
+    raw_value: Optional[Any],
+    existing_value: Optional[bool],
+) -> bool:
+    if raw_value is None:
+        if existing_value is None:
+            return True
+        return bool(existing_value)
+
+    if isinstance(raw_value, bool):
+        return raw_value
+
+    if isinstance(raw_value, str):
+        lowered = raw_value.strip().lower()
+        if lowered in {"true", "1", "yes", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "off"}:
+            return False
+
+    return bool(raw_value)
+
+
 def prepare_openai_settings(display_payload: Dict[str, Any]) -> Dict[str, Optional[str]]:
     """Validate and normalize OpenAI speech settings provided by a UI."""
 
@@ -367,11 +427,33 @@ class SpeechManager:
 
         return GPT4oTTS(voice="default")
 
-    def set_google_credentials(self, credentials_path: str, persist: bool = True):
+    def set_google_credentials(
+        self,
+        credentials_path: str,
+        *,
+        voice_name: Optional[Any] = None,
+        stt_language: Optional[str] = None,
+        auto_punctuation: Optional[Any] = None,
+        persist: bool = True,
+    ):
         """Update Google credentials and refresh provider instances."""
 
         if not credentials_path:
             raise ValueError("Google credentials path cannot be empty.")
+
+        stored_settings = self.get_google_speech_settings()
+        normalized_voice = _normalize_google_voice_preference(
+            voice_name,
+            stored_settings.get("tts_voice"),
+        )
+        normalized_language = _normalize_google_language_preference(
+            stt_language,
+            stored_settings.get("stt_language"),
+        )
+        normalized_autopunctuation = _normalize_google_autopunctuation(
+            auto_punctuation,
+            stored_settings.get("auto_punctuation"),
+        )
 
         previous_env = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         was_default_tts = self.get_default_tts_provider() == 'google'
@@ -381,6 +463,11 @@ class SpeechManager:
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
             new_tts = self._google_tts_factory()
             new_stt = self._google_stt_factory()
+            self._apply_google_stt_preferences(
+                new_stt,
+                language=normalized_language,
+                auto_punctuation=normalized_autopunctuation,
+            )
         except Exception as exc:
             self._restore_env_var("GOOGLE_APPLICATION_CREDENTIALS", previous_env)
             logger.error(f"Failed to initialize Google providers with new credentials: {exc}")
@@ -389,20 +476,139 @@ class SpeechManager:
         if persist:
             try:
                 self.config_manager.set_google_credentials(credentials_path)
+                setter = getattr(self.config_manager, "set_google_speech_settings", None)
+                if callable(setter):
+                    setter(
+                        tts_voice=normalized_voice,
+                        stt_language=normalized_language,
+                        auto_punctuation=normalized_autopunctuation,
+                    )
             except Exception as exc:
                 self._restore_env_var("GOOGLE_APPLICATION_CREDENTIALS", previous_env)
-                logger.error(f"Failed to persist Google credentials: {exc}")
+                logger.error(f"Failed to persist Google settings: {exc}")
                 raise
         else:
             self.config_manager.config['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+            self._update_cached_google_speech_settings(
+                tts_voice=normalized_voice,
+                stt_language=normalized_language,
+                auto_punctuation=normalized_autopunctuation,
+            )
 
         self.tts_services['google'] = new_tts
         self.stt_services['google'] = new_stt
+
+        voice_payload = None
+        if isinstance(voice_name, dict):
+            voice_payload = dict(voice_name)
+            if normalized_language and "language_code" not in voice_payload:
+                voice_payload["language_code"] = normalized_language
+        elif isinstance(voice_name, str) and voice_name.strip():
+            voice_payload = voice_name.strip()
+        elif normalized_voice:
+            voice_payload = {"name": normalized_voice}
+            if normalized_language:
+                voice_payload["language_code"] = normalized_language
+
+        if voice_payload:
+            try:
+                self.set_tts_voice(voice_payload, provider="google")
+            except Exception as exc:
+                logger.warning(f"Failed to apply Google TTS voice preference: {exc}")
 
         if was_default_tts:
             self.set_default_tts_provider('google')
         if was_default_stt:
             self.set_default_stt_provider('google')
+
+    def _apply_google_stt_preferences(
+        self,
+        stt_instance: Any,
+        *,
+        language: Optional[str],
+        auto_punctuation: Optional[bool],
+    ) -> None:
+        config = getattr(stt_instance, "config", None)
+        if config is None:
+            return
+
+        if language:
+            try:
+                setattr(config, "language_code", language)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to set Google STT language to %s: %s",
+                    language,
+                    exc,
+                )
+
+        if auto_punctuation is not None and hasattr(config, "enable_automatic_punctuation"):
+            try:
+                setattr(config, "enable_automatic_punctuation", bool(auto_punctuation))
+            except Exception as exc:
+                logger.warning(
+                    "Failed to set Google STT auto punctuation to %s: %s",
+                    auto_punctuation,
+                    exc,
+                )
+
+    def _update_cached_google_speech_settings(
+        self,
+        *,
+        tts_voice: Optional[str],
+        stt_language: Optional[str],
+        auto_punctuation: Optional[bool],
+    ) -> None:
+        config_block = {}
+        if hasattr(self.config_manager, "config") and isinstance(self.config_manager.config, dict):
+            config_block = self.config_manager.config.setdefault("GOOGLE_SPEECH", {})
+
+        if isinstance(config_block, dict):
+            if tts_voice is not None:
+                config_block["tts_voice"] = tts_voice
+            elif "tts_voice" in config_block:
+                del config_block["tts_voice"]
+
+            if stt_language is not None:
+                config_block["stt_language"] = stt_language
+            elif "stt_language" in config_block:
+                del config_block["stt_language"]
+
+            if auto_punctuation is not None:
+                config_block["auto_punctuation"] = bool(auto_punctuation)
+            elif "auto_punctuation" in config_block:
+                del config_block["auto_punctuation"]
+
+    def get_google_speech_settings(self) -> Dict[str, Any]:
+        """Return persisted Google speech settings for UI consumption."""
+
+        settings: Dict[str, Any] = {}
+        getter = getattr(self.config_manager, "get_google_speech_settings", None)
+        if callable(getter):
+            try:
+                stored = getter() or {}
+            except Exception as exc:
+                logger.error("Failed to retrieve Google speech settings: %s", exc, exc_info=True)
+            else:
+                if isinstance(stored, dict):
+                    settings.update(stored)
+        else:
+            config_block = {}
+            if hasattr(self.config_manager, "config") and isinstance(self.config_manager.config, dict):
+                config_block = self.config_manager.config.get("GOOGLE_SPEECH", {})
+            if isinstance(config_block, dict):
+                settings.update(config_block)
+
+        result = {
+            "tts_voice": settings.get("tts_voice"),
+            "stt_language": settings.get("stt_language"),
+            "auto_punctuation": settings.get("auto_punctuation"),
+        }
+
+        if result["auto_punctuation"] is not None:
+            result["auto_punctuation"] = bool(result["auto_punctuation"])
+
+        return result
 
     def get_google_credentials_path(self) -> Optional[str]:
         """Return the persisted Google credentials path when available."""

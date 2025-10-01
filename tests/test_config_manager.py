@@ -118,6 +118,36 @@ def test_set_openai_speech_config_rejects_empty_key(config_manager):
         config_manager.set_openai_speech_config(api_key="")
 
 
+def test_set_google_speech_settings_updates_state(config_manager):
+    result = config_manager.set_google_speech_settings(
+        tts_voice="Wave",
+        stt_language="en-US",
+        auto_punctuation=False,
+    )
+
+    assert result == {
+        "tts_voice": "Wave",
+        "stt_language": "en-US",
+        "auto_punctuation": False,
+    }
+    assert config_manager.yaml_config['GOOGLE_SPEECH']["tts_voice"] == "Wave"
+    assert config_manager.yaml_config['GOOGLE_SPEECH']["auto_punctuation"] is False
+
+    cleared = config_manager.set_google_speech_settings(
+        tts_voice=None,
+        stt_language=None,
+        auto_punctuation=None,
+    )
+
+    assert cleared == {
+        "tts_voice": None,
+        "stt_language": None,
+        "auto_punctuation": None,
+    }
+    assert 'GOOGLE_SPEECH' not in config_manager.yaml_config
+    assert 'GOOGLE_SPEECH' not in config_manager.config
+
+
 def test_set_hf_token_updates_state(config_manager):
     config_manager.set_hf_token("hf-token")
 

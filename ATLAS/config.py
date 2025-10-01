@@ -157,6 +157,63 @@ class ConfigManager:
         self._persist_env_value("GOOGLE_APPLICATION_CREDENTIALS", credentials_path)
         self.logger.info("Google credentials path updated.")
 
+    def get_google_speech_settings(self) -> Dict[str, Any]:
+        """Return persisted Google speech preferences when available."""
+
+        block = self.yaml_config.get("GOOGLE_SPEECH")
+        if not isinstance(block, dict):
+            block = {}
+
+        settings = {
+            "tts_voice": block.get("tts_voice"),
+            "stt_language": block.get("stt_language"),
+            "auto_punctuation": block.get("auto_punctuation"),
+        }
+
+        if settings["auto_punctuation"] is not None:
+            settings["auto_punctuation"] = bool(settings["auto_punctuation"])
+
+        return settings
+
+    def set_google_speech_settings(
+        self,
+        *,
+        tts_voice: Optional[str] = None,
+        stt_language: Optional[str] = None,
+        auto_punctuation: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Persist Google speech preferences to the YAML configuration."""
+
+        block = {}
+        existing = self.yaml_config.get("GOOGLE_SPEECH")
+        if isinstance(existing, dict):
+            block.update(existing)
+
+        if tts_voice is None:
+            block.pop("tts_voice", None)
+        else:
+            block["tts_voice"] = tts_voice
+
+        if stt_language is None:
+            block.pop("stt_language", None)
+        else:
+            block["stt_language"] = stt_language
+
+        if auto_punctuation is None:
+            block.pop("auto_punctuation", None)
+        else:
+            block["auto_punctuation"] = bool(auto_punctuation)
+
+        if block:
+            self.yaml_config['GOOGLE_SPEECH'] = block
+            self.config['GOOGLE_SPEECH'] = dict(block)
+        else:
+            self.yaml_config.pop('GOOGLE_SPEECH', None)
+            self.config.pop('GOOGLE_SPEECH', None)
+
+        self._write_yaml_config()
+        return self.get_google_speech_settings()
+
     def set_hf_token(self, token: str):
         """Persist the Hugging Face access token."""
 
