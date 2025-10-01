@@ -207,7 +207,9 @@ window.chat-page {
 }
 
 /* Scrollable Content Styling */
-scrollable {
+scrolledwindow,
+scrolledwindow > viewport,
+scrolledwindow > viewport > * {
     background-color: #2b2b2b;
     color: white;
     padding: 8px;
