@@ -9,69 +9,90 @@ import types
 import pytest
 
 
-# Provide a lightweight stub for google.cloud.speech to satisfy imports during testing.
-if "google" not in sys.modules:
-    google_module = types.ModuleType("google")
-    google_module.__path__ = []  # Mark as package
+# Provide a lightweight stub for google.cloud.texttospeech to satisfy imports during testing.
+if "google.cloud.texttospeech" not in sys.modules:
+    google_module = sys.modules.get("google")
+    if google_module is None:
+        google_module = types.ModuleType("google")
+        google_module.__path__ = []  # Mark as package
+        sys.modules["google"] = google_module
 
-    cloud_module = types.ModuleType("google.cloud")
-    cloud_module.__path__ = []
+    cloud_module = getattr(google_module, "cloud", None)
+    if cloud_module is None:
+        cloud_module = types.ModuleType("google.cloud")
+        cloud_module.__path__ = []
+        google_module.cloud = cloud_module
+        sys.modules["google.cloud"] = cloud_module
 
-    speech_module = types.ModuleType("google.cloud.speech_v1p1beta1")
+    texttospeech_module = types.ModuleType("google.cloud.texttospeech")
 
     class _DummyVoiceSelectionParams:
         def __init__(self, **kwargs):
-            self.__dict__.update(kwargs)
+            self.kwargs = kwargs
 
-    class _DummySpeechClient:
+    class _DummyTextToSpeechClient:
+        synthesize_calls = []
+        list_voices_calls = []
+        voices_response = []
+
         def __init__(self, *args, **kwargs):
             pass
 
         def synthesize_speech(self, *args, **kwargs):
-            class _Response:
-                audio_content = b""
-
-            return _Response()
+            self.__class__.synthesize_calls.append((args, kwargs))
+            return types.SimpleNamespace(audio_content=b"")
 
         def list_voices(self):
-            class _Response:
-                voices = []
-
-            return _Response()
+            self.__class__.list_voices_calls.append(())
+            return types.SimpleNamespace(voices=list(self.__class__.voices_response))
 
     class _DummySynthesisInput:
         def __init__(self, *args, **kwargs):
-            pass
+            self.args = args
+            self.kwargs = kwargs
 
     class _DummyAudioConfig:
         def __init__(self, *args, **kwargs):
-            pass
+            self.args = args
+            self.kwargs = kwargs
 
     class _DummyAudioEncoding:
         MP3 = "MP3"
 
     class _DummySsmlVoiceGender:
-        NEUTRAL = 0
+        SSML_VOICE_GENDER_UNSPECIFIED = 0
+        MALE = 1
+        FEMALE = 2
+        NEUTRAL = 3
 
         def __call__(self, value):
-            class _Result:
-                name = "NEUTRAL"
+            mapping = {
+                self.SSML_VOICE_GENDER_UNSPECIFIED: "SSML_VOICE_GENDER_UNSPECIFIED",
+                self.MALE: "MALE",
+                self.FEMALE: "FEMALE",
+                self.NEUTRAL: "NEUTRAL",
+            }
+            return types.SimpleNamespace(name=mapping.get(value, "SSML_VOICE_GENDER_UNSPECIFIED"))
 
-            return _Result()
+    def _reset_stub_state():
+        _DummyTextToSpeechClient.synthesize_calls.clear()
+        _DummyTextToSpeechClient.list_voices_calls.clear()
+        _DummyTextToSpeechClient.voices_response = []
 
-    speech_module.VoiceSelectionParams = _DummyVoiceSelectionParams
-    speech_module.SpeechClient = _DummySpeechClient
-    speech_module.SynthesisInput = _DummySynthesisInput
-    speech_module.AudioConfig = _DummyAudioConfig
-    speech_module.AudioEncoding = _DummyAudioEncoding
-    speech_module.SsmlVoiceGender = _DummySsmlVoiceGender()
+    def _set_voices(voices):
+        _DummyTextToSpeechClient.voices_response = voices
 
-    cloud_module.speech_v1p1beta1 = speech_module
-    google_module.cloud = cloud_module
+    texttospeech_module.VoiceSelectionParams = _DummyVoiceSelectionParams
+    texttospeech_module.TextToSpeechClient = _DummyTextToSpeechClient
+    texttospeech_module.SynthesisInput = _DummySynthesisInput
+    texttospeech_module.AudioConfig = _DummyAudioConfig
+    texttospeech_module.AudioEncoding = _DummyAudioEncoding
+    texttospeech_module.SsmlVoiceGender = _DummySsmlVoiceGender()
+    texttospeech_module._reset_stub_state = _reset_stub_state
+    texttospeech_module._set_voices = _set_voices
 
-    sys.modules["google"] = google_module
-    sys.modules["google.cloud"] = cloud_module
-    sys.modules["google.cloud.speech_v1p1beta1"] = speech_module
+    cloud_module.texttospeech = texttospeech_module
+    sys.modules["google.cloud.texttospeech"] = texttospeech_module
 
 
 if "pygame" not in sys.modules:
@@ -274,6 +295,14 @@ def speech_manager():
     return _SpeechManagerForTest(_DummyConfig())
 
 
+@pytest.fixture(autouse=True)
+def reset_texttospeech_stub():
+    from google.cloud import texttospeech
+
+    if hasattr(texttospeech, "_reset_stub_state"):
+        texttospeech._reset_stub_state()
+
+
 def test_get_tts_provider_names_returns_ordered_copy(speech_manager):
     speech_manager.tts_services["alpha"] = object()
     speech_manager.tts_services["beta"] = object()
@@ -401,6 +430,57 @@ def test_summary_reads_voice_attribute_objects(speech_manager):
 
     assert provider_name == "voice_attr_provider"
     assert voice_label == "Gamma"
+
+
+def test_google_tts_text_to_speech_uses_stubbed_client():
+    from google.cloud import texttospeech
+    from modules.Speech_Services.Google_tts import GoogleTTS
+    import asyncio
+
+    tts = GoogleTTS()
+    tts.set_tts(True)
+
+    asyncio.run(tts.text_to_speech("Hello world"))
+
+    assert len(texttospeech.TextToSpeechClient.synthesize_calls) == 1
+
+
+def test_google_tts_set_voice_accepts_dict_payload():
+    from modules.Speech_Services.Google_tts import GoogleTTS
+
+    tts = GoogleTTS()
+    payload = {"name": "en-GB-Wavenet-B", "language_codes": ["en-GB"]}
+
+    tts.set_voice(payload)
+
+    assert tts.voice.kwargs["name"] == "en-GB-Wavenet-B"
+    assert tts.voice.kwargs["language_code"] == "en-GB"
+
+
+def test_google_tts_get_voices_returns_expected_structure():
+    from google.cloud import texttospeech
+    from modules.Speech_Services.Google_tts import GoogleTTS
+
+    voice = types.SimpleNamespace(
+        name="sample",
+        language_codes=["en-US"],
+        ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL,
+        natural_sample_rate_hertz=24000,
+    )
+    texttospeech._set_voices([voice])
+
+    tts = GoogleTTS()
+
+    voices = tts.get_voices()
+
+    assert voices == [
+        {
+            "name": "sample",
+            "language_codes": ["en-US"],
+            "ssml_gender": "NEUTRAL",
+            "natural_sample_rate_hertz": 24000,
+        }
+    ]
 
 
 def test_summary_supports_unregistered_active_service(speech_manager):

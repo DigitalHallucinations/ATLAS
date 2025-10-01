@@ -5,7 +5,8 @@ import os
 import re
 import pygame
 import threading
-from google.cloud import speech_v1p1beta1 as speech
+from typing import Any, Optional, Tuple
+from google.cloud import texttospeech
 from modules.logging.logger import setup_logger
 from .base import BaseTTS
 
@@ -17,11 +18,12 @@ OUTPUT_PATH = "assets/SCOUT/tts_mp3/output.mp3"
 class GoogleTTS(BaseTTS):
     def __init__(self):
         self._use_tts = False
-        self.voice = speech.VoiceSelectionParams(
-            language_code="en-US",
-            name="en-US-Wavenet-A"
-        )
-        self.client = speech.SpeechClient()
+        self._voice_config = {
+            "language_code": "en-US",
+            "name": "en-US-Wavenet-A",
+        }
+        self.voice = texttospeech.VoiceSelectionParams(**self._voice_config)
+        self.client = texttospeech.TextToSpeechClient()
 
     def play_audio(self, filename):
         logger.info(f"Playing audio file: {filename}")
@@ -45,9 +47,9 @@ class GoogleTTS(BaseTTS):
             logger.info("Skipping TTS as the text contains code.")
             text = re.sub(r"`[^`]*`", "", text)
 
-        synthesis_input = speech.SynthesisInput(text=text)
-        audio_config = speech.AudioConfig(
-            audio_encoding=speech.AudioEncoding.MP3
+        synthesis_input = texttospeech.SynthesisInput(text=text)
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3
         )
 
         try:
@@ -68,25 +70,61 @@ class GoogleTTS(BaseTTS):
 
         threading.Thread(target=self.play_audio, args=(OUTPUT_PATH,)).start()
 
-    def set_voice(self, voice_name: str):
-        self.voice = speech.VoiceSelectionParams(
-            language_code=voice_name.split('-')[0] + '-' + voice_name.split('-')[1],
-            name=voice_name,
+    def _normalize_voice_payload(self, voice: Any) -> Tuple[Optional[str], Optional[str]]:
+        if isinstance(voice, dict):
+            name = voice.get("name") or voice.get("voice_id") or voice.get("id")
+            language_code = (
+                voice.get("language")
+                or voice.get("language_code")
+                or (
+                    voice.get("language_codes")[0]
+                    if isinstance(voice.get("language_codes"), (list, tuple)) and voice.get("language_codes")
+                    else None
+                )
+            )
+            if isinstance(language_code, str):
+                return name, language_code
+            return name, None
+
+        if isinstance(voice, str):
+            parts = voice.split("-")
+            language_code = "-".join(parts[:2]) if len(parts) >= 2 else None
+            return voice, language_code
+
+        return None, None
+
+    def _update_voice(self, *, name: Optional[str], language_code: Optional[str]):
+        config = self._voice_config.copy()
+        if name:
+            config["name"] = name
+        if language_code:
+            config["language_code"] = language_code
+        self._voice_config = config
+        self.voice = texttospeech.VoiceSelectionParams(**config)
+
+    def set_voice(self, voice: Any):
+        name, language_code = self._normalize_voice_payload(voice)
+        if not name and not language_code:
+            logger.warning("Invalid voice payload supplied to Google TTS; keeping current voice.")
+            return
+        self._update_voice(name=name, language_code=language_code)
+        logger.info(
+            "Google TTS voice set to: %s (language: %s)",
+            self._voice_config.get("name"),
+            self._voice_config.get("language_code"),
         )
-        logger.info(f"Google TTS voice set to: {voice_name}")
 
     def get_voices(self) -> list:
         voices = []
         try:
             response = self.client.list_voices()
             for voice in response.voices:
-                for language_code in voice.language_codes:
-                    voices.append({
-                        'name': voice.name,
-                        'language': language_code,
-                        'ssml_gender': speech.SsmlVoiceGender(voice.ssml_gender).name,
-                        'natural_sample_rate_hertz': voice.natural_sample_rate_hertz,
-                    })
+                voices.append({
+                    'name': voice.name,
+                    'language_codes': list(voice.language_codes),
+                    'ssml_gender': texttospeech.SsmlVoiceGender(voice.ssml_gender).name,
+                    'natural_sample_rate_hertz': voice.natural_sample_rate_hertz,
+                })
             logger.info(f"Google TTS: Found {len(voices)} voices.")
         except Exception as e:
             logger.error(f"Error fetching Google TTS voices: {e}")
