@@ -704,7 +704,7 @@ class DummyConfig:
             "model": "mistral-large-latest",
             "temperature": 0.0,
             "top_p": 1.0,
-            "max_tokens": 4096,
+            "max_tokens": None,
             "safe_prompt": False,
             "random_seed": None,
             "frequency_penalty": 0.0,
@@ -904,7 +904,11 @@ class DummyConfig:
         if max_tokens in ("", None):
             self._mistral_settings["max_tokens"] = None
         elif max_tokens is not None:
-            self._mistral_settings["max_tokens"] = int(max_tokens)
+            numeric = int(max_tokens)
+            if numeric <= 0:
+                self._mistral_settings["max_tokens"] = None
+            else:
+                self._mistral_settings["max_tokens"] = numeric
         if safe_prompt is not None:
             self._mistral_settings["safe_prompt"] = bool(safe_prompt)
         if random_seed in ("", None):
@@ -2528,6 +2532,14 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert stored["random_seed"] == 0
     assert stored["tool_choice"] == "none"
     assert window._last_message[0] == "Success"
+
+    window.max_tokens_spin.set_value(0)
+
+    window.on_save_clicked(None)
+
+    stored = config.get_mistral_llm_settings()
+    assert stored["max_tokens"] is None
+    assert window.max_tokens_spin.get_value_as_int() == 0
 
 
 def test_anthropic_settings_window_saves_api_key(provider_manager):

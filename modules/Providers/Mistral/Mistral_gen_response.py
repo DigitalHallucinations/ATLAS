@@ -86,16 +86,22 @@ class MistralGenerator:
                     return default
                 return numeric
 
-            def _resolve_int(candidate: Optional[Any], stored_key: str, default: int) -> int:
+            def _resolve_int(
+                candidate: Optional[Any],
+                stored_key: str,
+                default: Optional[int],
+            ) -> Optional[int]:
                 value = candidate
                 if value is None:
                     value = settings.get(stored_key, default)
+                if value in {None, ""}:
+                    return None if default is None else default
                 try:
                     numeric = int(value)
                 except (TypeError, ValueError):
                     return default
                 if numeric <= 0:
-                    return default
+                    return None if default is None else default
                 return numeric
 
             def _resolve_bool(candidate: Optional[Any], stored_key: str, default: bool) -> bool:
@@ -142,7 +148,7 @@ class MistralGenerator:
             effective_max_tokens = _resolve_int(
                 max_tokens,
                 'max_tokens',
-                4096,
+                None,
             )
             effective_frequency_penalty = _resolve_float(
                 frequency_penalty,
@@ -200,13 +206,15 @@ class MistralGenerator:
             request_kwargs: Dict[str, Any] = {
                 'model': effective_model,
                 'messages': mistral_messages,
-                'max_tokens': effective_max_tokens,
                 'temperature': effective_temperature,
                 'top_p': effective_top_p,
                 'safe_prompt': effective_safe_prompt,
                 'frequency_penalty': effective_frequency_penalty,
                 'presence_penalty': effective_presence_penalty,
             }
+
+            if effective_max_tokens is not None:
+                request_kwargs['max_tokens'] = effective_max_tokens
 
             if effective_random_seed is not None:
                 request_kwargs['random_seed'] = effective_random_seed
@@ -346,7 +354,16 @@ class MistralGenerator:
 def setup_mistral_generator(config_manager: ConfigManager):
     return MistralGenerator(config_manager)
 
-async def generate_response(config_manager: ConfigManager, messages: List[Dict[str, str]], model: str = "mistral-large-latest", max_tokens: int = 4096, temperature: float = 0.0, stream: bool = True, current_persona=None, functions=None) -> Union[str, AsyncIterator[str]]:
+async def generate_response(
+    config_manager: ConfigManager,
+    messages: List[Dict[str, str]],
+    model: str = "mistral-large-latest",
+    max_tokens: Optional[int] = None,
+    temperature: float = 0.0,
+    stream: bool = True,
+    current_persona=None,
+    functions=None,
+) -> Union[str, AsyncIterator[str]]:
     generator = setup_mistral_generator(config_manager)
     return await generator.generate_response(messages, model, max_tokens, temperature, stream, current_persona, functions)
 

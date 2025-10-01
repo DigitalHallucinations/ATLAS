@@ -1091,7 +1091,7 @@ class ConfigManager:
             'model': 'mistral-large-latest',
             'temperature': 0.0,
             'top_p': 1.0,
-            'max_tokens': 4096,
+            'max_tokens': None,
             'safe_prompt': False,
             'random_seed': None,
             'frequency_penalty': 0.0,
@@ -1119,12 +1119,16 @@ class ConfigManager:
                     return default
                 return number
 
-            def _coerce_int(value: Any) -> Optional[int]:
+            def _coerce_int(value: Any, *, allow_zero: bool = False) -> Optional[int]:
                 if value is None or value == "":
                     return None
                 try:
                     candidate = int(value)
                 except (TypeError, ValueError):
+                    return None
+                if candidate < 0:
+                    return None
+                if candidate == 0 and not allow_zero:
                     return None
                 return candidate
 
@@ -1154,16 +1158,8 @@ class ConfigManager:
                 minimum=0.0,
                 maximum=1.0,
             )
-            max_tokens = stored.get('max_tokens')
-            if max_tokens is None:
-                merged['max_tokens'] = defaults['max_tokens']
-            else:
-                try:
-                    normalized_max = int(max_tokens)
-                    if normalized_max > 0:
-                        merged['max_tokens'] = normalized_max
-                except (TypeError, ValueError):
-                    merged['max_tokens'] = defaults['max_tokens']
+            max_tokens = _coerce_int(stored.get('max_tokens'))
+            merged['max_tokens'] = max_tokens
 
             merged['safe_prompt'] = _coerce_bool(
                 stored.get('safe_prompt'),
@@ -1174,7 +1170,7 @@ class ConfigManager:
                 default=bool(defaults['parallel_tool_calls']),
             )
 
-            random_seed = _coerce_int(stored.get('random_seed'))
+            random_seed = _coerce_int(stored.get('random_seed'), allow_zero=True)
             merged['random_seed'] = random_seed
 
             merged['frequency_penalty'] = _coerce_float(
@@ -1244,7 +1240,11 @@ class ConfigManager:
             return numeric
 
         def _normalize_positive_int(
-            value: Optional[Any], field: str, *, allow_zero: bool = False
+            value: Optional[Any],
+            field: str,
+            *,
+            allow_zero: bool = False,
+            zero_means_none: bool = False,
         ) -> Optional[int]:
             if value is None or value == "":
                 return None
@@ -1254,8 +1254,11 @@ class ConfigManager:
                 raise ValueError(f"{field} must be an integer.") from exc
             if numeric < 0:
                 raise ValueError(f"{field} must be a non-negative integer.")
-            if numeric == 0 and not allow_zero:
-                raise ValueError(f"{field} must be a positive integer.")
+            if numeric == 0:
+                if zero_means_none:
+                    return None
+                if not allow_zero:
+                    raise ValueError(f"{field} must be a positive integer.")
             return numeric
 
         def _normalize_bool(value: Optional[Any]) -> Optional[bool]:
@@ -1300,8 +1303,12 @@ class ConfigManager:
             minimum=0.0,
             maximum=1.0,
         )
-        tokens = _normalize_positive_int(max_tokens, 'Max tokens')
-        settings['max_tokens'] = tokens if tokens is not None else settings.get('max_tokens')
+        tokens = _normalize_positive_int(
+            max_tokens,
+            'Max tokens',
+            zero_means_none=True,
+        )
+        settings['max_tokens'] = tokens
 
         normalized_safe_prompt = _normalize_bool(safe_prompt)
         if normalized_safe_prompt is not None:
@@ -1312,7 +1319,11 @@ class ConfigManager:
             settings['parallel_tool_calls'] = normalized_parallel
 
         seed = (
-            _normalize_positive_int(random_seed, 'Random seed', allow_zero=True)
+            _normalize_positive_int(
+                random_seed,
+                'Random seed',
+                allow_zero=True,
+            )
             if random_seed not in {None, ""}
             else None
         )
