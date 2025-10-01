@@ -104,6 +104,14 @@ window.sidebar {
     background-color: #2b2b2b;
 }
 
+/* Ensure descendant layout widgets inherit the same dark styling */
+window.sidebar scrolledwindow,
+window.sidebar scrolledwindow > viewport,
+window.sidebar box,
+window.sidebar notebook {
+    background-color: #2b2b2b;
+}
+
 /* Chat Page Window styling */
 window.chat-page {
     background-color: #2b2b2b;
