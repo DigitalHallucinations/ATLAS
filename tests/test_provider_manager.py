@@ -712,6 +712,8 @@ class DummyConfig:
             "presence_penalty": 0.0,
             "tool_choice": "auto",
             "parallel_tool_calls": True,
+            "json_mode": False,
+            "json_schema": None,
         }
         self._google_settings = {
             "model": "gemini-1.5-pro-latest",
@@ -896,6 +898,8 @@ class DummyConfig:
         parallel_tool_calls=None,
         stream=None,
         stop_sequences=None,
+        json_mode=None,
+        json_schema=None,
     ):
         if model:
             self._mistral_settings["model"] = model
@@ -938,6 +942,19 @@ class DummyConfig:
                     if str(item).strip()
                 ]
             self._mistral_settings["stop_sequences"] = items
+        if json_mode is not None:
+            self._mistral_settings["json_mode"] = bool(json_mode)
+        if json_schema is not None:
+            if json_schema == "":
+                self._mistral_settings["json_schema"] = None
+            else:
+                if isinstance(json_schema, str):
+                    try:
+                        self._mistral_settings["json_schema"] = json.loads(json_schema)
+                    except json.JSONDecodeError:
+                        self._mistral_settings["json_schema"] = json_schema
+                else:
+                    self._mistral_settings["json_schema"] = json_schema
         return dict(self._mistral_settings)
 
     def get_google_llm_settings(self):
@@ -2465,6 +2482,10 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         raising=False,
     )
     config = provider_manager.config_manager
+    schema_payload = {
+        "name": "atlas_response",
+        "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}},
+    }
     config.set_mistral_llm_settings(
         model="mistral-medium-latest",
         temperature=0.4,
@@ -2478,6 +2499,8 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         parallel_tool_calls=False,
         tool_choice={"type": "function", "name": "math"},
         stop_sequences=["HALT"],
+        json_mode=True,
+        json_schema=schema_payload,
     )
 
     atlas_stub = types.SimpleNamespace(
@@ -2500,6 +2523,8 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.random_seed_entry.get_text() == "1234"
     assert json.loads(window.tool_choice_entry.get_text()) == {"name": "math", "type": "function"}
     assert window.stop_sequences_entry.get_text() == "HALT"
+    assert window.json_mode_toggle.get_active() is True
+    assert "\"type\": \"object\"" in window._json_schema_text_cache
 
     config.set_mistral_llm_settings(
         model="mistral-large-latest",
@@ -2514,6 +2539,8 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         parallel_tool_calls=True,
         tool_choice="auto",
         stop_sequences=[],
+        json_mode=False,
+        json_schema="",
     )
 
     window.refresh_settings()
@@ -2528,6 +2555,8 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.random_seed_entry.get_text() == ""
     assert window.tool_choice_entry.get_text() == "auto"
     assert window.stop_sequences_entry.get_text() == ""
+    assert window.json_mode_toggle.get_active() is False
+    assert window._json_schema_text_cache == ""
 
     window.model_entry.set_text("mistral-small-latest")
     window.temperature_spin.set_value(0.25)
@@ -2541,6 +2570,20 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     window.random_seed_entry.set_text("0")
     window.tool_choice_entry.set_text("none")
     window.stop_sequences_entry.set_text("END, FINISH")
+    window.json_mode_toggle.set_active(True)
+    window._write_json_schema_text(
+        json.dumps(
+            {
+                "name": "atlas_custom",
+                "schema": {
+                    "type": "object",
+                    "properties": {"result": {"type": "string"}},
+                },
+                "strict": True,
+            },
+            indent=2,
+        )
+    )
 
     window.on_save_clicked(None)
 
@@ -2558,6 +2601,8 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert stored["random_seed"] == 0
     assert stored["tool_choice"] == "none"
     assert stored["stop_sequences"] == ["END", "FINISH"]
+    assert stored["json_mode"] is True
+    assert stored["json_schema"]["schema"]["properties"]["result"]["type"] == "string"
     assert window._last_message[0] == "Success"
 
     window.max_tokens_spin.set_value(0)

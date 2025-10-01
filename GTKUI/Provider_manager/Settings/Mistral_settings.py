@@ -37,6 +37,13 @@ class MistralSettingsWindow(Gtk.Window):
 
         self._last_message: Optional[Tuple[str, str, Gtk.MessageType]] = None
         self._current_settings: Dict[str, Any] = {}
+        self._json_schema_is_valid = True
+        self._json_schema_text_cache = ""
+        self._json_schema_buffer = None
+        self._json_schema_widget = None
+        self._schema_default_message = (
+            "Optional: provide a JSON schema to enforce structured responses."
+        )
 
         self._build_ui()
         self.refresh_settings(clear_message=True)
@@ -166,6 +173,84 @@ class MistralSettingsWindow(Gtk.Window):
         grid.attach(self.parallel_tool_calls_toggle, 1, row, 1, 1)
 
         row += 1
+        self.json_mode_toggle = Gtk.CheckButton(label="Force JSON responses")
+        self.json_mode_toggle.set_halign(Gtk.Align.START)
+        grid.attach(self.json_mode_toggle, 0, row, 2, 1)
+
+        row += 1
+        schema_label = Gtk.Label(label="Response JSON Schema (optional):")
+        schema_label.set_xalign(0.0)
+        grid.attach(schema_label, 0, row, 2, 1)
+
+        row += 1
+
+        text_view_cls = getattr(Gtk, "TextView", None)
+        text_buffer_cls = getattr(Gtk, "TextBuffer", None)
+        scrolled_cls = getattr(Gtk, "ScrolledWindow", None)
+
+        if text_view_cls is not None and text_buffer_cls is not None:
+            if scrolled_cls is not None:
+                schema_scroller = scrolled_cls()
+                if hasattr(schema_scroller, "set_policy"):
+                    schema_scroller.set_policy(
+                        Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC
+                    )
+                if hasattr(schema_scroller, "set_hexpand"):
+                    schema_scroller.set_hexpand(True)
+                if hasattr(schema_scroller, "set_vexpand"):
+                    schema_scroller.set_vexpand(True)
+                if hasattr(schema_scroller, "set_min_content_height"):
+                    schema_scroller.set_min_content_height(140)
+            else:
+                schema_scroller = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+            self._json_schema_widget = text_view_cls()
+            try:
+                self._json_schema_buffer = text_buffer_cls()
+            except Exception:  # pragma: no cover - defensive fallback
+                self._json_schema_buffer = None
+
+            if (
+                self._json_schema_buffer is not None
+                and hasattr(self._json_schema_widget, "set_buffer")
+            ):
+                self._json_schema_widget.set_buffer(self._json_schema_buffer)
+
+            if hasattr(self._json_schema_widget, "set_wrap_mode"):
+                try:
+                    from gi.repository import Pango  # type: ignore
+
+                    self._json_schema_widget.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                except Exception:  # pragma: no cover - optional dependency may be absent
+                    pass
+
+            if hasattr(schema_scroller, "set_child"):
+                schema_scroller.set_child(self._json_schema_widget)
+            elif hasattr(schema_scroller, "append"):
+                schema_scroller.append(self._json_schema_widget)
+            else:  # pragma: no cover - fallback for simple stubs
+                schema_scroller.child = self._json_schema_widget
+
+            grid.attach(schema_scroller, 0, row, 2, 1)
+        else:
+            self._json_schema_widget = Gtk.Entry()
+            if hasattr(self._json_schema_widget, "set_placeholder_text"):
+                self._json_schema_widget.set_placeholder_text(
+                    '{"name": "atlas_response", "schema": {"type": "object"}}'
+                )
+            if hasattr(self._json_schema_widget, "set_hexpand"):
+                self._json_schema_widget.set_hexpand(True)
+            grid.attach(self._json_schema_widget, 0, row, 2, 1)
+
+        row += 1
+
+        self.json_schema_feedback_label = Gtk.Label(
+            label=self._schema_default_message
+        )
+        self.json_schema_feedback_label.set_xalign(0.0)
+        grid.attach(self.json_schema_feedback_label, 0, row, 2, 1)
+
+        row += 1
         seed_label = Gtk.Label(label="Random seed (optional):")
         seed_label.set_xalign(0.0)
         grid.attach(seed_label, 0, row, 1, 1)
@@ -236,6 +321,18 @@ class MistralSettingsWindow(Gtk.Window):
         self.parallel_tool_calls_toggle.set_active(
             bool(settings.get("parallel_tool_calls", True))
         )
+
+        self.json_mode_toggle.set_active(bool(settings.get("json_mode", False)))
+
+        schema_payload = settings.get("json_schema") if isinstance(settings, dict) else None
+        formatted_schema = self._format_json_schema(schema_payload)
+        self._write_json_schema_text(formatted_schema)
+        if schema_payload:
+            self._update_json_schema_feedback(
+                True, "JSON schema loaded from saved settings."
+            )
+        else:
+            self._update_json_schema_feedback(True, self._schema_default_message)
 
         random_seed = settings.get("random_seed")
         if random_seed in {None, ""}:
@@ -316,6 +413,7 @@ class MistralSettingsWindow(Gtk.Window):
         max_tokens = max_tokens_value if max_tokens_value > 0 else None
 
         try:
+            raw_schema_text = self._read_json_schema_text().strip()
             random_seed = self._parse_optional_int(self.random_seed_entry.get_text())
             saved = self.config_manager.set_mistral_llm_settings(
                 model=model,
@@ -330,13 +428,75 @@ class MistralSettingsWindow(Gtk.Window):
                 tool_choice=self._parse_tool_choice(self.tool_choice_entry.get_text()),
                 parallel_tool_calls=self.parallel_tool_calls_toggle.get_active(),
                 stop_sequences=self._parse_stop_sequences(),
+                json_mode=self.json_mode_toggle.get_active(),
+                json_schema=raw_schema_text if raw_schema_text else "",
             )
         except Exception as exc:
             logger.error("Failed to save Mistral settings: %s", exc, exc_info=True)
             message = str(exc) or "Unable to save Mistral defaults."
             self._set_message("Error", message, Gtk.MessageType.ERROR)
+            self._update_json_schema_feedback(False, message)
             return
 
         self._current_settings = dict(saved)
         self._set_message("Success", "Mistral defaults updated.", Gtk.MessageType.INFO)
+        if raw_schema_text:
+            self._update_json_schema_feedback(True, "JSON schema saved successfully.")
+        else:
+            self._update_json_schema_feedback(True, self._schema_default_message)
         self.refresh_settings(clear_message=False)
+
+    def _format_json_schema(self, payload: Any) -> str:
+        if not payload:
+            return ""
+        try:
+            return json.dumps(payload, indent=2, sort_keys=True)
+        except (TypeError, ValueError):  # pragma: no cover - defensive fallback
+            return ""
+
+    def _write_json_schema_text(self, text: str) -> None:
+        self._json_schema_text_cache = text or ""
+        buffer = getattr(self, "_json_schema_buffer", None)
+        if buffer is not None and hasattr(buffer, "set_text"):
+            try:
+                buffer.set_text(self._json_schema_text_cache)
+                return
+            except Exception:  # pragma: no cover - defensive fallback
+                pass
+
+        widget = getattr(self, "_json_schema_widget", None)
+        if widget is not None and hasattr(widget, "set_text"):
+            widget.set_text(self._json_schema_text_cache)
+        self._json_schema_text_cache = text or ""
+
+    def _read_json_schema_text(self) -> str:
+        buffer = getattr(self, "_json_schema_buffer", None)
+        if buffer is not None and hasattr(buffer, "get_text"):
+            try:
+                start = buffer.get_start_iter()
+                end = buffer.get_end_iter()
+                return buffer.get_text(start, end, True)
+            except Exception:  # pragma: no cover - fallback for stubs
+                pass
+
+        widget = getattr(self, "_json_schema_widget", None)
+        if widget is not None and hasattr(widget, "get_text"):
+            try:
+                return widget.get_text()
+            except Exception:  # pragma: no cover - fallback
+                pass
+
+        return getattr(self, "_json_schema_text_cache", "")
+
+    def _update_json_schema_feedback(self, valid: bool, message: str) -> None:
+        self._json_schema_is_valid = valid
+        label = getattr(self, "json_schema_feedback_label", None)
+        if label is None:
+            return
+        text = message or self._schema_default_message
+        if hasattr(label, "set_text"):
+            label.set_text(text)
+        elif hasattr(label, "set_label"):
+            label.set_label(text)
+        else:  # pragma: no cover - fallback for stubs
+            setattr(label, "label", text)
