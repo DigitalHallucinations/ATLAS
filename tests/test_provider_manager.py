@@ -706,6 +706,7 @@ class DummyConfig:
             "top_p": 1.0,
             "max_tokens": None,
             "safe_prompt": False,
+            "stream": True,
             "random_seed": None,
             "frequency_penalty": 0.0,
             "presence_penalty": 0.0,
@@ -893,6 +894,7 @@ class DummyConfig:
         presence_penalty=None,
         tool_choice=None,
         parallel_tool_calls=None,
+        stream=None,
     ):
         if model:
             self._mistral_settings["model"] = model
@@ -911,6 +913,8 @@ class DummyConfig:
                 self._mistral_settings["max_tokens"] = numeric
         if safe_prompt is not None:
             self._mistral_settings["safe_prompt"] = bool(safe_prompt)
+        if stream is not None:
+            self._mistral_settings["stream"] = bool(stream)
         if random_seed in ("", None):
             self._mistral_settings["random_seed"] = None
         elif random_seed is not None:
@@ -2456,6 +2460,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         top_p=0.8,
         max_tokens=2048,
         safe_prompt=True,
+        stream=False,
         random_seed=1234,
         frequency_penalty=0.15,
         presence_penalty=-0.3,
@@ -2478,6 +2483,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert math.isclose(window.presence_penalty_spin.get_value(), -0.3)
     assert window.max_tokens_spin.get_value_as_int() == 2048
     assert window.safe_prompt_toggle.get_active() is True
+    assert window.stream_toggle.get_active() is False
     assert window.parallel_tool_calls_toggle.get_active() is False
     assert window.random_seed_entry.get_text() == "1234"
     assert json.loads(window.tool_choice_entry.get_text()) == {"name": "math", "type": "function"}
@@ -2488,6 +2494,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         top_p=0.6,
         max_tokens=None,
         safe_prompt=False,
+        stream=True,
         random_seed=None,
         frequency_penalty=0.0,
         presence_penalty=0.0,
@@ -2502,6 +2509,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert math.isclose(window.top_p_spin.get_value(), 0.6)
     assert window.max_tokens_spin.get_value_as_int() == 0
     assert window.safe_prompt_toggle.get_active() is False
+    assert window.stream_toggle.get_active() is True
     assert window.parallel_tool_calls_toggle.get_active() is True
     assert window.random_seed_entry.get_text() == ""
     assert window.tool_choice_entry.get_text() == "auto"
@@ -2513,6 +2521,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     window.presence_penalty_spin.set_value(0.35)
     window.max_tokens_spin.set_value(1024)
     window.safe_prompt_toggle.set_active(True)
+    window.stream_toggle.set_active(False)
     window.parallel_tool_calls_toggle.set_active(True)
     window.random_seed_entry.set_text("0")
     window.tool_choice_entry.set_text("none")
@@ -2528,6 +2537,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert math.isclose(stored["presence_penalty"], 0.35)
     assert stored["max_tokens"] == 1024
     assert stored["safe_prompt"] is True
+    assert stored["stream"] is False
     assert stored["parallel_tool_calls"] is True
     assert stored["random_seed"] == 0
     assert stored["tool_choice"] == "none"

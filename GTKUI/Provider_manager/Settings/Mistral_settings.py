@@ -148,6 +148,15 @@ class MistralSettingsWindow(Gtk.Window):
         grid.attach(self.safe_prompt_toggle, 1, row, 1, 1)
 
         row += 1
+        stream_label = Gtk.Label(label="Streaming:")
+        stream_label.set_xalign(0.0)
+        grid.attach(stream_label, 0, row, 1, 1)
+
+        self.stream_toggle = Gtk.CheckButton(label="Stream responses by default")
+        self.stream_toggle.set_halign(Gtk.Align.START)
+        grid.attach(self.stream_toggle, 1, row, 1, 1)
+
+        row += 1
         parallel_label = Gtk.Label(label="Parallel tool calls:")
         parallel_label.set_xalign(0.0)
         grid.attach(parallel_label, 0, row, 1, 1)
@@ -208,6 +217,7 @@ class MistralSettingsWindow(Gtk.Window):
         self.max_tokens_spin.set_value(float(max_tokens or 0))
 
         self.safe_prompt_toggle.set_active(bool(settings.get("safe_prompt", False)))
+        self.stream_toggle.set_active(bool(settings.get("stream", True)))
         self.parallel_tool_calls_toggle.set_active(
             bool(settings.get("parallel_tool_calls", True))
         )
@@ -281,6 +291,7 @@ class MistralSettingsWindow(Gtk.Window):
                 top_p=self.top_p_spin.get_value(),
                 max_tokens=max_tokens,
                 safe_prompt=self.safe_prompt_toggle.get_active(),
+                stream=self.stream_toggle.get_active(),
                 random_seed=random_seed,
                 frequency_penalty=self.frequency_penalty_spin.get_value(),
                 presence_penalty=self.presence_penalty_spin.get_value(),

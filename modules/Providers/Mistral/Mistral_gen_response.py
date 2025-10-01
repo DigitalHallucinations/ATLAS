@@ -169,6 +169,11 @@ class MistralGenerator:
                 'safe_prompt',
                 False,
             )
+            effective_stream = _resolve_bool(
+                stream,
+                'stream',
+                True,
+            )
             effective_parallel = _resolve_bool(
                 parallel_tool_calls,
                 'parallel_tool_calls',
@@ -228,10 +233,7 @@ class MistralGenerator:
                 if configured_tool_choice is not None:
                     request_kwargs['tool_choice'] = configured_tool_choice
 
-            if stream is None:
-                stream = bool(settings.get('stream', True))
-
-            if stream:
+            if effective_stream:
                 response_stream = await asyncio.to_thread(
                     self.client.chat.stream,
                     **request_kwargs,

@@ -127,6 +127,7 @@ def test_mistral_generator_applies_config_defaults():
         "top_p": 0.55,
         "max_tokens": 321,
         "safe_prompt": True,
+        "stream": False,
         "random_seed": 17,
         "frequency_penalty": 0.3,
         "presence_penalty": -0.2,
@@ -139,7 +140,6 @@ def test_mistral_generator_applies_config_defaults():
     async def exercise():
         return await generator.generate_response(
             messages=[{"role": "user", "content": "Hello"}],
-            stream=False,
         )
 
     result = asyncio.run(exercise())
@@ -155,6 +155,40 @@ def test_mistral_generator_applies_config_defaults():
     assert kwargs["frequency_penalty"] == 0.3
     assert kwargs["presence_penalty"] == -0.2
     assert kwargs["tool_choice"] == "none"
+    assert _StubChat.last_stream_kwargs is None
+
+
+def test_mistral_generator_streams_when_configured_by_default():
+    settings = {
+        "model": "mistral-stream-test",
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "max_tokens": None,
+        "safe_prompt": False,
+        "stream": True,
+        "random_seed": None,
+        "frequency_penalty": 0.0,
+        "presence_penalty": 0.0,
+        "tool_choice": "auto",
+        "parallel_tool_calls": True,
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+
+    async def exercise():
+        stream = await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+        chunks = [chunk async for chunk in stream]
+        return chunks
+
+    chunks = asyncio.run(exercise())
+
+    assert chunks == []
+    assert _StubChat.last_complete_kwargs is None
+    stream_kwargs = _StubChat.last_stream_kwargs
+    assert stream_kwargs["model"] == "mistral-stream-test"
+    assert stream_kwargs["temperature"] == 0.0
 
 
 def test_mistral_generator_omits_max_tokens_when_using_provider_default():
@@ -164,6 +198,7 @@ def test_mistral_generator_omits_max_tokens_when_using_provider_default():
         "top_p": 1.0,
         "max_tokens": None,
         "safe_prompt": False,
+        "stream": False,
         "random_seed": None,
         "frequency_penalty": 0.0,
         "presence_penalty": 0.0,
@@ -176,7 +211,6 @@ def test_mistral_generator_omits_max_tokens_when_using_provider_default():
     async def exercise():
         return await generator.generate_response(
             messages=[{"role": "user", "content": "Hello"}],
-            stream=False,
         )
 
     result = asyncio.run(exercise())
@@ -193,6 +227,7 @@ def test_mistral_generator_treats_zero_override_as_provider_default():
         "top_p": 1.0,
         "max_tokens": 2048,
         "safe_prompt": False,
+        "stream": False,
         "random_seed": None,
         "frequency_penalty": 0.0,
         "presence_penalty": 0.0,
@@ -205,7 +240,6 @@ def test_mistral_generator_treats_zero_override_as_provider_default():
     async def exercise():
         return await generator.generate_response(
             messages=[{"role": "user", "content": "Hello"}],
-            stream=False,
             max_tokens=0,
         )
 
@@ -221,6 +255,7 @@ def test_mistral_generator_translates_functions_to_tools():
         "model": "mistral-large-latest",
         "parallel_tool_calls": True,
         "tool_choice": "auto",
+        "stream": False,
     }
 
     generator = mistral_module.MistralGenerator(DummyConfig(settings))
@@ -228,7 +263,6 @@ def test_mistral_generator_translates_functions_to_tools():
     async def exercise():
         return await generator.generate_response(
             messages=[{"role": "user", "content": "call tool"}],
-            stream=False,
             functions=[
                 {
                     "name": "do_something",
