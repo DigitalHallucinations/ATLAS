@@ -284,6 +284,45 @@ def test_google_generator_disables_tool_config_when_functions_off(monkeypatch):
     assert "allowed_function_names" not in tool_config["function_calling_config"]
 
 
+def test_google_generator_downgrades_require_without_tools(monkeypatch):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    captured_kwargs = {}
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "done"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+
+        def generate_content(self, contents, **kwargs):
+            captured_kwargs.update(kwargs)
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    config = DummyConfig(settings={"function_call_mode": "require"})
+    generator = google_module.GoogleGeminiGenerator(config)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            functions=[],
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "done"
+    assert "tools" not in captured_kwargs
+    tool_config = captured_kwargs["tool_config"]["function_calling_config"]
+    assert tool_config["mode"] == "AUTO"
+    assert "allowed_function_names" not in tool_config
+
+
 def test_google_generator_prunes_allowlist_to_declared_tools(monkeypatch):
     monkeypatch.setattr(genai, "configure", lambda **_: None)
 

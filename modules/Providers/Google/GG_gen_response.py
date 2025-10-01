@@ -250,11 +250,17 @@ class GoogleGeminiGenerator:
                 effective_function_call_mode = resolved_function_call_mode
                 effective_allowed_names = list(resolved_allowed_names)
 
-                if not tools:
+                declared_tools_available = bool(tools) and bool(
+                    declared_function_names
+                )
+
+                if not declared_tools_available:
                     if effective_allowed_names:
                         discarded_allowed_names.extend(effective_allowed_names)
                     effective_allowed_names = []
-                elif declared_function_names:
+                    if effective_function_call_mode == 'require':
+                        effective_function_call_mode = 'auto'
+                else:
                     filtered_allowed_names: List[str] = []
                     for name in effective_allowed_names:
                         if name in declared_function_names:
@@ -262,9 +268,6 @@ class GoogleGeminiGenerator:
                         else:
                             discarded_allowed_names.append(name)
                     effective_allowed_names = filtered_allowed_names
-                elif effective_allowed_names:
-                    discarded_allowed_names.extend(effective_allowed_names)
-                    effective_allowed_names = []
 
             function_calling_config: Dict[str, Any] = {
                 "mode": effective_function_call_mode.upper(),
