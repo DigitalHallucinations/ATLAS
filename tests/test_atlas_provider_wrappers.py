@@ -579,6 +579,69 @@ def test_mistral_streaming_event_flow(monkeypatch):
     assert generator.client.chat._stream_instance.closed is True
 
 
+def test_mistral_generate_response_sync_streams_text(monkeypatch):
+    mistralai_stub = types.ModuleType("mistralai")
+    mistralai_stub.Mistral = type("_StubMistral", (), {})
+    monkeypatch.setitem(sys.modules, "mistralai", mistralai_stub)
+
+    from modules.Providers.Mistral import Mistral_gen_response as mistral
+
+    class _StubGenerator:
+        def __init__(self):
+            self.last_call = None
+
+        async def generate_response(
+            self,
+            messages,
+            model="mistral-large-latest",
+            max_tokens=4096,
+            temperature=0.0,
+            stream=True,
+            current_persona=None,
+            functions=None,
+        ):
+            self.last_call = {
+                "messages": messages,
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": stream,
+                "current_persona": current_persona,
+                "functions": functions,
+            }
+
+            async def _iter():
+                yield "hello"
+                yield " world"
+
+            return _iter()
+
+    stub_generator = _StubGenerator()
+    monkeypatch.setattr(
+        mistral,
+        "setup_mistral_generator",
+        lambda _cfg: stub_generator,
+    )
+
+    result = mistral.generate_response_sync(
+        SimpleNamespace(),
+        messages=[{"role": "user", "content": "ping"}],
+        model="stub-model",
+        stream=True,
+    )
+
+    assert result == "hello world"
+    assert stub_generator.last_call == {
+        "messages": [{"role": "user", "content": "ping"}],
+        "model": "stub-model",
+        "max_tokens": 4096,
+        "temperature": 0.0,
+        "stream": True,
+        "current_persona": None,
+        "functions": None,
+    }
+
+
 def test_anthropic_generate_response_sync_running_loop_error(monkeypatch):
     from modules.Providers.Anthropic import Anthropic_gen_response as anthropic
 

@@ -117,15 +117,27 @@ async def generate_response(config_manager: ConfigManager, messages: List[Dict[s
     return await generator.generate_response(messages, model, max_tokens, temperature, stream, current_persona, functions)
 
 async def process_response(response: Union[str, AsyncIterator[str]]) -> str:
-    generator = MistralGenerator(ConfigManager())
-    return await generator.process_response(response)
+    if isinstance(response, str):
+        return response
+
+    chunks: List[str] = []
+    async for chunk in response:
+        chunks.append(chunk)
+    return "".join(chunks)
 
 def generate_response_sync(config_manager: ConfigManager, messages: List[Dict[str, str]], model: str = "mistral-large-latest", stream: bool = False) -> str:
     """
     Synchronous version of generate_response for compatibility with non-async code.
     """
     loop = asyncio.get_event_loop()
-    response = loop.run_until_complete(generate_response(config_manager, messages, model, stream))
+    response = loop.run_until_complete(
+        generate_response(
+            config_manager,
+            messages,
+            model=model,
+            stream=stream,
+        )
+    )
     if stream:
         return loop.run_until_complete(process_response(response))
     return response
