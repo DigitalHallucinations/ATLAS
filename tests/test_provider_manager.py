@@ -83,6 +83,9 @@ if needs_stub:
         def close(self):
             self.closed = True
 
+        def get_style_context(self):
+            return types.SimpleNamespace(add_class=lambda *_args, **_kwargs: None)
+
     class Box(_Widget):
         def __init__(self, orientation=None, spacing=0):
             super().__init__()
@@ -278,6 +281,9 @@ if needs_stub:
         def set_action_widget(self, child, pack_type):
             self.action_widget = (child, pack_type)
 
+        def get_style_context(self):
+            return types.SimpleNamespace(add_class=lambda *_args, **_kwargs: None)
+
     class MessageType:
         ERROR = "error"
         INFO = "info"
@@ -328,6 +334,22 @@ if needs_stub:
         WORD_CHAR = "word_char"
         WORD = "word"
 
+    class CssProvider:
+        def __init__(self):
+            self.path = None
+
+        def load_from_path(self, path):
+            self.path = path
+
+    class _StyleContext:
+        @staticmethod
+        def add_provider_for_display(display, provider, priority):
+            return None
+
+    gtk_module.CssProvider = CssProvider
+    gtk_module.StyleContext = _StyleContext
+    gtk_module.STYLE_PROVIDER_PRIORITY_APPLICATION = 600
+
     gtk_module.Window = Window
     gtk_module.Box = Box
     gtk_module.Grid = Grid
@@ -366,6 +388,13 @@ if needs_stub:
     repository_module.GLib = glib_module
 
     gdk_module = types.ModuleType("Gdk")
+    class _Display:
+        @staticmethod
+        def get_default():
+            return types.SimpleNamespace()
+
+    gdk_module.Display = _Display
+
     repository_module.Gdk = gdk_module
 
     sys.modules["gi"] = gi_stub
@@ -623,6 +652,7 @@ from GTKUI.Provider_manager.Settings.OA_settings import OpenAISettingsWindow
 from GTKUI.Provider_manager.Settings.Anthropic_settings import AnthropicSettingsWindow
 from GTKUI.Provider_manager.Settings import Anthropic_settings
 from GTKUI.Provider_manager.Settings.Google_settings import GoogleSettingsWindow
+from GTKUI.Provider_manager.Settings.Mistral_settings import MistralSettingsWindow
 
 
 class DummyConfig:
@@ -669,6 +699,18 @@ class DummyConfig:
             "metadata": {},
             "thinking": False,
             "thinking_budget": None,
+        }
+        self._mistral_settings = {
+            "model": "mistral-large-latest",
+            "temperature": 0.0,
+            "top_p": 1.0,
+            "max_tokens": 4096,
+            "safe_prompt": False,
+            "random_seed": None,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
+            "tool_choice": "auto",
+            "parallel_tool_calls": True,
         }
         self._google_settings = {
             "model": "gemini-1.5-pro-latest",
@@ -834,6 +876,50 @@ class DummyConfig:
                 int(thinking_budget) if str(thinking_budget).strip() else None
             )
         return dict(self._anthropic_settings)
+
+    def get_mistral_llm_settings(self):
+        return dict(self._mistral_settings)
+
+    def set_mistral_llm_settings(
+        self,
+        *,
+        model,
+        temperature=None,
+        top_p=None,
+        max_tokens=None,
+        safe_prompt=None,
+        random_seed=None,
+        frequency_penalty=None,
+        presence_penalty=None,
+        tool_choice=None,
+        parallel_tool_calls=None,
+    ):
+        if model:
+            self._mistral_settings["model"] = model
+            self._default_model = model
+        if temperature is not None:
+            self._mistral_settings["temperature"] = float(temperature)
+        if top_p is not None:
+            self._mistral_settings["top_p"] = float(top_p)
+        if max_tokens in ("", None):
+            self._mistral_settings["max_tokens"] = None
+        elif max_tokens is not None:
+            self._mistral_settings["max_tokens"] = int(max_tokens)
+        if safe_prompt is not None:
+            self._mistral_settings["safe_prompt"] = bool(safe_prompt)
+        if random_seed in ("", None):
+            self._mistral_settings["random_seed"] = None
+        elif random_seed is not None:
+            self._mistral_settings["random_seed"] = int(random_seed)
+        if frequency_penalty is not None:
+            self._mistral_settings["frequency_penalty"] = float(frequency_penalty)
+        if presence_penalty is not None:
+            self._mistral_settings["presence_penalty"] = float(presence_penalty)
+        if tool_choice is not None:
+            self._mistral_settings["tool_choice"] = tool_choice
+        if parallel_tool_calls is not None:
+            self._mistral_settings["parallel_tool_calls"] = bool(parallel_tool_calls)
+        return dict(self._mistral_settings)
 
     def get_google_llm_settings(self):
         return dict(self._google_settings)
@@ -2346,6 +2432,102 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
     assert saved_payload["thinking_budget"] == 3072
     assert window._last_message[0] == "Success"
     assert window.closed is True
+
+
+def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypatch):
+    monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
+    monkeypatch.setattr(
+        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
+    )
+    monkeypatch.setattr(
+        Gtk.Window,
+        "get_style_context",
+        lambda self: types.SimpleNamespace(add_class=lambda *_args, **_kwargs: None),
+        raising=False,
+    )
+    config = provider_manager.config_manager
+    config.set_mistral_llm_settings(
+        model="mistral-medium-latest",
+        temperature=0.4,
+        top_p=0.8,
+        max_tokens=2048,
+        safe_prompt=True,
+        random_seed=1234,
+        frequency_penalty=0.15,
+        presence_penalty=-0.3,
+        parallel_tool_calls=False,
+        tool_choice={"type": "function", "name": "math"},
+    )
+
+    atlas_stub = types.SimpleNamespace(
+        provider_manager=provider_manager,
+        config_manager=config,
+        get_provider_api_key_status=lambda _name: {"has_key": False, "metadata": {}},
+    )
+
+    window = MistralSettingsWindow(atlas_stub, config, None)
+
+    assert window.model_entry.get_text() == "mistral-medium-latest"
+    assert math.isclose(window.temperature_spin.get_value(), 0.4)
+    assert math.isclose(window.top_p_spin.get_value(), 0.8)
+    assert math.isclose(window.frequency_penalty_spin.get_value(), 0.15)
+    assert math.isclose(window.presence_penalty_spin.get_value(), -0.3)
+    assert window.max_tokens_spin.get_value_as_int() == 2048
+    assert window.safe_prompt_toggle.get_active() is True
+    assert window.parallel_tool_calls_toggle.get_active() is False
+    assert window.random_seed_entry.get_text() == "1234"
+    assert json.loads(window.tool_choice_entry.get_text()) == {"name": "math", "type": "function"}
+
+    config.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        temperature=0.9,
+        top_p=0.6,
+        max_tokens=None,
+        safe_prompt=False,
+        random_seed=None,
+        frequency_penalty=0.0,
+        presence_penalty=0.0,
+        parallel_tool_calls=True,
+        tool_choice="auto",
+    )
+
+    window.refresh_settings()
+
+    assert window.model_entry.get_text() == "mistral-large-latest"
+    assert math.isclose(window.temperature_spin.get_value(), 0.9)
+    assert math.isclose(window.top_p_spin.get_value(), 0.6)
+    assert window.max_tokens_spin.get_value_as_int() == 0
+    assert window.safe_prompt_toggle.get_active() is False
+    assert window.parallel_tool_calls_toggle.get_active() is True
+    assert window.random_seed_entry.get_text() == ""
+    assert window.tool_choice_entry.get_text() == "auto"
+
+    window.model_entry.set_text("mistral-small-latest")
+    window.temperature_spin.set_value(0.25)
+    window.top_p_spin.set_value(0.55)
+    window.frequency_penalty_spin.set_value(-0.2)
+    window.presence_penalty_spin.set_value(0.35)
+    window.max_tokens_spin.set_value(1024)
+    window.safe_prompt_toggle.set_active(True)
+    window.parallel_tool_calls_toggle.set_active(True)
+    window.random_seed_entry.set_text("0")
+    window.tool_choice_entry.set_text("none")
+
+    window.on_save_clicked(None)
+
+    stored = config.get_mistral_llm_settings()
+
+    assert stored["model"] == "mistral-small-latest"
+    assert math.isclose(stored["temperature"], 0.25)
+    assert math.isclose(stored["top_p"], 0.55)
+    assert math.isclose(stored["frequency_penalty"], -0.2)
+    assert math.isclose(stored["presence_penalty"], 0.35)
+    assert stored["max_tokens"] == 1024
+    assert stored["safe_prompt"] is True
+    assert stored["parallel_tool_calls"] is True
+    assert stored["random_seed"] == 0
+    assert stored["tool_choice"] == "none"
+    assert window._last_message[0] == "Success"
 
 
 def test_anthropic_settings_window_saves_api_key(provider_manager):
