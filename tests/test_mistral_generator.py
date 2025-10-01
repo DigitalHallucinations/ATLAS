@@ -32,6 +32,8 @@ class _StubMistral:
     def __init__(self, **_kwargs):
         self.chat = _StubChat()
 
+    APIError = Exception
+
 
 if "mistralai" not in sys.modules:
     sys.modules["mistralai"] = SimpleNamespace(
@@ -103,6 +105,28 @@ class DummyConfig:
     def get_mistral_llm_settings(self):
         return dict(self._settings)
 
+    @staticmethod
+    def _coerce_stop_sequences(value):
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            tokens = [part.strip() for part in value.split(",") if part.strip()]
+        elif isinstance(value, (list, tuple, set)):
+            tokens = []
+            for item in value:
+                if item in {None, ""}:
+                    continue
+                if not isinstance(item, str):
+                    raise ValueError("Stop sequences must be strings.")
+                cleaned = item.strip()
+                if cleaned:
+                    tokens.append(cleaned)
+        else:
+            raise ValueError("Invalid stop sequences payload.")
+        if len(tokens) > 4:
+            raise ValueError("Stop sequences cannot contain more than 4 entries.")
+        return tokens
+
 
 def _reset_stubs():
     _StubChat.last_complete_kwargs = None
@@ -133,6 +157,7 @@ def test_mistral_generator_applies_config_defaults():
         "presence_penalty": -0.2,
         "tool_choice": "none",
         "parallel_tool_calls": False,
+        "stop_sequences": ["<END>", "<STOP>"],
     }
 
     generator = mistral_module.MistralGenerator(DummyConfig(settings))
@@ -155,6 +180,7 @@ def test_mistral_generator_applies_config_defaults():
     assert kwargs["frequency_penalty"] == 0.3
     assert kwargs["presence_penalty"] == -0.2
     assert kwargs["tool_choice"] == "none"
+    assert kwargs["stop"] == ["<END>", "<STOP>"]
     assert _StubChat.last_stream_kwargs is None
 
 
@@ -171,6 +197,7 @@ def test_mistral_generator_streams_when_configured_by_default():
         "presence_penalty": 0.0,
         "tool_choice": "auto",
         "parallel_tool_calls": True,
+        "stop_sequences": ["END"],
     }
 
     generator = mistral_module.MistralGenerator(DummyConfig(settings))
@@ -189,6 +216,7 @@ def test_mistral_generator_streams_when_configured_by_default():
     stream_kwargs = _StubChat.last_stream_kwargs
     assert stream_kwargs["model"] == "mistral-stream-test"
     assert stream_kwargs["temperature"] == 0.0
+    assert stream_kwargs["stop"] == ["END"]
 
 
 def test_mistral_generator_omits_max_tokens_when_using_provider_default():
@@ -204,6 +232,7 @@ def test_mistral_generator_omits_max_tokens_when_using_provider_default():
         "presence_penalty": 0.0,
         "tool_choice": "auto",
         "parallel_tool_calls": True,
+        "stop_sequences": [],
     }
 
     generator = mistral_module.MistralGenerator(DummyConfig(settings))
@@ -233,6 +262,7 @@ def test_mistral_generator_treats_zero_override_as_provider_default():
         "presence_penalty": 0.0,
         "tool_choice": "auto",
         "parallel_tool_calls": True,
+        "stop_sequences": [],
     }
 
     generator = mistral_module.MistralGenerator(DummyConfig(settings))
@@ -256,6 +286,7 @@ def test_mistral_generator_translates_functions_to_tools():
         "parallel_tool_calls": True,
         "tool_choice": "auto",
         "stream": False,
+        "stop_sequences": [],
     }
 
     generator = mistral_module.MistralGenerator(DummyConfig(settings))
@@ -287,3 +318,25 @@ def test_mistral_generator_translates_functions_to_tools():
     assert tools[0]["function"]["name"] == "do_something"
     assert tools[0]["function"]["description"] == "Performs an action"
     assert tools[0]["function"]["parameters"] == {"type": "object", "properties": {}}
+
+
+def test_mistral_generator_overrides_stop_sequences_argument():
+    settings = {
+        "model": "mistral-large-latest",
+        "stream": False,
+        "stop_sequences": ["DEFAULT"],
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+            stop_sequences=["CUSTOM", "HALT"],
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "ok"
+    kwargs = _StubChat.last_complete_kwargs
+    assert kwargs["stop"] == ["CUSTOM", "HALT"]

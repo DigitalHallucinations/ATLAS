@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Mapping
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import gi
 
@@ -186,6 +186,21 @@ class MistralSettingsWindow(Gtk.Window):
         grid.attach(self.tool_choice_entry, 1, row, 1, 1)
 
         row += 1
+        stop_sequences_label = Gtk.Label(label="Stop sequences:")
+        stop_sequences_label.set_xalign(0.0)
+        grid.attach(stop_sequences_label, 0, row, 1, 1)
+
+        self.stop_sequences_entry = Gtk.Entry()
+        self.stop_sequences_entry.set_hexpand(True)
+        self.stop_sequences_entry.set_placeholder_text(
+            "Comma-separated tokens to stop generation"
+        )
+        self.stop_sequences_entry.set_tooltip_text(
+            "Provide comma separated stop strings (maximum of four)."
+        )
+        grid.attach(self.stop_sequences_entry, 1, row, 1, 1)
+
+        row += 1
         self.message_label = Gtk.Label(label="")
         self.message_label.set_xalign(0.0)
         grid.attach(self.message_label, 0, row, 2, 1)
@@ -237,6 +252,9 @@ class MistralSettingsWindow(Gtk.Window):
             tool_choice_text = str(tool_choice)
         self.tool_choice_entry.set_text(tool_choice_text)
 
+        tokens = settings.get("stop_sequences") or []
+        self.stop_sequences_entry.set_text(", ".join(tokens))
+
         if clear_message:
             self._last_message = None
             self._update_label(self.message_label, "")
@@ -269,6 +287,20 @@ class MistralSettingsWindow(Gtk.Window):
             return parsed
         return cleaned
 
+    def _parse_stop_sequences(self) -> List[str]:
+        try:
+            text = self.stop_sequences_entry.get_text()
+        except Exception:  # pragma: no cover - defensive for stubs/tests
+            text = ""
+        if not text:
+            return []
+        tokens: List[str] = []
+        for part in text.replace("\n", ",").split(","):
+            cleaned = part.strip()
+            if cleaned:
+                tokens.append(cleaned)
+        return tokens
+
     def _parse_optional_int(self, value: str) -> Optional[int]:
         cleaned = value.strip()
         if not cleaned:
@@ -297,6 +329,7 @@ class MistralSettingsWindow(Gtk.Window):
                 presence_penalty=self.presence_penalty_spin.get_value(),
                 tool_choice=self._parse_tool_choice(self.tool_choice_entry.get_text()),
                 parallel_tool_calls=self.parallel_tool_calls_toggle.get_active(),
+                stop_sequences=self._parse_stop_sequences(),
             )
         except Exception as exc:
             logger.error("Failed to save Mistral settings: %s", exc, exc_info=True)

@@ -895,6 +895,7 @@ class DummyConfig:
         tool_choice=None,
         parallel_tool_calls=None,
         stream=None,
+        stop_sequences=None,
     ):
         if model:
             self._mistral_settings["model"] = model
@@ -927,6 +928,16 @@ class DummyConfig:
             self._mistral_settings["tool_choice"] = tool_choice
         if parallel_tool_calls is not None:
             self._mistral_settings["parallel_tool_calls"] = bool(parallel_tool_calls)
+        if stop_sequences is not None:
+            if isinstance(stop_sequences, str):
+                items = [part.strip() for part in stop_sequences.split(",") if part.strip()]
+            else:
+                items = [
+                    str(item).strip()
+                    for item in (stop_sequences or [])
+                    if str(item).strip()
+                ]
+            self._mistral_settings["stop_sequences"] = items
         return dict(self._mistral_settings)
 
     def get_google_llm_settings(self):
@@ -2466,6 +2477,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         presence_penalty=-0.3,
         parallel_tool_calls=False,
         tool_choice={"type": "function", "name": "math"},
+        stop_sequences=["HALT"],
     )
 
     atlas_stub = types.SimpleNamespace(
@@ -2487,6 +2499,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.parallel_tool_calls_toggle.get_active() is False
     assert window.random_seed_entry.get_text() == "1234"
     assert json.loads(window.tool_choice_entry.get_text()) == {"name": "math", "type": "function"}
+    assert window.stop_sequences_entry.get_text() == "HALT"
 
     config.set_mistral_llm_settings(
         model="mistral-large-latest",
@@ -2500,6 +2513,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         presence_penalty=0.0,
         parallel_tool_calls=True,
         tool_choice="auto",
+        stop_sequences=[],
     )
 
     window.refresh_settings()
@@ -2513,6 +2527,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.parallel_tool_calls_toggle.get_active() is True
     assert window.random_seed_entry.get_text() == ""
     assert window.tool_choice_entry.get_text() == "auto"
+    assert window.stop_sequences_entry.get_text() == ""
 
     window.model_entry.set_text("mistral-small-latest")
     window.temperature_spin.set_value(0.25)
@@ -2525,6 +2540,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     window.parallel_tool_calls_toggle.set_active(True)
     window.random_seed_entry.set_text("0")
     window.tool_choice_entry.set_text("none")
+    window.stop_sequences_entry.set_text("END, FINISH")
 
     window.on_save_clicked(None)
 
@@ -2541,6 +2557,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert stored["parallel_tool_calls"] is True
     assert stored["random_seed"] == 0
     assert stored["tool_choice"] == "none"
+    assert stored["stop_sequences"] == ["END", "FINISH"]
     assert window._last_message[0] == "Success"
 
     window.max_tokens_spin.set_value(0)
