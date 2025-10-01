@@ -196,7 +196,9 @@ class SpeechManager:
         self.transcription_history: List[dict] = []  # Logs for transcription events
 
         self._google_tts_factory: Callable[[], Any] = lambda: GoogleTTS()
-        self._google_stt_factory: Callable[[], Any] = lambda: GoogleSTT()
+        self._google_stt_factory: Callable[[], Any] = (
+            lambda: GoogleSTT(sample_rate_hertz=self._get_google_stt_sample_rate())
+        )
         self._openai_stt_factories: Dict[str, Callable[[], Any]] = {
             "Whisper Online": lambda: self._create_whisper_stt(),
             "GPT-4o STT": lambda: self._create_gpt4o_stt("gpt-4o"),
@@ -313,6 +315,42 @@ class SpeechManager:
             os.environ.pop(env_key, None)
         else:
             os.environ[env_key] = previous_value
+
+    def _get_google_stt_sample_rate(self) -> int:
+        """Return the configured Google STT sample rate, defaulting to 16 kHz."""
+
+        default_rate = 16000
+        candidates = []
+
+        getter = getattr(self.config_manager, "get_config", None)
+        if callable(getter):
+            candidates.append(getter("GOOGLE_STT_SAMPLE_RATE", None))
+
+        config = getattr(self.config_manager, "config", {})
+        if isinstance(config, dict):
+            candidates.append(config.get("GOOGLE_STT_SAMPLE_RATE"))
+
+        for value in candidates:
+            if value in (None, ""):
+                continue
+            try:
+                rate = int(value)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Invalid GOOGLE_STT_SAMPLE_RATE value '%s'; using default %s Hz.",
+                    value,
+                    default_rate,
+                )
+                continue
+            if rate > 0:
+                return rate
+            logger.warning(
+                "Non-positive GOOGLE_STT_SAMPLE_RATE value '%s'; using default %s Hz.",
+                value,
+                default_rate,
+            )
+
+        return default_rate
 
     def _create_whisper_stt(self):
         from modules.Speech_Services.whisper_stt import WhisperSTT

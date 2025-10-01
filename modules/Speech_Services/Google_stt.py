@@ -10,17 +10,25 @@ from modules.logging.logger import setup_logger
 logger = setup_logger('Ggl_stt.py')
 
 class GoogleSTT:
-    def __init__(self, fs=16000, sample_rate_hertz=16000, enable_automatic_punctuation=True):
+    def __init__(
+        self,
+        fs=16000,
+        sample_rate_hertz=None,
+        enable_automatic_punctuation=True,
+    ):
         logger.info("Initializing GoogleSTT")
+        effective_sample_rate = sample_rate_hertz if sample_rate_hertz is not None else fs
+        if effective_sample_rate is None:
+            effective_sample_rate = 16000
         self.client = speech.SpeechClient()
         self.config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-            sample_rate_hertz=16000,
+            sample_rate_hertz=effective_sample_rate,
             language_code="en-US",
             enable_automatic_punctuation=enable_automatic_punctuation
         )
-        
-        self.fs = fs
+
+        self.fs = effective_sample_rate
         self.frames = []
         self.recording = False
         self.stream = sd.InputStream(callback=self.callback, channels=1, samplerate=self.fs)
