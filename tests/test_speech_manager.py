@@ -95,6 +95,49 @@ if "google.cloud.texttospeech" not in sys.modules:
     sys.modules["google.cloud.texttospeech"] = texttospeech_module
 
 
+speech_module = types.ModuleType("google.cloud.speech_v1p1beta1")
+
+
+class _DummyRecognitionConfig:
+    class AudioEncoding:
+        LINEAR16 = "LINEAR16"
+
+    def __init__(self, **kwargs):
+        self.kwargs = dict(kwargs)
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+class _DummyRecognitionAudio:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+class _DummySpeechClient:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def recognize(self, *args, **kwargs):
+        return types.SimpleNamespace(results=[])
+
+
+speech_module.RecognitionConfig = _DummyRecognitionConfig
+speech_module.RecognitionAudio = _DummyRecognitionAudio
+speech_module.SpeechClient = _DummySpeechClient
+
+google_module = sys.modules.setdefault("google", types.ModuleType("google"))
+google_module.__path__ = getattr(google_module, "__path__", [])
+cloud_module = getattr(google_module, "cloud", None)
+if cloud_module is None:
+    cloud_module = types.ModuleType("google.cloud")
+    cloud_module.__path__ = []
+    google_module.cloud = cloud_module
+    sys.modules["google.cloud"] = cloud_module
+
+cloud_module.speech_v1p1beta1 = speech_module
+sys.modules["google.cloud.speech_v1p1beta1"] = speech_module
+
+
 if "pygame" not in sys.modules:
     music = types.SimpleNamespace(
         load=lambda *args, **kwargs: None,
@@ -177,7 +220,8 @@ if "openai" not in sys.modules:
 if "sounddevice" not in sys.modules:
     class _DummyInputStream:
         def __init__(self, *args, **kwargs):
-            pass
+            self.args = args
+            self.kwargs = kwargs
 
         def start(self):
             pass
@@ -481,6 +525,15 @@ def test_google_tts_get_voices_returns_expected_structure():
             "natural_sample_rate_hertz": 24000,
         }
     ]
+
+
+def test_google_stt_factory_uses_configured_sample_rate(speech_manager):
+    speech_manager.config_manager.config["GOOGLE_STT_SAMPLE_RATE"] = "22050"
+
+    google_stt = speech_manager._google_stt_factory()
+
+    assert google_stt.config.sample_rate_hertz == 22050
+    assert google_stt.fs == 22050
 
 
 def test_summary_supports_unregistered_active_service(speech_manager):
