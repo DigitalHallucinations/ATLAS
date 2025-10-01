@@ -12,7 +12,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib
 
-from GTKUI.Utils.utils import create_box
+from GTKUI.Utils.utils import apply_css, create_box
 from modules.background_tasks import run_async_in_thread
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,10 @@ class OpenAISettingsWindow(Gtk.Window):
 
     def __init__(self, ATLAS, config_manager, parent_window):
         super().__init__(title="OpenAI Settings")
+        apply_css()
+        style_context = self.get_style_context()
+        style_context.add_class("chat-page")
+        style_context.add_class("sidebar")
         self.ATLAS = ATLAS
         self.config_manager = config_manager
         self.parent_window = parent_window
