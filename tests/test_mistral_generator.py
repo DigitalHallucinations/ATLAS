@@ -157,6 +157,65 @@ def test_mistral_generator_applies_config_defaults():
     assert kwargs["tool_choice"] == "none"
 
 
+def test_mistral_generator_omits_max_tokens_when_using_provider_default():
+    settings = {
+        "model": "mistral-large-latest",
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "max_tokens": None,
+        "safe_prompt": False,
+        "random_seed": None,
+        "frequency_penalty": 0.0,
+        "presence_penalty": 0.0,
+        "tool_choice": "auto",
+        "parallel_tool_calls": True,
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "ok"
+    kwargs = _StubChat.last_complete_kwargs
+    assert "max_tokens" not in kwargs
+
+
+def test_mistral_generator_treats_zero_override_as_provider_default():
+    settings = {
+        "model": "mistral-large-latest",
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "max_tokens": 2048,
+        "safe_prompt": False,
+        "random_seed": None,
+        "frequency_penalty": 0.0,
+        "presence_penalty": 0.0,
+        "tool_choice": "auto",
+        "parallel_tool_calls": True,
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+            stream=False,
+            max_tokens=0,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "ok"
+    kwargs = _StubChat.last_complete_kwargs
+    assert "max_tokens" not in kwargs
+
+
 def test_mistral_generator_translates_functions_to_tools():
     settings = {
         "model": "mistral-large-latest",
