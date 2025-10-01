@@ -8,7 +8,7 @@ from gi.repository import Gtk, Gdk, GLib
 import os
 import logging
 
-from GTKUI.Utils.utils import create_box
+from GTKUI.Utils.utils import apply_css, create_box
 from .Settings.HF_settings import HuggingFaceSettingsWindow
 from .Settings.OA_settings import OpenAISettingsWindow
 from .Settings.Anthropic_settings import AnthropicSettingsWindow
@@ -72,6 +72,11 @@ class ProviderManagement:
         self.provider_window.set_transient_for(self.parent_window)
         self.provider_window.set_modal(True)
         self.provider_window.set_tooltip_text("Choose a default LLM provider or open its settings.")
+
+        apply_css()
+        style_context = self.provider_window.get_style_context()
+        style_context.add_class("chat-page")
+        style_context.add_class("sidebar")
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -237,7 +242,10 @@ class ProviderManagement:
         settings_window.set_modal(True)
         settings_window.set_tooltip_text(f"Update API key and settings for {provider_name}.")
 
-        self.apply_css_styling()
+        apply_css()
+        style_context = settings_window.get_style_context()
+        style_context.add_class("chat-page")
+        style_context.add_class("sidebar")
 
         main_vbox = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
         settings_window.set_child(main_vbox)
@@ -616,34 +624,3 @@ class ProviderManagement:
         dialog.set_tooltip_text("Close to continue.")
         dialog.present()
 
-    def apply_css_styling(self):
-        """
-        Applies CSS styling to the provider settings window.
-        This ensures a consistent look and feel across the application.
-        """
-        css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(b"""
-            * { background-color: #2b2b2b; color: white; }
-            label { margin: 5px; }
-            entry { background-color: #3c3c3c; color: white; }
-            button { background-color: #555555; color: white; }
-            button:hover { background-color: #4a90d9; }
-            button:active { background-color: #357ABD; }
-            .provider-label {
-                font-weight: bold;
-            }
-        """)
-        # Use the app's display if possible; fall back safely.
-        display = None
-        try:
-            if self.parent_window:
-                display = self.parent_window.get_display()
-        except Exception:
-            display = None
-        if display is None:
-            display = Gtk.Window().get_display()
-        Gtk.StyleContext.add_provider_for_display(
-            display,
-            css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )

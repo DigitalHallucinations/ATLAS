@@ -19,7 +19,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gdk, GLib
 
-from GTKUI.Utils.utils import create_box
+from GTKUI.Utils.utils import apply_css, create_box
 
 
 logger = logging.getLogger(__name__)
@@ -36,12 +36,13 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             parent_window: The parent GTK window.
         """
         super().__init__(title="HuggingFace Settings")
+        apply_css()
+        style_context = self.get_style_context()
+        style_context.add_class("chat-page")
+        style_context.add_class("sidebar")
         self.parent_window = parent_window
         self.set_transient_for(parent_window)
         self.set_modal(True)
-        
-        # Apply the CSS styling for this window.
-        self.apply_css_styling()
         
         self.set_default_size(800, 600)
         self.ATLAS = ATLAS
@@ -299,92 +300,6 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             img = Gtk.Image.new_from_icon_name(fallback_icon_name)
             img.set_pixel_size(size)
             return img
-
-    def apply_css_styling(self):
-        """
-        Applies CSS styling to the HuggingFace settings window.
-        """
-        css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(b"""
-            * { 
-                background-color: #2b2b2b; 
-                color: white; 
-            }
-
-            entry, textview {
-                background-color: #1c1c1c;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                font-size: 14px;
-                padding: 5px;
-                margin: 0;
-            }
-
-            entry {
-                min-height: 30px;
-            }
-
-            entry:focus {
-                outline: none;
-            }
-
-            textview {
-                caret-color: white;
-            }
-
-            textview text {
-                background-color: #1c1c1c;
-                color: white;
-                caret-color: white;
-            }
-
-            textview text selection {
-                background-color: #4a90d9;
-                color: white;
-            }
-
-            button {
-                background-color: #2b2b2b;
-                color: white;
-                padding: 8px;
-                border-radius: 3px;
-                border: 1px solid #4a4a4a;
-                font-size: 14px;
-            }
-
-            button:hover {
-                background-color: #4a90d9;
-                border: 1px solid #4a90d9;
-            }
-
-            button:active {
-                background-color: #357ABD;
-                border: 1px solid #357ABD;
-            }
-
-            label { 
-                margin: 5px;
-                color: #ffffff; 
-            }
-
-            notebook tab { 
-                background-color: #2b2b2b; 
-                color: white; 
-                padding: 8px; 
-            }
-
-            scrolledwindow {
-                border: none;
-                background-color: transparent;
-            }
-        """)
-        display = Gtk.Window().get_display()
-        Gtk.StyleContext.add_provider_for_display(
-            display,
-            css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_USER
-        )
 
     # ---------------------------------------------------------------------
     # UI Builders
