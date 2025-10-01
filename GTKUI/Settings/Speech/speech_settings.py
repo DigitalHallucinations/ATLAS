@@ -57,6 +57,7 @@ class SpeechSettings(Gtk.Window):
 
         # Notebook for tabs.
         self.notebook = Gtk.Notebook()
+        self.notebook.get_style_context().add_class("sidebar-notebook")
         vbox.append(self.notebook)
 
         # Keep track of unsaved changes per tab using tab indices.
