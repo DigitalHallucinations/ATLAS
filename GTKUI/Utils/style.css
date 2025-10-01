@@ -1,7 +1,12 @@
 /* Label Styling */
 label {
-    color: white;
+    color: #222222;
     font-size: 14px;
+}
+
+.sidebar label,
+.chat-page label {
+    color: white;
 }
 
 /* Persona Label Styling */

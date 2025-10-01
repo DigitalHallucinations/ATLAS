@@ -183,9 +183,24 @@ class SpeechSettings(Gtk.Window):
             buttons=Gtk.ButtonsType.OK,
             text=title,
         )
+        self._style_dialog(dialog)
         dialog.format_secondary_text(message)
         dialog.run()
         dialog.destroy()
+
+    def _style_dialog(self, dialog: Gtk.Widget) -> None:
+        """Apply the shared dark theme styling to transient dialogs."""
+
+        try:
+            apply_css()
+        except (AttributeError, FileNotFoundError, RuntimeError) as exc:
+            logger.debug("Skipping CSS application for dialog: %s", exc)
+        get_style_context = getattr(dialog, "get_style_context", None)
+        if callable(get_style_context):
+            style_context = get_style_context()
+            if hasattr(style_context, "add_class"):
+                style_context.add_class("chat-page")
+                style_context.add_class("sidebar")
 
     def _build_secret_row(self, label_text: str, default_visible: bool = False):
         """
@@ -250,6 +265,7 @@ class SpeechSettings(Gtk.Window):
                 buttons=Gtk.ButtonsType.NONE,
                 text="You have unsaved changes in this tab."
             )
+            self._style_dialog(dialog)
             dialog.format_secondary_text("Do you want to save your changes before switching tabs?")
             dialog.add_button("Save", Gtk.ResponseType.OK)
             dialog.add_button("Discard", Gtk.ResponseType.CANCEL)
@@ -1096,6 +1112,7 @@ class SpeechSettings(Gtk.Window):
             buttons=Gtk.ButtonsType.OK,
             text="Transcription History"
         )
+        self._style_dialog(dialog)
         history_text = "\n\n".join(
             f"Time: {entry['timestamp']}\nFile: {entry['audio_file']}\nTranscript: {entry['transcript']}"
             for entry in history
