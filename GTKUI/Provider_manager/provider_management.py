@@ -80,7 +80,6 @@ class ProviderManagement:
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_propagate_natural_height(True)
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
         self.provider_window.set_child(scrolled)

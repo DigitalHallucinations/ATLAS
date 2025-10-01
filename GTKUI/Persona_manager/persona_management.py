@@ -110,7 +110,6 @@ class PersonaManagement:
         # Container inside a scrolled window so long persona lists remain usable
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_propagate_natural_height(True)
         scroll.set_hexpand(True)
         scroll.set_vexpand(True)
         self.persona_window.set_child(scroll)
