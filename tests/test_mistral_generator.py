@@ -340,3 +340,53 @@ def test_mistral_generator_overrides_stop_sequences_argument():
     assert result == "ok"
     kwargs = _StubChat.last_complete_kwargs
     assert kwargs["stop"] == ["CUSTOM", "HALT"]
+
+
+def test_mistral_generator_applies_json_mode_response_format():
+    settings = {
+        "model": "mistral-large-latest",
+        "stream": False,
+        "json_mode": True,
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "ok"
+    kwargs = _StubChat.last_complete_kwargs
+    assert kwargs["response_format"] == {"type": "json_object"}
+
+
+def test_mistral_generator_passes_json_schema_response_format():
+    schema_payload = {
+        "name": "atlas_response",
+        "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}},
+    }
+    settings = {
+        "model": "mistral-large-latest",
+        "stream": True,
+        "json_schema": schema_payload,
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+
+    async def exercise():
+        stream = await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+        return [chunk async for chunk in stream]
+
+    chunks = asyncio.run(exercise())
+
+    assert chunks == []
+    stream_kwargs = _StubChat.last_stream_kwargs
+    assert stream_kwargs["response_format"] == {
+        "type": "json_schema",
+        "json_schema": schema_payload,
+    }

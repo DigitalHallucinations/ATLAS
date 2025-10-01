@@ -1100,6 +1100,8 @@ class ConfigManager:
             'tool_choice': 'auto',
             'parallel_tool_calls': True,
             'stop_sequences': [],
+            'json_mode': False,
+            'json_schema': None,
         }
 
         stored = self.get_config('MISTRAL_LLM')
@@ -1147,6 +1149,30 @@ class ConfigManager:
                         return False
                     return default
                 return bool(value)
+
+            def _coerce_json_schema(value: Any) -> Optional[Dict[str, Any]]:
+                if value is None or value == "":
+                    return None
+
+                if isinstance(value, (bytes, bytearray)):
+                    value = value.decode("utf-8")
+
+                if isinstance(value, str):
+                    text = value.strip()
+                    if not text:
+                        return None
+                    try:
+                        value = json.loads(text)
+                    except json.JSONDecodeError:
+                        return None
+
+                if not isinstance(value, dict):
+                    return None
+
+                try:
+                    return json.loads(json.dumps(value))
+                except (TypeError, ValueError):
+                    return None
 
             merged['temperature'] = _coerce_float(
                 stored.get('temperature'),
@@ -1209,6 +1235,12 @@ class ConfigManager:
             except ValueError:
                 merged['stop_sequences'] = list(defaults['stop_sequences'])
 
+            merged['json_mode'] = _coerce_bool(
+                stored.get('json_mode'),
+                default=bool(defaults['json_mode']),
+            )
+            merged['json_schema'] = _coerce_json_schema(stored.get('json_schema'))
+
             return merged
 
         return dict(defaults)
@@ -1229,6 +1261,8 @@ class ConfigManager:
         tool_choice: Optional[Any] = None,
         parallel_tool_calls: Optional[bool] = None,
         stop_sequences: Any = _UNSET,
+        json_mode: Optional[Any] = None,
+        json_schema: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Persist default configuration for the Mistral chat provider."""
 
@@ -1304,6 +1338,110 @@ class ConfigManager:
                 "Tool choice must be a mapping, string, or None."
             )
 
+        def _normalize_json_mode(value: Any, existing: bool) -> bool:
+            if value is None:
+                return existing
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if not normalized:
+                    return existing
+                if normalized in {"1", "true", "yes", "on", "json", "json_object"}:
+                    return True
+                if normalized in {"0", "false", "no", "off", "text", "none"}:
+                    return False
+                return existing
+            try:
+                return bool(value)
+            except Exception:
+                return existing
+
+        def _normalize_json_schema(
+            value: Any, existing: Optional[Dict[str, Any]]
+        ) -> Optional[Dict[str, Any]]:
+            if value is None:
+                return existing
+
+            if isinstance(value, (bytes, bytearray)):
+                value = value.decode("utf-8")
+
+            if isinstance(value, str):
+                text = value.strip()
+                if not text:
+                    return None
+                try:
+                    value = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"JSON schema must be valid JSON: {exc.msg}"
+                    ) from exc
+
+            if value is False:
+                return None
+
+            if not isinstance(value, dict):
+                raise ValueError(
+                    "JSON schema must be provided as an object or JSON string."
+                )
+
+            if not value:
+                return None
+
+            schema_payload = value.get('schema') if isinstance(value, dict) else None
+            schema_name = value.get('name') if isinstance(value, dict) else None
+
+            if schema_payload is None:
+                schema_payload = value
+                schema_like_keys = {
+                    '$schema',
+                    '$ref',
+                    'type',
+                    'properties',
+                    'items',
+                    'oneOf',
+                    'anyOf',
+                    'allOf',
+                    'definitions',
+                    'patternProperties',
+                }
+                if isinstance(schema_payload, dict) and not (
+                    schema_like_keys & set(schema_payload.keys())
+                ):
+                    raise ValueError(
+                        "JSON schema must include a 'schema' object or a valid schema definition."
+                    )
+
+            if not isinstance(schema_payload, dict):
+                raise ValueError(
+                    "The 'schema' entry for the JSON schema must be an object."
+                )
+
+            if schema_name is None:
+                if isinstance(existing, dict):
+                    schema_name = existing.get('name')
+                if not schema_name:
+                    schema_name = 'atlas_response'
+
+            normalized: Dict[str, Any] = {
+                'name': str(schema_name).strip() or 'atlas_response',
+                'schema': schema_payload,
+            }
+
+            strict_value = value.get('strict') if isinstance(value, dict) else None
+            if strict_value is None and isinstance(existing, dict):
+                strict_value = existing.get('strict')
+
+            if strict_value is not None:
+                normalized['strict'] = bool(strict_value)
+
+            try:
+                return json.loads(json.dumps(normalized))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"JSON schema contains non-serializable content: {exc}"
+                ) from exc
+
         settings['temperature'] = _normalize_float(
             temperature,
             field='Temperature',
@@ -1367,6 +1505,15 @@ class ConfigManager:
 
         if stop_sequences is not _UNSET:
             settings['stop_sequences'] = self._coerce_stop_sequences(stop_sequences)
+
+        settings['json_mode'] = _normalize_json_mode(
+            json_mode,
+            bool(settings.get('json_mode', False)),
+        )
+        settings['json_schema'] = _normalize_json_schema(
+            json_schema,
+            settings.get('json_schema'),
+        )
 
         self.yaml_config['MISTRAL_LLM'] = copy.deepcopy(settings)
         self.config['MISTRAL_LLM'] = copy.deepcopy(settings)

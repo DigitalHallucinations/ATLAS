@@ -554,6 +554,42 @@ def test_set_openai_llm_settings_rejects_invalid_schema(config_manager):
         config_manager.set_openai_llm_settings(model="gpt-4o", json_schema={"name": "bad"})
 
 
+def test_get_mistral_llm_settings_includes_json_defaults(config_manager):
+    snapshot = config_manager.get_mistral_llm_settings()
+
+    assert snapshot["json_mode"] is False
+    assert snapshot["json_schema"] is None
+
+
+def test_set_mistral_llm_settings_handles_json_options(config_manager):
+    schema_payload = {
+        "name": "atlas_response",
+        "schema": {
+            "type": "object",
+            "properties": {"ok": {"type": "boolean"}},
+            "required": ["ok"],
+        },
+    }
+
+    config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        json_mode=True,
+        json_schema=json.dumps(schema_payload),
+    )
+
+    stored = config_manager.config["MISTRAL_LLM"]
+    assert stored["json_mode"] is True
+    assert stored["json_schema"]["schema"]["required"] == ["ok"]
+
+    config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        json_schema="  ",
+    )
+
+    stored = config_manager.config["MISTRAL_LLM"]
+    assert stored["json_schema"] is None
+
+
 def test_set_openai_llm_settings_tracks_tool_preferences(config_manager):
     config_manager.set_openai_llm_settings(
         model="gpt-4o",

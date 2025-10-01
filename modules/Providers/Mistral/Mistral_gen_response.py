@@ -1,6 +1,7 @@
 # modules/Providers/Mistral/Mistral_gen_response.py
 
 import asyncio
+import json
 import threading
 from collections.abc import Iterable, Mapping
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
@@ -220,6 +221,26 @@ class MistralGenerator:
 
             tools_payload = self._convert_functions_to_tools(provided_functions)
 
+            response_format_payload: Optional[Dict[str, Any]] = None
+            try:
+                normalized_schema = self._prepare_json_schema(
+                    settings.get('json_schema')
+                )
+            except ValueError as exc:
+                self.logger.warning(
+                    "Ignoring invalid JSON schema for Mistral: %s",
+                    exc,
+                )
+                normalized_schema = None
+
+            if normalized_schema:
+                response_format_payload = {
+                    'type': 'json_schema',
+                    'json_schema': normalized_schema,
+                }
+            elif settings.get('json_mode'):
+                response_format_payload = {'type': 'json_object'}
+
             request_kwargs: Dict[str, Any] = {
                 'model': effective_model,
                 'messages': mistral_messages,
@@ -247,6 +268,9 @@ class MistralGenerator:
             else:
                 if configured_tool_choice is not None:
                     request_kwargs['tool_choice'] = configured_tool_choice
+
+            if response_format_payload:
+                request_kwargs['response_format'] = response_format_payload
 
             if effective_stream:
                 response_stream = await asyncio.to_thread(
@@ -276,6 +300,76 @@ class MistralGenerator:
                 "content": message['content']
             })
         return mistral_messages
+
+    def _prepare_json_schema(self, schema: Any) -> Optional[Dict[str, Any]]:
+        if schema is None:
+            return None
+
+        if isinstance(schema, (bytes, bytearray)):
+            schema = schema.decode("utf-8")
+
+        if isinstance(schema, str):
+            text = schema.strip()
+            if not text:
+                return None
+            try:
+                schema = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSON schema: {exc.msg}") from exc
+
+        if not isinstance(schema, dict):
+            raise ValueError("JSON schema must be provided as an object.")
+
+        if not schema:
+            return None
+
+        payload = dict(schema)
+        schema_payload = payload.get('schema') if isinstance(payload, dict) else None
+        schema_name = payload.get('name') if isinstance(payload, dict) else None
+
+        if schema_payload is None:
+            schema_payload = payload
+            schema_like_keys = {
+                '$schema',
+                '$ref',
+                'type',
+                'properties',
+                'items',
+                'oneOf',
+                'anyOf',
+                'allOf',
+                'definitions',
+                'patternProperties',
+            }
+            if isinstance(schema_payload, dict) and not (
+                schema_like_keys & set(schema_payload.keys())
+            ):
+                raise ValueError(
+                    "JSON schema must include a 'schema' object or a valid schema definition."
+                )
+
+        if not isinstance(schema_payload, dict):
+            raise ValueError("JSON schema payload must include a 'schema' object.")
+
+        if schema_name is None:
+            schema_name = payload.get('name') if isinstance(payload, dict) else None
+        if not schema_name:
+            schema_name = 'atlas_response'
+
+        normalized: Dict[str, Any] = {
+            'name': str(schema_name).strip() or 'atlas_response',
+            'schema': schema_payload,
+        }
+
+        if 'strict' in payload:
+            normalized['strict'] = bool(payload['strict'])
+
+        try:
+            return json.loads(json.dumps(normalized))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"JSON schema payload could not be serialized: {exc}"
+            ) from exc
 
     def _convert_functions_to_tools(self, functions: Optional[Any]) -> Optional[List[Dict[str, Any]]]:
         if not functions:
