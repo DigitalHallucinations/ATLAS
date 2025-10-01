@@ -175,7 +175,11 @@ class Sidebar(Gtk.Window):
             settings_window.set_default_size(300, 400)
             settings_window.set_transient_for(self)
             settings_window.set_modal(True)
-            self.apply_css_styling(settings_window)
+
+            apply_css()
+            style_context = settings_window.get_style_context()
+            style_context.add_class("chat-page")
+            style_context.add_class("sidebar")
             vbox = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
             settings_window.set_child(vbox)
             label = Gtk.Label(label="Settings Page Content Here")
@@ -222,35 +226,3 @@ class Sidebar(Gtk.Window):
         dialog.connect("response", lambda d, r: d.destroy())
         dialog.present()
 
-    def apply_css_styling(self, window=None):
-        """
-        Applies custom CSS styling to the provided window.
-
-        Args:
-            window (Gtk.Window, optional): Window to style.
-        """
-        target = window if window else self
-        css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(b"""
-            .sidebar {
-                background-color: #2b2b2b;
-            }
-            /* Applied to the Gtk.Button wrapping the picture */
-            .icon {
-                margin: 5px;
-                border-radius: 5px;
-                padding: 2px;
-            }
-            .icon:hover {
-                background-color: #4a90d9;
-            }
-            .icon:active {
-                background-color: #357ABD;
-            }
-        """)
-        display = target.get_display()
-        Gtk.StyleContext.add_provider_for_display(
-            display,
-            css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_USER
-        )

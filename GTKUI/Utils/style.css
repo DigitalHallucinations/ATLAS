@@ -104,16 +104,21 @@ window.chat-page {
 
 /* Icon Styling */
 .icon {
-    padding: 10px;
-    border-radius: 5px;
-    transition: background-color 0.3s, transform 0.2s;
+    margin: 5px;
+    padding: 6px;
+    border-radius: 6px;
+    transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
 /* Hover Effect for Icons */
 .icon:hover {
-    background-color: #3c3c3c;
-    transform: scale(1.1);
+    background-color: #444444;
+    transform: scale(1.05);
     border-radius: 8px;
+}
+
+.icon:active {
+    background-color: #357ABD;
 }
 
 /* Error Dialog Styling */
