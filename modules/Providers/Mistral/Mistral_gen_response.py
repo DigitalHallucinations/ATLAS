@@ -2,10 +2,11 @@
 
 from mistralai import Mistral
 from tenacity import retry, stop_after_attempt, wait_exponential
-from typing import List, Dict, Union, AsyncIterator
+from typing import List, Dict, Union, AsyncIterator, Any, Tuple
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 import asyncio
+import threading
 
 class MistralGenerator:
     def __init__(self, config_manager: ConfigManager):
@@ -22,18 +23,24 @@ class MistralGenerator:
         try:
             mistral_messages = self.convert_messages_to_mistral_format(messages)
             self.logger.info(f"Generating response with Mistral AI using model: {model}")
+            if stream:
+                response_stream = await asyncio.to_thread(
+                    self.client.chat.stream,
+                    model=model,
+                    messages=mistral_messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                return self.process_streaming_response(response_stream)
+
             response = await asyncio.to_thread(
                 self.client.chat.complete,
                 model=model,
                 messages=mistral_messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                stream=stream
             )
-            if stream:
-                return self.process_streaming_response(response)
-            else:
-                return response.choices[0].message.content
+            return response.choices[0].message.content
 
         except Mistral.APIError as e:
             self.logger.error(f"Mistral API error: {str(e)}")
@@ -52,10 +59,46 @@ class MistralGenerator:
         return mistral_messages
 
     async def process_streaming_response(self, response) -> AsyncIterator[str]:
-        async for chunk in response:
-            if chunk.data.choices[0].delta.content:
-                yield chunk.data.choices[0].delta.content
-            await asyncio.sleep(0)
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[Tuple[str, Any]] = asyncio.Queue()
+        DONE = object()
+
+        def iterate_stream():
+            try:
+                for chunk in response:
+                    data = getattr(chunk, "data", None)
+                    if not data or not getattr(data, "choices", None):
+                        continue
+                    choice = data.choices[0]
+                    delta = getattr(choice, "delta", None)
+                    content = getattr(delta, "content", None) if delta else None
+                    if content:
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait, ("chunk", content)
+                        )
+                    if getattr(choice, "finish_reason", None):
+                        break
+            except Exception as exc:
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
+            finally:
+                close = getattr(response, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception as exc:  # pragma: no cover - defensive
+                        loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
+                loop.call_soon_threadsafe(queue.put_nowait, ("done", DONE))
+
+        threading.Thread(target=iterate_stream, daemon=True).start()
+
+        while True:
+            kind, payload = await queue.get()
+            if kind == "chunk":
+                yield payload
+            elif kind == "error":
+                raise payload
+            elif kind == "done":
+                break
 
     async def process_response(self, response: Union[str, AsyncIterator[str]]) -> str:
         if isinstance(response, str):

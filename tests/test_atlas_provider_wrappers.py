@@ -489,6 +489,96 @@ def test_anthropic_stream_timeout(caplog):
     assert any("timed out" in record.message for record in caplog.records)
 
 
+def test_mistral_streaming_event_flow(monkeypatch):
+    events = [
+        SimpleNamespace(
+            data=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content="hello"),
+                        finish_reason=None,
+                    )
+                ]
+            )
+        ),
+        SimpleNamespace(
+            data=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content=" world"),
+                        finish_reason="stop",
+                    )
+                ]
+            )
+        ),
+    ]
+
+    class _DummyStream:
+        def __init__(self, stream_events):
+            self._events = list(stream_events)
+            self.closed = False
+
+        def __iter__(self):
+            return iter(self._events)
+
+        def close(self):
+            self.closed = True
+
+    class _DummyChat:
+        def __init__(self, stream_instance):
+            self._stream_instance = stream_instance
+            self.stream_calls = []
+
+        def stream(self, **kwargs):
+            self.stream_calls.append(kwargs)
+            return self._stream_instance
+
+        def complete(self, *_, **__):  # pragma: no cover - not expected
+            raise AssertionError("complete should not be called for streaming")
+
+    class _DummyMistral:
+        def __init__(self, *_args, **_kwargs):
+            self.chat = _DummyChat(_DummyStream(events))
+
+    mistralai_stub = types.ModuleType("mistralai")
+    mistralai_stub.Mistral = _DummyMistral
+    monkeypatch.setitem(sys.modules, "mistralai", mistralai_stub)
+
+    from modules.Providers.Mistral import Mistral_gen_response as mistral
+
+    config = SimpleNamespace(get_mistral_api_key=lambda: "test")
+    generator = mistral.MistralGenerator(config)
+
+    async def _collect():
+        response = await generator.generate_response(
+            messages=[{"role": "user", "content": "ping"}],
+            model="test-model",
+            stream=True,
+        )
+        parts = []
+        async for chunk in response:
+            parts.append(chunk)
+        return "".join(parts)
+
+    result = asyncio.run(_collect())
+
+    assert result == "hello world"
+    assert generator.client.chat.stream_calls == [
+        {
+            "model": "test-model",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "ping",
+                }
+            ],
+            "max_tokens": 4096,
+            "temperature": 0.0,
+        }
+    ]
+    assert generator.client.chat._stream_instance.closed is True
+
+
 def test_anthropic_generate_response_sync_running_loop_error(monkeypatch):
     from modules.Providers.Anthropic import Anthropic_gen_response as anthropic
 
