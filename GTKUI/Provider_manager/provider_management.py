@@ -13,6 +13,7 @@ from .Settings.HF_settings import HuggingFaceSettingsWindow
 from .Settings.OA_settings import OpenAISettingsWindow
 from .Settings.Anthropic_settings import AnthropicSettingsWindow
 from .Settings.Google_settings import GoogleSettingsWindow
+from .Settings.Mistral_settings import MistralSettingsWindow
 
 class ProviderManagement:
     """
@@ -196,6 +197,8 @@ class ProviderManagement:
             self.show_huggingface_settings()
         elif provider_name == "Anthropic":
             self.show_anthropic_settings()
+        elif provider_name == "Mistral":
+            self.show_mistral_settings()
         else:
             self.show_provider_settings(provider_name)
 
@@ -219,6 +222,13 @@ class ProviderManagement:
 
         settings_window = AnthropicSettingsWindow(self.ATLAS, self.config_manager, self.parent_window)
         settings_window.set_tooltip_text("Configure Anthropic defaults and retry behaviour.")
+        settings_window.present()
+
+    def show_mistral_settings(self):
+        """Display the Mistral provider configuration dialog."""
+
+        settings_window = MistralSettingsWindow(self.ATLAS, self.config_manager, self.parent_window)
+        settings_window.set_tooltip_text("Configure Mistral sampling, safety, and tool usage defaults.")
         settings_window.present()
 
     def show_google_settings(self):
