@@ -6,6 +6,8 @@ import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, Pango
 
+from GTKUI.Utils.utils import apply_css
+
 
 class InfoPopup(Gtk.Window):
     def __init__(self, parent, text):
@@ -13,6 +15,17 @@ class InfoPopup(Gtk.Window):
         self.set_transient_for(parent)
         self.set_modal(True)
         self.set_decorated(False)
+
+        try:
+            apply_css()
+        except (AttributeError, FileNotFoundError, RuntimeError):
+            pass
+        get_style_context = getattr(self, "get_style_context", None)
+        if callable(get_style_context):
+            style_context = get_style_context()
+            if hasattr(style_context, "add_class"):
+                style_context.add_class("chat-page")
+                style_context.add_class("sidebar")
 
         # Create a label with no wrapping
         label = Gtk.Label(label=text)

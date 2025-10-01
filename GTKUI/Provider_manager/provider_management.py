@@ -594,6 +594,7 @@ class ProviderManagement:
             buttons=Gtk.ButtonsType.OK,
             text="Error",
         )
+        self._style_dialog(dialog)
         if hasattr(dialog, "set_secondary_text"):
             dialog.set_secondary_text(message)
         else:  # Fallback for API variations
@@ -616,6 +617,7 @@ class ProviderManagement:
             buttons=Gtk.ButtonsType.OK,
             text="Information",
         )
+        self._style_dialog(dialog)
         if hasattr(dialog, "set_secondary_text"):
             dialog.set_secondary_text(message)
         else:  # Fallback for API variations
@@ -623,4 +625,18 @@ class ProviderManagement:
         dialog.connect("response", lambda dialog, response: dialog.destroy())
         dialog.set_tooltip_text("Close to continue.")
         dialog.present()
+
+    def _style_dialog(self, dialog: Gtk.Widget) -> None:
+        """Ensure dialogs adopt the same dark theme styling as the parent UI."""
+
+        try:
+            apply_css()
+        except (AttributeError, FileNotFoundError, RuntimeError) as exc:
+            self.logger.debug("Skipping CSS application for dialog: %s", exc)
+        get_style_context = getattr(dialog, "get_style_context", None)
+        if callable(get_style_context):
+            style_context = get_style_context()
+            if hasattr(style_context, "add_class"):
+                style_context.add_class("chat-page")
+                style_context.add_class("sidebar")
 
