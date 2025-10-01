@@ -1099,6 +1099,7 @@ class ConfigManager:
             'presence_penalty': 0.0,
             'tool_choice': 'auto',
             'parallel_tool_calls': True,
+            'stop_sequences': [],
         }
 
         stored = self.get_config('MISTRAL_LLM')
@@ -1201,6 +1202,13 @@ class ConfigManager:
             else:
                 merged['tool_choice'] = defaults['tool_choice']
 
+            try:
+                merged['stop_sequences'] = self._coerce_stop_sequences(
+                    stored.get('stop_sequences')
+                )
+            except ValueError:
+                merged['stop_sequences'] = list(defaults['stop_sequences'])
+
             return merged
 
         return dict(defaults)
@@ -1220,6 +1228,7 @@ class ConfigManager:
         presence_penalty: Optional[float] = None,
         tool_choice: Optional[Any] = None,
         parallel_tool_calls: Optional[bool] = None,
+        stop_sequences: Any = _UNSET,
     ) -> Dict[str, Any]:
         """Persist default configuration for the Mistral chat provider."""
 
@@ -1355,6 +1364,9 @@ class ConfigManager:
         )
 
         settings['tool_choice'] = _normalize_tool_choice(tool_choice)
+
+        if stop_sequences is not _UNSET:
+            settings['stop_sequences'] = self._coerce_stop_sequences(stop_sequences)
 
         self.yaml_config['MISTRAL_LLM'] = copy.deepcopy(settings)
         self.config['MISTRAL_LLM'] = copy.deepcopy(settings)

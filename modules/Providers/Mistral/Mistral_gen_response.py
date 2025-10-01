@@ -46,6 +46,7 @@ class MistralGenerator:
         functions=None,
         tool_choice: Optional[Any] = None,
         parallel_tool_calls: Optional[bool] = None,
+        stop_sequences: Optional[Any] = None,
     ) -> Union[str, AsyncIterator[str]]:
         try:
             mistral_messages = self.convert_messages_to_mistral_format(messages)
@@ -191,6 +192,17 @@ class MistralGenerator:
             else:
                 configured_tool_choice = None if configured_tool_choice is None else configured_tool_choice
 
+            if stop_sequences is None:
+                candidate_stop_sequences = settings.get('stop_sequences')
+            else:
+                candidate_stop_sequences = stop_sequences
+            try:
+                effective_stop_sequences = self.config_manager._coerce_stop_sequences(
+                    candidate_stop_sequences
+                )
+            except ValueError:
+                effective_stop_sequences = []
+
             self.logger.info(
                 "Generating response with Mistral AI using model: %s",
                 effective_model,
@@ -223,6 +235,9 @@ class MistralGenerator:
 
             if effective_random_seed is not None:
                 request_kwargs['random_seed'] = effective_random_seed
+
+            if effective_stop_sequences:
+                request_kwargs['stop'] = effective_stop_sequences
 
             if tools_payload:
                 request_kwargs['tools'] = tools_payload
