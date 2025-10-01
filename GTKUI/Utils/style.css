@@ -1,12 +1,14 @@
 /* Label Styling */
 label {
-    color: #222222;
     font-size: 14px;
 }
 
-.sidebar label,
-.chat-page label {
-    color: white;
+/* Ensure dark-themed windows inherit readable text colors */
+window.sidebar,
+window.sidebar *,
+window.chat-page,
+window.chat-page * {
+    color: #f0f0f0;
 }
 
 /* Persona Label Styling */
