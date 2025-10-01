@@ -1093,6 +1093,7 @@ class ConfigManager:
             'top_p': 1.0,
             'max_tokens': None,
             'safe_prompt': False,
+            'stream': True,
             'random_seed': None,
             'frequency_penalty': 0.0,
             'presence_penalty': 0.0,
@@ -1165,6 +1166,10 @@ class ConfigManager:
                 stored.get('safe_prompt'),
                 default=bool(defaults['safe_prompt']),
             )
+            merged['stream'] = _coerce_bool(
+                stored.get('stream'),
+                default=bool(defaults['stream']),
+            )
             merged['parallel_tool_calls'] = _coerce_bool(
                 stored.get('parallel_tool_calls'),
                 default=bool(defaults['parallel_tool_calls']),
@@ -1209,6 +1214,7 @@ class ConfigManager:
         top_p: Optional[float] = None,
         max_tokens: Optional[int] = None,
         safe_prompt: Optional[bool] = None,
+        stream: Optional[bool] = None,
         random_seed: Optional[Any] = None,
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
@@ -1313,6 +1319,10 @@ class ConfigManager:
         normalized_safe_prompt = _normalize_bool(safe_prompt)
         if normalized_safe_prompt is not None:
             settings['safe_prompt'] = normalized_safe_prompt
+
+        normalized_stream = _normalize_bool(stream)
+        if normalized_stream is not None:
+            settings['stream'] = normalized_stream
 
         normalized_parallel = _normalize_bool(parallel_tool_calls)
         if normalized_parallel is not None:
