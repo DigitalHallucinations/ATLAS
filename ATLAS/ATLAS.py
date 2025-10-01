@@ -1069,15 +1069,32 @@ class ATLAS:
         result["provider"] = provider_key
         return result
 
-    def update_google_speech_settings(self, credentials_path: str) -> None:
-        """Persist Google speech credentials via the speech manager."""
+    def update_google_speech_settings(
+        self,
+        credentials_path: str,
+        *,
+        tts_voice: Optional[str] = None,
+        stt_language: Optional[str] = None,
+        auto_punctuation: Optional[bool] = None,
+    ) -> None:
+        """Persist Google speech credentials and preferences via the speech manager."""
 
-        self.speech_manager.set_google_credentials(credentials_path)
+        self.speech_manager.set_google_credentials(
+            credentials_path,
+            voice_name=tts_voice,
+            stt_language=stt_language,
+            auto_punctuation=auto_punctuation,
+        )
 
     def get_google_speech_credentials_path(self) -> Optional[str]:
         """Return the persisted Google speech credentials path."""
 
         return self.speech_manager.get_google_credentials_path()
+
+    def get_google_speech_settings(self) -> Dict[str, Any]:
+        """Expose persisted Google speech configuration for UI rendering."""
+
+        return self.speech_manager.get_google_speech_settings()
 
     def get_openai_speech_options(self) -> Dict[str, List[Tuple[str, Optional[str]]]]:
         """Return the OpenAI speech option sets for UI rendering."""

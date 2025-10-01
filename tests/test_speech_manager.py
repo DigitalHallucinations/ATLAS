@@ -271,6 +271,7 @@ class _DummyConfig:
         self.raise_google_error = False
         self.openai_calls = []
         self.google_credentials = None
+        self.google_speech_settings = {}
 
     def get_tts_enabled(self):
         return self._tts_enabled
@@ -322,6 +323,26 @@ class _DummyConfig:
             raise RuntimeError("persist failed")
         self.google_credentials = credentials_path
         self.config['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+
+    def get_google_speech_settings(self):
+        return dict(self.google_speech_settings)
+
+    def set_google_speech_settings(
+        self,
+        *,
+        tts_voice=None,
+        stt_language=None,
+        auto_punctuation=None,
+    ):
+        if self.raise_google_error:
+            raise RuntimeError("persist failed")
+        self.google_speech_settings = {
+            "tts_voice": tts_voice,
+            "stt_language": stt_language,
+            "auto_punctuation": auto_punctuation,
+        }
+        self.config['GOOGLE_SPEECH'] = dict(self.google_speech_settings)
+        return self.google_speech_settings
 
 
 class _SpeechManagerForTest(SpeechManager):
@@ -863,8 +884,25 @@ def test_normalize_openai_display_settings_matches_prepare_function(speech_manag
 
 
 def test_set_google_credentials_reconfigures_providers(speech_manager, monkeypatch):
-    new_tts = object()
-    new_stt = object()
+    class _TTSStub:
+        def __init__(self):
+            self.voice = None
+
+        def set_voice(self, voice):
+            self.voice = voice
+
+        def get_voices(self):
+            return []
+
+    class _STTStub:
+        def __init__(self):
+            self.config = types.SimpleNamespace(
+                language_code="en-US",
+                enable_automatic_punctuation=True,
+            )
+
+    new_tts = _TTSStub()
+    new_stt = _STTStub()
     speech_manager._google_tts_factory = lambda: new_tts
     speech_manager._google_stt_factory = lambda: new_stt
     speech_manager.tts_services['google'] = object()
@@ -873,7 +911,12 @@ def test_set_google_credentials_reconfigures_providers(speech_manager, monkeypat
     speech_manager.set_default_stt_provider('google')
     monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
 
-    speech_manager.set_google_credentials("/tmp/google.json")
+    speech_manager.set_google_credentials(
+        "/tmp/google.json",
+        voice_name={"name": "NewVoice"},
+        stt_language="es-ES",
+        auto_punctuation=False,
+    )
 
     assert speech_manager.tts_services['google'] is new_tts
     assert speech_manager.stt_services['google'] is new_stt
@@ -881,6 +924,14 @@ def test_set_google_credentials_reconfigures_providers(speech_manager, monkeypat
     assert speech_manager.get_default_stt_provider() == 'google'
     assert speech_manager.config_manager.google_credentials == "/tmp/google.json"
     assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/google.json"
+    assert new_tts.voice == {"name": "NewVoice", "language_code": "es-ES"}
+    assert new_stt.config.language_code == "es-ES"
+    assert new_stt.config.enable_automatic_punctuation is False
+    assert speech_manager.config_manager.google_speech_settings == {
+        "tts_voice": "NewVoice",
+        "stt_language": "es-ES",
+        "auto_punctuation": False,
+    }
 
 
 def test_set_google_credentials_persist_failure_rolls_back(speech_manager, monkeypatch):
@@ -901,6 +952,7 @@ def test_set_google_credentials_persist_failure_rolls_back(speech_manager, monke
     assert speech_manager.tts_services['google'] is existing_tts
     assert speech_manager.stt_services['google'] is existing_stt
     assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == "old.json"
+    assert speech_manager.config_manager.google_speech_settings == {}
 
 
 def test_set_google_credentials_factory_failure_rolls_back(speech_manager, monkeypatch):
@@ -914,9 +966,50 @@ def test_set_google_credentials_factory_failure_rolls_back(speech_manager, monke
         speech_manager.set_google_credentials("/tmp/new.json")
 
     assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == "old.json"
+    assert speech_manager.config_manager.google_speech_settings == {}
 
 
 def test_get_google_credentials_path_reads_config(speech_manager):
     speech_manager.config_manager.config["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/creds.json"
 
     assert speech_manager.get_google_credentials_path() == "/tmp/creds.json"
+
+
+def test_set_google_credentials_uses_stored_preferences(speech_manager, monkeypatch):
+    class _TTSStub:
+        def __init__(self):
+            self.voice = None
+
+        def set_voice(self, voice):
+            self.voice = voice
+
+        def get_voices(self):
+            return []
+
+    class _STTStub:
+        def __init__(self):
+            self.config = types.SimpleNamespace(
+                language_code="en-US",
+                enable_automatic_punctuation=True,
+            )
+
+    stored = {
+        "tts_voice": "StoredVoice",
+        "stt_language": "fr-FR",
+        "auto_punctuation": False,
+    }
+    speech_manager.config_manager.google_speech_settings = dict(stored)
+    speech_manager.config_manager.config['GOOGLE_SPEECH'] = dict(stored)
+
+    new_tts = _TTSStub()
+    new_stt = _STTStub()
+    speech_manager._google_tts_factory = lambda: new_tts
+    speech_manager._google_stt_factory = lambda: new_stt
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+
+    speech_manager.set_google_credentials("/tmp/google.json")
+
+    assert new_tts.voice == {"name": "StoredVoice", "language_code": "fr-FR"}
+    assert new_stt.config.language_code == "fr-FR"
+    assert new_stt.config.enable_automatic_punctuation is False
+    assert speech_manager.config_manager.google_speech_settings == stored
