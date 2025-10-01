@@ -1084,6 +1084,265 @@ class ConfigManager:
         return defaults
 
 
+    def get_mistral_llm_settings(self) -> Dict[str, Any]:
+        """Return persisted defaults for the Mistral chat provider."""
+
+        defaults: Dict[str, Any] = {
+            'model': 'mistral-large-latest',
+            'temperature': 0.0,
+            'top_p': 1.0,
+            'max_tokens': 4096,
+            'safe_prompt': False,
+            'random_seed': None,
+            'frequency_penalty': 0.0,
+            'presence_penalty': 0.0,
+            'tool_choice': 'auto',
+            'parallel_tool_calls': True,
+        }
+
+        stored = self.get_config('MISTRAL_LLM')
+        if isinstance(stored, dict):
+            merged = dict(defaults)
+
+            model = stored.get('model')
+            if isinstance(model, str) and model.strip():
+                merged['model'] = model.strip()
+
+            def _coerce_float(value: Any, *, default: float, minimum: float, maximum: float) -> float:
+                if value is None:
+                    return default
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    return default
+                if number < minimum or number > maximum:
+                    return default
+                return number
+
+            def _coerce_int(value: Any) -> Optional[int]:
+                if value is None or value == "":
+                    return None
+                try:
+                    candidate = int(value)
+                except (TypeError, ValueError):
+                    return None
+                return candidate
+
+            def _coerce_bool(value: Any, default: bool) -> bool:
+                if value is None:
+                    return default
+                if isinstance(value, bool):
+                    return value
+                if isinstance(value, str):
+                    normalized = value.strip().lower()
+                    if normalized in {"1", "true", "yes", "on"}:
+                        return True
+                    if normalized in {"0", "false", "no", "off"}:
+                        return False
+                    return default
+                return bool(value)
+
+            merged['temperature'] = _coerce_float(
+                stored.get('temperature'),
+                default=float(defaults['temperature']),
+                minimum=0.0,
+                maximum=2.0,
+            )
+            merged['top_p'] = _coerce_float(
+                stored.get('top_p'),
+                default=float(defaults['top_p']),
+                minimum=0.0,
+                maximum=1.0,
+            )
+            max_tokens = stored.get('max_tokens')
+            if max_tokens is None:
+                merged['max_tokens'] = defaults['max_tokens']
+            else:
+                try:
+                    normalized_max = int(max_tokens)
+                    if normalized_max > 0:
+                        merged['max_tokens'] = normalized_max
+                except (TypeError, ValueError):
+                    merged['max_tokens'] = defaults['max_tokens']
+
+            merged['safe_prompt'] = _coerce_bool(
+                stored.get('safe_prompt'),
+                default=bool(defaults['safe_prompt']),
+            )
+            merged['parallel_tool_calls'] = _coerce_bool(
+                stored.get('parallel_tool_calls'),
+                default=bool(defaults['parallel_tool_calls']),
+            )
+
+            random_seed = _coerce_int(stored.get('random_seed'))
+            merged['random_seed'] = random_seed
+
+            merged['frequency_penalty'] = _coerce_float(
+                stored.get('frequency_penalty'),
+                default=float(defaults['frequency_penalty']),
+                minimum=-2.0,
+                maximum=2.0,
+            )
+            merged['presence_penalty'] = _coerce_float(
+                stored.get('presence_penalty'),
+                default=float(defaults['presence_penalty']),
+                minimum=-2.0,
+                maximum=2.0,
+            )
+
+            tool_choice = stored.get('tool_choice')
+            if isinstance(tool_choice, Mapping):
+                merged['tool_choice'] = dict(tool_choice)
+            elif isinstance(tool_choice, str):
+                merged['tool_choice'] = tool_choice.strip() or defaults['tool_choice']
+            elif tool_choice is None:
+                merged['tool_choice'] = defaults['tool_choice']
+            else:
+                merged['tool_choice'] = defaults['tool_choice']
+
+            return merged
+
+        return dict(defaults)
+
+
+    def set_mistral_llm_settings(
+        self,
+        *,
+        model: str,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        safe_prompt: Optional[bool] = None,
+        random_seed: Optional[Any] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
+        tool_choice: Optional[Any] = None,
+        parallel_tool_calls: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Persist default configuration for the Mistral chat provider."""
+
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("A default Mistral model must be provided.")
+
+        current = self.get_mistral_llm_settings()
+        settings = dict(current)
+        settings['model'] = model.strip()
+
+        def _normalize_float(
+            value: Optional[Any], *, field: str, default: float, minimum: float, maximum: float
+        ) -> float:
+            if value is None:
+                return default
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{field} must be a number.") from exc
+            if numeric < minimum or numeric > maximum:
+                raise ValueError(
+                    f"{field} must be between {minimum} and {maximum}."
+                )
+            return numeric
+
+        def _normalize_positive_int(
+            value: Optional[Any], field: str, *, allow_zero: bool = False
+        ) -> Optional[int]:
+            if value is None or value == "":
+                return None
+            try:
+                numeric = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{field} must be an integer.") from exc
+            if numeric < 0:
+                raise ValueError(f"{field} must be a non-negative integer.")
+            if numeric == 0 and not allow_zero:
+                raise ValueError(f"{field} must be a positive integer.")
+            return numeric
+
+        def _normalize_bool(value: Optional[Any]) -> Optional[bool]:
+            if value is None:
+                return None
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {"1", "true", "yes", "on"}:
+                    return True
+                if normalized in {"0", "false", "no", "off"}:
+                    return False
+                raise ValueError("Boolean fields must be provided as a boolean or yes/no string.")
+            return bool(value)
+
+        def _normalize_tool_choice(value: Optional[Any]) -> Any:
+            if value is None:
+                return settings.get('tool_choice')
+            if isinstance(value, Mapping):
+                return dict(value)
+            if isinstance(value, str):
+                cleaned = value.strip()
+                if not cleaned:
+                    return None
+                return cleaned
+            raise ValueError(
+                "Tool choice must be a mapping, string, or None."
+            )
+
+        settings['temperature'] = _normalize_float(
+            temperature,
+            field='Temperature',
+            default=float(settings.get('temperature', 0.0)),
+            minimum=0.0,
+            maximum=2.0,
+        )
+        settings['top_p'] = _normalize_float(
+            top_p,
+            field='Top-p',
+            default=float(settings.get('top_p', 1.0)),
+            minimum=0.0,
+            maximum=1.0,
+        )
+        tokens = _normalize_positive_int(max_tokens, 'Max tokens')
+        settings['max_tokens'] = tokens if tokens is not None else settings.get('max_tokens')
+
+        normalized_safe_prompt = _normalize_bool(safe_prompt)
+        if normalized_safe_prompt is not None:
+            settings['safe_prompt'] = normalized_safe_prompt
+
+        normalized_parallel = _normalize_bool(parallel_tool_calls)
+        if normalized_parallel is not None:
+            settings['parallel_tool_calls'] = normalized_parallel
+
+        seed = (
+            _normalize_positive_int(random_seed, 'Random seed', allow_zero=True)
+            if random_seed not in {None, ""}
+            else None
+        )
+        settings['random_seed'] = seed
+
+        settings['frequency_penalty'] = _normalize_float(
+            frequency_penalty,
+            field='Frequency penalty',
+            default=float(settings.get('frequency_penalty', 0.0)),
+            minimum=-2.0,
+            maximum=2.0,
+        )
+        settings['presence_penalty'] = _normalize_float(
+            presence_penalty,
+            field='Presence penalty',
+            default=float(settings.get('presence_penalty', 0.0)),
+            minimum=-2.0,
+            maximum=2.0,
+        )
+
+        settings['tool_choice'] = _normalize_tool_choice(tool_choice)
+
+        self.yaml_config['MISTRAL_LLM'] = copy.deepcopy(settings)
+        self.config['MISTRAL_LLM'] = copy.deepcopy(settings)
+
+        self._write_yaml_config()
+
+        return copy.deepcopy(settings)
+
+
     def set_anthropic_settings(
         self,
         *,
