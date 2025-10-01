@@ -100,6 +100,7 @@ class GoogleSettingsWindow(Gtk.Window):
         }
 
         notebook = Gtk.Notebook()
+        notebook.get_style_context().add_class("sidebar-notebook")
         notebook.set_hexpand(True)
         notebook.set_vexpand(True)
         self.notebook = notebook

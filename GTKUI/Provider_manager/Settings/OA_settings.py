@@ -88,6 +88,7 @@ class OpenAISettingsWindow(Gtk.Window):
         scroller.set_child(main_box)
 
         self.settings_notebook = Gtk.Notebook()
+        self.settings_notebook.get_style_context().add_class("sidebar-notebook")
         if hasattr(self.settings_notebook, "set_hexpand"):
             self.settings_notebook.set_hexpand(True)
         if hasattr(self.settings_notebook, "set_vexpand"):

@@ -64,6 +64,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
 
         # Create a Notebook widget to hold the different settings tabs.
         self.notebook = Gtk.Notebook()
+        self.notebook.get_style_context().add_class("sidebar-notebook")
         self.notebook.set_tooltip_text("Configure Hugging Face provider behavior, models, and credentials.")
         self.notebook.set_hexpand(True)
         self.notebook.set_vexpand(True)
@@ -77,6 +78,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         
         # Advanced Tab – with sub-notebook for Optimizations, NVMe Offloading and Miscellaneous.
         advanced_optimizations_notebook = Gtk.Notebook()
+        advanced_optimizations_notebook.get_style_context().add_class("sidebar-notebook")
         advanced_optimizations_notebook.set_tooltip_text("Low-level performance options for advanced use.")
         advanced_optimizations = self.create_advanced_optimizations_tab()
         nvme_offloading = self.create_nvme_offloading_tab()
@@ -104,6 +106,7 @@ class HuggingFaceSettingsWindow(Gtk.Window):
         
         # Model Management Tab – contains a sub-notebook for Manage Models and Search & Download.
         models_notebook = Gtk.Notebook()
+        models_notebook.get_style_context().add_class("sidebar-notebook")
         models_notebook.set_tooltip_text("Manage installed models, search and download new ones.")
         model_management = self.create_model_management_tab()
         # Adjust button positions for Load and Unload Model Buttons.

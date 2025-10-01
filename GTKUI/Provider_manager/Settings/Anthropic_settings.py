@@ -40,6 +40,7 @@ class AnthropicSettingsWindow(Gtk.Window):
         self.set_child(container)
 
         notebook = Gtk.Notebook()
+        notebook.get_style_context().add_class("sidebar-notebook")
         notebook.set_hexpand(True)
         notebook.set_vexpand(True)
         container.append(notebook)
