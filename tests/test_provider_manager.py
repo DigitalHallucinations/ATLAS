@@ -2511,7 +2511,8 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
 
     window = MistralSettingsWindow(atlas_stub, config, None)
 
-    assert window.model_entry.get_text() == "mistral-medium-latest"
+    assert window.model_combo.get_active_text() == "mistral-medium-latest"
+    assert window._custom_entry_visible is False
     assert math.isclose(window.temperature_spin.get_value(), 0.4)
     assert math.isclose(window.top_p_spin.get_value(), 0.8)
     assert math.isclose(window.frequency_penalty_spin.get_value(), 0.15)
@@ -2545,7 +2546,9 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
 
     window.refresh_settings()
 
-    assert window.model_entry.get_text() == "mistral-large-latest"
+    assert window.model_combo.get_active_text() == "mistral-large-latest"
+    assert window._custom_entry_visible is False
+    assert window.custom_model_entry.get_text() == ""
     assert math.isclose(window.temperature_spin.get_value(), 0.9)
     assert math.isclose(window.top_p_spin.get_value(), 0.6)
     assert window.max_tokens_spin.get_value_as_int() == 0
@@ -2558,7 +2561,9 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.json_mode_toggle.get_active() is False
     assert window._json_schema_text_cache == ""
 
-    window.model_entry.set_text("mistral-small-latest")
+    small_index = window._available_models.index("mistral-small-latest")
+    window.model_combo.set_active(small_index)
+    window._on_model_combo_changed(window.model_combo)
     window.temperature_spin.set_value(0.25)
     window.top_p_spin.set_value(0.55)
     window.frequency_penalty_spin.set_value(-0.2)
@@ -2604,6 +2609,26 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert stored["json_mode"] is True
     assert stored["json_schema"]["schema"]["properties"]["result"]["type"] == "string"
     assert window._last_message[0] == "Success"
+    assert window.model_combo.get_active_text() == "mistral-small-latest"
+
+    custom_index = len(window._available_models)
+    window.model_combo.set_active(custom_index)
+    window._on_model_combo_changed(window.model_combo)
+    assert window._custom_entry_visible is True
+    window.custom_model_entry.set_text("mistral-experimental")
+
+    window.on_save_clicked(None)
+
+    stored = config.get_mistral_llm_settings()
+    assert stored["model"] == "mistral-experimental"
+    assert window.model_combo.get_active_text() == window._custom_option_text
+    assert window._custom_entry_visible is True
+    assert window.custom_model_entry.get_text() == "mistral-experimental"
+
+    window.refresh_settings()
+    assert window.model_combo.get_active_text() == window._custom_option_text
+    assert window._custom_entry_visible is True
+    assert window.custom_model_entry.get_text() == "mistral-experimental"
 
     window.max_tokens_spin.set_value(0)
 
@@ -2611,7 +2636,9 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
 
     stored = config.get_mistral_llm_settings()
     assert stored["max_tokens"] is None
+    assert stored["model"] == "mistral-experimental"
     assert window.max_tokens_spin.get_value_as_int() == 0
+    assert window._custom_entry_visible is True
 
 
 def test_anthropic_settings_window_saves_api_key(provider_manager):

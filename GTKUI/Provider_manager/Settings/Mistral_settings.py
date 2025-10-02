@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -45,6 +46,11 @@ class MistralSettingsWindow(Gtk.Window):
             "Optional: provide a JSON schema to enforce structured responses."
         )
 
+        self._custom_option_text = "Custom…"
+        self._available_models: List[str] = []
+        self._model_options_initialized = False
+        self._custom_entry_visible = False
+
         self._build_ui()
         self.refresh_settings(clear_message=True)
 
@@ -71,10 +77,25 @@ class MistralSettingsWindow(Gtk.Window):
         model_label.set_xalign(0.0)
         grid.attach(model_label, 0, row, 1, 1)
 
-        self.model_entry = Gtk.Entry()
-        self.model_entry.set_hexpand(True)
-        self.model_entry.set_placeholder_text("e.g. mistral-large-latest")
-        grid.attach(self.model_entry, 1, row, 1, 1)
+        self.model_combo = Gtk.ComboBoxText()
+        self.model_combo.set_hexpand(True)
+        if hasattr(self.model_combo, "connect"):
+            self.model_combo.connect("changed", self._on_model_combo_changed)
+        grid.attach(self.model_combo, 1, row, 1, 1)
+
+        row += 1
+        self.custom_model_label = Gtk.Label(label="Custom model ID:")
+        self.custom_model_label.set_xalign(0.0)
+        grid.attach(self.custom_model_label, 0, row, 1, 1)
+
+        self.custom_model_entry = Gtk.Entry()
+        self.custom_model_entry.set_hexpand(True)
+        self.custom_model_entry.set_placeholder_text(
+            "Enter custom model identifier"
+        )
+        grid.attach(self.custom_model_entry, 1, row, 1, 1)
+
+        self._toggle_custom_entry(False)
 
         row += 1
         temperature_label = Gtk.Label(label="Temperature:")
@@ -307,7 +328,8 @@ class MistralSettingsWindow(Gtk.Window):
         settings = self.config_manager.get_mistral_llm_settings()
         self._current_settings = dict(settings)
 
-        self.model_entry.set_text(settings.get("model", "") or "")
+        self._refresh_model_options()
+        self._select_model(settings.get("model", "") or "")
         self.temperature_spin.set_value(float(settings.get("temperature", 0.0)))
         self.top_p_spin.set_value(float(settings.get("top_p", 1.0)))
         self.frequency_penalty_spin.set_value(float(settings.get("frequency_penalty", 0.0)))
@@ -408,11 +430,15 @@ class MistralSettingsWindow(Gtk.Window):
             raise ValueError("Random seed must be an integer.") from exc
 
     def on_save_clicked(self, _button) -> None:
-        model = self.model_entry.get_text().strip()
         max_tokens_value = self.max_tokens_spin.get_value_as_int()
         max_tokens = max_tokens_value if max_tokens_value > 0 else None
 
         try:
+            model = self._get_selected_model().strip()
+            if not model:
+                raise ValueError(
+                    "Please select a model or provide a custom model identifier."
+                )
             raw_schema_text = self._read_json_schema_text().strip()
             random_seed = self._parse_optional_int(self.random_seed_entry.get_text())
             saved = self.config_manager.set_mistral_llm_settings(
@@ -445,6 +471,160 @@ class MistralSettingsWindow(Gtk.Window):
         else:
             self._update_json_schema_feedback(True, self._schema_default_message)
         self.refresh_settings(clear_message=False)
+
+    def _load_known_models(self) -> List[str]:
+        models: List[str] = []
+
+        provider_manager = getattr(self.ATLAS, "provider_manager", None)
+        model_manager = getattr(provider_manager, "model_manager", None)
+        if model_manager is not None:
+            try:
+                available = model_manager.get_available_models("Mistral")
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.warning(
+                    "Failed to load Mistral models from ModelManager: %s", exc
+                )
+            else:
+                if isinstance(available, dict):
+                    candidate = available.get("Mistral")
+                else:
+                    candidate = available
+                if isinstance(candidate, list):
+                    models = [
+                        entry.strip()
+                        for entry in candidate
+                        if isinstance(entry, str) and entry.strip()
+                    ]
+
+        if models:
+            return self._deduplicate(models)
+
+        search_paths: List[str] = []
+        root_path = None
+        if hasattr(self.config_manager, "get_app_root"):
+            try:
+                root_path = self.config_manager.get_app_root()
+            except Exception:  # pragma: no cover - defensive fallback
+                root_path = None
+        if root_path:
+            search_paths.append(
+                os.path.join(
+                    root_path, "modules", "Providers", "Mistral", "M_models.json"
+                )
+            )
+
+        module_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+        search_paths.append(
+            os.path.join(module_root, "modules", "Providers", "Mistral", "M_models.json")
+        )
+
+        for path in search_paths:
+            if not path:
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+            except FileNotFoundError:
+                continue
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.warning("Failed to read Mistral models from %s: %s", path, exc)
+                continue
+
+            entries = []
+            if isinstance(payload, dict):
+                entries = payload.get("models", [])
+            elif isinstance(payload, list):
+                entries = payload
+
+            if isinstance(entries, list):
+                models = [
+                    entry.strip()
+                    for entry in entries
+                    if isinstance(entry, str) and entry.strip()
+                ]
+            else:
+                models = []
+
+            if models:
+                return self._deduplicate(models)
+
+        return []
+
+    def _deduplicate(self, models: List[str]) -> List[str]:
+        seen: set[str] = set()
+        unique: List[str] = []
+        for name in models:
+            if name not in seen:
+                unique.append(name)
+                seen.add(name)
+        return unique
+
+    def _populate_model_combo(self, models: List[str]) -> None:
+        self._available_models = list(models)
+        combo = getattr(self, "model_combo", None)
+        if combo is None:
+            return
+        remover = getattr(combo, "remove_all", None)
+        if callable(remover):
+            remover()
+        for entry in self._available_models:
+            combo.append_text(entry)
+        combo.append_text(self._custom_option_text)
+        if self._available_models:
+            combo.set_active(0)
+        else:
+            combo.set_active(0)
+        self._model_options_initialized = True
+
+    def _refresh_model_options(self) -> None:
+        latest = self._load_known_models()
+        if not self._model_options_initialized or latest != self._available_models:
+            self._populate_model_combo(latest)
+
+    def _select_model(self, model_id: str) -> None:
+        model_id = model_id.strip()
+        if model_id and model_id in self._available_models:
+            index = self._available_models.index(model_id)
+            self.model_combo.set_active(index)
+            # _on_model_combo_changed will hide the custom entry.
+            self.custom_model_entry.set_text("")
+            self._toggle_custom_entry(False)
+        else:
+            custom_index = len(self._available_models)
+            self.model_combo.set_active(custom_index)
+            self.custom_model_entry.set_text(model_id)
+            self._toggle_custom_entry(True)
+
+    def _toggle_custom_entry(self, visible: bool) -> None:
+        self._custom_entry_visible = bool(visible)
+        for widget in (self.custom_model_label, self.custom_model_entry):
+            if widget is None:
+                continue
+            setter = getattr(widget, "set_visible", None)
+            if callable(setter):
+                setter(visible)
+            else:  # pragma: no cover - fallback for stubs/tests
+                setattr(widget, "visible", visible)
+
+    def _on_model_combo_changed(self, _combo) -> None:
+        text = ""
+        try:
+            text = self.model_combo.get_active_text() or ""
+        except Exception:  # pragma: no cover - defensive fallback
+            text = ""
+        is_custom = not text or text == self._custom_option_text
+        self._toggle_custom_entry(is_custom)
+        if not is_custom:
+            self.custom_model_entry.set_text("")
+
+    def _get_selected_model(self) -> str:
+        try:
+            selected = self.model_combo.get_active_text() or ""
+        except Exception:  # pragma: no cover - defensive fallback
+            selected = ""
+        if selected and selected != self._custom_option_text:
+            return selected.strip()
+        return self.custom_model_entry.get_text().strip()
 
     def _format_json_schema(self, payload: Any) -> str:
         if not payload:
