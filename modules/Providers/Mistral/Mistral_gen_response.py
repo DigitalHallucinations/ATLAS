@@ -11,7 +11,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ATLAS.config import ConfigManager
 from ATLAS.model_manager import ModelManager
-from ATLAS.ToolManager import load_functions_from_json
+from ATLAS.ToolManager import (
+    load_function_map_from_current_persona,
+    load_functions_from_json,
+    use_tool,
+)
 from modules.logging.logger import setup_logger
 
 class MistralGenerator:
@@ -45,6 +49,9 @@ class MistralGenerator:
         stream: Optional[bool] = None,
         current_persona=None,
         functions=None,
+        conversation_manager=None,
+        user=None,
+        conversation_id=None,
         tool_choice: Optional[Any] = None,
         parallel_tool_calls: Optional[bool] = None,
         stop_sequences: Optional[Any] = None,
@@ -221,6 +228,16 @@ class MistralGenerator:
 
             tools_payload = self._convert_functions_to_tools(provided_functions)
 
+            function_map = None
+            if current_persona is not None:
+                try:
+                    function_map = load_function_map_from_current_persona(current_persona)
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    self.logger.warning(
+                        "Failed to load function map for Mistral persona: %s",
+                        exc,
+                    )
+
             response_format_payload: Optional[Dict[str, Any]] = None
             try:
                 normalized_schema = self._prepare_json_schema(
@@ -277,13 +294,43 @@ class MistralGenerator:
                     self.client.chat.stream,
                     **request_kwargs,
                 )
-                return self.process_streaming_response(response_stream)
+                return self.process_streaming_response(
+                    response_stream,
+                    user=user,
+                    conversation_id=conversation_id,
+                    conversation_manager=conversation_manager,
+                    function_map=function_map,
+                    functions=provided_functions,
+                    current_persona=current_persona,
+                    temperature=effective_temperature,
+                    top_p=effective_top_p,
+                    frequency_penalty=effective_frequency_penalty,
+                    presence_penalty=effective_presence_penalty,
+                )
 
             response = await asyncio.to_thread(
                 self.client.chat.complete,
                 **request_kwargs,
             )
-            return response.choices[0].message.content
+            message = self._safe_get(response.choices[0], "message")
+            tool_messages = self._extract_tool_messages(message)
+            if tool_messages:
+                tool_result = await self._handle_tool_messages(
+                    tool_messages,
+                    user=user,
+                    conversation_id=conversation_id,
+                    conversation_manager=conversation_manager,
+                    function_map=function_map,
+                    functions=provided_functions,
+                    current_persona=current_persona,
+                    temperature=effective_temperature,
+                    top_p=effective_top_p,
+                    frequency_penalty=effective_frequency_penalty,
+                    presence_penalty=effective_presence_penalty,
+                )
+                if tool_result is not None:
+                    return tool_result
+            return self._safe_get(message, "content")
 
         except Mistral.APIError as e:
             self.logger.error(f"Mistral API error: {str(e)}")
@@ -411,12 +458,27 @@ class MistralGenerator:
 
         return tools or None
 
-    async def process_streaming_response(self, response) -> AsyncIterator[str]:
+    async def process_streaming_response(
+        self,
+        response,
+        *,
+        user=None,
+        conversation_id=None,
+        conversation_manager=None,
+        function_map=None,
+        functions=None,
+        current_persona=None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
+    ) -> AsyncIterator[str]:
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[Tuple[str, Any]] = asyncio.Queue()
         DONE = object()
 
         def iterate_stream():
+            pending_tool_calls: Dict[int, Dict[str, Any]] = {}
             try:
                 for chunk in response:
                     data = getattr(chunk, "data", None)
@@ -429,7 +491,33 @@ class MistralGenerator:
                         loop.call_soon_threadsafe(
                             queue.put_nowait, ("chunk", content)
                         )
+                    if delta:
+                        tool_calls_delta = getattr(delta, "tool_calls", None)
+                        if tool_calls_delta:
+                            for tool_call_delta in tool_calls_delta:
+                                self._update_pending_tool_calls(
+                                    pending_tool_calls, tool_call_delta
+                                )
+                        single_tool_call = getattr(delta, "tool_call", None)
+                        if single_tool_call:
+                            self._update_pending_tool_calls(
+                                pending_tool_calls, single_tool_call
+                            )
+                        legacy_call = getattr(delta, "function_call", None)
+                        if legacy_call:
+                            self._update_pending_tool_calls(
+                                pending_tool_calls,
+                                {"function": legacy_call, "type": "function"},
+                            )
                     if getattr(choice, "finish_reason", None):
+                        if pending_tool_calls:
+                            finalized = self._finalize_pending_tool_calls(
+                                pending_tool_calls
+                            )
+                            if finalized:
+                                loop.call_soon_threadsafe(
+                                    queue.put_nowait, ("tools", finalized)
+                                )
                         break
             except Exception as exc:
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
@@ -448,10 +536,213 @@ class MistralGenerator:
             kind, payload = await queue.get()
             if kind == "chunk":
                 yield payload
+            elif kind == "tools":
+                tool_result = await self._handle_tool_messages(
+                    payload,
+                    user=user,
+                    conversation_id=conversation_id,
+                    conversation_manager=conversation_manager,
+                    function_map=function_map,
+                    functions=functions,
+                    current_persona=current_persona,
+                    temperature=temperature,
+                    top_p=top_p,
+                    frequency_penalty=frequency_penalty,
+                    presence_penalty=presence_penalty,
+                )
+                if tool_result is not None:
+                    yield tool_result
             elif kind == "error":
                 raise payload
             elif kind == "done":
                 break
+
+    def _safe_get(self, target: Any, attribute: str, default=None):
+        if isinstance(target, dict):
+            return target.get(attribute, default)
+        return getattr(target, attribute, default)
+
+    def _stringify_function_arguments(self, arguments) -> str:
+        if arguments is None:
+            return "{}"
+        if isinstance(arguments, str):
+            return arguments
+        try:
+            return json.dumps(arguments)
+        except (TypeError, ValueError):
+            return str(arguments)
+
+    def _normalize_tool_call(self, call: Any) -> Optional[Dict[str, Any]]:
+        if not call:
+            return None
+
+        payload: Dict[str, Any] = {}
+        if isinstance(call, dict):
+            payload = dict(call)
+        else:
+            for key in ("type", "id", "function", "name", "arguments", "function_call"):
+                value = getattr(call, key, None)
+                if value is not None:
+                    payload[key] = value
+
+        raw_call = call if isinstance(call, dict) else payload or call
+        call_type = payload.get("type")
+        function_payload = payload.get("function")
+        if function_payload is None and isinstance(payload.get("function_call"), dict):
+            function_payload = payload.get("function_call")
+            call_type = call_type or "function"
+
+        if function_payload is None and (
+            payload.get("name") or payload.get("arguments")
+        ):
+            function_payload = {
+                "name": payload.get("name"),
+                "arguments": payload.get("arguments"),
+            }
+
+        if call_type is None and function_payload is not None:
+            call_type = "function"
+
+        if call_type != "function":
+            return None
+
+        function_payload = function_payload or {}
+        name = self._safe_get(function_payload, "name") or payload.get("name")
+        arguments = self._safe_get(function_payload, "arguments")
+        if arguments is None:
+            arguments = payload.get("arguments")
+
+        if not name:
+            return None
+
+        normalized: Dict[str, Any] = {
+            "type": "function",
+            "function_call": {
+                "name": name,
+                "arguments": self._stringify_function_arguments(arguments),
+            },
+            "raw_call": raw_call,
+        }
+
+        if payload.get("id"):
+            normalized["id"] = payload["id"]
+
+        return normalized
+
+    def _extract_tool_messages(self, message: Any) -> List[Dict[str, Any]]:
+        if not message:
+            return []
+
+        tool_messages: List[Dict[str, Any]] = []
+        tool_calls = self._safe_get(message, "tool_calls")
+        if isinstance(tool_calls, list):
+            for call in tool_calls:
+                normalized = self._normalize_tool_call(call)
+                if normalized:
+                    tool_messages.append(normalized)
+        elif tool_calls:
+            normalized = self._normalize_tool_call(tool_calls)
+            if normalized:
+                tool_messages.append(normalized)
+
+        legacy_call = self._safe_get(message, "function_call")
+        if legacy_call:
+            normalized = self._normalize_tool_call(
+                {"type": "function", "function": legacy_call}
+            )
+            if normalized:
+                tool_messages.append(normalized)
+
+        return tool_messages
+
+    def _update_pending_tool_calls(
+        self, pending: Dict[int, Dict[str, Any]], tool_call_delta: Any
+    ) -> None:
+        if not tool_call_delta:
+            return
+
+        try:
+            index = int(self._safe_get(tool_call_delta, "index"))
+        except (TypeError, ValueError):
+            index = 0
+
+        entry = pending.setdefault(index, {"call": {}})
+        call = entry.setdefault("call", {})
+
+        call_type = self._safe_get(tool_call_delta, "type")
+        function_payload = self._safe_get(tool_call_delta, "function") or {}
+        if call_type:
+            call["type"] = call_type
+
+        call_id = self._safe_get(tool_call_delta, "id")
+        if call_id:
+            call["id"] = call_id
+
+        if function_payload:
+            function_entry = call.setdefault("function", {})
+            name = self._safe_get(function_payload, "name")
+            if name:
+                function_entry["name"] = name
+            arguments_delta = self._safe_get(function_payload, "arguments")
+            if arguments_delta:
+                existing_arguments = function_entry.get("arguments", "")
+                function_entry["arguments"] = existing_arguments + str(arguments_delta)
+            call.setdefault("type", "function")
+
+    def _finalize_pending_tool_calls(
+        self, pending: Dict[int, Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        messages: List[Dict[str, Any]] = []
+        for _, payload in sorted(pending.items(), key=lambda item: item[0]):
+            call = payload.get("call") if isinstance(payload, dict) else None
+            normalized = self._normalize_tool_call(call)
+            if normalized:
+                messages.append(normalized)
+        return messages
+
+    async def _handle_tool_messages(
+        self,
+        tool_messages: List[Dict[str, Any]],
+        *,
+        user=None,
+        conversation_id=None,
+        conversation_manager=None,
+        function_map=None,
+        functions=None,
+        current_persona=None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
+    ) -> Optional[Any]:
+        if not tool_messages:
+            return None
+
+        for message in tool_messages:
+            if message.get("type") != "function":
+                continue
+            function_payload = message.get("function_call")
+            if not function_payload:
+                continue
+            tool_response = await use_tool(
+                user,
+                conversation_id,
+                {"function_call": function_payload},
+                conversation_manager,
+                function_map,
+                functions,
+                current_persona,
+                temperature,
+                top_p,
+                frequency_penalty,
+                presence_penalty,
+                conversation_manager,
+                self.config_manager,
+            )
+            if tool_response is not None:
+                return tool_response
+
+        return None
 
     async def process_response(self, response: Union[str, AsyncIterator[str]]) -> str:
         if isinstance(response, str):

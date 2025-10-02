@@ -141,6 +141,11 @@ def _patches(monkeypatch):
         "load_functions_from_json",
         lambda *_args, **_kwargs: None,
     )
+    monkeypatch.setattr(
+        mistral_module,
+        "load_function_map_from_current_persona",
+        lambda *_args, **_kwargs: {},
+    )
     _reset_stubs()
 
 
@@ -390,3 +395,172 @@ def test_mistral_generator_passes_json_schema_response_format():
         "type": "json_schema",
         "json_schema": schema_payload,
     }
+
+
+def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
+    settings = {
+        "model": "mistral-large-latest",
+        "stream": False,
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    recorded_messages = []
+
+    async def fake_use_tool(*args, **_kwargs):
+        recorded_messages.append(args[2])
+        return "tool-result"
+
+    monkeypatch.setattr(mistral_module, "use_tool", fake_use_tool)
+
+    def fake_complete(**kwargs):
+        _StubChat.last_complete_kwargs = kwargs
+        message = SimpleNamespace(
+            content="ignored",
+            tool_calls=[
+                SimpleNamespace(
+                    id="call_1",
+                    type="function",
+                    function=SimpleNamespace(
+                        name="lookup",
+                        arguments='{"query":"value"}',
+                    ),
+                )
+            ],
+        )
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    generator.client.chat.complete = fake_complete
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "call"}],
+            current_persona={"name": "tester"},
+            user="user-1",
+            conversation_id="conv-1",
+            conversation_manager=SimpleNamespace(),
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "tool-result"
+    assert recorded_messages == [
+        {
+            "function_call": {
+                "name": "lookup",
+                "arguments": '{"query":"value"}',
+            }
+        }
+    ]
+
+
+def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
+    settings = {
+        "model": "mistral-large-latest",
+        "stream": True,
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    recorded_messages = []
+
+    async def fake_use_tool(*args, **_kwargs):
+        recorded_messages.append(args[2])
+        return "stream-tool"
+
+    monkeypatch.setattr(mistral_module, "use_tool", fake_use_tool)
+
+    events = [
+        SimpleNamespace(
+            data=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(
+                            tool_calls=[
+                                SimpleNamespace(
+                                    index=0,
+                                    id="call_1",
+                                    type="function",
+                                    function=SimpleNamespace(
+                                        name="lookup",
+                                        arguments='{"query":',
+                                    ),
+                                )
+                            ]
+                        ),
+                        finish_reason=None,
+                    )
+                ]
+            )
+        ),
+        SimpleNamespace(
+            data=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(
+                            tool_calls=[
+                                SimpleNamespace(
+                                    index=0,
+                                    function=SimpleNamespace(arguments='"value"}')
+                                )
+                            ]
+                        ),
+                        finish_reason=None,
+                    )
+                ]
+            )
+        ),
+        SimpleNamespace(
+            data=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(),
+                        finish_reason="stop",
+                    )
+                ]
+            )
+        ),
+    ]
+
+    class _Stream:
+        def __init__(self, payload):
+            self._payload = list(payload)
+            self.closed = False
+
+        def __iter__(self):
+            return iter(self._payload)
+
+        def close(self):
+            self.closed = True
+
+    captured_kwargs = {}
+
+    def fake_stream(**kwargs):
+        captured_kwargs.update(kwargs)
+        return _Stream(events)
+
+    generator.client.chat.stream = fake_stream
+
+    async def exercise():
+        stream = await generator.generate_response(
+            messages=[{"role": "user", "content": "call"}],
+            current_persona={"name": "tester"},
+            user="user-2",
+            conversation_id="conv-2",
+            conversation_manager=SimpleNamespace(),
+            stream=True,
+        )
+        parts = []
+        async for chunk in stream:
+            parts.append(chunk)
+        return parts
+
+    chunks = asyncio.run(exercise())
+
+    assert chunks == ["stream-tool"]
+    assert recorded_messages == [
+        {
+            "function_call": {
+                "name": "lookup",
+                "arguments": '{"query":"value"}',
+            }
+        }
+    ]
