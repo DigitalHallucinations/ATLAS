@@ -11,9 +11,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 
 from GTKUI.Utils.utils import apply_css, create_box
+from modules.background_tasks import run_async_in_thread
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,8 @@ class MistralSettingsWindow(Gtk.Window):
         self._available_models: List[str] = []
         self._model_options_initialized = False
         self._custom_entry_visible = False
+        self._api_key_visible = False
+        self._default_api_key_placeholder = "Enter your Mistral API key"
 
         self._build_ui()
         self.refresh_settings(clear_message=True)
@@ -73,6 +76,32 @@ class MistralSettingsWindow(Gtk.Window):
         container.append(grid)
 
         row = 0
+        api_label = Gtk.Label(label="Mistral API Key:")
+        api_label.set_xalign(0.0)
+        grid.attach(api_label, 0, row, 1, 1)
+
+        api_entry_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        grid.attach(api_entry_box, 1, row, 1, 1)
+
+        self.api_key_entry = Gtk.Entry()
+        self.api_key_entry.set_hexpand(True)
+        if hasattr(self.api_key_entry, "set_visibility"):
+            self.api_key_entry.set_visibility(False)
+        if hasattr(self.api_key_entry, "set_invisible_char"):
+            self.api_key_entry.set_invisible_char("•")
+        self.api_key_entry.set_placeholder_text(self._default_api_key_placeholder)
+        api_entry_box.append(self.api_key_entry)
+
+        self.api_key_toggle = Gtk.Button(label="Show")
+        self.api_key_toggle.connect("clicked", self._on_api_key_toggle_clicked)
+        api_entry_box.append(self.api_key_toggle)
+
+        row += 1
+        self.api_key_status_label = Gtk.Label(label="")
+        self.api_key_status_label.set_xalign(0.0)
+        grid.attach(self.api_key_status_label, 0, row, 2, 1)
+
+        row += 1
         model_label = Gtk.Label(label="Default model:")
         model_label.set_xalign(0.0)
         grid.attach(model_label, 0, row, 1, 1)
@@ -316,6 +345,10 @@ class MistralSettingsWindow(Gtk.Window):
         button_box.set_halign(Gtk.Align.END)
         container.append(button_box)
 
+        self.save_api_key_button = Gtk.Button(label="Save API Key")
+        self.save_api_key_button.connect("clicked", self.on_save_api_key_clicked)
+        button_box.append(self.save_api_key_button)
+
         save_button = Gtk.Button(label="Save Defaults")
         save_button.connect("clicked", self.on_save_clicked)
         button_box.append(save_button)
@@ -328,6 +361,7 @@ class MistralSettingsWindow(Gtk.Window):
         settings = self.config_manager.get_mistral_llm_settings()
         self._current_settings = dict(settings)
 
+        self._refresh_api_key_status()
         self._refresh_model_options()
         self._select_model(settings.get("model", "") or "")
         self.temperature_spin.set_value(float(settings.get("temperature", 0.0)))
@@ -378,6 +412,93 @@ class MistralSettingsWindow(Gtk.Window):
             self._last_message = None
             self._update_label(self.message_label, "")
 
+    def on_save_api_key_clicked(self, _button: Gtk.Button) -> None:
+        api_key = (self.api_key_entry.get_text() or "").strip()
+        if not api_key:
+            self._set_message(
+                "Error",
+                "Enter an API key before saving.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
+        def handle_success(result: Dict[str, Any]) -> None:
+            GLib.idle_add(self._handle_api_key_save_result, result)
+
+        def handle_error(exc: Exception) -> None:
+            logger.error("Error saving Mistral API key: %s", exc, exc_info=True)
+            GLib.idle_add(
+                self._handle_api_key_save_result,
+                {"success": False, "error": str(exc)},
+            )
+
+        helper = getattr(self.ATLAS, "update_provider_api_key_in_background", None)
+        if callable(helper):
+            try:
+                helper(
+                    "Mistral",
+                    api_key,
+                    on_success=handle_success,
+                    on_error=handle_error,
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.error(
+                    "Unable to schedule Mistral API key save: %s", exc, exc_info=True
+                )
+                self._set_message(
+                    "Error",
+                    f"Failed to save API key: {str(exc)}",
+                    Gtk.MessageType.ERROR,
+                )
+            return
+
+        updater = getattr(self.ATLAS, "update_provider_api_key", None)
+        if not callable(updater):
+            self._set_message(
+                "Error",
+                "Saving API keys is not supported in this build.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
+        try:
+            future = run_async_in_thread(
+                lambda: updater("Mistral", api_key),
+                on_success=handle_success,
+                on_error=handle_error,
+                logger=logger,
+                thread_name="mistral-api-key-fallback",
+            )
+            future.result()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error(
+                "Unable to start fallback API key save task: %s", exc, exc_info=True
+            )
+            self._set_message(
+                "Error",
+                f"Failed to save API key: {str(exc)}",
+                Gtk.MessageType.ERROR,
+            )
+
+    def _handle_api_key_save_result(self, result: Dict[str, Any]) -> bool:
+        if isinstance(result, dict) and result.get("success"):
+            message = result.get("message") or "API key saved."
+            self._set_message("Success", message, Gtk.MessageType.INFO)
+            self.api_key_entry.set_text("")
+            self._refresh_api_key_status()
+        else:
+            if isinstance(result, dict):
+                detail = (
+                    result.get("error")
+                    or result.get("message")
+                    or "Unable to save API key."
+                )
+            else:
+                detail = str(result)
+            self._set_message("Error", detail, Gtk.MessageType.ERROR)
+
+        return False
+
     def _set_message(self, title: str, body: str, message_type: Gtk.MessageType) -> None:
         self._last_message = (title, body, message_type)
         if body:
@@ -405,6 +526,70 @@ class MistralSettingsWindow(Gtk.Window):
         if isinstance(parsed, (dict, list)):
             return parsed
         return cleaned
+
+    def _refresh_api_key_status(self) -> None:
+        status_text = "Credential status is unavailable."
+        placeholder = self._default_api_key_placeholder
+        tooltip = "Enter your Mistral API key."
+
+        has_key = False
+        if hasattr(self.config_manager, "has_provider_api_key"):
+            try:
+                has_key = bool(self.config_manager.has_provider_api_key("Mistral"))
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.error(
+                    "Unable to query stored Mistral API key: %s", exc, exc_info=True
+                )
+
+        hint = ""
+        atlas = getattr(self, "ATLAS", None)
+        if atlas is not None and hasattr(atlas, "get_provider_api_key_status"):
+            try:
+                payload = atlas.get_provider_api_key_status("Mistral") or {}
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.error(
+                    "Unable to determine Mistral API key status: %s", exc, exc_info=True
+                )
+            else:
+                if isinstance(payload, dict):
+                    metadata = payload.get("metadata")
+                    if isinstance(metadata, dict):
+                        hint = metadata.get("hint") or ""
+
+        if has_key:
+            suffix = f" ({hint})" if hint else ""
+            status_text = f"An API key is saved for Mistral.{suffix}"
+            if hint:
+                placeholder = f"Saved key: {hint}"
+                tooltip = (
+                    f"A saved Mistral key is active ({hint}). Enter a new key to replace it."
+                )
+            else:
+                tooltip = "A Mistral API key is saved. Enter a new key to replace it."
+        else:
+            status_text = "No API key saved for Mistral."
+            tooltip = "Enter your Mistral API key."
+
+        if hasattr(self.api_key_entry, "set_placeholder_text"):
+            self.api_key_entry.set_placeholder_text(placeholder)
+        if hasattr(self.api_key_entry, "set_tooltip_text"):
+            self.api_key_entry.set_tooltip_text(tooltip)
+
+        self._update_label(self.api_key_status_label, status_text)
+
+    def _on_api_key_toggle_clicked(self, _button: Gtk.Button) -> None:
+        self._api_key_visible = not self._api_key_visible
+
+        if hasattr(self.api_key_entry, "set_visibility"):
+            self.api_key_entry.set_visibility(self._api_key_visible)
+        else:  # pragma: no cover - testing stubs
+            self.api_key_entry.visibility = self._api_key_visible
+
+        label = "Hide" if self._api_key_visible else "Show"
+        if hasattr(self.api_key_toggle, "set_label"):
+            self.api_key_toggle.set_label(label)
+        else:  # pragma: no cover - testing stubs
+            self.api_key_toggle.label = label
 
     def _parse_stop_sequences(self) -> List[str]:
         try:
