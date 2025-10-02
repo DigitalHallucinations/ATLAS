@@ -651,6 +651,7 @@ from ATLAS.provider_manager import ProviderManager
 from GTKUI.Provider_manager.Settings.OA_settings import OpenAISettingsWindow
 from GTKUI.Provider_manager.Settings.Anthropic_settings import AnthropicSettingsWindow
 from GTKUI.Provider_manager.Settings import Anthropic_settings
+from GTKUI.Provider_manager.Settings import Mistral_settings
 from GTKUI.Provider_manager.Settings.Google_settings import GoogleSettingsWindow
 from GTKUI.Provider_manager.Settings.Mistral_settings import MistralSettingsWindow
 
@@ -2503,6 +2504,16 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         json_schema=schema_payload,
     )
 
+    call_state = {"count": 0}
+
+    original_has_provider_api_key = config.has_provider_api_key
+
+    def tracked_has_provider_api_key(provider_name: str) -> bool:
+        call_state["count"] += 1
+        return original_has_provider_api_key(provider_name)
+
+    monkeypatch.setattr(config, "has_provider_api_key", tracked_has_provider_api_key)
+
     atlas_stub = types.SimpleNamespace(
         provider_manager=provider_manager,
         config_manager=config,
@@ -2510,6 +2521,12 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     )
 
     window = MistralSettingsWindow(atlas_stub, config, None)
+
+    assert call_state["count"] >= 1
+    status_text = getattr(window.api_key_status_label, "label", None)
+    if status_text is None and hasattr(window.api_key_status_label, "get_text"):
+        status_text = window.api_key_status_label.get_text()
+    assert status_text == "No API key saved for Mistral."
 
     assert window.model_combo.get_active_text() == "mistral-medium-latest"
     assert window._custom_entry_visible is False
@@ -2545,6 +2562,8 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     )
 
     window.refresh_settings()
+
+    assert call_state["count"] >= 2
 
     assert window.model_combo.get_active_text() == "mistral-large-latest"
     assert window._custom_entry_visible is False
@@ -2639,6 +2658,136 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert stored["model"] == "mistral-experimental"
     assert window.max_tokens_spin.get_value_as_int() == 0
     assert window._custom_entry_visible is True
+
+
+def test_mistral_settings_window_saves_api_key(provider_manager, monkeypatch):
+    monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
+    monkeypatch.setattr(
+        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
+    )
+    monkeypatch.setattr(
+        Gtk.Window,
+        "get_style_context",
+        lambda self: types.SimpleNamespace(add_class=lambda *_args, **_kwargs: None),
+        raising=False,
+    )
+
+    config = provider_manager.config_manager
+    saved_call: Dict[str, object] = {}
+
+    def fake_status(_name: str) -> Dict[str, object]:
+        has_key = config.has_provider_api_key("Mistral")
+        metadata: Dict[str, str] = {}
+        if has_key:
+            key = config._api_keys.get("Mistral", "")
+            hint = f"••••{key[-4:]}" if len(key) >= 4 else "••••"
+            metadata["hint"] = hint
+        return {"has_key": has_key, "metadata": metadata}
+
+    def fake_update_in_background(
+        provider: str,
+        api_key: str,
+        *,
+        on_success=None,
+        on_error=None,
+    ) -> None:
+        try:
+            config.update_api_key(provider, api_key)
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            if on_error is not None:
+                on_error(exc)
+            return
+        saved_call["provider"] = provider
+        saved_call["api_key"] = api_key
+        if on_success is not None:
+            on_success({"success": True, "message": "saved"})
+
+    atlas_stub = types.SimpleNamespace(
+        provider_manager=provider_manager,
+        config_manager=config,
+        update_provider_api_key_in_background=fake_update_in_background,
+        update_provider_api_key=provider_manager.update_provider_api_key,
+        get_provider_api_key_status=fake_status,
+    )
+
+    window = MistralSettingsWindow(atlas_stub, config, None)
+
+    window.api_key_entry.set_text("mst-test-key")
+    window.on_save_api_key_clicked(None)
+
+    assert saved_call == {"provider": "Mistral", "api_key": "mst-test-key"}
+    assert window.api_key_entry.get_text() == ""
+    assert window._last_message[0] == "Success"
+    status_text = getattr(window.api_key_status_label, "label", None)
+    if status_text is None and hasattr(window.api_key_status_label, "get_text"):
+        status_text = window.api_key_status_label.get_text()
+    assert status_text.startswith("An API key is saved for Mistral.")
+    placeholder = getattr(window.api_key_entry, "placeholder", None)
+    if placeholder is None and hasattr(window.api_key_entry, "get_placeholder_text"):
+        placeholder = window.api_key_entry.get_placeholder_text()
+    assert placeholder and placeholder.startswith("Saved key:")
+
+
+def test_mistral_settings_window_saves_api_key_with_fallback(
+    provider_manager, monkeypatch
+):
+    monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
+    monkeypatch.setattr(
+        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
+    )
+    monkeypatch.setattr(
+        Gtk.Window,
+        "get_style_context",
+        lambda self: types.SimpleNamespace(add_class=lambda *_args, **_kwargs: None),
+        raising=False,
+    )
+
+    config = provider_manager.config_manager
+    status_payload = {"has_key": False, "metadata": {}}
+
+    def fake_status(_name: str) -> Dict[str, object]:
+        return dict(status_payload)
+
+    state = {"scheduled": False, "saved": False}
+
+    def fake_update_provider_api_key(provider: str, api_key: str):
+        state["saved"] = True
+        config.update_api_key(provider, api_key)
+        return {"success": True, "message": "saved"}
+
+    class _FakeFuture:
+        def result(self):
+            return None
+
+    def fake_run_async_in_thread(factory, *, on_success=None, on_error=None, **_kwargs):
+        state["scheduled"] = True
+        try:
+            result = factory()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if on_error is not None:
+                on_error(exc)
+        else:
+            if on_success is not None:
+                on_success(result)
+        return _FakeFuture()
+
+    monkeypatch.setattr(Mistral_settings, "run_async_in_thread", fake_run_async_in_thread)
+
+    atlas_stub = types.SimpleNamespace(
+        provider_manager=provider_manager,
+        config_manager=config,
+        update_provider_api_key=fake_update_provider_api_key,
+        get_provider_api_key_status=fake_status,
+    )
+
+    window = MistralSettingsWindow(atlas_stub, config, None)
+    window.api_key_entry.set_text("fallback-key")
+    window.on_save_api_key_clicked(None)
+
+    assert state["scheduled"] is True
+    assert state["saved"] is True
+    assert window._last_message[0] == "Success"
+    assert window.api_key_entry.get_text() == ""
 
 
 def test_anthropic_settings_window_saves_api_key(provider_manager):
