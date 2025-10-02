@@ -68,12 +68,39 @@ class MistralSettingsWindow(Gtk.Window):
         container = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=12)
         self.set_child(container)
 
+        scrolled_cls = getattr(Gtk, "ScrolledWindow", None)
+        if scrolled_cls is not None:
+            scroller = scrolled_cls()
+            if hasattr(scroller, "set_policy"):
+                scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        else:
+            scroller = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        if hasattr(scroller, "set_hexpand"):
+            scroller.set_hexpand(True)
+        if hasattr(scroller, "set_vexpand"):
+            scroller.set_vexpand(True)
+
+        if not hasattr(scroller, "set_child"):
+            def _set_child(widget):
+                if hasattr(scroller, "append"):
+                    scroller.append(widget)
+                else:  # pragma: no cover - fallback for simple stubs
+                    scroller.child = widget
+
+            setattr(scroller, "set_child", _set_child)
+
+        container.append(scroller)
+
+        content_box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=0)
+        scroller.set_child(content_box)
+
         grid = Gtk.Grid(column_spacing=12, row_spacing=8)
         grid.set_margin_top(6)
         grid.set_margin_bottom(6)
         grid.set_margin_start(6)
         grid.set_margin_end(6)
-        container.append(grid)
+        content_box.append(grid)
 
         row = 0
         api_label = Gtk.Label(label="Mistral API Key:")
