@@ -5,6 +5,7 @@ import asyncio
 import json
 import time
 import traceback
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from huggingface_hub import HfApi
@@ -25,6 +26,16 @@ from modules.Providers.OpenAI.OA_gen_response import generate_response as openai
 from modules.Providers.Mistral.Mistral_gen_response import generate_response as mistral_generate_response
 from modules.Providers.Google.GG_gen_response import generate_response as google_generate_response
 from modules.Providers.Anthropic.Anthropic_gen_response import AnthropicGenerator
+
+try:  # pragma: no cover - import guard for optional detailed exceptions
+    from mistralai.exceptions import MistralException
+except Exception:  # pragma: no cover - fallback when the optional module layout changes
+    MistralException = Exception
+
+try:  # pragma: no cover - optional dependency at runtime
+    from mistralai import Mistral  # type: ignore
+except Exception:  # pragma: no cover - degrade gracefully when SDK is missing
+    Mistral = None  # type: ignore[assignment]
 
 
 class ProviderManager:
@@ -634,6 +645,163 @@ class ProviderManager:
             "base_url": effective_base_url,
             "organization": effective_org,
         }
+
+    async def fetch_mistral_models(self) -> Dict[str, Any]:
+        """Discover available models from the Mistral API and cache them locally."""
+
+        if Mistral is None:
+            self.logger.error(
+                "Mistral SDK is unavailable; cannot discover remote models."
+            )
+            return self._build_result(False, error="Mistral SDK is not installed.")
+
+        getter = getattr(self.config_manager, "get_mistral_api_key", None)
+        if not callable(getter):
+            self.logger.error(
+                "Configuration backend does not expose a Mistral API key accessor."
+            )
+            return self._build_result(False, error="Mistral credentials are unavailable.")
+
+        api_key = getter() or ""
+        if not api_key:
+            return self._build_result(False, error="Mistral API key is not configured.")
+
+        def _list_models() -> Any:
+            client = Mistral(api_key=api_key)
+            try:
+                return client.models.list()
+            finally:  # pragma: no cover - best effort cleanup
+                closer = getattr(client, "close", None)
+                if callable(closer):
+                    try:
+                        closer()
+                    except Exception:
+                        pass
+
+        try:
+            raw_response = await asyncio.to_thread(_list_models)
+        except MistralException as exc:
+            detail = str(exc) or exc.__class__.__name__
+            self.logger.error(
+                "Mistral model listing failed with API error: %s", detail, exc_info=True
+            )
+            return self._build_result(False, error=detail)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error(
+                "Unexpected error while listing Mistral models: %s", exc, exc_info=True
+            )
+            return self._build_result(False, error=str(exc))
+
+        entries: List[Any] = []
+        if isinstance(raw_response, dict):
+            entries = raw_response.get("data") or raw_response.get("models") or []
+        elif isinstance(raw_response, list):
+            entries = raw_response
+        else:
+            entries = getattr(raw_response, "data", [])
+
+        if not isinstance(entries, list):
+            entries = []
+
+        seen: set[str] = set()
+        discovered: List[str] = []
+
+        for entry in entries:
+            model_id: Optional[str] = None
+            if isinstance(entry, str):
+                model_id = entry
+            elif isinstance(entry, dict):
+                model_id = (
+                    entry.get("id")
+                    or entry.get("slug")
+                    or entry.get("name")
+                    or entry.get("model")
+                )
+            else:
+                for attr in ("id", "slug", "name", "model"):
+                    value = getattr(entry, attr, None)
+                    if value:
+                        model_id = value
+                        break
+
+            if model_id is None:
+                continue
+
+            normalized = str(model_id).strip()
+            if normalized and normalized not in seen:
+                discovered.append(normalized)
+                seen.add(normalized)
+
+        cached_models: List[str] = list(discovered)
+        try:
+            cached_models = self.model_manager.update_models_for_provider(
+                "Mistral", discovered
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.warning(
+                "Failed to update cached Mistral models after discovery: %s",
+                exc,
+                exc_info=True,
+            )
+
+        persisted_path = self._persist_mistral_model_cache(cached_models)
+
+        count = len(cached_models)
+        message = (
+            f"Retrieved {count} Mistral model{'s' if count != 1 else ''}."
+            if cached_models
+            else "No Mistral models were returned."
+        )
+
+        data: Dict[str, Any] = {"models": cached_models, "source": "mistral"}
+        if persisted_path is not None:
+            data["persisted_to"] = str(persisted_path)
+
+        return self._build_result(True, message=message, data=data)
+
+    def _persist_mistral_model_cache(self, models: List[str]) -> Optional[Path]:
+        """Write the cached model list to disk for offline usage."""
+
+        payload = {"models": models}
+
+        candidates: List[Path] = []
+        try:
+            root = self.config_manager.get_app_root()
+        except Exception:  # pragma: no cover - defensive logging
+            root = None
+
+        if root:
+            candidates.append(
+                Path(root)
+                / "modules"
+                / "Providers"
+                / "Mistral"
+                / "M_models.json"
+            )
+
+        candidates.append(
+            Path(__file__).resolve().parent.parent
+            / "modules"
+            / "Providers"
+            / "Mistral"
+            / "M_models.json"
+        )
+
+        for path in candidates:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, indent=2, sort_keys=True)
+                    handle.write("\n")
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.warning(
+                    "Failed to persist Mistral model cache to %s: %s", path, exc
+                )
+                continue
+
+            return path
+
+        return None
 
     @staticmethod
     def _mask_secret(secret: str) -> str:
