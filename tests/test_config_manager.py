@@ -590,6 +590,42 @@ def test_set_mistral_llm_settings_handles_json_options(config_manager):
     assert stored["json_schema"] is None
 
 
+def test_set_mistral_llm_settings_tracks_tool_preferences(config_manager):
+    config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        parallel_tool_calls=False,
+        tool_choice="required",
+    )
+
+    stored = config_manager.config["MISTRAL_LLM"]
+    assert stored["parallel_tool_calls"] is False
+    assert stored["tool_choice"] == "required"
+
+    config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        tool_choice="none",
+    )
+
+    stored = config_manager.config["MISTRAL_LLM"]
+    assert stored["tool_choice"] == "none"
+
+    config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        tool_choice={"type": "function", "name": "math"},
+    )
+
+    stored = config_manager.config["MISTRAL_LLM"]
+    assert stored["tool_choice"] == {"type": "function", "name": "math"}
+
+    config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        tool_choice="  ",
+    )
+
+    stored = config_manager.config["MISTRAL_LLM"]
+    assert stored["tool_choice"] is None
+
+
 def test_set_openai_llm_settings_tracks_tool_preferences(config_manager):
     config_manager.set_openai_llm_settings(
         model="gpt-4o",
