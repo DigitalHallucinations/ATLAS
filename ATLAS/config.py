@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 _UNSET = object()
+
+_SUPPORTED_MISTRAL_PROMPT_MODES = {"reasoning"}
 from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
 from modules.logging.logger import setup_logger
 from dotenv import load_dotenv, set_key, find_dotenv
@@ -1108,6 +1110,7 @@ class ConfigManager:
             'retry_min_seconds': 4,
             'retry_max_seconds': 10,
             'base_url': self.get_config('MISTRAL_BASE_URL'),
+            'prompt_mode': None,
         }
 
         stored = self.get_config('MISTRAL_LLM')
@@ -1247,6 +1250,25 @@ class ConfigManager:
             )
             merged['json_schema'] = _coerce_json_schema(stored.get('json_schema'))
 
+            def _coerce_prompt_mode(value: Any) -> Optional[str]:
+                if value in {None, ""}:
+                    return None
+                if isinstance(value, (bytes, bytearray)):
+                    try:
+                        value = value.decode("utf-8")
+                    except Exception:
+                        return None
+                if isinstance(value, str):
+                    normalized = value.strip().lower()
+                    if not normalized:
+                        return None
+                    if normalized in _SUPPORTED_MISTRAL_PROMPT_MODES:
+                        return normalized
+                    return None
+                return None
+
+            merged['prompt_mode'] = _coerce_prompt_mode(stored.get('prompt_mode'))
+
             def _coerce_base_url(value: Any) -> Optional[str]:
                 if value in {None, ""}:
                     return None
@@ -1307,6 +1329,7 @@ class ConfigManager:
         retry_min_seconds: Optional[int] = None,
         retry_max_seconds: Optional[int] = None,
         base_url: Any = _UNSET,
+        prompt_mode: Any = _UNSET,
     ) -> Dict[str, Any]:
         """Persist default configuration for the Mistral chat provider."""
 
@@ -1557,6 +1580,32 @@ class ConfigManager:
         settings['json_schema'] = _normalize_json_schema(
             json_schema,
             settings.get('json_schema'),
+        )
+
+        def _normalize_prompt_mode(value: Any, existing: Optional[str]) -> Optional[str]:
+            if value is _UNSET:
+                return existing
+            if value in {None, ""}:
+                return None
+            if isinstance(value, (bytes, bytearray)):
+                try:
+                    value = value.decode("utf-8")
+                except Exception as exc:
+                    raise ValueError("Prompt mode must be text.") from exc
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if not normalized:
+                    return None
+                if normalized not in _SUPPORTED_MISTRAL_PROMPT_MODES:
+                    raise ValueError(
+                        "Prompt mode must be one of: reasoning or left unset."
+                    )
+                return normalized
+            raise ValueError("Prompt mode must be provided as text or None.")
+
+        settings['prompt_mode'] = _normalize_prompt_mode(
+            prompt_mode,
+            settings.get('prompt_mode'),
         )
 
         def _normalize_base_url(value: Any, existing: Optional[str]) -> Optional[str]:

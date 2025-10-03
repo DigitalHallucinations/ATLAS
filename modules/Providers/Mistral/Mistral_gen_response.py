@@ -18,6 +18,8 @@ from ATLAS.ToolManager import (
 )
 from modules.logging.logger import setup_logger
 
+_SUPPORTED_PROMPT_MODES = {"reasoning"}
+
 class MistralGenerator:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
@@ -312,6 +314,16 @@ class MistralGenerator:
                     elif settings.get('json_mode'):
                         response_format_payload = {'type': 'json_object'}
 
+                    def _resolve_prompt_mode_setting() -> Optional[str]:
+                        mode_value = settings.get('prompt_mode')
+                        if isinstance(mode_value, str):
+                            normalized = mode_value.strip().lower()
+                            if normalized in _SUPPORTED_PROMPT_MODES:
+                                return normalized
+                        return None
+
+                    effective_prompt_mode = _resolve_prompt_mode_setting()
+
                     request_kwargs: Dict[str, Any] = {
                         'model': effective_model,
                         'messages': mistral_messages,
@@ -342,6 +354,9 @@ class MistralGenerator:
 
                     if response_format_payload:
                         request_kwargs['response_format'] = response_format_payload
+
+                    if effective_prompt_mode:
+                        request_kwargs['prompt_mode'] = effective_prompt_mode
 
                     if effective_stream:
                         response_stream = await asyncio.to_thread(

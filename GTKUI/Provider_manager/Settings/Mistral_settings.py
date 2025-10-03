@@ -60,6 +60,24 @@ class MistralSettingsWindow(Gtk.Window):
         self._stored_base_url: Optional[str] = None
         self._base_url_is_valid = True
 
+        self._prompt_mode_options = [
+            ("default", None, "Standard prompt (default)"),
+            ("reasoning", "reasoning", "Reasoning mode"),
+        ]
+        self._prompt_mode_value_by_id = {
+            option_id: value for option_id, value, _ in self._prompt_mode_options
+        }
+        self._prompt_mode_index_by_id = {
+            option_id: index for index, (option_id, _value, _label) in enumerate(self._prompt_mode_options)
+        }
+        self._prompt_mode_id_by_value = {
+            value: option_id
+            for option_id, value, _label in self._prompt_mode_options
+            if value is not None
+        }
+        self._prompt_mode_default_id = "default"
+        self.prompt_mode_combo: Optional[Gtk.ComboBoxText] = None
+
         self._build_ui()
         self.refresh_settings(clear_message=True)
 
@@ -272,6 +290,26 @@ class MistralSettingsWindow(Gtk.Window):
         self.safe_prompt_toggle = Gtk.CheckButton(label="Enable safe prompt")
         self.safe_prompt_toggle.set_halign(Gtk.Align.START)
         grid.attach(self.safe_prompt_toggle, 1, row, 1, 1)
+
+        row += 1
+        prompt_mode_label = Gtk.Label(label="Prompt mode:")
+        prompt_mode_label.set_xalign(0.0)
+        grid.attach(prompt_mode_label, 0, row, 1, 1)
+
+        self.prompt_mode_combo = Gtk.ComboBoxText()
+        self.prompt_mode_combo.set_hexpand(True)
+        for option_id, _value, option_label in self._prompt_mode_options:
+            if hasattr(self.prompt_mode_combo, "append"):
+                self.prompt_mode_combo.append(option_id, option_label)
+            else:  # pragma: no cover - fallback for simplified stubs
+                self.prompt_mode_combo.append_text(option_label)
+        if hasattr(self.prompt_mode_combo, "set_active_id"):
+            self.prompt_mode_combo.set_active_id(self._prompt_mode_default_id)
+        if hasattr(self.prompt_mode_combo, "set_active"):
+            self.prompt_mode_combo.set_active(
+                self._prompt_mode_index_by_id.get(self._prompt_mode_default_id, 0)
+            )
+        grid.attach(self.prompt_mode_combo, 1, row, 1, 1)
 
         row += 1
         stream_label = Gtk.Label(label="Streaming:")
@@ -507,6 +545,7 @@ class MistralSettingsWindow(Gtk.Window):
         self.max_tokens_spin.set_value(float(max_tokens or 0))
 
         self.safe_prompt_toggle.set_active(bool(settings.get("safe_prompt", False)))
+        self._select_prompt_mode(settings.get("prompt_mode"))
         self.stream_toggle.set_active(bool(settings.get("stream", True)))
 
         self.max_retries_spin.set_value(float(settings.get("max_retries", 3)))
@@ -937,6 +976,63 @@ class MistralSettingsWindow(Gtk.Window):
                 if callable(getter) and getter():
                     require_widget.set_active(False)
 
+    def _select_prompt_mode(self, prompt_mode: Optional[str]) -> None:
+        combo = getattr(self, "prompt_mode_combo", None)
+        if combo is None:
+            return
+
+        normalized = None
+        if isinstance(prompt_mode, str):
+            normalized = prompt_mode.strip().lower() or None
+
+        target_id = self._prompt_mode_default_id
+        if normalized in self._prompt_mode_id_by_value:
+            target_id = self._prompt_mode_id_by_value[normalized]
+
+        setter = getattr(combo, "set_active_id", None)
+        if callable(setter):
+            setter(target_id)
+
+        index = self._prompt_mode_index_by_id.get(target_id, 0)
+        alt_setter = getattr(combo, "set_active", None)
+        if callable(alt_setter):
+            alt_setter(index)
+
+    def _get_selected_prompt_mode(self) -> Optional[str]:
+        combo = getattr(self, "prompt_mode_combo", None)
+        if combo is None:
+            return None
+
+        active_id = None
+        getter = getattr(combo, "get_active_id", None)
+        if callable(getter):
+            active_id = getter()
+
+        if not active_id:
+            index_getter = getattr(combo, "get_active", None)
+            if callable(index_getter):
+                try:
+                    index = index_getter()
+                except Exception:  # pragma: no cover - defensive fallback
+                    index = None
+                if isinstance(index, int) and index >= 0:
+                    try:
+                        active_id = self._prompt_mode_options[index][0]
+                    except (IndexError, TypeError):  # pragma: no cover - safety net
+                        active_id = None
+            if not active_id and hasattr(combo, "_active"):
+                index = getattr(combo, "_active")
+                if isinstance(index, int) and index >= 0:
+                    try:
+                        active_id = self._prompt_mode_options[index][0]
+                    except (IndexError, TypeError):  # pragma: no cover - safety net
+                        active_id = None
+
+        if active_id in {None, self._prompt_mode_default_id}:
+            return None
+
+        return self._prompt_mode_value_by_id.get(active_id)
+
     def _refresh_api_key_status(self) -> None:
         status_text = "Credential status is unavailable."
         placeholder = self._default_api_key_placeholder
@@ -1119,6 +1215,7 @@ class MistralSettingsWindow(Gtk.Window):
                 raise ValueError(
                     "Enter a valid HTTP(S) base URL or leave the field blank."
                 )
+            prompt_mode_value = self._get_selected_prompt_mode()
             saved = self.config_manager.set_mistral_llm_settings(
                 model=model,
                 temperature=self.temperature_spin.get_value(),
@@ -1138,6 +1235,7 @@ class MistralSettingsWindow(Gtk.Window):
                 retry_min_seconds=retry_min,
                 retry_max_seconds=retry_max,
                 base_url=base_url,
+                prompt_mode=prompt_mode_value,
             )
         except Exception as exc:
             logger.error("Failed to save Mistral settings: %s", exc, exc_info=True)
