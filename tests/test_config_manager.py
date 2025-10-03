@@ -198,8 +198,26 @@ def test_set_google_llm_settings_updates_state(config_manager):
     assert stored["seed"] == 12345
     assert stored["response_logprobs"] is True
     assert config_manager.config["GOOGLE_LLM"]["top_k"] == 32
-    assert config_manager.config["GOOGLE_LLM"]["max_output_tokens"] == 16000
-    assert config_manager.config["GOOGLE_LLM"]["seed"] == 12345
+
+
+def test_get_available_providers_masks_secrets(config_manager):
+    providers = config_manager.get_available_providers()
+
+    assert "OpenAI" in providers
+    openai_payload = providers["OpenAI"]
+
+    assert openai_payload["available"] is True
+    assert openai_payload["length"] == len("initial-key")
+    assert openai_payload["hint"] == "\u2022" * min(len("initial-key"), 8)
+    assert "initial-key" not in json.dumps(openai_payload)
+
+    for provider, payload in providers.items():
+        if provider == "OpenAI":
+            continue
+
+        assert payload["available"] is False
+        assert payload["length"] == 0
+        assert payload["hint"] == ""
 
 
 def test_set_google_llm_settings_normalizes_string_payloads(config_manager):

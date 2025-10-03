@@ -2308,15 +2308,50 @@ class ConfigManager:
         api_key = self.get_config(env_key)
         return bool(api_key)
 
-    def get_available_providers(self) -> Dict[str, str]:
+    def get_available_providers(self) -> Dict[str, Dict[str, Any]]:
         """
-        Retrieves a dictionary of available providers and their corresponding API keys.
+        Retrieves metadata for available providers without exposing raw secrets.
 
         Returns:
-            Dict[str, str]: A dictionary where keys are provider names and values are their API keys.
+            Dict[str, Dict[str, Any]]: A dictionary where keys are provider names and values contain
+            availability metadata such as whether the credential is set, a masked hint, and the
+            stored length.
         """
+
         provider_env_keys = self._get_provider_env_keys()
-        return {provider: self.get_config(env_key) for provider, env_key in provider_env_keys.items()}
+        providers: Dict[str, Dict[str, Any]] = {}
+
+        for provider, env_key in provider_env_keys.items():
+            value = self.get_config(env_key)
+
+            if value is None:
+                secret = ""
+            elif isinstance(value, str):
+                secret = value
+            else:
+                secret = str(value)
+
+            available = bool(secret)
+            length = len(secret) if available else 0
+            hint = self._mask_secret_preview(secret) if available else ""
+
+            providers[provider] = {
+                "available": available,
+                "length": length,
+                "hint": hint,
+            }
+
+        return providers
+
+    @staticmethod
+    def _mask_secret_preview(secret: str) -> str:
+        """Return a masked preview of a secret without revealing its contents."""
+
+        if not secret:
+            return ""
+
+        visible_count = min(len(secret), 8)
+        return "•" * visible_count
 
     # Additional methods to handle TTS_ENABLED from config.yaml
     def get_tts_enabled(self) -> bool:

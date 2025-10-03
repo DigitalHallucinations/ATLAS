@@ -1,11 +1,12 @@
 # ATLAS/provider_manager.py
 
-from typing import Any, Dict, List, Union, AsyncIterator, Optional
 import asyncio
+from collections.abc import Mapping
 import json
 import time
 import traceback
 from pathlib import Path
+from typing import Any, Dict, List, Union, AsyncIterator, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from huggingface_hub import HfApi
@@ -860,21 +861,39 @@ class ProviderManager:
                 provider_values = {}
 
         raw_value = provider_values.get(provider_name)
-        if isinstance(raw_value, str):
-            stored_secret = raw_value
-        elif raw_value is None:
-            stored_secret = ""
-        else:
-            stored_secret = str(raw_value)
 
-        if stored_secret:
-            has_key = True
-            metadata = {
-                "length": len(stored_secret),
-                "hint": self._mask_secret(stored_secret),
-                "source": "environment",
-            }
+        if isinstance(raw_value, Mapping):
+            has_key = bool(raw_value.get("available"))
+            if has_key:
+                metadata = {}
+                for key in ("length", "hint", "source"):
+                    if key in raw_value:
+                        metadata[key] = raw_value[key]
+
+                if "length" not in metadata:
+                    metadata["length"] = int(raw_value.get("length", 0))
+
+                if "hint" not in metadata:
+                    metadata["hint"] = self._mask_secret("x" * metadata["length"])
+
+                metadata["source"] = metadata.get("source", "environment")
         else:
+            if isinstance(raw_value, str):
+                stored_secret = raw_value
+            elif raw_value is None:
+                stored_secret = ""
+            else:
+                stored_secret = str(raw_value)
+
+            if stored_secret:
+                has_key = True
+                metadata = {
+                    "length": len(stored_secret),
+                    "hint": self._mask_secret(stored_secret),
+                    "source": "environment",
+                }
+
+        if not has_key:
             checker = getattr(self.config_manager, "has_provider_api_key", None)
             if callable(checker):
                 try:
