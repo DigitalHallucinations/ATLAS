@@ -7,6 +7,7 @@ import logging
 import os
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import gi
 
@@ -56,6 +57,8 @@ class MistralSettingsWindow(Gtk.Window):
         self._refresh_in_progress = False
 
         self._suppress_tool_choice_sync = False
+        self._stored_base_url: Optional[str] = None
+        self._base_url_is_valid = True
 
         self._build_ui()
         self.refresh_settings(clear_message=True)
@@ -130,6 +133,27 @@ class MistralSettingsWindow(Gtk.Window):
         self.api_key_status_label = Gtk.Label(label="")
         self.api_key_status_label.set_xalign(0.0)
         grid.attach(self.api_key_status_label, 0, row, 2, 1)
+
+        row += 1
+        base_url_label = Gtk.Label(label="Custom Base URL:")
+        base_url_label.set_xalign(0.0)
+        grid.attach(base_url_label, 0, row, 1, 1)
+
+        self.base_url_entry = Gtk.Entry()
+        self.base_url_entry.set_hexpand(True)
+        self.base_url_entry.set_placeholder_text("https://api.mistral.ai/v1")
+        if hasattr(self.base_url_entry, "connect"):
+            self.base_url_entry.connect("changed", self._on_base_url_changed)
+        grid.attach(self.base_url_entry, 1, row, 1, 1)
+
+        row += 1
+        self.base_url_feedback_label = Gtk.Label(
+            label="Leave blank to use the official endpoint."
+        )
+        self.base_url_feedback_label.set_xalign(0.0)
+        if hasattr(self.base_url_feedback_label, "add_css_class"):
+            self.base_url_feedback_label.add_css_class("dim-label")
+        grid.attach(self.base_url_feedback_label, 0, row, 2, 1)
 
         row += 1
         model_label = Gtk.Label(label="Default model:")
@@ -468,6 +492,10 @@ class MistralSettingsWindow(Gtk.Window):
         self._current_settings = dict(settings)
 
         self._refresh_api_key_status()
+        self._stored_base_url = settings.get("base_url")
+        if isinstance(self._stored_base_url, str):
+            self._stored_base_url = self._stored_base_url or None
+        self._apply_base_url_to_entry(self._stored_base_url)
         self._refresh_model_options()
         self._select_model(settings.get("model", "") or "")
         self.temperature_spin.set_value(float(settings.get("temperature", 0.0)))
@@ -708,6 +736,15 @@ class MistralSettingsWindow(Gtk.Window):
             )
             return
 
+        base_url, base_valid = self._sync_base_url_state()
+        if not base_valid:
+            self._set_message(
+                "Error",
+                "Enter a valid HTTP(S) base URL or leave the field blank before refreshing.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
         def handle_success(result):
             GLib.idle_add(self._handle_model_refresh_result, result)
 
@@ -718,7 +755,7 @@ class MistralSettingsWindow(Gtk.Window):
 
         try:
             run_async_in_thread(
-                lambda: fetcher(),
+                lambda: fetcher(base_url=base_url),
                 on_success=handle_success,
                 on_error=handle_error,
                 logger=logger,
@@ -958,6 +995,68 @@ class MistralSettingsWindow(Gtk.Window):
         else:  # pragma: no cover - testing stubs
             self.api_key_entry.visibility = self._api_key_visible
 
+    def _apply_base_url_to_entry(self, value: Optional[str]) -> None:
+        if hasattr(self, "base_url_entry"):
+            if value:
+                self.base_url_entry.set_text(value)
+            else:
+                self.base_url_entry.set_text("")
+        self._sync_base_url_state()
+
+    def _sanitize_base_url(self, raw: str) -> Tuple[Optional[str], bool]:
+        text = (raw or "").strip()
+        if not text:
+            return None, True
+
+        parsed = urlparse(text)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            return text, True
+
+        return None, False
+
+    def _update_base_url_feedback(self, valid: bool) -> None:
+        hint = (
+            "Leave blank to use the official endpoint."
+            if valid
+            else "Enter a valid HTTP(S) URL or leave blank."
+        )
+
+        if hasattr(self.base_url_entry, "set_tooltip_text"):
+            self.base_url_entry.set_tooltip_text(hint)
+
+        if hasattr(self.base_url_entry, "add_css_class"):
+            if valid:
+                self.base_url_entry.remove_css_class("error")
+            else:
+                self.base_url_entry.add_css_class("error")
+
+        if hasattr(self.base_url_feedback_label, "set_label"):
+            self.base_url_feedback_label.set_label(hint)
+        else:  # pragma: no cover - testing stubs
+            self.base_url_feedback_label.label = hint
+
+        if hasattr(self.base_url_feedback_label, "add_css_class"):
+            if valid:
+                self.base_url_feedback_label.remove_css_class("error")
+            else:
+                self.base_url_feedback_label.add_css_class("error")
+
+        self._base_url_is_valid = valid
+
+    def _sync_base_url_state(self) -> Tuple[Optional[str], bool]:
+        if hasattr(self, "base_url_entry"):
+            raw = self.base_url_entry.get_text()
+        else:
+            raw = ""
+
+        sanitized, valid = self._sanitize_base_url(raw)
+        self._stored_base_url = sanitized
+        self._update_base_url_feedback(valid)
+        return sanitized, valid
+
+    def _on_base_url_changed(self, _entry: Gtk.Entry) -> None:
+        self._sync_base_url_state()
+
         label = "Hide" if self._api_key_visible else "Show"
         if hasattr(self.api_key_toggle, "set_label"):
             self.api_key_toggle.set_label(label)
@@ -1015,6 +1114,11 @@ class MistralSettingsWindow(Gtk.Window):
                 raise ValueError(
                     "Retry maximum seconds must be greater than or equal to the minimum."
                 )
+            base_url, base_valid = self._sync_base_url_state()
+            if not base_valid:
+                raise ValueError(
+                    "Enter a valid HTTP(S) base URL or leave the field blank."
+                )
             saved = self.config_manager.set_mistral_llm_settings(
                 model=model,
                 temperature=self.temperature_spin.get_value(),
@@ -1033,6 +1137,7 @@ class MistralSettingsWindow(Gtk.Window):
                 max_retries=self.max_retries_spin.get_value_as_int(),
                 retry_min_seconds=retry_min,
                 retry_max_seconds=retry_max,
+                base_url=base_url,
             )
         except Exception as exc:
             logger.error("Failed to save Mistral settings: %s", exc, exc_info=True)

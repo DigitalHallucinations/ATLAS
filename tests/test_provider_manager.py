@@ -716,6 +716,7 @@ class DummyConfig:
             "parallel_tool_calls": True,
             "json_mode": False,
             "json_schema": None,
+            "base_url": None,
         }
         self._google_settings = {
             "model": "gemini-1.5-pro-latest",
@@ -905,6 +906,7 @@ class DummyConfig:
         max_retries=None,
         retry_min_seconds=None,
         retry_max_seconds=None,
+        base_url=None,
     ):
         if model:
             self._mistral_settings["model"] = model
@@ -966,6 +968,9 @@ class DummyConfig:
             self._mistral_settings["retry_min_seconds"] = int(retry_min_seconds)
         if retry_max_seconds is not None:
             self._mistral_settings["retry_max_seconds"] = int(retry_max_seconds)
+        if base_url is not None:
+            cleaned = str(base_url).strip()
+            self._mistral_settings["base_url"] = cleaned or None
         return dict(self._mistral_settings)
 
     def get_google_llm_settings(self):
@@ -1406,6 +1411,10 @@ def test_fetch_mistral_models_requires_api_key(provider_manager, monkeypatch):
 
 def test_fetch_mistral_models_updates_cache_and_file(provider_manager, monkeypatch, tmp_path):
     provider_manager.config_manager.update_api_key("Mistral", "mst-test")
+    provider_manager.config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        base_url="https://api.alt-mistral/v1",
+    )
 
     models = [
         types.SimpleNamespace(id="mistral-large-latest"),
@@ -1419,6 +1428,7 @@ def test_fetch_mistral_models_updates_cache_and_file(provider_manager, monkeypat
 
     class _StubModelClient:
         def __init__(self, *args, **kwargs):
+            captured_kwargs["value"] = dict(kwargs)
             self.models = types.SimpleNamespace(list=lambda: _StubModelPage(models))
 
         def close(self):
@@ -1427,6 +1437,7 @@ def test_fetch_mistral_models_updates_cache_and_file(provider_manager, monkeypat
     async def fake_to_thread(callable_, *args, **kwargs):  # pragma: no cover - test helper
         return callable_()
 
+    captured_kwargs: Dict[str, Any] = {}
     monkeypatch.setattr(provider_manager_module, "Mistral", _StubModelClient)
     monkeypatch.setattr(provider_manager_module.asyncio, "to_thread", fake_to_thread)
 
@@ -1442,6 +1453,9 @@ def test_fetch_mistral_models_updates_cache_and_file(provider_manager, monkeypat
     assert cached[0] == "mistral-large-latest"
     assert "open-mixtral-8x7b" in cached
 
+    forwarded = captured_kwargs.get("value", {})
+    assert forwarded.get("server_url") == "https://api.alt-mistral/v1"
+
     persisted = data.get("persisted_to")
     assert persisted
     path = Path(persisted)
@@ -1449,6 +1463,7 @@ def test_fetch_mistral_models_updates_cache_and_file(provider_manager, monkeypat
     with path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
     assert payload["models"][0] == "mistral-large-latest"
+    assert data.get("base_url") == "https://api.alt-mistral/v1"
 
 
 def test_fetch_mistral_models_handles_exception(provider_manager, monkeypatch):
@@ -1464,6 +1479,38 @@ def test_fetch_mistral_models_handles_exception(provider_manager, monkeypatch):
 
     assert result["success"] is False
     assert "boom" in (result.get("error") or "")
+
+
+def test_fetch_mistral_models_accepts_override(provider_manager, monkeypatch):
+    provider_manager.config_manager.update_api_key("Mistral", "mst-test")
+    provider_manager.config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        base_url="https://default.mistral/v1",
+    )
+
+    captured: Dict[str, Any] = {}
+
+    class _StubClient:
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+            self.models = types.SimpleNamespace(list=lambda: [])
+
+        def close(self):
+            return None
+
+    async def fake_to_thread(callable_, *args, **kwargs):
+        return callable_()
+
+    monkeypatch.setattr(provider_manager_module, "Mistral", _StubClient)
+    monkeypatch.setattr(provider_manager_module.asyncio, "to_thread", fake_to_thread)
+
+    result = asyncio.run(
+        provider_manager.fetch_mistral_models(base_url="https://override.mistral/v3")
+    )
+
+    assert captured.get("server_url") == "https://override.mistral/v3"
+    data = result.get("data", {})
+    assert data.get("base_url") == "https://override.mistral/v3"
 
 
 def test_provider_manager_primes_openai_models_on_startup(tmp_path, monkeypatch):
@@ -2593,6 +2640,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         max_retries=4,
         retry_min_seconds=5,
         retry_max_seconds=18,
+        base_url="https://example.mistral/v1",
     )
 
     call_state = {"count": 0}
@@ -2621,6 +2669,8 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
 
     assert window.model_combo.get_active_text() == "mistral-medium-latest"
     assert window._custom_entry_visible is False
+    assert window.base_url_entry.get_text() == "https://example.mistral/v1"
+    assert window._stored_base_url == "https://example.mistral/v1"
     assert math.isclose(window.temperature_spin.get_value(), 0.4)
     assert math.isclose(window.top_p_spin.get_value(), 0.8)
     assert math.isclose(window.frequency_penalty_spin.get_value(), 0.15)
@@ -2658,6 +2708,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         max_retries=3,
         retry_min_seconds=4,
         retry_max_seconds=12,
+        base_url="",
     )
 
     window.refresh_settings()
@@ -2683,6 +2734,8 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.stop_sequences_entry.get_text() == ""
     assert window.json_mode_toggle.get_active() is False
     assert window._json_schema_text_cache == ""
+    assert window.base_url_entry.get_text() == ""
+    assert window._stored_base_url is None
 
     small_index = window._available_models.index("mistral-small-latest")
     window.model_combo.set_active(small_index)
@@ -2715,6 +2768,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
             indent=2,
         )
     )
+    window.base_url_entry.set_text("https://alt.mistral/v2")
 
     window.on_save_clicked(None)
 
@@ -2737,8 +2791,11 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert stored["stop_sequences"] == ["END", "FINISH"]
     assert stored["json_mode"] is True
     assert stored["json_schema"]["schema"]["properties"]["result"]["type"] == "string"
+    assert stored["base_url"] == "https://alt.mistral/v2"
     assert window._last_message[0] == "Success"
     assert window.model_combo.get_active_text() == "mistral-small-latest"
+    assert window.base_url_entry.get_text() == "https://alt.mistral/v2"
+    assert window._stored_base_url == "https://alt.mistral/v2"
 
     custom_index = len(window._available_models)
     window.model_combo.set_active(custom_index)
@@ -2762,6 +2819,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.tool_call_toggle.get_active() is False
     assert window.parallel_tool_calls_toggle.get_active() is False
     assert window.require_tool_toggle.get_active() is False
+    assert window.base_url_entry.get_text() == "https://alt.mistral/v2"
 
     window.max_tokens_spin.set_value(0)
 
@@ -2772,6 +2830,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert stored["model"] == "mistral-experimental"
     assert window.max_tokens_spin.get_value_as_int() == 0
     assert window._custom_entry_visible is True
+    assert stored["base_url"] == "https://alt.mistral/v2"
 
 
 def test_mistral_settings_window_saves_api_key(provider_manager, monkeypatch):
@@ -2960,7 +3019,8 @@ def test_mistral_settings_window_refresh_updates_models(provider_manager, monkey
 
     new_models = ["mistral-small-latest", "mistral-large-latest"]
 
-    async def fake_fetch(self):
+    async def fake_fetch(self, *, base_url=None):
+        state["base_url"] = base_url
         return {
             "success": True,
             "message": "models fetched",
@@ -2978,7 +3038,7 @@ def test_mistral_settings_window_refresh_updates_models(provider_manager, monkey
         def result(self):
             return self._result
 
-    state = {"scheduled": False, "result": None}
+    state = {"scheduled": False, "result": None, "base_url": None}
 
     def fake_run_async_in_thread(factory, *, on_success=None, on_error=None, **_kwargs):
         state["scheduled"] = True
@@ -3030,7 +3090,8 @@ def test_mistral_settings_window_refresh_handles_error(provider_manager, monkeyp
     config = provider_manager.config_manager
     config.update_api_key("Mistral", "mst-error")
 
-    async def fake_fetch(self):
+    async def fake_fetch(self, *, base_url=None):
+        state["base_url"] = base_url
         return {"success": False, "error": "network issue"}
 
     provider_manager.fetch_mistral_models = fake_fetch.__get__(
@@ -3041,7 +3102,7 @@ def test_mistral_settings_window_refresh_handles_error(provider_manager, monkeyp
         def result(self):
             return None
 
-    state = {"scheduled": False}
+    state = {"scheduled": False, "base_url": None}
 
     def fake_run_async_in_thread(factory, *, on_success=None, on_error=None, **_kwargs):
         state["scheduled"] = True

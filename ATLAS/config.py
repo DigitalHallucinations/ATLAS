@@ -5,6 +5,7 @@ import json
 import os
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 _UNSET = object()
 from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
@@ -91,6 +92,7 @@ class ConfigManager:
             'DEFAULT_PROVIDER': os.getenv('DEFAULT_PROVIDER', 'OpenAI'),
             'DEFAULT_MODEL': os.getenv('DEFAULT_MODEL', 'gpt-4o'),
             'MISTRAL_API_KEY': os.getenv('MISTRAL_API_KEY'),
+            'MISTRAL_BASE_URL': os.getenv('MISTRAL_BASE_URL'),
             'HUGGINGFACE_API_KEY': os.getenv('HUGGINGFACE_API_KEY'),
             'GOOGLE_API_KEY': os.getenv('GOOGLE_API_KEY'),
             'ANTHROPIC_API_KEY': os.getenv('ANTHROPIC_API_KEY'),
@@ -1105,6 +1107,7 @@ class ConfigManager:
             'max_retries': 3,
             'retry_min_seconds': 4,
             'retry_max_seconds': 10,
+            'base_url': self.get_config('MISTRAL_BASE_URL'),
         }
 
         stored = self.get_config('MISTRAL_LLM')
@@ -1244,6 +1247,26 @@ class ConfigManager:
             )
             merged['json_schema'] = _coerce_json_schema(stored.get('json_schema'))
 
+            def _coerce_base_url(value: Any) -> Optional[str]:
+                if value in {None, ""}:
+                    return None
+                if isinstance(value, (bytes, bytearray)):
+                    try:
+                        value = value.decode('utf-8')
+                    except Exception:
+                        return None
+                if isinstance(value, str):
+                    candidate = value.strip()
+                    if not candidate:
+                        return None
+                    parsed = urlparse(candidate)
+                    if parsed.scheme in {"http", "https"} and parsed.netloc:
+                        return candidate
+                    return None
+                return None
+
+            merged['base_url'] = _coerce_base_url(stored.get('base_url'))
+
             retries = _coerce_int(stored.get('max_retries'))
             merged['max_retries'] = retries or defaults['max_retries']
 
@@ -1283,6 +1306,7 @@ class ConfigManager:
         max_retries: Optional[int] = None,
         retry_min_seconds: Optional[int] = None,
         retry_max_seconds: Optional[int] = None,
+        base_url: Any = _UNSET,
     ) -> Dict[str, Any]:
         """Persist default configuration for the Mistral chat provider."""
 
@@ -1535,6 +1559,28 @@ class ConfigManager:
             settings.get('json_schema'),
         )
 
+        def _normalize_base_url(value: Any, existing: Optional[str]) -> Optional[str]:
+            if value is _UNSET:
+                return existing
+            if value in {None, ""}:
+                return None
+            if isinstance(value, (bytes, bytearray)):
+                try:
+                    value = value.decode('utf-8')
+                except Exception as exc:
+                    raise ValueError('Base URL must be a valid HTTP(S) URL.') from exc
+            if isinstance(value, str):
+                candidate = value.strip()
+                if not candidate:
+                    return None
+                parsed = urlparse(candidate)
+                if parsed.scheme in {"http", "https"} and parsed.netloc:
+                    return candidate
+                raise ValueError('Base URL must include an http:// or https:// scheme.')
+            raise ValueError('Base URL must be provided as text.')
+
+        settings['base_url'] = _normalize_base_url(base_url, settings.get('base_url'))
+
         if max_retries is not None:
             normalized_retries = _normalize_positive_int(
                 max_retries,
@@ -1580,6 +1626,8 @@ class ConfigManager:
 
         self.yaml_config['MISTRAL_LLM'] = copy.deepcopy(settings)
         self.config['MISTRAL_LLM'] = copy.deepcopy(settings)
+        self.config['MISTRAL_BASE_URL'] = settings.get('base_url')
+        self.env_config['MISTRAL_BASE_URL'] = settings.get('base_url')
 
         self._write_yaml_config()
 

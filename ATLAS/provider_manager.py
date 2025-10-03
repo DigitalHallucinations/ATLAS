@@ -646,7 +646,9 @@ class ProviderManager:
             "organization": effective_org,
         }
 
-    async def fetch_mistral_models(self) -> Dict[str, Any]:
+    async def fetch_mistral_models(
+        self, *, base_url: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Discover available models from the Mistral API and cache them locally."""
 
         if Mistral is None:
@@ -666,8 +668,30 @@ class ProviderManager:
         if not api_key:
             return self._build_result(False, error="Mistral API key is not configured.")
 
+        settings: Dict[str, Any] = {}
+        try:
+            settings = self.config_manager.get_mistral_llm_settings()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.warning(
+                "Unable to load persisted Mistral defaults before discovery: %s",
+                exc,
+                exc_info=True,
+            )
+
+        effective_base_url = base_url
+        if isinstance(effective_base_url, str):
+            effective_base_url = effective_base_url.strip() or None
+        if effective_base_url is None:
+            candidate = settings.get("base_url") if isinstance(settings, dict) else None
+            if isinstance(candidate, str):
+                candidate = candidate.strip()
+                effective_base_url = candidate or None
+
         def _list_models() -> Any:
-            client = Mistral(api_key=api_key)
+            client_kwargs: Dict[str, Any] = {"api_key": api_key}
+            if effective_base_url:
+                client_kwargs["server_url"] = effective_base_url
+            client = Mistral(**client_kwargs)
             try:
                 return client.models.list()
             finally:  # pragma: no cover - best effort cleanup
@@ -754,6 +778,8 @@ class ProviderManager:
         )
 
         data: Dict[str, Any] = {"models": cached_models, "source": "mistral"}
+        if effective_base_url:
+            data["base_url"] = effective_base_url
         if persisted_path is not None:
             data["persisted_to"] = str(persisted_path)
 
