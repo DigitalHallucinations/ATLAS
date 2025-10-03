@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Dict, Optional
 
 import pytest
 
@@ -43,6 +44,23 @@ if "mistralai" not in sys.modules:
 
 if "tenacity" not in sys.modules:
     class _TenacityStub(SimpleNamespace):
+        class _AsyncRetrying:
+            def __init__(self, **_kwargs):
+                self._kwargs = _kwargs
+
+            def __aiter__(self):
+                class _Attempt(SimpleNamespace):
+                    def __enter__(self_inner):
+                        return self_inner
+
+                    def __exit__(self_inner, *_args):
+                        return False
+
+                async def _iterator():
+                    yield _Attempt()
+
+                return _iterator()
+
         @staticmethod
         def retry(*_args, **_kwargs):
             def decorator(func):
@@ -51,6 +69,7 @@ if "tenacity" not in sys.modules:
             return decorator
 
     tenacity_stub = _TenacityStub(
+        AsyncRetrying=_TenacityStub._AsyncRetrying,
         stop_after_attempt=lambda *_a, **_k: None,
         wait_exponential=lambda *_a, **_k: None,
     )
@@ -203,6 +222,9 @@ def test_mistral_generator_streams_when_configured_by_default():
         "tool_choice": "auto",
         "parallel_tool_calls": True,
         "stop_sequences": ["END"],
+        "max_retries": 4,
+        "retry_min_seconds": 2,
+        "retry_max_seconds": 8,
     }
 
     generator = mistral_module.MistralGenerator(DummyConfig(settings))
@@ -223,6 +245,153 @@ def test_mistral_generator_streams_when_configured_by_default():
     assert stream_kwargs["temperature"] == 0.0
     assert stream_kwargs["stop"] == ["END"]
 
+
+def test_mistral_generator_configures_retry_policy(monkeypatch):
+    settings = {
+        "model": "mistral-large-latest",
+        "stream": False,
+        "max_retries": 5,
+        "retry_min_seconds": 3,
+        "retry_max_seconds": 12,
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+
+    recorded: Dict[str, Any] = {}
+
+    class _FakeStop:
+        def __init__(self, attempts: int):
+            self.attempts = attempts
+
+    def fake_stop_after_attempt(value: int):
+        recorded["stop_value"] = value
+        return _FakeStop(value)
+
+    class _FakeWait:
+        def __init__(self, *, multiplier: int, min: int, max: int):
+            self.multiplier = multiplier
+            self.min = min
+            self.max = max
+
+    def fake_wait_exponential(*, multiplier: int, min: int, max: int):
+        recorded["wait"] = {"multiplier": multiplier, "min": min, "max": max}
+        return _FakeWait(multiplier=multiplier, min=min, max=max)
+
+    class _FakeAttempt:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, _exc, _tb):
+            return False
+
+    class _FakeAsyncRetrying:
+        last_kwargs: Optional[Dict[str, Any]] = None
+
+        def __init__(self, **kwargs: Any):
+            _FakeAsyncRetrying.last_kwargs = kwargs
+
+        def __aiter__(self):
+            async def _iterator():
+                yield _FakeAttempt()
+
+            return _iterator()
+
+    monkeypatch.setattr(mistral_module, "stop_after_attempt", fake_stop_after_attempt)
+    monkeypatch.setattr(mistral_module, "wait_exponential", fake_wait_exponential)
+    monkeypatch.setattr(mistral_module, "AsyncRetrying", _FakeAsyncRetrying)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "ok"
+    assert recorded["stop_value"] == 5
+    assert recorded["wait"] == {"multiplier": 1, "min": 3, "max": 12}
+    assert isinstance(_FakeAsyncRetrying.last_kwargs["stop"], _FakeStop)
+    assert isinstance(_FakeAsyncRetrying.last_kwargs["wait"], _FakeWait)
+    assert _FakeAsyncRetrying.last_kwargs["reraise"] is True
+
+
+def test_mistral_generator_retries_on_api_error(monkeypatch):
+    settings = {
+        "model": "mistral-large-latest",
+        "stream": False,
+        "max_retries": 2,
+        "retry_min_seconds": 1,
+        "retry_max_seconds": 5,
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+
+    call_counts = {"complete": 0}
+
+    class _FakeStop:
+        def __init__(self, attempts: int):
+            self.max_attempts = attempts
+
+    class _RetryingAttempt:
+        def __init__(self, retrying: "_RetryingLoop", number: int):
+            self.retrying = retrying
+            self.number = number
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, _exc, _tb):
+            if exc_type is None:
+                return False
+            if self.number >= self.retrying.stop.max_attempts:
+                return False
+            return True
+
+    class _RetryingLoop:
+        def __init__(self, *, stop: _FakeStop, wait: Any, reraise: bool):
+            self.stop = stop
+            self.wait = wait
+            self.reraise = reraise
+            self._attempt = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._attempt >= self.stop.max_attempts:
+                raise StopAsyncIteration
+            self._attempt += 1
+            return _RetryingAttempt(self, self._attempt)
+
+    def fake_stop_after_attempt(value: int):
+        return _FakeStop(value)
+
+    def fake_wait_exponential(**_kwargs: Any):
+        return SimpleNamespace()
+
+    def failing_complete(**kwargs):
+        call_counts["complete"] += 1
+        if call_counts["complete"] == 1:
+            raise mistral_module.Mistral.APIError("boom")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))]
+        )
+
+    generator.client.chat.complete = failing_complete
+
+    monkeypatch.setattr(mistral_module, "stop_after_attempt", fake_stop_after_attempt)
+    monkeypatch.setattr(mistral_module, "wait_exponential", fake_wait_exponential)
+    monkeypatch.setattr(mistral_module, "AsyncRetrying", _RetryingLoop)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "ok"
+    assert call_counts["complete"] == 2
 
 def test_mistral_generator_omits_max_tokens_when_using_provider_default():
     settings = {

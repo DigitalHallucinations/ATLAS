@@ -259,6 +259,52 @@ class MistralSettingsWindow(Gtk.Window):
         grid.attach(self.stream_toggle, 1, row, 1, 1)
 
         row += 1
+        retries_label = Gtk.Label(label="Max retries:")
+        retries_label.set_xalign(0.0)
+        grid.attach(retries_label, 0, row, 1, 1)
+
+        self.max_retries_adjustment = Gtk.Adjustment(
+            lower=1, upper=10, step_increment=1, page_increment=1, value=3
+        )
+        self.max_retries_spin = Gtk.SpinButton(
+            adjustment=self.max_retries_adjustment, digits=0
+        )
+        self.max_retries_spin.set_hexpand(True)
+        grid.attach(self.max_retries_spin, 1, row, 1, 1)
+
+        row += 1
+        retry_min_label = Gtk.Label(label="Retry backoff minimum (seconds):")
+        retry_min_label.set_xalign(0.0)
+        grid.attach(retry_min_label, 0, row, 1, 1)
+
+        self.retry_max_adjustment = None
+
+        self.retry_min_adjustment = Gtk.Adjustment(
+            lower=1, upper=300, step_increment=1, page_increment=5, value=4
+        )
+        self.retry_min_spin = Gtk.SpinButton(
+            adjustment=self.retry_min_adjustment, digits=0
+        )
+        self.retry_min_spin.set_hexpand(True)
+        if hasattr(self.retry_min_spin, "connect"):
+            self.retry_min_spin.connect("value-changed", self._on_retry_min_changed)
+        grid.attach(self.retry_min_spin, 1, row, 1, 1)
+
+        row += 1
+        retry_max_label = Gtk.Label(label="Retry backoff maximum (seconds):")
+        retry_max_label.set_xalign(0.0)
+        grid.attach(retry_max_label, 0, row, 1, 1)
+
+        self.retry_max_adjustment = Gtk.Adjustment(
+            lower=1, upper=600, step_increment=1, page_increment=10, value=10
+        )
+        self.retry_max_spin = Gtk.SpinButton(
+            adjustment=self.retry_max_adjustment, digits=0
+        )
+        self.retry_max_spin.set_hexpand(True)
+        grid.attach(self.retry_max_spin, 1, row, 1, 1)
+
+        row += 1
         self.json_mode_toggle = Gtk.CheckButton(label="Force JSON responses")
         self.json_mode_toggle.set_halign(Gtk.Align.START)
         grid.attach(self.json_mode_toggle, 0, row, 2, 1)
@@ -435,6 +481,15 @@ class MistralSettingsWindow(Gtk.Window):
         self.safe_prompt_toggle.set_active(bool(settings.get("safe_prompt", False)))
         self.stream_toggle.set_active(bool(settings.get("stream", True)))
 
+        self.max_retries_spin.set_value(float(settings.get("max_retries", 3)))
+
+        retry_min = settings.get("retry_min_seconds", 4)
+        retry_max = settings.get("retry_max_seconds", max(retry_min, 10))
+        self.retry_min_spin.set_value(float(retry_min))
+        if hasattr(self.retry_max_adjustment, "set_lower"):
+            self.retry_max_adjustment.set_lower(float(max(1, retry_min)))
+        self.retry_max_spin.set_value(float(max(retry_min, retry_max)))
+
         self.json_mode_toggle.set_active(bool(settings.get("json_mode", False)))
 
         schema_payload = settings.get("json_schema") if isinstance(settings, dict) else None
@@ -501,6 +556,20 @@ class MistralSettingsWindow(Gtk.Window):
         if clear_message:
             self._last_message = None
             self._update_label(self.message_label, "")
+
+    def _on_retry_min_changed(self, spin_button) -> None:
+        try:
+            value = spin_button.get_value()
+        except Exception:
+            value = 1.0
+        if hasattr(self.retry_max_adjustment, "set_lower"):
+            self.retry_max_adjustment.set_lower(max(1.0, value))
+        if (
+            hasattr(self, "retry_max_spin")
+            and hasattr(self.retry_max_spin, "get_value")
+            and self.retry_max_spin.get_value() < value
+        ):
+            self.retry_max_spin.set_value(value)
 
     def on_save_api_key_clicked(self, _button: Gtk.Button) -> None:
         api_key = (self.api_key_entry.get_text() or "").strip()
@@ -940,6 +1009,12 @@ class MistralSettingsWindow(Gtk.Window):
                 parallel_tools = False
 
             tool_choice_value = self._parse_tool_choice(self._get_tool_choice_text())
+            retry_min = self.retry_min_spin.get_value_as_int()
+            retry_max = self.retry_max_spin.get_value_as_int()
+            if retry_max < retry_min:
+                raise ValueError(
+                    "Retry maximum seconds must be greater than or equal to the minimum."
+                )
             saved = self.config_manager.set_mistral_llm_settings(
                 model=model,
                 temperature=self.temperature_spin.get_value(),
@@ -955,6 +1030,9 @@ class MistralSettingsWindow(Gtk.Window):
                 stop_sequences=self._parse_stop_sequences(),
                 json_mode=self.json_mode_toggle.get_active(),
                 json_schema=raw_schema_text if raw_schema_text else "",
+                max_retries=self.max_retries_spin.get_value_as_int(),
+                retry_min_seconds=retry_min,
+                retry_max_seconds=retry_max,
             )
         except Exception as exc:
             logger.error("Failed to save Mistral settings: %s", exc, exc_info=True)

@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
 
 from mistralai import Mistral
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from ATLAS.config import ConfigManager
 from ATLAS.model_manager import ModelManager
@@ -33,7 +33,6 @@ class MistralGenerator:
         if isinstance(default_model, str) and default_model.strip():
             self.model_manager.set_model(default_model.strip(), "Mistral")
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def generate_response(
         self,
         messages: List[Dict[str, str]],
@@ -56,288 +55,313 @@ class MistralGenerator:
         parallel_tool_calls: Optional[bool] = None,
         stop_sequences: Optional[Any] = None,
     ) -> Union[str, AsyncIterator[str]]:
-        try:
-            mistral_messages = self.convert_messages_to_mistral_format(messages)
-            settings = self.config_manager.get_mistral_llm_settings()
+        settings = self.config_manager.get_mistral_llm_settings()
 
-            def _resolve_model(preferred: Optional[str]) -> str:
-                current = self.model_manager.get_current_model()
-                if preferred and preferred.strip():
-                    return preferred.strip()
-                stored = settings.get("model")
-                if isinstance(stored, str) and stored.strip():
-                    return stored.strip()
-                if current and isinstance(current, str) and current.strip():
-                    return current.strip()
-                return "mistral-large-latest"
-
-            effective_model = _resolve_model(model)
-            current_model = self.model_manager.get_current_model()
-            if effective_model != current_model:
-                self.model_manager.set_model(effective_model, "Mistral")
-
-            def _resolve_float(
-                candidate: Optional[Any],
-                stored_key: str,
-                default: float,
-                *,
-                minimum: float,
-                maximum: float,
-            ) -> float:
-                value = candidate
-                if value is None:
-                    value = settings.get(stored_key, default)
-                try:
-                    numeric = float(value)
-                except (TypeError, ValueError):
-                    return default
-                if numeric < minimum or numeric > maximum:
-                    return default
-                return numeric
-
-            def _resolve_int(
-                candidate: Optional[Any],
-                stored_key: str,
-                default: Optional[int],
-            ) -> Optional[int]:
-                value = candidate
-                if value is None:
-                    value = settings.get(stored_key, default)
-                if value in {None, ""}:
-                    return None if default is None else default
-                try:
-                    numeric = int(value)
-                except (TypeError, ValueError):
-                    return default
-                if numeric <= 0:
-                    return None if default is None else default
-                return numeric
-
-            def _resolve_bool(candidate: Optional[Any], stored_key: str, default: bool) -> bool:
-                value = candidate
-                if value is None:
-                    value = settings.get(stored_key, default)
-                if isinstance(value, bool):
-                    return value
-                if isinstance(value, str):
-                    lowered = value.strip().lower()
-                    if lowered in {"1", "true", "yes", "on"}:
-                        return True
-                    if lowered in {"0", "false", "no", "off"}:
-                        return False
-                    return default
-                return bool(value)
-
-            def _resolve_optional_int(candidate: Optional[Any], stored_key: str) -> Optional[int]:
-                value = candidate
-                if value is None:
-                    value = settings.get(stored_key)
-                if value in {None, ""}:
-                    return None
-                try:
-                    numeric = int(value)
-                except (TypeError, ValueError):
-                    return None
-                return numeric
-
-            effective_temperature = _resolve_float(
-                temperature,
-                'temperature',
-                0.0,
-                minimum=0.0,
-                maximum=2.0,
-            )
-            effective_top_p = _resolve_float(
-                top_p,
-                'top_p',
-                1.0,
-                minimum=0.0,
-                maximum=1.0,
-            )
-            effective_max_tokens = _resolve_int(
-                max_tokens,
-                'max_tokens',
-                None,
-            )
-            effective_frequency_penalty = _resolve_float(
-                frequency_penalty,
-                'frequency_penalty',
-                0.0,
-                minimum=-2.0,
-                maximum=2.0,
-            )
-            effective_presence_penalty = _resolve_float(
-                presence_penalty,
-                'presence_penalty',
-                0.0,
-                minimum=-2.0,
-                maximum=2.0,
-            )
-            effective_safe_prompt = _resolve_bool(
-                safe_prompt,
-                'safe_prompt',
-                False,
-            )
-            effective_stream = _resolve_bool(
-                stream,
-                'stream',
-                True,
-            )
-            effective_parallel = _resolve_bool(
-                parallel_tool_calls,
-                'parallel_tool_calls',
-                True,
-            )
-            effective_random_seed = _resolve_optional_int(random_seed, 'random_seed')
-
-            configured_tool_choice = (
-                tool_choice if tool_choice is not None else settings.get('tool_choice')
-            )
-            if isinstance(configured_tool_choice, str):
-                configured_tool_choice = configured_tool_choice.strip() or None
-            elif isinstance(configured_tool_choice, dict):
-                configured_tool_choice = dict(configured_tool_choice)
-            else:
-                configured_tool_choice = None if configured_tool_choice is None else configured_tool_choice
-
-            if stop_sequences is None:
-                candidate_stop_sequences = settings.get('stop_sequences')
-            else:
-                candidate_stop_sequences = stop_sequences
+        def _coerce_positive_int(value: Optional[Any], default: int) -> int:
             try:
-                effective_stop_sequences = self.config_manager._coerce_stop_sequences(
-                    candidate_stop_sequences
-                )
-            except ValueError:
-                effective_stop_sequences = []
+                number = int(value) if value is not None else default
+            except (TypeError, ValueError):
+                return default
+            if number <= 0:
+                return default
+            return number
 
-            self.logger.info(
-                "Generating response with Mistral AI using model: %s",
-                effective_model,
-            )
+        max_attempts = _coerce_positive_int(settings.get('max_retries'), 3)
+        min_wait_seconds = _coerce_positive_int(settings.get('retry_min_seconds'), 4)
+        max_wait_seconds = _coerce_positive_int(settings.get('retry_max_seconds'), max(min_wait_seconds, 10))
+        if max_wait_seconds < min_wait_seconds:
+            max_wait_seconds = min_wait_seconds
 
-            provided_functions = functions
-            if provided_functions is None and current_persona is not None:
+        retry_loop = AsyncRetrying(
+            stop=stop_after_attempt(max_attempts),
+            wait=wait_exponential(multiplier=1, min=min_wait_seconds, max=max_wait_seconds),
+            reraise=True,
+        )
+
+        async for attempt in retry_loop:
+            with attempt:
                 try:
-                    provided_functions = load_functions_from_json(current_persona)
-                except Exception as exc:  # pragma: no cover - defensive logging
-                    self.logger.warning(
-                        "Failed to load functions from persona for Mistral: %s",
-                        exc,
+                    mistral_messages = self.convert_messages_to_mistral_format(messages)
+                    settings = self.config_manager.get_mistral_llm_settings()
+
+                    def _resolve_model(preferred: Optional[str]) -> str:
+                        current = self.model_manager.get_current_model()
+                        if preferred and preferred.strip():
+                            return preferred.strip()
+                        stored = settings.get("model")
+                        if isinstance(stored, str) and stored.strip():
+                            return stored.strip()
+                        if current and isinstance(current, str) and current.strip():
+                            return current.strip()
+                        return "mistral-large-latest"
+
+                    effective_model = _resolve_model(model)
+                    current_model = self.model_manager.get_current_model()
+                    if effective_model != current_model:
+                        self.model_manager.set_model(effective_model, "Mistral")
+
+                    def _resolve_float(
+                        candidate: Optional[Any],
+                        stored_key: str,
+                        default: float,
+                        *,
+                        minimum: float,
+                        maximum: float,
+                    ) -> float:
+                        value = candidate
+                        if value is None:
+                            value = settings.get(stored_key, default)
+                        try:
+                            numeric = float(value)
+                        except (TypeError, ValueError):
+                            return default
+                        if numeric < minimum or numeric > maximum:
+                            return default
+                        return numeric
+
+                    def _resolve_int(
+                        candidate: Optional[Any],
+                        stored_key: str,
+                        default: Optional[int],
+                    ) -> Optional[int]:
+                        value = candidate
+                        if value is None:
+                            value = settings.get(stored_key, default)
+                        if value in {None, ""}:
+                            return None if default is None else default
+                        try:
+                            numeric = int(value)
+                        except (TypeError, ValueError):
+                            return default
+                        if numeric <= 0:
+                            return None if default is None else default
+                        return numeric
+
+                    def _resolve_bool(candidate: Optional[Any], stored_key: str, default: bool) -> bool:
+                        value = candidate
+                        if value is None:
+                            value = settings.get(stored_key, default)
+                        if isinstance(value, bool):
+                            return value
+                        if isinstance(value, str):
+                            lowered = value.strip().lower()
+                            if lowered in {"1", "true", "yes", "on"}:
+                                return True
+                            if lowered in {"0", "false", "no", "off"}:
+                                return False
+                            return default
+                        return bool(value)
+
+                    def _resolve_optional_int(candidate: Optional[Any], stored_key: str) -> Optional[int]:
+                        value = candidate
+                        if value is None:
+                            value = settings.get(stored_key)
+                        if value in {None, ""}:
+                            return None
+                        try:
+                            numeric = int(value)
+                        except (TypeError, ValueError):
+                            return None
+                        return numeric
+
+                    effective_temperature = _resolve_float(
+                        temperature,
+                        'temperature',
+                        0.0,
+                        minimum=0.0,
+                        maximum=2.0,
+                    )
+                    effective_top_p = _resolve_float(
+                        top_p,
+                        'top_p',
+                        1.0,
+                        minimum=0.0,
+                        maximum=1.0,
+                    )
+                    effective_max_tokens = _resolve_int(
+                        max_tokens,
+                        'max_tokens',
+                        None,
+                    )
+                    effective_frequency_penalty = _resolve_float(
+                        frequency_penalty,
+                        'frequency_penalty',
+                        0.0,
+                        minimum=-2.0,
+                        maximum=2.0,
+                    )
+                    effective_presence_penalty = _resolve_float(
+                        presence_penalty,
+                        'presence_penalty',
+                        0.0,
+                        minimum=-2.0,
+                        maximum=2.0,
+                    )
+                    effective_safe_prompt = _resolve_bool(
+                        safe_prompt,
+                        'safe_prompt',
+                        False,
+                    )
+                    effective_stream = _resolve_bool(
+                        stream,
+                        'stream',
+                        True,
+                    )
+                    effective_parallel = _resolve_bool(
+                        parallel_tool_calls,
+                        'parallel_tool_calls',
+                        True,
+                    )
+                    effective_random_seed = _resolve_optional_int(random_seed, 'random_seed')
+
+                    configured_tool_choice = (
+                        tool_choice if tool_choice is not None else settings.get('tool_choice')
+                    )
+                    if isinstance(configured_tool_choice, str):
+                        configured_tool_choice = configured_tool_choice.strip() or None
+                    elif isinstance(configured_tool_choice, dict):
+                        configured_tool_choice = dict(configured_tool_choice)
+                    else:
+                        configured_tool_choice = None if configured_tool_choice is None else configured_tool_choice
+
+                    if stop_sequences is None:
+                        candidate_stop_sequences = settings.get('stop_sequences')
+                    else:
+                        candidate_stop_sequences = stop_sequences
+                    try:
+                        effective_stop_sequences = self.config_manager._coerce_stop_sequences(
+                            candidate_stop_sequences
+                        )
+                    except ValueError:
+                        effective_stop_sequences = []
+
+                    self.logger.info(
+                        "Generating response with Mistral AI using model: %s",
+                        effective_model,
                     )
 
-            tools_payload = self._convert_functions_to_tools(provided_functions)
+                    provided_functions = functions
+                    if provided_functions is None and current_persona is not None:
+                        try:
+                            provided_functions = load_functions_from_json(current_persona)
+                        except Exception as exc:  # pragma: no cover - defensive logging
+                            self.logger.warning(
+                                "Failed to load functions from persona for Mistral: %s",
+                                exc,
+                            )
 
-            function_map = None
-            if current_persona is not None:
-                try:
-                    function_map = load_function_map_from_current_persona(current_persona)
-                except Exception as exc:  # pragma: no cover - defensive logging
-                    self.logger.warning(
-                        "Failed to load function map for Mistral persona: %s",
-                        exc,
+                    tools_payload = self._convert_functions_to_tools(provided_functions)
+
+                    function_map = None
+                    if current_persona is not None:
+                        try:
+                            function_map = load_function_map_from_current_persona(current_persona)
+                        except Exception as exc:  # pragma: no cover - defensive logging
+                            self.logger.warning(
+                                "Failed to load function map for Mistral persona: %s",
+                                exc,
+                            )
+
+                    response_format_payload: Optional[Dict[str, Any]] = None
+                    try:
+                        normalized_schema = self._prepare_json_schema(
+                            settings.get('json_schema')
+                        )
+                    except ValueError as exc:
+                        self.logger.warning(
+                            "Ignoring invalid JSON schema for Mistral: %s",
+                            exc,
+                        )
+                        normalized_schema = None
+
+                    if normalized_schema:
+                        response_format_payload = {
+                            'type': 'json_schema',
+                            'json_schema': normalized_schema,
+                        }
+                    elif settings.get('json_mode'):
+                        response_format_payload = {'type': 'json_object'}
+
+                    request_kwargs: Dict[str, Any] = {
+                        'model': effective_model,
+                        'messages': mistral_messages,
+                        'temperature': effective_temperature,
+                        'top_p': effective_top_p,
+                        'safe_prompt': effective_safe_prompt,
+                        'frequency_penalty': effective_frequency_penalty,
+                        'presence_penalty': effective_presence_penalty,
+                    }
+
+                    if effective_max_tokens is not None:
+                        request_kwargs['max_tokens'] = effective_max_tokens
+
+                    if effective_random_seed is not None:
+                        request_kwargs['random_seed'] = effective_random_seed
+
+                    if effective_stop_sequences:
+                        request_kwargs['stop'] = effective_stop_sequences
+
+                    if tools_payload:
+                        request_kwargs['tools'] = tools_payload
+                        if configured_tool_choice is not None:
+                            request_kwargs['tool_choice'] = configured_tool_choice
+                        request_kwargs['parallel_tool_calls'] = effective_parallel
+                    else:
+                        if configured_tool_choice is not None:
+                            request_kwargs['tool_choice'] = configured_tool_choice
+
+                    if response_format_payload:
+                        request_kwargs['response_format'] = response_format_payload
+
+                    if effective_stream:
+                        response_stream = await asyncio.to_thread(
+                            self.client.chat.stream,
+                            **request_kwargs,
+                        )
+                        return self.process_streaming_response(
+                            response_stream,
+                            user=user,
+                            conversation_id=conversation_id,
+                            conversation_manager=conversation_manager,
+                            function_map=function_map,
+                            functions=provided_functions,
+                            current_persona=current_persona,
+                            temperature=effective_temperature,
+                            top_p=effective_top_p,
+                            frequency_penalty=effective_frequency_penalty,
+                            presence_penalty=effective_presence_penalty,
+                        )
+
+                    response = await asyncio.to_thread(
+                        self.client.chat.complete,
+                        **request_kwargs,
                     )
+                    message = self._safe_get(response.choices[0], "message")
+                    tool_messages = self._extract_tool_messages(message)
+                    if tool_messages:
+                        tool_result = await self._handle_tool_messages(
+                            tool_messages,
+                            user=user,
+                            conversation_id=conversation_id,
+                            conversation_manager=conversation_manager,
+                            function_map=function_map,
+                            functions=provided_functions,
+                            current_persona=current_persona,
+                            temperature=effective_temperature,
+                            top_p=effective_top_p,
+                            frequency_penalty=effective_frequency_penalty,
+                            presence_penalty=effective_presence_penalty,
+                        )
+                        if tool_result is not None:
+                            return tool_result
+                    return self._safe_get(message, "content")
 
-            response_format_payload: Optional[Dict[str, Any]] = None
-            try:
-                normalized_schema = self._prepare_json_schema(
-                    settings.get('json_schema')
-                )
-            except ValueError as exc:
-                self.logger.warning(
-                    "Ignoring invalid JSON schema for Mistral: %s",
-                    exc,
-                )
-                normalized_schema = None
-
-            if normalized_schema:
-                response_format_payload = {
-                    'type': 'json_schema',
-                    'json_schema': normalized_schema,
-                }
-            elif settings.get('json_mode'):
-                response_format_payload = {'type': 'json_object'}
-
-            request_kwargs: Dict[str, Any] = {
-                'model': effective_model,
-                'messages': mistral_messages,
-                'temperature': effective_temperature,
-                'top_p': effective_top_p,
-                'safe_prompt': effective_safe_prompt,
-                'frequency_penalty': effective_frequency_penalty,
-                'presence_penalty': effective_presence_penalty,
-            }
-
-            if effective_max_tokens is not None:
-                request_kwargs['max_tokens'] = effective_max_tokens
-
-            if effective_random_seed is not None:
-                request_kwargs['random_seed'] = effective_random_seed
-
-            if effective_stop_sequences:
-                request_kwargs['stop'] = effective_stop_sequences
-
-            if tools_payload:
-                request_kwargs['tools'] = tools_payload
-                if configured_tool_choice is not None:
-                    request_kwargs['tool_choice'] = configured_tool_choice
-                request_kwargs['parallel_tool_calls'] = effective_parallel
-            else:
-                if configured_tool_choice is not None:
-                    request_kwargs['tool_choice'] = configured_tool_choice
-
-            if response_format_payload:
-                request_kwargs['response_format'] = response_format_payload
-
-            if effective_stream:
-                response_stream = await asyncio.to_thread(
-                    self.client.chat.stream,
-                    **request_kwargs,
-                )
-                return self.process_streaming_response(
-                    response_stream,
-                    user=user,
-                    conversation_id=conversation_id,
-                    conversation_manager=conversation_manager,
-                    function_map=function_map,
-                    functions=provided_functions,
-                    current_persona=current_persona,
-                    temperature=effective_temperature,
-                    top_p=effective_top_p,
-                    frequency_penalty=effective_frequency_penalty,
-                    presence_penalty=effective_presence_penalty,
-                )
-
-            response = await asyncio.to_thread(
-                self.client.chat.complete,
-                **request_kwargs,
-            )
-            message = self._safe_get(response.choices[0], "message")
-            tool_messages = self._extract_tool_messages(message)
-            if tool_messages:
-                tool_result = await self._handle_tool_messages(
-                    tool_messages,
-                    user=user,
-                    conversation_id=conversation_id,
-                    conversation_manager=conversation_manager,
-                    function_map=function_map,
-                    functions=provided_functions,
-                    current_persona=current_persona,
-                    temperature=effective_temperature,
-                    top_p=effective_top_p,
-                    frequency_penalty=effective_frequency_penalty,
-                    presence_penalty=effective_presence_penalty,
-                )
-                if tool_result is not None:
-                    return tool_result
-            return self._safe_get(message, "content")
-
-        except Mistral.APIError as e:
-            self.logger.error(f"Mistral API error: {str(e)}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Unexpected error with Mistral: {str(e)}")
-            raise
+                except Mistral.APIError as exc:
+                    self.logger.error(f"Mistral API error: {str(exc)}")
+                    raise
+                except Exception as exc:
+                    self.logger.error(f"Unexpected error with Mistral: {str(exc)}")
+                    raise
 
     def convert_messages_to_mistral_format(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         mistral_messages = []

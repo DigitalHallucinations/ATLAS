@@ -902,6 +902,9 @@ class DummyConfig:
         stop_sequences=None,
         json_mode=None,
         json_schema=None,
+        max_retries=None,
+        retry_min_seconds=None,
+        retry_max_seconds=None,
     ):
         if model:
             self._mistral_settings["model"] = model
@@ -957,6 +960,12 @@ class DummyConfig:
                         self._mistral_settings["json_schema"] = json_schema
                 else:
                     self._mistral_settings["json_schema"] = json_schema
+        if max_retries is not None:
+            self._mistral_settings["max_retries"] = int(max_retries)
+        if retry_min_seconds is not None:
+            self._mistral_settings["retry_min_seconds"] = int(retry_min_seconds)
+        if retry_max_seconds is not None:
+            self._mistral_settings["retry_max_seconds"] = int(retry_max_seconds)
         return dict(self._mistral_settings)
 
     def get_google_llm_settings(self):
@@ -2581,6 +2590,9 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         stop_sequences=["HALT"],
         json_mode=True,
         json_schema=schema_payload,
+        max_retries=4,
+        retry_min_seconds=5,
+        retry_max_seconds=18,
     )
 
     call_state = {"count": 0}
@@ -2616,6 +2628,9 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.max_tokens_spin.get_value_as_int() == 2048
     assert window.safe_prompt_toggle.get_active() is True
     assert window.stream_toggle.get_active() is False
+    assert window.max_retries_spin.get_value_as_int() == 4
+    assert window.retry_min_spin.get_value_as_int() == 5
+    assert window.retry_max_spin.get_value_as_int() == 18
     assert window.tool_call_toggle.get_active() is True
     assert window.parallel_tool_calls_toggle.get_active() is False
     assert window.require_tool_toggle.get_active() is False
@@ -2640,6 +2655,9 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         stop_sequences=[],
         json_mode=False,
         json_schema="",
+        max_retries=3,
+        retry_min_seconds=4,
+        retry_max_seconds=12,
     )
 
     window.refresh_settings()
@@ -2654,6 +2672,9 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.max_tokens_spin.get_value_as_int() == 0
     assert window.safe_prompt_toggle.get_active() is False
     assert window.stream_toggle.get_active() is True
+    assert window.max_retries_spin.get_value_as_int() == 3
+    assert window.retry_min_spin.get_value_as_int() == 4
+    assert window.retry_max_spin.get_value_as_int() == 12
     assert window.tool_call_toggle.get_active() is True
     assert window.parallel_tool_calls_toggle.get_active() is True
     assert window.require_tool_toggle.get_active() is False
@@ -2673,6 +2694,9 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     window.max_tokens_spin.set_value(1024)
     window.safe_prompt_toggle.set_active(True)
     window.stream_toggle.set_active(False)
+    window.max_retries_spin.set_value(7)
+    window.retry_min_spin.set_value(3)
+    window.retry_max_spin.set_value(9)
     window.parallel_tool_calls_toggle.set_active(True)
     window.tool_call_toggle.set_active(False)
     window.random_seed_entry.set_text("0")
@@ -2705,6 +2729,9 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert stored["safe_prompt"] is True
     assert stored["stream"] is False
     assert stored["parallel_tool_calls"] is False
+    assert stored["max_retries"] == 7
+    assert stored["retry_min_seconds"] == 3
+    assert stored["retry_max_seconds"] == 9
     assert stored["random_seed"] == 0
     assert stored["tool_choice"] == "none"
     assert stored["stop_sequences"] == ["END", "FINISH"]
