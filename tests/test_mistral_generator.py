@@ -30,7 +30,10 @@ class _StubChat:
 
 
 class _StubMistral:
+    init_kwargs = None
+
     def __init__(self, **_kwargs):
+        _StubMistral.init_kwargs = dict(_kwargs)
         self.chat = _StubChat()
 
     APIError = Exception
@@ -150,6 +153,7 @@ class DummyConfig:
 def _reset_stubs():
     _StubChat.last_complete_kwargs = None
     _StubChat.last_stream_kwargs = None
+    _StubMistral.init_kwargs = None
 
 
 @pytest.fixture(autouse=True)
@@ -206,6 +210,30 @@ def test_mistral_generator_applies_config_defaults():
     assert kwargs["tool_choice"] == "none"
     assert kwargs["stop"] == ["<END>", "<STOP>"]
     assert _StubChat.last_stream_kwargs is None
+
+
+def test_mistral_generator_respects_base_url_changes():
+    settings = {
+        "model": "mistral-unit-test",
+        "stream": False,
+        "base_url": "https://custom.mistral/v1",
+    }
+
+    config = DummyConfig(settings)
+    generator = mistral_module.MistralGenerator(config)
+
+    assert _StubMistral.init_kwargs["server_url"] == "https://custom.mistral/v1"
+
+    settings["base_url"] = "https://alt.mistral/v2"
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Ping"}],
+        )
+
+    result = asyncio.run(exercise())
+    assert result == "ok"
+    assert _StubMistral.init_kwargs["server_url"] == "https://alt.mistral/v2"
 
 
 def test_mistral_generator_streams_when_configured_by_default():

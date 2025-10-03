@@ -26,12 +26,42 @@ class MistralGenerator:
         if not self.api_key:
             self.logger.error("Mistral API key not found in configuration")
             raise ValueError("Mistral API key not found in configuration")
-        self.client = Mistral(api_key=self.api_key)
+        self._base_url: Optional[str] = None
+        self.client = self._instantiate_client(None)
         self.model_manager = ModelManager(config_manager)
-        settings = self.config_manager.get_mistral_llm_settings()
+        settings = self._get_settings_snapshot()
         default_model = settings.get("model")
         if isinstance(default_model, str) and default_model.strip():
             self.model_manager.set_model(default_model.strip(), "Mistral")
+
+    def _instantiate_client(self, base_url: Optional[str]) -> Mistral:
+        client_kwargs: Dict[str, Any] = {"api_key": self.api_key}
+        if base_url:
+            client_kwargs["server_url"] = base_url
+        return Mistral(**client_kwargs)
+
+    def _refresh_client(self, base_url: Optional[str]) -> None:
+        if base_url == self._base_url and getattr(self, "client", None) is not None:
+            return
+
+        previous_client = getattr(self, "client", None)
+        self._base_url = base_url
+        self.client = self._instantiate_client(base_url)
+
+        closer = getattr(previous_client, "close", None)
+        if callable(closer):  # pragma: no cover - cleanup best effort
+            try:
+                closer()
+            except Exception:
+                pass
+
+    def _get_settings_snapshot(self) -> Dict[str, Any]:
+        settings = self.config_manager.get_mistral_llm_settings()
+        base_url = settings.get("base_url") if isinstance(settings, Mapping) else None
+        if isinstance(base_url, str):
+            base_url = base_url.strip() or None
+        self._refresh_client(base_url)
+        return settings
 
     async def generate_response(
         self,
@@ -55,7 +85,7 @@ class MistralGenerator:
         parallel_tool_calls: Optional[bool] = None,
         stop_sequences: Optional[Any] = None,
     ) -> Union[str, AsyncIterator[str]]:
-        settings = self.config_manager.get_mistral_llm_settings()
+        settings = self._get_settings_snapshot()
 
         def _coerce_positive_int(value: Optional[Any], default: int) -> int:
             try:

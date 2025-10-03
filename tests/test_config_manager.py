@@ -562,6 +562,7 @@ def test_get_mistral_llm_settings_includes_json_defaults(config_manager):
     assert snapshot["max_retries"] == 3
     assert snapshot["retry_min_seconds"] == 4
     assert snapshot["retry_max_seconds"] == 10
+    assert snapshot["base_url"] is None
 
 
 def test_set_mistral_llm_settings_handles_json_options(config_manager):
@@ -617,6 +618,35 @@ def test_set_mistral_llm_settings_tracks_tool_preferences(config_manager):
     stored = config_manager.config["MISTRAL_LLM"]
     assert stored["parallel_tool_calls"] is False
     assert stored["tool_choice"] == "required"
+
+
+def test_set_mistral_llm_settings_handles_base_url_round_trip(config_manager):
+    saved = config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        base_url="https://alt.mistral.ai/v1",
+    )
+
+    assert saved["base_url"] == "https://alt.mistral.ai/v1"
+    assert config_manager.get_config("MISTRAL_BASE_URL") == "https://alt.mistral.ai/v1"
+
+    snapshot = config_manager.get_mistral_llm_settings()
+    assert snapshot["base_url"] == "https://alt.mistral.ai/v1"
+
+    updated = config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        base_url="  ",
+    )
+
+    assert updated["base_url"] is None
+    assert config_manager.get_mistral_llm_settings()["base_url"] is None
+
+
+def test_set_mistral_llm_settings_rejects_invalid_base_url(config_manager):
+    with pytest.raises(ValueError):
+        config_manager.set_mistral_llm_settings(
+            model="mistral-large-latest",
+            base_url="ftp://example.com",
+        )
 
     config_manager.set_mistral_llm_settings(
         model="mistral-large-latest",
