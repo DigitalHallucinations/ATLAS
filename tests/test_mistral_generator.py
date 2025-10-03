@@ -45,7 +45,7 @@ if "mistralai" not in sys.modules:
         APIError=Exception,
     )
 
-if "tenacity" not in sys.modules:
+if "tenacity" not in sys.modules or not hasattr(sys.modules.get("tenacity"), "AsyncRetrying"):
     class _TenacityStub(SimpleNamespace):
         class _AsyncRetrying:
             def __init__(self, **_kwargs):
@@ -210,6 +210,27 @@ def test_mistral_generator_applies_config_defaults():
     assert kwargs["tool_choice"] == "none"
     assert kwargs["stop"] == ["<END>", "<STOP>"]
     assert _StubChat.last_stream_kwargs is None
+
+
+def test_mistral_generator_includes_prompt_mode_when_configured():
+    settings = {
+        "model": "mistral-unit-test",
+        "stream": False,
+        "prompt_mode": "reasoning",
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "ok"
+    kwargs = _StubChat.last_complete_kwargs
+    assert kwargs["prompt_mode"] == "reasoning"
 
 
 def test_mistral_generator_respects_base_url_changes():

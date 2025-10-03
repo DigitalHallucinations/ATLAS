@@ -717,6 +717,7 @@ class DummyConfig:
             "json_mode": False,
             "json_schema": None,
             "base_url": None,
+            "prompt_mode": None,
         }
         self._google_settings = {
             "model": "gemini-1.5-pro-latest",
@@ -907,6 +908,7 @@ class DummyConfig:
         retry_min_seconds=None,
         retry_max_seconds=None,
         base_url=None,
+        prompt_mode=None,
     ):
         if model:
             self._mistral_settings["model"] = model
@@ -971,6 +973,13 @@ class DummyConfig:
         if base_url is not None:
             cleaned = str(base_url).strip()
             self._mistral_settings["base_url"] = cleaned or None
+        if prompt_mode is None:
+            self._mistral_settings["prompt_mode"] = None
+        elif isinstance(prompt_mode, str):
+            cleaned_mode = prompt_mode.strip()
+            self._mistral_settings["prompt_mode"] = cleaned_mode or None
+        else:
+            self._mistral_settings["prompt_mode"] = prompt_mode
         return dict(self._mistral_settings)
 
     def get_google_llm_settings(self):
@@ -2641,6 +2650,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         retry_min_seconds=5,
         retry_max_seconds=18,
         base_url="https://example.mistral/v1",
+        prompt_mode="reasoning",
     )
 
     call_state = {"count": 0}
@@ -2678,6 +2688,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.max_tokens_spin.get_value_as_int() == 2048
     assert window.safe_prompt_toggle.get_active() is True
     assert window.stream_toggle.get_active() is False
+    assert window._get_selected_prompt_mode() == "reasoning"
     assert window.max_retries_spin.get_value_as_int() == 4
     assert window.retry_min_spin.get_value_as_int() == 5
     assert window.retry_max_spin.get_value_as_int() == 18
@@ -2709,6 +2720,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
         retry_min_seconds=4,
         retry_max_seconds=12,
         base_url="",
+        prompt_mode=None,
     )
 
     window.refresh_settings()
@@ -2723,6 +2735,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.max_tokens_spin.get_value_as_int() == 0
     assert window.safe_prompt_toggle.get_active() is False
     assert window.stream_toggle.get_active() is True
+    assert window._get_selected_prompt_mode() is None
     assert window.max_retries_spin.get_value_as_int() == 3
     assert window.retry_min_spin.get_value_as_int() == 4
     assert window.retry_max_spin.get_value_as_int() == 12
@@ -2768,6 +2781,10 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
             indent=2,
         )
     )
+    if hasattr(window.prompt_mode_combo, "set_active_id"):
+        window.prompt_mode_combo.set_active_id("reasoning")
+    elif hasattr(window.prompt_mode_combo, "set_active"):
+        window.prompt_mode_combo.set_active(1)
     window.base_url_entry.set_text("https://alt.mistral/v2")
 
     window.on_save_clicked(None)
@@ -2792,6 +2809,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert stored["json_mode"] is True
     assert stored["json_schema"]["schema"]["properties"]["result"]["type"] == "string"
     assert stored["base_url"] == "https://alt.mistral/v2"
+    assert stored["prompt_mode"] == "reasoning"
     assert window._last_message[0] == "Success"
     assert window.model_combo.get_active_text() == "mistral-small-latest"
     assert window.base_url_entry.get_text() == "https://alt.mistral/v2"
@@ -2820,6 +2838,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.parallel_tool_calls_toggle.get_active() is False
     assert window.require_tool_toggle.get_active() is False
     assert window.base_url_entry.get_text() == "https://alt.mistral/v2"
+    assert window._get_selected_prompt_mode() == "reasoning"
 
     window.max_tokens_spin.set_value(0)
 
@@ -2831,6 +2850,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.max_tokens_spin.get_value_as_int() == 0
     assert window._custom_entry_visible is True
     assert stored["base_url"] == "https://alt.mistral/v2"
+    assert stored["prompt_mode"] == "reasoning"
 
 
 def test_mistral_settings_window_saves_api_key(provider_manager, monkeypatch):

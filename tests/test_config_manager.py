@@ -563,6 +563,7 @@ def test_get_mistral_llm_settings_includes_json_defaults(config_manager):
     assert snapshot["retry_min_seconds"] == 4
     assert snapshot["retry_max_seconds"] == 10
     assert snapshot["base_url"] is None
+    assert snapshot["prompt_mode"] is None
 
 
 def test_set_mistral_llm_settings_handles_json_options(config_manager):
@@ -592,6 +593,33 @@ def test_set_mistral_llm_settings_handles_json_options(config_manager):
 
     stored = config_manager.config["MISTRAL_LLM"]
     assert stored["json_schema"] is None
+
+
+def test_set_mistral_llm_settings_tracks_prompt_mode(config_manager):
+    saved = config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        prompt_mode="reasoning",
+    )
+
+    assert saved["prompt_mode"] == "reasoning"
+    snapshot = config_manager.get_mistral_llm_settings()
+    assert snapshot["prompt_mode"] == "reasoning"
+
+    saved = config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        prompt_mode=None,
+    )
+
+    assert saved["prompt_mode"] is None
+    assert config_manager.get_mistral_llm_settings()["prompt_mode"] is None
+
+
+def test_set_mistral_llm_settings_rejects_invalid_prompt_mode(config_manager):
+    with pytest.raises(ValueError):
+        config_manager.set_mistral_llm_settings(
+            model="mistral-large-latest",
+            prompt_mode="unsupported",
+        )
 
 
 def test_set_mistral_llm_settings_updates_retry_policy(config_manager):
