@@ -3,6 +3,7 @@ import json
 import math
 import sys
 import types
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 from urllib.error import URLError
 
@@ -1109,6 +1110,9 @@ class DummyConfig:
     def get_openai_api_key(self):
         return self._api_keys.get("OpenAI", "")
 
+    def get_mistral_api_key(self):
+        return self._api_keys.get("Mistral", "")
+
     def set_huggingface_api_key(self, token):
         self.set_hf_token(token)
 
@@ -1376,6 +1380,81 @@ def test_list_openai_models_handles_network_error(provider_manager, monkeypatch)
     assert "network down" in (result["error"] or "")
     assert result["base_url"] == "https://alt.example/v1"
     assert result["organization"] == "org-1234"
+
+
+def test_fetch_mistral_models_requires_api_key(provider_manager, monkeypatch):
+    class _NoopClient:
+        def __init__(self, *_args, **_kwargs):
+            self.models = types.SimpleNamespace(list=lambda: [])
+
+    monkeypatch.setattr(provider_manager_module, "Mistral", _NoopClient, raising=False)
+
+    result = asyncio.run(provider_manager.fetch_mistral_models())
+
+    assert result["success"] is False
+    assert "API key" in (result.get("error") or "")
+
+
+def test_fetch_mistral_models_updates_cache_and_file(provider_manager, monkeypatch, tmp_path):
+    provider_manager.config_manager.update_api_key("Mistral", "mst-test")
+
+    models = [
+        types.SimpleNamespace(id="mistral-large-latest"),
+        {"id": "open-mixtral-8x7b", "name": "ignored"},
+        types.SimpleNamespace(slug="mistral-small-latest"),
+    ]
+
+    class _StubModelPage:
+        def __init__(self, data):
+            self.data = data
+
+    class _StubModelClient:
+        def __init__(self, *args, **kwargs):
+            self.models = types.SimpleNamespace(list=lambda: _StubModelPage(models))
+
+        def close(self):
+            self.closed = True
+
+    async def fake_to_thread(callable_, *args, **kwargs):  # pragma: no cover - test helper
+        return callable_()
+
+    monkeypatch.setattr(provider_manager_module, "Mistral", _StubModelClient)
+    monkeypatch.setattr(provider_manager_module.asyncio, "to_thread", fake_to_thread)
+
+    result = asyncio.run(provider_manager.fetch_mistral_models())
+
+    assert result["success"] is True
+    data = result.get("data", {})
+    discovered = data.get("models")
+    assert discovered[:2] == ["mistral-large-latest", "open-mixtral-8x7b"]
+    assert "mistral-small-latest" in discovered
+
+    cached = provider_manager.model_manager.models.get("Mistral", [])
+    assert cached[0] == "mistral-large-latest"
+    assert "open-mixtral-8x7b" in cached
+
+    persisted = data.get("persisted_to")
+    assert persisted
+    path = Path(persisted)
+    assert path.exists()
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    assert payload["models"][0] == "mistral-large-latest"
+
+
+def test_fetch_mistral_models_handles_exception(provider_manager, monkeypatch):
+    provider_manager.config_manager.update_api_key("Mistral", "mst-test")
+
+    class _FailingClient:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(provider_manager_module, "Mistral", _FailingClient)
+
+    result = asyncio.run(provider_manager.fetch_mistral_models())
+
+    assert result["success"] is False
+    assert "boom" in (result.get("error") or "")
 
 
 def test_provider_manager_primes_openai_models_on_startup(tmp_path, monkeypatch):
@@ -2796,6 +2875,175 @@ def test_mistral_settings_window_saves_api_key_with_fallback(
     assert state["saved"] is True
     assert window._last_message[0] == "Success"
     assert window.api_key_entry.get_text() == ""
+
+
+def test_mistral_settings_window_refresh_requires_api_key(
+    provider_manager, monkeypatch
+):
+    monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
+    monkeypatch.setattr(
+        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
+    )
+    monkeypatch.setattr(
+        Gtk.Window,
+        "get_style_context",
+        lambda self: types.SimpleNamespace(add_class=lambda *_args, **_kwargs: None),
+        raising=False,
+    )
+
+    config = provider_manager.config_manager
+
+    state = {"scheduled": False}
+
+    def fake_run_async_in_thread(*_args, **_kwargs):
+        state["scheduled"] = True
+        return types.SimpleNamespace(result=lambda: None)
+
+    monkeypatch.setattr(Mistral_settings, "run_async_in_thread", fake_run_async_in_thread)
+
+    atlas_stub = types.SimpleNamespace(
+        provider_manager=provider_manager,
+        config_manager=config,
+        get_provider_api_key_status=lambda _name: {"has_key": False, "metadata": {}},
+    )
+
+    window = MistralSettingsWindow(atlas_stub, config, None)
+
+    window._on_refresh_models_clicked(None)
+
+    assert state["scheduled"] is False
+    assert window._last_message[0] == "Error"
+    assert "API key" in window._last_message[1]
+
+
+def test_mistral_settings_window_refresh_updates_models(provider_manager, monkeypatch):
+    monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
+    monkeypatch.setattr(
+        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
+    )
+    monkeypatch.setattr(
+        Gtk.Window,
+        "get_style_context",
+        lambda self: types.SimpleNamespace(add_class=lambda *_args, **_kwargs: None),
+        raising=False,
+    )
+
+    config = provider_manager.config_manager
+    config.update_api_key("Mistral", "mst-refresh")
+
+    new_models = ["mistral-small-latest", "mistral-large-latest"]
+
+    async def fake_fetch(self):
+        return {
+            "success": True,
+            "message": "models fetched",
+            "data": {"models": list(new_models)},
+        }
+
+    provider_manager.fetch_mistral_models = fake_fetch.__get__(
+        provider_manager, provider_manager.__class__
+    )
+
+    class _FakeFuture:
+        def __init__(self, result=None):
+            self._result = result
+
+        def result(self):
+            return self._result
+
+    state = {"scheduled": False, "result": None}
+
+    def fake_run_async_in_thread(factory, *, on_success=None, on_error=None, **_kwargs):
+        state["scheduled"] = True
+        try:
+            result = asyncio.run(factory())
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if on_error is not None:
+                on_error(exc)
+            return _FakeFuture()
+        else:
+            state["result"] = result
+            if on_success is not None:
+                on_success(result)
+            return _FakeFuture(result)
+
+    monkeypatch.setattr(Mistral_settings, "run_async_in_thread", fake_run_async_in_thread)
+
+    status_payload = {"has_key": True, "metadata": {"hint": "••••resh"}}
+
+    atlas_stub = types.SimpleNamespace(
+        provider_manager=provider_manager,
+        config_manager=config,
+        get_provider_api_key_status=lambda _name: dict(status_payload),
+    )
+
+    window = MistralSettingsWindow(atlas_stub, config, None)
+    window.model_combo.set_active(0)
+
+    window._on_refresh_models_clicked(None)
+
+    assert state["scheduled"] is True
+    assert window._last_message[0] == "Success"
+    assert window._available_models == new_models
+    assert window.model_refresh_button.sensitive is True
+
+
+def test_mistral_settings_window_refresh_handles_error(provider_manager, monkeypatch):
+    monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
+    monkeypatch.setattr(
+        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
+    )
+    monkeypatch.setattr(
+        Gtk.Window,
+        "get_style_context",
+        lambda self: types.SimpleNamespace(add_class=lambda *_args, **_kwargs: None),
+        raising=False,
+    )
+
+    config = provider_manager.config_manager
+    config.update_api_key("Mistral", "mst-error")
+
+    async def fake_fetch(self):
+        return {"success": False, "error": "network issue"}
+
+    provider_manager.fetch_mistral_models = fake_fetch.__get__(
+        provider_manager, provider_manager.__class__
+    )
+
+    class _FakeFuture:
+        def result(self):
+            return None
+
+    state = {"scheduled": False}
+
+    def fake_run_async_in_thread(factory, *, on_success=None, on_error=None, **_kwargs):
+        state["scheduled"] = True
+        try:
+            result = asyncio.run(factory())
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if on_error is not None:
+                on_error(exc)
+        else:
+            if on_success is not None:
+                on_success(result)
+        return _FakeFuture()
+
+    monkeypatch.setattr(Mistral_settings, "run_async_in_thread", fake_run_async_in_thread)
+
+    atlas_stub = types.SimpleNamespace(
+        provider_manager=provider_manager,
+        config_manager=config,
+        get_provider_api_key_status=lambda _name: {"has_key": True, "metadata": {}},
+    )
+
+    window = MistralSettingsWindow(atlas_stub, config, None)
+
+    window._on_refresh_models_clicked(None)
+
+    assert state["scheduled"] is True
+    assert window._last_message[0] == "Error"
+    assert "network issue" in window._last_message[1]
+    assert window.model_refresh_button.sensitive is True
 
 
 def test_anthropic_settings_window_saves_api_key(provider_manager):

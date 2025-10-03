@@ -53,6 +53,7 @@ class MistralSettingsWindow(Gtk.Window):
         self._custom_entry_visible = False
         self._api_key_visible = False
         self._default_api_key_placeholder = "Enter your Mistral API key"
+        self._refresh_in_progress = False
 
         self._suppress_tool_choice_sync = False
 
@@ -135,11 +136,26 @@ class MistralSettingsWindow(Gtk.Window):
         model_label.set_xalign(0.0)
         grid.attach(model_label, 0, row, 1, 1)
 
+        model_row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        model_row_box.set_hexpand(True)
+        grid.attach(model_row_box, 1, row, 1, 1)
+
         self.model_combo = Gtk.ComboBoxText()
         self.model_combo.set_hexpand(True)
         if hasattr(self.model_combo, "connect"):
             self.model_combo.connect("changed", self._on_model_combo_changed)
-        grid.attach(self.model_combo, 1, row, 1, 1)
+        model_row_box.append(self.model_combo)
+
+        self.model_refresh_button = Gtk.Button(label="Refresh")
+        if hasattr(self.model_refresh_button, "set_tooltip_text"):
+            self.model_refresh_button.set_tooltip_text(
+                "Fetch the latest models available from Mistral"
+            )
+        if hasattr(self.model_refresh_button, "set_hexpand"):
+            self.model_refresh_button.set_hexpand(False)
+        if hasattr(self.model_refresh_button, "connect"):
+            self.model_refresh_button.connect("clicked", self._on_refresh_models_clicked)
+        model_row_box.append(self.model_refresh_button)
 
         row += 1
         self.custom_model_label = Gtk.Label(label="Custom model ID:")
@@ -581,6 +597,102 @@ class MistralSettingsWindow(Gtk.Window):
             display = title
         self._update_label(self.message_label, display)
 
+    def _set_refresh_in_progress(self, active: bool) -> None:
+        self._refresh_in_progress = bool(active)
+        button = getattr(self, "model_refresh_button", None)
+        if button is None:
+            return
+        setter = getattr(button, "set_sensitive", None)
+        if callable(setter):
+            setter(not active)
+        else:  # pragma: no cover - fallback for simple stubs
+            button.sensitive = not active
+
+    def _on_refresh_models_clicked(self, _button) -> None:
+        if self._refresh_in_progress:
+            return
+
+        checker = getattr(self.config_manager, "has_provider_api_key", None)
+        has_key = False
+        if callable(checker):
+            try:
+                has_key = bool(checker("Mistral"))
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.error("Failed to determine Mistral API key status: %s", exc)
+                has_key = False
+
+        if not has_key:
+            self._set_message(
+                "Error",
+                "Save a Mistral API key before refreshing the model list.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
+        provider_manager = getattr(self.ATLAS, "provider_manager", None)
+        fetcher = getattr(provider_manager, "fetch_mistral_models", None)
+        if not callable(fetcher):
+            self._set_message(
+                "Error",
+                "Refreshing Mistral models is not supported in this build.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
+        def handle_success(result):
+            GLib.idle_add(self._handle_model_refresh_result, result)
+
+        def handle_error(exc):
+            GLib.idle_add(self._handle_model_refresh_error, exc)
+
+        self._set_refresh_in_progress(True)
+
+        try:
+            run_async_in_thread(
+                lambda: fetcher(),
+                on_success=handle_success,
+                on_error=handle_error,
+                logger=logger,
+                thread_name="mistral-model-refresh",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Unable to start Mistral model refresh: %s", exc, exc_info=True)
+            self._set_refresh_in_progress(False)
+            detail = str(exc) or "Unable to start refresh task."
+            self._set_message("Error", detail, Gtk.MessageType.ERROR)
+
+    def _handle_model_refresh_result(self, result: Dict[str, Any]) -> bool:
+        self._set_refresh_in_progress(False)
+
+        if isinstance(result, dict) and result.get("success"):
+            data = result.get("data") or {}
+            models = data.get("models") or result.get("models") or []
+            self._refresh_model_options(preferred=models)
+            message = result.get("message") or "Mistral models refreshed."
+            self._set_message("Success", message, Gtk.MessageType.INFO)
+        else:
+            if isinstance(result, dict):
+                detail = (
+                    result.get("error")
+                    or result.get("message")
+                    or "Unable to refresh Mistral models."
+                )
+            else:
+                detail = str(result)
+            self._set_message("Error", detail, Gtk.MessageType.ERROR)
+
+        return False
+
+    def _handle_model_refresh_error(self, exc: Exception) -> bool:
+        self._set_refresh_in_progress(False)
+        detail = str(exc) or exc.__class__.__name__
+        self._set_message(
+            "Error",
+            f"Failed to refresh Mistral models: {detail}",
+            Gtk.MessageType.ERROR,
+        )
+        return False
+
     def _update_label(self, widget: Gtk.Widget, text: str) -> None:
         if hasattr(widget, "set_text"):
             widget.set_text(text)
@@ -859,8 +971,17 @@ class MistralSettingsWindow(Gtk.Window):
             self._update_json_schema_feedback(True, self._schema_default_message)
         self.refresh_settings(clear_message=False)
 
-    def _load_known_models(self) -> List[str]:
+    def _load_known_models(self, preferred: Optional[List[str]] = None) -> List[str]:
         models: List[str] = []
+
+        if preferred:
+            models = [
+                entry.strip()
+                for entry in preferred
+                if isinstance(entry, str) and entry.strip()
+            ]
+            if models:
+                return self._deduplicate(models)
 
         provider_manager = getattr(self.ATLAS, "provider_manager", None)
         model_manager = getattr(provider_manager, "model_manager", None)
@@ -963,10 +1084,13 @@ class MistralSettingsWindow(Gtk.Window):
             combo.set_active(0)
         self._model_options_initialized = True
 
-    def _refresh_model_options(self) -> None:
-        latest = self._load_known_models()
+    def _refresh_model_options(self, preferred: Optional[List[str]] = None) -> None:
+        latest = self._load_known_models(preferred=preferred)
         if not self._model_options_initialized or latest != self._available_models:
+            current_selection = self._get_selected_model()
             self._populate_model_combo(latest)
+            if current_selection:
+                self._select_model(current_selection)
 
     def _select_model(self, model_id: str) -> None:
         model_id = model_id.strip()
