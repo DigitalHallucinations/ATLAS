@@ -1102,6 +1102,9 @@ class ConfigManager:
             'stop_sequences': [],
             'json_mode': False,
             'json_schema': None,
+            'max_retries': 3,
+            'retry_min_seconds': 4,
+            'retry_max_seconds': 10,
         }
 
         stored = self.get_config('MISTRAL_LLM')
@@ -1241,6 +1244,20 @@ class ConfigManager:
             )
             merged['json_schema'] = _coerce_json_schema(stored.get('json_schema'))
 
+            retries = _coerce_int(stored.get('max_retries'))
+            merged['max_retries'] = retries or defaults['max_retries']
+
+            retry_min = _coerce_int(stored.get('retry_min_seconds'))
+            if retry_min is None:
+                retry_min = defaults['retry_min_seconds']
+            retry_max_candidate = _coerce_int(stored.get('retry_max_seconds'))
+            if retry_max_candidate is None:
+                retry_max = max(retry_min, defaults['retry_max_seconds'])
+            else:
+                retry_max = max(retry_max_candidate, retry_min)
+            merged['retry_min_seconds'] = retry_min
+            merged['retry_max_seconds'] = retry_max
+
             return merged
 
         return dict(defaults)
@@ -1263,6 +1280,9 @@ class ConfigManager:
         stop_sequences: Any = _UNSET,
         json_mode: Optional[Any] = None,
         json_schema: Optional[Any] = None,
+        max_retries: Optional[int] = None,
+        retry_min_seconds: Optional[int] = None,
+        retry_max_seconds: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Persist default configuration for the Mistral chat provider."""
 
@@ -1514,6 +1534,49 @@ class ConfigManager:
             json_schema,
             settings.get('json_schema'),
         )
+
+        if max_retries is not None:
+            normalized_retries = _normalize_positive_int(
+                max_retries,
+                'Max retries',
+            )
+            if normalized_retries is None:
+                raise ValueError('Max retries must be a positive integer.')
+            settings['max_retries'] = normalized_retries
+
+        current_retry_min = settings.get('retry_min_seconds', 4)
+        if not isinstance(current_retry_min, (int, float)) or current_retry_min <= 0:
+            current_retry_min = 4
+
+        if retry_min_seconds is not None:
+            normalized_retry_min = _normalize_positive_int(
+                retry_min_seconds,
+                'Retry minimum wait',
+            )
+            if normalized_retry_min is None:
+                raise ValueError('Retry minimum wait must be a positive integer.')
+            current_retry_min = normalized_retry_min
+            settings['retry_min_seconds'] = current_retry_min
+        else:
+            settings['retry_min_seconds'] = int(current_retry_min)
+
+        current_retry_max = settings.get('retry_max_seconds', max(current_retry_min, 10))
+        if not isinstance(current_retry_max, (int, float)) or current_retry_max <= 0:
+            current_retry_max = max(current_retry_min, 10)
+
+        if retry_max_seconds is not None:
+            normalized_retry_max = _normalize_positive_int(
+                retry_max_seconds,
+                'Retry maximum wait',
+            )
+            if normalized_retry_max is None:
+                raise ValueError('Retry maximum wait must be a positive integer.')
+            current_retry_max = normalized_retry_max
+
+        if current_retry_max < current_retry_min:
+            raise ValueError('Retry maximum wait must be greater than or equal to the minimum wait.')
+
+        settings['retry_max_seconds'] = int(current_retry_max)
 
         self.yaml_config['MISTRAL_LLM'] = copy.deepcopy(settings)
         self.config['MISTRAL_LLM'] = copy.deepcopy(settings)

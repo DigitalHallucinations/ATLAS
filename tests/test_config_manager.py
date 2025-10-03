@@ -559,6 +559,9 @@ def test_get_mistral_llm_settings_includes_json_defaults(config_manager):
 
     assert snapshot["json_mode"] is False
     assert snapshot["json_schema"] is None
+    assert snapshot["max_retries"] == 3
+    assert snapshot["retry_min_seconds"] == 4
+    assert snapshot["retry_max_seconds"] == 10
 
 
 def test_set_mistral_llm_settings_handles_json_options(config_manager):
@@ -588,6 +591,20 @@ def test_set_mistral_llm_settings_handles_json_options(config_manager):
 
     stored = config_manager.config["MISTRAL_LLM"]
     assert stored["json_schema"] is None
+
+
+def test_set_mistral_llm_settings_updates_retry_policy(config_manager):
+    config_manager.set_mistral_llm_settings(
+        model="mistral-large-latest",
+        max_retries=6,
+        retry_min_seconds=2,
+        retry_max_seconds=9,
+    )
+
+    stored = config_manager.config["MISTRAL_LLM"]
+    assert stored["max_retries"] == 6
+    assert stored["retry_min_seconds"] == 2
+    assert stored["retry_max_seconds"] == 9
 
 
 def test_set_mistral_llm_settings_tracks_tool_preferences(config_manager):
