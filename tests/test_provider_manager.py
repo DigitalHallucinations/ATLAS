@@ -2537,7 +2537,9 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.max_tokens_spin.get_value_as_int() == 2048
     assert window.safe_prompt_toggle.get_active() is True
     assert window.stream_toggle.get_active() is False
+    assert window.tool_call_toggle.get_active() is True
     assert window.parallel_tool_calls_toggle.get_active() is False
+    assert window.require_tool_toggle.get_active() is False
     assert window.random_seed_entry.get_text() == "1234"
     assert json.loads(window.tool_choice_entry.get_text()) == {"name": "math", "type": "function"}
     assert window.stop_sequences_entry.get_text() == "HALT"
@@ -2573,9 +2575,11 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.max_tokens_spin.get_value_as_int() == 0
     assert window.safe_prompt_toggle.get_active() is False
     assert window.stream_toggle.get_active() is True
+    assert window.tool_call_toggle.get_active() is True
     assert window.parallel_tool_calls_toggle.get_active() is True
+    assert window.require_tool_toggle.get_active() is False
     assert window.random_seed_entry.get_text() == ""
-    assert window.tool_choice_entry.get_text() == "auto"
+    assert window.tool_choice_entry.get_text() == ""
     assert window.stop_sequences_entry.get_text() == ""
     assert window.json_mode_toggle.get_active() is False
     assert window._json_schema_text_cache == ""
@@ -2591,8 +2595,8 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     window.safe_prompt_toggle.set_active(True)
     window.stream_toggle.set_active(False)
     window.parallel_tool_calls_toggle.set_active(True)
+    window.tool_call_toggle.set_active(False)
     window.random_seed_entry.set_text("0")
-    window.tool_choice_entry.set_text("none")
     window.stop_sequences_entry.set_text("END, FINISH")
     window.json_mode_toggle.set_active(True)
     window._write_json_schema_text(
@@ -2621,7 +2625,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert stored["max_tokens"] == 1024
     assert stored["safe_prompt"] is True
     assert stored["stream"] is False
-    assert stored["parallel_tool_calls"] is True
+    assert stored["parallel_tool_calls"] is False
     assert stored["random_seed"] == 0
     assert stored["tool_choice"] == "none"
     assert stored["stop_sequences"] == ["END", "FINISH"]
@@ -2648,6 +2652,10 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
     assert window.model_combo.get_active_text() == window._custom_option_text
     assert window._custom_entry_visible is True
     assert window.custom_model_entry.get_text() == "mistral-experimental"
+    assert window.tool_choice_entry.get_text() == ""
+    assert window.tool_call_toggle.get_active() is False
+    assert window.parallel_tool_calls_toggle.get_active() is False
+    assert window.require_tool_toggle.get_active() is False
 
     window.max_tokens_spin.set_value(0)
 

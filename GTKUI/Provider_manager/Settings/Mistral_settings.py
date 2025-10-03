@@ -54,6 +54,8 @@ class MistralSettingsWindow(Gtk.Window):
         self._api_key_visible = False
         self._default_api_key_placeholder = "Enter your Mistral API key"
 
+        self._suppress_tool_choice_sync = False
+
         self._build_ui()
         self.refresh_settings(clear_message=True)
 
@@ -241,15 +243,6 @@ class MistralSettingsWindow(Gtk.Window):
         grid.attach(self.stream_toggle, 1, row, 1, 1)
 
         row += 1
-        parallel_label = Gtk.Label(label="Parallel tool calls:")
-        parallel_label.set_xalign(0.0)
-        grid.attach(parallel_label, 0, row, 1, 1)
-
-        self.parallel_tool_calls_toggle = Gtk.CheckButton(label="Allow parallel tool calls")
-        self.parallel_tool_calls_toggle.set_halign(Gtk.Align.START)
-        grid.attach(self.parallel_tool_calls_toggle, 1, row, 1, 1)
-
-        row += 1
         self.json_mode_toggle = Gtk.CheckButton(label="Force JSON responses")
         self.json_mode_toggle.set_halign(Gtk.Align.START)
         grid.attach(self.json_mode_toggle, 0, row, 2, 1)
@@ -338,14 +331,36 @@ class MistralSettingsWindow(Gtk.Window):
         grid.attach(self.random_seed_entry, 1, row, 1, 1)
 
         row += 1
-        tool_choice_label = Gtk.Label(label="Tool choice preference:")
+        tool_choice_label = Gtk.Label(label="Tool calling:")
         tool_choice_label.set_xalign(0.0)
         grid.attach(tool_choice_label, 0, row, 1, 1)
 
+        tool_choice_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        tool_choice_box.set_hexpand(True)
+        grid.attach(tool_choice_box, 1, row, 1, 1)
+
+        self.tool_call_toggle = Gtk.CheckButton(label="Allow automatic tool calls")
+        self.tool_call_toggle.set_halign(Gtk.Align.START)
+        if hasattr(self.tool_call_toggle, "connect"):
+            self.tool_call_toggle.connect("toggled", self._on_tool_call_toggle_toggled)
+        tool_choice_box.append(self.tool_call_toggle)
+
+        self.parallel_tool_calls_toggle = Gtk.CheckButton(label="Allow parallel tool calls")
+        self.parallel_tool_calls_toggle.set_halign(Gtk.Align.START)
+        tool_choice_box.append(self.parallel_tool_calls_toggle)
+
+        self.require_tool_toggle = Gtk.CheckButton(label="Require a tool call before responding")
+        self.require_tool_toggle.set_halign(Gtk.Align.START)
+        if hasattr(self.require_tool_toggle, "connect"):
+            self.require_tool_toggle.connect("toggled", self._on_require_tool_toggle_toggled)
+        tool_choice_box.append(self.require_tool_toggle)
+
         self.tool_choice_entry = Gtk.Entry()
         self.tool_choice_entry.set_hexpand(True)
-        self.tool_choice_entry.set_placeholder_text("auto / none / JSON payload")
-        grid.attach(self.tool_choice_entry, 1, row, 1, 1)
+        self.tool_choice_entry.set_placeholder_text("Leave empty for auto / enter JSON for advanced control")
+        if hasattr(self.tool_choice_entry, "connect"):
+            self.tool_choice_entry.connect("changed", self._on_tool_choice_entry_changed)
+        tool_choice_box.append(self.tool_choice_entry)
 
         row += 1
         stop_sequences_label = Gtk.Label(label="Stop sequences:")
@@ -384,6 +399,8 @@ class MistralSettingsWindow(Gtk.Window):
         close_button.connect("clicked", lambda *_args: self.close())
         button_box.append(close_button)
 
+        self._update_tool_controls_state()
+
     def refresh_settings(self, *, clear_message: bool = False) -> None:
         settings = self.config_manager.get_mistral_llm_settings()
         self._current_settings = dict(settings)
@@ -401,9 +418,6 @@ class MistralSettingsWindow(Gtk.Window):
 
         self.safe_prompt_toggle.set_active(bool(settings.get("safe_prompt", False)))
         self.stream_toggle.set_active(bool(settings.get("stream", True)))
-        self.parallel_tool_calls_toggle.set_active(
-            bool(settings.get("parallel_tool_calls", True))
-        )
 
         self.json_mode_toggle.set_active(bool(settings.get("json_mode", False)))
 
@@ -424,13 +438,46 @@ class MistralSettingsWindow(Gtk.Window):
             self.random_seed_entry.set_text(str(random_seed))
 
         tool_choice = settings.get("tool_choice")
+        allow_tool_calls = True
+        require_tool_call = False
+        tool_choice_text = ""
+
         if isinstance(tool_choice, Mapping):
             tool_choice_text = json.dumps(tool_choice, sort_keys=True)
+        elif isinstance(tool_choice, str):
+            normalized = tool_choice.strip()
+            lower = normalized.lower()
+            if lower == "none":
+                allow_tool_calls = False
+            elif lower == "required":
+                require_tool_call = True
+            elif lower and lower not in {"auto", "automatic"}:
+                tool_choice_text = normalized
         elif tool_choice is None:
             tool_choice_text = ""
         else:
             tool_choice_text = str(tool_choice)
-        self.tool_choice_entry.set_text(tool_choice_text)
+
+        self._suppress_tool_choice_sync = True
+        try:
+            if hasattr(self.tool_choice_entry, "set_text"):
+                self.tool_choice_entry.set_text(tool_choice_text)
+            else:  # pragma: no cover - testing stubs
+                self.tool_choice_entry.text = tool_choice_text
+
+            if hasattr(self.tool_call_toggle, "set_active"):
+                self.tool_call_toggle.set_active(allow_tool_calls)
+            if hasattr(self.require_tool_toggle, "set_active"):
+                self.require_tool_toggle.set_active(require_tool_call)
+        finally:
+            self._suppress_tool_choice_sync = False
+
+        parallel_setting = bool(settings.get("parallel_tool_calls", True))
+        if not allow_tool_calls:
+            parallel_setting = False
+
+        self.parallel_tool_calls_toggle.set_active(parallel_setting)
+        self._update_tool_controls_state()
 
         tokens = settings.get("stop_sequences") or []
         self.stop_sequences_entry.set_text(", ".join(tokens))
@@ -543,16 +590,134 @@ class MistralSettingsWindow(Gtk.Window):
             setattr(widget, "label", text)
 
     def _parse_tool_choice(self, text: str) -> Any:
-        cleaned = text.strip()
-        if not cleaned:
-            return None
-        try:
-            parsed = json.loads(cleaned)
-        except json.JSONDecodeError:
-            return cleaned
-        if isinstance(parsed, (dict, list)):
+        allow_widget = getattr(self, "tool_call_toggle", None)
+        require_widget = getattr(self, "require_tool_toggle", None)
+
+        allow_active = bool(getattr(allow_widget, "get_active", lambda: True)())
+        require_active = bool(getattr(require_widget, "get_active", lambda: False)())
+
+        cleaned = (text or "").strip()
+
+        if not allow_active:
+            return "none"
+
+        if cleaned:
+            try:
+                parsed = json.loads(cleaned)
+            except json.JSONDecodeError:
+                normalized = cleaned.lower()
+                if normalized in {"auto", "automatic"}:
+                    return "auto"
+                if normalized == "none":
+                    return "none"
+                if normalized == "required":
+                    return "required"
+                return cleaned
+
+            if isinstance(parsed, (dict, list)):
+                return parsed
+            if isinstance(parsed, str):
+                normalized = parsed.strip().lower()
+                if normalized in {"auto", "automatic", "none", "required"}:
+                    return normalized if normalized != "automatic" else "auto"
             return parsed
-        return cleaned
+
+        if require_active:
+            return "required"
+
+        return "auto"
+
+    def _on_tool_call_toggle_toggled(self, _button) -> None:
+        if self._suppress_tool_choice_sync:
+            return
+        self._update_tool_controls_state()
+
+    def _on_require_tool_toggle_toggled(self, _button) -> None:
+        if self._suppress_tool_choice_sync:
+            return
+        self._update_tool_controls_state()
+
+    def _on_tool_choice_entry_changed(self, entry) -> None:
+        if self._suppress_tool_choice_sync:
+            return
+
+        text = getattr(entry, "get_text", lambda: "")() or ""
+        cleaned = text.strip()
+        lower = cleaned.lower()
+
+        if not cleaned:
+            self._update_tool_controls_state()
+            return
+
+        self._suppress_tool_choice_sync = True
+        try:
+            if lower == "none":
+                if hasattr(self.tool_call_toggle, "set_active"):
+                    self.tool_call_toggle.set_active(False)
+                if hasattr(self.require_tool_toggle, "set_active"):
+                    self.require_tool_toggle.set_active(False)
+            else:
+                if hasattr(self.tool_call_toggle, "set_active") and not self.tool_call_toggle.get_active():
+                    self.tool_call_toggle.set_active(True)
+                if lower in {"auto", "automatic"}:
+                    if hasattr(self.require_tool_toggle, "set_active"):
+                        self.require_tool_toggle.set_active(False)
+                elif lower == "required":
+                    if hasattr(self.require_tool_toggle, "set_active"):
+                        self.require_tool_toggle.set_active(True)
+        finally:
+            self._suppress_tool_choice_sync = False
+
+        self._update_tool_controls_state()
+
+    def _get_tool_choice_text(self) -> str:
+        entry = getattr(self, "tool_choice_entry", None)
+        if entry is None:
+            return ""
+
+        getter = getattr(entry, "get_text", None)
+        if callable(getter):
+            try:
+                value = getter()
+            except Exception:  # pragma: no cover - fallback for stubs/tests
+                value = getattr(entry, "text", "")
+        else:
+            value = getattr(entry, "text", "")
+
+        if value is None:
+            return ""
+        return str(value)
+
+    def _update_tool_controls_state(self) -> None:
+        allow_widget = getattr(self, "tool_call_toggle", None)
+        enabled = bool(getattr(allow_widget, "get_active", lambda: True)())
+
+        dependents = [
+            getattr(self, "parallel_tool_calls_toggle", None),
+            getattr(self, "require_tool_toggle", None),
+            getattr(self, "tool_choice_entry", None),
+        ]
+
+        for widget in dependents:
+            if widget is None:
+                continue
+            setter = getattr(widget, "set_sensitive", None)
+            if callable(setter):
+                setter(enabled)
+            else:  # pragma: no cover - fallback for stubs
+                setattr(widget, "sensitive", enabled)
+
+        if not enabled:
+            parallel_widget = getattr(self, "parallel_tool_calls_toggle", None)
+            if parallel_widget is not None:
+                getter = getattr(parallel_widget, "get_active", None)
+                if callable(getter) and getter():
+                    parallel_widget.set_active(False)
+            require_widget = getattr(self, "require_tool_toggle", None)
+            if require_widget is not None:
+                getter = getattr(require_widget, "get_active", None)
+                if callable(getter) and getter():
+                    require_widget.set_active(False)
 
     def _refresh_api_key_status(self) -> None:
         status_text = "Credential status is unavailable."
@@ -653,6 +818,16 @@ class MistralSettingsWindow(Gtk.Window):
                 )
             raw_schema_text = self._read_json_schema_text().strip()
             random_seed = self._parse_optional_int(self.random_seed_entry.get_text())
+            allow_tools = bool(
+                getattr(self.tool_call_toggle, "get_active", lambda: True)()
+            )
+            parallel_tools = bool(
+                getattr(self.parallel_tool_calls_toggle, "get_active", lambda: True)()
+            )
+            if not allow_tools:
+                parallel_tools = False
+
+            tool_choice_value = self._parse_tool_choice(self._get_tool_choice_text())
             saved = self.config_manager.set_mistral_llm_settings(
                 model=model,
                 temperature=self.temperature_spin.get_value(),
@@ -663,8 +838,8 @@ class MistralSettingsWindow(Gtk.Window):
                 random_seed=random_seed,
                 frequency_penalty=self.frequency_penalty_spin.get_value(),
                 presence_penalty=self.presence_penalty_spin.get_value(),
-                tool_choice=self._parse_tool_choice(self.tool_choice_entry.get_text()),
-                parallel_tool_calls=self.parallel_tool_calls_toggle.get_active(),
+                tool_choice=tool_choice_value,
+                parallel_tool_calls=parallel_tools,
                 stop_sequences=self._parse_stop_sequences(),
                 json_mode=self.json_mode_toggle.get_active(),
                 json_schema=raw_schema_text if raw_schema_text else "",
@@ -836,7 +1011,13 @@ class MistralSettingsWindow(Gtk.Window):
             selected = ""
         if selected and selected != self._custom_option_text:
             return selected.strip()
-        return self.custom_model_entry.get_text().strip()
+        custom_value = self.custom_model_entry.get_text().strip()
+        if custom_value:
+            return custom_value
+        current_model = self._current_settings.get("model")
+        if isinstance(current_model, str):
+            return current_model.strip()
+        return ""
 
     def _format_json_schema(self, payload: Any) -> str:
         if not payload:
