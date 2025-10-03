@@ -1153,14 +1153,21 @@ class DummyConfig:
         return bool(self._api_keys.get(provider_name))
 
     def get_available_providers(self):
+        def build_payload(secret: Optional[str]):
+            token = secret or ""
+            available = bool(token)
+            length = len(token) if available else 0
+            hint = "\u2022" * min(length, 8) if available else ""
+            return {"available": available, "length": length, "hint": hint}
+
         return {
-            "OpenAI": self._api_keys.get("OpenAI"),
-            "Mistral": self._api_keys.get("Mistral"),
-            "Google": self._api_keys.get("Google"),
-            "HuggingFace": self._hf_token,
-            "Anthropic": self._api_keys.get("Anthropic"),
-            "Grok": self._api_keys.get("Grok"),
-            "ElevenLabs": self._api_keys.get("ElevenLabs"),
+            "OpenAI": build_payload(self._api_keys.get("OpenAI")),
+            "Mistral": build_payload(self._api_keys.get("Mistral")),
+            "Google": build_payload(self._api_keys.get("Google")),
+            "HuggingFace": build_payload(self._hf_token),
+            "Anthropic": build_payload(self._api_keys.get("Anthropic")),
+            "Grok": build_payload(self._api_keys.get("Grok")),
+            "ElevenLabs": build_payload(self._api_keys.get("ElevenLabs")),
         }
 
 
@@ -1986,6 +1993,7 @@ def test_get_provider_api_key_status_with_saved_key(provider_manager):
     assert metadata["length"] == len("sk-test")
     assert metadata["hint"] == "\u2022" * len("sk-test")
     assert metadata["source"] == "environment"
+    assert "sk-test" not in json.dumps(metadata)
 
 
 def test_set_openai_llm_settings_updates_provider_state(provider_manager):
