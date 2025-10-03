@@ -245,9 +245,13 @@ class SpeechManager:
         self.config_manager = config_manager
         self.tts_services: Dict[str, Any] = {}
         self.stt_services: Dict[str, Any] = {}
+        self._tts_factories: Dict[str, Callable[[], Any]] = {}
+        self._stt_factories: Dict[str, Callable[[], Any]] = {}
+        self._active_tts_key: Optional[str] = None
         self.active_tts = None
         self._active_stt_instance = None
         self._active_stt_key: Optional[str] = None
+        self._stt_default_locked = False
         self._recording_provider: Optional[str] = None
         self._last_audio_provider: Optional[str] = None
         self._stt_recording: bool = False
@@ -255,12 +259,11 @@ class SpeechManager:
         self._tts_enabled = False
         self.transcription_history: List[dict] = []  # Logs for transcription events
 
-        self._google_tts_factory: Callable[[], Any] = lambda: GoogleTTS()
-        self._google_stt_factory: Callable[[], Any] = (
-            lambda: GoogleSTT(sample_rate_hertz=self._get_google_stt_sample_rate())
-        )
+        self._google_tts_factory: Callable[[], Any] = self._create_google_tts
+        self._google_stt_factory: Callable[[], Any] = self._create_google_stt
+
         self._openai_stt_factories: Dict[str, Callable[[], Any]] = {
-            "Whisper Online": lambda: self._create_whisper_stt(),
+            "Whisper Online": lambda: self._create_whisper_stt_online(),
             "GPT-4o STT": lambda: self._create_gpt4o_stt("gpt-4o"),
             "GPT-4o Mini STT": lambda: self._create_gpt4o_stt("gpt-4o-mini"),
         }
@@ -268,7 +271,7 @@ class SpeechManager:
             "GPT-4o Mini TTS": lambda: self._create_gpt4o_tts(),
         }
 
-        self.initialize_services()
+        self._register_core_factories()
 
     @staticmethod
     def _mask_secret(secret: Optional[str]) -> str:
@@ -287,87 +290,35 @@ class SpeechManager:
         """
         pass
 
+    def _register_core_factories(self) -> None:
+        """Register built-in provider factories for lazy initialization."""
+
+        self._tts_factories.update(
+            {
+                "eleven_labs": self._create_elevenlabs_tts,
+                "google": lambda: self._google_tts_factory(),
+                "gpt4o_tts": self._create_gpt4o_tts,
+            }
+        )
+
+        self._stt_factories.update(
+            {
+                "google": lambda: self._google_stt_factory(),
+                "whisper_local": self._create_whisper_stt_local,
+                "whisper_online": self._create_whisper_stt_online,
+                "gpt4o_stt": lambda: self._create_gpt4o_stt("gpt-4o"),
+            }
+        )
+
     def initialize_services(self):
-        """
-        Initializes available TTS and STT services.
-        This method registers all providers and sets default active services.
-        """
-        logger.info("Initializing Speech Services...")
+        """Eagerly instantiate all registered speech providers."""
 
-        # Initialize TTS providers
-        try:
-            eleven_tts = ElevenLabsTTS()
-            self.tts_services['eleven_labs'] = eleven_tts
-            logger.info("Eleven Labs TTS initialized.")
-        except Exception as e:
-            logger.error(f"Failed to initialize Eleven Labs TTS: {e}")
+        logger.info("Eagerly initializing all registered speech services.")
+        for provider_key in list(self._tts_factories.keys()):
+            self.get_tts_provider(provider_key)
 
-        try:
-            google_tts = self._google_tts_factory()
-            self.tts_services['google'] = google_tts
-            logger.info("Google TTS initialized.")
-        except Exception as e:
-            logger.error(f"Failed to initialize Google TTS: {e}")
-
-        # Initialize new GPT-4o TTS provider
-        try:
-            gpt4o_tts = self._create_gpt4o_tts()
-            self.tts_services['gpt4o_tts'] = gpt4o_tts
-            logger.info("GPT-4o TTS initialized.")
-        except Exception as e:
-            logger.error(f"Failed to initialize GPT-4o TTS: {e}")
-
-        # Initialize STT providers
-        try:
-            google_stt = self._google_stt_factory()
-            self.stt_services['google'] = google_stt
-            logger.info("Google STT initialized.")
-        except Exception as e:
-            logger.error(f"Failed to initialize Google STT: {e}")
-
-        # Initialize Whisper STT providers (local and online)
-        try:
-            from modules.Speech_Services.whisper_stt import WhisperSTT
-            whisper_local = WhisperSTT(
-                mode="local",
-                model_name=self.config_manager.config.get("WHISPER_MODEL", "base"),
-                fs=int(self.config_manager.config.get("WHISPER_FS", 16000)),
-                device=self.config_manager.config.get("WHISPER_DEVICE", None),
-                noise_reduction=self.config_manager.config.get("WHISPER_NOISE_REDUCTION", False),
-                fallback_online=self.config_manager.config.get("WHISPER_FALLBACK", False)
-            )
-            self.stt_services['whisper_local'] = whisper_local
-            logger.info("Whisper local STT initialized.")
-        except Exception as e:
-            logger.error(f"Failed to initialize Whisper local STT: {e}")
-
-        try:
-            from modules.Speech_Services.whisper_stt import WhisperSTT
-            whisper_online = WhisperSTT(mode="online")
-            self.stt_services['whisper_online'] = whisper_online
-            logger.info("Whisper online STT initialized.")
-        except Exception as e:
-            logger.error(f"Failed to initialize Whisper online STT: {e}")
-
-        # Initialize new GPT-4o STT provider
-        try:
-            gpt4o_stt = self._create_gpt4o_stt("gpt-4o")
-            self.stt_services['gpt4o_stt'] = gpt4o_stt
-            logger.info("GPT-4o STT initialized.")
-        except Exception as e:
-            logger.error(f"Failed to initialize GPT-4o STT: {e}")
-
-        # Set default active providers
-        if 'eleven_labs' in self.tts_services:
-            self.active_tts = self.tts_services['eleven_labs']
-            logger.info("Default TTS set to Eleven Labs.")
-        elif 'google' in self.tts_services:
-            self.active_tts = self.tts_services['google']
-            logger.info("Default TTS set to Google.")
-
-        if 'google' in self.stt_services:
-            self.active_stt = self.stt_services['google']
-            logger.info("Default STT set to Google.")
+        for provider_key in list(self._stt_factories.keys()):
+            self.get_stt_provider(provider_key)
 
     @staticmethod
     def _restore_env_var(env_key: str, previous_value: Optional[str]):
@@ -412,10 +363,55 @@ class SpeechManager:
 
         return default_rate
 
-    def _create_whisper_stt(self):
+    def _create_elevenlabs_tts(self):
+        return ElevenLabsTTS()
+
+    def _create_google_tts(self):
+        return GoogleTTS()
+
+    def _create_google_stt(self):
+        settings = self.get_google_speech_settings()
+        stt_instance = GoogleSTT(sample_rate_hertz=self._get_google_stt_sample_rate())
+        self._apply_google_stt_preferences(
+            stt_instance,
+            language=settings.get("stt_language"),
+            auto_punctuation=settings.get("auto_punctuation"),
+        )
+        return stt_instance
+
+    def _create_whisper_stt_online(self):
         from modules.Speech_Services.whisper_stt import WhisperSTT
 
         return WhisperSTT(mode="online")
+
+    def _create_whisper_stt_local(self):
+        from modules.Speech_Services.whisper_stt import WhisperSTT
+
+        config = getattr(self.config_manager, "config", {})
+        model_name = None
+        sample_rate = None
+        device = None
+        noise_reduction = False
+        fallback_online = False
+
+        if isinstance(config, dict):
+            model_name = config.get("WHISPER_MODEL", "base")
+            try:
+                sample_rate = int(config.get("WHISPER_FS", 16000))
+            except (TypeError, ValueError):
+                sample_rate = 16000
+            device = config.get("WHISPER_DEVICE", None)
+            noise_reduction = config.get("WHISPER_NOISE_REDUCTION", False)
+            fallback_online = config.get("WHISPER_FALLBACK", False)
+
+        return WhisperSTT(
+            mode="local",
+            model_name=model_name or "base",
+            fs=sample_rate or 16000,
+            device=device,
+            noise_reduction=bool(noise_reduction),
+            fallback_online=bool(fallback_online),
+        )
 
     def _create_gpt4o_stt(self, variant: str):
         from modules.Speech_Services.gpt4o_stt import GPT4oSTT
@@ -901,6 +897,35 @@ class SpeechManager:
 
     # ----------------------- TTS Methods -----------------------
 
+    def get_tts_provider(self, provider: Optional[str] = None) -> Optional[Any]:
+        """Return a TTS provider instance, creating it lazily when required."""
+
+        provider_key = provider or self.get_default_tts_provider()
+        if not provider_key:
+            logger.error("No default TTS provider configured.")
+            return None
+
+        if provider_key in self.tts_services:
+            instance = self.tts_services[provider_key]
+        else:
+            factory = self._tts_factories.get(provider_key)
+            if not factory:
+                logger.error(f"TTS provider '{provider_key}' is not registered.")
+                return None
+            try:
+                instance = factory()
+            except Exception as exc:
+                logger.error(f"Failed to initialize TTS provider '{provider_key}': {exc}")
+                return None
+            self.tts_services[provider_key] = instance
+
+        if self._active_tts_key is None:
+            self._active_tts_key = provider_key
+        if self._active_tts_key == provider_key:
+            self.active_tts = instance
+
+        return instance
+
     async def text_to_speech(self, text: str, provider: str = None):
         """
         Converts text to speech using the specified provider.
@@ -914,7 +939,7 @@ class SpeechManager:
             return
 
         provider = provider or self.get_default_tts_provider()
-        tts = self.tts_services.get(provider)
+        tts = self.get_tts_provider(provider)
         if not tts:
             logger.error(f"TTS provider '{provider}' not found.")
             return
@@ -930,7 +955,7 @@ class SpeechManager:
             provider (str, optional): TTS provider key.
         """
         provider = provider or self.get_default_tts_provider()
-        tts = self.tts_services.get(provider)
+        tts = self.get_tts_provider(provider)
         if not tts:
             logger.error(f"TTS provider '{provider}' not found.")
             return
@@ -947,7 +972,7 @@ class SpeechManager:
             list: List of available voices.
         """
         provider = provider or self.get_default_tts_provider()
-        tts = self.tts_services.get(provider)
+        tts = self.get_tts_provider(provider)
         if not tts:
             logger.error(f"TTS provider '{provider}' not found.")
             return []
@@ -962,7 +987,7 @@ class SpeechManager:
             provider (str, optional): Specific provider key; if None, applies globally.
         """
         if provider:
-            tts = self.tts_services.get(provider)
+            tts = self.get_tts_provider(provider)
             if not tts:
                 logger.error(f"TTS provider '{provider}' not found.")
                 return
@@ -988,7 +1013,7 @@ class SpeechManager:
             bool: TTS enabled status.
         """
         if provider:
-            tts = self.tts_services.get(provider)
+            tts = self.get_tts_provider(provider)
             if not tts:
                 logger.error(f"TTS provider '{provider}' not found.")
                 return False
@@ -1030,11 +1055,24 @@ class SpeechManager:
         Returns:
             str: Default TTS provider key or None if not set.
         """
+        if self._active_tts_key:
+            return self._active_tts_key
+
         if self.active_tts:
             for key, service in self.tts_services.items():
                 if service == self.active_tts:
+                    self._active_tts_key = key
                     return key
-        return None
+
+        config = getattr(self.config_manager, "config", {})
+        preferred = None
+        if isinstance(config, dict):
+            preferred = config.get("DEFAULT_TTS_PROVIDER")
+
+        resolved = self.resolve_tts_provider(preferred)
+        if resolved:
+            self._active_tts_key = resolved
+        return self._active_tts_key
 
     def set_default_tts_provider(self, provider: str):
         """
@@ -1043,17 +1081,22 @@ class SpeechManager:
         Args:
             provider (str): Unique key for the provider.
         """
-        tts = self.tts_services.get(provider)
+        tts = self.get_tts_provider(provider)
         if not tts:
             logger.error(f"TTS provider '{provider}' not found.")
             return
+        self._active_tts_key = provider
         self.active_tts = tts
         logger.info(f"Default TTS provider set to '{provider}'.")
 
     def get_tts_provider_names(self) -> Tuple[str, ...]:
         """Return the registered TTS provider keys in insertion order."""
 
-        return tuple(self.tts_services.keys())
+        keys = list(self.tts_services.keys())
+        for key in self._tts_factories.keys():
+            if key not in self.tts_services:
+                keys.append(key)
+        return tuple(keys)
 
     def resolve_tts_provider(self, preferred: Optional[str]) -> Optional[str]:
         """Resolve a TTS provider from a preferred key with sensible fallbacks."""
@@ -1091,7 +1134,8 @@ class SpeechManager:
 
         self.set_tts_status(bool(tts_enabled))
 
-        if tts_provider and tts_provider in self.tts_services:
+        provider_names = self.get_tts_provider_names()
+        if tts_provider and tts_provider in provider_names:
             self.set_tts_status(bool(tts_enabled), tts_provider)
 
         effective_stt_provider = stt_provider if stt_enabled else None
@@ -1107,7 +1151,7 @@ class SpeechManager:
         """Update the default TTS and/or STT providers in a single call."""
 
         if tts_provider:
-            if tts_provider in self.tts_services:
+            if tts_provider in self.get_tts_provider_names():
                 self.set_default_tts_provider(tts_provider)
                 if hasattr(self.config_manager, 'config'):
                     self.config_manager.config['DEFAULT_TTS_PROVIDER'] = tts_provider
@@ -1116,7 +1160,7 @@ class SpeechManager:
                 logger.error(f"Cannot set unknown TTS provider '{tts_provider}'.")
 
         if stt_provider:
-            if stt_provider in self.stt_services:
+            if stt_provider in self.get_stt_provider_names():
                 self.set_default_stt_provider(stt_provider)
                 if hasattr(self.config_manager, 'config'):
                     self.config_manager.config['DEFAULT_STT_PROVIDER'] = stt_provider
@@ -1138,6 +1182,7 @@ class SpeechManager:
         self._last_audio_provider = None
         self._last_audio_path = None
         self.active_stt = None
+        self._stt_default_locked = True
         if hasattr(self.config_manager, 'config'):
             self.config_manager.config['DEFAULT_STT_PROVIDER'] = None
         logger.info("STT disabled and default provider cleared.")
@@ -1184,6 +1229,8 @@ class SpeechManager:
             fallback_service = getattr(self, "active_tts", None)
             if fallback_service:
                 active_service = fallback_service
+                if provider_label != "None":
+                    provider_label = "None"
                 if provider_label == "None":
                     for key, service in self.tts_services.items():
                         if service == active_service:
@@ -1279,6 +1326,35 @@ class SpeechManager:
         """Return True if an STT provider is actively recording."""
         return self._stt_recording
 
+    def get_stt_provider(self, provider: Optional[str] = None) -> Optional[Any]:
+        """Return an STT provider instance, creating it lazily when required."""
+
+        provider_key = provider or self.get_default_stt_provider()
+        if not provider_key:
+            logger.error("No default STT provider configured.")
+            return None
+
+        if provider_key in self.stt_services:
+            instance = self.stt_services[provider_key]
+        else:
+            factory = self._stt_factories.get(provider_key)
+            if not factory:
+                logger.error(f"STT provider '{provider_key}' is not registered.")
+                return None
+            try:
+                instance = factory()
+            except Exception as exc:
+                logger.error(f"Failed to initialize STT provider '{provider_key}': {exc}")
+                return None
+            self.stt_services[provider_key] = instance
+
+        if self._active_stt_key is None and provider is None:
+            self._active_stt_key = provider_key
+        if self._active_stt_key == provider_key:
+            self.active_stt = instance
+
+        return instance
+
     def get_active_stt_provider(self) -> Optional[str]:
         """Return the provider currently used for recording or the default provider."""
         return self._recording_provider or self._active_stt_key
@@ -1325,7 +1401,7 @@ class SpeechManager:
             return True
 
         provider = provider or self.get_default_stt_provider()
-        stt = self.stt_services.get(provider)
+        stt = self.get_stt_provider(provider)
         if not stt:
             logger.error(f"STT provider '{provider}' not found.")
             return False
@@ -1381,7 +1457,7 @@ class SpeechManager:
             str: Transcribed text.
         """
         provider = provider or self.get_default_stt_provider()
-        stt = self.stt_services.get(provider)
+        stt = self.get_stt_provider(provider)
         if not stt:
             logger.error(f"STT provider '{provider}' not found.")
             return ""
@@ -1408,7 +1484,7 @@ class SpeechManager:
             List[str]: List of transcribed texts.
         """
         provider = provider or self.get_default_stt_provider()
-        stt = self.stt_services.get(provider)
+        stt = self.get_stt_provider(provider)
         if not stt:
             logger.error(f"STT provider '{provider}' not found.")
             return []
@@ -1455,14 +1531,24 @@ class SpeechManager:
         Returns:
             str: Default STT provider key or None if not set.
         """
+        if self._stt_default_locked:
+            return None
+
         if self._active_stt_key:
             return self._active_stt_key
-        if self.active_stt:
-            for key, service in self.stt_services.items():
-                if service == self.active_stt:
-                    self._active_stt_key = key
-                    return key
-        return None
+
+        config = getattr(self.config_manager, "config", {})
+        preferred = None
+        if isinstance(config, dict):
+            preferred = config.get("DEFAULT_STT_PROVIDER")
+
+        providers = self.get_stt_provider_names()
+        if preferred and preferred in providers:
+            self._active_stt_key = preferred
+        elif providers:
+            self._active_stt_key = providers[0]
+
+        return self._active_stt_key
 
     def set_default_stt_provider(self, provider: str):
         """
@@ -1471,18 +1557,23 @@ class SpeechManager:
         Args:
             provider (str): Unique key for the provider.
         """
-        stt = self.stt_services.get(provider)
+        stt = self.get_stt_provider(provider)
         if not stt:
             logger.error(f"STT provider '{provider}' not found.")
             return
         self._active_stt_key = provider
         self.active_stt = stt
+        self._stt_default_locked = False
         logger.info(f"Default STT provider set to '{provider}'.")
 
     def get_stt_provider_names(self) -> Tuple[str, ...]:
         """Return the registered STT provider keys in insertion order."""
 
-        return tuple(self.stt_services.keys())
+        keys = list(self.stt_services.keys())
+        for key in self._stt_factories.keys():
+            if key not in self.stt_services:
+                keys.append(key)
+        return tuple(keys)
 
     def get_default_stt_provider_index(self) -> Optional[int]:
         """Return the index of the default STT provider within the provider list."""
@@ -1524,7 +1615,7 @@ class SpeechManager:
             logger.error("No STT provider configured for transcription.")
             return ""
 
-        stt = self.stt_services.get(provider_key)
+        stt = self.get_stt_provider(provider_key)
         if not stt:
             logger.error(f"STT provider '{provider_key}' not found for transcription.")
             return ""
