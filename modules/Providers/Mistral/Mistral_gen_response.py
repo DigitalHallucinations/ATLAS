@@ -363,14 +363,66 @@ class MistralGenerator:
                     self.logger.error(f"Unexpected error with Mistral: {str(exc)}")
                     raise
 
-    def convert_messages_to_mistral_format(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
-        mistral_messages = []
+    def convert_messages_to_mistral_format(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        mistral_messages: List[Dict[str, Any]] = []
         for message in messages:
-            mistral_messages.append({
-                "role": message['role'],
-                "content": message['content']
-            })
+            if not isinstance(message, Mapping):
+                continue
+
+            role = message.get("role")
+            if not isinstance(role, str) or not role:
+                continue
+
+            mistral_message: Dict[str, Any] = {"role": role}
+
+            content = message.get("content")
+            if content is None:
+                mistral_message["content"] = ""
+            else:
+                mistral_message["content"] = self._clone_message_value(content)
+
+            for optional_key in (
+                "name",
+                "tool_call_id",
+                "id",
+                "function_call",
+                "tool_calls",
+                "metadata",
+                "audio",
+                "modalities",
+            ):
+                if optional_key in message:
+                    mistral_message[optional_key] = self._clone_message_value(
+                        message[optional_key]
+                    )
+
+            for key, value in message.items():
+                if key in {"role", *mistral_message.keys()}:
+                    continue
+                mistral_message[key] = self._clone_message_value(value)
+
+            mistral_messages.append(mistral_message)
+
         return mistral_messages
+
+    def _clone_message_value(self, value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {key: self._clone_message_value(val) for key, val in value.items()}
+
+        if isinstance(value, list):
+            return [self._clone_message_value(item) for item in value]
+
+        if isinstance(value, tuple):
+            return [self._clone_message_value(item) for item in value]
+
+        if isinstance(value, Iterable) and not isinstance(
+            value, (str, bytes, bytearray)
+        ):
+            return [self._clone_message_value(item) for item in value]
+
+        return value
 
     def _prepare_json_schema(self, schema: Any) -> Optional[Dict[str, Any]]:
         if schema is None:
@@ -648,8 +700,10 @@ class MistralGenerator:
             "raw_call": raw_call,
         }
 
-        if payload.get("id"):
-            normalized["id"] = payload["id"]
+        for optional_key in ("id", "tool_call_id"):
+            value = payload.get(optional_key)
+            if value:
+                normalized[optional_key] = value
 
         return normalized
 
@@ -657,27 +711,56 @@ class MistralGenerator:
         if not message:
             return []
 
-        tool_messages: List[Dict[str, Any]] = []
+        collected: List[Any] = []
         tool_calls = self._safe_get(message, "tool_calls")
         if isinstance(tool_calls, list):
-            for call in tool_calls:
-                normalized = self._normalize_tool_call(call)
-                if normalized:
-                    tool_messages.append(normalized)
+            collected.extend(tool_calls)
         elif tool_calls:
-            normalized = self._normalize_tool_call(tool_calls)
-            if normalized:
-                tool_messages.append(normalized)
+            collected.append(tool_calls)
 
         legacy_call = self._safe_get(message, "function_call")
         if legacy_call:
-            normalized = self._normalize_tool_call(
-                {"type": "function", "function": legacy_call}
-            )
-            if normalized:
-                tool_messages.append(normalized)
+            collected.append({"type": "function", "function": legacy_call})
 
-        return tool_messages
+        return self._prepare_tool_messages(collected)
+
+    def _prepare_tool_messages(
+        self, tool_messages: Iterable[Any]
+    ) -> List[Dict[str, Any]]:
+        normalized_messages: List[Dict[str, Any]] = []
+        if not tool_messages:
+            return normalized_messages
+
+        for entry in tool_messages:
+            normalized_entry: Optional[Dict[str, Any]] = None
+            if isinstance(entry, Mapping) and entry.get("type") == "function":
+                function_call = entry.get("function_call") or entry.get("function")
+                if isinstance(function_call, Mapping):
+                    cloned_entry: Dict[str, Any] = {}
+                    for key, value in entry.items():
+                        if key == "raw_call" and value is entry:
+                            cloned_entry[key] = value
+                        else:
+                            cloned_entry[key] = self._clone_message_value(value)
+                    normalized_entry = cloned_entry
+                    normalized_entry.setdefault("type", "function")
+                    function_payload = dict(function_call)
+                    normalized_entry["function_call"] = {
+                        "name": function_payload.get("name"),
+                        "arguments": self._stringify_function_arguments(
+                            function_payload.get("arguments")
+                        ),
+                    }
+                    normalized_entry.setdefault("raw_call", entry)
+                else:
+                    normalized_entry = self._normalize_tool_call(entry)
+            else:
+                normalized_entry = self._normalize_tool_call(entry)
+
+            if normalized_entry:
+                normalized_messages.append(normalized_entry)
+
+        return normalized_messages
 
     def _update_pending_tool_calls(
         self, pending: Dict[int, Dict[str, Any]], tool_call_delta: Any
@@ -742,7 +825,9 @@ class MistralGenerator:
         if not tool_messages:
             return None
 
-        for message in tool_messages:
+        prepared_messages = self._prepare_tool_messages(tool_messages)
+
+        for message in prepared_messages:
             if message.get("type") != "function":
                 continue
             function_payload = message.get("function_call")
