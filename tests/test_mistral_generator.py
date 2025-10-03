@@ -494,6 +494,84 @@ def test_mistral_generator_translates_functions_to_tools():
     assert tools[0]["function"]["parameters"] == {"type": "object", "properties": {}}
 
 
+def test_mistral_generator_preserves_message_metadata_in_payload():
+    settings = {
+        "model": "mistral-large-latest",
+        "stream": False,
+    }
+
+    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+
+    conversation = [
+        {
+            "role": "system",
+            "name": "system-priming",
+            "content": [{"type": "text", "text": "You are helpful."}],
+            "metadata": {"channel": "system"},
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "Call the fetch_data tool."}
+            ],
+        },
+        {
+            "role": "assistant",
+            "id": "assistant-msg-1",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "fetch_data",
+                        "arguments": '{"foo": "bar"}',
+                    },
+                }
+            ],
+            "function_call": {
+                "name": "fetch_data",
+                "arguments": '{"foo": "bar"}',
+            },
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": {"type": "json", "output": {"foo": "bar"}},
+        },
+    ]
+
+    async def exercise():
+        return await generator.generate_response(messages=conversation)
+
+    result = asyncio.run(exercise())
+
+    assert result == "ok"
+    payload = _StubChat.last_complete_kwargs["messages"]
+
+    assert payload[0]["name"] == "system-priming"
+    assert payload[0]["content"] == conversation[0]["content"]
+    assert payload[0]["content"] is not conversation[0]["content"]
+    assert payload[0]["metadata"] == {"channel": "system"}
+
+    assert payload[2]["id"] == "assistant-msg-1"
+    assert payload[2]["content"] == ""
+    assert payload[2]["function_call"] == {
+        "name": "fetch_data",
+        "arguments": '{"foo": "bar"}',
+    }
+    assert payload[2]["tool_calls"][0]["id"] == "call_1"
+    assert (
+        payload[2]["tool_calls"][0]["function"]["arguments"]
+        == '{"foo": "bar"}'
+    )
+    assert payload[2]["tool_calls"][0] is not conversation[2]["tool_calls"][0]
+
+    assert payload[3]["tool_call_id"] == "call_1"
+    assert payload[3]["content"] == conversation[3]["content"]
+    assert payload[3]["content"] is not conversation[3]["content"]
+
+
 def test_mistral_generator_overrides_stop_sequences_argument():
     settings = {
         "model": "mistral-large-latest",
