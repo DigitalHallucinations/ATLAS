@@ -131,6 +131,7 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
             frequency_penalty_var=0.0,
             presence_penalty_var=0.0,
             conversation_manager=conversation_history,
+            provider_manager=dummy_config.provider_manager,
             config_manager=dummy_config,
         )
 

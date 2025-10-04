@@ -703,7 +703,12 @@ def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
     recorded_messages = []
 
     async def fake_use_tool(*args, **_kwargs):
-        recorded_messages.append(args[2])
+        if "message" in _kwargs:
+            recorded_messages.append(_kwargs["message"])
+        elif len(args) > 2:
+            recorded_messages.append(args[2])
+        else:  # pragma: no cover - defensive fallback
+            recorded_messages.append(None)
         return "tool-result"
 
     monkeypatch.setattr(mistral_module, "use_tool", fake_use_tool)
@@ -759,7 +764,12 @@ def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
     recorded_messages = []
 
     async def fake_use_tool(*args, **_kwargs):
-        recorded_messages.append(args[2])
+        if "message" in _kwargs:
+            recorded_messages.append(_kwargs["message"])
+        elif len(args) > 2:
+            recorded_messages.append(args[2])
+        else:  # pragma: no cover - defensive fallback
+            recorded_messages.append(None)
         return "stream-tool"
 
     monkeypatch.setattr(mistral_module, "use_tool", fake_use_tool)

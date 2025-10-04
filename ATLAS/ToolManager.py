@@ -16,6 +16,32 @@ logger = setup_logger(__name__)
 _function_map_cache = {}
 _function_payload_cache = {}
 
+
+def _resolve_provider_manager(provider_manager=None, config_manager=None):
+    """Return the active provider manager and (optionally new) config manager."""
+
+    if provider_manager is not None:
+        return provider_manager, config_manager
+
+    if config_manager is not None:
+        candidate = getattr(config_manager, "provider_manager", None)
+        if candidate is not None:
+            return candidate, config_manager
+
+    if config_manager is None:
+        logger.debug(
+            "No provider manager supplied; instantiating ConfigManager to locate one."
+        )
+        config_manager = ConfigManager()
+        candidate = getattr(config_manager, "provider_manager", None)
+        if candidate is not None:
+            return candidate, config_manager
+
+    raise RuntimeError(
+        "Provider manager is required but could not be determined. "
+        "Pass provider_manager explicitly or provide a config manager that exposes one."
+    )
+
 def get_required_args(function):
     logger.info("Retrieving required arguments for the function.")
     sig = inspect.signature(function)
@@ -146,6 +172,7 @@ async def use_tool(
     frequency_penalty_var,
     presence_penalty_var,
     conversation_manager,
+    provider_manager=None,
     config_manager=None
 ):
     logger.info(f"use_tool called for user: {user}, conversation_id: {conversation_id}")
@@ -154,9 +181,13 @@ async def use_tool(
     if conversation_manager is None:
         conversation_manager = conversation_history
 
-    if config_manager is None:
-        logger.debug("No ConfigManager supplied to use_tool; instantiating a new one lazily.")
-        config_manager = ConfigManager()
+    try:
+        provider_manager, config_manager = _resolve_provider_manager(
+            provider_manager, config_manager
+        )
+    except RuntimeError as exc:
+        logger.error("Unable to resolve provider manager: %s", exc)
+        raise
 
     if not isinstance(message, dict):
         normalized_message = {}
@@ -267,6 +298,7 @@ async def use_tool(
                     presence_penalty_var,
                     functions,
                     config_manager,
+                    provider_manager=provider_manager,
                     conversation_manager=conversation_manager,
                     conversation_id=conversation_id,
                     user=user,
@@ -309,6 +341,7 @@ async def call_model_with_new_prompt(
     functions,
     config_manager=None,
     *,
+    provider_manager=None,
     conversation_manager=None,
     conversation_id=None,
     user=None,
@@ -316,14 +349,14 @@ async def call_model_with_new_prompt(
     logger.info("Calling model with new prompt after function execution.")
     logger.info(f"Prompt: {prompt}")
 
-    if config_manager is None:
-        logger.debug("No ConfigManager supplied to call_model_with_new_prompt; instantiating a new one lazily.")
-        config_manager = ConfigManager()
-    
+    provider_manager, config_manager = _resolve_provider_manager(
+        provider_manager, config_manager
+    )
+
     try:
-        response = await config_manager.provider_manager.generate_response(
+        response = await provider_manager.generate_response(
             messages=messages + [{"role": "user", "content": prompt}],
-            model=config_manager.provider_manager.get_current_model(),
+            model=provider_manager.get_current_model(),
             temperature=temperature_var,
             top_p=top_p_var,
             frequency_penalty=frequency_penalty_var,

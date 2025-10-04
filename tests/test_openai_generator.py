@@ -137,7 +137,12 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
     recorded = {}
 
     async def fake_use_tool(*args, **kwargs):
-        recorded["message"] = args[2]
+        if "message" in kwargs:
+            recorded["message"] = kwargs["message"]
+        elif len(args) > 2:
+            recorded["message"] = args[2]
+        else:  # pragma: no cover - defensive fallback
+            recorded["message"] = None
         return "tool-output"
 
     monkeypatch.setattr(oa_module, "use_tool", fake_use_tool)
@@ -794,7 +799,12 @@ def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
     recorded = {}
 
     async def fake_use_tool(*args, **kwargs):
-        recorded["message"] = args[2]
+        if "message" in kwargs:
+            recorded["message"] = kwargs["message"]
+        elif len(args) > 2:
+            recorded["message"] = args[2]
+        else:  # pragma: no cover - defensive fallback
+            recorded["message"] = None
         return "tool-response"
 
     monkeypatch.setattr(oa_module, "use_tool", fake_use_tool)
