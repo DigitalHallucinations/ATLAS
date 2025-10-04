@@ -2616,6 +2616,41 @@ def test_close_unloads_grok_generator(provider_manager):
     assert provider_manager.grok_generator is None
 
 
+def test_close_disposes_cached_generators(provider_manager):
+    class TrackingGenerator:
+        def __init__(self):
+            self.calls = []
+
+        async def aclose(self):
+            self.calls.append("aclose")
+
+        async def close(self):
+            self.calls.append("close")
+            await self.aclose()
+
+    async def exercise():
+        openai = TrackingGenerator()
+        mistral = TrackingGenerator()
+        anthropic = TrackingGenerator()
+
+        provider_manager._openai_generator = openai
+        provider_manager._mistral_generator = mistral
+        provider_manager.anthropic_generator = anthropic
+
+        await provider_manager.close()
+
+        return openai, mistral, anthropic
+
+    openai, mistral, anthropic = asyncio.run(exercise())
+
+    assert openai.calls == ["close", "aclose"]
+    assert mistral.calls == ["close", "aclose"]
+    assert anthropic.calls == ["close", "aclose"]
+    assert provider_manager._openai_generator is None
+    assert provider_manager._mistral_generator is None
+    assert provider_manager.anthropic_generator is None
+
+
 def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     atlas_stub = types.SimpleNamespace()
 

@@ -1,6 +1,7 @@
 # modules/Providers/Mistral/Mistral_gen_response.py
 
 import asyncio
+import inspect
 import json
 import threading
 from collections.abc import Iterable, Mapping
@@ -36,6 +37,34 @@ class MistralGenerator:
         default_model = settings.get("model")
         if isinstance(default_model, str) and default_model.strip():
             self.model_manager.set_model(default_model.strip(), "Mistral")
+
+    async def aclose(self) -> None:
+        """Dispose of the underlying Mistral SDK client."""
+
+        client = getattr(self, "client", None)
+        if client is None:
+            return
+
+        closer = getattr(client, "aclose", None)
+        try:
+            if callable(closer):
+                await closer()
+            else:
+                closer = getattr(client, "close", None)
+                if callable(closer):
+                    result = closer()
+                    if inspect.isawaitable(result):
+                        await result
+                    # For synchronous ``close`` methods simply invoke them.
+        except Exception as exc:  # pragma: no cover - defensive cleanup
+            self.logger.warning("Failed to close Mistral client cleanly: %s", exc, exc_info=True)
+        finally:
+            self.client = None
+
+    async def close(self) -> None:
+        """Compatibility wrapper that awaits :meth:`aclose`."""
+
+        await self.aclose()
 
     def _instantiate_client(self, base_url: Optional[str]) -> Mistral:
         client_kwargs: Dict[str, Any] = {"api_key": self.api_key}
