@@ -83,6 +83,19 @@ class HuggingFaceModelManager:
         # Mapping from model names to their ONNX Runtime sessions
         self.ort_sessions: Dict[str, 'InferenceSession'] = {}
 
+    @staticmethod
+    def _format_size(num_bytes: int) -> str:
+        """Return a human-readable file size."""
+        units = ["B", "KB", "MB", "GB", "TB", "PB"]
+        size = float(num_bytes)
+
+        for unit in units:
+            if size < 1024 or unit == units[-1]:
+                if unit == "B":
+                    return f"{int(size)} {unit}"
+                return f"{size:.2f} {unit}"
+            size /= 1024
+
     def _get_inference_client(self) -> InferenceClient:
         """Return an InferenceClient instance, ensuring a token is available."""
         if not self.api_key:
@@ -189,11 +202,24 @@ class HuggingFaceModelManager:
 
                     self.logger.info(f"Model downloaded and cached at: {model_path}")
 
-                    # Log actual cache directory contents
-                    self.logger.info(f"Actual model cache directory contents:")
-                    for root, dirs, files in os.walk(self.model_cache_dir):
+                    # Provide a concise summary of the cache directory contents
+                    total_size = 0
+                    file_count = 0
+                    target_dir = model_path if os.path.isdir(model_path) else self.model_cache_dir
+
+                    for root, _, files in os.walk(target_dir):
                         for file in files:
-                            self.logger.info(os.path.join(root, file))
+                            file_path = os.path.join(root, file)
+                            file_count += 1
+                            try:
+                                total_size += os.path.getsize(file_path)
+                            except OSError:
+                                continue
+
+                    file_label = "file" if file_count == 1 else "files"
+                    self.logger.info(
+                        f"Cache directory summary ({target_dir}): {file_count} {file_label}, {self._format_size(total_size)} total"
+                    )
 
                 except Exception as e:
                     self.logger.error(f"Error downloading model {model_name}: {str(e)}")
