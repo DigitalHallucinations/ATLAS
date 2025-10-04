@@ -109,6 +109,31 @@ if "huggingface_hub" not in sys.modules:
     huggingface_hub_stub.HfApi = _HfApi
     huggingface_hub_stub.hf_hub_download = _hf_hub_download
     sys.modules["huggingface_hub"] = huggingface_hub_stub
+else:
+    huggingface_hub_module = sys.modules["huggingface_hub"]
+
+    if not hasattr(huggingface_hub_module, "InferenceClient"):
+        class _InferenceClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def model_info(self, *args, **kwargs):
+                return SimpleNamespace(pipeline_tag=None, tags=[], num_parameters=None)
+
+        huggingface_hub_module.InferenceClient = _InferenceClient
+
+    if not hasattr(huggingface_hub_module, "HfApi"):
+        class _HfApi:
+            def list_repo_files(self, *args, **kwargs):
+                return []
+
+        huggingface_hub_module.HfApi = _HfApi
+
+    if not hasattr(huggingface_hub_module, "hf_hub_download"):
+        def _hf_hub_download(*args, **kwargs):
+            return ""
+
+        huggingface_hub_module.hf_hub_download = _hf_hub_download
 
 if "datasets" not in sys.modules:
     datasets_stub = types.ModuleType("datasets")
@@ -229,3 +254,40 @@ def test_load_model_uses_local_when_token_missing(monkeypatch, tmp_path):
     asyncio.run(manager.load_model("test/model"))
 
     assert manager.current_model == "test/model"
+
+
+def test_unload_model_clears_onnx_sessions(monkeypatch, tmp_path):
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    config_manager = _DummyConfigManager(token=None, cache_dir=str(cache_dir))
+    base_config = BaseConfig(config_manager)
+    cache_manager = CacheManager(str(tmp_path / "cache.json"))
+    manager = HuggingFaceModelManager(base_config, NVMeConfig(), cache_manager)
+
+    model_dir = cache_dir / "models--test--model"
+    model_dir.mkdir(parents=True)
+
+    onnx_path = tmp_path / "model.onnx"
+    onnx_path.write_bytes(b"fake")
+
+    class _DummyOrt:
+        def __init__(self):
+            self.sessions = []
+
+        def InferenceSession(self, model_path, providers=None):
+            session = SimpleNamespace(model_path=model_path, providers=tuple(providers or ()))
+            self.sessions.append(session)
+            return session
+
+    dummy_ort = _DummyOrt()
+    monkeypatch.setattr(manager_module, "ort", dummy_ort)
+
+    asyncio.run(
+        manager.load_model("test/model", use_onnx=True, onnx_model_path=str(onnx_path))
+    )
+
+    assert "test/model" in manager.ort_sessions
+
+    manager.unload_model()
+
+    assert manager.ort_sessions == {}
