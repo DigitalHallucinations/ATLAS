@@ -27,10 +27,12 @@ class PersonaManager:
         'travel_guide', 'storyteller', 'game_master', 'chef'
     ]
 
-    def __init__(self, master, user: str):
+    def __init__(self, master, user: str, config_manager: Optional[ConfigManager] = None):
         self.master = master
         self.user = user
-        self.config_manager = ConfigManager()
+        if config_manager is None and hasattr(master, "config_manager"):
+            config_manager = master.config_manager
+        self.config_manager = config_manager or ConfigManager()
         self.logger = setup_logger(__name__)
         self.persona_base_path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'Personas')
         self.persona_names: List[str] = self.load_persona_names(self.persona_base_path)
@@ -76,7 +78,7 @@ class PersonaManager:
             self.logger.info(f"Persona '{persona_name}' retrieved from cache.")
             return self.personas[persona_name]
         
-        persona_folder = os.path.join(self.master.config_manager.get_app_root(), 'modules', 'Personas', persona_name, 'Persona')
+        persona_folder = os.path.join(self.config_manager.get_app_root(), 'modules', 'Personas', persona_name, 'Persona')
         json_file = os.path.join(persona_folder, f'{persona_name}.json')
 
         self.logger.debug(f"Attempting to load persona from folder: {persona_folder}")
