@@ -159,10 +159,34 @@ class HuggingFaceModelManager:
                 try:
                     api = HfApi(token=self.api_key)
                     repo_files = await asyncio.to_thread(api.list_repo_files, repo_id=model_name)
-                    for file in repo_files:
-                        await asyncio.to_thread(
-                            hf_hub_download, repo_id=model_name, filename=file, cache_dir=self.model_cache_dir
+
+                    semaphore = asyncio.Semaphore(5)
+
+                    async def _download_repo_file(filename: str):
+                        async with semaphore:
+                            return await asyncio.to_thread(
+                                hf_hub_download,
+                                repo_id=model_name,
+                                filename=filename,
+                                cache_dir=self.model_cache_dir,
+                            )
+
+                    tasks = [_download_repo_file(file) for file in repo_files]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    failures = []
+                    for file_name, result in zip(repo_files, results):
+                        if isinstance(result, Exception):
+                            failures.append((file_name, result))
+
+                    if failures:
+                        failure_messages = ", ".join(
+                            f"{file_name}: {exc}" for file_name, exc in failures
                         )
+                        raise RuntimeError(
+                            f"Failed to download one or more files for {model_name}: {failure_messages}"
+                        ) from failures[0][1]
+
                     self.logger.info(f"Model downloaded and cached at: {model_path}")
 
                     # Log actual cache directory contents
