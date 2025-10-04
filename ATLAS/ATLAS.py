@@ -1200,9 +1200,6 @@ class ATLAS:
         Args:
             response_text: The response payload to vocalize. May be a plain
                 string or a mapping containing ``text``/``audio`` fields.
-
-        Raises:
-            RuntimeError: If text-to-speech is enabled but synthesis fails.
         """
 
         payload_text = ""
@@ -1230,7 +1227,7 @@ class ATLAS:
             await self.speech_manager.text_to_speech(payload_text)
         except Exception as exc:
             self.logger.error("Text-to-speech failed: %s", exc, exc_info=True)
-            raise RuntimeError("Text-to-speech failed") from exc
+            return
 
     def start_stt_listening(self) -> Dict[str, Any]:
         """Begin speech-to-text recording via the active provider.
@@ -1470,7 +1467,12 @@ class ATLAS:
             )
 
             # Perform TTS if enabled
-            await self.maybe_text_to_speech(response)
+            try:
+                await self.maybe_text_to_speech(response)
+            except Exception as tts_exc:
+                self.logger.error(
+                    "Optional text-to-speech failed: %s", tts_exc, exc_info=True
+                )
 
             return response
         except Exception as e:
