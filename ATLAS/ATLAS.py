@@ -183,7 +183,7 @@ class ATLAS:
         """
         self.provider_manager = await ProviderManager.create(self.config_manager)
         user_identifier, _ = self._ensure_user_identity()
-        self.persona_manager = PersonaManager(master=self, user=user_identifier)
+        self.persona_manager = PersonaManager(master=self, user=user_identifier, config_manager=self.config_manager)
         self.chat_session = ChatSession(self)
 
         default_provider = self.config_manager.get_default_provider()

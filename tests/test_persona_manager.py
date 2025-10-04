@@ -76,7 +76,7 @@ def persona_manager(tmp_path, monkeypatch):
     monkeypatch.setattr(persona_manager_module, 'UserDataManager', _StubUserDataManager)
 
     master = types.SimpleNamespace(config_manager=_StubConfigManager())
-    manager = PersonaManager(master, user='tester')
+    manager = PersonaManager(master, user='tester', config_manager=master.config_manager)
     manager.persona_base_path = str(personas_dir)
     manager.persona_names = manager.load_persona_names(str(personas_dir))
     return manager, personas_dir
