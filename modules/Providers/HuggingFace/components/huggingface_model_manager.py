@@ -354,7 +354,10 @@ class HuggingFaceModelManager:
                 no_split_module_classes=["BloomBlock", "OPTDecoderLayer", "LlamaDecoderLayer"],
             )
             del initial_model  # Free up memory
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            else:
+                self.logger.debug("CUDA not available when attempting to clear cache after initial load.")
 
             # Common kwargs for model loading
             model_kwargs.update({
@@ -493,7 +496,10 @@ class HuggingFaceModelManager:
             del self.model
             del self.tokenizer
             del self.pipeline
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            else:
+                self.logger.debug("CUDA not available when attempting to clear cache during unload.")
             self.model = None
             self.tokenizer = None
             self.pipeline = None
