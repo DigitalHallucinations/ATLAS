@@ -2428,6 +2428,51 @@ def test_generate_response_huggingface_uses_adapter(provider_manager):
     assert captured["stream"] is False
 
 
+def test_generate_response_switches_provider_uses_default_models(provider_manager, monkeypatch):
+    calls = []
+
+    async def fake_set_model(model):
+        calls.append((provider_manager.current_llm_provider, model))
+        provider_manager.current_model = model
+
+    async def fake_openai_generate(_config_manager, **kwargs):
+        return {"provider": "OpenAI", "model": kwargs.get("model")}
+
+    async def fake_hf_generate(messages, model, stream=True):
+        return {"provider": "HuggingFace", "model": model, "stream": stream}
+
+    async def fake_switch(provider):
+        provider_manager.current_llm_provider = provider
+        provider_manager.current_model = None
+        if provider == "HuggingFace":
+            provider_manager.generate_response_func = fake_hf_generate
+        elif provider == "OpenAI":
+            provider_manager.generate_response_func = fake_openai_generate
+        else:  # pragma: no cover - defensive guard for test
+            raise AssertionError(f"Unexpected provider {provider}")
+        provider_manager.providers[provider] = provider_manager.generate_response_func
+
+    monkeypatch.setattr(provider_manager, "set_model", fake_set_model, raising=False)
+    monkeypatch.setattr(provider_manager, "switch_llm_provider", fake_switch, raising=False)
+
+    provider_manager.huggingface_generator = None
+    provider_manager.current_llm_provider = "OpenAI"
+    provider_manager.current_model = "gpt-4o"
+    provider_manager.generate_response_func = fake_openai_generate
+    provider_manager.providers["OpenAI"] = fake_openai_generate
+    provider_manager.providers["HuggingFace"] = fake_hf_generate
+
+    messages = [{"role": "user", "content": "hello"}]
+
+    async def exercise():
+        await provider_manager.generate_response(messages, provider="HuggingFace")
+        await provider_manager.generate_response(messages, provider="OpenAI")
+
+    asyncio.run(exercise())
+
+    assert calls == [("HuggingFace", "alpha"), ("OpenAI", "gpt-4o")]
+
+
 def test_generate_response_grok_uses_adapter(provider_manager):
     captured = {}
 
