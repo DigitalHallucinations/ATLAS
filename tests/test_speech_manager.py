@@ -178,8 +178,49 @@ if "requests" not in sys.modules:
     requests_module = types.ModuleType("requests")
     requests_module.get = _dummy_request
     requests_module.post = _dummy_request
+    requests_module.__path__ = []
+
+    exceptions_module = types.ModuleType("requests.exceptions")
+
+    class _RequestException(Exception):
+        """Stub base class mirroring requests.exceptions.RequestException."""
+
+    class _HTTPError(_RequestException):
+        """Stub HTTP error matching requests.exceptions.HTTPError."""
+
+    exceptions_module.RequestException = _RequestException
+    exceptions_module.HTTPError = _HTTPError
+
+    requests_module.exceptions = exceptions_module
+    class _DummyResponse:
+        status_code = 200
+        text = ""
+        content = b""
+
+        def json(self):
+            return {}
+
+    requests_module.HTTPError = exceptions_module.HTTPError
+    requests_module.RequestException = exceptions_module.RequestException
+    requests_module.Response = _DummyResponse
+
+    adapters_module = types.ModuleType("requests.adapters")
+
+    class _HTTPAdapter:
+        """Stub adapter mirroring requests.adapters.HTTPAdapter."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def send(self, request, **kwargs):  # pragma: no cover - stub helper
+            return request
+
+    adapters_module.HTTPAdapter = _HTTPAdapter
+    requests_module.adapters = adapters_module
 
     sys.modules["requests"] = requests_module
+    sys.modules["requests.exceptions"] = exceptions_module
+    sys.modules["requests.adapters"] = adapters_module
 
 
 if "dotenv" not in sys.modules:

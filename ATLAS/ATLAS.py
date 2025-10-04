@@ -185,6 +185,15 @@ class ATLAS:
         user_identifier, _ = self._ensure_user_identity()
         self.persona_manager = PersonaManager(master=self, user=user_identifier, config_manager=self.config_manager)
         self.chat_session = ChatSession(self)
+        try:
+            self.provider_manager.set_conversation_manager(self.chat_session)
+        except AttributeError:
+            self.logger.debug("Active provider manager does not support conversation manager injection.")
+        else:
+            try:
+                self.provider_manager.set_current_conversation_id(self.chat_session.conversation_id)
+            except AttributeError:
+                self.logger.debug("Active provider manager does not expose conversation ID tracking.")
 
         default_provider = self.config_manager.get_default_provider()
         if self.config_manager.is_default_provider_ready():
@@ -1447,11 +1456,17 @@ class ATLAS:
             return "Error: No persona is currently loaded. Please select a persona."
 
         try:
+            conversation_id = self.chat_session.conversation_id
+            try:
+                self.provider_manager.set_current_conversation_id(conversation_id)
+            except AttributeError:
+                self.logger.debug("Provider manager missing set_current_conversation_id; continuing.")
             response = await self.provider_manager.generate_response(
                 messages=messages,
                 current_persona=self.current_persona,
                 user=self._ensure_user_identity()[0],
-                conversation_id=self.chat_session.conversation_id
+                conversation_id=conversation_id,
+                conversation_manager=self.chat_session,
             )
 
             # Perform TTS if enabled

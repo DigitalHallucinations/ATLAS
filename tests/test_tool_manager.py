@@ -138,6 +138,10 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
         assert (
             dummy_config.provider_manager.generate_calls
         ), "Supplied config manager should be used"
+        payload = dummy_config.provider_manager.generate_calls[0]
+        assert payload["conversation_manager"] is conversation_history
+        assert payload["conversation_id"] == "conversation"
+        assert payload["user"] == "user"
 
     asyncio.run(run_test())
 

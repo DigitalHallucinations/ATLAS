@@ -52,6 +52,9 @@ class GoogleGeminiGenerator:
         response_schema: Optional[Any] = None,
         seed: Optional[int] = None,
         response_logprobs: Optional[bool] = None,
+        conversation_manager=None,
+        user=None,
+        conversation_id=None,
     ) -> Union[str, AsyncIterator[Union[str, Dict[str, Dict[str, str]]]]]:
         try:
             contents = self._convert_messages_to_contents(messages)
@@ -716,6 +719,9 @@ async def generate_response(
     response_mime_type: Optional[str] = None,
     system_instruction: Optional[str] = None,
     enable_functions: bool = True,
+    conversation_manager=None,
+    conversation_id=None,
+    user=None,
 ):
     generator = get_generator(config_manager)
     return await generator.generate_response(
@@ -734,6 +740,9 @@ async def generate_response(
         response_mime_type=response_mime_type,
         system_instruction=system_instruction,
         enable_functions=enable_functions,
+        conversation_manager=conversation_manager,
+        conversation_id=conversation_id,
+        user=user,
     )
 
 

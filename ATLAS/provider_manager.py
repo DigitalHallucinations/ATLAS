@@ -75,6 +75,8 @@ class ProviderManager:
         self.current_functions = None
         self.providers = {}
         self.chat_session = None
+        self.conversation_manager = None
+        self.current_conversation_id: Optional[str] = None
         self._pending_models: Dict[str, Optional[str]] = {}
         self._provider_model_ready: Dict[str, bool] = {}
         self._provider_invocation_strategies: Dict[
@@ -1510,7 +1512,10 @@ class ProviderManager:
         current_persona=None,
         functions=None,
         reasoning_effort: Optional[str] = None,
-        llm_call_type: str = None
+        llm_call_type: str = None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        conversation_manager: Optional[Any] = None,
     ) -> Union[str, AsyncIterator[str]]:
         """
         Generate a response using the specified provider and model, or the current ones if not specified.
@@ -1536,6 +1541,9 @@ class ProviderManager:
             functions (optional): Functions to use.
             reasoning_effort (str, optional): Effort level for reasoning models.
             llm_call_type (str, optional): The type of LLM call.
+            user (str, optional): Identifier for the active user.
+            conversation_id (str, optional): Identifier for the active conversation.
+            conversation_manager (optional): Conversation manager used for logging results.
 
         Returns:
             Union[str, AsyncIterator[str]]: The generated response or a stream of tokens.
@@ -1682,6 +1690,16 @@ class ProviderManager:
         )
 
         try:
+            if conversation_id:
+                self.set_current_conversation_id(conversation_id)
+
+            active_conversation_id = conversation_id or getattr(self, "current_conversation_id", None)
+            active_conversation_manager = (
+                conversation_manager
+                if conversation_manager is not None
+                else getattr(self, "conversation_manager", None)
+            )
+
             if not self.generate_response_func:
                 self.logger.error("No response generation function is set for the current provider.")
                 raise ValueError("generate_response_func is None. Ensure the provider is properly initialized.")
@@ -1694,6 +1712,9 @@ class ProviderManager:
                 "stream": resolved_stream,
                 "current_persona": current_persona,
                 "functions": functions,
+                "user": user,
+                "conversation_id": active_conversation_id,
+                "conversation_manager": active_conversation_manager,
             }
 
             if requested_provider == "OpenAI":
@@ -1785,7 +1806,12 @@ class ProviderManager:
             "functions": fallback_config.get('functions'),
             "response_schema": fallback_config.get('response_schema'),
             "llm_call_type": llm_call_type,
-            **kwargs,
+            "user": kwargs.get("user"),
+            "conversation_id": kwargs.get("conversation_id") or getattr(self, "current_conversation_id", None),
+            "conversation_manager": kwargs.get("conversation_manager")
+            if kwargs.get("conversation_manager") is not None
+            else getattr(self, "conversation_manager", None),
+            **{k: v for k, v in kwargs.items() if k not in {"user", "conversation_id", "conversation_manager"}},
         }
 
         if fallback_provider == "OpenAI":
@@ -1924,6 +1950,30 @@ class ProviderManager:
             conversation_manager: The conversation manager instance.
         """
         self.conversation_manager = conversation_manager
+        conversation_id_getter = None
+        if conversation_manager is not None:
+            conversation_id_getter = getattr(conversation_manager, "conversation_id", None)
+            if callable(conversation_id_getter):
+                try:
+                    current_id = conversation_id_getter()
+                except TypeError:
+                    current_id = conversation_id_getter
+                else:
+                    self.current_conversation_id = current_id
+                    return
+            if conversation_id_getter is None:
+                getter_method = getattr(conversation_manager, "get_conversation_id", None)
+                if callable(getter_method):
+                    try:
+                        current_id = getter_method()
+                    except Exception:  # pragma: no cover - defensive fallback
+                        current_id = None
+                    else:
+                        if current_id is not None:
+                            self.current_conversation_id = current_id
+                            return
+        if conversation_id_getter is not None and not callable(conversation_id_getter):
+            self.current_conversation_id = conversation_id_getter
 
     def set_current_conversation_id(self, conversation_id: str):
         """

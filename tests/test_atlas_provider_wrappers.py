@@ -316,7 +316,45 @@ def atlas_class(monkeypatch):
         requests_stub = types.ModuleType("requests")
         requests_stub.get = _dummy_request
         requests_stub.post = _dummy_request
+        requests_stub.__path__ = []
+        exceptions_module = types.ModuleType("requests.exceptions")
+
+        class _RequestException(Exception):
+            """Stub base class mirroring requests.exceptions.RequestException."""
+
+        class _HTTPError(_RequestException):
+            """Stub HTTP error matching requests.exceptions.HTTPError."""
+
+        exceptions_module.RequestException = _RequestException
+        exceptions_module.HTTPError = _HTTPError
+        requests_stub.exceptions = exceptions_module
+        class _DummyResponse:
+            status_code = 200
+            text = ""
+            content = b""
+
+            def json(self):
+                return {}
+
+        requests_stub.HTTPError = exceptions_module.HTTPError
+        requests_stub.RequestException = exceptions_module.RequestException
+        requests_stub.Response = _DummyResponse
+        adapters_module = types.ModuleType("requests.adapters")
+
+        class _HTTPAdapter:
+            """Stub adapter mirroring requests.adapters.HTTPAdapter."""
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def send(self, request, **kwargs):  # pragma: no cover - stub helper
+                return request
+
+        adapters_module.HTTPAdapter = _HTTPAdapter
+        requests_stub.adapters = adapters_module
         ensure_module("requests", requests_stub)
+        monkeypatch.setitem(sys.modules, "requests.exceptions", exceptions_module)
+        monkeypatch.setitem(sys.modules, "requests.adapters", adapters_module)
 
     if "numpy" not in sys.modules:
         numpy_stub = types.ModuleType("numpy")
