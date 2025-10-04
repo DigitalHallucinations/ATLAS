@@ -3,6 +3,7 @@
 """Async response generation helpers for the Anthropic provider."""
 
 import asyncio
+import inspect
 import json
 import logging
 from collections.abc import Mapping, Sequence
@@ -353,6 +354,33 @@ class AnthropicGenerator:
             retry_delay = settings.get("retry_delay")
             if isinstance(retry_delay, (int, float)) and retry_delay >= 0:
                 self.retry_delay = int(retry_delay)
+
+    async def aclose(self) -> None:
+        """Dispose of the underlying Anthropic async client."""
+
+        client = getattr(self, "client", None)
+        if client is None:
+            return
+
+        closer = getattr(client, "aclose", None)
+        try:
+            if callable(closer):
+                await closer()
+            else:
+                closer = getattr(client, "close", None)
+                if callable(closer):
+                    result = closer()
+                    if inspect.isawaitable(result):
+                        await result
+        except Exception as exc:  # pragma: no cover - defensive cleanup
+            self.logger.warning("Failed to close Anthropic client cleanly: %s", exc, exc_info=True)
+        finally:
+            self.client = None
+
+    async def close(self) -> None:
+        """Compatibility alias that awaits :meth:`aclose`."""
+
+        await self.aclose()
 
     async def generate_response(
         self,

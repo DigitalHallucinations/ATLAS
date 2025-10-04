@@ -1938,9 +1938,37 @@ class ProviderManager:
         """
         Perform cleanup operations, such as unloading models.
         """
+        async def _await_close(generator, provider_name: str) -> None:
+            closer = getattr(generator, "close", None)
+            try:
+                if callable(closer):
+                    result = closer()
+                    if inspect.isawaitable(result):
+                        await result
+                    return
+                closer = getattr(generator, "aclose", None)
+                if callable(closer):
+                    await closer()
+            except Exception as exc:  # pragma: no cover - defensive cleanup
+                self.logger.warning(
+                    "Failed to close %s generator cleanly: %s", provider_name, exc, exc_info=True
+                )
+
         if self.huggingface_generator:
             await self.unload_hf_model()
             self.huggingface_generator = None
+
+        if self._openai_generator is not None:
+            await _await_close(self._openai_generator, "OpenAI")
+            self._openai_generator = None
+
+        if self._mistral_generator is not None:
+            await _await_close(self._mistral_generator, "Mistral")
+            self._mistral_generator = None
+
+        if self.anthropic_generator is not None:
+            await _await_close(self.anthropic_generator, "Anthropic")
+            self.anthropic_generator = None
 
         generator = self.grok_generator
         if generator:

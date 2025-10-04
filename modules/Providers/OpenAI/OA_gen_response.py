@@ -1,6 +1,7 @@
 # modules/Providers/OpenAI/OA_gen_response.py
 
 import base64
+import inspect
 import json
 from weakref import WeakKeyDictionary
 
@@ -39,6 +40,33 @@ class OpenAIGenerator:
         default_model = settings.get("model")
         if default_model:
             self.model_manager.set_model(default_model, "OpenAI")
+
+    async def aclose(self) -> None:
+        """Release the underlying OpenAI SDK client."""
+
+        client = getattr(self, "client", None)
+        if client is None:
+            return
+
+        closer = getattr(client, "aclose", None)
+        try:
+            if callable(closer):
+                await closer()
+            else:
+                closer = getattr(client, "close", None)
+                if callable(closer):
+                    result = closer()
+                    if inspect.isawaitable(result):
+                        await result
+        except Exception as exc:  # pragma: no cover - defensive cleanup
+            self.logger.warning("Failed to close OpenAI client cleanly: %s", exc, exc_info=True)
+        finally:
+            self.client = None
+
+    async def close(self) -> None:
+        """Compatibility alias that awaits :meth:`aclose`."""
+
+        await self.aclose()
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def generate_response(
