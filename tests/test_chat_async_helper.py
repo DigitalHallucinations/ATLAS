@@ -372,6 +372,7 @@ class _DummyChatSession:
         self.last_error = None
         self.last_thread_name = None
         self.messages = []
+        self._conversation_id = "dummy-session-id"
 
     async def send_message(self, message):  # pragma: no cover - exercised via factory
         self.messages.append(message)
@@ -390,6 +391,10 @@ class _DummyChatSession:
         self.last_error = on_error
         self.last_thread_name = thread_name
         return Future()
+
+    @property
+    def conversation_id(self):
+        return self._conversation_id
 
 
 class _FakeBuffer:
