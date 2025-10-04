@@ -75,10 +75,28 @@ class ChatSession:
             self.set_default_provider_and_model()
 
         try:
+            provider_manager = self.ATLAS.provider_manager
+            try:
+                provider_manager.set_current_conversation_id(self._conversation_id)
+            except AttributeError:  # pragma: no cover - defensive
+                self.ATLAS.logger.debug(
+                    "Provider manager does not support conversation ID updates during send_message."
+                )
+            ensure_identity = getattr(self.ATLAS, "_ensure_user_identity", None)
+            active_user = None
+            if callable(ensure_identity):
+                try:
+                    active_user, _ = ensure_identity()
+                except Exception:  # pragma: no cover - defensive fallback
+                    active_user = None
+
             response = await self.ATLAS.provider_manager.generate_response(
                 messages=self.conversation_history,
                 model=self.current_model,
-                stream=False
+                stream=False,
+                conversation_id=self._conversation_id,
+                conversation_manager=self,
+                user=active_user,
             )
         except Exception as e:
             self.ATLAS.logger.error(f"Error generating response: {e}", exc_info=True)
@@ -160,6 +178,14 @@ class ChatSession:
         self.messages_since_last_reminder = 0
         self._conversation_id = self._generate_conversation_id()
         self.set_default_provider_and_model()
+        provider_manager = getattr(self.ATLAS, "provider_manager", None)
+        if provider_manager is not None:
+            try:
+                provider_manager.set_current_conversation_id(self._conversation_id)
+            except AttributeError:  # pragma: no cover - defensive
+                self.ATLAS.logger.debug(
+                    "Provider manager does not support conversation ID updates during reset."
+                )
 
     def set_model(self, model: str):
         """

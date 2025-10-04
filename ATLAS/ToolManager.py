@@ -151,6 +151,9 @@ async def use_tool(
     logger.info(f"use_tool called for user: {user}, conversation_id: {conversation_id}")
     logger.info(f"Message received: {message}")
 
+    if conversation_manager is None:
+        conversation_manager = conversation_history
+
     if config_manager is None:
         logger.debug("No ConfigManager supplied to use_tool; instantiating a new one lazily.")
         config_manager = ConfigManager()
@@ -263,7 +266,10 @@ async def use_tool(
                     frequency_penalty_var,
                     presence_penalty_var,
                     functions,
-                    config_manager
+                    config_manager,
+                    conversation_manager=conversation_manager,
+                    conversation_id=conversation_id,
+                    user=user,
                 )
                 
                 logger.info(f"Model response after function execution: {new_text}")
@@ -301,7 +307,11 @@ async def call_model_with_new_prompt(
     frequency_penalty_var,
     presence_penalty_var,
     functions,
-    config_manager=None
+    config_manager=None,
+    *,
+    conversation_manager=None,
+    conversation_id=None,
+    user=None,
 ):
     logger.info("Calling model with new prompt after function execution.")
     logger.info(f"Prompt: {prompt}")
@@ -318,7 +328,10 @@ async def call_model_with_new_prompt(
             top_p=top_p_var,
             frequency_penalty=frequency_penalty_var,
             presence_penalty=presence_penalty_var,
-            functions=functions
+            functions=functions,
+            conversation_manager=conversation_manager,
+            conversation_id=conversation_id,
+            user=user,
         )
         logger.info(f"Model's response: {response}")
         return response

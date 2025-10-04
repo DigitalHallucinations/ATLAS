@@ -11,7 +11,11 @@ def test_generate_response_returns_with_conversation_id():
     atlas.current_persona = "Persona"
 
     provider_generate = AsyncMock(return_value="ok")
-    atlas.provider_manager = SimpleNamespace(generate_response=provider_generate)
+    provider_manager = SimpleNamespace(
+        generate_response=provider_generate,
+        set_current_conversation_id=Mock(),
+    )
+    atlas.provider_manager = provider_manager
     atlas.chat_session = SimpleNamespace(conversation_id="conversation-123")
     atlas._ensure_user_identity = Mock(return_value=("user", "User"))
     atlas.maybe_text_to_speech = AsyncMock()
@@ -25,5 +29,7 @@ def test_generate_response_returns_with_conversation_id():
     assert await_args.kwargs["conversation_id"] == "conversation-123"
     assert await_args.kwargs["messages"] is messages
     assert await_args.kwargs["current_persona"] == "Persona"
+    assert await_args.kwargs["conversation_manager"] is atlas.chat_session
     atlas.maybe_text_to_speech.assert_awaited_once_with("ok")
     atlas.logger.error.assert_not_called()
+    provider_manager.set_current_conversation_id.assert_called_with("conversation-123")
