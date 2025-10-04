@@ -71,10 +71,7 @@ class HuggingFaceModelManager:
         self.cache_manager = cache_manager
         self.logger = setup_logger()
         self.api_key = self.base_config.config_manager.get_huggingface_api_key()
-        if not self.api_key:
-            self.logger.error("HuggingFace API key not found in configuration")
-            raise ValueError("HuggingFace API key not found in configuration")
-        self.client = InferenceClient(token=self.api_key)
+        self.client: Optional[InferenceClient] = None
         self.model = None
         self.tokenizer = None
         self.current_model = None
@@ -85,6 +82,21 @@ class HuggingFaceModelManager:
 
         # Mapping from model names to their ONNX Runtime sessions
         self.ort_sessions: Dict[str, 'InferenceSession'] = {}
+
+    def _get_inference_client(self) -> InferenceClient:
+        """Return an InferenceClient instance, ensuring a token is available."""
+        if not self.api_key:
+            message = (
+                "HuggingFace API key is required to perform remote Hugging Face Hub operations. "
+                "Please configure your token before retrying."
+            )
+            self.logger.error(message)
+            raise ValueError(message)
+
+        if self.client is None:
+            self.client = InferenceClient(token=self.api_key)
+
+        return self.client
 
     def _load_installed_models(self) -> List[str]:
         """
@@ -135,9 +147,17 @@ class HuggingFaceModelManager:
 
         try:
             if not os.path.exists(model_path) or force_download:
+                if not self.api_key:
+                    message = (
+                        "HuggingFace API key is required to download models from the Hugging Face Hub. "
+                        "Please configure your token or provide a local copy of the model."
+                    )
+                    self.logger.error(message)
+                    raise ValueError(message)
+
                 self.logger.info(f"Downloading model: {model_name}")
                 try:
-                    api = HfApi()
+                    api = HfApi(token=self.api_key)
                     repo_files = await asyncio.to_thread(api.list_repo_files, repo_id=model_name)
                     for file in repo_files:
                         await asyncio.to_thread(
@@ -638,7 +658,8 @@ class HuggingFaceModelManager:
             Dict: A dictionary containing model information.
         """
         try:
-            model_info = self.client.model_info(model_name)
+            client = self._get_inference_client()
+            model_info = client.model_info(model_name)
             info = {
                 "pipeline_tag": model_info.pipeline_tag,
                 "tags": model_info.tags,
