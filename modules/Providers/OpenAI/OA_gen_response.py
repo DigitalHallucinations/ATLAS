@@ -9,7 +9,7 @@ from openai import AsyncOpenAI
 from ATLAS.model_manager import ModelManager
 
 from tenacity import retry, stop_after_attempt, wait_exponential
-from typing import List, Dict, Union, AsyncIterator, Optional, Any
+from typing import List, Dict, Union, AsyncIterator, Optional, Any, Set
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.ToolManager import (
@@ -352,7 +352,51 @@ class OpenAIGenerator:
             raise
 
     def _is_reasoning_model(self, model: Optional[str]) -> bool:
-        return isinstance(model, str) and model.lower().startswith("o")
+        """Return ``True`` when the supplied model should use the Responses API."""
+
+        if not isinstance(model, str):
+            return False
+
+        normalized = model.strip().lower()
+        if not normalized:
+            return False
+
+        default_allow_prefixes = {"o1", "o3"}
+        allow_prefixes = set(default_allow_prefixes)
+        deny_prefixes: Set[str] = set()
+
+        try:
+            settings = self.config_manager.get_openai_llm_settings()
+        except Exception:  # pragma: no cover - defensive fallback
+            settings = {}
+
+        if isinstance(settings, dict):
+            allow_prefixes.update(self._coerce_prefixes(settings.get("reasoning_model_prefix_allowlist")))
+            deny_prefixes.update(self._coerce_prefixes(settings.get("reasoning_model_prefix_denylist")))
+
+        if any(normalized.startswith(prefix) for prefix in deny_prefixes):
+            return False
+
+        return any(normalized.startswith(prefix) for prefix in allow_prefixes)
+
+    def _coerce_prefixes(self, value: Any) -> Set[str]:
+        prefixes: Set[str] = set()
+        if value is None:
+            return prefixes
+
+        if isinstance(value, (list, tuple, set, frozenset)):
+            items = value
+        else:
+            items = [value]
+
+        for item in items:
+            if not isinstance(item, str):
+                continue
+            normalized = item.strip().lower()
+            if normalized:
+                prefixes.add(normalized)
+
+        return prefixes
 
     def _map_messages_to_responses_input(self, messages: List[Dict[str, str]]):
         formatted = []
