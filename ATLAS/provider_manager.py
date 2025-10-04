@@ -75,6 +75,8 @@ class ProviderManager:
         self.current_functions = None
         self.providers = {}
         self.chat_session = None
+        self._pending_models: Dict[str, Optional[str]] = {}
+        self._provider_model_ready: Dict[str, bool] = {}
         self._provider_invocation_strategies: Dict[
             str,
             Callable[[Callable[..., Awaitable[Any]], Dict[str, Any]], Awaitable[Any]],
@@ -1152,6 +1154,8 @@ class ProviderManager:
             self.model_manager.set_model(model_name, "HuggingFace")
             if self.current_llm_provider == "HuggingFace":
                 self.current_model = model_name
+            self._provider_model_ready["HuggingFace"] = True
+            self._pending_models.pop("HuggingFace", None)
             message = f"Model '{model_name}' loaded successfully."
             return self._build_result(True, message=message)
         except Exception as exc:  # pragma: no cover - defensive logging
@@ -1167,6 +1171,7 @@ class ProviderManager:
             await asyncio.to_thread(self.huggingface_generator.unload_model)
             if self.current_llm_provider == "HuggingFace":
                 self.current_model = None
+            self._provider_model_ready["HuggingFace"] = False
             return self._build_result(True, message="HuggingFace model unloaded.")
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to unload HuggingFace model: %s", exc, exc_info=True)
@@ -1304,6 +1309,8 @@ class ProviderManager:
 
         try:
             if llm_provider == "OpenAI":
+                self._provider_model_ready["OpenAI"] = False
+                self._pending_models.pop("OpenAI", None)
                 openai_generator = self._ensure_openai_generator()
                 self.generate_response_func = openai_generator.generate_response
                 self.process_streaming_response_func = openai_generator.process_streaming_response
@@ -1318,6 +1325,8 @@ class ProviderManager:
                     raise ValueError("No default model available for OpenAI provider.")
 
             elif llm_provider == "Mistral":
+                self._provider_model_ready["Mistral"] = False
+                self._pending_models.pop("Mistral", None)
                 mistral_generator = self._ensure_mistral_generator()
                 self.generate_response_func = mistral_generator.generate_response
                 self.process_streaming_response_func = getattr(
@@ -1333,6 +1342,8 @@ class ProviderManager:
                     raise ValueError("No default model available for Mistral provider.")
 
             elif llm_provider == "Google":
+                self._provider_model_ready["Google"] = False
+                self._pending_models.pop("Google", None)
                 google_generator = self._ensure_google_generator()
                 self.generate_response_func = google_generator.generate_response
                 self.process_streaming_response_func = getattr(
@@ -1351,6 +1362,8 @@ class ProviderManager:
                 self.grok_generator = None
                 # Reset any previously selected model when switching to HuggingFace.
                 self.current_model = None
+                self._provider_model_ready["HuggingFace"] = False
+                self._pending_models.pop("HuggingFace", None)
                 ensure_result = self.ensure_huggingface_ready()
                 if not ensure_result.get("success"):
                     raise ValueError(ensure_result.get("error", "Failed to initialize HuggingFace generator."))
@@ -1359,9 +1372,11 @@ class ProviderManager:
                 self.process_streaming_response_func = self.huggingface_generator.process_streaming_response
                 default_model = self.get_default_model_for_provider("HuggingFace")
                 if default_model:
-                    load_result = await self.load_hf_model(default_model)
-                    if not load_result.get("success"):
-                        raise ValueError(load_result.get("error", "Failed to load default HuggingFace model."))
+                    self._pending_models["HuggingFace"] = default_model
+                    self.logger.info(
+                        "HuggingFace default model '%s' recorded for deferred loading.",
+                        default_model,
+                    )
                 else:
                     self.logger.warning(
                         "No default model found for HuggingFace. The provider is active without a loaded model."
@@ -1371,7 +1386,10 @@ class ProviderManager:
                         self.model_manager.current_model = None
                     if hasattr(self.model_manager, "current_provider"):
                         self.model_manager.current_provider = "HuggingFace"
+                    self._pending_models["HuggingFace"] = None
             elif llm_provider == "Anthropic":
+                self._provider_model_ready["Anthropic"] = False
+                self._pending_models.pop("Anthropic", None)
                 self.grok_generator = None
                 self.huggingface_generator = None
                 generator = self._ensure_anthropic_generator()
@@ -1386,6 +1404,8 @@ class ProviderManager:
                     raise ValueError("No default model available for Anthropic provider.")
 
             elif llm_provider == "Grok":
+                self._provider_model_ready["Grok"] = False
+                self._pending_models.pop("Grok", None)
                 self.huggingface_generator = None
                 self.grok_generator = GrokGenerator(self.config_manager)
                 self.generate_response_func = self.grok_generator.generate_response
@@ -1393,6 +1413,7 @@ class ProviderManager:
                 default_model = self.get_default_model_for_provider("Grok")
                 if default_model:
                     self.current_model = default_model
+                    self._provider_model_ready["Grok"] = True
                 else:
                     self.logger.error("No default model found for Grok. Ensure models are configured correctly.")
                     raise ValueError("No default model available for Grok provider.")
@@ -1823,6 +1844,8 @@ class ProviderManager:
         else:
             self.current_model = model
             self.model_manager.set_model(model, self.current_llm_provider)
+            self._provider_model_ready[self.current_llm_provider] = True
+            self._pending_models.pop(self.current_llm_provider, None)
         self.logger.info(f"Model set to {model}")
 
     def switch_background_provider(self, background_provider: str):
@@ -1856,6 +1879,17 @@ class ProviderManager:
             str: The name of the current background provider.
         """
         return self.current_background_provider
+
+    def is_model_loaded(self, provider: Optional[str] = None) -> bool:
+        """Return True if a model is marked as loaded for the given provider."""
+
+        target = provider or self.current_llm_provider
+        return bool(self._provider_model_ready.get(target))
+
+    def get_pending_model_for_provider(self, provider: str) -> Optional[str]:
+        """Return the recorded model awaiting load for the given provider, if any."""
+
+        return self._pending_models.get(provider)
 
     def get_default_model_for_provider(self, provider: str) -> str:
         """

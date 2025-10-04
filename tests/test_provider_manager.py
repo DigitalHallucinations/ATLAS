@@ -1340,17 +1340,23 @@ def test_huggingface_facade_handles_model_lifecycle(provider_manager):
 
     async def exercise():
         await provider_manager.switch_llm_provider("HuggingFace")
-        assert generator.loaded_models[0] == ("alpha", False)
+        assert generator.loaded_models == []
+        assert provider_manager.current_model is None
+        assert provider_manager.is_model_loaded("HuggingFace") is False
+        assert provider_manager.get_pending_model_for_provider("HuggingFace") == "alpha"
 
         load_result = await provider_manager.load_hf_model("beta", force_download=True)
         assert load_result["success"] is True
         assert ("beta", True) in generator.loaded_models
+        assert provider_manager.is_model_loaded("HuggingFace") is True
+        assert provider_manager.get_pending_model_for_provider("HuggingFace") is None
         assert provider_manager.current_model == "beta"
 
         unload_result = await provider_manager.unload_hf_model()
         assert unload_result["success"] is True
         assert generator.unload_calls == 1
         assert provider_manager.current_model is None
+        assert provider_manager.is_model_loaded("HuggingFace") is False
 
         remove_result = await provider_manager.remove_hf_model("beta")
         assert remove_result["success"] is True
@@ -1360,6 +1366,71 @@ def test_huggingface_facade_handles_model_lifecycle(provider_manager):
     refreshed = provider_manager.list_hf_models()
     assert refreshed["success"] is True
     assert refreshed["data"] == ["alpha"]
+
+
+def test_huggingface_default_provider_startup_defers_loading(tmp_path, monkeypatch):
+    reset_provider_manager_singleton()
+
+    def fake_load_models(self):
+        self.models = {
+            "OpenAI": ["gpt-4o"],
+            "HuggingFace": ["alpha", "beta"],
+            "Mistral": [],
+            "Google": [],
+            "Anthropic": [],
+            "Grok": [],
+        }
+        self.current_model = None
+        self.current_provider = None
+
+    monkeypatch.setattr(provider_manager_module.ModelManager, "load_models", fake_load_models, raising=False)
+    monkeypatch.setattr(provider_manager_module, "HuggingFaceGenerator", FakeHFGenerator)
+
+    class HFDefaultConfig(DummyConfig):
+        def __init__(self, root_path):
+            super().__init__(root_path)
+            self._hf_token = "token-123"
+            self._api_keys["HuggingFace"] = self._hf_token
+
+        def get_default_provider(self):
+            return "HuggingFace"
+
+    config = HFDefaultConfig(tmp_path.as_posix())
+
+    async def exercise():
+        manager = await ProviderManager.create(config)
+        generator = manager.huggingface_generator
+        before = {
+            "loaded_models": list(generator.loaded_models),
+            "current_model": manager.current_model,
+            "is_loaded": manager.is_model_loaded("HuggingFace"),
+            "pending": manager.get_pending_model_for_provider("HuggingFace"),
+        }
+        load_result = await manager.load_hf_model("alpha")
+        after = {
+            "loaded_models": list(generator.loaded_models),
+            "current_model": manager.current_model,
+            "is_loaded": manager.is_model_loaded("HuggingFace"),
+            "pending": manager.get_pending_model_for_provider("HuggingFace"),
+        }
+        return manager, generator, before, after, load_result
+
+    manager, generator, before, after, load_result = asyncio.run(exercise())
+
+    try:
+        assert isinstance(generator, FakeHFGenerator)
+        assert before["loaded_models"] == []
+        assert before["current_model"] is None
+        assert before["is_loaded"] is False
+        assert before["pending"] == "alpha"
+
+        assert load_result["success"] is True
+        assert after["loaded_models"][0] == ("alpha", False)
+        assert after["current_model"] == "alpha"
+        assert after["is_loaded"] is True
+        assert after["pending"] is None
+    finally:
+        reset_provider_manager_singleton()
 
 
 def test_huggingface_backend_helpers(provider_manager, monkeypatch):
