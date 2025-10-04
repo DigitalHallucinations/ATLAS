@@ -19,9 +19,13 @@ from ATLAS.ToolManager import (
 )
 
 class OpenAIGenerator:
-    def __init__(self, config_manager: ConfigManager):
+    def __init__(
+        self,
+        config_manager: ConfigManager,
+        model_manager: Optional[ModelManager] = None,
+    ):
         self.config_manager = config_manager
-        self.logger = setup_logger(__name__) 
+        self.logger = setup_logger(__name__)
         self.api_key = self.config_manager.get_openai_api_key()
         if not self.api_key:
             self.logger.error("OpenAI API key not found in configuration")
@@ -36,7 +40,7 @@ class OpenAIGenerator:
             client_kwargs["organization"] = organization
 
         self.client = AsyncOpenAI(**client_kwargs)
-        self.model_manager = ModelManager(config_manager)
+        self.model_manager = model_manager or ModelManager(config_manager)
         default_model = settings.get("model")
         if default_model:
             self.model_manager.set_model(default_model, "OpenAI")
@@ -1502,11 +1506,16 @@ class OpenAIGenerator:
 _GENERATOR_CACHE: "WeakKeyDictionary[ConfigManager, OpenAIGenerator]" = WeakKeyDictionary()
 
 
-def get_generator(config_manager: ConfigManager) -> OpenAIGenerator:
+def get_generator(
+    config_manager: ConfigManager,
+    model_manager: Optional[ModelManager] = None,
+) -> OpenAIGenerator:
     generator = _GENERATOR_CACHE.get(config_manager)
     if generator is None:
-        generator = OpenAIGenerator(config_manager)
+        generator = OpenAIGenerator(config_manager, model_manager=model_manager)
         _GENERATOR_CACHE[config_manager] = generator
+    elif model_manager is not None and generator.model_manager is not model_manager:
+        generator.model_manager = model_manager
     return generator
 
 

@@ -86,6 +86,34 @@ class DummyModelManager:
         self.current_model = model
 
 
+def _build_generator(config):
+    model_manager = DummyModelManager(config)
+    return oa_module.OpenAIGenerator(config, model_manager=model_manager)
+
+
+def test_openai_generator_uses_supplied_model_manager(monkeypatch):
+    config = DummyConfig()
+    provided_manager = DummyModelManager(config)
+
+    class _FailingModelManager(DummyModelManager):
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("Fallback ModelManager should not be instantiated")
+
+    monkeypatch.setattr(oa_module, "ModelManager", _FailingModelManager)
+
+    class _DummyClient:
+        def __init__(self, **_kwargs):
+            self.responses = SimpleNamespace()
+            self.chat = SimpleNamespace()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: _DummyClient(**kwargs))
+
+    generator = oa_module.OpenAIGenerator(config, model_manager=provided_manager)
+
+    assert generator.model_manager is provided_manager
+    assert provided_manager.get_current_model() == config.get_openai_llm_settings()["model"]
+
+
 def test_reasoning_model_routes_to_responses(monkeypatch):
     captured = {}
 
@@ -107,9 +135,9 @@ def test_reasoning_model_routes_to_responses(monkeypatch):
             self.chat = DummyChat()
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
 
-    generator = oa_module.OpenAIGenerator(DummyConfig())
+    config = DummyConfig()
+    generator = _build_generator(config)
 
     async def exercise():
         return await generator.generate_response(
@@ -146,7 +174,6 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
         return "tool-output"
 
     monkeypatch.setattr(oa_module, "use_tool", fake_use_tool)
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
 
     class DummyResponses:
         async def create(self, **_kwargs):
@@ -193,7 +220,7 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
         "enable_code_interpreter": False,
         "enable_file_search": False,
     })
-    generator = oa_module.OpenAIGenerator(settings)
+    generator = _build_generator(settings)
 
     async def exercise():
         return await generator.generate_response(
@@ -233,9 +260,8 @@ def test_non_reasoning_model_uses_chat_completions(monkeypatch):
             self.chat = DummyChat()
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
-
-    generator = oa_module.OpenAIGenerator(DummyConfig())
+    config = DummyConfig()
+    generator = _build_generator(config)
 
     async def exercise():
         return await generator.generate_response(
@@ -273,11 +299,9 @@ def test_reasoning_prefixes_can_be_extended_via_config(monkeypatch):
             self.chat = DummyChat()
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
-
     base_settings = DummyConfig().get_openai_llm_settings()
     base_settings["reasoning_model_prefix_allowlist"] = ["custom-"]
-    generator = oa_module.OpenAIGenerator(DummyConfig(base_settings))
+    generator = _build_generator(DummyConfig(base_settings))
 
     async def exercise():
         return await generator.generate_response(
@@ -310,7 +334,6 @@ def test_chat_completion_includes_response_format(monkeypatch):
             self.responses = SimpleNamespace()
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
 
     settings = DummyConfig({
         "model": "gpt-4o",
@@ -331,7 +354,7 @@ def test_chat_completion_includes_response_format(monkeypatch):
         "enable_file_search": False,
     })
 
-    generator = oa_module.OpenAIGenerator(settings)
+    generator = _build_generator(settings)
 
     async def exercise():
         return await generator.generate_response(
@@ -379,7 +402,6 @@ def test_chat_completion_audio_combines_text_and_audio(monkeypatch):
             self.responses = SimpleNamespace()
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
 
     settings = DummyConfig({
         "model": "gpt-4o",
@@ -403,7 +425,7 @@ def test_chat_completion_audio_combines_text_and_audio(monkeypatch):
         "audio_format": "mp3",
     })
 
-    generator = oa_module.OpenAIGenerator(settings)
+    generator = _build_generator(settings)
 
     async def exercise():
         return await generator.generate_response(
@@ -442,7 +464,6 @@ def test_chat_completion_appends_builtin_tools(monkeypatch):
             self.responses = SimpleNamespace()
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
 
     settings = DummyConfig({
         "model": "gpt-4o",
@@ -463,7 +484,7 @@ def test_chat_completion_appends_builtin_tools(monkeypatch):
         "enable_file_search": True,
     })
 
-    generator = oa_module.OpenAIGenerator(settings)
+    generator = _build_generator(settings)
 
     async def exercise():
         return await generator.generate_response(
@@ -523,7 +544,6 @@ def test_chat_completion_streaming_yields_final_audio(monkeypatch):
             self.responses = SimpleNamespace()
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
 
     settings = DummyConfig({
         "model": "gpt-4o",
@@ -532,7 +552,7 @@ def test_chat_completion_streaming_yields_final_audio(monkeypatch):
         "audio_format": "wav",
     })
 
-    generator = oa_module.OpenAIGenerator(settings)
+    generator = _build_generator(settings)
 
     async def exercise():
         stream = await generator.generate_response(
@@ -577,7 +597,6 @@ def test_chat_completion_uses_json_schema(monkeypatch):
             self.responses = SimpleNamespace()
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
 
     schema_payload = {
         "name": "atlas_response",
@@ -607,7 +626,7 @@ def test_chat_completion_uses_json_schema(monkeypatch):
         "json_schema": schema_payload,
     })
 
-    generator = oa_module.OpenAIGenerator(settings)
+    generator = _build_generator(settings)
 
     async def exercise():
         return await generator.generate_response(
@@ -662,7 +681,6 @@ def test_responses_api_audio_request_and_payload(monkeypatch):
             self.chat = DummyChat()
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
 
     settings = DummyConfig({
         "model": "o1-mini",
@@ -671,7 +689,7 @@ def test_responses_api_audio_request_and_payload(monkeypatch):
         "audio_format": "wav",
     })
 
-    generator = oa_module.OpenAIGenerator(settings)
+    generator = _build_generator(settings)
 
     async def exercise():
         return await generator.generate_response(
@@ -755,7 +773,6 @@ def test_responses_streaming_emits_final_audio_chunk(monkeypatch):
             self.chat = DummyChat()
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
 
     settings = DummyConfig({
         "model": "o1-preview",
@@ -764,7 +781,7 @@ def test_responses_streaming_emits_final_audio_chunk(monkeypatch):
         "audio_format": "wav",
     })
 
-    generator = oa_module.OpenAIGenerator(settings)
+    generator = _build_generator(settings)
 
     async def exercise():
         stream = await generator.generate_response(
@@ -808,7 +825,6 @@ def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
         return "tool-response"
 
     monkeypatch.setattr(oa_module, "use_tool", fake_use_tool)
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
 
     message = SimpleNamespace(
         content=None,
@@ -830,7 +846,7 @@ def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
 
-    generator = oa_module.OpenAIGenerator(DummyConfig())
+    generator = _build_generator(DummyConfig())
 
     async def exercise():
         return await generator.generate_response(
@@ -848,8 +864,6 @@ def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
 
 
 def test_handle_function_call_formats_code_interpreter_output(monkeypatch):
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
-
     class DummyChat:
         class _Completions:
             async def create(self, **_kwargs):
@@ -864,7 +878,7 @@ def test_handle_function_call_formats_code_interpreter_output(monkeypatch):
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
 
-    generator = oa_module.OpenAIGenerator(DummyConfig())
+    generator = _build_generator(DummyConfig())
 
     async def fake_use_tool(*_args, **_kwargs):
         raise AssertionError("use_tool should not be called for built-in tools")
@@ -919,7 +933,6 @@ def test_chat_completion_sends_tool_preferences(monkeypatch):
             self.responses = SimpleNamespace()
 
     monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
-    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
 
     settings = DummyConfig({
         "model": "gpt-4o",
@@ -937,7 +950,7 @@ def test_chat_completion_sends_tool_preferences(monkeypatch):
         "json_schema": None,
     })
 
-    generator = oa_module.OpenAIGenerator(settings)
+    generator = _build_generator(settings)
 
     async def exercise():
         return await generator.generate_response(

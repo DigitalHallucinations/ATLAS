@@ -183,12 +183,18 @@ class ProviderManager:
 
     def _ensure_openai_generator(self):
         if self._openai_generator is None:
-            self._openai_generator = get_openai_generator(self.config_manager)
+            self._openai_generator = get_openai_generator(
+                self.config_manager,
+                model_manager=self.model_manager,
+            )
         return self._openai_generator
 
     def _ensure_mistral_generator(self):
         if self._mistral_generator is None:
-            self._mistral_generator = get_mistral_generator(self.config_manager)
+            self._mistral_generator = get_mistral_generator(
+                self.config_manager,
+                model_manager=self.model_manager,
+            )
         return self._mistral_generator
 
     def _ensure_google_generator(self):
