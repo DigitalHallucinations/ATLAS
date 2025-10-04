@@ -5,6 +5,7 @@ import json
 import threading
 from collections.abc import Iterable, Mapping
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
+from weakref import WeakKeyDictionary
 
 from mistralai import Mistral
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
@@ -907,8 +908,20 @@ class MistralGenerator:
                 full_response += chunk
             return full_response
 
+
+_GENERATOR_CACHE: "WeakKeyDictionary[ConfigManager, MistralGenerator]" = WeakKeyDictionary()
+
+
+def get_generator(config_manager: ConfigManager) -> MistralGenerator:
+    generator = _GENERATOR_CACHE.get(config_manager)
+    if generator is None:
+        generator = MistralGenerator(config_manager)
+        _GENERATOR_CACHE[config_manager] = generator
+    return generator
+
+
 def setup_mistral_generator(config_manager: ConfigManager):
-    return MistralGenerator(config_manager)
+    return get_generator(config_manager)
 
 async def generate_response(
     config_manager: ConfigManager,
@@ -920,7 +933,7 @@ async def generate_response(
     current_persona=None,
     functions=None,
 ) -> Union[str, AsyncIterator[str]]:
-    generator = setup_mistral_generator(config_manager)
+    generator = get_generator(config_manager)
     return await generator.generate_response(messages, model, max_tokens, temperature, stream, current_persona, functions)
 
 async def process_response(response: Union[str, AsyncIterator[str]]) -> str:

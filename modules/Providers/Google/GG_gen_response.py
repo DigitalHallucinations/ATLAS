@@ -5,6 +5,7 @@ import contextlib
 import copy
 import json
 from typing import Any, AsyncIterator, Dict, Iterable, List, Mapping, Optional, Set, Union
+from weakref import WeakKeyDictionary
 
 import google.generativeai as genai
 from google.generativeai import types as genai_types
@@ -682,8 +683,19 @@ class GoogleGeminiGenerator:
             return response
 
 
+_GENERATOR_CACHE: "WeakKeyDictionary[ConfigManager, GoogleGeminiGenerator]" = WeakKeyDictionary()
+
+
+def get_generator(config_manager: ConfigManager) -> GoogleGeminiGenerator:
+    generator = _GENERATOR_CACHE.get(config_manager)
+    if generator is None:
+        generator = GoogleGeminiGenerator(config_manager)
+        _GENERATOR_CACHE[config_manager] = generator
+    return generator
+
+
 def setup_google_gemini_generator(config_manager: ConfigManager):
-    return GoogleGeminiGenerator(config_manager)
+    return get_generator(config_manager)
 
 
 async def generate_response(
@@ -705,7 +717,7 @@ async def generate_response(
     system_instruction: Optional[str] = None,
     enable_functions: bool = True,
 ):
-    generator = setup_google_gemini_generator(config_manager)
+    generator = get_generator(config_manager)
     return await generator.generate_response(
         messages=messages,
         model=model,

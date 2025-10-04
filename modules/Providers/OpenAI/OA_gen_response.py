@@ -2,6 +2,7 @@
 
 import base64
 import json
+from weakref import WeakKeyDictionary
 
 from openai import AsyncOpenAI
 from ATLAS.model_manager import ModelManager
@@ -1418,6 +1419,17 @@ class OpenAIGenerator:
         self.logger.warning("No tool response generated; sending default message.")
         return "Sorry, I couldn't process the function call. Please try again or provide more context."
 
+_GENERATOR_CACHE: "WeakKeyDictionary[ConfigManager, OpenAIGenerator]" = WeakKeyDictionary()
+
+
+def get_generator(config_manager: ConfigManager) -> OpenAIGenerator:
+    generator = _GENERATOR_CACHE.get(config_manager)
+    if generator is None:
+        generator = OpenAIGenerator(config_manager)
+        _GENERATOR_CACHE[config_manager] = generator
+    return generator
+
+
 async def generate_response(
     config_manager: ConfigManager,
     messages: List[Dict[str, str]],
@@ -1441,7 +1453,7 @@ async def generate_response(
     json_mode: Optional[Any] = None,
     json_schema: Optional[Any] = None
 ) -> Union[str, AsyncIterator[str]]:
-    generator = OpenAIGenerator(config_manager)
+    generator = get_generator(config_manager)
     return await generator.generate_response(
         messages,
         model,
