@@ -93,7 +93,6 @@ class ChatSession:
             message_entry.update(audio_payload)
 
         self.conversation_history.append(message_entry)
-        self.messages_since_last_reminder += 1
         return response
 
     def run_in_background(
