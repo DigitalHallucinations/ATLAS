@@ -2,11 +2,12 @@
 
 import getpass
 import json
+from collections.abc import AsyncIterator as AbcAsyncIterator
 from concurrent.futures import Future
 from pathlib import Path
 from typing import (
     Any,
-    AsyncIterator,
+    AsyncIterator as TypingAsyncIterator,
     Awaitable,
     Callable,
     Dict,
@@ -1202,6 +1203,12 @@ class ATLAS:
                 string or a mapping containing ``text``/``audio`` fields.
         """
 
+        if isinstance(response_text, AbcAsyncIterator):
+            self.logger.debug(
+                "Skipping text-to-speech for streaming async iterator response."
+            )
+            return
+
         payload_text = ""
         audio_available = False
 
@@ -1437,7 +1444,9 @@ class ATLAS:
             "transcription_future": result_future,
         }
 
-    async def generate_response(self, messages: List[Dict[str, str]]) -> Union[str, AsyncIterator[str]]:
+    async def generate_response(
+        self, messages: List[Dict[str, str]]
+    ) -> Union[str, TypingAsyncIterator[str]]:
         """
         Generate a response using the current provider and model.
         Additionally, perform TTS generation if enabled.
@@ -1446,7 +1455,7 @@ class ATLAS:
             messages (List[Dict[str, str]]): The conversation messages.
 
         Returns:
-            Union[str, AsyncIterator[str]]: The generated response or a stream of tokens.
+            Union[str, TypingAsyncIterator[str]]: The generated response or a stream of tokens.
         """
         if not self.current_persona:
             self.logger.error("No persona is currently loaded. Cannot generate response.")
