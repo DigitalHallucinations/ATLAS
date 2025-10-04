@@ -2341,6 +2341,74 @@ def test_generate_response_respects_function_calling_disabled(provider_manager):
     assert captured["audio_enabled"] is False
 
 
+def test_generate_response_huggingface_uses_adapter(provider_manager):
+    captured = {}
+
+    async def fake_generate_response(self, messages, model, stream=True):
+        captured["messages"] = messages
+        captured["model"] = model
+        captured["stream"] = stream
+        return "hf-ok"
+
+    async def exercise():
+        await provider_manager.switch_llm_provider("HuggingFace")
+        generator = provider_manager.huggingface_generator
+        generator.generate_response = types.MethodType(fake_generate_response, generator)
+        provider_manager.generate_response_func = generator.generate_response
+        provider_manager.providers["HuggingFace"] = generator.generate_response
+        return await provider_manager.generate_response(
+            messages=[{"role": "user", "content": "ping"}],
+            provider="HuggingFace",
+            model="alpha",
+            stream=False,
+            temperature=0.75,
+            max_tokens=256,
+            functions=[{"name": "tool"}],
+        )
+
+    result = asyncio.run(exercise())
+    assert result == "hf-ok"
+    assert captured["messages"] == [{"role": "user", "content": "ping"}]
+    assert captured["model"] == "alpha"
+    assert captured["stream"] is False
+
+
+def test_generate_response_grok_uses_adapter(provider_manager):
+    captured = {}
+
+    async def fake_generate_response(self, messages, model="grok-2", max_tokens=1000, stream=False):
+        captured["messages"] = messages
+        captured["model"] = model
+        captured["max_tokens"] = max_tokens
+        captured["stream"] = stream
+        return "grok-ok"
+
+    async def exercise():
+        provider_manager.model_manager.models["Grok"] = ["grok-2"]
+        await provider_manager.switch_llm_provider("Grok")
+        generator = provider_manager.grok_generator
+        generator.generate_response = types.MethodType(fake_generate_response, generator)
+        provider_manager.generate_response_func = generator.generate_response
+        provider_manager.providers["Grok"] = generator.generate_response
+        provider_manager.current_functions = [{"name": "tool"}]
+        return await provider_manager.generate_response(
+            messages=[{"role": "user", "content": "pong"}],
+            provider="Grok",
+            model="grok-special",
+            max_tokens=42,
+            temperature=0.5,
+            functions=[{"name": "tool"}],
+            stream=True,
+        )
+
+    result = asyncio.run(exercise())
+    assert result == "grok-ok"
+    assert captured["messages"] == [{"role": "user", "content": "pong"}]
+    assert captured["model"] == "grok-special"
+    assert captured["max_tokens"] == 42
+    assert captured["stream"] is True
+
+
 def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     atlas_stub = types.SimpleNamespace()
 

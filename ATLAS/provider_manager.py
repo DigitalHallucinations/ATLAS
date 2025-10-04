@@ -6,7 +6,7 @@ import json
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Union, AsyncIterator, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Union, AsyncIterator, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from huggingface_hub import HfApi
@@ -70,7 +70,14 @@ class ProviderManager:
         self.anthropic_generator: Optional[AnthropicGenerator] = None
         self.current_functions = None
         self.providers = {}
-        self.chat_session = None  
+        self.chat_session = None
+        self._provider_invocation_strategies: Dict[
+            str,
+            Callable[[Callable[..., Awaitable[Any]], Dict[str, Any]], Awaitable[Any]],
+        ] = {
+            "HuggingFace": self._invoke_huggingface_generator,
+            "Grok": self._invoke_grok_generator,
+        }
 
     @classmethod
     async def create(cls, config_manager: ConfigManager):
@@ -150,6 +157,63 @@ class ProviderManager:
     async def _anthropic_generate_response(self, _config_manager, **kwargs):
         generator = self._ensure_anthropic_generator()
         return await generator.generate_response(**kwargs)
+
+    def register_provider_invoker(
+        self,
+        provider_name: str,
+        adapter: Callable[[Callable[..., Awaitable[Any]], Dict[str, Any]], Awaitable[Any]],
+    ) -> None:
+        """Register or override a provider-specific invocation adapter."""
+
+        if not callable(adapter):
+            raise ValueError("adapter must be callable")
+        self._provider_invocation_strategies[provider_name] = adapter
+
+    async def _invoke_provider_callable(
+        self,
+        provider_name: str,
+        func: Callable[..., Awaitable[Any]],
+        call_kwargs: Dict[str, Any],
+    ) -> Any:
+        strategy = self._provider_invocation_strategies.get(
+            provider_name, self._invoke_with_config_manager
+        )
+        return await strategy(func, call_kwargs)
+
+    async def _invoke_with_config_manager(
+        self,
+        func: Callable[..., Awaitable[Any]],
+        call_kwargs: Dict[str, Any],
+    ) -> Any:
+        return await func(self.config_manager, **call_kwargs)
+
+    async def _invoke_huggingface_generator(
+        self,
+        func: Callable[..., Awaitable[Any]],
+        call_kwargs: Dict[str, Any],
+    ) -> Any:
+        payload = {
+            "messages": call_kwargs.get("messages"),
+            "model": call_kwargs.get("model"),
+        }
+        if "stream" in call_kwargs:
+            payload["stream"] = call_kwargs["stream"]
+        return await func(**payload)
+
+    async def _invoke_grok_generator(
+        self,
+        func: Callable[..., Awaitable[Any]],
+        call_kwargs: Dict[str, Any],
+    ) -> Any:
+        payload = {"messages": call_kwargs.get("messages")}
+        model = call_kwargs.get("model")
+        if model:
+            payload["model"] = model
+        if "max_tokens" in call_kwargs and call_kwargs["max_tokens"] is not None:
+            payload["max_tokens"] = call_kwargs["max_tokens"]
+        if "stream" in call_kwargs and call_kwargs["stream"] is not None:
+            payload["stream"] = call_kwargs["stream"]
+        return await func(**payload)
 
     async def update_provider_api_key(
         self, provider_name: str, new_api_key: Optional[str]
@@ -1574,9 +1638,10 @@ class ProviderManager:
                 if resolved_max_output_tokens is not None and max_tokens is None:
                     call_kwargs["max_tokens"] = resolved_max_output_tokens
 
-            response = await self.generate_response_func(
-                self.config_manager,
-                **call_kwargs,
+            response = await self._invoke_provider_callable(
+                requested_provider,
+                self.generate_response_func,
+                dict(call_kwargs),
             )
 
             self.logger.info(f"API call completed in {time.time() - start_time:.2f} seconds")
@@ -1639,9 +1704,10 @@ class ProviderManager:
                 max_output_tokens=fallback_config.get('max_output_tokens'),
             )
 
-        return await fallback_function(
-            self.config_manager,
-            **call_kwargs,
+        return await self._invoke_provider_callable(
+            fallback_provider,
+            fallback_function,
+            dict(call_kwargs),
         )
 
     async def process_streaming_response(self, response: AsyncIterator[Dict]) -> str:
