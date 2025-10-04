@@ -1509,13 +1509,20 @@ class ProviderManager:
         if not requested_provider:
             requested_provider = self.config_manager.get_default_provider()
 
+        desired_provider = requested_provider
+        if desired_provider != self.current_llm_provider:
+            await self.switch_llm_provider(desired_provider)
+
+        requested_provider = self.current_llm_provider or desired_provider
+
         defaults: Dict[str, Any] = {}
         if requested_provider == "OpenAI":
             defaults = self.get_openai_llm_settings()
         elif requested_provider == "Google":
             defaults = self.get_google_llm_settings()
 
-        resolved_model = model or defaults.get("model") or self.get_current_model()
+        current_active_model = self.get_current_model()
+        resolved_model = model or defaults.get("model") or current_active_model
         if not resolved_model:
             fallback_model = self.get_default_model_for_provider(requested_provider)
             resolved_model = fallback_model
@@ -1619,12 +1626,8 @@ class ProviderManager:
             current_persona,
         )
 
-        # Switch provider if different
-        if requested_provider != self.current_llm_provider:
-            await self.switch_llm_provider(requested_provider)
-
         # Switch model if different
-        if resolved_model and resolved_model != self.current_model:
+        if resolved_model and resolved_model != current_active_model:
             await self.set_model(resolved_model)
 
         # Use current functions if not provided
