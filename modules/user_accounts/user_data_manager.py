@@ -5,17 +5,26 @@ import re
 import json
 import platform
 import subprocess
+from threading import Lock
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 
 
 class SystemInfo:
     logger = None
+    _cache_lock = Lock()
+    _cached_info = None
 
     @staticmethod
     def set_logger(logger_instance):
         """Sets the logger for the SystemInfo class."""
         SystemInfo.logger = logger_instance
+
+    @staticmethod
+    def invalidate_cache():
+        """Invalidate any cached system information."""
+        with SystemInfo._cache_lock:
+            SystemInfo._cached_info = None
 
     @staticmethod
     def run_command(command):
@@ -78,17 +87,25 @@ class SystemInfo:
     @staticmethod
     def get_detailed_system_info():
         """Compiles detailed system information from various sources."""
-        info = {
-            "Basic Info": SystemInfo.get_basic_info(),
-            "CPU Info": SystemInfo.get_cpu_info(),
-            "Memory Info": SystemInfo.get_memory_info(),
-            "Disk Info": SystemInfo.get_disk_info(),
-            "Network Info": SystemInfo.get_network_info(),
-        }
-        return info
+        with SystemInfo._cache_lock:
+            if SystemInfo._cached_info is not None:
+                return dict(SystemInfo._cached_info)
+
+            info = {
+                "Basic Info": SystemInfo.get_basic_info(),
+                "CPU Info": SystemInfo.get_cpu_info(),
+                "Memory Info": SystemInfo.get_memory_info(),
+                "Disk Info": SystemInfo.get_disk_info(),
+                "Network Info": SystemInfo.get_network_info(),
+            }
+            SystemInfo._cached_info = info
+            return dict(SystemInfo._cached_info)
 
 
 class UserDataManager:
+    _system_info_cache = None
+    _system_info_cache_lock = Lock()
+
     def __init__(self, user):
         """
         Initializes the UserDataManager with the given user.
@@ -103,6 +120,13 @@ class UserDataManager:
         self.profile = self.get_profile_text()
         self.emr = self.get_emr()
         self.system_info = self.get_system_info()
+
+    @classmethod
+    def invalidate_system_info_cache(cls):
+        """Clear cached system information for all UserDataManager instances."""
+        SystemInfo.invalidate_cache()
+        with cls._system_info_cache_lock:
+            cls._system_info_cache = None
         
 
     def get_profile(self):
@@ -197,8 +221,10 @@ class UserDataManager:
             str: The formatted system information as a string.
         """
         try:
-            if hasattr(self, '_system_info'):
-                return self._system_info
+            with self.__class__._system_info_cache_lock:
+                if self.__class__._system_info_cache is not None:
+                    self._system_info = self.__class__._system_info_cache
+                    return self._system_info
 
             detailed_info = SystemInfo.get_detailed_system_info()
             formatted_info = ""
@@ -207,7 +233,13 @@ class UserDataManager:
                 self.logger.debug(info)
                 formatted_info += f"--- {category} ---\n{info}\n"
             self.logger.info("System information retrieved successfully.")
-            self._system_info = formatted_info
+
+            with self.__class__._system_info_cache_lock:
+                if self.__class__._system_info_cache is None:
+                    self.__class__._system_info_cache = formatted_info
+
+                self._system_info = self.__class__._system_info_cache
+
             return self._system_info
         except Exception as e:
             self.logger.error(f"Error retrieving system information: {e}")
