@@ -7,7 +7,7 @@ import json
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Union, AsyncIterator, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Tuple, Union, AsyncIterator, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from huggingface_hub import HfApi
@@ -82,6 +82,7 @@ class ProviderManager:
             "HuggingFace": self._invoke_huggingface_generator,
             "Grok": self._invoke_grok_generator,
         }
+        self._config_injection_cache: Dict[Tuple[Any, bool], bool] = {}
 
     @classmethod
     async def create(cls, config_manager: ConfigManager):
@@ -204,6 +205,7 @@ class ProviderManager:
 
         if not callable(adapter):
             raise ValueError("adapter must be callable")
+        self._config_injection_cache.clear()
         self._provider_invocation_strategies[provider_name] = adapter
 
     async def _invoke_provider_callable(
@@ -223,19 +225,30 @@ class ProviderManager:
         call_kwargs: Dict[str, Any],
     ) -> Any:
         bound_instance = getattr(func, "__self__", None)
-        if bound_instance is not None:
-            signature = inspect.signature(func)
-            parameters = list(signature.parameters.values())
-            if parameters:
-                first_param = parameters[0]
-                if first_param.kind in (
-                    inspect.Parameter.POSITIONAL_ONLY,
-                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                ) and first_param.name in {"config_manager", "_config_manager"}:
-                    return await func(self.config_manager, **call_kwargs)
-            return await func(**call_kwargs)
+        cache_key = (getattr(func, "__func__", func), bound_instance is not None)
+        needs_config = self._config_injection_cache.get(cache_key)
+        if needs_config is None:
+            if bound_instance is None:
+                needs_config = True
+            else:
+                signature = inspect.signature(func)
+                parameters = list(signature.parameters.values())
+                needs_config = False
+                if parameters:
+                    first_param = parameters[0]
+                    needs_config = (
+                        first_param.kind
+                        in (
+                            inspect.Parameter.POSITIONAL_ONLY,
+                            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        )
+                        and first_param.name in {"config_manager", "_config_manager"}
+                    )
+            self._config_injection_cache[cache_key] = needs_config
 
-        return await func(self.config_manager, **call_kwargs)
+        if needs_config:
+            return await func(self.config_manager, **call_kwargs)
+        return await func(**call_kwargs)
 
     async def _invoke_huggingface_generator(
         self,
