@@ -1440,11 +1440,16 @@ def test_list_openai_models_fetches_and_prioritizes(provider_manager, monkeypatc
     result = asyncio.run(provider_manager.list_openai_models())
 
     assert result["error"] is None
-    assert result["models"] == ["chat-awesome", "gpt-4o"]
+    assert result["models"] == [
+        "chat-awesome",
+        "gpt-4o",
+        "text-embedding-3-small",
+    ]
     assert result["base_url"].endswith("/v1")
     cached = provider_manager.model_manager.models["OpenAI"]
     assert cached[0] == "gpt-4o"
-    assert "chat-awesome" in cached
+    assert cached[1] == "chat-awesome"
+    assert "text-embedding-3-small" in cached
 
 
 def test_list_openai_models_handles_network_error(provider_manager, monkeypatch):

@@ -755,7 +755,9 @@ class ProviderManager:
             if any(token in name for token in ("gpt", "omni", "o1", "o3", "chat"))
         ]
         if prioritized:
-            unique_models = prioritized
+            prioritized_set = set(prioritized)
+            trailing = [name for name in unique_models if name not in prioritized_set]
+            unique_models = prioritized + trailing
 
         if unique_models:
             try:
