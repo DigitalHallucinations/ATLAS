@@ -104,8 +104,22 @@ class ProviderManager:
 
         async with cls._lock:
             if cls._instance is None:
-                cls._instance = cls(config_manager)
-                await cls._instance.initialize_all_providers()
+                instance = cls(config_manager)
+                cls._instance = instance
+                try:
+                    await instance.initialize_all_providers()
+                except Exception:
+                    try:
+                        await instance.close()
+                    except Exception:  # pragma: no cover - defensive cleanup logging
+                        logger = getattr(instance, "logger", None)
+                        if logger is not None:
+                            logger.warning(
+                                "ProviderManager cleanup failed after initialization error.",
+                                exc_info=True,
+                            )
+                    cls._instance = None
+                    raise
             return cls._instance
 
     @classmethod

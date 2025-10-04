@@ -4,7 +4,7 @@ import math
 import sys
 import types
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import URLError
 from weakref import WeakKeyDictionary
 
@@ -3818,6 +3818,61 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
     assert data["thinking_budget"] == 4096
     assert provider_manager.current_model == "claude-3-haiku-20240229"
     assert provider_manager.model_manager.models["Anthropic"][0] == "claude-3-haiku-20240229"
+
+
+def test_create_resets_singleton_after_initialization_failure(monkeypatch, tmp_path):
+    reset_provider_manager_singleton()
+    config = DummyConfig(tmp_path.as_posix())
+
+    attempts: Dict[str, int] = {"count": 0}
+    closed: List[Tuple[int, Optional[object]]] = []
+    first_instance_id: Dict[str, int] = {}
+    sentinel_by_instance: Dict[int, object] = {}
+
+    async def failing_initialize(self):
+        attempts["count"] += 1
+        sentinel = object()
+        instance_id = id(self)
+        sentinel_by_instance[instance_id] = sentinel
+        self._openai_generator = sentinel  # type: ignore[attr-defined]
+        if attempts["count"] == 1:
+            first_instance_id["value"] = instance_id
+            raise RuntimeError("forced initialization failure")
+        self.initialized_marker = "ok"  # type: ignore[attr-defined]
+
+    async def recording_close(self):
+        closed.append((id(self), getattr(self, "_openai_generator", None)))
+        self._openai_generator = None  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(
+        provider_manager_module.ProviderManager,
+        "initialize_all_providers",
+        failing_initialize,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider_manager_module.ProviderManager,
+        "close",
+        recording_close,
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(ProviderManager.create(config))
+
+    assert attempts["count"] == 1
+    assert provider_manager_module.ProviderManager._instance is None
+    assert len(closed) == 1
+    assert closed[0][0] == first_instance_id["value"]
+    assert closed[0][1] is sentinel_by_instance[first_instance_id["value"]]
+
+    manager = asyncio.run(ProviderManager.create(config))
+    try:
+        assert attempts["count"] == 2
+        assert getattr(manager, "initialized_marker", None) == "ok"
+        assert id(manager) != first_instance_id["value"]
+    finally:
+        reset_provider_manager_singleton()
 
 
 def test_switch_openai_reuses_cached_generator(monkeypatch, tmp_path):
