@@ -205,6 +205,88 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
     assert recorded["message"]["function_call"]["arguments"] == "{\"value\": 1}"
 
 
+def test_non_reasoning_model_uses_chat_completions(monkeypatch):
+    captured = {}
+
+    class DummyResponses:
+        async def create(self, **_kwargs):
+            raise AssertionError("responses.create should not be called")
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, **kwargs):
+                captured["kwargs"] = kwargs
+                message = SimpleNamespace(content="moderated", function_call=None, tool_calls=None)
+                choice = SimpleNamespace(message=message)
+                return SimpleNamespace(choices=[choice])
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.responses = DummyResponses()
+            self.chat = DummyChat()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
+
+    generator = oa_module.OpenAIGenerator(DummyConfig())
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "check"}],
+            model="omni-moderation-latest",
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "moderated"
+    kwargs = captured["kwargs"]
+    assert kwargs["model"] == "omni-moderation-latest"
+    assert kwargs["messages"][0]["content"] == "check"
+
+
+def test_reasoning_prefixes_can_be_extended_via_config(monkeypatch):
+    captured = {}
+
+    class DummyResponses:
+        async def create(self, **kwargs):
+            captured["kwargs"] = kwargs
+            return SimpleNamespace(output_text="done", output=[])
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, *args, **kwargs):
+                raise AssertionError("chat.completions.create should not be called")
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.responses = DummyResponses()
+            self.chat = DummyChat()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+    monkeypatch.setattr(oa_module, "ModelManager", DummyModelManager)
+
+    base_settings = DummyConfig().get_openai_llm_settings()
+    base_settings["reasoning_model_prefix_allowlist"] = ["custom-"]
+    generator = oa_module.OpenAIGenerator(DummyConfig(base_settings))
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "go"}],
+            model="custom-reasoner",
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "done"
+    assert captured["kwargs"]["model"] == "custom-reasoner"
+
+
 def test_chat_completion_includes_response_format(monkeypatch):
     captured = {}
 
