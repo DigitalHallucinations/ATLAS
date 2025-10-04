@@ -2442,7 +2442,7 @@ def test_generate_response_grok_uses_adapter(provider_manager):
         provider_manager.generate_response_func = generator.generate_response
         provider_manager.providers["Grok"] = generator.generate_response
         provider_manager.current_functions = [{"name": "tool"}]
-        return await provider_manager.generate_response(
+        result = await provider_manager.generate_response(
             messages=[{"role": "user", "content": "pong"}],
             provider="Grok",
             model="grok-special",
@@ -2452,12 +2452,20 @@ def test_generate_response_grok_uses_adapter(provider_manager):
             stream=True,
         )
 
-    result = asyncio.run(exercise())
+        async def fake_stream():
+            for chunk in ("gro", "k-stream"):
+                yield chunk
+
+        streaming_result = await provider_manager.process_streaming_response(fake_stream())
+        return result, streaming_result
+
+    result, streaming_output = asyncio.run(exercise())
     assert result == "grok-ok"
     assert captured["messages"] == [{"role": "user", "content": "pong"}]
     assert captured["model"] == "grok-special"
     assert captured["max_tokens"] == 42
     assert captured["stream"] is True
+    assert streaming_output == "grok-stream"
 
 
 def test_openai_settings_window_populates_defaults_and_saves(provider_manager):

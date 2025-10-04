@@ -75,6 +75,29 @@ class GrokGenerator:
         async for token in self.client.sampler.sample(prompt, max_len=max_tokens):
             yield token.token_str
 
+    async def process_streaming_response(self, response: AsyncIterator[str]) -> str:
+        """Consume a streaming Grok response and return the combined text.
+
+        Grok currently provides token strings during streaming. Until the
+        application supports incremental UI updates for Grok, we collapse the
+        stream into a single string so downstream callers can reuse the same
+        handling used for non-streaming responses.
+        """
+        collected_chunks = []
+        async for chunk in response:
+            if chunk:
+                collected_chunks.append(chunk)
+
+        final_response = "".join(collected_chunks)
+        if collected_chunks:
+            self.logger.debug(
+                "Completed Grok streaming response with %d chunks", len(collected_chunks)
+            )
+        else:
+            self.logger.debug("Received empty Grok streaming response")
+
+        return final_response
+
     def _build_prompt_from_messages(self, messages: List[Dict[str, str]]) -> str:
         """
         Converts messages into a prompt string for Grok.
