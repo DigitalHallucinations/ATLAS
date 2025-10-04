@@ -287,11 +287,46 @@ class SpeechManager:
         return "•" * visible_count
 
     async def initialize(self):
-        """
-        Perform any asynchronous initialization if required.
-        Currently a placeholder for future asynchronous tasks.
-        """
-        pass
+        """Kick off background initialization for the default TTS provider."""
+
+        try:
+            provider_key = self.get_default_tts_provider()
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Unable to determine default TTS provider during startup: %s",
+                exc,
+            )
+            return
+
+        if not provider_key:
+            logger.debug("No default TTS provider configured during initialization.")
+            return
+
+        try:
+            future = self._start_tts_initialization(provider_key)
+        except KeyError:
+            logger.warning(
+                "Default TTS provider '%s' is not registered; skipping background initialization.",
+                provider_key,
+            )
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Failed to start initialization for default TTS provider '%s': %s",
+                provider_key,
+                exc,
+            )
+            return
+
+        if future.done():
+            try:
+                future.result()
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "Default TTS provider '%s' initialization failed during startup: %s",
+                    provider_key,
+                    exc,
+                )
 
     def _register_core_factories(self) -> None:
         """Register built-in provider factories for lazy initialization."""

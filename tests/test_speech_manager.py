@@ -1,6 +1,7 @@
 """Unit tests for the SpeechManager TTS summary helper."""
 
 import asyncio
+from concurrent.futures import Future
 from types import MethodType
 import logging
 import os
@@ -411,6 +412,64 @@ def reset_texttospeech_stub():
 
     if hasattr(texttospeech, "_reset_stub_state"):
         texttospeech._reset_stub_state()
+
+
+def test_initialize_schedules_default_tts_bootstrap(speech_manager, monkeypatch):
+    sentinel_future = Future()
+    calls = []
+
+    def fake_start(self, provider_key):
+        calls.append(provider_key)
+        self._tts_initialization_futures[provider_key] = sentinel_future
+        return sentinel_future
+
+    speech_manager._tts_factories["unit_default"] = lambda: object()
+    speech_manager.get_default_tts_provider = MethodType(
+        lambda self: "unit_default",
+        speech_manager,
+    )
+    monkeypatch.setattr(
+        speech_manager,
+        "_start_tts_initialization",
+        MethodType(fake_start, speech_manager),
+    )
+
+    asyncio.run(speech_manager.initialize())
+
+    assert calls == ["unit_default"]
+    assert speech_manager._tts_initialization_futures.get("unit_default") is sentinel_future
+
+
+def test_initialize_handles_missing_default_provider_gracefully(speech_manager):
+    speech_manager.get_default_tts_provider = MethodType(
+        lambda self: "ghost",
+        speech_manager,
+    )
+
+    asyncio.run(speech_manager.initialize())
+
+    assert speech_manager._tts_initialization_futures == {}
+
+
+def test_initialize_handles_initialization_failure_gracefully(speech_manager, monkeypatch):
+    speech_manager._tts_factories["unit_default"] = lambda: object()
+    speech_manager.get_default_tts_provider = MethodType(
+        lambda self: "unit_default",
+        speech_manager,
+    )
+
+    def raising_start(self, provider_key):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        speech_manager,
+        "_start_tts_initialization",
+        MethodType(raising_start, speech_manager),
+    )
+
+    asyncio.run(speech_manager.initialize())
+
+    assert speech_manager._tts_initialization_futures == {}
 
 
 def test_get_tts_provider_names_returns_ordered_copy(speech_manager):
