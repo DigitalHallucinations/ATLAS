@@ -6,11 +6,10 @@ import inspect
 import importlib.util
 import sys
 from datetime import datetime
-from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system
 
-config_manager = ConfigManager()
+from ATLAS.config import ConfigManager
 logger = setup_logger(__name__)
 
 def get_required_args(function):
@@ -83,10 +82,14 @@ async def use_tool(
     frequency_penalty_var,
     presence_penalty_var,
     conversation_manager,
-    config_manager
+    config_manager=None
 ):
     logger.info(f"use_tool called for user: {user}, conversation_id: {conversation_id}")
     logger.info(f"Message received: {message}")
+
+    if config_manager is None:
+        logger.debug("No ConfigManager supplied to use_tool; instantiating a new one lazily.")
+        config_manager = ConfigManager()
 
     if not isinstance(message, dict):
         normalized_message = {}
@@ -234,10 +237,14 @@ async def call_model_with_new_prompt(
     frequency_penalty_var,
     presence_penalty_var,
     functions,
-    config_manager
+    config_manager=None
 ):
     logger.info("Calling model with new prompt after function execution.")
     logger.info(f"Prompt: {prompt}")
+
+    if config_manager is None:
+        logger.debug("No ConfigManager supplied to call_model_with_new_prompt; instantiating a new one lazily.")
+        config_manager = ConfigManager()
     
     try:
         response = await config_manager.provider_manager.generate_response(
