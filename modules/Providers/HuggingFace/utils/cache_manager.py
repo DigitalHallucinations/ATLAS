@@ -31,5 +31,6 @@ class CacheManager:
         self.save_cache()
 
     def generate_cache_key(self, messages: List[Dict[str, str]], model: str, settings: Dict) -> str:
-        cache_data = json.dumps({"messages": messages, "model": model, "settings": settings})
+        cache_payload = {"messages": messages, "model": model, "settings": settings}
+        cache_data = json.dumps(cache_payload, sort_keys=True, separators=(",", ":"))
         return hashlib.md5(cache_data.encode()).hexdigest()
