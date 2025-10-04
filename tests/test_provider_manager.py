@@ -708,6 +708,10 @@ from GTKUI.Provider_manager.Settings.Google_settings import GoogleSettingsWindow
 from GTKUI.Provider_manager.Settings.Mistral_settings import MistralSettingsWindow
 
 
+def reset_provider_manager_singleton():
+    ProviderManager.reset_singleton()
+
+
 class DummyConfig:
     def __init__(self, root_path):
         self._root_path = root_path
@@ -1278,7 +1282,7 @@ class FakeHFGenerator:
 
 @pytest.fixture
 def provider_manager(tmp_path, monkeypatch):
-    ProviderManager._instance = None
+    reset_provider_manager_singleton()
 
     def fake_load_models(self):
         self.models = {
@@ -1309,7 +1313,7 @@ def provider_manager(tmp_path, monkeypatch):
     manager = asyncio.run(ProviderManager.create(config))
     yield manager
 
-    ProviderManager._instance = None
+    reset_provider_manager_singleton()
 
 
 def test_openai_default_model_uses_cached_list(provider_manager):
@@ -1581,7 +1585,7 @@ def test_fetch_mistral_models_accepts_override(provider_manager, monkeypatch):
 
 
 def test_provider_manager_primes_openai_models_on_startup(tmp_path, monkeypatch):
-    ProviderManager._instance = None
+    reset_provider_manager_singleton()
 
     def fake_load_models(self):
         self.models = {
@@ -1616,7 +1620,7 @@ def test_provider_manager_primes_openai_models_on_startup(tmp_path, monkeypatch)
         assert "gpt-4.1" in cached
         assert "o1" in cached
     finally:
-        ProviderManager._instance = None
+        reset_provider_manager_singleton()
 
 
 def test_save_huggingface_token_refreshes_generator(provider_manager):
@@ -3632,7 +3636,7 @@ def test_switch_openai_reuses_cached_generator(monkeypatch, tmp_path):
         raising=False,
     )
 
-    ProviderManager._instance = None
+    reset_provider_manager_singleton()
     config = DummyConfig(tmp_path.as_posix())
     config.update_api_key("OpenAI", "sk-test")
 
@@ -3643,7 +3647,7 @@ def test_switch_openai_reuses_cached_generator(monkeypatch, tmp_path):
             await manager.generate_response(messages, provider="OpenAI")
             await manager.generate_response(messages, provider="OpenAI")
         finally:
-            ProviderManager._instance = None
+            reset_provider_manager_singleton()
 
     asyncio.run(exercise())
     assert instantiate_count == 1
@@ -3703,7 +3707,7 @@ def test_switch_mistral_reuses_cached_generator(monkeypatch, tmp_path):
         raising=False,
     )
 
-    ProviderManager._instance = None
+    reset_provider_manager_singleton()
     config = DummyConfig(tmp_path.as_posix())
     config.update_api_key("OpenAI", "sk-test")
 
@@ -3715,7 +3719,7 @@ def test_switch_mistral_reuses_cached_generator(monkeypatch, tmp_path):
             await manager.generate_response(messages, provider="Mistral")
             await manager.generate_response(messages, provider="Mistral")
         finally:
-            ProviderManager._instance = None
+            reset_provider_manager_singleton()
 
     asyncio.run(exercise())
     assert instantiate_count == 1
@@ -3775,7 +3779,7 @@ def test_switch_google_reuses_cached_generator(monkeypatch, tmp_path):
         raising=False,
     )
 
-    ProviderManager._instance = None
+    reset_provider_manager_singleton()
     config = DummyConfig(tmp_path.as_posix())
     config.update_api_key("OpenAI", "sk-test")
 
@@ -3787,7 +3791,7 @@ def test_switch_google_reuses_cached_generator(monkeypatch, tmp_path):
             await manager.generate_response(messages, provider="Google")
             await manager.generate_response(messages, provider="Google")
         finally:
-            ProviderManager._instance = None
+            reset_provider_manager_singleton()
 
     asyncio.run(exercise())
     assert instantiate_count == 1
