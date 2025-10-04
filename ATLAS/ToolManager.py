@@ -12,6 +12,8 @@ from modules.Tools.tool_event_system import event_system
 from ATLAS.config import ConfigManager
 logger = setup_logger(__name__)
 
+_function_map_cache = {}
+
 def get_required_args(function):
     logger.info("Retrieving required arguments for the function.")
     sig = inspect.signature(function)
@@ -20,7 +22,7 @@ def get_required_args(function):
         if param.default == param.empty and param.name != 'self'
     ]
 
-def load_function_map_from_current_persona(current_persona):
+def load_function_map_from_current_persona(current_persona, *, refresh=False):
     logger.info("Attempting to load function map from current persona.")
     if not current_persona or "name" not in current_persona:
         logger.error("Current persona is None or does not have a 'name' key.")
@@ -31,15 +33,58 @@ def load_function_map_from_current_persona(current_persona):
     module_name = f'persona_{persona_name}_maps'
 
     try:
-        spec = importlib.util.spec_from_file_location(module_name, maps_path)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        if refresh:
+            logger.info(
+                "Refresh requested for persona '%s'; clearing cached module and function map.",
+                persona_name,
+            )
+            sys.modules.pop(module_name, None)
+            _function_map_cache.pop(persona_name, None)
+
+        if not refresh and persona_name in _function_map_cache:
+            logger.info(
+                "Returning cached function map for persona '%s' without reloading module.",
+                persona_name,
+            )
+            return _function_map_cache[persona_name]
+
+        module = sys.modules.get(module_name)
+
+        if module is None:
+            logger.info(
+                "Module '%s' not found in sys.modules; loading from '%s'.",
+                module_name,
+                maps_path,
+            )
+            spec = importlib.util.spec_from_file_location(module_name, maps_path)
+            if spec is None or spec.loader is None:
+                raise ImportError(
+                    f"Could not load specification for persona '{persona_name}' from {maps_path}"
+                )
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+        else:
+            logger.info(
+                "Reusing already loaded module '%s' from sys.modules for persona '%s'.",
+                module_name,
+                persona_name,
+            )
+
         if hasattr(module, 'function_map'):
-            logger.info(f"Function map successfully loaded for persona '{persona_name}': {module.function_map}")
+            logger.info(
+                "Function map successfully loaded for persona '%s': %s",
+                persona_name,
+                module.function_map,
+            )
+            _function_map_cache[persona_name] = module.function_map
             return module.function_map
         else:
-            logger.warning(f"No 'function_map' found in maps.py for persona '{persona_name}'.")
+            logger.warning(
+                "No 'function_map' found in maps.py for persona '%s'.",
+                persona_name,
+            )
+            _function_map_cache.pop(persona_name, None)
             return None
     except FileNotFoundError:
         logger.error(f"maps.py file not found for persona '{persona_name}' at path: {maps_path}")
