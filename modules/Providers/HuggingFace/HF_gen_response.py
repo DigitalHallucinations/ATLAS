@@ -211,9 +211,28 @@ async def download_model(
             force_download=force,
         )
 
+    semaphore = asyncio.Semaphore(5)
+
+    async def _bounded_download(filename: str) -> str:
+        async with semaphore:
+            return await _download_file(filename)
+
+    tasks = [_bounded_download(file_name) for file_name in repo_files]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
     downloaded_files: List[str] = []
-    for file_name in repo_files:
-        downloaded_files.append(await _download_file(file_name))
+    failures = []
+    for file_name, result in zip(repo_files, results):
+        if isinstance(result, Exception):
+            failures.append((file_name, result))
+        else:
+            downloaded_files.append(result)
+
+    if failures:
+        failure_messages = ", ".join(f"{name}: {exc}" for name, exc in failures)
+        raise RuntimeError(
+            f"Failed to download one or more files for {model_id}: {failure_messages}"
+        ) from failures[0][1]
 
     model_manager = getattr(generator, "model_manager", None)
     if model_manager is not None:
