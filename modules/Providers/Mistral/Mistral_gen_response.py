@@ -908,20 +908,28 @@ class MistralGenerator:
             function_payload = message.get("function_call")
             if not function_payload:
                 continue
+            provider_manager = None
+            if conversation_manager is not None:
+                atlas = getattr(conversation_manager, "ATLAS", None)
+                if atlas is not None:
+                    provider_manager = getattr(atlas, "provider_manager", None)
+            if provider_manager is None:
+                provider_manager = getattr(self.config_manager, "provider_manager", None)
             tool_response = await use_tool(
-                user,
-                conversation_id,
-                {"function_call": function_payload},
-                conversation_manager,
-                function_map,
-                functions,
-                current_persona,
-                temperature,
-                top_p,
-                frequency_penalty,
-                presence_penalty,
-                conversation_manager,
-                self.config_manager,
+                user=user,
+                conversation_id=conversation_id,
+                message={"function_call": function_payload},
+                conversation_history=conversation_manager,
+                function_map=function_map,
+                functions=functions,
+                current_persona=current_persona,
+                temperature_var=temperature,
+                top_p_var=top_p,
+                frequency_penalty_var=frequency_penalty,
+                presence_penalty_var=presence_penalty,
+                conversation_manager=conversation_manager,
+                provider_manager=provider_manager,
+                config_manager=self.config_manager,
             )
             if tool_response is not None:
                 return tool_response
