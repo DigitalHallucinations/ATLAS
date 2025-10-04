@@ -37,3 +37,14 @@ def test_switch_persona_without_prompt_removes_system_messages(missing_prompt):
     assert session.current_persona_prompt is None
     assert all(message["role"] != "system" for message in session.conversation_history)
     assert session.messages_since_last_reminder == 0
+
+
+def test_reset_conversation_refreshes_conversation_id():
+    atlas = DummyAtlas()
+    session = ChatSession(atlas)
+
+    original_id = session.conversation_id
+    session.reset_conversation()
+
+    assert session.conversation_id
+    assert session.conversation_id != original_id

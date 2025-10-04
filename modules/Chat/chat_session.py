@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,7 +38,20 @@ class ChatSession:
         self.current_persona_prompt = None
         self.messages_since_last_reminder = 0
         self.reminder_interval = 10  # Remind of persona every 10 messages
+        self._conversation_id = self._generate_conversation_id()
         self.set_default_provider_and_model()
+
+    def _generate_conversation_id(self) -> str:
+        return uuid.uuid4().hex
+
+    @property
+    def conversation_id(self) -> str:
+        return self._conversation_id
+
+    def get_conversation_id(self) -> str:
+        """Return the current conversation identifier."""
+
+        return self._conversation_id
 
     def set_default_provider_and_model(self):
         self.current_provider = self.ATLAS.get_default_provider()
@@ -144,6 +158,7 @@ class ChatSession:
         self.conversation_history = []
         self.current_persona_prompt = None
         self.messages_since_last_reminder = 0
+        self._conversation_id = self._generate_conversation_id()
         self.set_default_provider_and_model()
 
     def set_model(self, model: str):

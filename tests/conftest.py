@@ -83,12 +83,22 @@ if "google" not in sys.modules:
     speech_module.AudioEncoding = types.SimpleNamespace(MP3=1)
     speech_module.SsmlVoiceGender = _DummySsmlVoiceGender()
 
+    texttospeech_module = types.ModuleType("google.cloud.texttospeech")
+    texttospeech_module.VoiceSelectionParams = _DummyVoiceSelectionParams
+    texttospeech_module.TextToSpeechClient = _DummySpeechClient
+    texttospeech_module.SynthesisInput = _DummySynthesisInput
+    texttospeech_module.AudioConfig = _DummyAudioConfig
+    texttospeech_module.AudioEncoding = types.SimpleNamespace(MP3=1)
+    texttospeech_module.SsmlVoiceGender = _DummySsmlVoiceGender()
+
     cloud_module.speech_v1p1beta1 = speech_module
+    cloud_module.texttospeech = texttospeech_module
     google_module.cloud = cloud_module
 
     sys.modules["google"] = google_module
     sys.modules["google.cloud"] = cloud_module
     sys.modules["google.cloud.speech_v1p1beta1"] = speech_module
+    sys.modules["google.cloud.texttospeech"] = texttospeech_module
 
 
 if "sounddevice" not in sys.modules:
