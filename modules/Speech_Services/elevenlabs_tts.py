@@ -15,10 +15,10 @@ Author: Jeremy Shows - Digital Hallucinations
 Date: 05-11-2025
 """
 
+import asyncio
 import os
 import re
 import pygame
-import threading
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
@@ -140,24 +140,38 @@ class ElevenLabsTTS(BaseTTS):
             }
         }
 
-        logger.info(f"Sending TTS request to Eleven Labs with text: {text}")
-        response = requests.post(tts_url, headers=headers, json=data, stream=True)
+        def download_and_save_audio():
+            logger.info(f"Sending TTS request to Eleven Labs with text: {text}")
+            response = requests.post(tts_url, headers=headers, json=data, stream=True)
 
-        logger.info(f"Eleven Labs API response status: {response.status_code}")
-        if response.ok:
+            logger.info(f"Eleven Labs API response status: {response.status_code}")
+            if not response.ok:
+                logger.error(f"Eleven Labs TTS Error: {response.text}")
+                return None
+
             logger.info("Received TTS response successfully.")
             output_dir = "assets/SCOUT/tts_mp3/"
             os.makedirs(output_dir, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
             output_path = os.path.join(output_dir, f"output_{timestamp}.mp3")
-            
+
             with open(output_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
-                    f.write(chunk)
+                    if chunk:
+                        f.write(chunk)
             logger.info(f"Audio saved to {output_path}")
-            threading.Thread(target=self.play_audio, args=(output_path,)).start()
-        else:
-            logger.error(f"Eleven Labs TTS Error: {response.text}")
+            return output_path
+
+        try:
+            output_path = await asyncio.to_thread(download_and_save_audio)
+        except Exception:
+            logger.exception("Unexpected error while generating audio with Eleven Labs TTS.")
+            return
+
+        if not output_path:
+            return
+
+        await asyncio.to_thread(self.play_audio, output_path)
 
     def set_voice(self, voice: dict):
         """

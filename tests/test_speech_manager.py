@@ -1,10 +1,12 @@
 """Unit tests for the SpeechManager TTS summary helper."""
 
+import asyncio
 from types import MethodType
 import logging
 import os
 import sys
 import types
+from unittest.mock import mock_open
 
 import pytest
 
@@ -260,6 +262,8 @@ from modules.Speech_Services.speech_manager import (
     get_openai_tts_provider_options,
     prepare_openai_settings,
 )
+
+from modules.Speech_Services.elevenlabs_tts import ElevenLabsTTS
 
 
 class _DummyConfig:
@@ -1021,3 +1025,83 @@ def test_set_google_credentials_uses_stored_preferences(speech_manager, monkeypa
     assert new_stt.config.language_code == "fr-FR"
     assert new_stt.config.enable_automatic_punctuation is False
     assert speech_manager.config_manager.google_speech_settings == stored
+
+
+def test_elevenlabs_text_to_speech_uses_async_executor(monkeypatch, tmp_path):
+    monkeypatch.setenv("XI_API_KEY", "key")
+
+    tts = ElevenLabsTTS()
+    tts._use_tts = True
+    tts.configured = True
+    tts.voice_ids = [{"voice_id": "voice-1", "name": "Voice"}]
+
+    class _FixedDatetime:
+        @staticmethod
+        def now():
+            from datetime import datetime as _real_datetime
+
+            return _real_datetime(2024, 1, 2, 3, 4, 5)
+
+    monkeypatch.setattr("modules.Speech_Services.elevenlabs_tts.datetime", _FixedDatetime)
+
+    class _DummyResponse:
+        status_code = 200
+        ok = True
+        text = ""
+
+        def iter_content(self, chunk_size=1):
+            yield b"chunk-1"
+            yield b""
+            yield b"chunk-2"
+
+    monkeypatch.setattr(
+        "modules.Speech_Services.elevenlabs_tts.requests.post",
+        lambda *args, **kwargs: _DummyResponse(),
+    )
+
+    original_join = os.path.join
+
+    def _join(base, *paths):
+        if base == "assets/SCOUT/tts_mp3/":
+            return str(tmp_path.joinpath(*paths))
+        return original_join(base, *paths)
+
+    monkeypatch.setattr("modules.Speech_Services.elevenlabs_tts.os.path.join", _join)
+    monkeypatch.setattr("modules.Speech_Services.elevenlabs_tts.os.makedirs", lambda *a, **k: None)
+
+    playback_paths = []
+
+    def _play_audio(path):
+        playback_paths.append(path)
+
+    monkeypatch.setattr(tts, "play_audio", _play_audio)
+
+    write_handle = mock_open()
+    monkeypatch.setattr("builtins.open", write_handle)
+
+    calls = []
+
+    async def _to_thread(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("modules.Speech_Services.elevenlabs_tts.asyncio.to_thread", _to_thread)
+
+    asyncio.run(tts.text_to_speech("hello world"))
+
+    assert len(calls) == 2
+    download_func, download_args, download_kwargs = calls[0]
+    playback_func, playback_args, playback_kwargs = calls[1]
+
+    assert download_func.__name__ == "download_and_save_audio"
+    assert download_args == () and download_kwargs == {}
+
+    handle = write_handle()
+    handle.write.assert_any_call(b"chunk-1")
+    handle.write.assert_any_call(b"chunk-2")
+
+    expected_path = str(tmp_path / "output_20240102030405.mp3")
+    assert playback_func == tts.play_audio
+    assert playback_args == (expected_path,)
+    assert playback_kwargs == {}
+    assert playback_paths == [expected_path]
