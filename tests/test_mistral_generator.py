@@ -117,6 +117,11 @@ class DummyModelManager:
         self.current_model = model
 
 
+def _build_generator(config):
+    model_manager = DummyModelManager(config)
+    return mistral_module.MistralGenerator(config, model_manager=model_manager)
+
+
 class DummyConfig:
     def __init__(self, settings):
         self._settings = settings
@@ -150,6 +155,25 @@ class DummyConfig:
         return tokens
 
 
+def test_mistral_generator_uses_supplied_model_manager(monkeypatch):
+    settings = {
+        "model": "mistral-unit-test",
+    }
+    config = DummyConfig(settings)
+    provided_manager = DummyModelManager(config)
+
+    class _FailingModelManager(DummyModelManager):
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("Fallback ModelManager should not be instantiated")
+
+    monkeypatch.setattr(mistral_module, "ModelManager", _FailingModelManager)
+
+    generator = mistral_module.MistralGenerator(config, model_manager=provided_manager)
+
+    assert generator.model_manager is provided_manager
+    assert provided_manager.get_current_model() == "mistral-unit-test"
+
+
 def _reset_stubs():
     _StubChat.last_complete_kwargs = None
     _StubChat.last_stream_kwargs = None
@@ -158,7 +182,6 @@ def _reset_stubs():
 
 @pytest.fixture(autouse=True)
 def _patches(monkeypatch):
-    monkeypatch.setattr(mistral_module, "ModelManager", DummyModelManager)
     monkeypatch.setattr(
         mistral_module,
         "load_functions_from_json",
@@ -188,7 +211,7 @@ def test_mistral_generator_applies_config_defaults():
         "stop_sequences": ["<END>", "<STOP>"],
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     async def exercise():
         return await generator.generate_response(
@@ -219,7 +242,7 @@ def test_mistral_generator_includes_prompt_mode_when_configured():
         "prompt_mode": "reasoning",
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     async def exercise():
         return await generator.generate_response(
@@ -241,7 +264,7 @@ def test_mistral_generator_respects_base_url_changes():
     }
 
     config = DummyConfig(settings)
-    generator = mistral_module.MistralGenerator(config)
+    generator = _build_generator(config)
 
     assert _StubMistral.init_kwargs["server_url"] == "https://custom.mistral/v1"
 
@@ -276,7 +299,7 @@ def test_mistral_generator_streams_when_configured_by_default():
         "retry_max_seconds": 8,
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     async def exercise():
         stream = await generator.generate_response(
@@ -304,7 +327,7 @@ def test_mistral_generator_configures_retry_policy(monkeypatch):
         "retry_max_seconds": 12,
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     recorded: Dict[str, Any] = {}
 
@@ -373,7 +396,7 @@ def test_mistral_generator_retries_on_api_error(monkeypatch):
         "retry_max_seconds": 5,
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     call_counts = {"complete": 0}
 
@@ -458,7 +481,7 @@ def test_mistral_generator_omits_max_tokens_when_using_provider_default():
         "stop_sequences": [],
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     async def exercise():
         return await generator.generate_response(
@@ -488,7 +511,7 @@ def test_mistral_generator_treats_zero_override_as_provider_default():
         "stop_sequences": [],
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     async def exercise():
         return await generator.generate_response(
@@ -512,7 +535,7 @@ def test_mistral_generator_translates_functions_to_tools():
         "stop_sequences": [],
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     async def exercise():
         return await generator.generate_response(
@@ -549,7 +572,7 @@ def test_mistral_generator_preserves_message_metadata_in_payload():
         "stream": False,
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     conversation = [
         {
@@ -628,7 +651,7 @@ def test_mistral_generator_overrides_stop_sequences_argument():
         "stop_sequences": ["DEFAULT"],
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     async def exercise():
         return await generator.generate_response(
@@ -650,7 +673,7 @@ def test_mistral_generator_applies_json_mode_response_format():
         "json_mode": True,
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     async def exercise():
         return await generator.generate_response(
@@ -675,7 +698,7 @@ def test_mistral_generator_passes_json_schema_response_format():
         "json_schema": schema_payload,
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
 
     async def exercise():
         stream = await generator.generate_response(
@@ -699,7 +722,7 @@ def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
         "stream": False,
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
     recorded_messages = []
 
     async def fake_use_tool(*args, **_kwargs):
@@ -760,7 +783,7 @@ def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
         "stream": True,
     }
 
-    generator = mistral_module.MistralGenerator(DummyConfig(settings))
+    generator = _build_generator(DummyConfig(settings))
     recorded_messages = []
 
     async def fake_use_tool(*args, **_kwargs):

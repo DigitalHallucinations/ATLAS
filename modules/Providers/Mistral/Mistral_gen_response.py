@@ -23,7 +23,11 @@ from modules.logging.logger import setup_logger
 _SUPPORTED_PROMPT_MODES = {"reasoning"}
 
 class MistralGenerator:
-    def __init__(self, config_manager: ConfigManager):
+    def __init__(
+        self,
+        config_manager: ConfigManager,
+        model_manager: Optional[ModelManager] = None,
+    ):
         self.config_manager = config_manager
         self.logger = setup_logger(__name__)
         self.api_key = self.config_manager.get_mistral_api_key()
@@ -32,7 +36,7 @@ class MistralGenerator:
             raise ValueError("Mistral API key not found in configuration")
         self._base_url: Optional[str] = None
         self.client = self._instantiate_client(None)
-        self.model_manager = ModelManager(config_manager)
+        self.model_manager = model_manager or ModelManager(config_manager)
         settings = self._get_settings_snapshot()
         default_model = settings.get("model")
         if isinstance(default_model, str) and default_model.strip():
@@ -949,11 +953,16 @@ class MistralGenerator:
 _GENERATOR_CACHE: "WeakKeyDictionary[ConfigManager, MistralGenerator]" = WeakKeyDictionary()
 
 
-def get_generator(config_manager: ConfigManager) -> MistralGenerator:
+def get_generator(
+    config_manager: ConfigManager,
+    model_manager: Optional[ModelManager] = None,
+) -> MistralGenerator:
     generator = _GENERATOR_CACHE.get(config_manager)
     if generator is None:
-        generator = MistralGenerator(config_manager)
+        generator = MistralGenerator(config_manager, model_manager=model_manager)
         _GENERATOR_CACHE[config_manager] = generator
+    elif model_manager is not None and generator.model_manager is not model_manager:
+        generator.model_manager = model_manager
     return generator
 
 
