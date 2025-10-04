@@ -34,6 +34,7 @@ class PersonaManager:
             config_manager = master.config_manager
         self.config_manager = config_manager or ConfigManager()
         self.logger = setup_logger(__name__)
+        self.user_data_manager = UserDataManager(self.user)
         self.persona_base_path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'Personas')
         self.persona_names: List[str] = self.load_persona_names(self.persona_base_path)
         self.personas: Dict[str, dict] = {}  # Cache for loaded personas
@@ -326,7 +327,7 @@ class PersonaManager:
             str: The personalized system prompt.
         """
         self.logger.info(f"Building system prompt for persona '{persona.get('name')}'.")
-        user_data_manager = UserDataManager(self.user)
+        user_data_manager = self.user_data_manager
 
         # General user data available to all personas
         user_data = {
