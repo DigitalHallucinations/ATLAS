@@ -162,7 +162,7 @@ def _patch_heavy_dependencies(monkeypatch):
     monkeypatch.setattr(manager_module.psutil, "virtual_memory", lambda: SimpleNamespace(available=1024 * 1024 * 1024))
 
 
-def test_load_model_downloads_when_token_present(monkeypatch, tmp_path):
+def test_load_model_downloads_when_token_present(monkeypatch, tmp_path, caplog):
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     config_manager = _DummyConfigManager(token="hf_token", cache_dir=str(cache_dir))
@@ -181,17 +181,29 @@ def test_load_model_downloads_when_token_present(monkeypatch, tmp_path):
 
     def _fake_download(repo_id, filename, cache_dir):
         download_calls.append(("download", repo_id, filename))
-        dummy_file = Path(cache_dir) / "dummy"
-        dummy_file.parent.mkdir(parents=True, exist_ok=True)
-        dummy_file.touch()
+        model_dir = Path(cache_dir) / f"models--{repo_id.replace('/', '--')}"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        dummy_file = model_dir / filename
+        dummy_file.write_bytes(b"data")
         return str(dummy_file)
 
     monkeypatch.setattr(manager_module, "hf_hub_download", _fake_download)
 
+    caplog.set_level("INFO")
     asyncio.run(manager.load_model("test/model", force_download=True))
 
     assert ("list", "test/model") in download_calls
     assert any(call[0] == "download" for call in download_calls)
+
+    summary_message = next(
+        (record.message for record in caplog.records if "Cache directory summary" in record.message),
+        None,
+    )
+
+    assert summary_message is not None
+    assert "Cache directory summary" in summary_message
+    assert "1 file" in summary_message
+    assert "4 B total" in summary_message
 
 
 def test_load_model_uses_local_when_token_missing(monkeypatch, tmp_path):
