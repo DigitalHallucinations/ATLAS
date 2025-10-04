@@ -3,9 +3,11 @@
 
 import os
 import re
-import pygame
+import tempfile
 import threading
 from typing import Any, Optional, Tuple
+
+import pygame
 from google.cloud import texttospeech
 from modules.logging.logger import setup_logger
 from .base import BaseTTS
@@ -13,7 +15,6 @@ from .base import BaseTTS
 logger = setup_logger('google_tts.py')
 
 CHUNK_SIZE = 1024
-OUTPUT_PATH = "assets/SCOUT/tts_mp3/output.mp3"
 
 class GoogleTTS(BaseTTS):
     def __init__(self):
@@ -33,6 +34,11 @@ class GoogleTTS(BaseTTS):
         while pygame.mixer.music.get_busy():
             pygame.time.Clock().tick(10)
         logger.info("Audio playback finished.")
+        try:
+            os.remove(filename)
+            logger.debug(f"Removed temporary audio file: {filename}")
+        except OSError as exc:
+            logger.warning(f"Failed to remove temporary audio file {filename}: {exc}")
 
     def contains_code(self, text: str) -> bool:
         logger.debug(f"Checking if text contains code: {text}")
@@ -63,12 +69,12 @@ class GoogleTTS(BaseTTS):
             logger.error(f"Google TTS synthesis error: {e}")
             return
 
-        os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-        with open(OUTPUT_PATH, "wb") as out:
-            out.write(response.audio_content)
-            logger.info(f'Audio content written to "{OUTPUT_PATH}"')
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
+            tmp_file.write(response.audio_content)
+            temp_path = tmp_file.name
+        logger.info(f'Audio content written to temporary file "{temp_path}"')
 
-        threading.Thread(target=self.play_audio, args=(OUTPUT_PATH,)).start()
+        threading.Thread(target=self.play_audio, args=(temp_path,)).start()
 
     def _normalize_voice_payload(self, voice: Any) -> Tuple[Optional[str], Optional[str]]:
         if isinstance(voice, dict):
