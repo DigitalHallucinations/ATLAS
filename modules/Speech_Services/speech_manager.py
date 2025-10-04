@@ -14,6 +14,7 @@ Author: Jeremy Shows - Digital Hallucinations
 Date: 05-11-2025
 """
 
+import inspect
 from typing import Dict, Any, List, Optional, Tuple, Callable
 from concurrent.futures import Future
 import os
@@ -247,6 +248,8 @@ class SpeechManager:
         self.stt_services: Dict[str, Any] = {}
         self._tts_factories: Dict[str, Callable[[], Any]] = {}
         self._stt_factories: Dict[str, Callable[[], Any]] = {}
+        self._tts_initialization_futures: Dict[str, Future[Any]] = {}
+        self._tts_initialization_errors: Dict[str, Exception] = {}
         self._active_tts_key: Optional[str] = None
         self.active_tts = None
         self._active_stt_instance = None
@@ -319,6 +322,117 @@ class SpeechManager:
 
         for provider_key in list(self._stt_factories.keys()):
             self.get_stt_provider(provider_key)
+
+    def _start_tts_initialization(self, provider_key: str) -> Future[Any]:
+        """Ensure a background bootstrap is running for the given TTS provider."""
+
+        if provider_key in self.tts_services:
+            future: Future[Any] = Future()
+            future.set_result(self.tts_services[provider_key])
+            return future
+
+        future = self._tts_initialization_futures.get(provider_key)
+        if future is not None:
+            return future
+
+        factory = self._tts_factories.get(provider_key)
+        if not factory:
+            raise KeyError(provider_key)
+
+        async def instantiate_provider() -> Any:
+            instance = factory()
+            ensure_ready = getattr(instance, "ensure_ready", None)
+            if callable(ensure_ready):
+                try:
+                    maybe_awaitable = ensure_ready()
+                except Exception:
+                    raise
+                else:
+                    if inspect.isawaitable(maybe_awaitable):
+                        await maybe_awaitable
+            return instance
+
+        def on_success(instance: Any) -> None:
+            self.tts_services[provider_key] = instance
+            self._tts_initialization_errors.pop(provider_key, None)
+            self._tts_initialization_futures.pop(provider_key, None)
+            if self._active_tts_key is None:
+                self._active_tts_key = provider_key
+            if self._active_tts_key == provider_key:
+                self.active_tts = instance
+
+        def on_error(exc: Exception) -> None:
+            self._tts_initialization_errors[provider_key] = exc
+            self._tts_initialization_futures.pop(provider_key, None)
+
+        future = run_async_in_thread(
+            instantiate_provider,
+            on_success=on_success,
+            on_error=on_error,
+            logger=logger,
+            thread_name=f"TTSInit-{provider_key}",
+        )
+        self._tts_initialization_futures[provider_key] = future
+        return future
+
+    async def wait_for_tts_provider(
+        self,
+        provider: Optional[str] = None,
+        *,
+        timeout: Optional[float] = None,
+    ) -> Any:
+        """Await completion of a provider's background initialization."""
+
+        provider_key = provider or self.get_default_tts_provider()
+        if not provider_key:
+            raise RuntimeError("No default TTS provider configured.")
+
+        instance = self.tts_services.get(provider_key)
+        if instance is not None:
+            return instance
+
+        error = self._tts_initialization_errors.get(provider_key)
+        if error is not None:
+            raise error
+
+        try:
+            future = self._start_tts_initialization(provider_key)
+        except KeyError:
+            raise RuntimeError(f"TTS provider '{provider_key}' is not registered.")
+
+        try:
+            awaitable = asyncio.wrap_future(future)
+            if timeout is not None:
+                instance = await asyncio.wait_for(awaitable, timeout)
+            else:
+                instance = await awaitable
+        except Exception as exc:  # noqa: BLE001 - propagate for UI handling
+            self._tts_initialization_errors[provider_key] = exc
+            raise
+
+        self.tts_services[provider_key] = instance
+        if self._active_tts_key is None:
+            self._active_tts_key = provider_key
+        if self._active_tts_key == provider_key:
+            self.active_tts = instance
+        return instance
+
+    def is_tts_initializing(self, provider: Optional[str] = None) -> bool:
+        """Return ``True`` if the given provider is currently bootstrapping."""
+
+        provider_key = provider or self.get_default_tts_provider()
+        if not provider_key:
+            return False
+        future = self._tts_initialization_futures.get(provider_key)
+        return bool(future and not future.done())
+
+    def get_tts_initialization_error(self, provider: Optional[str] = None) -> Optional[Exception]:
+        """Return the last initialization error for a provider, if any."""
+
+        provider_key = provider or self.get_default_tts_provider()
+        if not provider_key:
+            return None
+        return self._tts_initialization_errors.get(provider_key)
 
     @staticmethod
     def _restore_env_var(env_key: str, previous_value: Optional[str]):
@@ -897,28 +1011,52 @@ class SpeechManager:
 
     # ----------------------- TTS Methods -----------------------
 
-    def get_tts_provider(self, provider: Optional[str] = None) -> Optional[Any]:
-        """Return a TTS provider instance, creating it lazily when required."""
+    def get_tts_provider(self, provider: Optional[str] = None, *, wait: bool = False) -> Optional[Any]:
+        """Return a TTS provider instance, starting background initialization if required."""
 
         provider_key = provider or self.get_default_tts_provider()
         if not provider_key:
             logger.error("No default TTS provider configured.")
             return None
 
-        if provider_key in self.tts_services:
-            instance = self.tts_services[provider_key]
-        else:
-            factory = self._tts_factories.get(provider_key)
-            if not factory:
-                logger.error(f"TTS provider '{provider_key}' is not registered.")
-                return None
-            try:
-                instance = factory()
-            except Exception as exc:
-                logger.error(f"Failed to initialize TTS provider '{provider_key}': {exc}")
-                return None
-            self.tts_services[provider_key] = instance
+        instance = self.tts_services.get(provider_key)
+        if instance is not None:
+            if self._active_tts_key is None:
+                self._active_tts_key = provider_key
+            if self._active_tts_key == provider_key:
+                self.active_tts = instance
+            return instance
 
+        error = self._tts_initialization_errors.get(provider_key)
+        if error is not None:
+            logger.error(
+                "TTS provider '%s' failed to initialize: %s",
+                provider_key,
+                error,
+            )
+            return None
+
+        try:
+            future = self._start_tts_initialization(provider_key)
+        except KeyError:
+            logger.error("TTS provider '%s' is not registered.", provider_key)
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to schedule initialization for '%s': %s", provider_key, exc)
+            return None
+
+        if not wait and not future.done():
+            logger.debug("Initialization for TTS provider '%s' is running in the background.", provider_key)
+            return None
+
+        try:
+            instance = future.result()
+        except Exception as exc:  # noqa: BLE001
+            self._tts_initialization_errors[provider_key] = exc
+            logger.error("TTS provider '%s' initialization failed: %s", provider_key, exc)
+            return None
+
+        self.tts_services[provider_key] = instance
         if self._active_tts_key is None:
             self._active_tts_key = provider_key
         if self._active_tts_key == provider_key:
@@ -939,9 +1077,10 @@ class SpeechManager:
             return
 
         provider = provider or self.get_default_tts_provider()
-        tts = self.get_tts_provider(provider)
-        if not tts:
-            logger.error(f"TTS provider '{provider}' not found.")
+        try:
+            tts = await self.wait_for_tts_provider(provider)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to initialize TTS provider '%s': %s", provider, exc)
             return
 
         await tts.text_to_speech(text)
@@ -957,7 +1096,18 @@ class SpeechManager:
         provider = provider or self.get_default_tts_provider()
         tts = self.get_tts_provider(provider)
         if not tts:
-            logger.error(f"TTS provider '{provider}' not found.")
+            error = self.get_tts_initialization_error(provider)
+            if error:
+                logger.error(
+                    "Cannot set voice for provider '%s' because initialization failed: %s",
+                    provider,
+                    error,
+                )
+            else:
+                logger.warning(
+                    "TTS provider '%s' is not ready yet; voice selection will be retried later.",
+                    provider,
+                )
             return
         tts.set_voice(voice)
 
@@ -974,7 +1124,18 @@ class SpeechManager:
         provider = provider or self.get_default_tts_provider()
         tts = self.get_tts_provider(provider)
         if not tts:
-            logger.error(f"TTS provider '{provider}' not found.")
+            error = self.get_tts_initialization_error(provider)
+            if error:
+                logger.error(
+                    "Failed to retrieve voices for provider '%s': %s",
+                    provider,
+                    error,
+                )
+            else:
+                logger.warning(
+                    "Voices for provider '%s' are not yet available (initializing).",
+                    provider,
+                )
             return []
         return tts.get_voices()
 
@@ -989,7 +1150,18 @@ class SpeechManager:
         if provider:
             tts = self.get_tts_provider(provider)
             if not tts:
-                logger.error(f"TTS provider '{provider}' not found.")
+                error = self.get_tts_initialization_error(provider)
+                if error:
+                    logger.error(
+                        "Cannot update TTS status for provider '%s': %s",
+                        provider,
+                        error,
+                    )
+                else:
+                    logger.warning(
+                        "Skipping status update; provider '%s' is still initializing.",
+                        provider,
+                    )
                 return
             tts.set_tts(value)
             logger.info(f"TTS for provider '{provider}' set to {value}.")
@@ -1015,7 +1187,18 @@ class SpeechManager:
         if provider:
             tts = self.get_tts_provider(provider)
             if not tts:
-                logger.error(f"TTS provider '{provider}' not found.")
+                error = self.get_tts_initialization_error(provider)
+                if error:
+                    logger.error(
+                        "Cannot query TTS status for provider '%s': %s",
+                        provider,
+                        error,
+                    )
+                else:
+                    logger.warning(
+                        "TTS status unavailable; provider '%s' is initializing.",
+                        provider,
+                    )
                 return False
             return tts.get_tts()
         else:
@@ -1083,7 +1266,19 @@ class SpeechManager:
         """
         tts = self.get_tts_provider(provider)
         if not tts:
-            logger.error(f"TTS provider '{provider}' not found.")
+            error = self.get_tts_initialization_error(provider)
+            if error:
+                logger.error(
+                    "Cannot set default TTS provider '%s' due to initialization failure: %s",
+                    provider,
+                    error,
+                )
+                return
+            self._active_tts_key = provider
+            logger.info(
+                "Default TTS provider set to '%s' (initialization in progress).",
+                provider,
+            )
             return
         self._active_tts_key = provider
         self.active_tts = tts

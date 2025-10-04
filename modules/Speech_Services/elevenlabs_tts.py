@@ -18,11 +18,16 @@ Date: 05-11-2025
 import asyncio
 import os
 import re
+import threading
+from typing import Optional
+
 import pygame
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
+
 from modules.logging.logger import setup_logger
+
 from .base import BaseTTS
 
 logger = setup_logger('eleven_labs_tts.py')
@@ -36,7 +41,11 @@ class ElevenLabsTTS(BaseTTS):
         self.configured = False  # Flag indicating whether API key is configured.
         self._mixer_failed = False
         self._mixer_failure_logged = False
-        self.load_voices()
+
+        # Bootstrap state
+        self._initialization_error: Optional[Exception] = None
+        self._initialization_lock: Optional[asyncio.Lock] = None
+        self._lock_guard = threading.Lock()
 
     def _ensure_mixer_ready(self) -> bool:
         """Ensures the pygame mixer is initialized before playback."""
@@ -57,41 +66,84 @@ class ElevenLabsTTS(BaseTTS):
 
         return True
 
-    def load_voices(self):
-        """
-        Loads available voices from the Eleven Labs API.
-        Reads the XI_API_KEY from the environment.
-        If the API key is not provided, logs a warning and disables further functionality.
-        """
+    def _load_voices_sync(self) -> None:
+        """Load the available voices from Eleven Labs synchronously."""
+
         load_dotenv()
-        XI_API_KEY = os.getenv("XI_API_KEY")
-        if not XI_API_KEY:
-            logger.error("XI_API_KEY not found. Eleven Labs TTS is disabled. Please configure the API key.")
+        xi_api_key = os.getenv("XI_API_KEY")
+        if not xi_api_key:
             self.configured = False
             self.voice_ids = []
-            return  # Do not raise an exception; allow the app to continue.
-        else:
-            self.configured = True
+            logger.error("XI_API_KEY not found. Eleven Labs TTS is disabled. Please configure the API key.")
+            raise RuntimeError("XI_API_KEY is not configured for Eleven Labs TTS.")
 
         url = "https://api.elevenlabs.io/v1/voices"
         headers = {
             "Accept": "application/json",
-            "xi-api-key": XI_API_KEY,
-            "Content-Type": "application/json"
+            "xi-api-key": xi_api_key,
+            "Content-Type": "application/json",
         }
 
         logger.info("Fetching voices from Eleven Labs API...")
-        response = requests.get(url, headers=headers)
-        if response.ok:
-            data = response.json()
-            self.voice_ids = [{'voice_id': voice['voice_id'], 'name': voice['name']} for voice in data.get('voices', [])]
-            if self.voice_ids:
-                logger.info(f"Loaded {len(self.voice_ids)} voices from Eleven Labs.")
-            else:
-                logger.error("No voices found in Eleven Labs.")
-        else:
-            logger.error(f"Failed to fetch voices: {response.text}")
+        try:
+            response = requests.get(url, headers=headers, timeout=30)
+        except Exception as exc:  # noqa: BLE001 - propagate precise error upstream
+            logger.error("Failed to fetch voices from Eleven Labs: %s", exc)
             self.voice_ids = []
+            self.configured = False
+            raise RuntimeError("Unable to contact Eleven Labs voice API.") from exc
+
+        if not response.ok:
+            logger.error("Failed to fetch voices: %s", response.text)
+            self.voice_ids = []
+            self.configured = False
+            raise RuntimeError(f"Eleven Labs voice request failed with status {response.status_code}.")
+
+        data = response.json()
+        voices = [
+            {"voice_id": voice["voice_id"], "name": voice["name"]}
+            for voice in data.get("voices", [])
+        ]
+
+        if not voices:
+            logger.error("No voices found in Eleven Labs response.")
+            self.voice_ids = []
+            self.configured = False
+            raise RuntimeError("Eleven Labs returned no available voices.")
+
+        self.voice_ids = voices
+        self.configured = True
+        logger.info("Loaded %s voices from Eleven Labs.", len(self.voice_ids))
+
+    async def ensure_ready(self) -> None:
+        """Ensure the provider has loaded voices before use."""
+
+        if self.configured and self.voice_ids:
+            return
+        if self._initialization_error is not None:
+            raise self._initialization_error
+
+        # Lazily create the asyncio lock when a loop is available.
+        if self._initialization_lock is None:
+            with self._lock_guard:
+                if self._initialization_lock is None:
+                    self._initialization_lock = asyncio.Lock()
+
+        assert self._initialization_lock is not None  # For type checkers
+
+        async with self._initialization_lock:
+            if self.configured and self.voice_ids:
+                return
+            if self._initialization_error is not None:
+                raise self._initialization_error
+
+            try:
+                await asyncio.to_thread(self._load_voices_sync)
+            except Exception as exc:  # noqa: BLE001 - propagate to caller
+                self._initialization_error = exc
+                raise
+            else:
+                self._initialization_error = None
 
     def play_audio(self, filename):
         """
@@ -131,10 +183,16 @@ class ElevenLabsTTS(BaseTTS):
         """
         Converts text to speech by sending a request to the Eleven Labs API.
         If TTS is disabled or the service is not configured, the method logs the state and returns.
-        
+
         Args:
             text (str): Text to be converted to speech.
         """
+        try:
+            await self.ensure_ready()
+        except Exception:
+            logger.exception("Eleven Labs TTS failed to initialize; skipping speech synthesis.")
+            return
+
         if not self._use_tts:
             logger.info("TTS is turned off.")
             return
