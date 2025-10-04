@@ -398,6 +398,65 @@ def test_resolve_tts_provider_prefers_registered_choice(speech_manager):
     assert resolved == "custom"
 
 
+def test_google_tts_uses_unique_temp_files_and_cleans_up(monkeypatch, tmp_path):
+    from modules.Speech_Services import Google_tts
+
+    google_tts = Google_tts.GoogleTTS()
+    google_tts.set_tts(True)
+
+    created_paths = []
+    original_named_tempfile = Google_tts.tempfile.NamedTemporaryFile
+
+    def tracking_named_tempfile(*args, **kwargs):
+        kwargs.setdefault("dir", tmp_path)
+        tmp_file = original_named_tempfile(*args, **kwargs)
+        created_paths.append(tmp_file.name)
+        return tmp_file
+
+    monkeypatch.setattr(Google_tts.tempfile, "NamedTemporaryFile", tracking_named_tempfile)
+
+    loaded_files = []
+
+    def tracking_load(filename):
+        loaded_files.append(filename)
+
+    pygame = sys.modules["pygame"]
+    monkeypatch.setattr(pygame.mixer.music, "load", tracking_load)
+
+    busy_states = [True, False]
+
+    def tracking_get_busy():
+        if busy_states:
+            return busy_states.pop(0)
+        return False
+
+    monkeypatch.setattr(pygame.mixer.music, "get_busy", tracking_get_busy)
+
+    class ImmediateThread:
+        def __init__(self, *, target=None, args=(), kwargs=None):
+            self._target = target
+            self._args = args
+            self._kwargs = kwargs or {}
+
+        def start(self):
+            if self._target is not None:
+                self._target(*self._args, **self._kwargs)
+
+    monkeypatch.setattr(Google_tts.threading, "Thread", lambda target=None, args=(), kwargs=None: ImmediateThread(target=target, args=args, kwargs=kwargs))
+
+    async def run_requests():
+        await google_tts.text_to_speech("hello")
+        await google_tts.text_to_speech("world")
+
+    asyncio.run(run_requests())
+
+    assert len(created_paths) == 2
+    assert len(set(created_paths)) == 2, "Each synthesis should create a unique temp file"
+    assert loaded_files == created_paths, "Playback should load the specific temp files"
+    for path in created_paths:
+        assert not os.path.exists(path), "Temporary audio files should be removed after playback"
+
+
 def test_resolve_tts_provider_falls_back_to_eleven_labs(speech_manager):
     speech_manager.tts_services["eleven_labs"] = object()
     speech_manager.tts_services["google"] = object()
