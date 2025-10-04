@@ -27,14 +27,35 @@ from .base import BaseTTS
 
 logger = setup_logger('eleven_labs_tts.py')
 
-CHUNK_SIZE = 1024 
+CHUNK_SIZE = 1024
 
 class ElevenLabsTTS(BaseTTS):
     def __init__(self):
         self._use_tts = True
         self.voice_ids = []
         self.configured = False  # Flag indicating whether API key is configured.
+        self._mixer_failed = False
+        self._mixer_failure_logged = False
         self.load_voices()
+
+    def _ensure_mixer_ready(self) -> bool:
+        """Ensures the pygame mixer is initialized before playback."""
+        if self._mixer_failed:
+            return False
+
+        if pygame.mixer.get_init():
+            return True
+
+        try:
+            pygame.mixer.init()
+        except Exception as exc:
+            if not self._mixer_failure_logged:
+                logger.error("Failed to initialize pygame mixer: %s", exc)
+                self._mixer_failure_logged = True
+            self._mixer_failed = True
+            return False
+
+        return True
 
     def load_voices(self):
         """
@@ -77,12 +98,21 @@ class ElevenLabsTTS(BaseTTS):
         Plays the specified audio file.
         """
         logger.info(f"Playing audio file: {filename}")
-        pygame.mixer.init()
-        pygame.mixer.music.load(filename)
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
-        logger.info("Audio playback finished.")
+        if not self._ensure_mixer_ready():
+            logger.warning("Skipping audio playback because the mixer could not be initialized.")
+            return
+
+        try:
+            pygame.mixer.music.load(filename)
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                pygame.time.Clock().tick(10)
+            logger.info("Audio playback finished.")
+        except Exception:
+            logger.exception("Error occurred during audio playback.")
+        finally:
+            if pygame.mixer.get_init():
+                pygame.mixer.music.stop()
 
     def contains_code(self, text: str) -> bool:
         """
@@ -210,7 +240,7 @@ class ElevenLabsTTS(BaseTTS):
     def get_tts(self) -> bool:
         """
         Gets the current TTS enabled status.
-        
+
         Returns:
             bool: True if enabled, False otherwise.
         """
