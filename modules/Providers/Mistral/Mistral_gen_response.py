@@ -20,6 +20,8 @@ from modules.logging.logger import setup_logger
 
 _SUPPORTED_PROMPT_MODES = {"reasoning"}
 
+_MISTRAL_GENERATOR_INSTANCE: Optional["MistralGenerator"] = None
+
 class MistralGenerator:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
@@ -908,7 +910,7 @@ class MistralGenerator:
             return full_response
 
 def setup_mistral_generator(config_manager: ConfigManager):
-    return MistralGenerator(config_manager)
+    return get_mistral_generator(config_manager)
 
 async def generate_response(
     config_manager: ConfigManager,
@@ -920,7 +922,7 @@ async def generate_response(
     current_persona=None,
     functions=None,
 ) -> Union[str, AsyncIterator[str]]:
-    generator = setup_mistral_generator(config_manager)
+    generator = get_mistral_generator(config_manager)
     return await generator.generate_response(messages, model, max_tokens, temperature, stream, current_persona, functions)
 
 async def process_response(response: Union[str, AsyncIterator[str]]) -> str:
@@ -948,3 +950,15 @@ def generate_response_sync(config_manager: ConfigManager, messages: List[Dict[st
     if stream:
         return loop.run_until_complete(process_response(response))
     return response
+
+
+def get_mistral_generator(config_manager: ConfigManager) -> MistralGenerator:
+    global _MISTRAL_GENERATOR_INSTANCE
+    if _MISTRAL_GENERATOR_INSTANCE is None:
+        _MISTRAL_GENERATOR_INSTANCE = MistralGenerator(config_manager)
+    return _MISTRAL_GENERATOR_INSTANCE
+
+
+def reset_mistral_generator_cache() -> None:
+    global _MISTRAL_GENERATOR_INSTANCE
+    _MISTRAL_GENERATOR_INSTANCE = None

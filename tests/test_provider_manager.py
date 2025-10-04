@@ -583,6 +583,40 @@ def _ensure_async_function_module(module_name: str, return_value: str):
 
     stub.generate_response = _generate_response
 
+    class _StubGenerator:
+        instantiations = 0
+
+        def __init__(self, *_args, **_kwargs):
+            type(self).instantiations += 1
+
+        async def generate_response(self, *_args, **_kwargs):  # pragma: no cover - placeholder
+            return return_value
+
+    cached_instance = {"generator": None}
+
+    def _get_generator(_config_manager=None):  # pragma: no cover - placeholder
+        if cached_instance["generator"] is None:
+            cached_instance["generator"] = _StubGenerator()
+        return cached_instance["generator"]
+
+    def _reset_generator():  # pragma: no cover - placeholder
+        cached_instance["generator"] = None
+
+    if "OpenAI" in module_name:
+        stub.OpenAIGenerator = _StubGenerator
+        stub.get_openai_generator = _get_generator
+        stub.reset_openai_generator_cache = _reset_generator
+    elif "Mistral" in module_name:
+        stub.MistralGenerator = _StubGenerator
+        stub.get_mistral_generator = _get_generator
+        stub.reset_mistral_generator_cache = _reset_generator
+        stub.setup_mistral_generator = _get_generator
+    elif "Google" in module_name:
+        stub.GoogleGeminiGenerator = _StubGenerator
+        stub.get_google_gemini_generator = _get_generator
+        stub.reset_google_gemini_generator_cache = _reset_generator
+        stub.setup_google_gemini_generator = _get_generator
+
     if module_name.endswith("Anthropic_gen_response"):
         class _StubAnthropicGenerator:
             def __init__(self, *_args, **_kwargs):
@@ -1261,12 +1295,211 @@ def provider_manager(tmp_path, monkeypatch):
     ProviderManager._instance = None
 
 
+def _create_manager_for_caching(monkeypatch, tmp_path):
+    ProviderManager._instance = None
+
+    def fake_load_models(self):
+        self.models = {
+            "OpenAI": [
+                "gpt-4o",
+                "gpt-4o-mini",
+            ],
+            "HuggingFace": ["alpha", "beta"],
+            "Mistral": ["mistral-large-latest"],
+            "Google": ["gemini-1.5-pro-latest"],
+            "Anthropic": ["claude-3-opus-20240229"],
+            "Grok": ["grok-beta"],
+        }
+        self.current_model = None
+        self.current_provider = None
+
+    monkeypatch.setattr(provider_manager_module.ModelManager, "load_models", fake_load_models, raising=False)
+    monkeypatch.setattr(provider_manager_module, "HuggingFaceGenerator", FakeHFGenerator)
+
+    config = DummyConfig(tmp_path.as_posix())
+    return asyncio.run(ProviderManager.create(config))
+
+
+def _install_generator_stub(monkeypatch, getter_name: str, reset_name: str, label: str):
+    counter = {"instantiations": 0}
+
+    class _StubGenerator:
+        def __init__(self, config_manager):
+            counter["instantiations"] += 1
+            self.config_manager = config_manager
+            self.calls = 0
+
+        async def generate_response(self, *args, **kwargs):  # pragma: no cover - helper stub
+            self.calls += 1
+            return f"{label}-response-{self.calls}"
+
+    def _get_generator(config_manager):
+        instance = getattr(_get_generator, "instance", None)
+        if instance is None:
+            instance = _StubGenerator(config_manager)
+            setattr(_get_generator, "instance", instance)
+        return instance
+
+    def _reset_generator():
+        if hasattr(_get_generator, "instance"):
+            delattr(_get_generator, "instance")
+
+    monkeypatch.setattr(provider_manager_module, getter_name, _get_generator, raising=False)
+    monkeypatch.setattr(provider_manager_module, reset_name, _reset_generator, raising=False)
+
+    return counter, _get_generator
+
+
 def test_openai_default_model_uses_cached_list(provider_manager):
     default = provider_manager.get_default_model_for_provider("OpenAI")
 
     assert default == "gpt-4o"
     assert "gpt-4.1" in provider_manager.model_manager.models["OpenAI"]
     assert "o1" in provider_manager.model_manager.models["OpenAI"]
+
+
+def test_generate_response_reuses_cached_openai_generator(monkeypatch, tmp_path):
+    openai_counter, openai_getter = _install_generator_stub(
+        monkeypatch,
+        "get_openai_generator",
+        "reset_openai_generator_cache",
+        "openai",
+    )
+    _install_generator_stub(
+        monkeypatch,
+        "get_mistral_generator",
+        "reset_mistral_generator_cache",
+        "mistral",
+    )
+    _install_generator_stub(
+        monkeypatch,
+        "get_google_gemini_generator",
+        "reset_google_gemini_generator_cache",
+        "google",
+    )
+
+    manager = _create_manager_for_caching(monkeypatch, tmp_path)
+
+    try:
+        async def exercise():
+            await manager.generate_response(
+                messages=[{"role": "user", "content": "Hello"}],
+                provider="OpenAI",
+                model="gpt-4o",
+                stream=False,
+            )
+            await manager.generate_response(
+                messages=[{"role": "user", "content": "Hi again"}],
+                provider="OpenAI",
+                model="gpt-4o",
+                stream=False,
+            )
+
+        asyncio.run(exercise())
+
+        assert openai_counter["instantiations"] == 1
+        generator = getattr(openai_getter, "instance", None)
+        assert generator is not None
+        assert generator is manager.openai_generator
+        assert generator.calls == 2
+    finally:
+        ProviderManager._instance = None
+
+
+def test_generate_response_reuses_cached_mistral_generator(monkeypatch, tmp_path):
+    _install_generator_stub(
+        monkeypatch,
+        "get_openai_generator",
+        "reset_openai_generator_cache",
+        "openai",
+    )
+    mistral_counter, mistral_getter = _install_generator_stub(
+        monkeypatch,
+        "get_mistral_generator",
+        "reset_mistral_generator_cache",
+        "mistral",
+    )
+    _install_generator_stub(
+        monkeypatch,
+        "get_google_gemini_generator",
+        "reset_google_gemini_generator_cache",
+        "google",
+    )
+
+    manager = _create_manager_for_caching(monkeypatch, tmp_path)
+
+    try:
+        async def exercise():
+            await manager.generate_response(
+                messages=[{"role": "user", "content": "Bonjour"}],
+                provider="Mistral",
+                model="mistral-large-latest",
+                stream=False,
+            )
+            await manager.generate_response(
+                messages=[{"role": "user", "content": "Salut"}],
+                provider="Mistral",
+                model="mistral-large-latest",
+                stream=False,
+            )
+
+        asyncio.run(exercise())
+
+        assert mistral_counter["instantiations"] == 1
+        generator = getattr(mistral_getter, "instance", None)
+        assert generator is not None
+        assert generator is manager.mistral_generator
+        assert generator.calls == 2
+    finally:
+        ProviderManager._instance = None
+
+
+def test_generate_response_reuses_cached_google_generator(monkeypatch, tmp_path):
+    _install_generator_stub(
+        monkeypatch,
+        "get_openai_generator",
+        "reset_openai_generator_cache",
+        "openai",
+    )
+    _install_generator_stub(
+        monkeypatch,
+        "get_mistral_generator",
+        "reset_mistral_generator_cache",
+        "mistral",
+    )
+    google_counter, google_getter = _install_generator_stub(
+        monkeypatch,
+        "get_google_gemini_generator",
+        "reset_google_gemini_generator_cache",
+        "google",
+    )
+
+    manager = _create_manager_for_caching(monkeypatch, tmp_path)
+
+    try:
+        async def exercise():
+            await manager.generate_response(
+                messages=[{"role": "user", "content": "Hey"}],
+                provider="Google",
+                model="gemini-1.5-pro-latest",
+                stream=False,
+            )
+            await manager.generate_response(
+                messages=[{"role": "user", "content": "Hey again"}],
+                provider="Google",
+                model="gemini-1.5-pro-latest",
+                stream=False,
+            )
+
+        asyncio.run(exercise())
+
+        assert google_counter["instantiations"] == 1
+        generator = getattr(google_getter, "instance", None)
+        assert generator is not None
+        assert generator is manager.google_gemini_generator
+        assert generator.calls == 2
+    finally:
+        ProviderManager._instance = None
 
 
 def test_huggingface_facade_handles_model_lifecycle(provider_manager):
@@ -2152,7 +2385,8 @@ def test_generate_response_uses_google_defaults(provider_manager):
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
-    provider_manager.providers["Google"] = fake_generate_response
+    provider_manager.generate_response_requires_config = True
+    provider_manager.providers["Google"] = (fake_generate_response, True)
     provider_manager.current_llm_provider = "Google"
     provider_manager.current_model = "gemini-1.5-flash-latest"
 
@@ -2216,7 +2450,8 @@ def test_generate_response_google_omits_hardcoded_max_tokens(provider_manager):
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
-    provider_manager.providers["Google"] = fake_generate_response
+    provider_manager.generate_response_requires_config = True
+    provider_manager.providers["Google"] = (fake_generate_response, True)
     provider_manager.current_llm_provider = "Google"
     provider_manager.current_model = "gemini-1.5-pro-latest"
 
@@ -2259,7 +2494,8 @@ def test_generate_response_google_skips_functions_when_disabled(provider_manager
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
-    provider_manager.providers["Google"] = fake_generate_response
+    provider_manager.generate_response_requires_config = True
+    provider_manager.providers["Google"] = (fake_generate_response, True)
     provider_manager.current_llm_provider = "Google"
     provider_manager.current_model = "gemini-1.5-pro-latest"
     provider_manager.current_functions = [{"name": "persona_tool"}]
@@ -2290,7 +2526,8 @@ def test_generate_response_respects_function_calling_enabled(provider_manager):
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
-    provider_manager.providers["OpenAI"] = fake_generate_response
+    provider_manager.generate_response_requires_config = True
+    provider_manager.providers["OpenAI"] = (fake_generate_response, True)
     provider_manager.current_llm_provider = "OpenAI"
     provider_manager.current_model = "gpt-4o"
 
@@ -2323,7 +2560,8 @@ def test_generate_response_respects_function_calling_disabled(provider_manager):
         return "ok"
 
     provider_manager.generate_response_func = fake_generate_response
-    provider_manager.providers["OpenAI"] = fake_generate_response
+    provider_manager.generate_response_requires_config = True
+    provider_manager.providers["OpenAI"] = (fake_generate_response, True)
     provider_manager.current_llm_provider = "OpenAI"
     provider_manager.current_model = "gpt-4o"
 

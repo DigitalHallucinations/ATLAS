@@ -16,6 +16,9 @@ from ATLAS.ToolManager import (
     use_tool
 )
 
+_OPENAI_GENERATOR_INSTANCE: Optional["OpenAIGenerator"] = None
+
+
 class OpenAIGenerator:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
@@ -1441,7 +1444,7 @@ async def generate_response(
     json_mode: Optional[Any] = None,
     json_schema: Optional[Any] = None
 ) -> Union[str, AsyncIterator[str]]:
-    generator = OpenAIGenerator(config_manager)
+    generator = get_openai_generator(config_manager)
     return await generator.generate_response(
         messages,
         model,
@@ -1464,6 +1467,18 @@ async def generate_response(
         json_mode,
         json_schema
     )
+
+
+def get_openai_generator(config_manager: ConfigManager) -> OpenAIGenerator:
+    global _OPENAI_GENERATOR_INSTANCE
+    if _OPENAI_GENERATOR_INSTANCE is None:
+        _OPENAI_GENERATOR_INSTANCE = OpenAIGenerator(config_manager)
+    return _OPENAI_GENERATOR_INSTANCE
+
+
+def reset_openai_generator_cache() -> None:
+    global _OPENAI_GENERATOR_INSTANCE
+    _OPENAI_GENERATOR_INSTANCE = None
 
 async def process_streaming_response(response: AsyncIterator[Dict]) -> str:
     content = ""

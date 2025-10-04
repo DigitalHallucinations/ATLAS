@@ -23,9 +23,18 @@ from modules.Providers.HuggingFace.HF_gen_response import (
 from modules.Providers.Grok.grok_generate_response import GrokGenerator
 
 # Import other necessary provider generators
-from modules.Providers.OpenAI.OA_gen_response import generate_response as openai_generate_response
-from modules.Providers.Mistral.Mistral_gen_response import generate_response as mistral_generate_response
-from modules.Providers.Google.GG_gen_response import generate_response as google_generate_response
+from modules.Providers.OpenAI.OA_gen_response import (
+    get_openai_generator,
+    reset_openai_generator_cache,
+)
+from modules.Providers.Mistral.Mistral_gen_response import (
+    get_mistral_generator,
+    reset_mistral_generator_cache,
+)
+from modules.Providers.Google.GG_gen_response import (
+    get_google_gemini_generator,
+    reset_google_gemini_generator_cache,
+)
 from modules.Providers.Anthropic.Anthropic_gen_response import AnthropicGenerator
 
 try:  # pragma: no cover - import guard for optional detailed exceptions
@@ -64,10 +73,14 @@ class ProviderManager:
         self.current_background_provider = self.config_manager.get_default_provider()
         self.current_model = None
         self.generate_response_func = None
+        self.generate_response_requires_config = True
         self.process_streaming_response_func = None
         self.huggingface_generator = None
         self.grok_generator = None
         self.anthropic_generator: Optional[AnthropicGenerator] = None
+        self.openai_generator = None
+        self.mistral_generator = None
+        self.google_gemini_generator = None
         self.current_functions = None
         self.providers = {}
         self.chat_session = None  
@@ -142,6 +155,21 @@ class ProviderManager:
             payload["error"] = error or message or "Unknown error"
         return payload
 
+    def _ensure_openai_generator(self):
+        if self.openai_generator is None:
+            self.openai_generator = get_openai_generator(self.config_manager)
+        return self.openai_generator
+
+    def _ensure_mistral_generator(self):
+        if self.mistral_generator is None:
+            self.mistral_generator = get_mistral_generator(self.config_manager)
+        return self.mistral_generator
+
+    def _ensure_google_generator(self):
+        if self.google_gemini_generator is None:
+            self.google_gemini_generator = get_google_gemini_generator(self.config_manager)
+        return self.google_gemini_generator
+
     def _ensure_anthropic_generator(self) -> AnthropicGenerator:
         if self.anthropic_generator is None:
             self.anthropic_generator = AnthropicGenerator(self.config_manager)
@@ -183,6 +211,16 @@ class ProviderManager:
                 exc_info=True,
             )
             return self._build_result(False, error=str(exc))
+
+        if provider_name == "OpenAI":
+            self.openai_generator = None
+            reset_openai_generator_cache()
+        elif provider_name == "Mistral":
+            self.mistral_generator = None
+            reset_mistral_generator_cache()
+        elif provider_name == "Google":
+            self.google_gemini_generator = None
+            reset_google_gemini_generator_cache()
 
         message = f"API Key for {provider_name} saved successfully."
 
@@ -1175,7 +1213,9 @@ class ProviderManager:
 
         try:
             if llm_provider == "OpenAI":
-                self.generate_response_func = openai_generate_response
+                generator = self._ensure_openai_generator()
+                self.generate_response_func = generator.generate_response
+                self.generate_response_requires_config = False
                 self.process_streaming_response_func = None
                 self.grok_generator = None
                 self.huggingface_generator = None
@@ -1188,7 +1228,9 @@ class ProviderManager:
                     raise ValueError("No default model available for OpenAI provider.")
 
             elif llm_provider == "Mistral":
-                self.generate_response_func = mistral_generate_response
+                generator = self._ensure_mistral_generator()
+                self.generate_response_func = generator.generate_response
+                self.generate_response_requires_config = False
                 self.process_streaming_response_func = None
                 self.grok_generator = None
                 self.huggingface_generator = None
@@ -1200,7 +1242,9 @@ class ProviderManager:
                     raise ValueError("No default model available for Mistral provider.")
 
             elif llm_provider == "Google":
-                self.generate_response_func = google_generate_response
+                generator = self._ensure_google_generator()
+                self.generate_response_func = generator.generate_response
+                self.generate_response_requires_config = False
                 self.process_streaming_response_func = None
                 self.grok_generator = None
                 self.huggingface_generator = None
@@ -1220,6 +1264,7 @@ class ProviderManager:
                     raise ValueError(ensure_result.get("error", "Failed to initialize HuggingFace generator."))
 
                 self.generate_response_func = self.huggingface_generator.generate_response
+                self.generate_response_requires_config = False
                 self.process_streaming_response_func = self.huggingface_generator.process_streaming_response
                 default_model = self.get_default_model_for_provider("HuggingFace")
                 if default_model:
@@ -1240,6 +1285,7 @@ class ProviderManager:
                 self.huggingface_generator = None
                 generator = self._ensure_anthropic_generator()
                 self.generate_response_func = self._anthropic_generate_response
+                self.generate_response_requires_config = True
                 self.process_streaming_response_func = generator.process_streaming_response
 
                 default_model = generator.default_model or self.get_default_model_for_provider("Anthropic")
@@ -1253,6 +1299,7 @@ class ProviderManager:
                 self.huggingface_generator = None
                 self.grok_generator = GrokGenerator(self.config_manager)
                 self.generate_response_func = self.grok_generator.generate_response
+                self.generate_response_requires_config = False
                 self.process_streaming_response_func = self.grok_generator.process_streaming_response
                 default_model = self.get_default_model_for_provider("Grok")
                 if default_model:
@@ -1264,7 +1311,9 @@ class ProviderManager:
 
             else:
                 self.logger.warning(f"Provider {llm_provider} is not recognized. Reverting to OpenAI.")
-                self.generate_response_func = openai_generate_response
+                generator = self._ensure_openai_generator()
+                self.generate_response_func = generator.generate_response
+                self.generate_response_requires_config = False
                 self.process_streaming_response_func = None
                 self.grok_generator = None
                 self.huggingface_generator = None
@@ -1276,7 +1325,10 @@ class ProviderManager:
                     raise ValueError("No default model available for OpenAI provider.")
 
             self.current_llm_provider = llm_provider
-            self.providers[llm_provider] = self.generate_response_func
+            self.providers[llm_provider] = (
+                self.generate_response_func,
+                self.generate_response_requires_config,
+            )
 
             self.logger.info(f"Switched to LLM provider: {self.current_llm_provider}")
             if self.current_model:
@@ -1574,10 +1626,15 @@ class ProviderManager:
                 if resolved_max_output_tokens is not None and max_tokens is None:
                     call_kwargs["max_tokens"] = resolved_max_output_tokens
 
-            response = await self.generate_response_func(
-                self.config_manager,
-                **call_kwargs,
-            )
+            if self.generate_response_requires_config:
+                response = await self.generate_response_func(
+                    self.config_manager,
+                    **call_kwargs,
+                )
+            else:
+                response = await self.generate_response_func(
+                    **call_kwargs,
+                )
 
             self.logger.info(f"API call completed in {time.time() - start_time:.2f} seconds")
             return response
@@ -1606,10 +1663,12 @@ class ProviderManager:
             self.logger.error(f"Fallback provider {fallback_provider} is not configured or not available.")
             raise ValueError("Fallback provider configuration is missing or invalid.")
 
-        fallback_function = self.providers.get(fallback_provider)
-        if not fallback_function:
+        fallback_entry = self.providers.get(fallback_provider)
+        if not fallback_entry:
             self.logger.error(f"Fallback provider {fallback_provider} function not found.")
             raise ValueError("Fallback provider function is missing.")
+
+        fallback_function, fallback_requires_config = fallback_entry
 
         self.logger.info(f"Using fallback provider {fallback_provider} for {llm_call_type}")
 
@@ -1639,8 +1698,13 @@ class ProviderManager:
                 max_output_tokens=fallback_config.get('max_output_tokens'),
             )
 
+        if fallback_requires_config:
+            return await fallback_function(
+                self.config_manager,
+                **call_kwargs,
+            )
+
         return await fallback_function(
-            self.config_manager,
             **call_kwargs,
         )
 

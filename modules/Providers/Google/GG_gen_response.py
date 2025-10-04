@@ -19,6 +19,9 @@ from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
 from modules.logging.logger import setup_logger
 
 
+_GOOGLE_GENERATOR_INSTANCE: Optional["GoogleGeminiGenerator"] = None
+
+
 class GoogleGeminiGenerator:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
@@ -683,7 +686,7 @@ class GoogleGeminiGenerator:
 
 
 def setup_google_gemini_generator(config_manager: ConfigManager):
-    return GoogleGeminiGenerator(config_manager)
+    return get_google_gemini_generator(config_manager)
 
 
 async def generate_response(
@@ -705,7 +708,7 @@ async def generate_response(
     system_instruction: Optional[str] = None,
     enable_functions: bool = True,
 ):
-    generator = setup_google_gemini_generator(config_manager)
+    generator = get_google_gemini_generator(config_manager)
     return await generator.generate_response(
         messages=messages,
         model=model,
@@ -736,4 +739,16 @@ async def process_response(response: Union[str, AsyncIterator[str]]) -> str:
         return full_response
     else:
         raise ValueError(f"Unexpected response type: {type(response)}")
+
+
+def get_google_gemini_generator(config_manager: ConfigManager) -> GoogleGeminiGenerator:
+    global _GOOGLE_GENERATOR_INSTANCE
+    if _GOOGLE_GENERATOR_INSTANCE is None:
+        _GOOGLE_GENERATOR_INSTANCE = GoogleGeminiGenerator(config_manager)
+    return _GOOGLE_GENERATOR_INSTANCE
+
+
+def reset_google_gemini_generator_cache() -> None:
+    global _GOOGLE_GENERATOR_INSTANCE
+    _GOOGLE_GENERATOR_INSTANCE = None
 
