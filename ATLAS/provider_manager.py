@@ -202,6 +202,48 @@ class ProviderManager:
             self._google_generator = get_google_generator(self.config_manager)
         return self._google_generator
 
+    async def _ensure_provider_callable(
+        self, provider: str
+    ) -> Callable[..., Awaitable[Any]]:
+        """Ensure a callable is registered for the requested provider."""
+
+        existing = self.providers.get(provider)
+        if callable(existing):
+            return existing
+
+        if provider == "OpenAI":
+            generator = self._ensure_openai_generator()
+            func = generator.generate_response
+        elif provider == "Mistral":
+            generator = self._ensure_mistral_generator()
+            func = generator.generate_response
+        elif provider == "Google":
+            generator = self._ensure_google_generator()
+            func = generator.generate_response
+        elif provider == "HuggingFace":
+            ensure_result = self.ensure_huggingface_ready()
+            if not ensure_result.get("success"):
+                raise ValueError(
+                    ensure_result.get(
+                        "error", "Failed to initialize HuggingFace generator."
+                    )
+                )
+            if not self.huggingface_generator:
+                raise ValueError("HuggingFace generator is not available.")
+            func = self.huggingface_generator.generate_response
+        elif provider == "Anthropic":
+            self._ensure_anthropic_generator()
+            func = self._anthropic_generate_response
+        elif provider == "Grok":
+            if self.grok_generator is None:
+                self.grok_generator = GrokGenerator(self.config_manager)
+            func = self.grok_generator.generate_response
+        else:
+            raise ValueError(f"Provider '{provider}' is not recognized for fallback handling.")
+
+        self.providers[provider] = func
+        return func
+
     async def _anthropic_generate_response(self, _config_manager, **kwargs):
         generator = self._ensure_anthropic_generator()
         return await generator.generate_response(**kwargs)
@@ -1773,7 +1815,23 @@ class ProviderManager:
         except Exception as e:
             self.logger.error(f"Error during API call to {requested_provider}: {str(e)}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
-            raise
+
+            fallback_kwargs = dict(call_kwargs)
+            fallback_kwargs.pop("messages", None)
+
+            try:
+                fallback_response = await self._use_fallback(
+                    messages,
+                    llm_call_type or "default",
+                    **fallback_kwargs,
+                )
+            except Exception as fallback_exc:
+                self.logger.error(
+                    "Fallback provider invocation failed: %s", fallback_exc, exc_info=True
+                )
+                raise
+
+            return fallback_response
 
     async def _use_fallback(self, messages: List[Dict[str, str]], llm_call_type: str, **kwargs) -> str:
         """
@@ -1788,56 +1846,88 @@ class ProviderManager:
         Returns:
             str: The generated response from the fallback provider.
         """
-        fallback_config = self.config_manager.get_llm_config('default')
-        fallback_provider = fallback_config.get('provider')
+        fallback_getter = getattr(self.config_manager, "get_llm_fallback_config", None)
+        if not callable(fallback_getter):
+            raise ValueError("Fallback configuration is not available.")
 
-        if not fallback_provider or fallback_provider not in self.providers:
-            self.logger.error(f"Fallback provider {fallback_provider} is not configured or not available.")
+        fallback_config = fallback_getter()
+        if not isinstance(fallback_config, Mapping):
             raise ValueError("Fallback provider configuration is missing or invalid.")
 
-        fallback_function = self.providers.get(fallback_provider)
-        if not fallback_function:
-            self.logger.error(f"Fallback provider {fallback_provider} function not found.")
-            raise ValueError("Fallback provider function is missing.")
+        fallback_config = dict(fallback_config)
+        fallback_provider = fallback_config.get('provider')
+
+        if not fallback_provider:
+            raise ValueError("Fallback provider is not defined in the configuration.")
+
+        fallback_function = await self._ensure_provider_callable(fallback_provider)
 
         self.logger.info(f"Using fallback provider {fallback_provider} for {llm_call_type}")
 
-        call_kwargs = {
-            "messages": messages,
-            "model": fallback_config.get('model'),
-            "max_tokens": fallback_config.get('max_tokens', 4000),
-            "temperature": fallback_config.get('temperature', 0.0),
-            "stream": fallback_config.get('stream', True),
-            "current_persona": fallback_config.get('current_persona'),
-            "functions": fallback_config.get('functions'),
-            "response_schema": fallback_config.get('response_schema'),
-            "llm_call_type": llm_call_type,
-            "user": kwargs.get("user"),
-            "conversation_id": kwargs.get("conversation_id") or getattr(self, "current_conversation_id", None),
-            "conversation_manager": kwargs.get("conversation_manager")
+        current_conversation_id = kwargs.get("conversation_id") or getattr(
+            self, "current_conversation_id", None
+        )
+        conversation_manager = (
+            kwargs.get("conversation_manager")
             if kwargs.get("conversation_manager") is not None
-            else getattr(self, "conversation_manager", None),
-            **{k: v for k, v in kwargs.items() if k not in {"user", "conversation_id", "conversation_manager"}},
-        }
+            else getattr(self, "conversation_manager", None)
+        )
+
+        fallback_kwargs = dict(kwargs)
+        fallback_kwargs.update(
+            {
+                "messages": messages,
+                "model": fallback_config.get('model', fallback_kwargs.get('model')),
+                "max_tokens": fallback_config.get(
+                    'max_tokens', fallback_kwargs.get('max_tokens', 4000)
+                ),
+                "temperature": fallback_config.get(
+                    'temperature', fallback_kwargs.get('temperature', 0.0)
+                ),
+                "stream": fallback_config.get('stream', fallback_kwargs.get('stream', True)),
+                "current_persona": fallback_config.get(
+                    'current_persona', fallback_kwargs.get('current_persona')
+                ),
+                "functions": fallback_config.get('functions', fallback_kwargs.get('functions')),
+                "response_schema": fallback_config.get(
+                    'response_schema', fallback_kwargs.get('response_schema')
+                ),
+                "llm_call_type": llm_call_type,
+                "user": kwargs.get("user"),
+                "conversation_id": current_conversation_id,
+                "conversation_manager": conversation_manager,
+            }
+        )
 
         if fallback_provider == "OpenAI":
-            call_kwargs.update(
-                top_p=fallback_config.get('top_p', 1.0),
-                frequency_penalty=fallback_config.get('frequency_penalty', 0.0),
-                presence_penalty=fallback_config.get('presence_penalty', 0.0),
+            fallback_kwargs.update(
+                top_p=fallback_config.get('top_p', fallback_kwargs.get('top_p', 1.0)),
+                frequency_penalty=fallback_config.get(
+                    'frequency_penalty', fallback_kwargs.get('frequency_penalty', 0.0)
+                ),
+                presence_penalty=fallback_config.get(
+                    'presence_penalty', fallback_kwargs.get('presence_penalty', 0.0)
+                ),
             )
         elif fallback_provider == "Anthropic":
-            call_kwargs.pop("max_tokens", None)
-            call_kwargs.update(
-                top_p=fallback_config.get('top_p', 1.0),
-                max_output_tokens=fallback_config.get('max_output_tokens'),
+            fallback_kwargs.pop("max_tokens", None)
+            fallback_kwargs.update(
+                top_p=fallback_config.get('top_p', fallback_kwargs.get('top_p', 1.0)),
+                max_output_tokens=fallback_config.get(
+                    'max_output_tokens', fallback_kwargs.get('max_output_tokens')
+                ),
             )
 
-        return await self._invoke_provider_callable(
+        result = await self._invoke_provider_callable(
             fallback_provider,
             fallback_function,
-            dict(call_kwargs),
+            dict(fallback_kwargs),
         )
+
+        self.logger.info(
+            "Fallback provider %s succeeded for %s", fallback_provider, llm_call_type
+        )
+        return result
 
     async def process_streaming_response(self, response: AsyncIterator[Dict]) -> str:
         """

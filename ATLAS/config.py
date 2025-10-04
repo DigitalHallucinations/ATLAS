@@ -72,7 +72,57 @@ class ConfigManager:
                 "Protected features will remain unavailable until a key is provided."
             )
             self.logger.warning(warning_message)
-            self._pending_provider_warnings[default_provider] = warning_message
+        self._pending_provider_warnings[default_provider] = warning_message
+
+    def get_llm_fallback_config(self) -> Dict[str, Any]:
+        """Return the configured fallback provider settings with sensible defaults."""
+
+        fallback_block: Dict[str, Any] = {}
+        stored = self.get_config('LLM_FALLBACK')
+        if isinstance(stored, Mapping):
+            fallback_block.update(stored)
+
+        env_provider = self.get_config('LLM_FALLBACK_PROVIDER')
+        if isinstance(env_provider, str) and env_provider.strip():
+            fallback_block['provider'] = env_provider.strip()
+
+        env_model = self.get_config('LLM_FALLBACK_MODEL')
+        if isinstance(env_model, str) and env_model.strip():
+            fallback_block['model'] = env_model.strip()
+
+        provider = fallback_block.get('provider') or self.get_default_provider() or 'OpenAI'
+        fallback_block['provider'] = provider
+
+        provider_defaults: Dict[str, Any] = {}
+        defaults_lookup = {
+            'OpenAI': self.get_openai_llm_settings,
+            'Mistral': self.get_mistral_llm_settings,
+            'Google': self.get_google_llm_settings,
+            'Anthropic': self.get_anthropic_settings,
+        }
+
+        getter = defaults_lookup.get(provider)
+        if callable(getter):
+            provider_defaults = getter()
+        else:
+            provider_defaults = {}
+
+        merged: Dict[str, Any] = copy.deepcopy(provider_defaults)
+        merged.update(fallback_block)
+
+        if not merged.get('model'):
+            default_model = provider_defaults.get('model') if isinstance(provider_defaults, Mapping) else None
+            if not default_model:
+                default_model = self.get_default_model()
+            merged['model'] = default_model
+
+        if 'stream' not in merged and isinstance(provider_defaults, Mapping):
+            merged['stream'] = provider_defaults.get('stream', True)
+
+        if 'max_tokens' not in merged and isinstance(provider_defaults, Mapping):
+            merged['max_tokens'] = provider_defaults.get('max_tokens')
+
+        return merged
 
     def _get_provider_env_keys(self) -> Dict[str, str]:
         """Return the mapping between provider display names and environment keys."""

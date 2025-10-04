@@ -4,7 +4,7 @@ import math
 import sys
 import types
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from urllib.error import URLError
 from weakref import WeakKeyDictionary
 
@@ -792,6 +792,7 @@ class DummyConfig:
             "cached_allowed_function_names": [],
             "response_schema": {},
         }
+        self._fallback_config: Dict[str, Any] = {}
 
     def get_default_provider(self):
         return "OpenAI"
@@ -1167,6 +1168,16 @@ class DummyConfig:
     def get_model_cache_dir(self):
         return self._root_path
 
+    def _get_provider_defaults(self, provider: str) -> Dict[str, Any]:
+        mapping = {
+            "OpenAI": self._openai_settings,
+            "Mistral": self._mistral_settings,
+            "Google": self._google_settings,
+            "Anthropic": self._anthropic_settings,
+        }
+        defaults = mapping.get(provider, {})
+        return dict(defaults)
+
     def get_llm_config(self, *_args, **_kwargs):
         return {
             "provider": "OpenAI",
@@ -1178,6 +1189,19 @@ class DummyConfig:
             "presence_penalty": 0.0,
             "stream": True,
         }
+
+    def set_llm_fallback_config(self, **kwargs):
+        self._fallback_config.update(kwargs)
+        return dict(self._fallback_config)
+
+    def get_llm_fallback_config(self):
+        provider = self._fallback_config.get("provider") or self.get_default_provider()
+        merged = self._get_provider_defaults(provider)
+        merged.update(self._fallback_config)
+        merged["provider"] = provider
+        if not merged.get("model"):
+            merged["model"] = self._get_provider_defaults(provider).get("model")
+        return merged
 
     def get_config(self, *_args, **_kwargs):
         return None
@@ -2591,6 +2615,59 @@ def test_generate_response_grok_uses_adapter(provider_manager):
     assert captured["max_tokens"] == 42
     assert captured["stream"] is True
     assert streaming_output == "grok-stream"
+
+
+def test_generate_response_uses_configured_fallback(provider_manager):
+    fallback_result = "fallback-response"
+
+    class StubMistralGenerator:
+        def __init__(self):
+            self.calls = []
+
+        async def generate_response(self, **kwargs):
+            self.calls.append(kwargs)
+            return fallback_result
+
+    stub_generator = StubMistralGenerator()
+    provider_manager._mistral_generator = stub_generator
+    provider_manager.providers.pop("Mistral", None)
+
+    provider_manager.config_manager.update_api_key("Mistral", "token")
+    provider_manager.config_manager.set_llm_fallback_config(
+        provider="Mistral",
+        model="mistral-large-latest",
+        temperature=0.1,
+        max_tokens=2048,
+    )
+
+    async def failing_generate_response(*_args, **_kwargs):
+        raise RuntimeError("primary failed")
+
+    provider_manager.generate_response_func = failing_generate_response
+    provider_manager.providers["OpenAI"] = failing_generate_response
+    provider_manager.current_llm_provider = "OpenAI"
+    provider_manager.current_model = "gpt-4o"
+
+    messages = [{"role": "user", "content": "hello"}]
+
+    async def exercise():
+        return await provider_manager.generate_response(
+            messages,
+            provider="OpenAI",
+            llm_call_type="chat",
+            max_tokens=123,
+            temperature=0.5,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == fallback_result
+    assert stub_generator.calls, "Fallback provider was not invoked."
+    call_kwargs = stub_generator.calls[0]
+    assert call_kwargs["messages"] == messages
+    assert call_kwargs["model"] == "mistral-large-latest"
+    assert call_kwargs["max_tokens"] == 2048
+    assert call_kwargs["temperature"] == 0.1
 
 
 def test_close_unloads_grok_generator(provider_manager):
