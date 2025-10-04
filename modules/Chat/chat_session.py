@@ -6,6 +6,7 @@ import json
 import os
 import uuid
 from concurrent.futures import Future
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Iterator, Mapping, TypeVar, Union
@@ -64,7 +65,21 @@ class ChatSession:
         if new_persona_prompt != self.current_persona_prompt or not self.conversation_history:
             self.switch_persona(new_persona_prompt)
 
-        self.conversation_history.append({"role": "user", "content": message})
+        ensure_identity = getattr(self.ATLAS, "_ensure_user_identity", None)
+        active_user = None
+        if callable(ensure_identity):
+            try:
+                active_user, _ = ensure_identity()
+            except Exception:  # pragma: no cover - defensive fallback
+                active_user = None
+
+        self.add_message(
+            user=str(active_user) if active_user is not None else None,
+            conversation_id=self._conversation_id,
+            role="user",
+            content=message,
+            metadata={"source": "user"},
+        )
         self.messages_since_last_reminder += 1
 
         # Periodically reinforce the persona
@@ -82,15 +97,8 @@ class ChatSession:
                 self.ATLAS.logger.debug(
                     "Provider manager does not support conversation ID updates during send_message."
                 )
-            ensure_identity = getattr(self.ATLAS, "_ensure_user_identity", None)
-            active_user = None
-            if callable(ensure_identity):
-                try:
-                    active_user, _ = ensure_identity()
-                except Exception:  # pragma: no cover - defensive fallback
-                    active_user = None
 
-            response = await self.ATLAS.provider_manager.generate_response(
+            response = await provider_manager.generate_response(
                 messages=self.conversation_history,
                 model=self.current_model,
                 stream=False,
@@ -120,11 +128,14 @@ class ChatSession:
 
         await self.ATLAS.maybe_text_to_speech(response)
 
-        message_entry: Dict[str, Any] = {"role": "assistant", "content": response_text}
-        if audio_payload:
-            message_entry.update(audio_payload)
-
-        self.conversation_history.append(message_entry)
+        self.add_message(
+            user=str(active_user) if active_user is not None else None,
+            conversation_id=self._conversation_id,
+            role="assistant",
+            content=response_text,
+            metadata={"source": "model"},
+            **audio_payload,
+        )
         return response
 
     def run_in_background(
@@ -215,6 +226,100 @@ class ChatSession:
         for message in self.conversation_history:
             # Return a copy to prevent callers from mutating internal state.
             yield dict(message)
+
+    @staticmethod
+    def _current_timestamp() -> str:
+        """Return a formatted timestamp for history entries."""
+
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _base_entry(
+        self,
+        *,
+        role: str,
+        content: Any,
+        user: Any = None,
+        conversation_id: str | None = None,
+        timestamp: str | None = None,
+        metadata: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        entry: Dict[str, Any] = {"role": role, "content": content}
+        entry["timestamp"] = timestamp or self._current_timestamp()
+
+        combined_metadata: Dict[str, Any] = {}
+        if conversation_id is not None:
+            combined_metadata["conversation_id"] = conversation_id
+        if user is not None:
+            combined_metadata["user"] = user
+        if metadata:
+            combined_metadata.update(metadata)
+
+        if combined_metadata:
+            entry["metadata"] = combined_metadata
+
+        return entry
+
+    def add_message(
+        self,
+        user,
+        conversation_id,
+        role,
+        content,
+        timestamp=None,
+        metadata: Dict[str, Any] | None = None,
+        **extra_fields: Any,
+    ) -> Dict[str, Any]:
+        """Add a generic message to the conversation history.
+
+        Mirrors the signature used within :mod:`ATLAS.ToolManager` so that
+        other components can record messages without touching
+        ``conversation_history`` directly.
+        """
+
+        entry = self._base_entry(
+            role=role,
+            content=content,
+            user=user,
+            conversation_id=conversation_id,
+            timestamp=timestamp,
+            metadata=metadata,
+        )
+        if extra_fields:
+            entry.update(extra_fields)
+
+        self.conversation_history.append(entry)
+        return entry
+
+    def add_response(
+        self,
+        user,
+        conversation_id,
+        response,
+        timestamp=None,
+        metadata: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        """Record a tool/function response in the conversation history."""
+
+        base_metadata = {"name": "tool"}
+        if metadata:
+            base_metadata.update(metadata)
+
+        entry = self._base_entry(
+            role="function",
+            content=str(response),
+            user=user,
+            conversation_id=conversation_id,
+            timestamp=timestamp,
+            metadata=base_metadata,
+        )
+
+        self.conversation_history.append(entry)
+        return entry
+
+    def get_history(self, user=None, conversation_id=None) -> list[Dict[str, Any]]:
+        """Return a snapshot list of the current conversation history."""
+
+        return list(self.iter_messages())
 
     def export_history(self, path: PathLike) -> ChatExportResult:
         """Persist the recorded conversation history to ``path``.
