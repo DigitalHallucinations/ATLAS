@@ -2468,6 +2468,29 @@ def test_generate_response_grok_uses_adapter(provider_manager):
     assert streaming_output == "grok-stream"
 
 
+def test_close_unloads_grok_generator(provider_manager):
+    unload_calls = {"count": 0}
+
+    async def exercise():
+        provider_manager.model_manager.models["Grok"] = ["grok-2"]
+        await provider_manager.switch_llm_provider("Grok")
+        generator = provider_manager.grok_generator
+
+        async def tracked_unload(self):
+            unload_calls["count"] += 1
+
+        generator.unload_model = types.MethodType(tracked_unload, generator)
+
+        await provider_manager.close()
+        return provider_manager.grok_generator
+
+    generator_after_close = asyncio.run(exercise())
+
+    assert unload_calls["count"] == 1
+    assert generator_after_close is None
+    assert provider_manager.grok_generator is None
+
+
 def test_openai_settings_window_populates_defaults_and_saves(provider_manager):
     atlas_stub = types.SimpleNamespace()
 

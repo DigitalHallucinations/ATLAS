@@ -1870,7 +1870,20 @@ class ProviderManager:
         """
         if self.huggingface_generator:
             await self.unload_hf_model()
-        if self.grok_generator:
-            await self.grok_generator.unload_model()
+            self.huggingface_generator = None
+
+        generator = self.grok_generator
+        if generator:
+            unload = getattr(generator, "unload_model", None)
+            if callable(unload):
+                try:
+                    result = unload()
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    self.logger.warning("Failed to unload Grok generator cleanly: %s", exc, exc_info=True)
+            self.grok_generator = None
+            self.generate_response_func = None
+            self.process_streaming_response_func = None
         # Add any additional cleanup here
         self.logger.info("ProviderManager closed and models unloaded.")
