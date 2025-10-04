@@ -113,13 +113,21 @@ class ChatSession:
             thread_name=thread_name or "ChatSessionTask",
         )
 
-    def switch_persona(self, new_persona_prompt: str):
-        self.current_persona_prompt = new_persona_prompt
+    def switch_persona(self, new_persona_prompt: str | None):
+        prompt = new_persona_prompt or None
+        self.current_persona_prompt = prompt
         # Remove any existing system messages
-        self.conversation_history = [msg for msg in self.conversation_history if msg['role'] != 'system']
-        # Insert the new persona's system prompt at the start of the conversation
-        self.conversation_history.insert(0, {"role": "system", "content": new_persona_prompt})
-        self.ATLAS.logger.info(f"Switched to new persona: {new_persona_prompt[:50]}...")  # Log first 50 chars
+        self.conversation_history = [
+            msg for msg in self.conversation_history if msg["role"] != "system"
+        ]
+        if prompt:
+            # Insert the new persona's system prompt at the start of the conversation
+            self.conversation_history.insert(0, {"role": "system", "content": prompt})
+            self.ATLAS.logger.info(
+                f"Switched to new persona: {prompt[:50]}..."
+            )  # Log first 50 chars
+        else:
+            self.ATLAS.logger.info("Cleared persona system prompt; no persona active.")
         self.messages_since_last_reminder = 0
 
     def reinforce_persona(self):
