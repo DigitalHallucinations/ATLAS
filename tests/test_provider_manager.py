@@ -6,6 +6,7 @@ import types
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 from urllib.error import URLError
+from weakref import WeakKeyDictionary
 
 needs_stub = True
 existing_gi = sys.modules.get("gi")
@@ -582,6 +583,56 @@ def _ensure_async_function_module(module_name: str, return_value: str):
         return return_value
 
     stub.generate_response = _generate_response
+    stub._GENERATOR_CACHE = WeakKeyDictionary()
+
+    if module_name.endswith("OA_gen_response"):
+        generator_attr = "OpenAIGenerator"
+    elif module_name.endswith("Mistral_gen_response"):
+        generator_attr = "MistralGenerator"
+    elif module_name.endswith("GG_gen_response"):
+        generator_attr = "GoogleGeminiGenerator"
+    else:
+        generator_attr = None
+
+    class _StubGenerator:
+        async def generate_response(self, *_args, **_kwargs):  # pragma: no cover - placeholder
+            return return_value
+
+        async def process_streaming_response(self, *_args, **_kwargs):  # pragma: no cover - placeholder
+            return return_value
+
+        async def process_response(self, response):  # pragma: no cover - placeholder
+            if isinstance(response, str):
+                return response
+            collected = []
+            async for chunk in response:
+                collected.append(chunk)
+            return "".join(collected)
+
+    def _get_generator(config_manager=None):  # pragma: no cover - placeholder
+        cache = stub._GENERATOR_CACHE
+        generator_type = getattr(stub, generator_attr, None) if generator_attr else None
+        if generator_type is None:
+            generator_type = _StubGenerator
+
+        def _create(config):
+            if generator_type is _StubGenerator:
+                return generator_type()
+            try:
+                return generator_type(config)
+            except TypeError:  # pragma: no cover - fallback when signature differs
+                return generator_type()
+
+        if config_manager is None:
+            return _create(config_manager)
+
+        generator = cache.get(config_manager)
+        if generator is None:
+            generator = _create(config_manager)
+            cache[config_manager] = generator
+        return generator
+
+    stub.get_generator = _get_generator
 
     if module_name.endswith("Anthropic_gen_response"):
         class _StubAnthropicGenerator:
@@ -1536,9 +1587,9 @@ def test_provider_manager_primes_openai_models_on_startup(tmp_path, monkeypatch)
         self.models = {
             "OpenAI": ["gpt-4o"],
             "HuggingFace": [],
-            "Mistral": [],
-            "Google": [],
-            "Anthropic": [],
+            "Mistral": ["mistral-large-latest"],
+            "Google": ["gemini-1.5-pro-latest"],
+            "Anthropic": ["claude-3-opus-20240229"],
             "Grok": [],
         }
         self.current_model = None
@@ -3499,3 +3550,213 @@ def test_provider_manager_set_anthropic_settings_updates_generator(provider_mana
     assert data["thinking_budget"] == 4096
     assert provider_manager.current_model == "claude-3-haiku-20240229"
     assert provider_manager.model_manager.models["Anthropic"][0] == "claude-3-haiku-20240229"
+
+
+def test_switch_openai_reuses_cached_generator(monkeypatch, tmp_path):
+    from modules.Providers.OpenAI import OA_gen_response as openai_module
+
+    instantiate_count = 0
+
+    class StubGenerator:
+        def __init__(self, config_manager):
+            nonlocal instantiate_count
+            instantiate_count += 1
+            self.config_manager = config_manager
+
+        async def generate_response(self, messages=None, **_kwargs):
+            return {"messages": messages or []}
+
+        async def process_streaming_response(self, *_args, **_kwargs):
+            return "stream"
+
+    openai_module._GENERATOR_CACHE = WeakKeyDictionary()
+    monkeypatch.setattr(openai_module, "OpenAIGenerator", StubGenerator, raising=False)
+
+    async def fake_list_models(self, *_args, **_kwargs):
+        return {"models": []}
+
+    monkeypatch.setattr(
+        provider_manager_module.ProviderManager,
+        "list_openai_models",
+        fake_list_models,
+        raising=False,
+    )
+
+    def fake_load_models(self):
+        self.models = {
+            "OpenAI": ["gpt-4o"],
+            "HuggingFace": [],
+            "Mistral": ["mistral-large-latest"],
+            "Google": ["gemini-1.5-pro-latest"],
+            "Anthropic": ["claude-3-opus-20240229"],
+            "Grok": [],
+        }
+        self.current_model = None
+        self.current_provider = None
+
+    monkeypatch.setattr(
+        provider_manager_module.ModelManager,
+        "load_models",
+        fake_load_models,
+        raising=False,
+    )
+
+    ProviderManager._instance = None
+    config = DummyConfig(tmp_path.as_posix())
+    config.update_api_key("OpenAI", "sk-test")
+
+    async def exercise():
+        manager = await ProviderManager.create(config)
+        try:
+            messages = [{"role": "user", "content": "hello"}]
+            await manager.generate_response(messages, provider="OpenAI")
+            await manager.generate_response(messages, provider="OpenAI")
+        finally:
+            ProviderManager._instance = None
+
+    asyncio.run(exercise())
+    assert instantiate_count == 1
+
+
+def test_switch_mistral_reuses_cached_generator(monkeypatch, tmp_path):
+    from modules.Providers.Mistral import Mistral_gen_response as mistral_module
+
+    instantiate_count = 0
+
+    class StubGenerator:
+        def __init__(self, config_manager):
+            nonlocal instantiate_count
+            instantiate_count += 1
+            self.config_manager = config_manager
+
+        async def generate_response(self, messages=None, **_kwargs):
+            return {"messages": messages or []}
+
+        async def process_response(self, response):
+            if isinstance(response, str):
+                return response
+            collected = []
+            async for chunk in response:
+                collected.append(chunk)
+            return "".join(collected)
+
+    mistral_module._GENERATOR_CACHE = WeakKeyDictionary()
+    monkeypatch.setattr(mistral_module, "MistralGenerator", StubGenerator, raising=False)
+
+    async def fake_list_models(self, *_args, **_kwargs):
+        return {"models": []}
+
+    monkeypatch.setattr(
+        provider_manager_module.ProviderManager,
+        "list_openai_models",
+        fake_list_models,
+        raising=False,
+    )
+
+    def fake_load_models(self):
+        self.models = {
+            "OpenAI": ["gpt-4o"],
+            "HuggingFace": [],
+            "Mistral": ["mistral-large-latest"],
+            "Google": ["gemini-1.5-pro-latest"],
+            "Anthropic": ["claude-3-opus-20240229"],
+            "Grok": [],
+        }
+        self.current_model = None
+        self.current_provider = None
+
+    monkeypatch.setattr(
+        provider_manager_module.ModelManager,
+        "load_models",
+        fake_load_models,
+        raising=False,
+    )
+
+    ProviderManager._instance = None
+    config = DummyConfig(tmp_path.as_posix())
+    config.update_api_key("OpenAI", "sk-test")
+
+    async def exercise():
+        manager = await ProviderManager.create(config)
+        try:
+            await manager.switch_llm_provider("Mistral")
+            messages = [{"role": "user", "content": "hello"}]
+            await manager.generate_response(messages, provider="Mistral")
+            await manager.generate_response(messages, provider="Mistral")
+        finally:
+            ProviderManager._instance = None
+
+    asyncio.run(exercise())
+    assert instantiate_count == 1
+
+
+def test_switch_google_reuses_cached_generator(monkeypatch, tmp_path):
+    from modules.Providers.Google import GG_gen_response as google_module
+
+    instantiate_count = 0
+
+    class StubGenerator:
+        def __init__(self, config_manager):
+            nonlocal instantiate_count
+            instantiate_count += 1
+            self.config_manager = config_manager
+
+        async def generate_response(self, messages=None, **_kwargs):
+            return {"messages": messages or []}
+
+        async def process_response(self, response):
+            if isinstance(response, str):
+                return response
+            collected = []
+            async for chunk in response:
+                collected.append(chunk)
+            return "".join(collected)
+
+    google_module._GENERATOR_CACHE = WeakKeyDictionary()
+    monkeypatch.setattr(google_module, "GoogleGeminiGenerator", StubGenerator, raising=False)
+
+    async def fake_list_models(self, *_args, **_kwargs):
+        return {"models": []}
+
+    monkeypatch.setattr(
+        provider_manager_module.ProviderManager,
+        "list_openai_models",
+        fake_list_models,
+        raising=False,
+    )
+
+    def fake_load_models(self):
+        self.models = {
+            "OpenAI": ["gpt-4o"],
+            "HuggingFace": [],
+            "Mistral": ["mistral-large-latest"],
+            "Google": ["gemini-1.5-pro-latest"],
+            "Anthropic": ["claude-3-opus-20240229"],
+            "Grok": [],
+        }
+        self.current_model = None
+        self.current_provider = None
+
+    monkeypatch.setattr(
+        provider_manager_module.ModelManager,
+        "load_models",
+        fake_load_models,
+        raising=False,
+    )
+
+    ProviderManager._instance = None
+    config = DummyConfig(tmp_path.as_posix())
+    config.update_api_key("OpenAI", "sk-test")
+
+    async def exercise():
+        manager = await ProviderManager.create(config)
+        try:
+            await manager.switch_llm_provider("Google")
+            messages = [{"role": "user", "content": "hello"}]
+            await manager.generate_response(messages, provider="Google")
+            await manager.generate_response(messages, provider="Google")
+        finally:
+            ProviderManager._instance = None
+
+    asyncio.run(exercise())
+    assert instantiate_count == 1
