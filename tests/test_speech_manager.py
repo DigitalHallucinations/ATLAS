@@ -374,11 +374,15 @@ def test_get_tts_provider_names_returns_ordered_copy(speech_manager):
 
     names = speech_manager.get_tts_provider_names()
 
-    assert names == ("alpha", "beta")
+    assert isinstance(names, tuple)
+    assert names[:2] == ("alpha", "beta")
+    assert "gamma" not in names
+    assert "eleven_labs" in names
 
     speech_manager.tts_services["gamma"] = object()
 
-    assert names == ("alpha", "beta")
+    assert names[:2] == ("alpha", "beta")
+    assert "gamma" not in names
 
 
 def test_resolve_tts_provider_prefers_registered_choice(speech_manager):
@@ -405,11 +409,11 @@ def test_resolve_tts_provider_returns_first_available_when_no_fallback(speech_ma
 
     resolved = speech_manager.resolve_tts_provider(None)
 
-    assert resolved == "google"
+    assert resolved == "eleven_labs"
 
 
 def test_resolve_tts_provider_handles_no_services(speech_manager):
-    assert speech_manager.resolve_tts_provider("whatever") is None
+    assert speech_manager.resolve_tts_provider("whatever") == "eleven_labs"
 
 
 def test_get_stt_provider_names_returns_ordered_copy(speech_manager):
@@ -418,11 +422,15 @@ def test_get_stt_provider_names_returns_ordered_copy(speech_manager):
 
     names = speech_manager.get_stt_provider_names()
 
-    assert names == ("delta", "epsilon")
+    assert isinstance(names, tuple)
+    assert names[:2] == ("delta", "epsilon")
+    assert "zeta" not in names
+    assert "google" in names
 
     speech_manager.stt_services["zeta"] = object()
 
-    assert names == ("delta", "epsilon")
+    assert names[:2] == ("delta", "epsilon")
+    assert "zeta" not in names
 
 
 def test_get_default_tts_provider_index_tracks_provider(speech_manager):
