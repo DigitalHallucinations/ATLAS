@@ -48,7 +48,7 @@ class ProviderManager:
     AVAILABLE_PROVIDERS = ["OpenAI", "Mistral", "Google", "HuggingFace", "Anthropic", "Grok"]
 
     _instance = None  # Class variable to hold the singleton instance
-    _lock = asyncio.Lock()  # Lock to ensure thread-safe instantiation
+    _lock: asyncio.Lock | None = None  # Lazily instantiated lock for thread-safe creation
 
     def __init__(self, config_manager: ConfigManager):
         """
@@ -94,11 +94,21 @@ class ProviderManager:
         Returns:
             ProviderManager: The singleton instance of ProviderManager.
         """
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+
         async with cls._lock:
             if cls._instance is None:
                 cls._instance = cls(config_manager)
                 await cls._instance.initialize_all_providers()
             return cls._instance
+
+    @classmethod
+    def reset_singleton(cls) -> None:
+        """Reset the cached singleton instance and synchronization lock."""
+
+        cls._instance = None
+        cls._lock = None
 
     async def initialize_all_providers(self):
         """
