@@ -170,6 +170,37 @@ class DummyLogger:
     def debug(self, *args, **kwargs):
         return None
 
+
+def test_init_with_default_provider_credentials_has_no_warnings(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+
+    dummy_logger = DummyLogger()
+
+    monkeypatch.setattr(config_module, "setup_logger", lambda name: dummy_logger)
+    monkeypatch.setattr(config_module, "set_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(config_module, "find_dotenv", lambda: str(env_file))
+    monkeypatch.setattr(config_module, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setenv("OPENAI_API_KEY", "configured-key")
+    monkeypatch.setenv("DEFAULT_PROVIDER", "OpenAI")
+    monkeypatch.setattr(
+        ConfigManager,
+        "_load_env_config",
+        lambda self: {
+            "OPENAI_API_KEY": "configured-key",
+            "DEFAULT_PROVIDER": "OpenAI",
+            "DEFAULT_MODEL": "gpt-4o",
+            "APP_ROOT": tmp_path.as_posix(),
+        },
+    )
+    monkeypatch.setattr(ConfigManager, "_load_yaml_config", lambda self: {})
+
+    manager = ConfigManager()
+
+    assert manager.is_default_provider_ready()
+    assert manager.get_pending_provider_warnings() == {}
+    assert dummy_logger.warnings == []
+
 def test_set_google_credentials_updates_state(config_manager):
     config_manager.set_google_credentials("/tmp/creds.json")
 

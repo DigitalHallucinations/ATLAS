@@ -72,7 +72,7 @@ class ConfigManager:
                 "Protected features will remain unavailable until a key is provided."
             )
             self.logger.warning(warning_message)
-        self._pending_provider_warnings[default_provider] = warning_message
+            self._pending_provider_warnings[default_provider] = warning_message
 
     def get_llm_fallback_config(self) -> Dict[str, Any]:
         """Return the configured fallback provider settings with sensible defaults."""
