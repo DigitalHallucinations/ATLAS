@@ -199,6 +199,16 @@ class ChatSession:
         export_text = "".join(session_metadata + message_lines)
 
         try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            message = (
+                f"Failed to create directory for chat history export at "
+                f"{target.parent}: {exc}"
+            )
+            self.ATLAS.logger.error(message, exc_info=True)
+            raise ChatHistoryExportError(message) from exc
+
+        try:
             target.write_text(export_text, encoding="utf-8")
         except Exception as exc:
             message = f"Failed to export chat history to {target}: {exc}"

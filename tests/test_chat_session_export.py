@@ -74,6 +74,20 @@ class ChatSessionExportTests(unittest.TestCase):
         self.assertIn('    metadata: {"foo": "bar"}', data)
         self.assertIn("3. assistant: Hi there!", data)
 
+    def test_export_history_creates_missing_directories(self):
+        self.session.conversation_history = [
+            {"role": "system", "content": "Persona rules"},
+            {"role": "user", "content": "Hello"},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            export_path = Path(tmpdir) / "nested" / "exports" / "chat.txt"
+            result = self.session.export_history(export_path)
+
+            self.assertTrue(export_path.exists())
+            self.assertEqual(result.path, export_path)
+            self.assertEqual(result.message_count, 2)
+
     def test_export_history_raises_when_empty(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             export_path = Path(tmpdir) / "empty.txt"
