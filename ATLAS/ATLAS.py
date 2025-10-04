@@ -185,12 +185,27 @@ class ATLAS:
         user_identifier, _ = self._ensure_user_identity()
         self.persona_manager = PersonaManager(master=self, user=user_identifier)
         self.chat_session = ChatSession(self)
-        
+
         default_provider = self.config_manager.get_default_provider()
-        await self.provider_manager.set_current_provider(default_provider)
-        
-        self.logger.info(f"Default provider set to: {self.provider_manager.get_current_provider()}")
-        self.logger.info(f"Default model set to: {self.provider_manager.get_current_model()}")
+        if self.config_manager.is_default_provider_ready():
+            await self.provider_manager.set_current_provider(default_provider)
+            self.logger.info(
+                f"Default provider set to: {self.provider_manager.get_current_provider()}"
+            )
+            self.logger.info(
+                f"Default model set to: {self.provider_manager.get_current_model()}"
+            )
+        else:
+            warning_message = self.config_manager.get_pending_provider_warnings().get(
+                default_provider,
+                f"API key for provider '{default_provider}' is not configured.",
+            )
+            self.logger.warning(
+                "Default provider '%s' could not be activated automatically: %s",
+                default_provider,
+                warning_message,
+            )
+
         self.logger.info("ATLAS initialized successfully.")
         
         # Initialize SpeechManager
@@ -965,6 +980,32 @@ class ATLAS:
                 summary["tts_provider"] = tts_provider or summary["tts_provider"]
                 summary["tts_voice"] = tts_voice or summary["tts_voice"]
 
+        config_manager = getattr(self, "config_manager", None)
+        if config_manager is not None:
+            try:
+                warnings = config_manager.get_pending_provider_warnings()
+            except Exception as exc:
+                self.logger.error(
+                    "Failed to read pending provider warnings: %s",
+                    exc,
+                    exc_info=True,
+                )
+            else:
+                provider_warning = warnings.get(summary.get("llm_provider"))
+                if not provider_warning:
+                    default_provider = config_manager.get_default_provider()
+                    provider_warning = warnings.get(default_provider)
+                    if provider_warning and (
+                        not summary.get("llm_provider")
+                        or summary.get("llm_provider") == "Unknown"
+                    ):
+                        summary["llm_provider"] = f"{default_provider} (Not Configured)"
+
+                if provider_warning:
+                    summary["llm_warning"] = provider_warning
+                    if summary.get("llm_model") in (None, "No model selected"):
+                        summary["llm_model"] = "Unavailable"
+
         return summary
 
     def format_chat_status(self, status_summary: Optional[Dict[str, str]] = None) -> str:
@@ -984,11 +1025,16 @@ class ATLAS:
         llm_model = summary.get("llm_model") or "No model selected"
         tts_provider = summary.get("tts_provider") or "None"
         tts_voice = summary.get("tts_voice") or "Not Set"
-
-        return (
+        status_text = (
             f"LLM: {llm_provider} • Model: {llm_model} • "
             f"TTS: {tts_provider} (Voice: {tts_voice})"
         )
+
+        llm_warning = summary.get("llm_warning")
+        if llm_warning:
+            status_text = f"{status_text} • Warning: {llm_warning}"
+
+        return status_text
 
     def get_speech_defaults(self) -> Dict[str, Any]:
         """Expose global speech defaults for UI consumers."""

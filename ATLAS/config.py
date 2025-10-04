@@ -26,8 +26,9 @@ class ConfigManager:
         """
         Initializes the ConfigManager by loading environment variables and loading configuration settings.
 
-        Raises:
-            ValueError: If the API key for the default provider is not found in environment variables.
+        Notes:
+            If the default provider credential is missing the manager records a warning instead of
+            raising an exception so the application can continue initializing.
         """
         # Load environment variables from .env file
         load_dotenv()
@@ -43,6 +44,15 @@ class ConfigManager:
         # Merge configurations, with YAML config overriding env config if there's overlap
         self.config = {**self.env_config, **self.yaml_config}
 
+        # Track provider/environment key relationships for faster lookups
+        self._provider_env_lookup = {
+            env_key: provider
+            for provider, env_key in self._get_provider_env_keys().items()
+        }
+
+        # Maintain any deferred credential warnings so onboarding flows can surface them
+        self._pending_provider_warnings: Dict[str, str] = {}
+
         # Derive other paths from APP_ROOT
         self.config['MODEL_CACHE_DIR'] = os.path.join(
             self.config.get('APP_ROOT', '.'),
@@ -54,10 +64,15 @@ class ConfigManager:
         # Ensure the model_cache directory exists
         os.makedirs(self.config['MODEL_CACHE_DIR'], exist_ok=True)
 
-        # Validate the API key for the default provider
+        # Record a warning instead of aborting when the default provider is missing credentials
         default_provider = self.config.get('DEFAULT_PROVIDER', 'OpenAI')
         if not self._is_api_key_set(default_provider):
-            raise ValueError(f"{default_provider} API key not found in environment variables")
+            warning_message = (
+                f"API key for provider '{default_provider}' is not configured. "
+                "Protected features will remain unavailable until a key is provided."
+            )
+            self.logger.warning(warning_message)
+            self._pending_provider_warnings[default_provider] = warning_message
 
     def _get_provider_env_keys(self) -> Dict[str, str]:
         """Return the mapping between provider display names and environment keys."""
@@ -152,6 +167,8 @@ class ConfigManager:
         else:
             self.config[env_key] = value
 
+        self._sync_provider_warning(env_key, value)
+
     def set_google_credentials(self, credentials_path: str):
         """Persist Google application credentials and refresh process state."""
 
@@ -160,6 +177,44 @@ class ConfigManager:
 
         self._persist_env_value("GOOGLE_APPLICATION_CREDENTIALS", credentials_path)
         self.logger.info("Google credentials path updated.")
+
+    def _sync_provider_warning(self, env_key: str, value: Optional[str]) -> None:
+        """Refresh pending provider warnings when credential values change."""
+
+        provider_name = None
+        lookup = getattr(self, "_provider_env_lookup", None)
+        if isinstance(lookup, Mapping):
+            provider_name = lookup.get(env_key)
+        else:
+            for provider, candidate in self._get_provider_env_keys().items():
+                if candidate == env_key:
+                    provider_name = provider
+                    break
+
+        if not provider_name:
+            return
+
+        if value:
+            self._pending_provider_warnings.pop(provider_name, None)
+        else:
+            warning_message = (
+                f"API key for provider '{provider_name}' is not configured. "
+                "Protected features will remain unavailable until a key is provided."
+            )
+            self._pending_provider_warnings[provider_name] = warning_message
+
+    def get_pending_provider_warnings(self) -> Dict[str, str]:
+        """Return provider credential warnings that should be surfaced to operators."""
+
+        return dict(self._pending_provider_warnings)
+
+    def is_default_provider_ready(self) -> bool:
+        """Return True when the configured default provider has a usable credential."""
+
+        default_provider = self.get_default_provider()
+        if not default_provider:
+            return True
+        return default_provider not in self._pending_provider_warnings
 
     def get_google_speech_settings(self) -> Dict[str, Any]:
         """Return persisted Google speech preferences when available."""

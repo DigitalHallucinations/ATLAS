@@ -65,6 +65,111 @@ def config_manager(tmp_path, monkeypatch):
     return manager
 
 
+def test_init_missing_default_provider_records_warning(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+
+    class DummyLogger:
+        def __init__(self):
+            self.warnings = []
+
+        def warning(self, message, *args, **kwargs):
+            if args:
+                message = message % args
+            self.warnings.append(message)
+
+        def info(self, *args, **kwargs):
+            return None
+
+        def error(self, *args, **kwargs):
+            return None
+
+        def debug(self, *args, **kwargs):
+            return None
+
+    dummy_logger = DummyLogger()
+
+    monkeypatch.setattr(config_module, "setup_logger", lambda name: dummy_logger)
+    monkeypatch.setattr(config_module, "set_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(config_module, "find_dotenv", lambda: str(env_file))
+    monkeypatch.setattr(config_module, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("DEFAULT_PROVIDER", "OpenAI")
+    monkeypatch.setattr(
+        ConfigManager,
+        "_load_env_config",
+        lambda self: {
+            "OPENAI_API_KEY": None,
+            "DEFAULT_PROVIDER": "OpenAI",
+            "DEFAULT_MODEL": "gpt-4o",
+            "APP_ROOT": tmp_path.as_posix(),
+        },
+    )
+    monkeypatch.setattr(ConfigManager, "_load_yaml_config", lambda self: {})
+
+    manager = ConfigManager()
+
+    assert not manager.is_default_provider_ready()
+    warnings = manager.get_pending_provider_warnings()
+    assert warnings == {
+        "OpenAI": "API key for provider 'OpenAI' is not configured. Protected features will remain unavailable until a key is provided."
+    }
+    assert dummy_logger.warnings
+
+
+def test_provider_warning_cleared_after_api_key_update(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    recorded = {}
+
+    def fake_set_key(path, key, value):
+        recorded[(path, key)] = value
+
+    monkeypatch.setattr(config_module, "setup_logger", lambda name: DummyLogger())
+    monkeypatch.setattr(config_module, "set_key", fake_set_key)
+    monkeypatch.setattr(config_module, "find_dotenv", lambda: str(env_file))
+    monkeypatch.setattr(config_module, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        ConfigManager,
+        "_load_env_config",
+        lambda self: {
+            "OPENAI_API_KEY": None,
+            "DEFAULT_PROVIDER": "OpenAI",
+            "DEFAULT_MODEL": "gpt-4o",
+            "APP_ROOT": tmp_path.as_posix(),
+        },
+    )
+    monkeypatch.setattr(ConfigManager, "_load_yaml_config", lambda self: {})
+
+    manager = ConfigManager()
+    assert not manager.is_default_provider_ready()
+
+    manager.update_api_key("OpenAI", "new-key")
+
+    assert manager.is_default_provider_ready()
+    assert manager.get_pending_provider_warnings() == {}
+    assert recorded[(str(env_file), "OPENAI_API_KEY")] == "new-key"
+
+
+class DummyLogger:
+    def __init__(self):
+        self.warnings = []
+
+    def warning(self, message, *args, **kwargs):
+        if args:
+            message = message % args
+        self.warnings.append(message)
+
+    def info(self, *args, **kwargs):
+        return None
+
+    def error(self, *args, **kwargs):
+        return None
+
+    def debug(self, *args, **kwargs):
+        return None
+
 def test_set_google_credentials_updates_state(config_manager):
     config_manager.set_google_credentials("/tmp/creds.json")
 

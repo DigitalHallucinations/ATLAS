@@ -105,7 +105,15 @@ class ProviderManager:
         Initializes the provider managers and sets the default provider.
         """
         await self._prime_openai_models()
-        await self.switch_llm_provider(self.current_llm_provider)
+        if self.current_llm_provider and self.config_manager.has_provider_api_key(
+            self.current_llm_provider
+        ):
+            await self.switch_llm_provider(self.current_llm_provider)
+        else:
+            self.logger.warning(
+                "Skipping automatic activation of provider '%s' because its API key is missing.",
+                self.current_llm_provider,
+            )
 
     async def _prime_openai_models(self) -> None:
         """Attempt to refresh cached OpenAI models during startup."""

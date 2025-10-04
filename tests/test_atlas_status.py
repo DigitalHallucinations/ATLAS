@@ -53,6 +53,26 @@ if "tenacity" not in sys.modules:
     tenacity_stub.stop_after_attempt = lambda *_args, **_kwargs: None
     tenacity_stub.wait_exponential = lambda *_args, **_kwargs: None
     tenacity_stub.retry_if_exception_type = lambda *_args, **_kwargs: None
+
+    class _AsyncRetrying:  # pragma: no cover - placeholder
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class _Attempt:  # pragma: no cover - placeholder
+        def __enter__(self):
+            return None
+
+        def __exit__(self, *_args):
+            return False
+
+    tenacity_stub.AsyncRetrying = lambda *_args, **_kwargs: _AsyncRetrying()
+    tenacity_stub.Attempt = _Attempt
     sys.modules["tenacity"] = tenacity_stub
 
 if "torch" not in sys.modules:
@@ -203,6 +223,8 @@ google_stub = types.ModuleType("google")
 google_stub.__path__ = []  # type: ignore[attr-defined]
 genai_module = types.ModuleType("google.generativeai")
 cloud_module = types.ModuleType("google.cloud")
+genai_types_module = types.ModuleType("google.generativeai.types")
+texttospeech_module = types.ModuleType("google.cloud.texttospeech")
 
 class _GenerativeClient:  # pragma: no cover - placeholder
     def __init__(self, *_args, **_kwargs):
@@ -217,7 +239,26 @@ class _GenerativeClient:  # pragma: no cover - placeholder
 
 genai_module.configure = lambda *_args, **_kwargs: None
 genai_module.GenerativeModel = _GenerativeClient.GenerativeModel
+genai_module.types = genai_types_module
 google_stub.generativeai = genai_module
+
+genai_types_module.GenerationConfig = lambda *_args, **_kwargs: {}
+genai_types_module.ContentDict = dict
+genai_types_module.PartDict = dict
+
+
+class _Tool:  # pragma: no cover - placeholder
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+class _FunctionDeclaration:  # pragma: no cover - placeholder
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+genai_types_module.Tool = _Tool
+genai_types_module.FunctionDeclaration = _FunctionDeclaration
 
 class _SpeechClient:  # pragma: no cover - placeholder
     def synthesize_speech(self, *_args, **_kwargs):
@@ -234,10 +275,34 @@ cloud_module.speech_v1p1beta1 = types.SimpleNamespace(
     AudioEncoding=types.SimpleNamespace(MP3="MP3"),
     SsmlVoiceGender=lambda value: types.SimpleNamespace(name=str(value)),
 )
+
+
+class _VoiceSelectionParams:  # pragma: no cover - placeholder
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+
+class _TextToSpeechClient:  # pragma: no cover - placeholder
+    def synthesize_speech(self, *_args, **_kwargs):
+        return types.SimpleNamespace(audio_content=b"")
+
+    def list_voices(self, *_args, **_kwargs):
+        return types.SimpleNamespace(voices=[])
+
+
+texttospeech_module.VoiceSelectionParams = _VoiceSelectionParams
+texttospeech_module.TextToSpeechClient = _TextToSpeechClient
+texttospeech_module.SynthesisInput = lambda *_args, **_kwargs: None
+texttospeech_module.AudioConfig = lambda *_args, **_kwargs: None
+texttospeech_module.AudioEncoding = types.SimpleNamespace(MP3="MP3")
+texttospeech_module.SsmlVoiceGender = lambda value: types.SimpleNamespace(name=str(value))
+cloud_module.texttospeech = texttospeech_module
 google_stub.cloud = cloud_module
 sys.modules["google"] = google_stub
 sys.modules["google.generativeai"] = genai_module
+sys.modules["google.generativeai.types"] = genai_types_module
 sys.modules["google.cloud"] = cloud_module
+sys.modules["google.cloud.texttospeech"] = texttospeech_module
 
 if "anthropic" not in sys.modules:
     anthropic_stub = types.ModuleType("anthropic")
@@ -369,6 +434,16 @@ def atlas_stub():
             },
             "LLM: Unknown • Model: No model selected • TTS: None (Voice: Not Set)",
         ),
+        (
+            {
+                "llm_provider": "OpenAI",
+                "llm_model": "gpt-4o",
+                "tts_provider": "ElevenLabs",
+                "tts_voice": "Rachel",
+                "llm_warning": "OpenAI key missing",
+            },
+            "LLM: OpenAI • Model: gpt-4o • TTS: ElevenLabs (Voice: Rachel) • Warning: OpenAI key missing",
+        ),
     ],
 )
 def test_format_chat_status_with_summary(atlas_stub, summary, expected):
@@ -390,3 +465,26 @@ def test_format_chat_status_fetches_summary_when_missing(atlas_stub):
     result = atlas_stub.format_chat_status()
 
     assert result == "LLM: Google • Model: gemini-pro • TTS: Coqui (Voice: Spoken)"
+
+
+def test_chat_status_summary_includes_pending_warning(atlas_stub):
+    atlas_stub.provider_manager = types.SimpleNamespace(
+        get_current_provider=lambda: None,
+        get_current_model=lambda: None,
+    )
+    atlas_stub.speech_manager = types.SimpleNamespace(
+        get_active_tts_summary=lambda: (None, None)
+    )
+
+    warning_message = "API key for provider 'OpenAI' is not configured."
+
+    atlas_stub.config_manager = types.SimpleNamespace(
+        get_pending_provider_warnings=lambda: {"OpenAI": warning_message},
+        get_default_provider=lambda: "OpenAI",
+    )
+
+    summary = atlas_stub.get_chat_status_summary()
+
+    assert summary["llm_provider"] == "OpenAI (Not Configured)"
+    assert summary["llm_model"] == "Unavailable"
+    assert summary["llm_warning"] == warning_message
