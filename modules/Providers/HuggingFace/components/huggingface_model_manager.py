@@ -492,6 +492,8 @@ class HuggingFaceModelManager:
         """
         Unloads the currently loaded model, freeing up resources.
         """
+        previous_model = self.current_model
+
         if self.model:
             del self.model
             del self.tokenizer
@@ -503,13 +505,14 @@ class HuggingFaceModelManager:
             self.model = None
             self.tokenizer = None
             self.pipeline = None
-            self.current_model = None
             self.logger.info("Model unloaded and CUDA cache cleared.")
 
         # Also unload any associated ONNX sessions
-        if self.current_model and self.current_model in self.ort_sessions:
-            del self.ort_sessions[self.current_model]
-            self.logger.info(f"Unloaded ONNX Runtime session for model: {self.current_model}")
+        if previous_model and previous_model in self.ort_sessions:
+            del self.ort_sessions[previous_model]
+            self.logger.info(f"Unloaded ONNX Runtime session for model: {previous_model}")
+
+        self.current_model = None
 
     def get_installed_models(self) -> List[str]:
         """
