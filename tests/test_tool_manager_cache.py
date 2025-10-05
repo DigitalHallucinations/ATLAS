@@ -127,3 +127,30 @@ def test_refresh_clears_function_payload_cache(_persona_workspace):
     assert isinstance(function_map, dict)
     assert "sample_tool" in function_map
     assert persona["name"] not in tool_manager._function_payload_cache
+
+
+def test_loader_reuses_cached_config_manager(monkeypatch, _persona_workspace):
+    tool_manager._function_payload_cache.clear()
+    tool_manager._function_map_cache.clear()
+
+    persona = _persona_workspace["persona"]
+
+    monkeypatch.setattr(tool_manager, "_default_config_manager", None, raising=False)
+
+    instantiations = []
+
+    class _TrackingConfig:
+        def __init__(self):
+            instantiations.append(1)
+
+        def get_app_root(self):
+            return os.fspath(Path.cwd())
+
+    monkeypatch.setattr(tool_manager, "ConfigManager", _TrackingConfig)
+
+    tool_manager.load_functions_from_json(persona)
+    tool_manager.load_functions_from_json(persona)
+    tool_manager.load_function_map_from_current_persona(persona)
+    tool_manager.load_function_map_from_current_persona(persona)
+
+    assert instantiations == [1]

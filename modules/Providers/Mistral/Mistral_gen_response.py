@@ -309,7 +309,10 @@ class MistralGenerator:
                     provided_functions = functions
                     if provided_functions is None and current_persona is not None:
                         try:
-                            provided_functions = load_functions_from_json(current_persona)
+                            provided_functions = load_functions_from_json(
+                                current_persona,
+                                config_manager=self.config_manager,
+                            )
                         except Exception as exc:  # pragma: no cover - defensive logging
                             self.logger.warning(
                                 "Failed to load functions from persona for Mistral: %s",
@@ -321,7 +324,10 @@ class MistralGenerator:
                     function_map = None
                     if current_persona is not None:
                         try:
-                            function_map = load_function_map_from_current_persona(current_persona)
+                            function_map = load_function_map_from_current_persona(
+                                current_persona,
+                                config_manager=self.config_manager,
+                            )
                         except Exception as exc:  # pragma: no cover - defensive logging
                             self.logger.warning(
                                 "Failed to load function map for Mistral persona: %s",

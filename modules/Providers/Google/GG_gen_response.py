@@ -464,7 +464,10 @@ class GoogleGeminiGenerator:
 
         provided_functions = functions
         if provided_functions is None and current_persona:
-            provided_functions = load_functions_from_json(current_persona)
+            provided_functions = load_functions_from_json(
+                current_persona,
+                config_manager=self.config_manager,
+            )
 
         if isinstance(provided_functions, dict):
             provided_functions = provided_functions.get("functions") or provided_functions.get(
@@ -479,7 +482,10 @@ class GoogleGeminiGenerator:
                     seen_names.add(declaration.name)
 
         function_map = (
-            load_function_map_from_current_persona(current_persona)
+            load_function_map_from_current_persona(
+                current_persona,
+                config_manager=self.config_manager,
+            )
             if current_persona
             else None
         )
