@@ -1223,6 +1223,37 @@ class ConfigManager:
         """
         return self.get_config('DEFAULT_MODEL')
 
+    def get_active_user(self) -> Optional[str]:
+        """Return the username persisted as the active account."""
+
+        value = self.get_config('ACTIVE_USER')
+        if isinstance(value, str):
+            sanitized = value.strip()
+            if sanitized:
+                return sanitized
+        return None
+
+    def set_active_user(self, username: Optional[str]) -> Optional[str]:
+        """Persist the active user to the YAML configuration."""
+
+        sanitized: Optional[str]
+        if isinstance(username, str):
+            sanitized = username.strip() or None
+        else:
+            sanitized = None
+
+        if sanitized is None:
+            self.yaml_config.pop('ACTIVE_USER', None)
+            self.config.pop('ACTIVE_USER', None)
+            self.logger.info("Cleared active user from configuration")
+        else:
+            self.yaml_config['ACTIVE_USER'] = sanitized
+            self.config['ACTIVE_USER'] = sanitized
+            self.logger.info("Persisted active user '%s'", sanitized)
+
+        self._write_yaml_config()
+        return sanitized
+
     def get_openai_llm_settings(self) -> Dict[str, Any]:
         """Return persisted OpenAI LLM defaults merged with environment values."""
 

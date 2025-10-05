@@ -39,6 +39,7 @@ class ATLAS:
         self.current_persona = None
         self._user_identifier: Optional[str] = None
         self._user_display_name: Optional[str] = None
+        self._user_account_service = None
         self.provider_manager = None
         self.persona_manager = None
         self.chat_session = None
@@ -55,38 +56,33 @@ class ATLAS:
         username: Optional[str] = None
         display_name: Optional[str] = None
 
-        account_db = None
+        account_service = None
         try:
-            from modules.user_accounts.user_account_db import UserAccountDatabase
+            account_service = self._get_user_account_service()
         except Exception as exc:  # pragma: no cover - optional dependency issues
-            self.logger.debug("User account database unavailable: %s", exc)
+            self.logger.debug("User account service unavailable: %s", exc)
         else:
             try:
-                account_db = UserAccountDatabase()
-                preferred = self.config_manager.get_config("ACTIVE_USER")
+                preferred = account_service.get_active_user()
+                users = account_service.list_users()
                 account_record = None
 
                 if preferred:
-                    account_record = account_db.get_user(preferred)
+                    account_record = next(
+                        (record for record in users if record.get("username") == preferred),
+                        None,
+                    )
 
-                if account_record is None:
-                    users = account_db.get_all_users()
-                    if users:
-                        account_record = users[0]
+                if account_record is None and users:
+                    account_record = users[0]
 
                 if account_record:
-                    username = str(account_record[1]) if account_record[1] else None
-                    recorded_name = account_record[4] if len(account_record) > 4 else None
+                    username = account_record.get("username") or username
+                    recorded_name = account_record.get("name")
                     if recorded_name:
                         display_name = str(recorded_name)
             except Exception as exc:  # pragma: no cover - defensive logging only
                 self.logger.debug("User account lookup failed: %s", exc)
-            finally:
-                if account_db is not None:
-                    try:
-                        account_db.close_connection()
-                    except Exception as exc:  # pragma: no cover - best effort cleanup
-                        self.logger.debug("Failed to close user account database: %s", exc)
 
         app_root = Path(self.config_manager.get_app_root())
         profiles_dir = app_root / "modules" / "user_accounts" / "user_profiles"
@@ -140,13 +136,19 @@ class ATLAS:
 
         return username, display_name
 
+    def _refresh_active_user_identity(self) -> Tuple[str, str]:
+        """Refresh cached user metadata when the active account changes."""
+
+        username, display_name = self._resolve_user_identity()
+        self._user_identifier = username
+        self._user_display_name = display_name
+        return username, display_name
+
     def _ensure_user_identity(self) -> Tuple[str, str]:
         """Ensure user identifier and display name are loaded."""
 
         if not self._user_identifier or not self._user_display_name:
-            username, display_name = self._resolve_user_identity()
-            self._user_identifier = username
-            self._user_display_name = display_name
+            self._refresh_active_user_identity()
 
         return self._user_identifier, self._user_display_name
 
@@ -169,6 +171,70 @@ class ATLAS:
             sanitized = "User"
         self._user_identifier = sanitized
         self._user_display_name = sanitized
+
+    def _get_user_account_service(self):
+        """Return the lazily-initialized user account service."""
+
+        if self._user_account_service is None:
+            from modules.user_accounts.user_account_service import UserAccountService
+
+            self._user_account_service = UserAccountService(config_manager=self.config_manager)
+
+        return self._user_account_service
+
+    async def list_user_accounts(self) -> List[Dict[str, object]]:
+        """Return stored user accounts without blocking the event loop."""
+
+        service = self._get_user_account_service()
+        return await run_async_in_thread(service.list_users)
+
+    async def register_user_account(
+        self,
+        username: str,
+        password: str,
+        email: str,
+        name: Optional[str] = None,
+        dob: Optional[str] = None,
+    ) -> Dict[str, object]:
+        """Register a new user account through the dedicated service."""
+
+        service = self._get_user_account_service()
+
+        account = await run_async_in_thread(
+            service.register_user,
+            username,
+            password,
+            email,
+            name,
+            dob,
+        )
+
+        await run_async_in_thread(service.set_active_user, account.username)
+        self._refresh_active_user_identity()
+        return {
+            "id": account.id,
+            "username": account.username,
+            "email": account.email,
+            "name": account.name,
+            "dob": account.dob,
+        }
+
+    async def login_user_account(self, username: str, password: str) -> bool:
+        """Validate credentials and mark the account as active."""
+
+        service = self._get_user_account_service()
+        success = await run_async_in_thread(service.authenticate_user, username, password)
+        if success:
+            await run_async_in_thread(service.set_active_user, username)
+            self._refresh_active_user_identity()
+        return bool(success)
+
+    async def logout_active_user(self) -> None:
+        """Clear any active account selection."""
+
+        service = self._get_user_account_service()
+        await run_async_in_thread(service.set_active_user, None)
+        self._refresh_active_user_identity()
 
     def _require_provider_manager(self) -> ProviderManager:
         """Return the initialized provider manager or raise an error if unavailable."""
@@ -1193,6 +1259,11 @@ class ATLAS:
         """
         await self.provider_manager.close()
         await self.speech_manager.close()
+        if self._user_account_service is not None:
+            try:
+                self._user_account_service.close()
+            except Exception:  # pragma: no cover - best effort cleanup
+                pass
         self.logger.info("ATLAS closed and all providers unloaded.")
 
     async def maybe_text_to_speech(self, response_text: Any) -> None:
