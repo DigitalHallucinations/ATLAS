@@ -224,6 +224,42 @@ class UserAccountService:
 
         return True
 
+    def update_user(
+        self,
+        username: str,
+        *,
+        password: Optional[str] = None,
+        email: Optional[str] = None,
+        name: Optional[str] = None,
+        dob: Optional[str] = None,
+    ) -> UserAccount:
+        """Validate updates and persist them via the backing database."""
+
+        normalised_username = self._normalise_username(username)
+        if not normalised_username:
+            raise ValueError("Username must not be empty")
+
+        self._require_existing_user(normalised_username)
+
+        validated_password = self._validate_password(password) if password is not None else None
+        validated_email = self._validate_email(email) if email is not None else None
+
+        self._database.update_user(
+            normalised_username,
+            password=validated_password,
+            email=validated_email,
+            name=name,
+            dob=dob,
+        )
+
+        record = self._database.get_user(normalised_username)
+        if not record:  # pragma: no cover - defensive safeguard
+            raise RuntimeError("Failed to retrieve user after update")
+
+        account = self._row_to_account(record)
+        self.logger.info("Updated user '%s'", normalised_username)
+        return account
+
     def close(self) -> None:
         """Release resources associated with the service."""
 
