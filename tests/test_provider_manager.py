@@ -2966,6 +2966,96 @@ def test_generate_response_uses_configured_fallback(provider_manager):
     assert call_kwargs["temperature"] == 0.1
 
 
+def test_generate_response_openai_fallback_filters_manager_kwargs(provider_manager):
+    fallback_result = "openai-fallback"
+
+    class StrictOpenAIGenerator:
+        def __init__(self):
+            self.calls = []
+
+        async def generate_response(
+            self,
+            messages,
+            model=None,
+            max_tokens=None,
+            temperature=None,
+            stream=None,
+            current_persona=None,
+            functions=None,
+            user=None,
+            conversation_id=None,
+            conversation_manager=None,
+            top_p=None,
+            frequency_penalty=None,
+            presence_penalty=None,
+        ):
+            payload = {
+                "messages": messages,
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": stream,
+                "current_persona": current_persona,
+                "functions": functions,
+                "user": user,
+                "conversation_id": conversation_id,
+                "conversation_manager": conversation_manager,
+                "top_p": top_p,
+                "frequency_penalty": frequency_penalty,
+                "presence_penalty": presence_penalty,
+            }
+            self.calls.append(payload)
+            return fallback_result
+
+    stub_generator = StrictOpenAIGenerator()
+    provider_manager._openai_generator = stub_generator
+    provider_manager.providers.pop("OpenAI", None)
+
+    provider_manager.config_manager.update_api_key("OpenAI", "token")
+    provider_manager.config_manager.set_llm_fallback_config(
+        provider="OpenAI",
+        model="gpt-4o-mini",
+        temperature=0.25,
+        max_tokens=512,
+        top_p=0.8,
+        frequency_penalty=0.1,
+        presence_penalty=0.2,
+    )
+
+    async def failing_generate_response(*_args, **_kwargs):
+        raise RuntimeError("primary failed")
+
+    provider_manager.generate_response_func = failing_generate_response
+    provider_manager.providers["Mistral"] = failing_generate_response
+    provider_manager.current_llm_provider = "Mistral"
+    provider_manager.current_model = "mistral-large-latest"
+
+    messages = [{"role": "user", "content": "hello"}]
+
+    async def exercise():
+        return await provider_manager.generate_response(
+            messages,
+            provider="Mistral",
+            llm_call_type="chat",
+            max_tokens=321,
+            temperature=0.9,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == fallback_result
+    assert stub_generator.calls, "Fallback provider was not invoked."
+    call_kwargs = stub_generator.calls[0]
+    assert call_kwargs["messages"] == messages
+    assert call_kwargs["model"] == "gpt-4o-mini"
+    assert call_kwargs["max_tokens"] == 512
+    assert call_kwargs["temperature"] == 0.25
+    assert call_kwargs["top_p"] == 0.8
+    assert call_kwargs["frequency_penalty"] == 0.1
+    assert call_kwargs["presence_penalty"] == 0.2
+    assert "llm_call_type" not in call_kwargs
+
+
 def test_close_unloads_grok_generator(provider_manager):
     unload_calls = {"count": 0}
 
