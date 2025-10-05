@@ -34,6 +34,16 @@ logger = setup_logger('eleven_labs_tts.py')
 
 CHUNK_SIZE = 1024
 
+try:
+    RequestsTimeout = requests.exceptions.Timeout
+except AttributeError:  # pragma: no cover - fallback for minimal request stubs
+    base_exception = getattr(requests.exceptions, "RequestException", Exception)
+
+    class RequestsTimeout(base_exception):
+        """Fallback timeout when requests library lacks a dedicated exception."""
+
+    setattr(requests.exceptions, "Timeout", RequestsTimeout)
+
 class ElevenLabsTTS(BaseTTS):
     def __init__(self):
         self._use_tts = True
@@ -230,7 +240,28 @@ class ElevenLabsTTS(BaseTTS):
 
         def download_and_save_audio():
             logger.info(f"Sending TTS request to Eleven Labs with text: {text}")
-            response = requests.post(tts_url, headers=headers, json=data, stream=True)
+            connect_timeout = 30
+            read_timeout = 30
+
+            try:
+                response = requests.post(
+                    tts_url,
+                    headers=headers,
+                    json=data,
+                    stream=True,
+                    timeout=(connect_timeout, read_timeout),
+                )
+            except RequestsTimeout as exc:
+                logger.warning(
+                    "Eleven Labs TTS request timed out after %s/%s seconds (connect/read): %s",
+                    connect_timeout,
+                    read_timeout,
+                    exc,
+                )
+                raise
+            except Exception as exc:  # noqa: BLE001 - propagate precise error upstream
+                logger.error("Failed to send Eleven Labs TTS request: %s", exc)
+                raise
 
             logger.info(f"Eleven Labs API response status: {response.status_code}")
             if not response.ok:
@@ -252,6 +283,9 @@ class ElevenLabsTTS(BaseTTS):
 
         try:
             output_path = await asyncio.to_thread(download_and_save_audio)
+        except RequestsTimeout:
+            logger.warning("Eleven Labs TTS request timed out; skipping speech synthesis.")
+            return
         except Exception:
             logger.exception("Unexpected error while generating audio with Eleven Labs TTS.")
             return
