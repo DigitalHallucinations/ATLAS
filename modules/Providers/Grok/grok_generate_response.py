@@ -58,7 +58,11 @@ class GrokGenerator:
         """
         prompt = self._build_prompt_from_messages(messages)
         self.logger.debug(f"Sending prompt to Grok: {prompt}")
-        result = await self.client.sampler.sample(prompt, max_len=max_tokens)
+        result = await self.client.sampler.sample(
+            prompt,
+            max_len=max_tokens,
+            model=model,
+        )
         response = "".join([token.token_str for token in result])
         self.logger.info(f"Grok response received: {response}")
         return response
@@ -74,7 +78,11 @@ class GrokGenerator:
         """
         prompt = self._build_prompt_from_messages(messages)
         self.logger.debug(f"Streaming prompt to Grok: {prompt}")
-        async for token in self.client.sampler.sample(prompt, max_len=max_tokens):
+        async for token in self.client.sampler.sample(
+            prompt,
+            max_len=max_tokens,
+            model=model,
+        ):
             yield token.token_str
 
     async def process_streaming_response(self, response: AsyncIterator[str]) -> str:
