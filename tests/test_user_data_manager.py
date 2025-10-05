@@ -78,3 +78,31 @@ def test_system_info_lazy_loading_and_caching(monkeypatch):
     assert call_count['count'] == 10
 
     UserDataManager.invalidate_system_info_cache()
+
+
+def test_get_memory_info_handles_missing_capacity(monkeypatch):
+    SystemInfo = user_data_manager_module.SystemInfo
+
+    monkeypatch.setattr(user_data_manager_module.platform, 'system', lambda: 'Windows')
+
+    sample_output = """BankLabel=NODE 0 DIMM 0\nCapacity=17179869184\n\nBankLabel=NODE 0 DIMM 1\nManufacturer=Example"""
+
+    monkeypatch.setattr(SystemInfo, 'run_command', staticmethod(lambda _command: sample_output))
+
+    result = SystemInfo.get_memory_info()
+
+    assert result == "Total Physical Memory: 16.00 GB"
+
+
+def test_get_memory_info_handles_no_capacity_data(monkeypatch):
+    SystemInfo = user_data_manager_module.SystemInfo
+
+    monkeypatch.setattr(user_data_manager_module.platform, 'system', lambda: 'Windows')
+
+    sample_output = """BankLabel=NODE 0 DIMM 0\nManufacturer=Example"""
+
+    monkeypatch.setattr(SystemInfo, 'run_command', staticmethod(lambda _command: sample_output))
+
+    result = SystemInfo.get_memory_info()
+
+    assert result == "Total Physical Memory: Unknown"
