@@ -106,9 +106,13 @@ if "huggingface_hub" not in sys.modules:
     def _hf_hub_download(*args, **kwargs):
         return ""
 
+    def _snapshot_download(*args, **kwargs):
+        return ""
+
     huggingface_hub_stub.InferenceClient = _InferenceClient
     huggingface_hub_stub.HfApi = _HfApi
     huggingface_hub_stub.hf_hub_download = _hf_hub_download
+    huggingface_hub_stub.snapshot_download = _snapshot_download
     sys.modules["huggingface_hub"] = huggingface_hub_stub
 else:
     huggingface_hub_module = sys.modules["huggingface_hub"]
@@ -135,6 +139,12 @@ else:
             return ""
 
         huggingface_hub_module.hf_hub_download = _hf_hub_download
+
+    if not hasattr(huggingface_hub_module, "snapshot_download"):
+        def _snapshot_download(*args, **kwargs):
+            return ""
+
+        huggingface_hub_module.snapshot_download = _snapshot_download
 
 if "datasets" not in sys.modules:
     datasets_stub = types.ModuleType("datasets")
@@ -222,30 +232,78 @@ def test_load_model_downloads_when_token_present(monkeypatch, tmp_path, caplog):
     cache_manager = CacheManager(str(tmp_path / "cache.json"))
     manager = HuggingFaceModelManager(base_config, NVMeConfig(), cache_manager)
 
-    download_calls = []
+    snapshot_calls = []
 
-    class _DummyApi:
-        def list_repo_files(self, repo_id):
-            download_calls.append(("list", repo_id))
-            return ["config.json"]
-
-    monkeypatch.setattr(manager_module, "HfApi", lambda *a, **k: _DummyApi())
-
-    def _fake_download(repo_id, filename, cache_dir):
-        download_calls.append(("download", repo_id, filename))
-        model_dir = Path(cache_dir) / f"models--{repo_id.replace('/', '--')}"
-        model_dir.mkdir(parents=True, exist_ok=True)
-        dummy_file = model_dir / filename
+    def _fake_snapshot_download(repo_id, cache_dir, allow_patterns, token, max_workers):
+        snapshot_calls.append(
+            {
+                "repo_id": repo_id,
+                "cache_dir": cache_dir,
+                "allow_patterns": allow_patterns,
+                "token": token,
+                "max_workers": max_workers,
+            }
+        )
+        snapshot_dir = Path(cache_dir) / f"models--{repo_id.replace('/', '--')}" / "snapshots" / "fake"
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        dummy_file = snapshot_dir / "config.json"
         dummy_file.write_bytes(b"data")
-        return str(dummy_file)
+        return str(snapshot_dir)
 
-    monkeypatch.setattr(manager_module, "hf_hub_download", _fake_download)
+    monkeypatch.setattr(manager_module, "snapshot_download", _fake_snapshot_download)
+
+    config_calls = []
+
+    def _config_from_pretrained(*args, **kwargs):
+        config_calls.append((args, kwargs))
+        return SimpleNamespace(model_type="gpt2")
+
+    monkeypatch.setattr(manager_module, "AutoConfig", SimpleNamespace(from_pretrained=_config_from_pretrained))
+
+    tokenizer_calls = []
+
+    class _RecordingTokenizer:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            tokenizer_calls.append((args, kwargs))
+            return _DummyTokenizer()
+
+    monkeypatch.setattr(manager_module, "AutoTokenizer", _RecordingTokenizer)
+
+    model_calls = []
+
+    class _RecordingModel:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            model_calls.append((args, kwargs))
+            return _DummyModel()
+
+    monkeypatch.setattr(manager_module, "AutoModelForCausalLM", _RecordingModel)
 
     caplog.set_level("INFO")
     asyncio.run(manager.load_model("test/model", force_download=True))
 
-    assert ("list", "test/model") in download_calls
-    assert any(call[0] == "download" for call in download_calls)
+    assert len(snapshot_calls) == 1
+    snapshot_call = snapshot_calls[0]
+    assert snapshot_call["repo_id"] == "test/model"
+    assert snapshot_call["token"] == "hf_token"
+    assert snapshot_call["allow_patterns"] == manager_module.HuggingFaceModelManager.SNAPSHOT_ALLOW_PATTERNS
+    assert snapshot_call["max_workers"] == 4
+
+    assert len(config_calls) == 1
+    config_args, config_kwargs = config_calls[0]
+    assert config_kwargs["local_files_only"] is True
+    assert Path(config_args[0]).name == "fake"
+
+    assert len(tokenizer_calls) == 1
+    tokenizer_args, tokenizer_kwargs = tokenizer_calls[0]
+    assert tokenizer_kwargs["local_files_only"] is True
+    assert Path(tokenizer_args[0]).name == "fake"
+
+    assert len(model_calls) == 1
+    model_args, model_kwargs = model_calls[0]
+    assert Path(model_args[0]).name == "fake"
+    assert model_kwargs["local_files_only"] is True
 
     summary_message = next(
         (record.message for record in caplog.records if "Cache directory summary" in record.message),
@@ -266,17 +324,14 @@ def test_load_model_uses_local_when_token_missing(monkeypatch, tmp_path):
     cache_manager = CacheManager(str(tmp_path / "cache.json"))
     manager = HuggingFaceModelManager(base_config, NVMeConfig(), cache_manager)
 
-    model_dir = cache_dir / "models--test--model"
+    model_dir = cache_dir / "models--test--model" / "snapshots" / "local"
     model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text("data")
 
-    def _fail_list_repo_files(*args, **kwargs):
-        raise AssertionError("Remote list_repo_files should not be called when using local models")
+    def _fail_snapshot(*args, **kwargs):
+        raise AssertionError("snapshot_download should not be called when using local models")
 
-    monkeypatch.setattr(manager_module, "HfApi", lambda *a, **k: SimpleNamespace(list_repo_files=_fail_list_repo_files))
-    def _fail_download(*args, **kwargs):
-        raise AssertionError("Remote download should not occur")
-
-    monkeypatch.setattr(manager_module, "hf_hub_download", _fail_download)
+    monkeypatch.setattr(manager_module, "snapshot_download", _fail_snapshot)
 
     asyncio.run(manager.load_model("test/model"))
 
@@ -291,8 +346,9 @@ def test_load_model_handles_multi_gpu_device_map(monkeypatch, tmp_path):
     cache_manager = CacheManager(str(tmp_path / "cache.json"))
     manager = HuggingFaceModelManager(base_config, NVMeConfig(), cache_manager)
 
-    model_dir = cache_dir / "models--test--model"
+    model_dir = cache_dir / "models--test--model" / "snapshots" / "local"
     model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text("data")
 
     monkeypatch.setattr(manager_module.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(manager_module.torch.cuda, "device_count", lambda: 2)
@@ -326,8 +382,9 @@ def test_load_model_instantiates_model_once(monkeypatch, tmp_path):
     cache_manager = CacheManager(str(tmp_path / "cache.json"))
     manager = HuggingFaceModelManager(base_config, NVMeConfig(), cache_manager)
 
-    model_dir = cache_dir / "models--test--model"
+    model_dir = cache_dir / "models--test--model" / "snapshots" / "local"
     model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text("data")
 
     call_count = 0
 
@@ -353,8 +410,9 @@ def test_unload_model_clears_onnx_sessions(monkeypatch, tmp_path):
     cache_manager = CacheManager(str(tmp_path / "cache.json"))
     manager = HuggingFaceModelManager(base_config, NVMeConfig(), cache_manager)
 
-    model_dir = cache_dir / "models--test--model"
+    model_dir = cache_dir / "models--test--model" / "snapshots" / "local"
     model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text("data")
 
     onnx_path = tmp_path / "model.onnx"
     onnx_path.write_bytes(b"fake")
@@ -393,24 +451,18 @@ def test_failed_load_does_not_persist_install(monkeypatch, tmp_path):
     model_name = "fail/model"
     model_dir = cache_dir / f"models--{model_name.replace('/', '--')}"
 
-    class _DummyApi:
-        def list_repo_files(self, repo_id):
-            return ["config.json"]
-
-    def _fake_download(repo_id, filename, cache_dir):
-        download_dir = Path(cache_dir) / f"models--{repo_id.replace('/', '--')}"
-        download_dir.mkdir(parents=True, exist_ok=True)
-        target_file = download_dir / filename
-        target_file.write_text("data")
-        return str(target_file)
+    def _fake_snapshot_download(repo_id, cache_dir, allow_patterns, token, max_workers):
+        snapshot_dir = Path(cache_dir) / f"models--{repo_id.replace('/', '--')}" / "snapshots" / "fake"
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        (snapshot_dir / "config.json").write_text("data")
+        return str(snapshot_dir)
 
     class _FailingModel:
         @classmethod
         def from_pretrained(cls, *args, **kwargs):
             raise RuntimeError("boom")
 
-    monkeypatch.setattr(manager_module, "HfApi", lambda *a, **k: _DummyApi())
-    monkeypatch.setattr(manager_module, "hf_hub_download", _fake_download)
+    monkeypatch.setattr(manager_module, "snapshot_download", _fake_snapshot_download)
     monkeypatch.setattr(manager_module, "AutoModelForCausalLM", _FailingModel)
 
     with pytest.raises(ValueError):
