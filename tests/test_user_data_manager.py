@@ -36,7 +36,7 @@ class _StubConfigManager:
         return self._app_root
 
 
-def test_system_info_commands_cached(monkeypatch):
+def test_system_info_lazy_loading_and_caching(monkeypatch):
     SystemInfo = user_data_manager_module.SystemInfo
     UserDataManager = user_data_manager_module.UserDataManager
 
@@ -56,20 +56,25 @@ def test_system_info_commands_cached(monkeypatch):
     monkeypatch.setattr(UserDataManager, 'get_emr', lambda self: 'EMR data', raising=False)
 
     manager_one = UserDataManager('tester')
+    assert call_count['count'] == 0
+
+    first_fetch = manager_one.get_system_info()
     assert call_count['count'] == 5
 
-    manager_one.get_system_info()
+    second_fetch = manager_one.get_system_info()
     assert call_count['count'] == 5
+    assert first_fetch == second_fetch
 
     manager_two = UserDataManager('tester')
     assert call_count['count'] == 5
-
-    manager_two.get_system_info()
+    assert manager_two.get_system_info() == first_fetch
     assert call_count['count'] == 5
 
     UserDataManager.invalidate_system_info_cache()
 
     manager_three = UserDataManager('tester')
+    assert call_count['count'] == 5
+    manager_three.get_system_info()
     assert call_count['count'] == 10
 
     UserDataManager.invalidate_system_info_cache()

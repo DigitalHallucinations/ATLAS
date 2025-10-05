@@ -30,11 +30,24 @@ class SystemInfo:
     def run_command(command):
         """Runs a system command and returns the output."""
         try:
-            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=True)
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                shell=True,
+            )
+            if result.returncode != 0 and SystemInfo.logger:
+                SystemInfo.logger.warning(
+                    "Command '%s' exited with code %s: %s",
+                    command,
+                    result.returncode,
+                    result.stderr.strip(),
+                )
             return result.stdout
         except Exception as e:
             if SystemInfo.logger:
-                SystemInfo.logger.error(f"Error running command '{command}': {e}")
+                SystemInfo.logger.warning(f"Error running command '{command}': {e}")
             return ""
 
     @staticmethod
@@ -117,9 +130,9 @@ class UserDataManager:
         self.logger = setup_logger(__name__)
         SystemInfo.set_logger(self.logger)
         self.user = user
-        self.profile = self.get_profile_text()
-        self.emr = self.get_emr()
-        self.system_info = self.get_system_info()
+        self.profile = None
+        self.emr = None
+        self._system_info = None
 
     @classmethod
     def invalidate_system_info_cache(cls):
@@ -180,9 +193,13 @@ class UserDataManager:
         Returns:
             str: The user's profile as a formatted string.
         """
+        if self.profile is not None:
+            return self.profile
+
         self.logger.info("Entering get_profile_text() method")
         profile_json = self.get_profile()
-        return self.format_profile_as_text(profile_json)
+        self.profile = self.format_profile_as_text(profile_json)
+        return self.profile
     
     def get_emr(self):
         """
@@ -191,6 +208,9 @@ class UserDataManager:
         Returns:
             str: The user's EMR as a string.
         """
+        if self.emr is not None:
+            return self.emr
+
         self.logger.info("Getting EMR.")
         EMR_path = os.path.join(
             os.path.dirname(__file__), '..', '..', 'modules', 'user_accounts', 'user_profiles',
@@ -201,17 +221,20 @@ class UserDataManager:
 
         if not os.path.exists(EMR_path):
             self.logger.error(f"EMR file does not exist: {EMR_path}")
-            return ""
+            self.emr = ""
+            return self.emr
         
         try:
             with open(EMR_path, 'r', encoding='utf-8') as file:
                 EMR = file.read()
                 EMR = EMR.replace("\n", " ")
                 EMR = re.sub(r'\s+', ' ', EMR)
-                return EMR.strip()
+                self.emr = EMR.strip()
+                return self.emr
         except Exception as e:
             self.logger.error(f"Error loading EMR: {e}")
-            return ""
+            self.emr = ""
+            return self.emr
 
     def get_system_info(self):
         """
@@ -220,6 +243,9 @@ class UserDataManager:
         Returns:
             str: The formatted system information as a string.
         """
+        if self._system_info is not None:
+            return self._system_info
+
         try:
             with self.__class__._system_info_cache_lock:
                 if self.__class__._system_info_cache is not None:
@@ -242,5 +268,6 @@ class UserDataManager:
 
             return self._system_info
         except Exception as e:
-            self.logger.error(f"Error retrieving system information: {e}")
-            return "System information not available"
+            self.logger.warning(f"Error retrieving system information: {e}")
+            self._system_info = "System information not available"
+            return self._system_info
