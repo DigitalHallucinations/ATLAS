@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 import threading
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 try:
     from platformdirs import user_data_dir as _user_data_dir
@@ -406,13 +406,23 @@ class UserAccountDatabase:
         dob: Optional[str],
         ensure_emr: bool,
     ) -> None:
-        profile_contents = self._load_user_profile_template()
+        profile_path = self.user_profiles_dir / f"{username}.json"
+
+        try:
+            with profile_path.open('r', encoding='utf-8') as profile_file:
+                loaded_contents = json.load(profile_file)
+            if isinstance(loaded_contents, dict):
+                profile_contents: Dict[str, Any] = loaded_contents
+            else:  # pragma: no cover - defensive guard for unexpected structures
+                raise ValueError("Profile JSON must contain an object")
+        except (OSError, json.JSONDecodeError, ValueError):
+            profile_contents = self._load_user_profile_template()
+
         profile_contents['Username'] = username
         profile_contents['Full Name'] = name or ''
         profile_contents['DOB'] = dob or ''
         profile_contents['Email'] = email or ''
 
-        profile_path = self.user_profiles_dir / f"{username}.json"
         tmp_path: Optional[Path] = None
 
         try:

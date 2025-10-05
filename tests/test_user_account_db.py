@@ -169,6 +169,28 @@ def test_update_user_refreshes_profile_on_email_change(tmp_path, monkeypatch):
         db.close_connection()
 
 
+def test_update_user_preserves_extra_profile_fields(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    try:
+        db.add_user('gwen', 'Password1', 'gwen@example.com', 'Gwen', '1993-04-05')
+
+        profile_path = Path(db.user_profiles_dir) / 'gwen.json'
+        profile_contents = json.loads(profile_path.read_text(encoding='utf-8'))
+        profile_contents['CustomField'] = 'custom-value'
+        profile_contents['Nested'] = {'key': 123}
+        profile_path.write_text(json.dumps(profile_contents), encoding='utf-8')
+
+        db.update_user('gwen', name='Gwen Updated')
+
+        updated = json.loads(profile_path.read_text(encoding='utf-8'))
+        assert updated['Full Name'] == 'Gwen Updated'
+        assert updated['CustomField'] == 'custom-value'
+        assert updated['Nested'] == {'key': 123}
+    finally:
+        db.close_connection()
+
+
 def test_database_uses_app_root_directory(tmp_path, monkeypatch):
     app_root = tmp_path / 'app-root'
     _install_config_manager_stub(monkeypatch, str(app_root))
