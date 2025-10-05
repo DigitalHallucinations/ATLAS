@@ -353,11 +353,6 @@ class HuggingFaceModelManager:
                 max_memory=max_memory,
                 no_split_module_classes=["BloomBlock", "OPTDecoderLayer", "LlamaDecoderLayer"],
             )
-            del initial_model  # Free up memory
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            else:
-                self.logger.debug("CUDA not available when attempting to clear cache after initial load.")
 
             # Common kwargs for model loading
             model_kwargs.update({
@@ -377,14 +372,30 @@ class HuggingFaceModelManager:
                 model_kwargs["quantization_config"] = quantization_config
 
             # Strategy 4: Multi-GPU Support
-            if torch.cuda.device_count() > 1:
-                max_memory = {f'cuda:{i}': max_memory['cuda:0'] for i in range(torch.cuda.device_count())}
+            device_count = torch.cuda.device_count()
+            if device_count > 1:
+                base_gpu_memory = max_memory.get('cuda:0')
+                if base_gpu_memory is not None:
+                    multi_gpu_max_memory = {
+                        f'cuda:{i}': base_gpu_memory for i in range(device_count)
+                    }
+                    if 'cpu' in max_memory:
+                        multi_gpu_max_memory['cpu'] = max_memory['cpu']
+                else:
+                    multi_gpu_max_memory = max_memory.copy()
+
                 device_map = infer_auto_device_map(
                     initial_model,
-                    max_memory=max_memory,
+                    max_memory=multi_gpu_max_memory,
                     no_split_module_classes=["BloomBlock", "OPTDecoderLayer", "LlamaDecoderLayer"],
                 )
                 model_kwargs['device_map'] = device_map
+
+            del initial_model  # Free up memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            else:
+                self.logger.debug("CUDA not available when attempting to clear cache after initial load.")
 
             self.logger.info(f"Loading model with custom device map and possible NVMe offloading")
             self.model = await asyncio.to_thread(

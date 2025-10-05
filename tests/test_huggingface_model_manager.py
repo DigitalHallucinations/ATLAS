@@ -256,6 +256,34 @@ def test_load_model_uses_local_when_token_missing(monkeypatch, tmp_path):
     assert manager.current_model == "test/model"
 
 
+def test_load_model_handles_multi_gpu_device_map(monkeypatch, tmp_path):
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    config_manager = _DummyConfigManager(token=None, cache_dir=str(cache_dir))
+    base_config = BaseConfig(config_manager)
+    cache_manager = CacheManager(str(tmp_path / "cache.json"))
+    manager = HuggingFaceModelManager(base_config, NVMeConfig(), cache_manager)
+
+    model_dir = cache_dir / "models--test--model"
+    model_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(manager_module.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(manager_module.torch.cuda, "device_count", lambda: 2)
+
+    infer_calls = []
+
+    def _recording_infer_auto_device_map(model, **kwargs):
+        infer_calls.append((model, kwargs))
+        return {}
+
+    monkeypatch.setattr(manager_module, "infer_auto_device_map", _recording_infer_auto_device_map)
+
+    asyncio.run(manager.load_model("test/model"))
+
+    assert manager.current_model == "test/model"
+    assert len(infer_calls) == 2
+
+
 def test_unload_model_clears_onnx_sessions(monkeypatch, tmp_path):
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
