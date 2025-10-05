@@ -294,6 +294,47 @@ class ATLAS:
             "dob": account.dob,
         }
 
+    async def update_user_account(
+        self,
+        username: str,
+        *,
+        password: Optional[str] = None,
+        email: Optional[str] = None,
+        name: Optional[str] = None,
+        dob: Optional[str] = None,
+    ) -> Dict[str, object]:
+        """Update an existing user account and refresh cached identity."""
+
+        service = self._get_user_account_service()
+
+        async def _load_active() -> Optional[str]:
+            return service.get_active_user()
+
+        active_username = await run_async_in_thread(_load_active)
+
+        async def _perform_update() -> Any:
+            return service.update_user(
+                username,
+                password=password,
+                email=email,
+                name=name,
+                dob=dob,
+            )
+
+        account = await run_async_in_thread(_perform_update)
+
+        if active_username and account.username == active_username:
+            await run_async_in_thread(service.set_active_user, account.username)
+
+        self._refresh_active_user_identity()
+        return {
+            "id": account.id,
+            "username": account.username,
+            "email": account.email,
+            "name": account.name,
+            "dob": account.dob,
+        }
+
     async def login_user_account(self, username: str, password: str) -> bool:
         """Validate credentials and mark the account as active."""
 

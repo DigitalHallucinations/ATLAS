@@ -26,6 +26,8 @@ class _AtlasStub:
         self.list_calls = 0
         self.activate_called = None
         self.delete_called = None
+        self.update_called = None
+        self.update_result = {"username": "updated-user"}
         self.config_manager = SimpleNamespace(get_active_user=lambda: self.active_username)
 
     def add_active_user_change_listener(self, listener):
@@ -50,6 +52,16 @@ class _AtlasStub:
     async def register_user_account(self, username, password, email, name, dob):
         self.register_called = (username, password, email, name, dob)
         return self.register_result
+
+    async def update_user_account(self, username, *, password=None, email=None, name=None, dob=None):
+        self.update_called = {
+            "username": username,
+            "password": password,
+            "email": email,
+            "name": name,
+            "dob": dob,
+        }
+        return self.update_result
 
     async def logout_active_user(self):
         self.logout_called = True
@@ -358,3 +370,130 @@ def test_delete_account_confirms_and_refreshes():
     assert atlas.list_calls >= 2
     assert dialog.account_feedback_label.get_text().startswith("Account deleted.")
     assert set(dialog._account_rows.keys()) == {"bob"}
+
+
+def test_edit_account_prefills_and_updates():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {
+            "username": "alice",
+            "display_name": "Alice",
+            "email": "alice@example.com",
+            "name": "Alice",
+            "dob": "1990-01-01",
+        }
+    ]
+
+    dialog = AccountDialog(atlas)
+    assert atlas.last_thread_name == "user-account-list"
+    _drain_background(atlas)
+
+    edit_button = dialog._account_rows["alice"]["edit_button"]
+    _click(edit_button)
+
+    assert dialog._active_form == "edit"
+    assert dialog.edit_username_entry.get_text() == "alice"
+    assert dialog.edit_email_entry.get_text() == "alice@example.com"
+
+    dialog.edit_email_entry.set_text("alice.new@example.com")
+    dialog.edit_password_entry.set_text("Password1")
+    dialog.edit_confirm_entry.set_text("Password1")
+    dialog.edit_name_entry.set_text("Alice Cooper")
+    dialog.edit_dob_entry.set_text("1990-01-02")
+
+    atlas.update_result = {
+        "username": "alice",
+        "email": "alice.new@example.com",
+        "name": "Alice Cooper",
+        "dob": "1990-01-02",
+    }
+
+    dialog._on_edit_save_clicked(dialog.edit_save_button)
+
+    assert atlas.last_thread_name == "user-account-update"
+    _drain_background(atlas)
+
+    assert atlas.update_called == {
+        "username": "alice",
+        "password": "Password1",
+        "email": "alice.new@example.com",
+        "name": "Alice Cooper",
+        "dob": "1990-01-02",
+    }
+
+    assert dialog.edit_password_entry.get_text() == ""
+    assert dialog.edit_confirm_entry.get_text() == ""
+    assert dialog.edit_feedback_label.get_text().startswith("Account updated")
+    assert dialog.edit_title_label.get_text() == "Editing Alice Cooper"
+
+    atlas.list_accounts_result = [
+        {
+            "username": "alice",
+            "display_name": "Alice Cooper",
+            "email": "alice.new@example.com",
+            "name": "Alice Cooper",
+            "dob": "1990-01-02",
+        }
+    ]
+
+    assert atlas.last_thread_name == "user-account-list"
+    _drain_background(atlas)
+
+    assert dialog.account_feedback_label.get_text().startswith("Account updated.")
+    assert dialog._account_rows["alice"]["metadata"]["email"] == "alice.new@example.com"
+
+
+def test_edit_account_validation_blocks_submission():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "email": "alice@example.com"}
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    edit_button = dialog._account_rows["alice"]["edit_button"]
+    _click(edit_button)
+
+    dialog.edit_email_entry.set_text("invalid-email")
+    dialog.edit_password_entry.set_text("short")
+    dialog.edit_confirm_entry.set_text("different")
+
+    dialog._on_edit_save_clicked(dialog.edit_save_button)
+
+    assert atlas.last_factory is None
+    assert dialog.edit_feedback_label.get_text() == "Enter a valid email address."
+    assert getattr(dialog.edit_email_entry, "_atlas_invalid", False) is True
+
+    dialog.edit_email_entry.set_text("alice@example.com")
+    dialog.edit_password_entry.set_text("")
+    dialog.edit_confirm_entry.set_text("Password1")
+
+    dialog._on_edit_save_clicked(dialog.edit_save_button)
+
+    assert dialog.edit_feedback_label.get_text() == "Enter the new password before confirming it."
+    assert getattr(dialog.edit_password_entry, "_atlas_invalid", False) is True
+
+
+def test_edit_account_duplicate_email_shows_error():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "email": "alice@example.com"}
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    edit_button = dialog._account_rows["alice"]["edit_button"]
+    _click(edit_button)
+
+    dialog.edit_email_entry.set_text("taken@example.com")
+
+    dialog._on_edit_save_clicked(dialog.edit_save_button)
+
+    assert atlas.last_thread_name == "user-account-update"
+
+    atlas.last_error(DuplicateUserError("duplicate"))
+
+    assert dialog.edit_feedback_label.get_text() == "Username or email already exists."
+    assert getattr(dialog.edit_email_entry, "_atlas_invalid", False) is True
