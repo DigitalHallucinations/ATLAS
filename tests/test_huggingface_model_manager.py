@@ -187,6 +187,33 @@ def _patch_heavy_dependencies(monkeypatch):
     monkeypatch.setattr(manager_module.psutil, "virtual_memory", lambda: SimpleNamespace(available=1024 * 1024 * 1024))
 
 
+def test_cache_manager_generates_key_with_binary_payload(tmp_path):
+    cache_manager = CacheManager(str(tmp_path / "cache.json"))
+
+    messages = [
+        {"role": "user", "content": "hello", "audio": b"\x00\x01"},
+        {"role": "assistant", "content": "world", "metadata": {"blob": b"\x02"}},
+    ]
+    settings = {"temperature": 0.7, "payload": b"\x03\x04"}
+
+    key = cache_manager.generate_cache_key(messages, "test-model", settings)
+
+    assert isinstance(key, str)
+    assert key
+
+    # Ensure sanitization is stable for identical inputs
+    assert key == cache_manager.generate_cache_key(messages, "test-model", settings)
+
+    # Changing the binary payload should produce a different key
+    different_messages = [
+        {"role": "user", "content": "hello", "audio": b"\x00\x01\x02"},
+        {"role": "assistant", "content": "world", "metadata": {"blob": b"\x02"}},
+    ]
+    different_key = cache_manager.generate_cache_key(different_messages, "test-model", settings)
+
+    assert key != different_key
+
+
 def test_load_model_downloads_when_token_present(monkeypatch, tmp_path, caplog):
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
