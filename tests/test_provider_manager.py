@@ -798,6 +798,12 @@ class DummyConfig:
     def get_default_provider(self):
         return "OpenAI"
 
+    def get_default_model(self):
+        return self._default_model
+
+    def set_default_model(self, model):
+        self._default_model = model
+
     def get_openai_llm_settings(self):
         return dict(self._openai_settings)
 
@@ -1347,6 +1353,24 @@ def test_openai_default_model_uses_cached_list(provider_manager):
     assert default == "gpt-4o"
     assert "gpt-4.1" in provider_manager.model_manager.models["OpenAI"]
     assert "o1" in provider_manager.model_manager.models["OpenAI"]
+
+
+def test_get_default_model_uses_provider_settings_when_cache_empty(provider_manager):
+    provider_manager.model_manager.models["Mistral"] = []
+
+    expected = provider_manager.config_manager.get_mistral_llm_settings()["model"]
+    default = provider_manager.get_default_model_for_provider("Mistral")
+
+    assert default == expected
+
+
+def test_get_default_model_uses_global_default_when_no_provider_settings(provider_manager):
+    provider_manager.model_manager.models["Grok"] = []
+    provider_manager.config_manager.set_default_model("fallback-default-model")
+
+    default = provider_manager.get_default_model_for_provider("Grok")
+
+    assert default == "fallback-default-model"
 
 
 def test_huggingface_facade_handles_model_lifecycle(provider_manager):

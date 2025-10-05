@@ -2150,10 +2150,97 @@ class ProviderManager:
             str: The default model name, or None if not available.
         """
         models = self.model_manager.get_available_models(provider).get(provider, [])
-        if not models:
-            self.logger.error(f"No models found for provider {provider}. Ensure the provider's models are loaded.")
+        if models:
+            return models[0]
+
+        self.logger.warning(
+            "No cached models found for provider %s. Falling back to configured defaults.",
+            provider,
+        )
+
+        def _safe_extract_model(getter_name: str) -> Optional[str]:
+            getter = getattr(self, getter_name, None)
+            if callable(getter):
+                try:
+                    settings = getter() or {}
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    self.logger.warning(
+                        "Failed to load %s for provider %s: %s",
+                        getter_name,
+                        provider,
+                        exc,
+                    )
+                else:
+                    model = settings.get("model")
+                    if isinstance(model, str) and model.strip():
+                        return model.strip()
             return None
-        return models[0]
+
+        def _safe_extract_model_from_config(getter_name: str) -> Optional[str]:
+            getter = getattr(self.config_manager, getter_name, None)
+            if callable(getter):
+                try:
+                    settings = getter() or {}
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    self.logger.warning(
+                        "Failed to load %s for provider %s: %s",
+                        getter_name,
+                        provider,
+                        exc,
+                    )
+                else:
+                    model = settings.get("model")
+                    if isinstance(model, str) and model.strip():
+                        return model.strip()
+            return None
+
+        provider_specific_getters = {
+            "OpenAI": "get_openai_llm_settings",
+            "Google": "get_google_llm_settings",
+        }
+        config_specific_getters = {
+            "Mistral": "get_mistral_llm_settings",
+            "Anthropic": "get_anthropic_settings",
+        }
+
+        fallback_model = None
+
+        getter_name = provider_specific_getters.get(provider)
+        if getter_name:
+            fallback_model = _safe_extract_model(getter_name)
+
+        if not fallback_model:
+            getter_name = config_specific_getters.get(provider)
+            if getter_name:
+                fallback_model = _safe_extract_model_from_config(getter_name)
+
+        if not fallback_model:
+            default_model_getter = getattr(self.config_manager, "get_default_model", None)
+            if callable(default_model_getter):
+                try:
+                    candidate = default_model_getter()
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    self.logger.warning(
+                        "Failed to load global default model from configuration: %s",
+                        exc,
+                    )
+                else:
+                    if isinstance(candidate, str) and candidate.strip():
+                        fallback_model = candidate.strip()
+
+        if fallback_model:
+            self.logger.info(
+                "Using configured default model '%s' for provider %s.",
+                fallback_model,
+                provider,
+            )
+        else:
+            self.logger.warning(
+                "No configured default model available for provider %s.",
+                provider,
+            )
+
+        return fallback_model
 
     async def get_available_models(self) -> List[str]:
         """
