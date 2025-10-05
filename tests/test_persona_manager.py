@@ -60,17 +60,34 @@ def persona_manager(tmp_path, monkeypatch):
             return self._app_root
 
     class _StubUserDataManager:
+        profile_text = 'Profile text'
+        emr_text = 'EMR data'
+        system_info_text = 'System info'
+        invalidate_calls = 0
+
         def __init__(self, _user):
-            pass
+            self._profile_cache = None
+            self._emr_cache = None
+            self._system_info_cache = None
 
         def get_profile_text(self):
-            return 'Profile text'
+            if self._profile_cache is None:
+                self._profile_cache = self.__class__.profile_text
+            return self._profile_cache
 
         def get_emr(self):
-            return 'EMR data'
+            if self._emr_cache is None:
+                self._emr_cache = self.__class__.emr_text
+            return self._emr_cache
 
         def get_system_info(self):
-            return 'System info'
+            if self._system_info_cache is None:
+                self._system_info_cache = self.__class__.system_info_text
+            return self._system_info_cache
+
+        @classmethod
+        def invalidate_system_info_cache(cls):
+            cls.invalidate_calls += 1
 
     monkeypatch.setattr(persona_manager_module, 'ConfigManager', _StubConfigManager)
     monkeypatch.setattr(persona_manager_module, 'UserDataManager', _StubUserDataManager)
@@ -79,6 +96,7 @@ def persona_manager(tmp_path, monkeypatch):
     manager = PersonaManager(master, user='tester', config_manager=master.config_manager)
     manager.persona_base_path = str(personas_dir)
     manager.persona_names = manager.load_persona_names(str(personas_dir))
+    manager._test_user_data_manager_cls = _StubUserDataManager
     return manager, personas_dir
 
 
@@ -143,6 +161,23 @@ def test_update_persona_from_form_enables_optional_fields(persona_manager):
     assert educational['education_level'] == 'College'
     assert educational['teaching_style'] == 'Interactive'
     assert saved['content']['editable_content'] == 'Editable'
+
+
+def test_set_user_refreshes_profile_for_same_user(persona_manager):
+    manager, _personas_dir = persona_manager
+    stub_cls = manager._test_user_data_manager_cls
+    stub_cls.invalidate_calls = 0
+
+    initial_profile = manager.user_data_manager.get_profile_text()
+    assert initial_profile == 'Profile text'
+
+    stub_cls.profile_text = 'Updated profile text'
+
+    manager.set_user('tester')
+
+    refreshed_profile = manager.user_data_manager.get_profile_text()
+    assert refreshed_profile == 'Updated profile text'
+    assert stub_cls.invalidate_calls >= 1
 
 
 def test_update_persona_from_form_disables_persona_and_clears_options(persona_manager):
