@@ -1380,11 +1380,16 @@ class SpeechManager:
     def set_default_speech_providers(self, tts_provider: Optional[str] = None, stt_provider: Optional[str] = None):
         """Update the default TTS and/or STT providers in a single call."""
 
+        config_updated = False
+
         if tts_provider:
             if tts_provider in self.get_tts_provider_names():
                 self.set_default_tts_provider(tts_provider)
                 if hasattr(self.config_manager, 'config'):
                     self.config_manager.config['DEFAULT_TTS_PROVIDER'] = tts_provider
+                if hasattr(self.config_manager, 'yaml_config'):
+                    self.config_manager.yaml_config['DEFAULT_TTS_PROVIDER'] = tts_provider
+                config_updated = True
                 logger.info(f"Persisted default TTS provider '{tts_provider}'.")
             else:
                 logger.error(f"Cannot set unknown TTS provider '{tts_provider}'.")
@@ -1394,9 +1399,15 @@ class SpeechManager:
                 self.set_default_stt_provider(stt_provider)
                 if hasattr(self.config_manager, 'config'):
                     self.config_manager.config['DEFAULT_STT_PROVIDER'] = stt_provider
+                if hasattr(self.config_manager, 'yaml_config'):
+                    self.config_manager.yaml_config['DEFAULT_STT_PROVIDER'] = stt_provider
+                config_updated = True
                 logger.info(f"Persisted default STT provider '{stt_provider}'.")
             else:
                 logger.error(f"Cannot set unknown STT provider '{stt_provider}'.")
+
+        if config_updated and hasattr(self.config_manager, '_write_yaml_config'):
+            self.config_manager._write_yaml_config()
 
     def disable_stt(self):
         """Disable speech-to-text by clearing the active provider and state."""
