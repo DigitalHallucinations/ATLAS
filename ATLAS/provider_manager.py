@@ -377,6 +377,37 @@ class ProviderManager:
         )
         return await strategy(func, call_kwargs)
 
+    def _filter_callable_kwargs(
+        self,
+        func: Callable[..., Awaitable[Any]] | Callable[..., Any],
+        call_kwargs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Remove ProviderManager-only kwargs not accepted by the callable."""
+
+        sanitized_kwargs = dict(call_kwargs)
+        sanitized_kwargs.pop("llm_call_type", None)
+
+        try:
+            signature = inspect.signature(func)
+        except (TypeError, ValueError):
+            return sanitized_kwargs
+
+        parameters = list(signature.parameters.values())
+        if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters):
+            return sanitized_kwargs
+
+        accepted = {
+            name
+            for name, param in signature.parameters.items()
+            if param.kind
+            in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            )
+        }
+
+        return {key: value for key, value in sanitized_kwargs.items() if key in accepted}
+
     async def _invoke_with_config_manager(
         self,
         func: Callable[..., Awaitable[Any]],
@@ -2044,10 +2075,12 @@ class ProviderManager:
                 ),
             )
 
+        sanitized_kwargs = self._filter_callable_kwargs(fallback_function, fallback_kwargs)
+
         result = await self._invoke_provider_callable(
             fallback_provider,
             fallback_function,
-            dict(fallback_kwargs),
+            sanitized_kwargs,
         )
 
         self.logger.info(
