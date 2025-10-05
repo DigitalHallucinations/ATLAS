@@ -298,6 +298,7 @@ class UserAccountDatabase:
 
     def update_user(self, username, password=None, email=None, name=None, dob=None):
         profile_data = None
+        profile_fields_modified = False
         with self._lock:
             cursor = self.conn.cursor()
             try:
@@ -315,15 +316,18 @@ class UserAccountDatabase:
                 if email is not None:
                     query = "UPDATE user_accounts SET email = ? WHERE username = ?"
                     _execute_update(query, (email, username))
+                    profile_fields_modified = True
                 if name is not None:
                     query = "UPDATE user_accounts SET name = ? WHERE username = ?"
                     _execute_update(query, (name, username))
+                    profile_fields_modified = True
                 if dob is not None:
                     query = "UPDATE user_accounts SET DOB = ? WHERE username = ?"
                     _execute_update(query, (dob, username))
+                    profile_fields_modified = True
                 self.conn.commit()
 
-                if name is not None or dob is not None:
+                if profile_fields_modified:
                     cursor.execute(
                         "SELECT username, email, name, DOB FROM user_accounts WHERE username = ?",
                         (username,),
