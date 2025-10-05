@@ -103,6 +103,25 @@ class PersonaManager:
             self.logger.error(f"JSON file for persona '{persona_name}' not found at '{json_file}'.")
             return None
 
+    def set_user(self, user: str) -> None:
+        """Update personalization state for a new active user."""
+
+        sanitized = (user or "User").strip() or "User"
+        if sanitized == self.user:
+            return
+
+        self.user = sanitized
+        self.user_data_manager = UserDataManager(self.user)
+
+        if self.current_persona is not None:
+            try:
+                self.current_system_prompt = self.build_system_prompt(self.current_persona)
+            except Exception:  # pragma: no cover - defensive logging only
+                self.logger.error(
+                    "Failed to rebuild system prompt for persona '%s'", self.current_persona.get("name"),
+                    exc_info=True,
+                )
+
 
     def get_persona(self, persona_name: str) -> Optional[dict]:
         """Retrieve the persona by name, loading it from disk if necessary."""
