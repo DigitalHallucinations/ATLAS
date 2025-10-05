@@ -42,7 +42,7 @@ try:
 except ImportError:
     ort = None
 
-from huggingface_hub import InferenceClient, HfApi, hf_hub_download
+from huggingface_hub import InferenceClient, snapshot_download
 from datasets import Dataset 
 
 # Conditional import for type checking
@@ -55,6 +55,27 @@ class HuggingFaceModelManager:
     Manages HuggingFace models, including loading, unloading, and fine-tuning.
     Supports both standard inference and ONNX Runtime-based inference.
     """
+
+    SNAPSHOT_ALLOW_PATTERNS = [
+        "config.json",
+        "generation_config.json",
+        "special_tokens_map.json",
+        "tokenizer_config.json",
+        "tokenizer.json",
+        "tokenizer.model",
+        "vocab.json",
+        "vocab.txt",
+        "merges.txt",
+        "spiece.model",
+        "*.model",
+        "*.safetensors",
+        "*.bin",
+        "*.pt",
+        "*.onnx",
+        "*.txt",
+        "*.json",
+        "*.py",
+    ]
 
     def __init__(self, base_config: BaseConfig, nvme_config: NVMeConfig, cache_manager: CacheManager):
         """
@@ -144,6 +165,29 @@ class HuggingFaceModelManager:
         except Exception as e:
             self.logger.error(f"Error saving installed models: {str(e)}")
 
+    def _get_model_cache_directory(self, model_name: str) -> str:
+        """Return the base cache directory for a model."""
+        return os.path.join(self.model_cache_dir, "models--" + model_name.replace('/', '--'))
+
+    def _get_existing_model_path(self, model_name: str) -> Optional[str]:
+        """Return the path to an existing cached snapshot for a model, if present."""
+        repo_dir = self._get_model_cache_directory(model_name)
+        if not os.path.exists(repo_dir):
+            return None
+
+        snapshots_dir = os.path.join(repo_dir, "snapshots")
+        if os.path.isdir(snapshots_dir):
+            snapshots = sorted(
+                entry
+                for entry in os.listdir(snapshots_dir)
+                if os.path.isdir(os.path.join(snapshots_dir, entry))
+            )
+            if snapshots:
+                latest_snapshot = snapshots[-1]
+                return os.path.join(snapshots_dir, latest_snapshot)
+
+        return repo_dir if os.path.isdir(repo_dir) else None
+
     async def load_model(self, model_name: str, force_download: bool = False, use_onnx: bool = False, onnx_model_path: Optional[str] = None):
         """
         Loads the specified model, optionally downloading it and setting up ONNX Runtime.
@@ -154,12 +198,18 @@ class HuggingFaceModelManager:
             use_onnx (bool, optional): Whether to use ONNX Runtime for this model. Defaults to False.
             onnx_model_path (Optional[str], optional): Path to the ONNX model file if use_onnx is True. Defaults to None.
         """
-        model_path = os.path.join(self.model_cache_dir, "models--" + model_name.replace('/', '--'))
+        repo_dir = self._get_model_cache_directory(model_name)
+        model_path = None
         model_loaded = False
         download_attempted = False
 
         try:
-            if not os.path.exists(model_path) or force_download:
+            if force_download and os.path.exists(repo_dir):
+                shutil.rmtree(repo_dir)
+
+            model_path = self._get_existing_model_path(model_name)
+
+            if model_path is None:
                 download_attempted = True
                 if not self.api_key:
                     message = (
@@ -171,42 +221,21 @@ class HuggingFaceModelManager:
 
                 self.logger.info(f"Downloading model: {model_name}")
                 try:
-                    api = HfApi(token=self.api_key)
-                    repo_files = await asyncio.to_thread(api.list_repo_files, repo_id=model_name)
-
-                    semaphore = asyncio.Semaphore(5)
-
-                    async def _download_repo_file(filename: str):
-                        async with semaphore:
-                            return await asyncio.to_thread(
-                                hf_hub_download,
-                                repo_id=model_name,
-                                filename=filename,
-                                cache_dir=self.model_cache_dir,
-                            )
-
-                    tasks = [_download_repo_file(file) for file in repo_files]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                    failures = []
-                    for file_name, result in zip(repo_files, results):
-                        if isinstance(result, Exception):
-                            failures.append((file_name, result))
-
-                    if failures:
-                        failure_messages = ", ".join(
-                            f"{file_name}: {exc}" for file_name, exc in failures
-                        )
-                        raise RuntimeError(
-                            f"Failed to download one or more files for {model_name}: {failure_messages}"
-                        ) from failures[0][1]
+                    model_path = await asyncio.to_thread(
+                        snapshot_download,
+                        repo_id=model_name,
+                        cache_dir=self.model_cache_dir,
+                        allow_patterns=self.SNAPSHOT_ALLOW_PATTERNS,
+                        token=self.api_key,
+                        max_workers=4,
+                    )
 
                     self.logger.info(f"Model downloaded and cached at: {model_path}")
 
                     # Provide a concise summary of the cache directory contents
                     total_size = 0
                     file_count = 0
-                    target_dir = model_path if os.path.isdir(model_path) else self.model_cache_dir
+                    target_dir = model_path if (model_path and os.path.isdir(model_path)) else self.model_cache_dir
 
                     for root, _, files in os.walk(target_dir):
                         for file in files:
@@ -226,6 +255,14 @@ class HuggingFaceModelManager:
                     self.logger.error(f"Error downloading model {model_name}: {str(e)}")
                     raise ValueError(f"Failed to download model {model_name}. Please check the model name and try again.")
 
+            if model_path is None:
+                model_path = self._get_existing_model_path(model_name)
+
+            if model_path is None:
+                raise ValueError(
+                    f"Failed to locate cached files for {model_name}. Please ensure the model is downloaded."
+                )
+
             self.logger.info(f"Loading model: {model_name}")
 
             # Check for CUDA availability
@@ -235,7 +272,12 @@ class HuggingFaceModelManager:
 
             # Load the config to determine the model type
             self.logger.info(f"Loading config for model: {model_name}")
-            config = await asyncio.to_thread(AutoConfig.from_pretrained, model_name, cache_dir=self.model_cache_dir)
+            config = await asyncio.to_thread(
+                AutoConfig.from_pretrained,
+                model_path,
+                cache_dir=self.model_cache_dir,
+                local_files_only=True,
+            )
             self.logger.info(f"Loaded config: {config}")
             model_type = config.model_type
             self.logger.info(f"Model type: {model_type}")
@@ -246,19 +288,28 @@ class HuggingFaceModelManager:
                 if model_type == "llama":
                     from transformers import LlamaTokenizer
                     self.tokenizer = await asyncio.to_thread(
-                        LlamaTokenizer.from_pretrained, model_name, cache_dir=self.model_cache_dir
+                        LlamaTokenizer.from_pretrained,
+                        model_path,
+                        cache_dir=self.model_cache_dir,
+                        local_files_only=True,
                     )
                 else:
                     # Default to AutoTokenizer for other model types
                     self.tokenizer = await asyncio.to_thread(
-                        AutoTokenizer.from_pretrained, model_name, cache_dir=self.model_cache_dir
+                        AutoTokenizer.from_pretrained,
+                        model_path,
+                        cache_dir=self.model_cache_dir,
+                        local_files_only=True,
                     )
                 self.logger.info(f"Tokenizer loaded successfully: {type(self.tokenizer)}")
             except ImportError as e:
                 self.logger.error(f"Error importing tokenizer: {str(e)}")
                 self.logger.info("Falling back to AutoTokenizer")
                 self.tokenizer = await asyncio.to_thread(
-                    AutoTokenizer.from_pretrained, model_name, cache_dir=self.model_cache_dir
+                    AutoTokenizer.from_pretrained,
+                    model_path,
+                    cache_dir=self.model_cache_dir,
+                    local_files_only=True,
                 )
 
             self.logger.info(f"Loaded tokenizer for model {model_name}")
@@ -347,6 +398,7 @@ class HuggingFaceModelManager:
                 "trust_remote_code": True,
                 "device_map": "auto",
                 "max_memory": max_memory,
+                "local_files_only": True,
             })
 
             # Strategy 7: Mixed Precision Training and Inference
@@ -382,7 +434,7 @@ class HuggingFaceModelManager:
             self.logger.info(f"Loading model with custom device map and possible NVMe offloading")
             self.model = await asyncio.to_thread(
                 AutoModelForCausalLM.from_pretrained,
-                model_name,
+                model_path,
                 **model_kwargs
             )
             self.logger.info(f"Model loaded successfully: {type(self.model)}")
@@ -439,13 +491,13 @@ class HuggingFaceModelManager:
             self.logger.error(f"Error type: {type(e).__name__}")
             self.logger.error(f"Error args: {e.args}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
-            if download_attempted and os.path.exists(model_path):
+            if download_attempted and os.path.exists(repo_dir):
                 try:
-                    shutil.rmtree(model_path)
-                    self.logger.info(f"Removed incomplete download at {model_path}")
+                    shutil.rmtree(repo_dir)
+                    self.logger.info(f"Removed incomplete download at {repo_dir}")
                 except Exception as cleanup_error:
                     self.logger.warning(
-                        f"Failed to clean up incomplete download at {model_path}: {cleanup_error}"
+                        f"Failed to clean up incomplete download at {repo_dir}: {cleanup_error}"
                     )
             raise ValueError(f"Failed to load model {model_name}. Error: {str(e)}")
 
@@ -461,7 +513,7 @@ class HuggingFaceModelManager:
 
             # Log model files for debugging
             self.logger.info(f"Model files present in {model_path}:")
-            if os.path.exists(model_path):
+            if model_path and os.path.exists(model_path):
                 for root, dirs, files in os.walk(model_path):
                     for file in files:
                         self.logger.info(f" - {os.path.join(root, file)}")
