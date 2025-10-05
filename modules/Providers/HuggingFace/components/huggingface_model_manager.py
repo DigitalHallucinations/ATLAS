@@ -156,9 +156,11 @@ class HuggingFaceModelManager:
         """
         model_path = os.path.join(self.model_cache_dir, "models--" + model_name.replace('/', '--'))
         model_loaded = False
+        download_attempted = False
 
         try:
             if not os.path.exists(model_path) or force_download:
+                download_attempted = True
                 if not self.api_key:
                     message = (
                         "HuggingFace API key is required to download models from the Hugging Face Hub. "
@@ -437,19 +439,25 @@ class HuggingFaceModelManager:
             self.logger.error(f"Error type: {type(e).__name__}")
             self.logger.error(f"Error args: {e.args}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
+            if download_attempted and os.path.exists(model_path):
+                try:
+                    shutil.rmtree(model_path)
+                    self.logger.info(f"Removed incomplete download at {model_path}")
+                except Exception as cleanup_error:
+                    self.logger.warning(
+                        f"Failed to clean up incomplete download at {model_path}: {cleanup_error}"
+                    )
             raise ValueError(f"Failed to load model {model_name}. Error: {str(e)}")
 
         finally:
-            # Add the model to installed_models.json even if loading failed
-            if model_name not in self.installed_models:
-                self.installed_models.append(model_name)
-                self._save_installed_models(self.installed_models)
-                self.logger.info(f"Added {model_name} to installed models list")
-
             if model_loaded:
+                if model_name not in self.installed_models:
+                    self.installed_models.append(model_name)
+                    self._save_installed_models(self.installed_models)
+                    self.logger.info(f"Added {model_name} to installed models list")
                 self.logger.info(f"Model {model_name} loaded and ready")
             else:
-                self.logger.warning(f"Model {model_name} added to installed list, but failed to load")
+                self.logger.warning(f"Model {model_name} failed to load")
 
             # Log model files for debugging
             self.logger.info(f"Model files present in {model_path}:")
