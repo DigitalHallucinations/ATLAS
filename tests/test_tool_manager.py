@@ -81,9 +81,12 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
             self.responses.append((user, conversation_id, response, timestamp))
             self.history.append({"role": "function", "name": "tool", "content": str(response)})
 
-        def add_message(self, user, conversation_id, role, content, timestamp):
-            self.messages.append((user, conversation_id, role, content, timestamp))
-            self.history.append({"role": role, "content": content})
+        def add_message(self, user, conversation_id, role, content, timestamp, **kwargs):
+            self.messages.append((user, conversation_id, role, content, timestamp, kwargs))
+            entry = {"role": role, "content": content}
+            if kwargs:
+                entry.update(kwargs)
+            self.history.append(entry)
 
         def get_history(self, user, conversation_id):
             return list(self.history)
@@ -144,8 +147,57 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
         assert payload["conversation_manager"] is conversation_history
         assert payload["conversation_id"] == "conversation"
         assert payload["user"] == "user"
+        recorded_message = conversation_history.messages[-1]
+        assert isinstance(recorded_message[3], str)
+        assert recorded_message[3] == "model-output"
 
     asyncio.run(run_test())
+
+
+def test_call_model_with_new_prompt_collects_stream(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    class StreamingProviderManager:
+        def __init__(self):
+            self.generate_calls = []
+
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **kwargs):
+            self.generate_calls.append(kwargs)
+
+            async def _generator():
+                for chunk in ["Hello", " ", "world"]:
+                    yield chunk
+
+            return _generator()
+
+    provider = StreamingProviderManager()
+
+    result = asyncio.run(
+        tool_manager.call_model_with_new_prompt(
+            "Please continue",
+            current_persona=None,
+            messages=[{"role": "user", "content": "Hi"}],
+            temperature_var=0.5,
+            top_p_var=0.9,
+            frequency_penalty_var=0.0,
+            presence_penalty_var=0.0,
+            functions=None,
+            provider_manager=provider,
+            conversation_manager=None,
+            conversation_id="conversation",
+            user="user",
+        )
+    )
+
+    assert result == "Hello world"
+    assert provider.generate_calls
+    assert provider.generate_calls[0].get("stream") is False
 
 
 def test_load_function_map_caches_by_persona(monkeypatch):
