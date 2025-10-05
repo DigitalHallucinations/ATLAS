@@ -6,11 +6,38 @@ import types
 
 import pytest
 
-if "yaml" not in sys.modules:
-    yaml_module = types.ModuleType("yaml")
-    yaml_module.safe_load = lambda *args, **kwargs: {}
-    yaml_module.dump = lambda *args, **kwargs: None
-    sys.modules["yaml"] = yaml_module
+try:
+    import yaml
+except ModuleNotFoundError:  # pragma: no cover - fallback only used in limited environments
+    import json as _json
+
+    yaml = types.ModuleType("yaml")
+
+    def _safe_load_fallback(stream):
+        if hasattr(stream, "read"):
+            content = stream.read()
+        else:
+            content = stream or ""
+
+        content = content or ""
+        if not content.strip():
+            return {}
+
+        try:
+            return _json.loads(content)
+        except _json.JSONDecodeError:
+            return {}
+
+    def _dump_fallback(data, stream=None, **_kwargs):
+        text = _json.dumps(data or {})
+        if stream is None:
+            return text
+        stream.write(text)
+        return text
+
+    yaml.safe_load = _safe_load_fallback
+    yaml.dump = _dump_fallback
+    sys.modules["yaml"] = yaml
 
 if "dotenv" not in sys.modules:
     dotenv_module = types.ModuleType("dotenv")
@@ -305,6 +332,20 @@ def test_set_openai_speech_config_updates_values(config_manager):
     assert config_manager.config["OPENAI_LANGUAGE"] == "en"
     assert config_manager.config["OPENAI_TASK"] == "transcribe"
     assert config_manager.config["OPENAI_INITIAL_PROMPT"] == "hello"
+    assert config_manager.yaml_config["OPENAI_SPEECH"] == {
+        "stt_provider": "GPT-4o STT",
+        "tts_provider": "GPT-4o Mini TTS",
+        "language": "en",
+        "task": "transcribe",
+        "initial_prompt": "hello",
+    }
+    assert config_manager.config["OPENAI_SPEECH"] == {
+        "stt_provider": "GPT-4o STT",
+        "tts_provider": "GPT-4o Mini TTS",
+        "language": "en",
+        "task": "transcribe",
+        "initial_prompt": "hello",
+    }
     assert os.environ["OPENAI_API_KEY"] == "fresh-key"
     assert (
         config_manager._recorded_set_key[(config_manager._env_path, "OPENAI_API_KEY")]
@@ -315,6 +356,65 @@ def test_set_openai_speech_config_updates_values(config_manager):
 def test_set_openai_speech_config_rejects_empty_key(config_manager):
     with pytest.raises(ValueError):
         config_manager.set_openai_speech_config(api_key="")
+
+
+def test_openai_speech_settings_persist_to_yaml(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+
+    dummy_logger = DummyLogger()
+
+    monkeypatch.setattr(config_module, "setup_logger", lambda name: dummy_logger)
+    recorded = {}
+
+    def fake_set_key(path, key, value):
+        recorded[(path, key)] = value
+
+    monkeypatch.setattr(config_module, "set_key", fake_set_key)
+    monkeypatch.setattr(config_module, "find_dotenv", lambda: str(env_file))
+    monkeypatch.setattr(config_module, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setenv("OPENAI_API_KEY", "initial-key")
+    monkeypatch.setenv("DEFAULT_PROVIDER", "OpenAI")
+    monkeypatch.setenv("DEFAULT_MODEL", "gpt-4o")
+
+    monkeypatch.setattr(
+        ConfigManager,
+        "_load_env_config",
+        lambda self: {
+            "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
+            "DEFAULT_PROVIDER": os.getenv("DEFAULT_PROVIDER", "OpenAI"),
+            "DEFAULT_MODEL": os.getenv("DEFAULT_MODEL", "gpt-4o"),
+            "APP_ROOT": tmp_path.as_posix(),
+        },
+    )
+
+    manager = ConfigManager()
+    manager.set_openai_speech_config(
+        stt_provider="GPT-4o STT",
+        tts_provider="GPT-4o Mini TTS",
+        language="en",
+        task="transcribe",
+        initial_prompt="hello",
+    )
+
+    with open(manager._yaml_path, "r", encoding="utf-8") as fh:
+        stored = yaml.safe_load(fh) or {}
+
+    assert stored["OPENAI_SPEECH"] == {
+        "stt_provider": "GPT-4o STT",
+        "tts_provider": "GPT-4o Mini TTS",
+        "language": "en",
+        "task": "transcribe",
+        "initial_prompt": "hello",
+    }
+
+    reloaded = ConfigManager()
+    assert reloaded.config["OPENAI_SPEECH"] == stored["OPENAI_SPEECH"]
+    assert reloaded.config["OPENAI_STT_PROVIDER"] == "GPT-4o STT"
+    assert reloaded.config["OPENAI_TTS_PROVIDER"] == "GPT-4o Mini TTS"
+    assert reloaded.config["OPENAI_LANGUAGE"] == "en"
+    assert reloaded.config["OPENAI_TASK"] == "transcribe"
+    assert reloaded.config["OPENAI_INITIAL_PROMPT"] == "hello"
 
 
 def test_set_google_speech_settings_updates_state(config_manager):
