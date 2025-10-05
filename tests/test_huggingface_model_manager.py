@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 import types
 from pathlib import Path
@@ -352,3 +353,45 @@ def test_unload_model_clears_onnx_sessions(monkeypatch, tmp_path):
     manager.unload_model()
 
     assert manager.ort_sessions == {}
+
+
+def test_failed_load_does_not_persist_install(monkeypatch, tmp_path):
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    config_manager = _DummyConfigManager(token="hf_token", cache_dir=str(cache_dir))
+    base_config = BaseConfig(config_manager)
+    cache_manager = CacheManager(str(tmp_path / "cache.json"))
+    manager = HuggingFaceModelManager(base_config, NVMeConfig(), cache_manager)
+
+    model_name = "fail/model"
+    model_dir = cache_dir / f"models--{model_name.replace('/', '--')}"
+
+    class _DummyApi:
+        def list_repo_files(self, repo_id):
+            return ["config.json"]
+
+    def _fake_download(repo_id, filename, cache_dir):
+        download_dir = Path(cache_dir) / f"models--{repo_id.replace('/', '--')}"
+        download_dir.mkdir(parents=True, exist_ok=True)
+        target_file = download_dir / filename
+        target_file.write_text("data")
+        return str(target_file)
+
+    class _FailingModel:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(manager_module, "HfApi", lambda *a, **k: _DummyApi())
+    monkeypatch.setattr(manager_module, "hf_hub_download", _fake_download)
+    monkeypatch.setattr(manager_module, "AutoModelForCausalLM", _FailingModel)
+
+    with pytest.raises(ValueError):
+        asyncio.run(manager.load_model(model_name, force_download=True))
+
+    assert not model_dir.exists()
+    assert manager.current_model is None
+    assert manager.installed_models == []
+
+    with open(manager.installed_models_file, "r", encoding="utf-8") as fh:
+        assert json.load(fh) == []
