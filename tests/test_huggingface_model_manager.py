@@ -183,7 +183,6 @@ def _patch_heavy_dependencies(monkeypatch):
     monkeypatch.setattr(manager_module, "AutoTokenizer", SimpleNamespace(from_pretrained=lambda *a, **k: _DummyTokenizer()))
     monkeypatch.setattr(manager_module, "AutoModelForCausalLM", SimpleNamespace(from_pretrained=lambda *a, **k: _DummyModel()))
     monkeypatch.setattr(manager_module, "pipeline", lambda *a, **k: lambda *args, **kwargs: [])
-    monkeypatch.setattr(manager_module, "infer_auto_device_map", lambda *a, **k: {})
     monkeypatch.setattr(manager_module.psutil, "virtual_memory", lambda: SimpleNamespace(available=1024 * 1024 * 1024))
 
 
@@ -270,18 +269,52 @@ def test_load_model_handles_multi_gpu_device_map(monkeypatch, tmp_path):
     monkeypatch.setattr(manager_module.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(manager_module.torch.cuda, "device_count", lambda: 2)
 
-    infer_calls = []
+    call_kwargs = []
 
-    def _recording_infer_auto_device_map(model, **kwargs):
-        infer_calls.append((model, kwargs))
-        return {}
+    class _RecordingModel:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            call_kwargs.append(kwargs)
+            return _DummyModel()
 
-    monkeypatch.setattr(manager_module, "infer_auto_device_map", _recording_infer_auto_device_map)
+    monkeypatch.setattr(manager_module, "AutoModelForCausalLM", _RecordingModel)
 
     asyncio.run(manager.load_model("test/model"))
 
     assert manager.current_model == "test/model"
-    assert len(infer_calls) == 2
+    assert len(call_kwargs) == 1
+    kwargs = call_kwargs[0]
+    assert kwargs["device_map"] == "auto"
+    assert kwargs["max_memory"]["cpu"].endswith("B")
+    assert kwargs["max_memory"]["cuda:0"].endswith("B")
+    assert kwargs["max_memory"]["cuda:1"].endswith("B")
+
+
+def test_load_model_instantiates_model_once(monkeypatch, tmp_path):
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    config_manager = _DummyConfigManager(token=None, cache_dir=str(cache_dir))
+    base_config = BaseConfig(config_manager)
+    cache_manager = CacheManager(str(tmp_path / "cache.json"))
+    manager = HuggingFaceModelManager(base_config, NVMeConfig(), cache_manager)
+
+    model_dir = cache_dir / "models--test--model"
+    model_dir.mkdir(parents=True)
+
+    call_count = 0
+
+    class _RecordingModel:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return _DummyModel()
+
+    monkeypatch.setattr(manager_module, "AutoModelForCausalLM", _RecordingModel)
+
+    asyncio.run(manager.load_model("test/model"))
+
+    assert call_count == 1
 
 
 def test_unload_model_clears_onnx_sessions(monkeypatch, tmp_path):
