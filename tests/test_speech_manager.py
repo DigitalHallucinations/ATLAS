@@ -1,6 +1,7 @@
 """Unit tests for the SpeechManager TTS summary helper."""
 
 import asyncio
+import base64
 from concurrent.futures import Future
 from types import MethodType
 import logging
@@ -972,6 +973,110 @@ def test_google_tts_text_to_speech_spawns_daemon_thread(monkeypatch, tmp_path):
     assert recorded.get("thread") is google_tts._playback_thread
     assert played["path"].startswith(str(tmp_path))
     assert not os.path.exists(played["path"])
+
+
+def test_gpt4o_tts_text_to_speech_decodes_audio(monkeypatch, tmp_path):
+    from modules.Speech_Services import gpt4o_tts as gpt4o_module
+
+    audio_bytes = b"ID3FAKEAUDIO"
+    create_calls = []
+
+    class DummySpeechAPI:
+        async def create(self, **kwargs):
+            create_calls.append(kwargs)
+            return {
+                "data": [
+                    {"b64_json": base64.b64encode(audio_bytes[:4]).decode("ascii")},
+                    {"b64_json": base64.b64encode(audio_bytes[4:]).decode("ascii")},
+                ]
+            }
+
+    class DummyClient:
+        def __init__(self, api_key=None):
+            self.audio = types.SimpleNamespace(speech=DummySpeechAPI())
+
+    monkeypatch.setattr(gpt4o_module, "AsyncOpenAI", DummyClient)
+
+    recorded_to_thread = []
+
+    async def fake_to_thread(func, /, *args, **kwargs):
+        recorded_to_thread.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(gpt4o_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setenv("OPENAI_API_KEY", "unit-test-key")
+
+    tts = gpt4o_module.GPT4oTTS(voice="alloy")
+    output_path = tmp_path / "out.mp3"
+
+    result_path = asyncio.run(tts.text_to_speech("Hello there", output_path=output_path))
+
+    assert result_path == str(output_path)
+    assert output_path.read_bytes() == audio_bytes
+    assert recorded_to_thread, "Expected GPT4oTTS to offload disk writes via asyncio.to_thread"
+    assert create_calls and create_calls[0]["model"] == "gpt-4o-mini-tts"
+    assert create_calls[0]["voice"] == "alloy"
+
+
+def test_gpt4o_tts_text_to_speech_raises_when_audio_missing(monkeypatch):
+    from modules.Speech_Services import gpt4o_tts as gpt4o_module
+
+    class DummySpeechAPI:
+        async def create(self, **kwargs):
+            return {"data": []}
+
+    class DummyClient:
+        def __init__(self, api_key=None):
+            self.audio = types.SimpleNamespace(speech=DummySpeechAPI())
+
+    monkeypatch.setattr(gpt4o_module, "AsyncOpenAI", DummyClient)
+    monkeypatch.setenv("OPENAI_API_KEY", "unit-test-key")
+
+    tts = gpt4o_module.GPT4oTTS()
+
+    with pytest.raises(RuntimeError, match="did not contain audio"):
+        asyncio.run(tts.text_to_speech("No audio here"))
+
+
+def test_speech_manager_text_to_speech_with_gpt4o(monkeypatch, speech_manager, tmp_path):
+    from modules.Speech_Services import gpt4o_tts as gpt4o_module
+
+    audio_bytes = b"ID3GPT4OAUDIO"
+    create_calls = []
+
+    class DummySpeechAPI:
+        async def create(self, **kwargs):
+            create_calls.append(kwargs)
+            return {
+                "data": [
+                    {"b64_json": base64.b64encode(audio_bytes).decode("ascii")},
+                ]
+            }
+
+    class DummyClient:
+        def __init__(self, api_key=None):
+            self.audio = types.SimpleNamespace(speech=DummySpeechAPI())
+
+    monkeypatch.setattr(gpt4o_module, "AsyncOpenAI", DummyClient)
+
+    recorded_to_thread = []
+
+    async def fake_to_thread(func, /, *args, **kwargs):
+        recorded_to_thread.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(gpt4o_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setenv("OPENAI_API_KEY", "integration-key")
+    monkeypatch.chdir(tmp_path)
+
+    asyncio.run(speech_manager.text_to_speech("Integration test", provider="gpt4o_tts"))
+
+    output_file = tmp_path / "gpt4o_tts_output.mp3"
+    assert output_file.exists()
+    assert output_file.read_bytes() == audio_bytes
+    assert recorded_to_thread, "Expected GPT4oTTS to offload disk writes via asyncio.to_thread"
+    assert create_calls and create_calls[0]["model"] == "gpt-4o-mini-tts"
+
 
 def test_google_tts_set_voice_accepts_dict_payload():
     from modules.Speech_Services.Google_tts import GoogleTTS
