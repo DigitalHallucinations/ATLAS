@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import sys
 import types
@@ -74,6 +75,28 @@ def test_add_user_stores_hashed_password(tmp_path, monkeypatch):
         db.close_connection()
 
 
+def test_add_user_creates_profile_files(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    try:
+        db.add_user('dave', 'Password123', 'dave@example.com', 'Dave', '1995-09-01')
+
+        profile_path = Path(db.user_profiles_dir) / 'dave.json'
+        emr_path = Path(db.user_profiles_dir) / 'dave_emr.txt'
+
+        assert profile_path.exists()
+        profile_contents = json.loads(profile_path.read_text(encoding='utf-8'))
+        assert profile_contents['Username'] == 'dave'
+        assert profile_contents['Full Name'] == 'Dave'
+        assert profile_contents['DOB'] == '1995-09-01'
+        assert profile_contents['Email'] == 'dave@example.com'
+
+        assert emr_path.exists()
+        assert emr_path.read_text(encoding='utf-8') == ''
+    finally:
+        db.close_connection()
+
+
 def test_verify_user_password_uses_hash_check(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 
@@ -104,6 +127,26 @@ def test_verify_user_password_uses_hash_check(tmp_path, monkeypatch):
         assert verify_calls == [(hashed_value, 'initial')]
         assert not db.verify_user_password('bob', 'wrong')
         assert not db.verify_user_password('unknown', 'initial')
+    finally:
+        db.close_connection()
+
+
+def test_update_user_refreshes_profile(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    try:
+        db.add_user('erin', 'Password1', 'erin@example.com', 'Erin', '1991-02-03')
+
+        profile_path = Path(db.user_profiles_dir) / 'erin.json'
+        original = json.loads(profile_path.read_text(encoding='utf-8'))
+        assert original['Full Name'] == 'Erin'
+        assert original['DOB'] == '1991-02-03'
+
+        db.update_user('erin', name='Erin Updated', dob='1992-02-03')
+
+        updated = json.loads(profile_path.read_text(encoding='utf-8'))
+        assert updated['Full Name'] == 'Erin Updated'
+        assert updated['DOB'] == '1992-02-03'
     finally:
         db.close_connection()
 
@@ -160,9 +203,7 @@ def test_delete_user_removes_profile_and_emr(tmp_path, monkeypatch):
         db.add_user('carol', 'Password1', 'carol@example.com', 'Carol', '1980-07-07')
 
         profile_path = Path(db.user_profiles_dir) / 'carol.json'
-        profile_path.write_text('{"name": "Carol"}', encoding='utf-8')
         emr_path = Path(db.user_profiles_dir) / 'carol_emr.txt'
-        emr_path.write_text('EMR data', encoding='utf-8')
 
         deleted = db.delete_user('carol')
 

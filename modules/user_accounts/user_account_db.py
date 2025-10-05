@@ -1,8 +1,10 @@
 import hashlib
 import hmac
+import json
 import os
 import shutil
 import sqlite3
+import tempfile
 import threading
 from pathlib import Path
 from typing import Dict, Optional
@@ -37,6 +39,8 @@ class UserAccountDatabase:
         base_directory = self._determine_base_directory(base_dir)
         self.user_profiles_dir = base_directory / 'user_profiles'
         self.user_profiles_dir.mkdir(parents=True, exist_ok=True)
+
+        self._profile_template_path = Path(__file__).resolve().parent / 'user_template'
 
         self.db_path = self.user_profiles_dir / db_name
         self._migrate_legacy_database(db_name)
@@ -229,16 +233,26 @@ class UserAccountDatabase:
         INSERT INTO user_accounts (username, password, email, name, DOB)
         VALUES (?, ?, ?, ?, ?)
         """
+        profile_data = None
         with self._lock:
             cursor = self.conn.cursor()
             try:
                 cursor.execute(query, (username, hashed_password, email, name, dob))
                 self.conn.commit()
+                profile_data = {
+                    'username': username,
+                    'email': email,
+                    'name': name,
+                    'dob': dob,
+                }
             except sqlite3.IntegrityError as exc:
                 self.conn.rollback()
                 raise DuplicateUserError(_DUPLICATE_USER_MESSAGE) from exc
             finally:
                 cursor.close()
+
+        if profile_data is not None:
+            self._write_user_profile_files(**profile_data, ensure_emr=True)
 
     def get_user(self, username):
         query = "SELECT * FROM user_accounts WHERE username = ?"
@@ -283,6 +297,7 @@ class UserAccountDatabase:
                 raise
 
     def update_user(self, username, password=None, email=None, name=None, dob=None):
+        profile_data = None
         with self._lock:
             cursor = self.conn.cursor()
             try:
@@ -307,8 +322,25 @@ class UserAccountDatabase:
                     query = "UPDATE user_accounts SET DOB = ? WHERE username = ?"
                     _execute_update(query, (dob, username))
                 self.conn.commit()
+
+                if name is not None or dob is not None:
+                    cursor.execute(
+                        "SELECT username, email, name, DOB FROM user_accounts WHERE username = ?",
+                        (username,),
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        profile_data = {
+                            'username': row[0],
+                            'email': row[1],
+                            'name': row[2],
+                            'dob': row[3],
+                        }
             finally:
                 cursor.close()
+
+        if profile_data is not None:
+            self._write_user_profile_files(**profile_data, ensure_emr=False)
 
     def verify_user_password(self, username, candidate_password):
         user_record = self.get_user(username)
@@ -348,3 +380,59 @@ class UserAccountDatabase:
                         )
 
         return deleted
+
+    def _load_user_profile_template(self) -> Dict:
+        try:
+            with self._profile_template_path.open('r', encoding='utf-8') as template_file:
+                return json.load(template_file)
+        except (OSError, json.JSONDecodeError) as exc:
+            self.logger.error(
+                "Failed to load user profile template from %s: %s",
+                self._profile_template_path,
+                exc,
+            )
+            return {}
+
+    def _write_user_profile_files(
+        self,
+        *,
+        username: str,
+        email: Optional[str],
+        name: Optional[str],
+        dob: Optional[str],
+        ensure_emr: bool,
+    ) -> None:
+        profile_contents = self._load_user_profile_template()
+        profile_contents['Username'] = username
+        profile_contents['Full Name'] = name or ''
+        profile_contents['DOB'] = dob or ''
+        profile_contents['Email'] = email or ''
+
+        profile_path = self.user_profiles_dir / f"{username}.json"
+        tmp_path: Optional[Path] = None
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                'w', encoding='utf-8', dir=str(profile_path.parent), delete=False
+            ) as tmp_file:
+                json.dump(profile_contents, tmp_file, indent=4)
+                tmp_file.write('\n')
+                tmp_file.flush()
+                os.fsync(tmp_file.fileno())
+                tmp_path = Path(tmp_file.name)
+            tmp_path.replace(profile_path)
+        except OSError as exc:
+            self.logger.error("Failed to write profile JSON for user '%s': %s", username, exc)
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+        else:
+            if ensure_emr:
+                emr_path = self.user_profiles_dir / f"{username}_emr.txt"
+                try:
+                    if not emr_path.exists():
+                        emr_path.touch()
+                except OSError as exc:
+                    self.logger.error("Failed to create EMR file for user '%s': %s", username, exc)
