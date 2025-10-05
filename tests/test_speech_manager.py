@@ -10,6 +10,7 @@ import types
 from unittest.mock import mock_open
 
 import pytest
+import requests
 
 
 # Provide a lightweight stub for google.cloud.texttospeech to satisfy imports during testing.
@@ -1514,9 +1515,15 @@ def test_elevenlabs_text_to_speech_uses_async_executor(monkeypatch, tmp_path):
             yield b""
             yield b"chunk-2"
 
+    post_calls = []
+
+    def _capture_post(*args, **kwargs):
+        post_calls.append((args, kwargs))
+        return _DummyResponse()
+
     monkeypatch.setattr(
         "modules.Speech_Services.elevenlabs_tts.requests.post",
-        lambda *args, **kwargs: _DummyResponse(),
+        _capture_post,
     )
 
     original_join = os.path.join
@@ -1561,10 +1568,66 @@ def test_elevenlabs_text_to_speech_uses_async_executor(monkeypatch, tmp_path):
     handle.write.assert_any_call(b"chunk-2")
 
     expected_path = str(tmp_path / "output_20240102030405.mp3")
+    assert post_calls, "Expected Eleven Labs POST request to be invoked"
+    _, post_kwargs = post_calls[0]
+    assert post_kwargs.get("timeout") == (30, 30)
+    assert post_kwargs.get("stream") is True
     assert playback_func == tts.play_audio
     assert playback_args == (expected_path,)
     assert playback_kwargs == {}
     assert playback_paths == [expected_path]
+
+
+def test_elevenlabs_text_to_speech_timeout(monkeypatch):
+    monkeypatch.setenv("XI_API_KEY", "key")
+
+    tts = ElevenLabsTTS()
+    tts._use_tts = True
+    tts.configured = True
+    tts.voice_ids = [{"voice_id": "voice-1", "name": "Voice"}]
+
+    if not hasattr(requests.exceptions, "Timeout"):
+        base_exception = getattr(requests.exceptions, "RequestException", Exception)
+
+        class _Timeout(base_exception):
+            """Fallback Timeout exception for environments lacking requests.Timeout."""
+
+        monkeypatch.setattr(requests.exceptions, "Timeout", _Timeout, raising=False)
+
+    playback_paths: list[str] = []
+
+    def _play_audio(path):
+        playback_paths.append(path)
+
+    monkeypatch.setattr(tts, "play_audio", _play_audio)
+
+    warning_messages: list[str] = []
+
+    def _capture_warning(message, *args, **kwargs):
+        warning_messages.append(message % args if args else message)
+
+    monkeypatch.setattr(
+        "modules.Speech_Services.elevenlabs_tts.logger.warning",
+        _capture_warning,
+    )
+
+    def _timeout_post(*args, **kwargs):
+        raise requests.exceptions.Timeout("slow response")
+
+    monkeypatch.setattr(
+        "modules.Speech_Services.elevenlabs_tts.requests.post",
+        _timeout_post,
+    )
+
+    async def _to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("modules.Speech_Services.elevenlabs_tts.asyncio.to_thread", _to_thread)
+
+    asyncio.run(tts.text_to_speech("slow"))
+
+    assert playback_paths == []
+    assert any("timed out" in message for message in warning_messages)
 
 
 def test_close_handles_sync_and_async_providers(speech_manager):
