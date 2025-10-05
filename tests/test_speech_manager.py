@@ -745,6 +745,36 @@ def test_summary_reads_voice_attribute_objects(speech_manager):
     assert voice_label == "Gamma"
 
 
+def test_summary_reports_google_tts_voice_selection(speech_manager):
+    from modules.Speech_Services.Google_tts import GoogleTTS
+    from google.cloud import texttospeech
+
+    texttospeech._set_voices(
+        [
+            {
+                "name": "en-US-Journey-F",
+                "language_codes": ["en-US"],
+                "ssml_gender": texttospeech.SsmlVoiceGender.FEMALE,
+                "natural_sample_rate_hertz": 24000,
+            }
+        ]
+    )
+
+    google_tts = GoogleTTS()
+    google_tts.set_tts(True)
+
+    available_voice = google_tts.get_voices()[0]
+    google_tts.set_voice(available_voice)
+
+    speech_manager.tts_services["google"] = google_tts
+    speech_manager.set_default_tts_provider("google")
+
+    provider_name, voice_label = speech_manager.get_active_tts_summary()
+
+    assert provider_name == "google"
+    assert voice_label == available_voice["name"]
+
+
 def test_google_tts_text_to_speech_uses_stubbed_client(monkeypatch):
     from modules.Speech_Services.Google_tts import GoogleTTS
     import asyncio
