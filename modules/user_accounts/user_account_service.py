@@ -15,7 +15,9 @@ from typing import Dict, Iterable, List, Optional
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 
-from .user_account_db import UserAccountDatabase
+from .user_account_db import DuplicateUserError, UserAccountDatabase
+
+__all__ = ["UserAccount", "UserAccountService", "DuplicateUserError"]
 
 
 @dataclass(frozen=True)
@@ -90,9 +92,6 @@ class UserAccountService:
 
         if not password:
             raise ValueError("Password must not be empty")
-
-        if self._database.get_user(normalised_username):
-            raise ValueError(f"User '{normalised_username}' already exists")
 
         self._database.add_user(
             normalised_username,
