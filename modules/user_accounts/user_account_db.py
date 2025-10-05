@@ -1,9 +1,9 @@
-
 import hashlib
 import hmac
 import os
 import shutil
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -39,7 +39,7 @@ class UserAccountDatabase:
         self._migrate_legacy_database(db_name)
 
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self.cursor = self.conn.cursor()
+        self._lock = threading.RLock()
 
         self.create_table()
 
@@ -119,9 +119,14 @@ class UserAccountDatabase:
             DOB TEXT
         );
         """
-        self.cursor.execute(query)
-        self.conn.commit()
-        self._ensure_unique_constraints()
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(query)
+                self.conn.commit()
+                self._ensure_unique_constraints()
+            finally:
+                cursor.close()
 
     def _ensure_unique_constraints(self) -> None:
         """Ensure unique constraints exist for usernames and e-mail addresses."""
@@ -137,23 +142,30 @@ class UserAccountDatabase:
             ),
         }
 
-        for index_name, create_statement in required_indices.items():
+        with self._lock:
+            cursor = self.conn.cursor()
             try:
-                self.cursor.execute(create_statement)
-            except sqlite3.IntegrityError as exc:
-                self.conn.rollback()
-                duplicates = self._find_duplicates(index_name)
-                details = ", ".join(f"{field}: {values}" for field, values in duplicates.items() if values)
-                message = (
-                    "Existing user account records violate uniqueness constraints. "
-                    "Please resolve duplicate entries before restarting the application."
-                )
-                if details:
-                    message = f"{message} ({details})"
-                self.logger.error(message)
-                raise RuntimeError(message) from exc
+                for index_name, create_statement in required_indices.items():
+                    try:
+                        cursor.execute(create_statement)
+                    except sqlite3.IntegrityError as exc:
+                        self.conn.rollback()
+                        duplicates = self._find_duplicates(index_name)
+                        details = ", ".join(
+                            f"{field}: {values}" for field, values in duplicates.items() if values
+                        )
+                        message = (
+                            "Existing user account records violate uniqueness constraints. "
+                            "Please resolve duplicate entries before restarting the application."
+                        )
+                        if details:
+                            message = f"{message} ({details})"
+                        self.logger.error(message)
+                        raise RuntimeError(message) from exc
 
-        self.conn.commit()
+                self.conn.commit()
+            finally:
+                cursor.close()
 
     def _find_duplicates(self, index_name: str) -> Dict[str, str]:
         if index_name == "idx_user_accounts_username":
@@ -169,7 +181,12 @@ class UserAccountDatabase:
         GROUP BY {column}
         HAVING COUNT(*) > 1
         """
-        rows = self.cursor.execute(query).fetchall()
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                rows = cursor.execute(query).fetchall()
+            finally:
+                cursor.close()
         values = ", ".join(sorted(str(row[0]) for row in rows))
         return {column: values} if values else {}
 
@@ -209,57 +226,82 @@ class UserAccountDatabase:
         INSERT INTO user_accounts (username, password, email, name, DOB)
         VALUES (?, ?, ?, ?, ?)
         """
-        try:
-            self.cursor.execute(query, (username, hashed_password, email, name, dob))
-            self.conn.commit()
-        except sqlite3.IntegrityError as exc:
-            self.conn.rollback()
-            message = (
-                "A user with the same username or email already exists."
-            )
-            raise DuplicateUserError(message) from exc
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(query, (username, hashed_password, email, name, dob))
+                self.conn.commit()
+            except sqlite3.IntegrityError as exc:
+                self.conn.rollback()
+                message = (
+                    "A user with the same username or email already exists."
+                )
+                raise DuplicateUserError(message) from exc
+            finally:
+                cursor.close()
 
     def get_user(self, username):
         query = "SELECT * FROM user_accounts WHERE username = ?"
-        self.cursor.execute(query, (username,))
-        return self.cursor.fetchone()
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(query, (username,))
+                return cursor.fetchone()
+            finally:
+                cursor.close()
 
     def get_all_users(self):
         query = "SELECT * FROM user_accounts"
-        self.cursor.execute(query)
-        return self.cursor.fetchall()
-    
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(query)
+                return cursor.fetchall()
+            finally:
+                cursor.close()
+
     def get_user_profile(self, username):
         query = "SELECT * FROM user_accounts WHERE username = ?"
-        self.cursor.execute(query, (username,))
-        result = self.cursor.fetchone()
-        
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(query, (username,))
+                result = cursor.fetchone()
+            finally:
+                cursor.close()
+
         return result
 
     def close_connection(self):
         """Close the connection to the SQLite database."""
         self.logger.info("Closing UA database connection.")
-        try:
-            self.conn.close()
-        except sqlite3.Error as e:
-            self.logger.info(f"Error closing connection: {e}")
-            raise 
+        with self._lock:
+            try:
+                self.conn.close()
+            except sqlite3.Error as e:
+                self.logger.info(f"Error closing connection: {e}")
+                raise
 
     def update_user(self, username, password=None, email=None, name=None, dob=None):
-        if password:
-            hashed_password = self._hash_password(password)
-            query = "UPDATE user_accounts SET password = ? WHERE username = ?"
-            self.cursor.execute(query, (hashed_password, username))
-        if email:
-            query = "UPDATE user_accounts SET email = ? WHERE username = ?"
-            self.cursor.execute(query, (email, username))
-        if name:
-            query = "UPDATE user_accounts SET name = ? WHERE username = ?"
-            self.cursor.execute(query, (name, username))
-        if dob:
-            query = "UPDATE user_accounts SET DOB = ? WHERE username = ?"
-            self.cursor.execute(query, (dob, username))
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                if password:
+                    hashed_password = self._hash_password(password)
+                    query = "UPDATE user_accounts SET password = ? WHERE username = ?"
+                    cursor.execute(query, (hashed_password, username))
+                if email:
+                    query = "UPDATE user_accounts SET email = ? WHERE username = ?"
+                    cursor.execute(query, (email, username))
+                if name:
+                    query = "UPDATE user_accounts SET name = ? WHERE username = ?"
+                    cursor.execute(query, (name, username))
+                if dob:
+                    query = "UPDATE user_accounts SET DOB = ? WHERE username = ?"
+                    cursor.execute(query, (dob, username))
+                self.conn.commit()
+            finally:
+                cursor.close()
 
     def verify_user_password(self, username, candidate_password):
         user_record = self.get_user(username)
