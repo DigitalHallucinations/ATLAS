@@ -21,6 +21,10 @@ class _AtlasStub:
         self.logout_called = False
         self.login_called = None
         self.register_called = None
+        self.list_accounts_result = []
+        self.list_calls = 0
+        self.activate_called = None
+        self.delete_called = None
         self.config_manager = SimpleNamespace(get_active_user=lambda: self.active_username)
 
     def add_active_user_change_listener(self, listener):
@@ -50,6 +54,21 @@ class _AtlasStub:
         self.logout_called = True
         return None
 
+    async def list_user_accounts(self):
+        self.list_calls += 1
+        return list(self.list_accounts_result)
+
+    async def activate_user_account(self, username):
+        self.activate_called = username
+        self.active_username = username
+        if getattr(self, "active_listener", None):
+            self.active_listener(username, username)
+        return None
+
+    async def delete_user_account(self, username):
+        self.delete_called = username
+        return None
+
     def get_user_display_name(self):
         return self.active_display_name
 
@@ -61,16 +80,30 @@ def disable_css(monkeypatch):
 
 def _drain_background(atlas: _AtlasStub):
     assert atlas.last_factory is not None
-    coro = atlas.last_factory()
-    result = asyncio.get_event_loop().run_until_complete(coro)
+    factory = atlas.last_factory
+    atlas.last_factory = None
+    result_or_coro = factory()
+    if asyncio.iscoroutine(result_or_coro):
+        result = asyncio.get_event_loop().run_until_complete(result_or_coro)
+    else:
+        result = result_or_coro
     if atlas.last_success is not None:
         atlas.last_success(result)
     return result
 
 
+def _click(button):
+    for signal, callback in getattr(button, "_callbacks", []):
+        if signal == "clicked":
+            callback(button)
+            break
+
+
 def test_login_uses_background_worker():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
 
     dialog.login_username_entry.set_text("alice")
     dialog.login_password_entry.set_text("secret")
@@ -88,6 +121,8 @@ def test_login_failure_displays_error():
     atlas = _AtlasStub()
     atlas.login_result = False
     dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
 
     dialog.login_username_entry.set_text("alice")
     dialog.login_password_entry.set_text("bad")
@@ -102,6 +137,8 @@ def test_login_failure_displays_error():
 def test_register_validates_and_submits():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
 
     dialog.register_username_entry.set_text("newuser")
     dialog.register_email_entry.set_text("user@example.com")
@@ -127,6 +164,8 @@ def test_register_validates_and_submits():
 def test_register_rejects_mismatched_passwords():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
 
     dialog.register_username_entry.set_text("newuser")
     dialog.register_email_entry.set_text("user@example.com")
@@ -143,6 +182,8 @@ def test_logout_invokes_background_worker():
     atlas = _AtlasStub()
     atlas.active_username = "alice"
     dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
 
     dialog._on_logout_clicked(dialog.logout_button)
 
@@ -150,3 +191,89 @@ def test_logout_invokes_background_worker():
     _drain_background(atlas)
     assert atlas.logout_called is True
     assert dialog.status_label.get_text() == "Signed out."
+
+
+def test_account_list_populates_and_highlights_active():
+    atlas = _AtlasStub()
+    atlas.active_username = "bob"
+    atlas.active_display_name = "Bobby"
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+        {"username": "bob", "display_name": "Bobby"},
+    ]
+
+    dialog = AccountDialog(atlas)
+    assert atlas.last_thread_name == "user-account-list"
+    _drain_background(atlas)
+
+    assert atlas.list_calls == 1
+    assert set(dialog._account_rows.keys()) == {"alice", "bob"}
+    assert dialog._account_rows["bob"]["active_label"].get_text() == "Active"
+    assert dialog._account_rows["alice"]["active_label"].get_text() == ""
+
+    dialog._apply_active_user_state("alice", "Alice")
+
+    assert dialog._account_rows["alice"]["active_label"].get_text() == "Active"
+    assert dialog._account_rows["alice"]["use_button"]._sensitive is False
+    assert dialog._account_rows["bob"]["use_button"]._sensitive is True
+
+
+def test_use_account_triggers_activation_and_disables_forms():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+        {"username": "bob", "display_name": "Bob"},
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    use_button = dialog._account_rows["alice"]["use_button"]
+    assert dialog.login_box._sensitive is True
+
+    _click(use_button)
+
+    assert dialog._forms_busy is True
+    assert dialog.login_box._sensitive is False
+    assert atlas.last_thread_name == "user-account-activate"
+
+    _drain_background(atlas)
+
+    assert atlas.activate_called == "alice"
+    assert dialog.account_feedback_label.get_text() == "Account activated."
+    assert dialog._forms_busy is False
+    assert dialog._account_rows["alice"]["active_label"].get_text() == "Active"
+
+
+def test_delete_account_confirms_and_refreshes():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+        {"username": "bob", "display_name": "Bob"},
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    dialog._confirm_delete_handler = lambda username: True
+    delete_button = dialog._account_rows["alice"]["delete_button"]
+
+    _click(delete_button)
+
+    assert dialog._forms_busy is True
+    assert atlas.last_thread_name == "user-account-delete"
+
+    atlas.list_accounts_result = [{"username": "bob", "display_name": "Bob"}]
+    _drain_background(atlas)
+
+    assert atlas.delete_called == "alice"
+    assert dialog._last_delete_prompt == "alice"
+    assert dialog._forms_busy is False
+    assert atlas.last_thread_name == "user-account-list"
+
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    assert atlas.list_calls >= 2
+    assert dialog.account_feedback_label.get_text().startswith("Account deleted.")
+    assert set(dialog._account_rows.keys()) == {"bob"}

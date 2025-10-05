@@ -256,6 +256,13 @@ class ATLAS:
         service = self._get_user_account_service()
         return await run_async_in_thread(service.list_users)
 
+    async def activate_user_account(self, username: str) -> None:
+        """Activate an existing user account without credential prompts."""
+
+        service = self._get_user_account_service()
+        await run_async_in_thread(service.set_active_user, username)
+        self._refresh_active_user_identity()
+
     async def register_user_account(
         self,
         username: str,
