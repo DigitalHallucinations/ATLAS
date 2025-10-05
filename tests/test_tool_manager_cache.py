@@ -25,7 +25,7 @@ import ATLAS.ToolManager as tool_manager
 
 
 @pytest.fixture
-def _persona_workspace():
+def _persona_workspace(monkeypatch):
     persona_name = f"CachePersona_{uuid.uuid4().hex}"
     base_dir = Path("modules") / "Personas" / persona_name / "Toolbox"
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -41,6 +41,12 @@ def _persona_workspace():
     )
 
     module_name = f"persona_{persona_name}_maps"
+
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
 
     try:
         yield {

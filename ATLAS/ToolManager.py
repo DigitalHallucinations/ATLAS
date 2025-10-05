@@ -57,7 +57,18 @@ def load_function_map_from_current_persona(current_persona, *, refresh=False):
         return None
 
     persona_name = current_persona["name"]
-    maps_path = f'modules/Personas/{persona_name}/Toolbox/maps.py'
+    try:
+        app_root = ConfigManager().get_app_root()
+    except Exception as exc:
+        logger.error(
+            "Unable to determine application root when loading persona '%s': %s",
+            persona_name,
+            exc,
+        )
+        return None
+
+    toolbox_root = os.path.join(app_root, "modules", "Personas", persona_name, "Toolbox")
+    maps_path = os.path.join(toolbox_root, "maps.py")
     module_name = f'persona_{persona_name}_maps'
 
     try:
@@ -128,7 +139,18 @@ def load_functions_from_json(current_persona, *, refresh=False):
         return None
 
     persona_name = current_persona["name"]
-    functions_json_path = f'modules/Personas/{persona_name}/Toolbox/functions.json'
+    try:
+        app_root = ConfigManager().get_app_root()
+    except Exception as exc:
+        logger.error(
+            "Unable to determine application root when loading persona '%s': %s",
+            persona_name,
+            exc,
+        )
+        return None
+
+    toolbox_root = os.path.join(app_root, "modules", "Personas", persona_name, "Toolbox")
+    functions_json_path = os.path.join(toolbox_root, "functions.json")
 
     try:
         file_mtime = os.path.getmtime(functions_json_path)
