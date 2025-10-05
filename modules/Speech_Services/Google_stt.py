@@ -73,15 +73,19 @@ class GoogleSTT:
         logger.info(f"Transcribing file {audio_file}")
         audio_file_path = os.path.join('assets/user/sst_output', audio_file)
 
-        with open(audio_file_path, 'rb') as audio:
-            audio_content = audio.read()
-
-        audio = speech.RecognitionAudio(content=audio_content)
-        response = self.client.recognize(config=self.config, audio=audio)
-
         if not os.path.exists(audio_file_path):
             logger.error(f"Audio file not found: {audio_file_path}")
             return "No audio file to transcribe"
+
+        try:
+            with open(audio_file_path, 'rb') as audio:
+                audio_content = audio.read()
+        except FileNotFoundError:
+            logger.error(f"Audio file not found: {audio_file_path}")
+            return "No audio file to transcribe"
+
+        audio = speech.RecognitionAudio(content=audio_content)
+        response = self.client.recognize(config=self.config, audio=audio)
 
         transcript = []
         for result in response.results:
