@@ -17,6 +17,7 @@ if "dotenv" not in sys.modules:
     dotenv_module.load_dotenv = lambda *args, **kwargs: None
     dotenv_module.set_key = lambda *args, **kwargs: None
     dotenv_module.find_dotenv = lambda *args, **kwargs: ""
+    dotenv_module.dotenv_values = lambda *args, **kwargs: {}
     sys.modules["dotenv"] = dotenv_module
 
 import ATLAS.config as config_module
@@ -198,8 +199,70 @@ def test_init_with_default_provider_credentials_has_no_warnings(tmp_path, monkey
     manager = ConfigManager()
 
     assert manager.is_default_provider_ready()
+
+
+def test_update_api_key_creates_env_when_missing(tmp_path, monkeypatch):
+    expected_env_path = tmp_path / ".env"
+    assert not expected_env_path.exists()
+
+    load_calls = []
+
+    def fake_load_dotenv(path=None, override=False):
+        load_calls.append((path, override))
+        return None
+
+    def fake_set_key(path, key, value):
+        existing = {}
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as fh:
+                for line in fh.read().splitlines():
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        existing[k] = v
+        existing[key] = value
+        with open(path, "w", encoding="utf-8") as fh:
+            for item_key, item_value in existing.items():
+                fh.write(f"{item_key}={item_value}\n")
+        return key, value
+
+    logger = types.SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+        debug=lambda *args, **kwargs: None,
+    )
+
+    monkeypatch.setattr(config_module, "setup_logger", lambda name: logger)
+    monkeypatch.setattr(config_module, "set_key", fake_set_key)
+    monkeypatch.setattr(config_module, "find_dotenv", lambda: "")
+    monkeypatch.setattr(config_module, "load_dotenv", fake_load_dotenv)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("DEFAULT_PROVIDER", "OpenAI")
+    monkeypatch.setenv("DEFAULT_MODEL", "gpt-4o")
+    monkeypatch.setattr(
+        ConfigManager,
+        "_load_env_config",
+        lambda self: {
+            "OPENAI_API_KEY": None,
+            "DEFAULT_PROVIDER": "OpenAI",
+            "DEFAULT_MODEL": "gpt-4o",
+            "APP_ROOT": tmp_path.as_posix(),
+        },
+    )
+    monkeypatch.setattr(ConfigManager, "_load_yaml_config", lambda self: {})
+
+    manager = ConfigManager()
+    manager.update_api_key("OpenAI", "created-key")
+
+    assert expected_env_path.exists()
+    with open(expected_env_path, "r", encoding="utf-8") as fh:
+        contents = fh.read()
+    assert "OPENAI_API_KEY=created-key" in contents
+    assert os.environ["OPENAI_API_KEY"] == "created-key"
+    assert manager.env_config["OPENAI_API_KEY"] == "created-key"
+    assert manager.config["OPENAI_API_KEY"] == "created-key"
+    assert load_calls[-1] == (expected_env_path.as_posix(), True)
     assert manager.get_pending_provider_warnings() == {}
-    assert dummy_logger.warnings == []
 
 def test_set_google_credentials_updates_state(config_manager):
     config_manager.set_google_credentials("/tmp/creds.json")

@@ -199,7 +199,20 @@ class ConfigManager:
 
         env_path = find_dotenv()
         if not env_path:
-            raise FileNotFoundError("`.env` file not found.")
+            app_root = None
+            if isinstance(getattr(self, "env_config", None), Mapping):
+                app_root = self.env_config.get("APP_ROOT")
+            if not app_root:
+                app_root = os.getenv("APP_ROOT")
+            if not app_root:
+                app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+            env_path = os.path.abspath(os.path.join(app_root, ".env"))
+
+            os.makedirs(os.path.dirname(env_path), exist_ok=True)
+            if not os.path.exists(env_path):
+                with open(env_path, "a", encoding="utf-8"):
+                    pass
 
         # Persist the value to the .env file and refresh the loaded environment.
         set_key(env_path, env_key, value or "")
