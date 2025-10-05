@@ -122,6 +122,41 @@ def test_register_user_rejects_invalid_email(tmp_path, monkeypatch):
         service.close()
 
 
+def test_update_user_validates_and_persists(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('alice', 'Password123', 'alice@example.com', 'Alice', '1999-01-01')
+
+        updated_account = service.update_user(
+            'alice',
+            password='Newpass123',
+            email='alice.new@example.com',
+            name='Alice Updated',
+            dob='2000-02-02',
+        )
+
+        assert updated_account.email == 'alice.new@example.com'
+        assert updated_account.name == 'Alice Updated'
+        assert updated_account.dob == '2000-02-02'
+
+        # Password is hashed in storage, so authenticate to confirm it changed.
+        assert service.authenticate_user('alice', 'Newpass123') is True
+
+        stored = service.list_users()[0]
+        assert stored['email'] == 'alice.new@example.com'
+        assert stored['name'] == 'Alice Updated'
+        assert stored['dob'] == '2000-02-02'
+
+        with pytest.raises(ValueError, match='valid email address'):
+            service.update_user('alice', email='not-an-email')
+
+        with pytest.raises(ValueError, match='Password must be at least 8 characters'):
+            service.update_user('alice', password='short')
+    finally:
+        service.close()
+
+
 def test_register_user_rejects_weak_password(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
@@ -141,6 +176,19 @@ def test_register_user_rejects_weak_password(tmp_path, monkeypatch):
             for args, _kwargs in service.logger.errors
         )
         assert service.list_users() == []
+    finally:
+        service.close()
+
+
+def test_update_user_duplicate_email_raises(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('eve', 'Secret12', 'shared@example.com')
+        service.register_user('frank', 'Secret12', 'frank@example.com')
+
+        with pytest.raises(user_account_db.DuplicateUserError):
+            service.update_user('frank', email='shared@example.com')
     finally:
         service.close()
 

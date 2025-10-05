@@ -26,6 +26,9 @@ class DuplicateUserError(RuntimeError):
     """Raised when attempting to create a user with duplicate credentials."""
 
 
+_DUPLICATE_USER_MESSAGE = "A user with the same username or email already exists."
+
+
 class UserAccountDatabase:
     def __init__(self, db_name: str = "User.db", base_dir: Optional[str] = None):
         self.logger = setup_logger(__name__)
@@ -233,10 +236,7 @@ class UserAccountDatabase:
                 self.conn.commit()
             except sqlite3.IntegrityError as exc:
                 self.conn.rollback()
-                message = (
-                    "A user with the same username or email already exists."
-                )
-                raise DuplicateUserError(message) from exc
+                raise DuplicateUserError(_DUPLICATE_USER_MESSAGE) from exc
             finally:
                 cursor.close()
 
@@ -286,19 +286,26 @@ class UserAccountDatabase:
         with self._lock:
             cursor = self.conn.cursor()
             try:
-                if password:
+                def _execute_update(query: str, parameters):
+                    try:
+                        cursor.execute(query, parameters)
+                    except sqlite3.IntegrityError as exc:
+                        self.conn.rollback()
+                        raise DuplicateUserError(_DUPLICATE_USER_MESSAGE) from exc
+
+                if password is not None:
                     hashed_password = self._hash_password(password)
                     query = "UPDATE user_accounts SET password = ? WHERE username = ?"
-                    cursor.execute(query, (hashed_password, username))
-                if email:
+                    _execute_update(query, (hashed_password, username))
+                if email is not None:
                     query = "UPDATE user_accounts SET email = ? WHERE username = ?"
-                    cursor.execute(query, (email, username))
-                if name:
+                    _execute_update(query, (email, username))
+                if name is not None:
                     query = "UPDATE user_accounts SET name = ? WHERE username = ?"
-                    cursor.execute(query, (name, username))
-                if dob:
+                    _execute_update(query, (name, username))
+                if dob is not None:
                     query = "UPDATE user_accounts SET DOB = ? WHERE username = ?"
-                    cursor.execute(query, (dob, username))
+                    _execute_update(query, (dob, username))
                 self.conn.commit()
             finally:
                 cursor.close()
