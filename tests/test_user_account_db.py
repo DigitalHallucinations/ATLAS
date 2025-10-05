@@ -151,3 +151,24 @@ def test_database_migrates_from_legacy_location(tmp_path, monkeypatch):
         assert any('Migrated user account database' in args[0] for args, _ in logger.infos)
     finally:
         db.close_connection()
+
+
+def test_delete_user_removes_profile_and_emr(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    try:
+        db.add_user('carol', 'Password1', 'carol@example.com', 'Carol', '1980-07-07')
+
+        profile_path = Path(db.user_profiles_dir) / 'carol.json'
+        profile_path.write_text('{"name": "Carol"}', encoding='utf-8')
+        emr_path = Path(db.user_profiles_dir) / 'carol_emr.txt'
+        emr_path.write_text('EMR data', encoding='utf-8')
+
+        deleted = db.delete_user('carol')
+
+        assert deleted is True
+        assert db.get_user('carol') is None
+        assert not profile_path.exists()
+        assert not emr_path.exists()
+    finally:
+        db.close_connection()
