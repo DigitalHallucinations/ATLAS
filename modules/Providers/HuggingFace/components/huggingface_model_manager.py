@@ -19,7 +19,6 @@ from transformers import (
     DataCollatorForLanguageModeling,
 )
 from transformers.integrations.deepspeed import HfDeepSpeedConfig 
-from accelerate import infer_auto_device_map
 
 from ..config.base_config import BaseConfig
 from ..config.nvme_config import NVMeConfig
@@ -340,25 +339,12 @@ class HuggingFaceModelManager:
                 dschf = HfDeepSpeedConfig(ds_config)
                 model_kwargs["deepspeed"] = dschf
 
-            # Load the model initially to calculate device map
-            self.logger.info(f"Calculating device map for model: {model_name}")
-            initial_model = await asyncio.to_thread(
-                AutoModelForCausalLM.from_pretrained,
-                model_name,
-                cache_dir=self.model_cache_dir,
-                trust_remote_code=True,
-            )
-            device_map = infer_auto_device_map(
-                initial_model,
-                max_memory=max_memory,
-                no_split_module_classes=["BloomBlock", "OPTDecoderLayer", "LlamaDecoderLayer"],
-            )
-
             # Common kwargs for model loading
             model_kwargs.update({
                 "cache_dir": self.model_cache_dir,
                 "trust_remote_code": True,
-                "device_map": device_map,
+                "device_map": "auto",
+                "max_memory": max_memory,
             })
 
             # Strategy 7: Mixed Precision Training and Inference
@@ -384,18 +370,12 @@ class HuggingFaceModelManager:
                 else:
                     multi_gpu_max_memory = max_memory.copy()
 
-                device_map = infer_auto_device_map(
-                    initial_model,
-                    max_memory=multi_gpu_max_memory,
-                    no_split_module_classes=["BloomBlock", "OPTDecoderLayer", "LlamaDecoderLayer"],
-                )
-                model_kwargs['device_map'] = device_map
+                model_kwargs['max_memory'] = multi_gpu_max_memory
 
-            del initial_model  # Free up memory
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            else:
-                self.logger.debug("CUDA not available when attempting to clear cache after initial load.")
+            # Strategy 9: Memory Mapping
+            if self.base_config.model_settings.get("use_memory_mapping", False):
+                self.logger.info("Loading model with memory mapping")
+                model_kwargs["low_cpu_mem_usage"] = True
 
             self.logger.info(f"Loading model with custom device map and possible NVMe offloading")
             self.model = await asyncio.to_thread(
@@ -414,11 +394,6 @@ class HuggingFaceModelManager:
             if self.base_config.model_settings.get("use_pruning", False):
                 self.logger.info("Applying model pruning")
                 self._prune_model()
-
-            # Strategy 9: Memory Mapping
-            if self.base_config.model_settings.get("use_memory_mapping", False):
-                self.logger.info("Loading model with memory mapping")
-                model_kwargs["low_cpu_mem_usage"] = True
 
             # Strategy 13: Torch Compile
             if self.base_config.model_settings.get("use_torch_compile", False) and hasattr(torch, 'compile'):
