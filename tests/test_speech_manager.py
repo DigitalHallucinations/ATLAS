@@ -13,89 +13,165 @@ import pytest
 
 
 # Provide a lightweight stub for google.cloud.texttospeech to satisfy imports during testing.
-if "google.cloud.texttospeech" not in sys.modules:
-    google_module = sys.modules.get("google")
-    if google_module is None:
-        google_module = types.ModuleType("google")
-        google_module.__path__ = []  # Mark as package
-        sys.modules["google"] = google_module
+google_module = sys.modules.get("google")
+if google_module is None:
+    google_module = types.ModuleType("google")
+    google_module.__path__ = []  # Mark as package
+    sys.modules["google"] = google_module
 
-    cloud_module = getattr(google_module, "cloud", None)
-    if cloud_module is None:
-        cloud_module = types.ModuleType("google.cloud")
-        cloud_module.__path__ = []
-        google_module.cloud = cloud_module
-        sys.modules["google.cloud"] = cloud_module
+cloud_module = getattr(google_module, "cloud", None)
+if cloud_module is None:
+    cloud_module = types.ModuleType("google.cloud")
+    cloud_module.__path__ = []
+    google_module.cloud = cloud_module
+    sys.modules["google.cloud"] = cloud_module
 
+texttospeech_module = sys.modules.get("google.cloud.texttospeech")
+if texttospeech_module is None:
     texttospeech_module = types.ModuleType("google.cloud.texttospeech")
 
-    class _DummyVoiceSelectionParams:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
 
-    class _DummyTextToSpeechClient:
-        synthesize_calls = []
-        list_voices_calls = []
-        voices_response = []
+class _DummyVoiceSelectionParams:
+    def __init__(self, **kwargs):
+        self.kwargs = dict(kwargs)
+        language_codes = kwargs.get("language_codes")
+        language_code = kwargs.get("language_code")
+        if language_codes is None and language_code is not None:
+            language_codes = [language_code]
+        self.language_codes = list(language_codes or [])
+        self.language_code = language_code or (
+            self.language_codes[0] if self.language_codes else None
+        )
+        self.name = kwargs.get("name")
+        self.ssml_gender = kwargs.get("ssml_gender")
+        self.natural_sample_rate_hertz = kwargs.get("natural_sample_rate_hertz")
 
-        def __init__(self, *args, **kwargs):
-            pass
 
-        def synthesize_speech(self, *args, **kwargs):
-            self.__class__.synthesize_calls.append((args, kwargs))
-            return types.SimpleNamespace(audio_content=b"")
+class _DummyTextToSpeechClient:
+    synthesize_calls = []
+    list_voices_calls = []
+    voices_response = []
 
-        def list_voices(self):
-            self.__class__.list_voices_calls.append(())
-            return types.SimpleNamespace(voices=list(self.__class__.voices_response))
+    def __init__(self, *args, **kwargs):
+        pass
 
-    class _DummySynthesisInput:
-        def __init__(self, *args, **kwargs):
-            self.args = args
-            self.kwargs = kwargs
+    def synthesize_speech(self, *args, **kwargs):
+        self.__class__.synthesize_calls.append((args, kwargs))
+        return types.SimpleNamespace(audio_content=b"")
 
-    class _DummyAudioConfig:
-        def __init__(self, *args, **kwargs):
-            self.args = args
-            self.kwargs = kwargs
+    def list_voices(self):
+        self.__class__.list_voices_calls.append(())
+        return types.SimpleNamespace(voices=list(self.__class__.voices_response))
 
-    class _DummyAudioEncoding:
-        MP3 = "MP3"
 
-    class _DummySsmlVoiceGender:
-        SSML_VOICE_GENDER_UNSPECIFIED = 0
-        MALE = 1
-        FEMALE = 2
-        NEUTRAL = 3
+class _DummySynthesisInput:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
 
-        def __call__(self, value):
-            mapping = {
-                self.SSML_VOICE_GENDER_UNSPECIFIED: "SSML_VOICE_GENDER_UNSPECIFIED",
-                self.MALE: "MALE",
-                self.FEMALE: "FEMALE",
-                self.NEUTRAL: "NEUTRAL",
+
+class _DummyAudioConfig:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+
+class _DummyAudioEncoding:
+    MP3 = "MP3"
+
+
+class _DummySsmlVoiceGender:
+    SSML_VOICE_GENDER_UNSPECIFIED = 0
+    MALE = 1
+    FEMALE = 2
+    NEUTRAL = 3
+
+    def __init__(self):
+        self._name_to_value = {
+            "SSML_VOICE_GENDER_UNSPECIFIED": self.SSML_VOICE_GENDER_UNSPECIFIED,
+            "MALE": self.MALE,
+            "FEMALE": self.FEMALE,
+            "NEUTRAL": self.NEUTRAL,
+        }
+
+    def __call__(self, value):
+        mapping = {
+            self.SSML_VOICE_GENDER_UNSPECIFIED: "SSML_VOICE_GENDER_UNSPECIFIED",
+            self.MALE: "MALE",
+            self.FEMALE: "FEMALE",
+            self.NEUTRAL: "NEUTRAL",
+        }
+        return types.SimpleNamespace(name=mapping.get(value, "SSML_VOICE_GENDER_UNSPECIFIED"))
+
+    def normalize(self, value):
+        if value is None:
+            return self.SSML_VOICE_GENDER_UNSPECIFIED
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            key = value.upper()
+            if key not in self._name_to_value and not key.startswith("SSML_"):
+                key = f"SSML_VOICE_GENDER_{key}"
+            return self._name_to_value.get(key, self.SSML_VOICE_GENDER_UNSPECIFIED)
+        if hasattr(value, "name"):
+            return self.normalize(getattr(value, "name"))
+        return self.SSML_VOICE_GENDER_UNSPECIFIED
+
+
+_SSML_GENDER = _DummySsmlVoiceGender()
+
+
+def _reset_stub_state():
+    _DummyTextToSpeechClient.synthesize_calls.clear()
+    _DummyTextToSpeechClient.list_voices_calls.clear()
+    _DummyTextToSpeechClient.voices_response = []
+
+
+def _set_voices(voices):
+    normalized = []
+    for voice in voices:
+        if isinstance(voice, dict):
+            data = dict(voice)
+        else:
+            data = {
+                key: getattr(voice, key)
+                for key in [
+                    "name",
+                    "language_codes",
+                    "language_code",
+                    "ssml_gender",
+                    "natural_sample_rate_hertz",
+                ]
+                if hasattr(voice, key)
             }
-            return types.SimpleNamespace(name=mapping.get(value, "SSML_VOICE_GENDER_UNSPECIFIED"))
+        language_codes = data.get("language_codes")
+        if not language_codes:
+            language_code = data.get("language_code")
+            language_codes = [language_code] if language_code else []
+        else:
+            language_codes = list(language_codes)
+        normalized.append(
+            types.SimpleNamespace(
+                name=data.get("name"),
+                language_codes=language_codes,
+                ssml_gender=_SSML_GENDER.normalize(data.get("ssml_gender")),
+                natural_sample_rate_hertz=data.get("natural_sample_rate_hertz", 0),
+            )
+        )
+    _DummyTextToSpeechClient.voices_response = normalized
 
-    def _reset_stub_state():
-        _DummyTextToSpeechClient.synthesize_calls.clear()
-        _DummyTextToSpeechClient.list_voices_calls.clear()
-        _DummyTextToSpeechClient.voices_response = []
 
-    def _set_voices(voices):
-        _DummyTextToSpeechClient.voices_response = voices
+texttospeech_module.VoiceSelectionParams = _DummyVoiceSelectionParams
+texttospeech_module.TextToSpeechClient = _DummyTextToSpeechClient
+texttospeech_module.SynthesisInput = _DummySynthesisInput
+texttospeech_module.AudioConfig = _DummyAudioConfig
+texttospeech_module.AudioEncoding = _DummyAudioEncoding
+texttospeech_module.SsmlVoiceGender = _SSML_GENDER
+texttospeech_module._reset_stub_state = _reset_stub_state
+texttospeech_module._set_voices = _set_voices
 
-    texttospeech_module.VoiceSelectionParams = _DummyVoiceSelectionParams
-    texttospeech_module.TextToSpeechClient = _DummyTextToSpeechClient
-    texttospeech_module.SynthesisInput = _DummySynthesisInput
-    texttospeech_module.AudioConfig = _DummyAudioConfig
-    texttospeech_module.AudioEncoding = _DummyAudioEncoding
-    texttospeech_module.SsmlVoiceGender = _DummySsmlVoiceGender()
-    texttospeech_module._reset_stub_state = _reset_stub_state
-    texttospeech_module._set_voices = _set_voices
-
-    cloud_module.texttospeech = texttospeech_module
-    sys.modules["google.cloud.texttospeech"] = texttospeech_module
+cloud_module.texttospeech = texttospeech_module
+sys.modules["google.cloud.texttospeech"] = texttospeech_module
 
 
 speech_module = types.ModuleType("google.cloud.speech_v1p1beta1")
@@ -532,23 +608,24 @@ def test_google_tts_uses_unique_temp_files_and_cleans_up(monkeypatch, tmp_path):
 
     monkeypatch.setattr(pygame.mixer.music, "get_busy", tracking_get_busy)
 
-    class ImmediateThread:
-        def __init__(self, *, target=None, args=(), kwargs=None):
-            self._target = target
-            self._args = args
-            self._kwargs = kwargs or {}
+    started_threads = []
+    real_thread_cls = Google_tts.threading.Thread
 
+    class TrackingThread(real_thread_cls):
         def start(self):
-            if self._target is not None:
-                self._target(*self._args, **self._kwargs)
+            started_threads.append(self)
+            return super().start()
 
-    monkeypatch.setattr(Google_tts.threading, "Thread", lambda target=None, args=(), kwargs=None: ImmediateThread(target=target, args=args, kwargs=kwargs))
+    monkeypatch.setattr(Google_tts.threading, "Thread", TrackingThread)
 
     async def run_requests():
         await google_tts.text_to_speech("hello")
         await google_tts.text_to_speech("world")
 
     asyncio.run(run_requests())
+
+    for thread in started_threads:
+        thread.join()
 
     assert len(created_paths) == 2
     assert len(set(created_paths)) == 2, "Each synthesis should create a unique temp file"
@@ -707,15 +784,29 @@ def test_google_tts_text_to_speech_awaits_background_thread(monkeypatch, tmp_pat
 
     played_paths = []
 
-    def immediate_thread(*, target=None, args=(), kwargs=None):
-        class _ImmediateThread:
-            def start(self_nonlocal):
-                if target is not None:
-                    target(*args, **(kwargs or {}))
+    class _ImmediateThread:
+        def __init__(
+            self,
+            group=None,
+            target=None,
+            name=None,
+            args=(),
+            kwargs=None,
+            *,
+            daemon=None,
+        ):
+            self._target = target
+            self._args = args
+            self._kwargs = kwargs or {}
 
-        return _ImmediateThread()
+        def start(self):
+            if self._target is not None:
+                self._target(*self._args, **self._kwargs)
 
-    monkeypatch.setattr(Google_tts.threading, "Thread", immediate_thread)
+        def join(self, timeout=None):
+            return None
+
+    monkeypatch.setattr(Google_tts.threading, "Thread", _ImmediateThread)
 
     def fake_play_audio(path):
         played_paths.append(path)
@@ -748,6 +839,9 @@ def test_google_tts_set_voice_accepts_dict_payload():
 
     tts.set_voice(payload)
 
+    assert tts.voice.name == "en-GB-Wavenet-B"
+    assert tts.voice.language_code == "en-GB"
+    assert tts.voice.language_codes == ["en-GB"]
     assert tts.voice.kwargs["name"] == "en-GB-Wavenet-B"
     assert tts.voice.kwargs["language_code"] == "en-GB"
 
@@ -756,13 +850,16 @@ def test_google_tts_get_voices_returns_expected_structure():
     from google.cloud import texttospeech
     from modules.Speech_Services.Google_tts import GoogleTTS
 
-    voice = types.SimpleNamespace(
-        name="sample",
-        language_codes=["en-US"],
-        ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL,
-        natural_sample_rate_hertz=24000,
+    texttospeech._set_voices(
+        [
+            {
+                "name": "sample",
+                "language_codes": ["en-US"],
+                "ssml_gender": "NEUTRAL",
+                "natural_sample_rate_hertz": 24000,
+            }
+        ]
     )
-    texttospeech._set_voices([voice])
 
     tts = GoogleTTS()
 
@@ -776,6 +873,10 @@ def test_google_tts_get_voices_returns_expected_structure():
             "natural_sample_rate_hertz": 24000,
         }
     ]
+
+    tts.set_voice(voices[0])
+    assert tts.voice.name == "sample"
+    assert tts.voice.language_code == "en-US"
 
 
 def test_google_stt_factory_uses_configured_sample_rate(speech_manager):
