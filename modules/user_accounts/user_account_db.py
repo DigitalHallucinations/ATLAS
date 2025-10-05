@@ -315,6 +315,7 @@ class UserAccountDatabase:
         """Remove a user account and any associated profile data."""
 
         profile_path = self.user_profiles_dir / f"{username}.json"
+        emr_path = self.user_profiles_dir / f"{username}_emr.txt"
 
         with self._lock:
             cursor = self.conn.cursor()
@@ -329,13 +330,14 @@ class UserAccountDatabase:
                 cursor.close()
 
             if deleted:
-                try:
-                    profile_path.unlink()
-                except FileNotFoundError:
-                    pass
-                except OSError as exc:  # pragma: no cover - filesystem issues shouldn't abort deletion
-                    self.logger.warning(
-                        "Failed to delete profile file for user '%s': %s", username, exc
-                    )
+                for path, description in ((profile_path, "profile"), (emr_path, "EMR")):
+                    try:
+                        path.unlink()
+                    except FileNotFoundError:
+                        continue
+                    except OSError as exc:  # pragma: no cover - filesystem issues shouldn't abort deletion
+                        self.logger.warning(
+                            "Failed to delete %s file for user '%s': %s", description, username, exc
+                        )
 
         return deleted

@@ -226,11 +226,14 @@ def test_delete_user_removes_record_and_profile(tmp_path, monkeypatch):
         service.register_user('henry', 'Password1', 'henry@example.com')
         profile_path = Path(service._database.user_profiles_dir) / 'henry.json'
         profile_path.write_text('{"name": "Henry"}', encoding='utf-8')
+        emr_path = Path(service._database.user_profiles_dir) / 'henry_emr.txt'
+        emr_path.write_text('EMR data', encoding='utf-8')
 
         deleted = service.delete_user('henry')
 
         assert deleted is True
         assert not profile_path.exists()
+        assert not emr_path.exists()
         assert service.list_users() == []
         assert any(
             args[0] == "Deleted user '%s'" and args[1] == 'henry'
