@@ -310,3 +310,32 @@ class UserAccountDatabase:
 
         stored_hash = user_record[2]
         return self._verify_password(stored_hash, candidate_password)
+
+    def delete_user(self, username: str) -> bool:
+        """Remove a user account and any associated profile data."""
+
+        profile_path = self.user_profiles_dir / f"{username}.json"
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("DELETE FROM user_accounts WHERE username = ?", (username,))
+                deleted = cursor.rowcount > 0
+                self.conn.commit()
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+            if deleted:
+                try:
+                    profile_path.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:  # pragma: no cover - filesystem issues shouldn't abort deletion
+                    self.logger.warning(
+                        "Failed to delete profile file for user '%s': %s", username, exc
+                    )
+
+        return deleted

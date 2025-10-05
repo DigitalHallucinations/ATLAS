@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import sys
+import types
 from typing import Optional
 
 import sqlite3
 
 import pytest
+
+yaml_stub = types.ModuleType('yaml')
+yaml_stub.safe_load = lambda *_args, **_kwargs: {}
+sys.modules.setdefault('yaml', yaml_stub)
+
+dotenv_stub = types.ModuleType('dotenv')
+dotenv_stub.load_dotenv = lambda *_args, **_kwargs: None
+dotenv_stub.set_key = lambda *_args, **_kwargs: None
+dotenv_stub.find_dotenv = lambda *_args, **_kwargs: ''
+sys.modules.setdefault('dotenv', dotenv_stub)
 
 from modules.background_tasks import run_async_in_thread
 from modules.user_accounts import user_account_db
@@ -162,6 +175,61 @@ def test_concurrent_database_access_is_serialised(tmp_path, monkeypatch):
         # Ensure that registrations completed successfully.
         users = service.list_users()
         assert len(users) == 5
+    finally:
+        service.close()
+
+
+def test_delete_user_removes_record_and_profile(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('henry', 'pw', 'henry@example.com')
+        profile_path = Path(service._database.user_profiles_dir) / 'henry.json'
+        profile_path.write_text('{"name": "Henry"}', encoding='utf-8')
+
+        deleted = service.delete_user('henry')
+
+        assert deleted is True
+        assert not profile_path.exists()
+        assert service.list_users() == []
+        assert any(
+            args[0] == "Deleted user '%s'" and args[1] == 'henry'
+            for args, _kwargs in service.logger.infos
+        )
+    finally:
+        service.close()
+
+
+def test_delete_unknown_user_returns_false(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        deleted = service.delete_user('nobody')
+        assert deleted is False
+        assert any(
+            args[0] == "No user found with username '%s' to delete" and args[1] == 'nobody'
+            for args, _kwargs in service.logger.infos
+        )
+    finally:
+        service.close()
+
+
+def test_delete_active_user_clears_configuration(tmp_path, monkeypatch):
+    service, config = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('ivy', 'pw', 'ivy@example.com')
+        service.set_active_user('ivy')
+
+        deleted = service.delete_user('ivy')
+
+        assert deleted is True
+        assert config.get_active_user() is None
+        assert any(
+            args[0] == "Deleted active user '%s' and cleared active user selection"
+            and args[1] == 'ivy'
+            for args, _kwargs in service.logger.infos
+        )
     finally:
         service.close()
 

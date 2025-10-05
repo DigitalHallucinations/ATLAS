@@ -158,6 +158,33 @@ class UserAccountService:
 
         return self.config_manager.set_active_user(normalised_username)
 
+    def delete_user(self, username: str) -> bool:
+        """Remove a user account and clear it from configuration if active."""
+
+        normalised_username = self._normalise_username(username)
+        if not normalised_username:
+            raise ValueError("Username must not be empty")
+
+        active_user = self.get_active_user()
+        deleted = self._database.delete_user(normalised_username)
+
+        if not deleted:
+            self.logger.info(
+                "No user found with username '%s' to delete", normalised_username
+            )
+            return False
+
+        if active_user == normalised_username:
+            self.config_manager.set_active_user(None)
+            self.logger.info(
+                "Deleted active user '%s' and cleared active user selection",
+                normalised_username,
+            )
+        else:
+            self.logger.info("Deleted user '%s'", normalised_username)
+
+        return True
+
     def close(self) -> None:
         """Release resources associated with the service."""
 
