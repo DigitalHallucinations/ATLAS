@@ -475,6 +475,60 @@ def test_google_generator_streaming_runs_off_event_loop(monkeypatch):
     assert all(tid != loop_thread for tid in iteration_threads)
 
 
+def test_google_generator_reuses_cached_models(monkeypatch):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    created_models = []
+
+    class DummyResponse:
+        def __init__(self, text):
+            self.text = text
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+            self.calls = 0
+            created_models.append(self)
+
+        def generate_content(self, contents, **kwargs):
+            self.calls += 1
+            return DummyResponse(text=f"response-{self.calls}")
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+
+    generator = google_module.GoogleGeminiGenerator(DummyConfig())
+
+    async def exercise():
+        first = await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            stream=False,
+        )
+        second = await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi again"}],
+            stream=False,
+        )
+        generator.invalidate_model_cache()
+        third = await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi once more"}],
+            stream=False,
+        )
+        return first, second, third
+
+    first, second, third = asyncio.run(exercise())
+
+    assert [model.model_name for model in created_models] == [
+        "gemini-1.5-pro-latest",
+        "gemini-1.5-pro-latest",
+    ]
+    assert len(created_models) == 2
+    assert created_models[0].calls == 2
+    assert created_models[1].calls == 1
+    assert first == "response-1"
+    assert second == "response-2"
+    assert third == "response-1"
+
+
 def test_google_generator_applies_persisted_settings(monkeypatch):
     captured = {}
 
