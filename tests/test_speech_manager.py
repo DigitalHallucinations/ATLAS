@@ -388,12 +388,16 @@ class _DummyConfig:
     def __init__(self):
         self.config = {"OPENAI_API_KEY": "stored-key"}
         self.yaml_config = {}
+        self.yaml_writes = 0
         self._tts_enabled = True
         self.raise_openai_error = False
         self.raise_google_error = False
         self.openai_calls = []
         self.google_credentials = None
         self.google_speech_settings = {}
+
+    def _write_yaml_config(self):
+        self.yaml_writes += 1
 
     def get_tts_enabled(self):
         return self._tts_enabled
@@ -1070,6 +1074,9 @@ def test_set_default_speech_providers_updates_state(speech_manager):
     assert speech_manager.get_default_stt_provider() == "beta"
     assert speech_manager.config_manager.config["DEFAULT_TTS_PROVIDER"] == "alpha"
     assert speech_manager.config_manager.config["DEFAULT_STT_PROVIDER"] == "beta"
+    assert speech_manager.config_manager.yaml_config["DEFAULT_TTS_PROVIDER"] == "alpha"
+    assert speech_manager.config_manager.yaml_config["DEFAULT_STT_PROVIDER"] == "beta"
+    assert speech_manager.config_manager.yaml_writes == 1
 
 
 def test_disable_stt_clears_active_provider(speech_manager):
