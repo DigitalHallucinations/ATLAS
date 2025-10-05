@@ -1,3 +1,4 @@
 DEFAULT_STT_PROVIDER: whisper
 DEFAULT_TTS_PROVIDER: eleven_labs
 TTS_ENABLED: false
+ACTIVE_USER: null
