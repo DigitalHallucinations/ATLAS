@@ -668,18 +668,77 @@ def test_summary_reads_voice_attribute_objects(speech_manager):
     assert voice_label == "Gamma"
 
 
-def test_google_tts_text_to_speech_uses_stubbed_client():
-    from google.cloud import texttospeech
+def test_google_tts_text_to_speech_uses_stubbed_client(monkeypatch):
     from modules.Speech_Services.Google_tts import GoogleTTS
     import asyncio
+    import types
 
     tts = GoogleTTS()
     tts.set_tts(True)
 
+    calls = []
+
+    def fake_synthesize_speech(*args, **kwargs):
+        calls.append((args, kwargs))
+        return types.SimpleNamespace(audio_content=b"")
+
+    monkeypatch.setattr(tts.client, "synthesize_speech", fake_synthesize_speech)
+
     asyncio.run(tts.text_to_speech("Hello world"))
 
-    assert len(texttospeech.TextToSpeechClient.synthesize_calls) == 1
+    assert len(calls) == 1
 
+
+def test_google_tts_text_to_speech_awaits_background_thread(monkeypatch, tmp_path):
+    from modules.Speech_Services import Google_tts
+    import asyncio
+
+    google_tts = Google_tts.GoogleTTS()
+    google_tts.set_tts(True)
+
+    recorded = {"called": False, "kwargs": None}
+
+    async def fake_to_thread(func, /, *args, **kwargs):
+        recorded["called"] = True
+        recorded["kwargs"] = kwargs
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(Google_tts.asyncio, "to_thread", fake_to_thread)
+
+    played_paths = []
+
+    def immediate_thread(*, target=None, args=(), kwargs=None):
+        class _ImmediateThread:
+            def start(self_nonlocal):
+                if target is not None:
+                    target(*args, **(kwargs or {}))
+
+        return _ImmediateThread()
+
+    monkeypatch.setattr(Google_tts.threading, "Thread", immediate_thread)
+
+    def fake_play_audio(path):
+        played_paths.append(path)
+        if os.path.exists(path):
+            os.remove(path)
+
+    monkeypatch.setattr(google_tts, "play_audio", fake_play_audio)
+
+    original_named_tempfile = Google_tts.tempfile.NamedTemporaryFile
+
+    def tmp_named_tempfile(*args, **kwargs):
+        kwargs.setdefault("dir", tmp_path)
+        return original_named_tempfile(*args, **kwargs)
+
+    monkeypatch.setattr(Google_tts.tempfile, "NamedTemporaryFile", tmp_named_tempfile)
+
+    asyncio.run(google_tts.text_to_speech("Threaded call"))
+
+    assert recorded["called"], "text_to_speech should await asyncio.to_thread"
+    assert recorded["kwargs"] is not None
+    assert set(recorded["kwargs"].keys()) == {"input", "voice", "audio_config"}
+    assert played_paths, "Playback should be scheduled after synthesis"
+    assert all(not os.path.exists(path) for path in played_paths)
 
 def test_google_tts_set_voice_accepts_dict_payload():
     from modules.Speech_Services.Google_tts import GoogleTTS

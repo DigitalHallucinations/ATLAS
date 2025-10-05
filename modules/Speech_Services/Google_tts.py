@@ -1,6 +1,7 @@
 # modules/Speech_Services/Google/tts.py
 # Description: Text to speech module using Google Cloud Text-to-Speech
 
+import asyncio
 import os
 import re
 import tempfile
@@ -59,10 +60,11 @@ class GoogleTTS(BaseTTS):
         )
 
         try:
-            response = self.client.synthesize_speech(
+            response = await asyncio.to_thread(
+                self.client.synthesize_speech,
                 input=synthesis_input,
                 voice=self.voice,
-                audio_config=audio_config
+                audio_config=audio_config,
             )
             logger.info("Google TTS response received successfully.")
         except Exception as e:
