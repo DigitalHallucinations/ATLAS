@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Optional
 
+import sqlite3
+
 import pytest
 
+from modules.background_tasks import run_async_in_thread
 from modules.user_accounts import user_account_db
 from modules.user_accounts import user_account_service
 
@@ -119,6 +122,46 @@ def test_set_active_user_tracks_configuration(tmp_path, monkeypatch):
 
         with pytest.raises(ValueError):
             service.set_active_user('eve')
+    finally:
+        service.close()
+
+
+def test_concurrent_database_access_is_serialised(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    def _coroutine_factory(func, /, *args, **kwargs):
+        async def _runner():
+            return func(*args, **kwargs)
+
+        return _runner()
+
+    try:
+        registration_futures = [
+            run_async_in_thread(
+                lambda index=index: _coroutine_factory(
+                    service.register_user,
+                    f'user{index}',
+                    'password',
+                    f'user{index}@example.com',
+                )
+            )
+            for index in range(5)
+        ]
+
+        lookup_futures = [
+            run_async_in_thread(lambda: _coroutine_factory(service.list_users))
+            for _ in range(5)
+        ]
+
+        for future in registration_futures + lookup_futures:
+            try:
+                future.result(timeout=5)
+            except (sqlite3.ProgrammingError, sqlite3.OperationalError) as exc:
+                pytest.fail(f'Database operation raised threading error: {exc}')
+
+        # Ensure that registrations completed successfully.
+        users = service.list_users()
+        assert len(users) == 5
     finally:
         service.close()
 
