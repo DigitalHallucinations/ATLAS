@@ -151,6 +151,24 @@ def test_update_user_refreshes_profile(tmp_path, monkeypatch):
         db.close_connection()
 
 
+def test_update_user_refreshes_profile_on_email_change(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    try:
+        db.add_user('frank', 'Password1', 'frank@example.com', 'Frank', '1985-06-07')
+
+        profile_path = Path(db.user_profiles_dir) / 'frank.json'
+
+        db.update_user('frank', email='frank.new@example.com')
+
+        updated = json.loads(profile_path.read_text(encoding='utf-8'))
+        assert updated['Email'] == 'frank.new@example.com'
+        assert updated['Full Name'] == 'Frank'
+        assert updated['DOB'] == '1985-06-07'
+    finally:
+        db.close_connection()
+
+
 def test_database_uses_app_root_directory(tmp_path, monkeypatch):
     app_root = tmp_path / 'app-root'
     _install_config_manager_stub(monkeypatch, str(app_root))
