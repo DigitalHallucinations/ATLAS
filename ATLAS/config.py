@@ -57,12 +57,17 @@ class ConfigManager:
         self._pending_provider_warnings: Dict[str, str] = {}
 
         # Derive other paths from APP_ROOT
+        app_root = self.config.get('APP_ROOT', '.')
         self.config['MODEL_CACHE_DIR'] = os.path.join(
-            self.config.get('APP_ROOT', '.'),
+            app_root,
             'modules',
             'Providers',
             'HuggingFace',
             'model_cache'
+        )
+        self.config.setdefault(
+            'SPEECH_CACHE_DIR',
+            os.path.join(app_root, 'assets', 'SCOUT', 'tts_mp3')
         )
         # Ensure the model_cache directory exists
         os.makedirs(self.config['MODEL_CACHE_DIR'], exist_ok=True)
@@ -1187,6 +1192,18 @@ class ConfigManager:
             str: The path to the model cache directory.
         """
         return self.get_config('MODEL_CACHE_DIR')
+
+    def get_speech_cache_dir(self) -> str:
+        """Return the directory path used to cache generated speech files."""
+
+        cache_dir = self.get_config('SPEECH_CACHE_DIR')
+        if cache_dir:
+            return cache_dir
+
+        app_root = self.get_app_root() or '.'
+        cache_dir = os.path.join(app_root, 'assets', 'SCOUT', 'tts_mp3')
+        self.config['SPEECH_CACHE_DIR'] = cache_dir
+        return cache_dir
 
     def get_default_provider(self) -> str:
         """

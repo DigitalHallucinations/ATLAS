@@ -119,6 +119,24 @@ class _DummySsmlVoiceGender:
         return self.SSML_VOICE_GENDER_UNSPECIFIED
 
 
+class _StubConfigManager:
+    def __init__(self, speech_cache_dir: str):
+        self._speech_cache_dir = speech_cache_dir
+
+    def get_config(self, key, default=None):
+        if key in {"ELEVENLABS_SPEECH_CACHE_DIR", "SPEECH_CACHE_DIR"}:
+            return self._speech_cache_dir
+        if key == "APP_ROOT":
+            return self._speech_cache_dir
+        return default
+
+    def get_app_root(self):
+        return self._speech_cache_dir
+
+    def get_speech_cache_dir(self):
+        return self._speech_cache_dir
+
+
 _SSML_GENDER = _DummySsmlVoiceGender()
 
 
@@ -1491,7 +1509,8 @@ def test_set_google_credentials_uses_stored_preferences(speech_manager, monkeypa
 def test_elevenlabs_text_to_speech_uses_async_executor(monkeypatch, tmp_path):
     monkeypatch.setenv("XI_API_KEY", "key")
 
-    tts = ElevenLabsTTS()
+    config_stub = _StubConfigManager(str(tmp_path))
+    tts = ElevenLabsTTS(config_manager=config_stub)
     tts._use_tts = True
     tts.configured = True
     tts.voice_ids = [{"voice_id": "voice-1", "name": "Voice"}]
@@ -1526,14 +1545,6 @@ def test_elevenlabs_text_to_speech_uses_async_executor(monkeypatch, tmp_path):
         _capture_post,
     )
 
-    original_join = os.path.join
-
-    def _join(base, *paths):
-        if base == "assets/SCOUT/tts_mp3/":
-            return str(tmp_path.joinpath(*paths))
-        return original_join(base, *paths)
-
-    monkeypatch.setattr("modules.Speech_Services.elevenlabs_tts.os.path.join", _join)
     monkeypatch.setattr("modules.Speech_Services.elevenlabs_tts.os.makedirs", lambda *a, **k: None)
 
     playback_paths = []
@@ -1578,10 +1589,11 @@ def test_elevenlabs_text_to_speech_uses_async_executor(monkeypatch, tmp_path):
     assert playback_paths == [expected_path]
 
 
-def test_elevenlabs_text_to_speech_timeout(monkeypatch):
+def test_elevenlabs_text_to_speech_timeout(monkeypatch, tmp_path):
     monkeypatch.setenv("XI_API_KEY", "key")
 
-    tts = ElevenLabsTTS()
+    config_stub = _StubConfigManager(str(tmp_path))
+    tts = ElevenLabsTTS(config_manager=config_stub)
     tts._use_tts = True
     tts.configured = True
     tts.voice_ids = [{"voice_id": "voice-1", "name": "Voice"}]
