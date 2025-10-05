@@ -12,6 +12,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
 from GTKUI.Utils.utils import apply_css, create_box
+from modules.user_accounts.user_account_service import DuplicateUserError
 
 
 class AccountDialog(Gtk.Window):
@@ -790,7 +791,16 @@ class AccountDialog(Gtk.Window):
 
     def _handle_register_error(self, exc: Exception) -> bool:
         self._set_register_busy(False)
-        if isinstance(exc, ValueError):
+        if isinstance(exc, DuplicateUserError):
+            message = "Username or email already exists."
+            self.register_feedback_label.set_text(message)
+            self._mark_field_invalid(self.register_username_entry)
+            self._mark_field_invalid(self.register_email_entry)
+            focus_widget = self.register_username_entry
+            grabber = getattr(focus_widget, "grab_focus", None)
+            if callable(grabber):
+                grabber()
+        elif isinstance(exc, ValueError):
             self.register_feedback_label.set_text(str(exc))
         else:
             self.register_feedback_label.set_text(f"Registration failed: {exc}")

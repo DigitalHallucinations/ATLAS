@@ -5,6 +5,7 @@ import pytest
 
 import tests.test_chat_async_helper  # noqa: F401 - ensure GTK stubs are registered
 from GTKUI.UserAccounts.account_dialog import AccountDialog
+from modules.user_accounts.user_account_service import DuplicateUserError
 
 
 class _AtlasStub:
@@ -235,6 +236,27 @@ def test_register_surfaces_backend_value_errors():
     atlas.last_error(ValueError("Email must be a valid email address."))
 
     assert dialog.register_feedback_label.get_text() == "Email must be a valid email address."
+
+
+def test_register_duplicate_user_marks_fields_invalid():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    dialog.register_username_entry.set_text("existinguser")
+    dialog.register_email_entry.set_text("exists@example.com")
+    dialog.register_password_entry.set_text("Password1")
+    dialog.register_confirm_entry.set_text("Password1")
+
+    dialog._on_register_clicked(dialog.register_button)
+
+    assert atlas.last_error is not None
+    atlas.last_error(DuplicateUserError("duplicate"))
+
+    assert dialog.register_feedback_label.get_text() == "Username or email already exists."
+    assert getattr(dialog.register_username_entry, "_atlas_invalid", False) is True
+    assert getattr(dialog.register_email_entry, "_atlas_invalid", False) is True
 
 
 def test_logout_invokes_background_worker():
