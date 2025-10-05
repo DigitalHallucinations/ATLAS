@@ -29,6 +29,7 @@ class GoogleGeminiGenerator:
             self.logger.error("Google API key not found in configuration")
             raise ValueError("Google API key not found in configuration")
         genai.configure(api_key=self.api_key)
+        self._model_cache: Dict[str, genai.GenerativeModel] = {}
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def generate_response(
@@ -293,7 +294,10 @@ class GoogleGeminiGenerator:
                 "function_calling_config": function_calling_config
             }
 
-            model_instance = genai.GenerativeModel(model_name=effective_model)
+            model_instance = self._model_cache.get(effective_model)
+            if model_instance is None:
+                model_instance = genai.GenerativeModel(model_name=effective_model)
+                self._model_cache[effective_model] = model_instance
             self.logger.info(
                 "Generating response with Google Gemini using model: %s",
                 effective_model,
@@ -363,6 +367,10 @@ class GoogleGeminiGenerator:
         except Exception as e:
             self.logger.error(f"Error in Google Gemini API call: {str(e)}")
             raise
+
+    def invalidate_model_cache(self) -> None:
+        """Clear any cached GenerativeModel instances."""
+        self._model_cache.clear()
 
     def _convert_messages_to_contents(
         self, messages: List[Dict[str, Union[str, Dict, List]]]
