@@ -304,6 +304,17 @@ class ATLAS:
         await run_async_in_thread(service.set_active_user, None)
         self._refresh_active_user_identity(prefer_generic=True)
 
+    async def delete_user_account(self, username: str) -> None:
+        """Delete a stored user account via the service layer."""
+
+        service = self._get_user_account_service()
+        deleted = await run_async_in_thread(service.delete_user, username)
+
+        if not deleted:
+            raise ValueError(f"Unknown user: {username}")
+
+        self._refresh_active_user_identity(prefer_generic=True)
+
     def _require_provider_manager(self) -> ProviderManager:
         """Return the initialized provider manager or raise an error if unavailable."""
 
