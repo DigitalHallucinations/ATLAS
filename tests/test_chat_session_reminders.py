@@ -66,3 +66,31 @@ def test_persona_reminder_counts_only_user_messages():
 
     asyncio.run(exercise())
 
+
+def test_persona_reminder_reuses_existing_entry():
+    atlas = DummyAtlas()
+    session = ChatSession(atlas)
+    session.reminder_interval = 2
+
+    async def exercise():
+        await session.send_message("Msg 1")
+        await session.send_message("Msg 2")  # Triggers first reinforcement
+        await session.send_message("Msg 3")
+        await session.send_message("Msg 4")  # Triggers subsequent reinforcement
+
+        reminders = [
+            (idx, message)
+            for idx, message in enumerate(session.conversation_history)
+            if message["role"] == "system"
+            and message["content"].startswith("Remember, you are acting as")
+        ]
+
+        assert len(reminders) == 1
+
+        reminder_index, reminder_message = reminders[0]
+        assert reminder_index == len(session.conversation_history) - 2
+        assert reminder_message["content"].startswith("Remember, you are acting as")
+        assert session.messages_since_last_reminder == 0
+
+    asyncio.run(exercise())
+

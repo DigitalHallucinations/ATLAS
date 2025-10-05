@@ -40,6 +40,7 @@ class ChatSession:
         self.messages_since_last_reminder = 0
         self.reminder_interval = 10  # Remind of persona every 10 messages
         self._conversation_id = self._generate_conversation_id()
+        self._last_persona_reminder_index: int | None = None
         self.set_default_provider_and_model()
 
     def _generate_conversation_id(self) -> str:
@@ -172,13 +173,46 @@ class ChatSession:
         else:
             self.ATLAS.logger.info("Cleared persona system prompt; no persona active.")
         self.messages_since_last_reminder = 0
+        self._last_persona_reminder_index = None
 
     def reinforce_persona(self):
-        if self.current_persona_prompt:
-            reminder = {"role": "system", "content": f"Remember, you are acting as: {self.current_persona_prompt[:100]}..."}  # First 100 chars
-            self.conversation_history.append(reminder)
-            self.messages_since_last_reminder = 0
-            self.ATLAS.logger.info("Reinforced persona in conversation")
+        if not self.current_persona_prompt:
+            return
+
+        reminder = {
+            "role": "system",
+            "content": f"Remember, you are acting as: {self.current_persona_prompt[:100]}...",
+        }  # First 100 chars
+
+        existing_index = self._last_persona_reminder_index
+        if existing_index is not None:
+            if 0 <= existing_index < len(self.conversation_history):
+                existing_message = self.conversation_history[existing_index]
+                if self._is_persona_reminder(existing_message):
+                    self.conversation_history.pop(existing_index)
+            self._last_persona_reminder_index = None
+
+        if self._last_persona_reminder_index is None:
+            for idx in range(len(self.conversation_history) - 1, -1, -1):
+                message = self.conversation_history[idx]
+                if self._is_persona_reminder(message):
+                    self.conversation_history.pop(idx)
+                    break
+
+        reminder_index = len(self.conversation_history)
+        self.conversation_history.insert(reminder_index, reminder)
+        self._last_persona_reminder_index = reminder_index
+        self.messages_since_last_reminder = 0
+        self.ATLAS.logger.info("Reinforced persona in conversation")
+
+    @staticmethod
+    def _is_persona_reminder(message: Mapping[str, Any]) -> bool:
+        return (
+            isinstance(message, Mapping)
+            and message.get("role") == "system"
+            and isinstance(message.get("content"), str)
+            and message["content"].startswith("Remember, you are acting as")
+        )
 
     def reset_conversation(self):
         """
@@ -188,6 +222,7 @@ class ChatSession:
         self.current_persona_prompt = None
         self.messages_since_last_reminder = 0
         self._conversation_id = self._generate_conversation_id()
+        self._last_persona_reminder_index = None
         self.set_default_provider_and_model()
         provider_manager = getattr(self.ATLAS, "provider_manager", None)
         if provider_manager is not None:
