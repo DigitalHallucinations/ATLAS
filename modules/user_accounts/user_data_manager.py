@@ -73,8 +73,17 @@ class SystemInfo:
         """Gets memory information based on the OS."""
         if platform.system() == "Windows":
             output = SystemInfo.run_command("wmic MemoryChip get Capacity /format:list")
-            total_memory = sum([int(re.search(r'Capacity=(\d+)', line).group(1)) for line in output.splitlines() if "Capacity" in line])
-            return f"Total Physical Memory: {total_memory / (1024**3):.2f} GB"
+            capacities = []
+            for line in output.splitlines():
+                match = re.search(r"Capacity=(\d+)", line)
+                if match:
+                    capacities.append(int(match.group(1)))
+
+            if capacities:
+                total_memory = sum(capacities)
+                return f"Total Physical Memory: {total_memory / (1024**3):.2f} GB"
+
+            return "Total Physical Memory: Unknown"
         else:
             output = SystemInfo.run_command("free -h")
         return output
