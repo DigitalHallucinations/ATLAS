@@ -26,15 +26,29 @@ class GoogleTTS(BaseTTS):
         }
         self.voice = texttospeech.VoiceSelectionParams(**self._voice_config)
         self.client = texttospeech.TextToSpeechClient()
+        self._playback_thread: Optional[threading.Thread] = None
 
     def play_audio(self, filename):
         logger.info(f"Playing audio file: {filename}")
-        pygame.mixer.init()
-        pygame.mixer.music.load(filename)
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
-        logger.info("Audio playback finished.")
+        try:
+            pygame.mixer.init()
+        except Exception as exc:
+            logger.error(f"Failed to initialize pygame mixer: {exc}")
+            self._cleanup_temp_file(filename)
+            return
+
+        try:
+            pygame.mixer.music.load(filename)
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                pygame.time.Clock().tick(10)
+            logger.info("Audio playback finished.")
+        except Exception as exc:
+            logger.error(f"Error during audio playback: {exc}")
+        finally:
+            self._cleanup_temp_file(filename)
+
+    def _cleanup_temp_file(self, filename: str) -> None:
         try:
             os.remove(filename)
             logger.debug(f"Removed temporary audio file: {filename}")
@@ -76,7 +90,13 @@ class GoogleTTS(BaseTTS):
             temp_path = tmp_file.name
         logger.info(f'Audio content written to temporary file "{temp_path}"')
 
-        threading.Thread(target=self.play_audio, args=(temp_path,)).start()
+        playback_thread = threading.Thread(
+            target=self.play_audio,
+            args=(temp_path,),
+            daemon=True,
+        )
+        self._playback_thread = playback_thread
+        playback_thread.start()
 
     def _normalize_voice_payload(self, voice: Any) -> Tuple[Optional[str], Optional[str]]:
         if isinstance(voice, dict):

@@ -861,6 +861,95 @@ def test_google_tts_text_to_speech_awaits_background_thread(monkeypatch, tmp_pat
     assert played_paths, "Playback should be scheduled after synthesis"
     assert all(not os.path.exists(path) for path in played_paths)
 
+
+def test_google_tts_text_to_speech_spawns_daemon_thread(monkeypatch, tmp_path):
+    from modules.Speech_Services import Google_tts
+    import asyncio
+    import os
+    import threading
+    import types
+
+    google_tts = Google_tts.GoogleTTS()
+    google_tts.set_tts(True)
+
+    recorded = {}
+
+    def fake_synthesize_speech(*args, **kwargs):
+        return types.SimpleNamespace(audio_content=b"dummy")
+
+    monkeypatch.setattr(google_tts.client, "synthesize_speech", fake_synthesize_speech)
+
+    played = {}
+
+    def fake_play_audio(path):
+        played["path"] = path
+        if os.path.exists(path):
+            os.remove(path)
+
+    monkeypatch.setattr(google_tts, "play_audio", fake_play_audio)
+
+    original_thread = threading.Thread
+
+    class RecordingThread(original_thread):
+        def __init__(
+            self,
+            group=None,
+            target=None,
+            name=None,
+            args=(),
+            kwargs=None,
+            *,
+            daemon=None,
+        ):
+            should_record = target is fake_play_audio
+            if should_record:
+                recorded["daemon"] = daemon
+                recorded["target"] = target
+                recorded["args"] = args
+                recorded["kwargs"] = kwargs or {}
+                recorded["thread"] = self
+            super().__init__(
+                group=group,
+                target=target,
+                name=name,
+                args=args,
+                kwargs=kwargs or {},
+                daemon=daemon,
+            )
+            self._record_playback = should_record
+
+        def start(self):
+            if self._record_playback:
+                recorded["started"] = True
+            return super().start()
+
+        def join(self, timeout=None):
+            if self._record_playback:
+                recorded["joined"] = True
+            return super().join(timeout)
+
+    monkeypatch.setattr(Google_tts.threading, "Thread", RecordingThread)
+    monkeypatch.setattr(threading, "Thread", RecordingThread)
+
+    original_named_tempfile = Google_tts.tempfile.NamedTemporaryFile
+
+    def tmp_named_tempfile(*args, **kwargs):
+        kwargs.setdefault("dir", tmp_path)
+        return original_named_tempfile(*args, **kwargs)
+
+    monkeypatch.setattr(Google_tts.tempfile, "NamedTemporaryFile", tmp_named_tempfile)
+
+    asyncio.run(google_tts.text_to_speech("daemon"))
+
+    if google_tts._playback_thread is not None:
+        google_tts._playback_thread.join(timeout=1)
+
+    assert recorded.get("started") is True
+    assert recorded.get("daemon") is True
+    assert recorded.get("thread") is google_tts._playback_thread
+    assert played["path"].startswith(str(tmp_path))
+    assert not os.path.exists(played["path"])
+
 def test_google_tts_set_voice_accepts_dict_payload():
     from modules.Speech_Services.Google_tts import GoogleTTS
 
