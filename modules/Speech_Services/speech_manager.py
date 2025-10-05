@@ -513,7 +513,7 @@ class SpeechManager:
         return default_rate
 
     def _create_elevenlabs_tts(self):
-        return ElevenLabsTTS()
+        return ElevenLabsTTS(config_manager=self.config_manager)
 
     def _create_google_tts(self):
         return GoogleTTS()

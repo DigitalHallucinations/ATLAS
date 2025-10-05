@@ -26,6 +26,7 @@ import requests
 from datetime import datetime
 from dotenv import load_dotenv
 
+from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 
 from .base import BaseTTS
@@ -45,7 +46,7 @@ except AttributeError:  # pragma: no cover - fallback for minimal request stubs
     setattr(requests.exceptions, "Timeout", RequestsTimeout)
 
 class ElevenLabsTTS(BaseTTS):
-    def __init__(self):
+    def __init__(self, config_manager: Optional[ConfigManager] = None):
         self._use_tts = True
         self.voice_ids = []
         self.configured = False  # Flag indicating whether API key is configured.
@@ -56,6 +57,7 @@ class ElevenLabsTTS(BaseTTS):
         self._initialization_error: Optional[Exception] = None
         self._initialization_lock: Optional[asyncio.Lock] = None
         self._lock_guard = threading.Lock()
+        self._config_manager = config_manager or ConfigManager()
 
     def _ensure_mixer_ready(self) -> bool:
         """Ensures the pygame mixer is initialized before playback."""
@@ -269,8 +271,23 @@ class ElevenLabsTTS(BaseTTS):
                 return None
 
             logger.info("Received TTS response successfully.")
-            output_dir = "assets/SCOUT/tts_mp3/"
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = self._resolve_output_dir()
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+            except PermissionError as exc:
+                logger.error(
+                    "Permission denied when creating Eleven Labs speech cache directory '%s': %s",
+                    output_dir,
+                    exc,
+                )
+                return None
+            except OSError as exc:
+                logger.error(
+                    "Failed to create Eleven Labs speech cache directory '%s': %s",
+                    output_dir,
+                    exc,
+                )
+                return None
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
             output_path = os.path.join(output_dir, f"output_{timestamp}.mp3")
 
@@ -294,6 +311,52 @@ class ElevenLabsTTS(BaseTTS):
             return
 
         await asyncio.to_thread(self.play_audio, output_path)
+
+    def _resolve_output_dir(self) -> str:
+        """Determine where Eleven Labs speech files should be written."""
+
+        config_dir = None
+
+        if self._config_manager is not None:
+            try:
+                config_dir = self._config_manager.get_config(
+                    'ELEVENLABS_SPEECH_CACHE_DIR',
+                    None,
+                )
+            except Exception as exc:  # noqa: BLE001 - log and continue with fallback
+                logger.warning(
+                    "Error accessing ELEVENLABS_SPEECH_CACHE_DIR configuration: %s",
+                    exc,
+                )
+                config_dir = None
+
+            if not config_dir:
+                getter = getattr(self._config_manager, 'get_speech_cache_dir', None)
+                if callable(getter):
+                    try:
+                        config_dir = getter()
+                    except Exception as exc:  # noqa: BLE001 - log and continue
+                        logger.warning(
+                            "Error resolving speech cache directory from configuration: %s",
+                            exc,
+                        )
+                        config_dir = None
+
+        if not config_dir:
+            app_root = None
+            if self._config_manager is not None:
+                try:
+                    app_root = self._config_manager.get_app_root()
+                except Exception as exc:  # noqa: BLE001 - log and fall back to cwd
+                    logger.warning(
+                        "Error retrieving APP_ROOT from configuration: %s",
+                        exc,
+                    )
+            if not app_root:
+                app_root = os.getcwd()
+            config_dir = os.path.join(app_root, 'assets', 'SCOUT', 'tts_mp3')
+
+        return config_dir
 
     def set_voice(self, voice: dict):
         """
