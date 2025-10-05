@@ -1469,3 +1469,72 @@ def test_elevenlabs_text_to_speech_uses_async_executor(monkeypatch, tmp_path):
     assert playback_args == (expected_path,)
     assert playback_kwargs == {}
     assert playback_paths == [expected_path]
+
+
+def test_close_handles_sync_and_async_providers(speech_manager):
+    class _SyncProvider:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    class _AsyncProvider:
+        def __init__(self):
+            self.closed = False
+
+        async def close(self):
+            await asyncio.sleep(0)
+            self.closed = True
+
+    class _AwaitableProvider:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            async def _close():
+                await asyncio.sleep(0)
+                self.closed = True
+
+            return _close()
+
+    sync_tts = _SyncProvider()
+    async_tts = _AsyncProvider()
+    sync_stt = _SyncProvider()
+    awaitable_stt = _AwaitableProvider()
+
+    speech_manager.tts_services = {
+        "sync-tts": sync_tts,
+        "async-tts": async_tts,
+    }
+    speech_manager.stt_services = {
+        "sync-stt": sync_stt,
+        "awaitable-stt": awaitable_stt,
+    }
+
+    logger = logging.getLogger("speech_manager.py")
+    captured_messages: list[str] = []
+
+    class _CaptureHandler(logging.Handler):
+        def emit(self, record):
+            captured_messages.append(record.getMessage())
+
+    handler = _CaptureHandler(level=logging.INFO)
+    logger.addHandler(handler)
+    try:
+        asyncio.run(speech_manager.close())
+    finally:
+        logger.removeHandler(handler)
+
+    assert sync_tts.closed is True
+    assert async_tts.closed is True
+    assert sync_stt.closed is True
+    assert awaitable_stt.closed is True
+
+    for expected in [
+        "Closed TTS provider 'sync-tts'.",
+        "Closed TTS provider 'async-tts'.",
+        "Closed STT provider 'sync-stt'.",
+        "Closed STT provider 'awaitable-stt'.",
+    ]:
+        assert expected in captured_messages

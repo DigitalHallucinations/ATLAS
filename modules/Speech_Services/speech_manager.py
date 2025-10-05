@@ -1889,13 +1889,18 @@ class SpeechManager:
         """
         Performs cleanup operations for all services that implement a close method.
         """
-        # Close TTS services
-        for name, tts in self.tts_services.items():
-            if hasattr(tts, 'close') and callable(tts.close):
-                await tts.close()
-                logger.info(f"Closed TTS provider '{name}'.")
-        # Close STT services
-        for name, stt in self.stt_services.items():
-            if hasattr(stt, 'close') and callable(stt.close):
-                await stt.close()
-                logger.info(f"Closed STT provider '{name}'.")
+        async def _shutdown(services, label: str):
+            for name, service in services.items():
+                closer = getattr(service, "close", None)
+                if closer is None or not callable(closer):
+                    continue
+
+                result = closer()
+                if inspect.isawaitable(result):
+                    await result
+
+                logger.info(f"Closed {label} provider '{name}'.")
+
+        # Close TTS and STT services while respecting synchronous and asynchronous closers.
+        await _shutdown(self.tts_services, "TTS")
+        await _shutdown(self.stt_services, "STT")
