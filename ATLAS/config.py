@@ -44,6 +44,9 @@ class ConfigManager:
         # Merge configurations, with YAML config overriding env config if there's overlap
         self.config = {**self.env_config, **self.yaml_config}
 
+        # Ensure any persisted OpenAI speech preferences are reflected in the active config
+        self._synchronize_openai_speech_block()
+
         # Track provider/environment key relationships for faster lookups
         self._provider_env_lookup = {
             env_key: provider
@@ -385,6 +388,37 @@ class ConfigManager:
                 self.config[key] = value
             elif key in self.config:
                 self.config[key] = None
+
+        block = {}
+        existing = self.yaml_config.get("OPENAI_SPEECH")
+        if isinstance(existing, Mapping):
+            block.update(existing)
+
+        block_updates = {
+            "stt_provider": stt_provider,
+            "tts_provider": tts_provider,
+            "language": language,
+            "task": task,
+            "initial_prompt": initial_prompt,
+        }
+
+        for block_key, value in block_updates.items():
+            if value is None:
+                block.pop(block_key, None)
+            else:
+                block[block_key] = value
+
+        if block:
+            self.yaml_config["OPENAI_SPEECH"] = block
+            self.config["OPENAI_SPEECH"] = dict(block)
+        else:
+            self.yaml_config.pop("OPENAI_SPEECH", None)
+            self.config.pop("OPENAI_SPEECH", None)
+
+        self._write_yaml_config()
+
+        # Re-apply the speech block to ensure top-level config stays in sync
+        self._synchronize_openai_speech_block()
 
     def set_openai_llm_settings(
         self,
@@ -2506,3 +2540,27 @@ class ConfigManager:
             self.logger.info(f"Configuration written to {yaml_path}")
         except Exception as e:
             self.logger.error(f"Failed to write configuration to {yaml_path}: {e}")
+
+    def _synchronize_openai_speech_block(self):
+        """Sync the persisted OpenAI speech YAML block into the in-memory config."""
+
+        block = self.yaml_config.get("OPENAI_SPEECH")
+
+        if not isinstance(block, Mapping):
+            self.config.pop("OPENAI_SPEECH", None)
+            return
+
+        normalized = dict(block)
+        self.config["OPENAI_SPEECH"] = normalized
+
+        mapping = {
+            "OPENAI_STT_PROVIDER": "stt_provider",
+            "OPENAI_TTS_PROVIDER": "tts_provider",
+            "OPENAI_LANGUAGE": "language",
+            "OPENAI_TASK": "task",
+            "OPENAI_INITIAL_PROMPT": "initial_prompt",
+        }
+
+        for config_key, block_key in mapping.items():
+            if block_key in normalized:
+                self.config[config_key] = normalized[block_key]
