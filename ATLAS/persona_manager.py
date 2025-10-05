@@ -107,10 +107,19 @@ class PersonaManager:
         """Update personalization state for a new active user."""
 
         sanitized = (user or "User").strip() or "User"
-        if sanitized == self.user:
-            return
-
         self.user = sanitized
+
+        try:
+            invalidate_cache = getattr(UserDataManager, "invalidate_system_info_cache")
+        except AttributeError:
+            invalidate_cache = None
+
+        if callable(invalidate_cache):
+            try:
+                invalidate_cache()
+            except Exception:  # pragma: no cover - defensive logging only
+                self.logger.warning("Failed to invalidate shared system info cache", exc_info=True)
+
         self.user_data_manager = UserDataManager(self.user)
 
         if self.current_persona is not None:
