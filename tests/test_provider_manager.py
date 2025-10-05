@@ -1393,6 +1393,147 @@ def test_huggingface_facade_handles_model_lifecycle(provider_manager):
     assert refreshed["data"] == ["alpha"]
 
 
+def test_switch_llm_provider_releases_generators(tmp_path, monkeypatch):
+    reset_provider_manager_singleton()
+
+    class CleanupConfig(DummyConfig):
+        def __init__(self, root_path):
+            super().__init__(root_path)
+            self._api_keys.update(
+                {
+                    "OpenAI": "openai-key",
+                    "Mistral": "mistral-key",
+                    "Anthropic": "anthropic-key",
+                    "Grok": "grok-key",
+                    "HuggingFace": "hf-key",
+                }
+            )
+            self._hf_token = "hf-token"
+
+        def get_grok_api_key(self):
+            return self._api_keys["Grok"]
+
+    class TrackingGenerator:
+        def __init__(self, name: str, *, default_model: Optional[str] = None):
+            self.name = name
+            self.default_model = default_model
+            self.close_calls = 0
+            self.aclose_calls = 0
+
+        async def close(self):
+            self.close_calls += 1
+
+        async def aclose(self):
+            self.aclose_calls += 1
+
+        async def generate_response(self, *_args, **_kwargs):
+            return f"{self.name}-response"
+
+        async def process_streaming_response(self, _response):
+            return ""
+
+    created_generators: Dict[str, List[Any]] = {}
+
+    def register_created(name: str, generator: Any) -> Any:
+        created_generators.setdefault(name, []).append(generator)
+        return generator
+
+    def make_factory(name: str, *, default_model: Optional[str] = None):
+        def factory(*_args, **_kwargs):
+            return register_created(name, TrackingGenerator(name, default_model=default_model))
+
+        return factory
+
+    class TrackingAnthropicGenerator(TrackingGenerator):
+        def __init__(self, _config_manager):
+            super().__init__("Anthropic", default_model="anthropic-default")
+            register_created("Anthropic", self)
+
+    class TrackingGrokGenerator:
+        def __init__(self, _config_manager):
+            self.unload_calls = 0
+            register_created("Grok", self)
+
+        async def unload_model(self):
+            self.unload_calls += 1
+
+        async def generate_response(self, *_args, **_kwargs):  # pragma: no cover - simple stub
+            return "grok-response"
+
+        async def process_streaming_response(self, _response):  # pragma: no cover - simple stub
+            return ""
+
+    def fake_load_models(self):
+        self.models = {
+            "OpenAI": ["openai-default"],
+            "HuggingFace": ["hf-default"],
+            "Mistral": ["mistral-default"],
+            "Google": ["google-default"],
+            "Anthropic": ["anthropic-default"],
+            "Grok": ["grok-default"],
+        }
+        self.current_model = None
+        self.current_provider = None
+
+    async def fake_list_openai_models(self, **_kwargs):
+        return {"models": []}
+
+    monkeypatch.setattr(provider_manager_module.ModelManager, "load_models", fake_load_models, raising=False)
+    monkeypatch.setattr(provider_manager_module.ProviderManager, "list_openai_models", fake_list_openai_models, raising=False)
+    monkeypatch.setattr(provider_manager_module, "HuggingFaceGenerator", FakeHFGenerator)
+    monkeypatch.setattr(provider_manager_module, "get_openai_generator", make_factory("OpenAI"), raising=False)
+    monkeypatch.setattr(provider_manager_module, "get_mistral_generator", make_factory("Mistral"), raising=False)
+    monkeypatch.setattr(provider_manager_module, "get_google_generator", make_factory("Google"), raising=False)
+    monkeypatch.setattr(provider_manager_module, "AnthropicGenerator", TrackingAnthropicGenerator, raising=False)
+    monkeypatch.setattr(provider_manager_module, "GrokGenerator", TrackingGrokGenerator, raising=False)
+
+    config = CleanupConfig(tmp_path.as_posix())
+
+    async def exercise():
+        manager = await ProviderManager.create(config)
+
+        openai_gen = created_generators["OpenAI"][0]
+        assert openai_gen.close_calls == 0
+        assert manager._openai_generator is openai_gen
+
+        await manager.switch_llm_provider("Grok")
+        assert openai_gen.close_calls == 1
+        assert manager._openai_generator is None
+
+        grok_gen = created_generators["Grok"][0]
+        await manager.switch_llm_provider("HuggingFace")
+        assert grok_gen.unload_calls == 1
+        hf_generator = manager.huggingface_generator
+        assert isinstance(hf_generator, FakeHFGenerator)
+
+        await manager.switch_llm_provider("Mistral")
+        assert hf_generator.unload_calls == 1
+        assert manager.huggingface_generator is None
+        mistral_gen = created_generators["Mistral"][0]
+        assert manager._mistral_generator is mistral_gen
+
+        await manager.switch_llm_provider("Anthropic")
+        assert mistral_gen.close_calls == 1
+        assert manager._mistral_generator is None
+        anthropic_gen = created_generators["Anthropic"][0]
+
+        await manager.switch_llm_provider("OpenAI")
+        assert anthropic_gen.close_calls == 1
+        assert manager.anthropic_generator is None
+        assert len(created_generators["OpenAI"]) == 2
+        new_openai_gen = created_generators["OpenAI"][1]
+        assert manager._openai_generator is new_openai_gen
+        assert new_openai_gen.close_calls == 0
+        assert manager.grok_generator is None
+        assert manager.huggingface_generator is None
+        assert manager._provider_model_ready.get("HuggingFace") is False
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        reset_provider_manager_singleton()
+
+
 def test_huggingface_default_provider_startup_defers_loading(tmp_path, monkeypatch):
     reset_provider_manager_singleton()
 
