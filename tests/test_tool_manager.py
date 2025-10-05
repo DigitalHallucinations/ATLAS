@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import json
+import os
 import sys
 import types
 from pathlib import Path
@@ -168,6 +169,11 @@ def test_load_function_map_caches_by_persona(monkeypatch):
     )
 
     tool_manager = importlib.import_module("ATLAS.ToolManager")
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
     monkeypatch.setitem(tool_manager.__dict__, "_function_map_cache", {})
     sys.modules.pop(module_name, None)
 
