@@ -6,6 +6,7 @@ import inspect
 import importlib.util
 import sys
 import os
+from collections.abc import AsyncIterator
 from datetime import datetime
 from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system
@@ -16,6 +17,51 @@ logger = setup_logger(__name__)
 _function_map_cache = {}
 _function_payload_cache = {}
 _default_config_manager = None
+
+
+async def _collect_async_chunks(stream: AsyncIterator) -> str:
+    """Consume an async iterator of chunks into a single string."""
+
+    chunks = []
+
+    async for chunk in stream:
+        if chunk is None:
+            continue
+        if isinstance(chunk, dict):
+            text = chunk.get("content") or chunk.get("text") or chunk.get("message")
+            if text is None:
+                text = str(chunk)
+        else:
+            text = str(chunk)
+        chunks.append(text)
+
+    return "".join(chunks)
+
+
+def _extract_text_and_audio(payload):
+    """Return textual content and optional audio payload from ``payload``."""
+
+    if payload is None:
+        return None, None
+
+    audio = None
+    text = None
+
+    if isinstance(payload, dict):
+        audio = payload.get("audio")
+        for key in ("content", "text", "message"):
+            value = payload.get(key)
+            if isinstance(value, str) and value:
+                text = value
+                break
+
+    if text is None:
+        if isinstance(payload, str):
+            text = payload
+        else:
+            text = str(payload)
+
+    return text, audio
 
 
 def _get_config_manager(candidate=None):
@@ -362,7 +408,19 @@ async def use_tool(
 
                 if new_text:
                     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    conversation_history.add_message(user, conversation_id, "assistant", new_text, current_time)
+                    text_payload, audio_payload = _extract_text_and_audio(new_text)
+                    entry_kwargs = {}
+                    if audio_payload is not None:
+                        entry_kwargs["audio"] = audio_payload
+                    conversation_history.add_message(
+                        user,
+                        conversation_id,
+                        "assistant",
+                        text_payload,
+                        current_time,
+                        **entry_kwargs,
+                    )
+                    new_text = text_payload
                     logger.info("Assistant's message added to conversation history.")
 
                 return new_text
@@ -412,7 +470,12 @@ async def call_model_with_new_prompt(
             conversation_manager=conversation_manager,
             conversation_id=conversation_id,
             user=user,
+            stream=False,
         )
+        if isinstance(response, AsyncIterator) or inspect.isasyncgen(response):
+            logger.info("Received streaming response; collecting chunks into text.")
+            response = await _collect_async_chunks(response)
+
         logger.info(f"Model's response: {response}")
         return response
     except Exception as e:
