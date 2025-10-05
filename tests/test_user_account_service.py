@@ -29,6 +29,7 @@ from modules.user_accounts import user_account_service
 class _StubLogger:
     def __init__(self):
         self.infos = []
+        self.errors = []
 
     def info(self, *args, **kwargs):
         self.infos.append((args, kwargs))
@@ -40,7 +41,7 @@ class _StubLogger:
         pass
 
     def error(self, *args, **kwargs):
-        pass
+        self.errors.append((args, kwargs))
 
 
 class _StubConfigManager:
@@ -81,14 +82,14 @@ def test_register_user_persists_account(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        account = service.register_user('alice', 'password123', 'alice@example.com', 'Alice', '1999-01-01')
+        account = service.register_user('alice', 'Password123', 'alice@example.com', 'Alice', '1999-01-01')
         assert account.username == 'alice'
 
         users = service.list_users()
         assert users[0]['username'] == 'alice'
 
         with pytest.raises(user_account_db.DuplicateUserError):
-            service.register_user('alice', 'newpass', 'duplicate@example.com')
+            service.register_user('alice', 'Newpass1', 'duplicate@example.com')
     finally:
         service.close()
 
@@ -97,10 +98,49 @@ def test_register_user_duplicate_email(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('eve', 'secret', 'shared@example.com')
+        service.register_user('eve', 'Secret12', 'shared@example.com')
 
         with pytest.raises(user_account_db.DuplicateUserError):
-            service.register_user('frank', 'secret', 'shared@example.com')
+            service.register_user('frank', 'Secret12', 'shared@example.com')
+    finally:
+        service.close()
+
+
+def test_register_user_rejects_invalid_email(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        with pytest.raises(ValueError, match='valid email address'):
+            service.register_user('invalid', 'Password1', 'not-an-email')
+
+        assert any(
+            'Invalid email address provided' in args[0]
+            for args, _kwargs in service.logger.errors
+        )
+        assert service.list_users() == []
+    finally:
+        service.close()
+
+
+def test_register_user_rejects_weak_password(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        with pytest.raises(ValueError, match='Password must be at least 8 characters'):
+            service.register_user('weak', 'short', 'weak@example.com')
+
+        with pytest.raises(ValueError, match='Password must be at least 8 characters'):
+            service.register_user('weak2', 'longpassword', 'weak2@example.com')
+
+        assert any(
+            'Password failed minimum length requirement' in args[0]
+            for args, _kwargs in service.logger.errors
+        )
+        assert any(
+            'Password missing required character diversity' in args[0]
+            for args, _kwargs in service.logger.errors
+        )
+        assert service.list_users() == []
     finally:
         service.close()
 
@@ -109,10 +149,10 @@ def test_authenticate_user_success_and_failure(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('bob', 'secure', 'bob@example.com')
-        assert service.authenticate_user('bob', 'secure') is True
+        service.register_user('bob', 'Secure123', 'bob@example.com')
+        assert service.authenticate_user('bob', 'Secure123') is True
         assert service.authenticate_user('bob', 'wrong') is False
-        assert service.authenticate_user('unknown', 'secure') is False
+        assert service.authenticate_user('unknown', 'Secure123') is False
     finally:
         service.close()
 
@@ -121,8 +161,8 @@ def test_set_active_user_tracks_configuration(tmp_path, monkeypatch):
     service, config = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('carol', 'pw', 'carol@example.com')
-        service.register_user('dave', 'pw', 'dave@example.com')
+        service.register_user('carol', 'Password1', 'carol@example.com')
+        service.register_user('dave', 'Password1', 'dave@example.com')
 
         service.set_active_user('carol')
         assert config.get_active_user() == 'carol'
@@ -154,7 +194,7 @@ def test_concurrent_database_access_is_serialised(tmp_path, monkeypatch):
                 lambda index=index: _coroutine_factory(
                     service.register_user,
                     f'user{index}',
-                    'password',
+                    'Password1',
                     f'user{index}@example.com',
                 )
             )
@@ -183,7 +223,7 @@ def test_delete_user_removes_record_and_profile(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('henry', 'pw', 'henry@example.com')
+        service.register_user('henry', 'Password1', 'henry@example.com')
         profile_path = Path(service._database.user_profiles_dir) / 'henry.json'
         profile_path.write_text('{"name": "Henry"}', encoding='utf-8')
 
@@ -218,7 +258,7 @@ def test_delete_active_user_clears_configuration(tmp_path, monkeypatch):
     service, config = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('ivy', 'pw', 'ivy@example.com')
+        service.register_user('ivy', 'Password1', 'ivy@example.com')
         service.set_active_user('ivy')
 
         deleted = service.delete_user('ivy')
