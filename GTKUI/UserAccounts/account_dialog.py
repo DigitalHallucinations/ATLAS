@@ -27,6 +27,8 @@ class AccountDialog(Gtk.Window):
         self._active_user_listener = None
         self._active_username: Optional[str] = None
         self._active_display_name: Optional[str] = None
+        self._editing_username: Optional[str] = None
+        self._editing_metadata: dict[str, object] = {}
 
         self.set_modal(True)
         if parent is not None:
@@ -85,6 +87,10 @@ class AccountDialog(Gtk.Window):
         self._set_widget_visible(self.register_box, False)
         container.append(self.register_box)
 
+        self.edit_box = self._build_edit_form()
+        self._set_widget_visible(self.edit_box, False)
+        container.append(self.edit_box)
+
         self.logout_button = Gtk.Button(label="Log out")
         self.logout_button.connect("clicked", self._on_logout_clicked)
         container.append(self.logout_button)
@@ -92,6 +98,7 @@ class AccountDialog(Gtk.Window):
         self._forms = {
             "login": self.login_box,
             "register": self.register_box,
+            "edit": self.edit_box,
         }
         self._active_form = "login"
         self._update_toggle_buttons()
@@ -99,10 +106,12 @@ class AccountDialog(Gtk.Window):
         self._forms_sensitive_widgets = [
             self.login_box,
             self.register_box,
+            self.edit_box,
             self.login_toggle_button,
             self.register_toggle_button,
             self.login_button,
             self.register_button,
+            self.edit_save_button,
             self.logout_button,
         ]
         self._set_forms_busy(False)
@@ -212,20 +221,34 @@ class AccountDialog(Gtk.Window):
         count = 0
         iterable = accounts if isinstance(accounts, (list, tuple)) else []
         for entry in iterable:
-            username = None
-            display_name = None
             if isinstance(entry, dict):
-                username = entry.get("username")
-                display_name = entry.get("display_name") or entry.get("name")
-            elif hasattr(entry, "username"):
-                username = getattr(entry, "username", None)
-                display_name = getattr(entry, "display_name", None)
+                source = dict(entry)
+            else:
+                source = {}
+                for attr in ("username", "display_name", "name", "email", "dob"):
+                    if hasattr(entry, attr):
+                        source[attr] = getattr(entry, attr)
 
-            username = (username or "").strip()
+            username = str(source.get("username") or "").strip()
             if not username:
                 continue
 
-            row = self._create_account_row(username, display_name)
+            display_name = source.get("display_name") or source.get("name")
+
+            def _string_or_empty(value):
+                if value is None:
+                    return ""
+                return str(value)
+
+            account_data = {
+                "username": username,
+                "display_name": display_name,
+                "email": _string_or_empty(source.get("email")),
+                "name": _string_or_empty(source.get("name")),
+                "dob": _string_or_empty(source.get("dob")),
+            }
+
+            row = self._create_account_row(account_data)
             self.account_list_box.append(row["row"])
             self._account_rows[username] = row
             count += 1
@@ -254,11 +277,14 @@ class AccountDialog(Gtk.Window):
         self._set_account_busy(False, message, disable_forms=False)
         return False
 
-    def _create_account_row(self, username: str, display_name: str | None) -> dict[str, Gtk.Widget]:
+    def _create_account_row(self, account_data: dict[str, object]) -> dict[str, Gtk.Widget]:
+        username = str(account_data.get("username") or "").strip()
+        display_name = account_data.get("display_name") or account_data.get("name")
+
         row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         row_box.username = username  # type: ignore[attr-defined]
 
-        name_label = Gtk.Label(label=display_name or username)
+        name_label = Gtk.Label(label=str(display_name or username))
         name_label.set_xalign(0.0)
         row_box.append(name_label)
 
@@ -277,6 +303,10 @@ class AccountDialog(Gtk.Window):
         use_button.connect("clicked", lambda _btn, user=username: self._on_use_account_clicked(user))
         row_box.append(use_button)
 
+        edit_button = Gtk.Button(label="Edit")
+        edit_button.connect("clicked", lambda _btn, user=username: self._on_edit_account_clicked(user))
+        row_box.append(edit_button)
+
         delete_button = Gtk.Button(label="Delete")
         delete_button.connect("clicked", lambda _btn, user=username: self._on_delete_account_clicked(user))
         row_box.append(delete_button)
@@ -286,7 +316,9 @@ class AccountDialog(Gtk.Window):
             "name_label": name_label,
             "active_label": badge_label,
             "use_button": use_button,
+            "edit_button": edit_button,
             "delete_button": delete_button,
+            "metadata": account_data,
         }
 
     def _on_use_account_clicked(self, username: str) -> None:
@@ -314,6 +346,17 @@ class AccountDialog(Gtk.Window):
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to start activate task: %s", exc, exc_info=True)
             self._handle_account_action_error(exc)
+
+    def _on_edit_account_clicked(self, username: str) -> None:
+        if self._account_busy:
+            return
+
+        row = self._account_rows.get(username)
+        if not row:
+            return
+
+        metadata = row.get("metadata") or {}
+        self._load_edit_form(username, metadata)
 
     def _on_delete_account_clicked(self, username: str) -> None:
         if self._account_busy:
@@ -414,6 +457,7 @@ class AccountDialog(Gtk.Window):
         for username, widgets in self._account_rows.items():
             allow_use = not self._account_busy and username != active_username
             self._set_widget_sensitive(widgets["use_button"], allow_use)
+            self._set_widget_sensitive(widgets["edit_button"], not self._account_busy)
             self._set_widget_sensitive(widgets["delete_button"], not self._account_busy)
 
     def _highlight_active_account(self) -> None:
@@ -550,6 +594,82 @@ class AccountDialog(Gtk.Window):
         self.register_button = Gtk.Button(label="Create account")
         self.register_button.connect("clicked", self._on_register_clicked)
         wrapper.append(self.register_button)
+
+        return wrapper
+
+    def _build_edit_form(self) -> Gtk.Widget:
+        wrapper = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=0)
+
+        self.edit_title_label = Gtk.Label()
+        self.edit_title_label.set_xalign(0.0)
+        wrapper.append(self.edit_title_label)
+
+        grid = Gtk.Grid(column_spacing=8, row_spacing=8)
+        wrapper.append(grid)
+
+        username_label = Gtk.Label(label="Username")
+        username_label.set_xalign(0.0)
+        grid.attach(username_label, 0, 0, 1, 1)
+
+        self.edit_username_entry = Gtk.Entry()
+        try:
+            self.edit_username_entry.set_editable(False)
+            self.edit_username_entry.set_can_focus(False)
+        except Exception:  # pragma: no cover - GTK stub compatibility
+            pass
+        grid.attach(self.edit_username_entry, 1, 0, 1, 1)
+
+        email_label = Gtk.Label(label="Email")
+        email_label.set_xalign(0.0)
+        grid.attach(email_label, 0, 1, 1, 1)
+
+        self.edit_email_entry = Gtk.Entry()
+        self.edit_email_entry.set_placeholder_text("name@example.com")
+        grid.attach(self.edit_email_entry, 1, 1, 1, 1)
+
+        password_label = Gtk.Label(label="New password")
+        password_label.set_xalign(0.0)
+        grid.attach(password_label, 0, 2, 1, 1)
+
+        self.edit_password_entry = Gtk.Entry()
+        self.edit_password_entry.set_visibility(False)
+        self.edit_password_entry.set_invisible_char("•")
+        self.edit_password_entry.set_placeholder_text("Leave blank to keep current password")
+        grid.attach(self.edit_password_entry, 1, 2, 1, 1)
+
+        confirm_label = Gtk.Label(label="Confirm password")
+        confirm_label.set_xalign(0.0)
+        grid.attach(confirm_label, 0, 3, 1, 1)
+
+        self.edit_confirm_entry = Gtk.Entry()
+        self.edit_confirm_entry.set_visibility(False)
+        self.edit_confirm_entry.set_invisible_char("•")
+        self.edit_confirm_entry.set_placeholder_text("Repeat new password")
+        grid.attach(self.edit_confirm_entry, 1, 3, 1, 1)
+
+        name_label = Gtk.Label(label="Display name (optional)")
+        name_label.set_xalign(0.0)
+        grid.attach(name_label, 0, 4, 1, 1)
+
+        self.edit_name_entry = Gtk.Entry()
+        self.edit_name_entry.set_placeholder_text("How should we greet you?")
+        grid.attach(self.edit_name_entry, 1, 4, 1, 1)
+
+        dob_label = Gtk.Label(label="Date of birth (optional)")
+        dob_label.set_xalign(0.0)
+        grid.attach(dob_label, 0, 5, 1, 1)
+
+        self.edit_dob_entry = Gtk.Entry()
+        self.edit_dob_entry.set_placeholder_text("YYYY-MM-DD")
+        grid.attach(self.edit_dob_entry, 1, 5, 1, 1)
+
+        self.edit_feedback_label = Gtk.Label()
+        self.edit_feedback_label.set_xalign(0.0)
+        wrapper.append(self.edit_feedback_label)
+
+        self.edit_save_button = Gtk.Button(label="Save changes")
+        self.edit_save_button.connect("clicked", self._on_edit_save_clicked)
+        wrapper.append(self.edit_save_button)
 
         return wrapper
 
@@ -804,6 +924,185 @@ class AccountDialog(Gtk.Window):
             self.register_feedback_label.set_text(str(exc))
         else:
             self.register_feedback_label.set_text(f"Registration failed: {exc}")
+        return False
+
+    # ------------------------------------------------------------------
+    # Account editing flow
+    # ------------------------------------------------------------------
+    def _clear_edit_validation(self) -> None:
+        for widget in (
+            self.edit_email_entry,
+            self.edit_password_entry,
+            self.edit_confirm_entry,
+        ):
+            self._mark_field_valid(widget)
+
+    def _load_edit_form(self, username: str, metadata: dict[str, object]) -> None:
+        self._editing_username = username
+        self._editing_metadata = dict(metadata)
+
+        display_name = metadata.get("display_name") or metadata.get("name")
+        heading = display_name or username
+        self.edit_title_label.set_text(f"Editing {heading}")
+
+        self.edit_username_entry.set_text(username)
+        self.edit_email_entry.set_text(str(metadata.get("email") or ""))
+        self.edit_name_entry.set_text(str(metadata.get("name") or ""))
+        self.edit_dob_entry.set_text(str(metadata.get("dob") or ""))
+        self.edit_password_entry.set_text("")
+        self.edit_confirm_entry.set_text("")
+        self.edit_feedback_label.set_text("")
+        self._clear_edit_validation()
+
+        self._show_form("edit")
+
+        grabber = getattr(self.edit_email_entry, "grab_focus", None)
+        if callable(grabber):
+            grabber()
+
+    def _set_edit_busy(self, busy: bool, message: Optional[str] = None) -> None:
+        self.edit_save_button.set_sensitive(not busy)
+        if message is not None:
+            self.edit_feedback_label.set_text(message)
+
+    def _on_edit_save_clicked(self, _button) -> None:
+        username = self._editing_username
+        if not username:
+            self.edit_feedback_label.set_text("Select an account to edit.")
+            return
+
+        row = self._account_rows.get(username)
+        metadata = dict(self._editing_metadata)
+        if row and isinstance(row.get("metadata"), dict):
+            metadata = dict(row["metadata"])
+
+        email = (self.edit_email_entry.get_text() or "").strip()
+        password = self.edit_password_entry.get_text() or ""
+        confirm = self.edit_confirm_entry.get_text() or ""
+        name = (self.edit_name_entry.get_text() or "").strip()
+        dob = (self.edit_dob_entry.get_text() or "").strip()
+
+        original_email = str(metadata.get("email") or "").strip()
+        original_name = str(metadata.get("name") or "").strip()
+        original_dob = str(metadata.get("dob") or "").strip()
+
+        self._clear_edit_validation()
+
+        errors: list[tuple[str, object]] = []
+
+        if not email:
+            errors.append(("Email is required.", self.edit_email_entry))
+        elif not self._EMAIL_PATTERN.fullmatch(email):
+            errors.append(("Enter a valid email address.", self.edit_email_entry))
+
+        if confirm and not password:
+            errors.append(("Enter the new password before confirming it.", self.edit_password_entry))
+
+        if password:
+            password_error = self._password_validation_error(password)
+            if password_error:
+                errors.append((password_error, self.edit_password_entry))
+
+        if password != confirm:
+            if password or confirm:
+                errors.append(("Passwords do not match.", self.edit_confirm_entry))
+
+        if errors:
+            for _message, widget in errors:
+                self._mark_field_invalid(widget)
+
+            self.edit_feedback_label.set_text(errors[0][0])
+            first_widget = errors[0][1]
+            grabber = getattr(first_widget, "grab_focus", None)
+            if callable(grabber):
+                grabber()
+            return
+
+        self._set_edit_busy(True, "Saving changes…")
+
+        password_arg = password or None
+
+        def _derive_update(new_value: str, original_value: str) -> Optional[str]:
+            if new_value == original_value:
+                return None
+            if not new_value:
+                return "" if original_value else None
+            return new_value
+
+        name_arg = _derive_update(name, original_name)
+        dob_arg = _derive_update(dob, original_dob)
+
+        def factory():
+            return self.ATLAS.update_user_account(
+                username,
+                password=password_arg,
+                email=email,
+                name=name_arg,
+                dob=dob_arg,
+            )
+
+        def on_success(result) -> None:
+            GLib.idle_add(self._handle_edit_success, result)
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(self._handle_edit_error, exc)
+
+        try:
+            self.ATLAS.run_in_background(
+                factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name="user-account-update",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to start update task: %s", exc, exc_info=True)
+            self._handle_edit_error(exc)
+
+    def _handle_edit_success(self, result: dict | object) -> bool:
+        self._set_edit_busy(False)
+        username = None
+        if isinstance(result, dict):
+            username = result.get("username")
+            self.edit_email_entry.set_text(str(result.get("email") or ""))
+            self.edit_name_entry.set_text(str(result.get("name") or ""))
+            self.edit_dob_entry.set_text(str(result.get("dob") or ""))
+            self._editing_metadata.update(
+                {
+                    "username": result.get("username") or self._editing_metadata.get("username"),
+                    "email": str(result.get("email") or ""),
+                    "name": str(result.get("name") or ""),
+                    "dob": str(result.get("dob") or ""),
+                    "display_name": result.get("name") or self._editing_metadata.get("display_name"),
+                }
+            )
+            heading = self._editing_metadata.get("display_name") or self._editing_metadata.get("username")
+            if heading:
+                self.edit_title_label.set_text(f"Editing {heading}")
+
+        self.edit_password_entry.set_text("")
+        self.edit_confirm_entry.set_text("")
+
+        message = "Account updated."
+        if username:
+            message = f"Account updated for {username}."
+        self.edit_feedback_label.set_text(message)
+
+        self._post_refresh_feedback = "Account updated."
+        self._refresh_account_list()
+        return False
+
+    def _handle_edit_error(self, exc: Exception) -> bool:
+        self._set_edit_busy(False)
+        if isinstance(exc, DuplicateUserError):
+            self.edit_feedback_label.set_text("Username or email already exists.")
+            self._mark_field_invalid(self.edit_email_entry)
+            grabber = getattr(self.edit_email_entry, "grab_focus", None)
+            if callable(grabber):
+                grabber()
+        elif isinstance(exc, ValueError):
+            self.edit_feedback_label.set_text(str(exc))
+        else:
+            self.edit_feedback_label.set_text(f"Update failed: {exc}")
         return False
 
     # ------------------------------------------------------------------
