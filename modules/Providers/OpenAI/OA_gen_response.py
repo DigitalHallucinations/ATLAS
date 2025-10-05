@@ -191,7 +191,10 @@ class OpenAIGenerator:
             # Load functions if not provided
             if functions is None and current_persona:
                 self.logger.info("No functions provided; attempting to load from current persona.")
-                functions = load_functions_from_json(current_persona)
+                functions = load_functions_from_json(
+                    current_persona,
+                    config_manager=self.config_manager,
+                )
                 if functions:
                     self.logger.info(f"Functions loaded from JSON: {functions}")
                 else:
@@ -202,7 +205,14 @@ class OpenAIGenerator:
                 self.logger.warning("No functions to load or provide.")
 
             # Load function map
-            function_map = load_function_map_from_current_persona(current_persona) if current_persona else None
+            function_map = (
+                load_function_map_from_current_persona(
+                    current_persona,
+                    config_manager=self.config_manager,
+                )
+                if current_persona
+                else None
+            )
             if function_map:
                 self.logger.info(f"Function map loaded: {function_map}")
             else:

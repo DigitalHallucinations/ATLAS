@@ -15,6 +15,21 @@ logger = setup_logger(__name__)
 
 _function_map_cache = {}
 _function_payload_cache = {}
+_default_config_manager = None
+
+
+def _get_config_manager(candidate=None):
+    """Return a :class:`ConfigManager`, caching the default instance."""
+
+    global _default_config_manager
+
+    if candidate is not None:
+        return candidate
+
+    if _default_config_manager is None:
+        _default_config_manager = ConfigManager()
+
+    return _default_config_manager
 
 
 def _resolve_provider_manager(provider_manager=None, config_manager=None):
@@ -50,7 +65,12 @@ def get_required_args(function):
         if param.default == param.empty and param.name != 'self'
     ]
 
-def load_function_map_from_current_persona(current_persona, *, refresh=False):
+def load_function_map_from_current_persona(
+    current_persona,
+    *,
+    refresh=False,
+    config_manager=None,
+):
     logger.info("Attempting to load function map from current persona.")
     if not current_persona or "name" not in current_persona:
         logger.error("Current persona is None or does not have a 'name' key.")
@@ -58,7 +78,7 @@ def load_function_map_from_current_persona(current_persona, *, refresh=False):
 
     persona_name = current_persona["name"]
     try:
-        app_root = ConfigManager().get_app_root()
+        app_root = _get_config_manager(config_manager).get_app_root()
     except Exception as exc:
         logger.error(
             "Unable to determine application root when loading persona '%s': %s",
@@ -132,7 +152,12 @@ def load_function_map_from_current_persona(current_persona, *, refresh=False):
         logger.error(f"Error loading function map for persona '{persona_name}': {e}", exc_info=True)
     return None
 
-def load_functions_from_json(current_persona, *, refresh=False):
+def load_functions_from_json(
+    current_persona,
+    *,
+    refresh=False,
+    config_manager=None,
+):
     logger.info("Attempting to load functions from JSON for the current persona.")
     if not current_persona or "name" not in current_persona:
         logger.error("Current persona is None or does not have a 'name' key.")
@@ -140,7 +165,7 @@ def load_functions_from_json(current_persona, *, refresh=False):
 
     persona_name = current_persona["name"]
     try:
-        app_root = ConfigManager().get_app_root()
+        app_root = _get_config_manager(config_manager).get_app_root()
     except Exception as exc:
         logger.error(
             "Unable to determine application root when loading persona '%s': %s",
