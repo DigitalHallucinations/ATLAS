@@ -142,8 +142,8 @@ def test_register_validates_and_submits():
 
     dialog.register_username_entry.set_text("newuser")
     dialog.register_email_entry.set_text("user@example.com")
-    dialog.register_password_entry.set_text("pw123")
-    dialog.register_confirm_entry.set_text("pw123")
+    dialog.register_password_entry.set_text("Password1")
+    dialog.register_confirm_entry.set_text("Password1")
     dialog.register_name_entry.set_text("Test User")
     dialog.register_dob_entry.set_text("2000-01-01")
 
@@ -153,7 +153,7 @@ def test_register_validates_and_submits():
     _drain_background(atlas)
     assert atlas.register_called == (
         "newuser",
-        "pw123",
+        "Password1",
         "user@example.com",
         "Test User",
         "2000-01-01",
@@ -169,13 +169,72 @@ def test_register_rejects_mismatched_passwords():
 
     dialog.register_username_entry.set_text("newuser")
     dialog.register_email_entry.set_text("user@example.com")
-    dialog.register_password_entry.set_text("pw123")
+    dialog.register_password_entry.set_text("Password1")
     dialog.register_confirm_entry.set_text("other")
 
     dialog._on_register_clicked(dialog.register_button)
 
     assert atlas.last_factory is None
     assert dialog.register_feedback_label.get_text() == "Passwords do not match."
+
+
+def test_register_rejects_invalid_email_client_side():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    dialog.register_username_entry.set_text("newuser")
+    dialog.register_email_entry.set_text("invalid-email")
+    dialog.register_password_entry.set_text("Password1")
+    dialog.register_confirm_entry.set_text("Password1")
+
+    dialog._on_register_clicked(dialog.register_button)
+
+    assert atlas.last_factory is None
+    assert dialog.register_feedback_label.get_text() == "Enter a valid email address."
+    assert getattr(dialog.register_email_entry, "_atlas_invalid", False) is True
+    assert getattr(dialog.register_password_entry, "_atlas_invalid", False) is False
+
+
+def test_register_rejects_weak_password_client_side():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    dialog.register_username_entry.set_text("newuser")
+    dialog.register_email_entry.set_text("user@example.com")
+    dialog.register_password_entry.set_text("short1")
+    dialog.register_confirm_entry.set_text("short1")
+
+    dialog._on_register_clicked(dialog.register_button)
+
+    assert atlas.last_factory is None
+    assert (
+        dialog.register_feedback_label.get_text()
+        == "Password must be at least 8 characters and include letters and numbers."
+    )
+    assert getattr(dialog.register_password_entry, "_atlas_invalid", False) is True
+
+
+def test_register_surfaces_backend_value_errors():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    dialog.register_username_entry.set_text("newuser")
+    dialog.register_email_entry.set_text("user@example.com")
+    dialog.register_password_entry.set_text("Password1")
+    dialog.register_confirm_entry.set_text("Password1")
+
+    dialog._on_register_clicked(dialog.register_button)
+
+    assert atlas.last_error is not None
+    atlas.last_error(ValueError("Email must be a valid email address."))
+
+    assert dialog.register_feedback_label.get_text() == "Email must be a valid email address."
 
 
 def test_logout_invokes_background_worker():

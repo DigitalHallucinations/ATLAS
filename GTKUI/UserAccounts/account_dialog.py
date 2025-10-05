@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 import gi
@@ -15,6 +16,8 @@ from GTKUI.Utils.utils import apply_css, create_box
 
 class AccountDialog(Gtk.Window):
     """Provide login, registration, and logout flows for ATLAS accounts."""
+
+    _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
     def __init__(self, atlas, parent: Optional[Gtk.Window] = None) -> None:
         super().__init__(title="Account Management")
@@ -674,6 +677,45 @@ class AccountDialog(Gtk.Window):
         if message is not None:
             self.register_feedback_label.set_text(message)
 
+    def _mark_field_valid(self, widget) -> None:
+        remover = getattr(widget, "remove_css_class", None)
+        if callable(remover):
+            try:
+                remover("error")
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+        setattr(widget, "_atlas_invalid", False)
+
+    def _mark_field_invalid(self, widget) -> None:
+        adder = getattr(widget, "add_css_class", None)
+        if callable(adder):
+            try:
+                adder("error")
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+        setattr(widget, "_atlas_invalid", True)
+
+    def _password_validation_error(self, password: str) -> Optional[str]:
+        if len(password) < 8:
+            return "Password must be at least 8 characters and include letters and numbers."
+
+        has_letter = any(char.isalpha() for char in password)
+        has_digit = any(char.isdigit() for char in password)
+
+        if not (has_letter and has_digit):
+            return "Password must be at least 8 characters and include letters and numbers."
+
+        return None
+
+    def _clear_registration_validation(self) -> None:
+        for widget in (
+            self.register_username_entry,
+            self.register_email_entry,
+            self.register_password_entry,
+            self.register_confirm_entry,
+        ):
+            self._mark_field_valid(widget)
+
     def _on_register_clicked(self, _button) -> None:
         username = (self.register_username_entry.get_text() or "").strip()
         email = (self.register_email_entry.get_text() or "").strip()
@@ -682,12 +724,37 @@ class AccountDialog(Gtk.Window):
         name = (self.register_name_entry.get_text() or "").strip() or None
         dob = (self.register_dob_entry.get_text() or "").strip() or None
 
-        if not username or not email or not password:
-            self.register_feedback_label.set_text("Username, email, and password are required.")
-            return
+        self._clear_registration_validation()
+
+        errors: list[tuple[str, object]] = []
+
+        if not username:
+            errors.append(("Username is required.", self.register_username_entry))
+
+        if not email:
+            errors.append(("Email is required.", self.register_email_entry))
+        elif not self._EMAIL_PATTERN.fullmatch(email):
+            errors.append(("Enter a valid email address.", self.register_email_entry))
+
+        if not password:
+            errors.append(("Password is required.", self.register_password_entry))
+        else:
+            password_error = self._password_validation_error(password)
+            if password_error:
+                errors.append((password_error, self.register_password_entry))
 
         if password != confirm:
-            self.register_feedback_label.set_text("Passwords do not match.")
+            errors.append(("Passwords do not match.", self.register_confirm_entry))
+
+        if errors:
+            for _message, widget in errors:
+                self._mark_field_invalid(widget)
+
+            self.register_feedback_label.set_text(errors[0][0])
+            first_widget = errors[0][1]
+            grabber = getattr(first_widget, "grab_focus", None)
+            if callable(grabber):
+                grabber()
             return
 
         self._set_register_busy(True, "Creating account…")
@@ -723,7 +790,10 @@ class AccountDialog(Gtk.Window):
 
     def _handle_register_error(self, exc: Exception) -> bool:
         self._set_register_busy(False)
-        self.register_feedback_label.set_text(f"Registration failed: {exc}")
+        if isinstance(exc, ValueError):
+            self.register_feedback_label.set_text(str(exc))
+        else:
+            self.register_feedback_label.set_text(f"Registration failed: {exc}")
         return False
 
     # ------------------------------------------------------------------

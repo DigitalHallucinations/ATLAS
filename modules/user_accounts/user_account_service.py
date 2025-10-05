@@ -9,6 +9,7 @@ UI can safely call from asynchronous code via thread executors.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
 
@@ -33,6 +34,8 @@ class UserAccount:
 
 class UserAccountService:
     """Provide high-level helpers for managing user accounts."""
+
+    _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
     def __init__(
         self,
@@ -73,6 +76,42 @@ class UserAccountService:
             dob=str(data[5]) if len(data) > 5 and data[5] is not None else None,
         )
 
+    def _validate_email(self, email: str) -> str:
+        if not isinstance(email, str):
+            self.logger.error("Email must be provided as a string.")
+            raise ValueError("Email must be a valid email address.")
+
+        candidate = email.strip()
+        if not candidate or not self._EMAIL_PATTERN.fullmatch(candidate):
+            self.logger.error("Invalid email address provided: %r", email)
+            raise ValueError("Email must be a valid email address.")
+
+        return candidate
+
+    def _validate_password(self, password: str) -> str:
+        if not isinstance(password, str):
+            self.logger.error("Password must be provided as a string.")
+            raise ValueError(
+                "Password must be at least 8 characters long and include letters and numbers."
+            )
+
+        if len(password) < 8:
+            self.logger.error("Password failed minimum length requirement.")
+            raise ValueError(
+                "Password must be at least 8 characters long and include letters and numbers."
+            )
+
+        has_letter = any(char.isalpha() for char in password)
+        has_digit = any(char.isdigit() for char in password)
+
+        if not (has_letter and has_digit):
+            self.logger.error("Password missing required character diversity.")
+            raise ValueError(
+                "Password must be at least 8 characters long and include letters and numbers."
+            )
+
+        return password
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -90,13 +129,13 @@ class UserAccountService:
         if not normalised_username:
             raise ValueError("Username must not be empty")
 
-        if not password:
-            raise ValueError("Password must not be empty")
+        validated_email = self._validate_email(email)
+        validated_password = self._validate_password(password)
 
         self._database.add_user(
             normalised_username,
-            password,
-            email,
+            validated_password,
+            validated_email,
             name,
             dob,
         )
