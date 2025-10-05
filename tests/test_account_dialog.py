@@ -1,11 +1,13 @@
 import asyncio
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 
 import pytest
 
 import tests.test_chat_async_helper  # noqa: F401 - ensure GTK stubs are registered
+from gi.repository import Gtk
 from GTKUI.UserAccounts.account_dialog import AccountDialog
 from modules.user_accounts.user_account_service import DuplicateUserError
+from tests.test_chat_async_helper import make_alert_dialog_future
 
 
 class _AtlasStub:
@@ -321,6 +323,8 @@ def test_use_account_triggers_activation_and_disables_forms():
     dialog = AccountDialog(atlas)
     _drain_background(atlas)
 
+    dialog._confirm_delete_handler = None
+
     use_button = dialog._account_rows["alice"]["use_button"]
     assert dialog.login_box._sensitive is True
 
@@ -348,10 +352,15 @@ def test_delete_account_confirms_and_refreshes():
     dialog = AccountDialog(atlas)
     _drain_background(atlas)
 
+    dialog._confirm_delete_handler = None
+
     dialog._confirm_delete_handler = lambda username: True
     delete_button = dialog._account_rows["alice"]["delete_button"]
 
     _click(delete_button)
+
+    assert dialog.account_feedback_label.get_text() == "Deleting alice…"
+    assert atlas.last_thread_name == "user-account-delete"
 
     assert dialog._forms_busy is True
     assert atlas.last_thread_name == "user-account-delete"
@@ -370,6 +379,150 @@ def test_delete_account_confirms_and_refreshes():
     assert atlas.list_calls >= 2
     assert dialog.account_feedback_label.get_text().startswith("Account deleted.")
     assert set(dialog._account_rows.keys()) == {"bob"}
+
+
+def test_delete_account_async_confirmation_accepts(monkeypatch):
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+        {"username": "bob", "display_name": "Bob"},
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+    dialog._confirm_delete_handler = None
+
+    busy_calls = []
+    original_set_busy = dialog._set_account_busy
+
+    def tracking_set_busy(self, busy, message=None, *, disable_forms=True):
+        busy_calls.append((busy, message))
+        return original_set_busy(busy, message, disable_forms=disable_forms)
+
+    monkeypatch.setattr(
+        dialog,
+        "_set_account_busy",
+        MethodType(tracking_set_busy, dialog),
+        raising=False,
+    )
+
+    future = make_alert_dialog_future("delete")
+    wait_hooks: list[str] = []
+
+    def wait_result():
+        assert busy_calls == []
+        wait_hooks.append("wait_result")
+        return "delete"
+
+    def wait():
+        assert busy_calls == []
+        wait_hooks.append("wait")
+        return "delete"
+
+    future.set_wait_result_hook(wait_result)
+    future.set_wait_hook(wait)
+    original_alert_dialog = Gtk.AlertDialog
+
+    class FutureAlertDialog(original_alert_dialog):
+        instances: list[object] = []
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            FutureAlertDialog.instances.append(self)
+
+        def choose(self, _parent):
+            return future
+
+    monkeypatch.setattr(Gtk, "AlertDialog", FutureAlertDialog, raising=False)
+
+    delete_button = dialog._account_rows["alice"]["delete_button"]
+
+    _click(delete_button)
+
+    assert FutureAlertDialog.instances
+    assert wait_hooks
+    assert future.wait_result_calls + future.wait_calls >= 1
+    assert busy_calls and busy_calls[0] == (True, "Deleting alice…")
+    assert atlas.last_thread_name == "user-account-delete"
+    assert dialog.account_feedback_label.get_text() == "Deleting alice…"
+
+    atlas.list_accounts_result = [{"username": "bob", "display_name": "Bob"}]
+    _drain_background(atlas)
+
+    assert atlas.delete_called == "alice"
+    assert dialog._forms_busy is False
+    assert atlas.last_thread_name == "user-account-list"
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+    assert dialog.account_feedback_label.get_text().startswith("Account deleted.")
+
+
+def test_delete_account_async_confirmation_cancels(monkeypatch):
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+    dialog._confirm_delete_handler = None
+
+    busy_calls = []
+    original_set_busy = dialog._set_account_busy
+
+    def tracking_set_busy(self, busy, message=None, *, disable_forms=True):
+        busy_calls.append((busy, message))
+        return original_set_busy(busy, message, disable_forms=disable_forms)
+
+    monkeypatch.setattr(
+        dialog,
+        "_set_account_busy",
+        MethodType(tracking_set_busy, dialog),
+        raising=False,
+    )
+
+    future = make_alert_dialog_future("cancel")
+    wait_hooks: list[str] = []
+
+    def wait_result():
+        assert busy_calls == []
+        wait_hooks.append("wait_result")
+        return "cancel"
+
+    def wait():
+        assert busy_calls == []
+        wait_hooks.append("wait")
+        return "cancel"
+
+    future.set_wait_result_hook(wait_result)
+    future.set_wait_hook(wait)
+    original_alert_dialog = Gtk.AlertDialog
+
+    class FutureAlertDialog(original_alert_dialog):
+        instances: list[object] = []
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            FutureAlertDialog.instances.append(self)
+
+        def choose(self, _parent):
+            return future
+
+    monkeypatch.setattr(Gtk, "AlertDialog", FutureAlertDialog, raising=False)
+
+    delete_button = dialog._account_rows["alice"]["delete_button"]
+
+    _click(delete_button)
+
+    assert FutureAlertDialog.instances
+    assert wait_hooks
+    assert future.wait_result_calls + future.wait_calls >= 1
+    assert busy_calls == []
+    assert atlas.delete_called is None
+    assert dialog.account_feedback_label.get_text() == "Deletion cancelled."
+    assert dialog._forms_busy is False
+    assert dialog._last_delete_prompt == "alice"
+    assert atlas.last_factory is None
 
 
 def test_edit_account_prefills_and_updates():
