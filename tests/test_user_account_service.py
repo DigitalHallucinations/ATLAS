@@ -71,8 +71,20 @@ def test_register_user_persists_account(tmp_path, monkeypatch):
         users = service.list_users()
         assert users[0]['username'] == 'alice'
 
-        with pytest.raises(ValueError):
+        with pytest.raises(user_account_db.DuplicateUserError):
             service.register_user('alice', 'newpass', 'duplicate@example.com')
+    finally:
+        service.close()
+
+
+def test_register_user_duplicate_email(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('eve', 'secret', 'shared@example.com')
+
+        with pytest.raises(user_account_db.DuplicateUserError):
+            service.register_user('frank', 'secret', 'shared@example.com')
     finally:
         service.close()
 

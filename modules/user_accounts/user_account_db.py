@@ -5,7 +5,7 @@ import os
 import shutil
 import sqlite3
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 try:
     from platformdirs import user_data_dir as _user_data_dir
@@ -20,6 +20,10 @@ from modules.logging.logger import setup_logger
 
 
 LEGACY_USER_PROFILES_DIR = Path(__file__).resolve().parent / 'user_profiles'
+
+
+class DuplicateUserError(RuntimeError):
+    """Raised when attempting to create a user with duplicate credentials."""
 
 
 class UserAccountDatabase:
@@ -108,15 +112,66 @@ class UserAccountDatabase:
         query = """
         CREATE TABLE IF NOT EXISTS user_accounts (
             id INTEGER PRIMARY KEY,
-            username TEXT NOT NULL,
+            username TEXT NOT NULL UNIQUE,
             password TEXT NOT NULL,
-            email TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
             name TEXT,
             DOB TEXT
         );
         """
         self.cursor.execute(query)
         self.conn.commit()
+        self._ensure_unique_constraints()
+
+    def _ensure_unique_constraints(self) -> None:
+        """Ensure unique constraints exist for usernames and e-mail addresses."""
+
+        required_indices: Dict[str, str] = {
+            "idx_user_accounts_username": (
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_accounts_username"
+                " ON user_accounts (username)"
+            ),
+            "idx_user_accounts_email": (
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_accounts_email"
+                " ON user_accounts (email)"
+            ),
+        }
+
+        for index_name, create_statement in required_indices.items():
+            try:
+                self.cursor.execute(create_statement)
+            except sqlite3.IntegrityError as exc:
+                self.conn.rollback()
+                duplicates = self._find_duplicates(index_name)
+                details = ", ".join(f"{field}: {values}" for field, values in duplicates.items() if values)
+                message = (
+                    "Existing user account records violate uniqueness constraints. "
+                    "Please resolve duplicate entries before restarting the application."
+                )
+                if details:
+                    message = f"{message} ({details})"
+                self.logger.error(message)
+                raise RuntimeError(message) from exc
+
+        self.conn.commit()
+
+    def _find_duplicates(self, index_name: str) -> Dict[str, str]:
+        if index_name == "idx_user_accounts_username":
+            column = "username"
+        elif index_name == "idx_user_accounts_email":
+            column = "email"
+        else:  # pragma: no cover - defensive guard for future indices
+            return {}
+
+        query = f"""
+        SELECT {column}
+        FROM user_accounts
+        GROUP BY {column}
+        HAVING COUNT(*) > 1
+        """
+        rows = self.cursor.execute(query).fetchall()
+        values = ", ".join(sorted(str(row[0]) for row in rows))
+        return {column: values} if values else {}
 
     @staticmethod
     def _hash_password(password, *, iterations=100_000):
@@ -154,8 +209,15 @@ class UserAccountDatabase:
         INSERT INTO user_accounts (username, password, email, name, DOB)
         VALUES (?, ?, ?, ?, ?)
         """
-        self.cursor.execute(query, (username, hashed_password, email, name, dob))
-        self.conn.commit()
+        try:
+            self.cursor.execute(query, (username, hashed_password, email, name, dob))
+            self.conn.commit()
+        except sqlite3.IntegrityError as exc:
+            self.conn.rollback()
+            message = (
+                "A user with the same username or email already exists."
+            )
+            raise DuplicateUserError(message) from exc
 
     def get_user(self, username):
         query = "SELECT * FROM user_accounts WHERE username = ?"
