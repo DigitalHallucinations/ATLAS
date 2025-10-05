@@ -46,11 +46,12 @@ class ATLAS:
         self.speech_manager = SpeechManager(self.config_manager)  # Instantiate SpeechManager with ConfigManager
         self._initialized = False
         self._provider_change_listeners: List[Callable[[Dict[str, str]], None]] = []
+        self._active_user_change_listeners: List[Callable[[str, str], None]] = []
         self._message_dispatchers: List[Callable[[str, str], None]] = []
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
         self._default_status_tooltip = "Active LLM provider/model and TTS status"
 
-    def _resolve_user_identity(self) -> Tuple[str, str]:
+    def _resolve_user_identity(self, *, prefer_generic: bool = False) -> Tuple[str, str]:
         """Return best-effort user identifier and display name."""
 
         username: Optional[str] = None
@@ -73,7 +74,7 @@ class ATLAS:
                         None,
                     )
 
-                if account_record is None and users:
+                if account_record is None and users and not prefer_generic:
                     account_record = users[0]
 
                 if account_record:
@@ -136,12 +137,23 @@ class ATLAS:
 
         return username, display_name
 
-    def _refresh_active_user_identity(self) -> Tuple[str, str]:
+    def _refresh_active_user_identity(self, *, prefer_generic: bool = False) -> Tuple[str, str]:
         """Refresh cached user metadata when the active account changes."""
 
-        username, display_name = self._resolve_user_identity()
+        previous_username = self._user_identifier
+        previous_display = self._user_display_name
+
+        username, display_name = self._resolve_user_identity(prefer_generic=prefer_generic)
         self._user_identifier = username
         self._user_display_name = display_name
+
+        if (
+            username != previous_username
+            or display_name != previous_display
+        ):
+            self._update_persona_manager_user(username)
+            self._dispatch_active_user_change(username, display_name)
+
         return username, display_name
 
     def _ensure_user_identity(self) -> Tuple[str, str]:
@@ -181,6 +193,62 @@ class ATLAS:
             self._user_account_service = UserAccountService(config_manager=self.config_manager)
 
         return self._user_account_service
+
+    def add_active_user_change_listener(
+        self, listener: Callable[[str, str], None]
+    ) -> None:
+        """Register a callback notified whenever the active user changes."""
+
+        if not callable(listener):
+            raise TypeError("Listener must be callable")
+
+        if listener not in self._active_user_change_listeners:
+            self._active_user_change_listeners.append(listener)
+
+        username, display_name = self._ensure_user_identity()
+        try:
+            listener(username, display_name)
+        except Exception:  # pragma: no cover - listener exceptions are logged elsewhere
+            self.logger.debug("Active user listener raised during registration", exc_info=True)
+
+    def remove_active_user_change_listener(
+        self, listener: Callable[[str, str], None]
+    ) -> None:
+        """Remove a previously registered active user listener."""
+
+        try:
+            self._active_user_change_listeners.remove(listener)
+        except ValueError:
+            pass
+
+    def _dispatch_active_user_change(self, username: str, display_name: str) -> None:
+        """Notify registered listeners about an active user update."""
+
+        for listener in list(self._active_user_change_listeners):
+            try:
+                listener(username, display_name)
+            except Exception:  # pragma: no cover - listener failures are logged defensively
+                self.logger.error(
+                    "Active user listener %s raised an exception", listener, exc_info=True
+                )
+
+    def _update_persona_manager_user(self, username: str) -> None:
+        """Propagate active user changes to the persona manager if available."""
+
+        manager = getattr(self, "persona_manager", None)
+        if manager is None:
+            return
+
+        setter = getattr(manager, "set_user", None)
+        if not callable(setter):
+            return
+
+        try:
+            setter(username)
+        except Exception:  # pragma: no cover - persona manager updates should not break flow
+            self.logger.error(
+                "Persona manager failed to accept active user '%s'", username, exc_info=True
+            )
 
     async def list_user_accounts(self) -> List[Dict[str, object]]:
         """Return stored user accounts without blocking the event loop."""
@@ -234,7 +302,7 @@ class ATLAS:
 
         service = self._get_user_account_service()
         await run_async_in_thread(service.set_active_user, None)
-        self._refresh_active_user_identity()
+        self._refresh_active_user_identity(prefer_generic=True)
 
     def _require_provider_manager(self) -> ProviderManager:
         """Return the initialized provider manager or raise an error if unavailable."""

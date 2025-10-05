@@ -21,6 +21,7 @@ import logging
 from GTKUI.Chat.chat_page import ChatPage
 from GTKUI.Persona_manager.persona_management import PersonaManagement
 from GTKUI.Provider_manager.provider_management import ProviderManagement
+from GTKUI.UserAccounts.account_dialog import AccountDialog
 from GTKUI.Utils.utils import apply_css, create_box
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ class Sidebar(Gtk.Window):
         self.persona_management = PersonaManagement(self.ATLAS, self)
         self.provider_management = ProviderManagement(self.ATLAS, self)
         self._chat_page = None
+        self._account_dialog = None
 
         # Set default window size and style.
         self.set_default_size(80, 600)
@@ -53,6 +55,7 @@ class Sidebar(Gtk.Window):
         self.create_icon("Icons/providers.png", self.show_provider_menu, 42, tooltip="Providers")
         self.create_icon("Icons/history.png", self.handle_history_button, 42, tooltip="History")
         self.create_icon("Icons/chat.png", self.show_chat_page, 42, tooltip="Chat")
+        self.create_icon("Icons/user.png", self.show_account_dialog, 42, tooltip="Accounts")
         # Speech settings icon.
         self.create_icon("Icons/speech.png", self.show_speech_settings, 42, tooltip="Speech Settings")
         self.create_icon("Icons/agent.png", self.show_persona_menu, 42, tooltip="Personas")
@@ -155,6 +158,26 @@ class Sidebar(Gtk.Window):
         """Reset the tracked chat page reference when the window closes."""
 
         self._chat_page = None
+        return False
+
+    def show_account_dialog(self):
+        """Open the account management dialog."""
+
+        if not self.ATLAS.is_initialized():
+            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+            return
+
+        if self._account_dialog is None:
+            dialog = AccountDialog(self.ATLAS, self)
+            dialog.connect("close-request", self._on_account_dialog_close_request)
+            self._account_dialog = dialog
+
+        self._account_dialog.present()
+
+    def _on_account_dialog_close_request(self, *_args):
+        """Clear account dialog tracking once the window closes."""
+
+        self._account_dialog = None
         return False
 
     def show_persona_menu(self):

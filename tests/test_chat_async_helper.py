@@ -224,7 +224,7 @@ class _Entry(_DummyWidget):
 
 
 class _Label(_DummyWidget):
-    def __init__(self, label: str = ""):
+    def __init__(self, label: str = "", **_kwargs):
         super().__init__()
         self.label = label
         self.xalign = 0.0
@@ -233,6 +233,9 @@ class _Label(_DummyWidget):
         self.xalign = value
 
     def set_label(self, value: str):
+        self.label = value
+
+    def set_text(self, value: str):
         self.label = value
 
     def get_text(self) -> str:
@@ -363,6 +366,40 @@ for gio_name in ["Menu", "SimpleAction", "SimpleActionGroup"]:
 
 from ATLAS.ATLAS import ATLAS
 from GTKUI.Chat.chat_page import ChatPage, GLib
+
+
+class _AtlasForChatPage:
+    def __init__(self):
+        self.user_display = "Guest"
+        self.provider_listener = None
+        self.active_listener = None
+
+    def add_provider_change_listener(self, listener):
+        self.provider_listener = listener
+
+    def remove_provider_change_listener(self, listener):
+        if self.provider_listener == listener:
+            self.provider_listener = None
+
+    def add_active_user_change_listener(self, listener):
+        self.active_listener = listener
+        listener("guest", "Guest")
+
+    def remove_active_user_change_listener(self, listener):
+        if self.active_listener == listener:
+            self.active_listener = None
+
+    def get_active_persona_name(self):
+        return "Helper"
+
+    def get_user_display_name(self):
+        return self.user_display
+
+    def get_chat_status_summary(self):
+        return {}
+
+    def format_chat_status(self, _summary):
+        return "status"
 
 
 class _DummyChatSession:
@@ -566,3 +603,29 @@ def test_chat_page_on_send_message_handles_errors(monkeypatch):
 
     page.add_message_bubble.assert_any_call("Helper", "Error: failure", audio=None)
     page._on_response_complete.assert_called()
+
+
+def test_chat_page_updates_active_user(monkeypatch):
+    atlas = _AtlasForChatPage()
+    page = ChatPage.__new__(ChatPage)
+    page.ATLAS = atlas
+    page.user_title_label = _Label()
+    page.persona_title_label = _Label()
+    page._current_user_display_name = atlas.get_user_display_name()
+    page.update_persona_label = Mock()
+    page.update_status_bar = Mock()
+    page._active_user_listener = None
+    page._provider_change_handler = object()
+
+    page._register_active_user_listener()
+    assert atlas.active_listener is not None
+
+    atlas.active_listener("alice", "Alice")
+
+    assert page._current_user_display_name == "Alice"
+    assert page.user_title_label.get_text() == "Active user: Alice"
+    page.update_persona_label.assert_called()
+    page.update_status_bar.assert_called()
+
+    page._on_close_request()
+    assert atlas.active_listener is None

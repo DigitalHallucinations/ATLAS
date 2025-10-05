@@ -57,11 +57,21 @@ class ChatPage(Gtk.Window):
         self.header_bar = Gtk.HeaderBar()
         self.set_titlebar(self.header_bar)
 
-        # Persona title label inside header
+        # Persona title and active user labels inside header
+        self.header_title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.header_title_box.set_hexpand(True)
+
         self.persona_title_label = Gtk.Label(xalign=0)
         self.persona_title_label.add_css_class("title-1")
         self.persona_title_label.set_tooltip_text("Current persona")
-        self.header_bar.set_title_widget(self.persona_title_label)
+        self.header_title_box.append(self.persona_title_label)
+
+        self.user_title_label = Gtk.Label(xalign=0)
+        self.user_title_label.add_css_class("caption")
+        self.user_title_label.set_tooltip_text("Signed-in account")
+        self.header_title_box.append(self.user_title_label)
+
+        self.header_bar.set_title_widget(self.header_title_box)
 
         # Clear chat button
         self.clear_btn = Gtk.Button()
@@ -186,6 +196,11 @@ class ChatPage(Gtk.Window):
         # Link provider changes to update the status bar.
         self._provider_change_handler = self.update_status_bar
         self.ATLAS.add_provider_change_listener(self._provider_change_handler)
+        self._active_user_listener = None
+        self._current_user_display_name = self.ATLAS.get_user_display_name()
+        self.user_title_label.set_text(f"Active user: {self._current_user_display_name}")
+        self.update_persona_label()
+        self._register_active_user_listener()
         self.connect("close-request", self._on_close_request)
 
         self.awaiting_response = False
@@ -223,8 +238,36 @@ class ChatPage(Gtk.Window):
         Updates the window title and header label with the current persona's name.
         """
         persona_name = self.ATLAS.get_active_persona_name()
-        self.set_title(persona_name)
         self.persona_title_label.set_text(persona_name)
+
+        user_display = getattr(self, "_current_user_display_name", None)
+        if hasattr(self, "user_title_label") and user_display:
+            self.user_title_label.set_text(f"Active user: {user_display}")
+
+        if user_display:
+            self.set_title(f"{persona_name} • {user_display}")
+        else:
+            self.set_title(persona_name)
+
+    def _register_active_user_listener(self) -> None:
+        def _listener(username: str, display_name: str) -> None:
+            GLib.idle_add(self._apply_active_user_identity, username, display_name)
+
+        try:
+            self.ATLAS.add_active_user_change_listener(_listener)
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.error("Unable to subscribe to active user changes: %s", exc, exc_info=True)
+            self._active_user_listener = None
+        else:
+            self._active_user_listener = _listener
+
+    def _apply_active_user_identity(self, username: str, display_name: str) -> bool:
+        self._current_user_display_name = display_name or username
+        if hasattr(self, "user_title_label"):
+            self.user_title_label.set_text(f"Active user: {self._current_user_display_name}")
+        self.update_persona_label()
+        self.update_status_bar()
+        return False
 
     # --------------------------- Actions ---------------------------
 
@@ -682,6 +725,9 @@ class ChatPage(Gtk.Window):
         """Unregister provider change listeners before the window closes."""
 
         self.ATLAS.remove_provider_change_listener(self._provider_change_handler)
+        if self._active_user_listener is not None:
+            self.ATLAS.remove_active_user_change_listener(self._active_user_listener)
+            self._active_user_listener = None
         return False
 
     def update_status_bar(self, status_summary=None):

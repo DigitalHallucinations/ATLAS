@@ -1,9 +1,21 @@
+import os
+
 import aiohttp
 
-DEBUG_MODE = False  
+DEBUG_MODE = False
+
+
+def _require_openweather_api_key() -> str:
+    """Return the configured OpenWeatherMap API key or raise a helpful error."""
+
+    api_key = os.environ.get("OPENWEATHERMAP_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENWEATHERMAP_API_KEY is not set; cannot fetch historical weather data.")
+    return api_key
+
 
 async def get_historical_weather(lat, lon, time, units='imperial', lang=None):
-    OPENWEATHER_API_KEY = ['b2ccc00153bac527d4adf035c695f05c']
+    OPENWEATHER_API_KEY = _require_openweather_api_key()
     if DEBUG_MODE:
         print(f"Getting historical weather for location: lat={lat}, lon={lon}, time={time}, units={units}, lang={lang}")
 
