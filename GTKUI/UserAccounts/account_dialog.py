@@ -40,6 +40,7 @@ class AccountDialog(Gtk.Window):
 
         self._build_ui()
         self._subscribe_to_active_user()
+        self._refresh_account_list()
         self.connect("close-request", self._on_close_request)
 
     # ------------------------------------------------------------------
@@ -52,6 +53,15 @@ class AccountDialog(Gtk.Window):
         self.status_label = Gtk.Label()
         self.status_label.set_xalign(0.0)
         container.append(self.status_label)
+
+        self._account_rows: dict[str, dict[str, Gtk.Widget]] = {}
+        self._forms_busy = False
+        self._account_busy = False
+        self._account_forms_locked = False
+        self._post_refresh_feedback: Optional[str] = None
+
+        account_section = self._build_account_section()
+        container.append(account_section)
 
         toggle_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         container.append(toggle_box)
@@ -81,6 +91,361 @@ class AccountDialog(Gtk.Window):
         }
         self._active_form = "login"
         self._update_toggle_buttons()
+
+        self._forms_sensitive_widgets = [
+            self.login_box,
+            self.register_box,
+            self.login_toggle_button,
+            self.register_toggle_button,
+            self.login_button,
+            self.register_button,
+            self.logout_button,
+        ]
+        self._set_forms_busy(False)
+
+    def _build_account_section(self) -> Gtk.Widget:
+        wrapper = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=0)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        wrapper.append(header)
+
+        title = Gtk.Label(label="Saved accounts")
+        title.set_xalign(0.0)
+        header.append(title)
+
+        spacer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        try:
+            spacer.set_hexpand(True)
+        except Exception:  # pragma: no cover - stub compatibility
+            pass
+        header.append(spacer)
+
+        self.account_refresh_button = Gtk.Button(label="Refresh")
+        self.account_refresh_button.connect("clicked", self._refresh_account_list)
+        header.append(self.account_refresh_button)
+
+        scroller = Gtk.ScrolledWindow()
+        try:
+            scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        except Exception:  # pragma: no cover - stub environments may not implement policy
+            pass
+
+        self.account_list_box = getattr(Gtk, "ListBox", Gtk.Box)()
+        scroller.set_child(self.account_list_box)
+        wrapper.append(scroller)
+
+        self.account_empty_label = Gtk.Label()
+        self.account_empty_label.set_xalign(0.0)
+        wrapper.append(self.account_empty_label)
+
+        self.account_feedback_label = Gtk.Label()
+        self.account_feedback_label.set_xalign(0.0)
+        wrapper.append(self.account_feedback_label)
+
+        return wrapper
+
+    # ------------------------------------------------------------------
+    # Account list handling
+    # ------------------------------------------------------------------
+    def _refresh_account_list(self, *_args) -> None:
+        if self._account_busy:
+            return
+
+        self._set_account_busy(True, "Loading saved accounts…", disable_forms=False)
+
+        def factory():
+            return self.ATLAS.list_user_accounts()
+
+        def on_success(result) -> None:
+            GLib.idle_add(self._handle_account_list_result, result)
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(self._handle_account_list_error, exc)
+
+        try:
+            self.ATLAS.run_in_background(
+                factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name="user-account-list",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to refresh account list: %s", exc, exc_info=True)
+            self._handle_account_list_error(exc)
+
+    def _handle_account_list_result(self, accounts) -> bool:
+        self._account_rows.clear()
+
+        removed = False
+        remover = getattr(self.account_list_box, "remove_all", None)
+        if callable(remover):
+            try:
+                remover()
+                removed = True
+            except Exception:  # pragma: no cover - fallback to manual removal
+                removed = False
+
+        if not removed:
+            get_children = getattr(self.account_list_box, "get_children", None)
+            children = []
+            if callable(get_children):
+                try:
+                    children = list(get_children())
+                except Exception:  # pragma: no cover - fallback for stubs
+                    children = []
+            elif hasattr(self.account_list_box, "children"):
+                children = list(getattr(self.account_list_box, "children", []))
+
+            for child in children:
+                try:
+                    self.account_list_box.remove(child)
+                except Exception:  # pragma: no cover - stub removal safety
+                    pass
+
+            if hasattr(self.account_list_box, "children"):
+                self.account_list_box.children = []
+
+        count = 0
+        iterable = accounts if isinstance(accounts, (list, tuple)) else []
+        for entry in iterable:
+            username = None
+            display_name = None
+            if isinstance(entry, dict):
+                username = entry.get("username")
+                display_name = entry.get("display_name") or entry.get("name")
+            elif hasattr(entry, "username"):
+                username = getattr(entry, "username", None)
+                display_name = getattr(entry, "display_name", None)
+
+            username = (username or "").strip()
+            if not username:
+                continue
+
+            row = self._create_account_row(username, display_name)
+            self.account_list_box.append(row["row"])
+            self._account_rows[username] = row
+            count += 1
+
+        if count:
+            self.account_empty_label.set_text("")
+            message = f"Loaded {count} account{'s' if count != 1 else ''}."
+        else:
+            self.account_empty_label.set_text("No saved accounts yet.")
+            message = "No saved accounts found."
+
+        if self._post_refresh_feedback:
+            message = f"{self._post_refresh_feedback} {message}".strip()
+            self._post_refresh_feedback = None
+
+        self._set_account_busy(False, message, disable_forms=False)
+        self._highlight_active_account()
+        return False
+
+    def _handle_account_list_error(self, exc: Exception) -> bool:
+        self.account_empty_label.set_text("Failed to load saved accounts.")
+        message = f"Account load failed: {exc}"
+        if self._post_refresh_feedback:
+            message = f"{self._post_refresh_feedback} {message}".strip()
+            self._post_refresh_feedback = None
+        self._set_account_busy(False, message, disable_forms=False)
+        return False
+
+    def _create_account_row(self, username: str, display_name: str | None) -> dict[str, Gtk.Widget]:
+        row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row_box.username = username  # type: ignore[attr-defined]
+
+        name_label = Gtk.Label(label=display_name or username)
+        name_label.set_xalign(0.0)
+        row_box.append(name_label)
+
+        badge_label = Gtk.Label()
+        badge_label.set_xalign(0.0)
+        row_box.append(badge_label)
+
+        spacer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        try:
+            spacer.set_hexpand(True)
+        except Exception:  # pragma: no cover - stub compatibility
+            pass
+        row_box.append(spacer)
+
+        use_button = Gtk.Button(label="Use")
+        use_button.connect("clicked", lambda _btn, user=username: self._on_use_account_clicked(user))
+        row_box.append(use_button)
+
+        delete_button = Gtk.Button(label="Delete")
+        delete_button.connect("clicked", lambda _btn, user=username: self._on_delete_account_clicked(user))
+        row_box.append(delete_button)
+
+        return {
+            "row": row_box,
+            "name_label": name_label,
+            "active_label": badge_label,
+            "use_button": use_button,
+            "delete_button": delete_button,
+        }
+
+    def _on_use_account_clicked(self, username: str) -> None:
+        if self._account_busy:
+            return
+
+        self._set_account_busy(True, f"Activating {username}…", disable_forms=True)
+
+        def factory():
+            return self.ATLAS.activate_user_account(username)
+
+        def on_success(_result) -> None:
+            GLib.idle_add(self._handle_activate_success)
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(self._handle_account_action_error, exc)
+
+        try:
+            self.ATLAS.run_in_background(
+                factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name="user-account-activate",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to start activate task: %s", exc, exc_info=True)
+            self._handle_account_action_error(exc)
+
+    def _on_delete_account_clicked(self, username: str) -> None:
+        if self._account_busy:
+            return
+
+        if not self._confirm_account_delete(username):
+            self.account_feedback_label.set_text("Deletion cancelled.")
+            return
+
+        self._set_account_busy(True, f"Deleting {username}…", disable_forms=True)
+
+        def factory():
+            return self.ATLAS.delete_user_account(username)
+
+        def on_success(_result) -> None:
+            GLib.idle_add(self._handle_delete_success, username)
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(self._handle_account_action_error, exc)
+
+        try:
+            self.ATLAS.run_in_background(
+                factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name="user-account-delete",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to start delete task: %s", exc, exc_info=True)
+            self._handle_account_action_error(exc)
+
+    def _confirm_account_delete(self, username: str) -> bool:
+        self._last_delete_prompt = username  # type: ignore[attr-defined]
+
+        handler = getattr(self, "_confirm_delete_handler", None)
+        if callable(handler):
+            try:
+                return bool(handler(username))
+            except Exception:  # pragma: no cover - defensive confirmation hooks
+                return False
+
+        dialog_cls = getattr(Gtk, "AlertDialog", None)
+        if dialog_cls is not None:
+            try:
+                dialog = dialog_cls(title="Delete account?", body=f'Delete saved account "{username}"?')
+                setter = getattr(dialog, "set_buttons", None)
+                if callable(setter):
+                    setter(["Cancel", "Delete"])
+                response = dialog.choose(self)
+                if isinstance(response, str):
+                    return response.lower() in {"delete", "accept"}
+                accept_value = getattr(getattr(Gtk, "ResponseType", object), "ACCEPT", None)
+                return response == accept_value
+            except Exception:  # pragma: no cover - alert dialogs are best-effort
+                pass
+
+        return True
+
+    def _handle_activate_success(self) -> bool:
+        self._set_account_busy(False, "Account activated.", disable_forms=True)
+        self._highlight_active_account()
+        return False
+
+    def _handle_delete_success(self, username: str) -> bool:
+        self._set_account_busy(False, "Account deleted.", disable_forms=True)
+        self._post_refresh_feedback = "Account deleted."
+        self._refresh_account_list()
+        return False
+
+    def _handle_account_action_error(self, exc: Exception) -> bool:
+        self._set_account_busy(False, f"Account action failed: {exc}", disable_forms=True)
+        return False
+
+    def _set_forms_busy(self, busy: bool) -> None:
+        self._forms_busy = bool(busy)
+        for widget in getattr(self, "_forms_sensitive_widgets", []):
+            self._set_widget_sensitive(widget, not busy)
+
+    def _set_account_busy(self, busy: bool, message: str | None = None, *, disable_forms: bool = True) -> None:
+        self._account_busy = bool(busy)
+        if message is not None:
+            self.account_feedback_label.set_text(message)
+
+        if busy:
+            if disable_forms:
+                self._account_forms_locked = True
+                self._set_forms_busy(True)
+        else:
+            if self._account_forms_locked or disable_forms:
+                self._account_forms_locked = False
+                self._set_forms_busy(False)
+
+        self._set_widget_sensitive(self.account_refresh_button, not busy)
+        self._update_account_buttons_sensitive()
+
+    def _update_account_buttons_sensitive(self) -> None:
+        active_username = self._active_username or ""
+        for username, widgets in self._account_rows.items():
+            allow_use = not self._account_busy and username != active_username
+            self._set_widget_sensitive(widgets["use_button"], allow_use)
+            self._set_widget_sensitive(widgets["delete_button"], not self._account_busy)
+
+    def _highlight_active_account(self) -> None:
+        active_username = self._active_username or ""
+        for username, widgets in self._account_rows.items():
+            self._set_row_active(widgets, username == active_username)
+
+    def _set_row_active(self, widgets: dict[str, Gtk.Widget], active: bool) -> None:
+        label = widgets["active_label"]
+        label.set_text("Active" if active else "")
+        row = widgets["row"]
+        if active:
+            try:
+                row.add_css_class("suggested-action")
+            except Exception:  # pragma: no cover - stub environments may not implement CSS APIs
+                pass
+        else:
+            remover = getattr(row, "remove_css_class", None)
+            if callable(remover):
+                try:
+                    remover("suggested-action")
+                except Exception:  # pragma: no cover - stub safety
+                    pass
+
+        row.is_active = active  # type: ignore[attr-defined]
+        self._update_account_buttons_sensitive()
+
+    @staticmethod
+    def _set_widget_sensitive(widget, sensitive: bool) -> None:
+        setter = getattr(widget, "set_sensitive", None)
+        if callable(setter):
+            try:
+                setter(bool(sensitive))
+            except Exception:  # pragma: no cover - stub environments may not accept bools
+                pass
+        setattr(widget, "_sensitive", bool(sensitive))
 
     def _build_login_form(self) -> Gtk.Widget:
         wrapper = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=0)
@@ -218,6 +583,8 @@ class AccountDialog(Gtk.Window):
             self.logout_button.set_sensitive(bool(persisted))
         except Exception:  # pragma: no cover - stub safety
             pass
+
+        self._highlight_active_account()
 
         return False
 

@@ -21,6 +21,8 @@ class _DummyWidget:
         self._vexpand = False
         self._halign = None
         self._valign = None
+        self._sensitive = True
+        self.visible = True
 
     def __call__(self, *args, **kwargs):  # pragma: no cover - convenience hook
         return self
@@ -48,10 +50,12 @@ class _DummyWidget:
         if _args:
             self.children.append(_args[0])
 
-    def set_sensitive(self, *_args, **_kwargs):  # pragma: no cover - widget helper
+    def set_sensitive(self, value, *_args, **_kwargs):  # pragma: no cover - widget helper
+        self._sensitive = bool(value)
         return None
 
-    def set_visible(self, *_args, **_kwargs):  # pragma: no cover - widget helper
+    def set_visible(self, value=True, *_args, **_kwargs):  # pragma: no cover - widget helper
+        self.visible = bool(value)
         return None
 
     def start(self, *_args, **_kwargs):  # pragma: no cover - spinner helper
@@ -114,6 +118,7 @@ for widget_name in [
     "Box",
     "ScrolledWindow",
     "Grid",
+    "ListBox",
     "TextBuffer",
     "TextView",
     "EventControllerKey",
@@ -283,6 +288,44 @@ class _ScrolledWindow(_DummyWidget):
         self.policy = (horizontal, vertical)
 
 
+class _ListBox(_DummyWidget):
+    def __init__(self):
+        super().__init__()
+        self.children = []
+
+    def append(self, child):
+        self.children.append(child)
+
+    def remove(self, child):
+        if child in self.children:
+            self.children.remove(child)
+
+    def remove_all(self):
+        self.children.clear()
+
+    def get_children(self):
+        return list(self.children)
+
+
+class _AlertDialog(_DummyWidget):
+    def __init__(self, title: str = "", body: str = ""):
+        super().__init__()
+        self.title = title
+        self.body = body
+        self.buttons: list[str] = []
+        self.response = None
+
+    def set_buttons(self, buttons):
+        self.buttons = list(buttons)
+
+    def choose(self, _parent):
+        if self.response is not None:
+            return self.response
+        if self.buttons:
+            return self.buttons[-1]
+        return None
+
+
 Gtk.ComboBoxText = _ComboBoxText
 Gtk.Adjustment = _Adjustment
 Gtk.SpinButton = _SpinButton
@@ -293,6 +336,8 @@ Gtk.Button = _Button
 Gtk.Box = _Box
 Gtk.Grid = _Grid
 Gtk.ScrolledWindow = _ScrolledWindow
+Gtk.ListBox = _ListBox
+Gtk.AlertDialog = _AlertDialog
 
 if hasattr(Gtk, "Window"):
     for method_name in ["set_modal", "set_transient_for", "set_default_size"]:
