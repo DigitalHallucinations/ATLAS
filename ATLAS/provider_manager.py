@@ -197,24 +197,116 @@ class ProviderManager:
 
     def _ensure_openai_generator(self):
         if self._openai_generator is None:
-            self._openai_generator = get_openai_generator(
-                self.config_manager,
-                model_manager=self.model_manager,
-            )
+            try:
+                self._openai_generator = get_openai_generator(
+                    self.config_manager,
+                    model_manager=self.model_manager,
+                )
+            except TypeError:
+                self._openai_generator = get_openai_generator(self.config_manager)
+                if hasattr(self._openai_generator, "model_manager"):
+                    self._openai_generator.model_manager = self.model_manager
         return self._openai_generator
 
     def _ensure_mistral_generator(self):
         if self._mistral_generator is None:
-            self._mistral_generator = get_mistral_generator(
-                self.config_manager,
-                model_manager=self.model_manager,
-            )
+            try:
+                self._mistral_generator = get_mistral_generator(
+                    self.config_manager,
+                    model_manager=self.model_manager,
+                )
+            except TypeError:
+                self._mistral_generator = get_mistral_generator(self.config_manager)
+                if hasattr(self._mistral_generator, "model_manager"):
+                    self._mistral_generator.model_manager = self.model_manager
         return self._mistral_generator
 
     def _ensure_google_generator(self):
         if self._google_generator is None:
             self._google_generator = get_google_generator(self.config_manager)
         return self._google_generator
+
+    async def _close_generator(self, generator: Any, provider_name: str) -> None:
+        """Attempt to close or aclose a provider generator instance."""
+
+        if generator is None:
+            return
+
+        closer = getattr(generator, "close", None)
+        try:
+            if callable(closer):
+                result = closer()
+                if inspect.isawaitable(result):
+                    await result
+                return
+
+            closer = getattr(generator, "aclose", None)
+            if callable(closer):
+                result = closer()
+                if inspect.isawaitable(result):
+                    await result
+        except Exception as exc:  # pragma: no cover - defensive cleanup logging
+            self.logger.warning(
+                "Failed to close %s generator cleanly: %s", provider_name, exc, exc_info=True
+            )
+
+    async def _cleanup_provider_generator(self, provider_name: Optional[str]) -> None:
+        """Release resources associated with a provider generator when deactivating it."""
+
+        if not provider_name:
+            return
+
+        if provider_name == "HuggingFace":
+            generator = self.huggingface_generator
+            if generator is None:
+                return
+            try:
+                result = await self.unload_hf_model()
+                if not result.get("success"):
+                    self.logger.warning(
+                        "HuggingFace cleanup reported an error: %s",
+                        result.get("error", "Unknown error"),
+                    )
+            finally:
+                self.huggingface_generator = None
+        elif provider_name == "Grok":
+            generator = self.grok_generator
+            if generator is None:
+                return
+            unload = getattr(generator, "unload_model", None)
+            if callable(unload):
+                try:
+                    result = unload()
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception as exc:  # pragma: no cover - defensive cleanup logging
+                    self.logger.warning(
+                        "Failed to unload Grok generator cleanly: %s", exc, exc_info=True
+                    )
+            self.grok_generator = None
+        elif provider_name == "OpenAI":
+            generator = self._openai_generator
+            if generator is None:
+                return
+            await self._close_generator(generator, "OpenAI")
+            self._openai_generator = None
+        elif provider_name == "Mistral":
+            generator = self._mistral_generator
+            if generator is None:
+                return
+            await self._close_generator(generator, "Mistral")
+            self._mistral_generator = None
+        elif provider_name == "Anthropic":
+            generator = self.anthropic_generator
+            if generator is None:
+                return
+            await self._close_generator(generator, "Anthropic")
+            self.anthropic_generator = None
+        else:
+            return
+
+        self._provider_model_ready[provider_name] = False
+        self._pending_models.pop(provider_name, None)
 
     async def _ensure_provider_callable(
         self, provider: str
@@ -1136,6 +1228,17 @@ class ProviderManager:
         refresh_message = ""
         if self.huggingface_generator is not None:
             previous_generator = self.huggingface_generator
+            try:
+                previous_generator.unload_model()
+            except Exception as exc:  # pragma: no cover - defensive cleanup logging
+                self.logger.warning(
+                    "Failed to unload HuggingFace model during token refresh: %s",
+                    exc,
+                    exc_info=True,
+                )
+            if self.current_llm_provider == "HuggingFace":
+                self.current_model = None
+            self._provider_model_ready["HuggingFace"] = False
             self.huggingface_generator = None
             refresh_result = self.ensure_huggingface_ready()
             if not refresh_result.get("success"):
@@ -1371,15 +1474,22 @@ class ProviderManager:
 
         self.logger.info(f"Attempting to switch to provider: {llm_provider}")
 
+        previous_provider = self.current_llm_provider
+
         try:
+            if previous_provider and previous_provider != llm_provider:
+                await self._cleanup_provider_generator(previous_provider)
+
+            self.current_llm_provider = llm_provider
+
             if llm_provider == "OpenAI":
                 self._provider_model_ready["OpenAI"] = False
                 self._pending_models.pop("OpenAI", None)
+                await self._cleanup_provider_generator("Grok")
+                await self._cleanup_provider_generator("HuggingFace")
                 openai_generator = self._ensure_openai_generator()
                 self.generate_response_func = openai_generator.generate_response
                 self.process_streaming_response_func = openai_generator.process_streaming_response
-                self.grok_generator = None
-                self.huggingface_generator = None
 
                 default_model = self.get_default_model_for_provider("OpenAI")
                 if default_model:
@@ -1396,8 +1506,8 @@ class ProviderManager:
                 self.process_streaming_response_func = getattr(
                     mistral_generator, "process_response", None
                 )
-                self.grok_generator = None
-                self.huggingface_generator = None
+                await self._cleanup_provider_generator("Grok")
+                await self._cleanup_provider_generator("HuggingFace")
                 default_model = self.get_default_model_for_provider("Mistral")
                 if default_model:
                     await self.set_model(default_model)
@@ -1413,8 +1523,8 @@ class ProviderManager:
                 self.process_streaming_response_func = getattr(
                     google_generator, "process_response", None
                 )
-                self.grok_generator = None
-                self.huggingface_generator = None
+                await self._cleanup_provider_generator("Grok")
+                await self._cleanup_provider_generator("HuggingFace")
                 default_model = self.get_default_model_for_provider("Google")
                 if default_model:
                     await self.set_model(default_model)
@@ -1423,7 +1533,7 @@ class ProviderManager:
                     raise ValueError("No default model available for Google provider.")
 
             elif llm_provider == "HuggingFace":
-                self.grok_generator = None
+                await self._cleanup_provider_generator("Grok")
                 # Reset any previously selected model when switching to HuggingFace.
                 self.current_model = None
                 self._provider_model_ready["HuggingFace"] = False
@@ -1454,8 +1564,8 @@ class ProviderManager:
             elif llm_provider == "Anthropic":
                 self._provider_model_ready["Anthropic"] = False
                 self._pending_models.pop("Anthropic", None)
-                self.grok_generator = None
-                self.huggingface_generator = None
+                await self._cleanup_provider_generator("Grok")
+                await self._cleanup_provider_generator("HuggingFace")
                 generator = self._ensure_anthropic_generator()
                 self.generate_response_func = self._anthropic_generate_response
                 self.process_streaming_response_func = generator.process_streaming_response
@@ -1470,7 +1580,8 @@ class ProviderManager:
             elif llm_provider == "Grok":
                 self._provider_model_ready["Grok"] = False
                 self._pending_models.pop("Grok", None)
-                self.huggingface_generator = None
+                await self._cleanup_provider_generator("HuggingFace")
+                await self._cleanup_provider_generator("Grok")
                 self.grok_generator = GrokGenerator(self.config_manager)
                 self.generate_response_func = self.grok_generator.generate_response
                 self.process_streaming_response_func = self.grok_generator.process_streaming_response
@@ -1488,8 +1599,8 @@ class ProviderManager:
                 openai_generator = self._ensure_openai_generator()
                 self.generate_response_func = openai_generator.generate_response
                 self.process_streaming_response_func = openai_generator.process_streaming_response
-                self.grok_generator = None
-                self.huggingface_generator = None
+                await self._cleanup_provider_generator("Grok")
+                await self._cleanup_provider_generator("HuggingFace")
                 default_model = self.get_default_model_for_provider("OpenAI")
                 if default_model:
                     await self.set_model(default_model)
@@ -1507,6 +1618,7 @@ class ProviderManager:
         except Exception as e:
             self.logger.error(f"Failed to switch to provider {llm_provider}: {str(e)}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
+            self.current_llm_provider = previous_provider
             raise
 
     async def set_current_provider(self, provider: str):
@@ -2098,50 +2210,13 @@ class ProviderManager:
         """
         Perform cleanup operations, such as unloading models.
         """
-        async def _await_close(generator, provider_name: str) -> None:
-            closer = getattr(generator, "close", None)
-            try:
-                if callable(closer):
-                    result = closer()
-                    if inspect.isawaitable(result):
-                        await result
-                    return
-                closer = getattr(generator, "aclose", None)
-                if callable(closer):
-                    await closer()
-            except Exception as exc:  # pragma: no cover - defensive cleanup
-                self.logger.warning(
-                    "Failed to close %s generator cleanly: %s", provider_name, exc, exc_info=True
-                )
+        await self._cleanup_provider_generator("HuggingFace")
+        await self._cleanup_provider_generator("OpenAI")
+        await self._cleanup_provider_generator("Mistral")
+        await self._cleanup_provider_generator("Anthropic")
+        await self._cleanup_provider_generator("Grok")
 
-        if self.huggingface_generator:
-            await self.unload_hf_model()
-            self.huggingface_generator = None
-
-        if self._openai_generator is not None:
-            await _await_close(self._openai_generator, "OpenAI")
-            self._openai_generator = None
-
-        if self._mistral_generator is not None:
-            await _await_close(self._mistral_generator, "Mistral")
-            self._mistral_generator = None
-
-        if self.anthropic_generator is not None:
-            await _await_close(self.anthropic_generator, "Anthropic")
-            self.anthropic_generator = None
-
-        generator = self.grok_generator
-        if generator:
-            unload = getattr(generator, "unload_model", None)
-            if callable(unload):
-                try:
-                    result = unload()
-                    if inspect.isawaitable(result):
-                        await result
-                except Exception as exc:  # pragma: no cover - defensive logging
-                    self.logger.warning("Failed to unload Grok generator cleanly: %s", exc, exc_info=True)
-            self.grok_generator = None
-            self.generate_response_func = None
-            self.process_streaming_response_func = None
-        # Add any additional cleanup here
+        self.generate_response_func = None
+        self.process_streaming_response_func = None
+        self.current_model = None
         self.logger.info("ProviderManager closed and models unloaded.")
