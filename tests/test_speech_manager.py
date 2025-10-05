@@ -787,6 +787,21 @@ def test_google_stt_factory_uses_configured_sample_rate(speech_manager):
     assert google_stt.fs == 22050
 
 
+def test_google_stt_transcribe_returns_friendly_message_for_missing_file():
+    from modules.Speech_Services.Google_stt import GoogleSTT
+
+    google_stt = GoogleSTT()
+    missing_filename = "missing_test_audio_file.wav"
+    missing_path = os.path.join("assets/user/sst_output", missing_filename)
+
+    if os.path.exists(missing_path):
+        os.remove(missing_path)
+
+    result = google_stt.transcribe(missing_filename)
+
+    assert result == "No audio file to transcribe"
+
+
 def test_summary_supports_unregistered_active_service(speech_manager):
     class Voice:
         name = "Fallback"
