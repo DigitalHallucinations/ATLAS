@@ -11,6 +11,11 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
+try:  # pragma: no cover - Gio may be unavailable in some environments
+    from gi.repository import Gio
+except Exception:  # pragma: no cover - fall back gracefully when Gio is missing
+    Gio = None  # type: ignore[assignment]
+
 from GTKUI.Utils.utils import apply_css, create_box
 from modules.user_accounts.user_account_service import DuplicateUserError
 
@@ -405,7 +410,7 @@ class AccountDialog(Gtk.Window):
                 setter = getattr(dialog, "set_buttons", None)
                 if callable(setter):
                     setter(["Cancel", "Delete"])
-                response = dialog.choose(self)
+                response = self._resolve_alert_dialog_response(dialog.choose(self))
                 if isinstance(response, str):
                     return response.lower() in {"delete", "accept"}
                 accept_value = getattr(getattr(Gtk, "ResponseType", object), "ACCEPT", None)
@@ -414,6 +419,37 @@ class AccountDialog(Gtk.Window):
                 pass
 
         return True
+
+    def _resolve_alert_dialog_response(self, response):
+        wait_methods = ("wait_result", "wait")
+
+        future_type = getattr(Gio, "Future", None) if Gio is not None else None
+
+        for name in wait_methods:
+            wait = getattr(response, name, None)
+            if callable(wait):
+                try:
+                    result = wait()
+                except Exception:  # pragma: no cover - fall back to raw response on failure
+                    continue
+                if isinstance(result, tuple) and len(result) == 1:
+                    return result[0]
+                return result
+
+        if future_type is not None:
+            try:
+                if isinstance(response, future_type):
+                    try:
+                        result = response.get()
+                    except Exception:  # pragma: no cover - not all futures expose get
+                        return None
+                    if isinstance(result, tuple) and len(result) == 1:
+                        return result[0]
+                    return result
+            except TypeError:  # pragma: no cover - defensive for unusual future types
+                pass
+
+        return response
 
     def _handle_activate_success(self) -> bool:
         self._set_account_busy(False, "Account activated.", disable_forms=True)

@@ -308,6 +308,8 @@ class _ListBox(_DummyWidget):
 
 
 class _AlertDialog(_DummyWidget):
+    _next_future = None
+
     def __init__(self, title: str = "", body: str = ""):
         super().__init__()
         self.title = title
@@ -319,11 +321,48 @@ class _AlertDialog(_DummyWidget):
         self.buttons = list(buttons)
 
     def choose(self, _parent):
+        future = getattr(self, "future_response", None)
+        if future is not None:
+            return future
+        future = getattr(type(self), "_next_future", None)
+        if future is not None:
+            type(self)._next_future = None
+            return future
         if self.response is not None:
             return self.response
         if self.buttons:
             return self.buttons[-1]
         return None
+
+
+class _AlertDialogFuture:
+    def __init__(self, result=None):
+        self._result = result
+        self.wait_calls = 0
+        self.wait_result_calls = 0
+        self._wait_hook = None
+        self._wait_result_hook = None
+
+    def set_result(self, result):
+        self._result = result
+
+    def set_wait_hook(self, hook):
+        self._wait_hook = hook
+
+    def set_wait_result_hook(self, hook):
+        self._wait_result_hook = hook
+
+    def wait(self):
+        self.wait_calls += 1
+        if callable(self._wait_hook):
+            return self._wait_hook()
+        return self._result
+
+    def wait_result(self):
+        self.wait_result_calls += 1
+        if callable(self._wait_result_hook):
+            return self._wait_result_hook()
+        return self._result
 
 
 Gtk.ComboBoxText = _ComboBoxText
@@ -338,6 +377,14 @@ Gtk.Grid = _Grid
 Gtk.ScrolledWindow = _ScrolledWindow
 Gtk.ListBox = _ListBox
 Gtk.AlertDialog = _AlertDialog
+
+if not hasattr(Gio, "Future"):
+    Gio.Future = _AlertDialogFuture
+
+
+def make_alert_dialog_future(result=None):
+    future = _AlertDialogFuture(result)
+    return future
 
 if hasattr(Gtk, "Window"):
     for method_name in ["set_modal", "set_transient_for", "set_default_size"]:
