@@ -1,4 +1,5 @@
 import asyncio
+import importlib.util
 import json
 import math
 import sys
@@ -2615,6 +2616,136 @@ def test_generate_response_grok_uses_adapter(provider_manager):
     assert captured["max_tokens"] == 42
     assert captured["stream"] is True
     assert streaming_output == "grok-stream"
+
+
+def _load_real_grok_generator(module_label: str = "test"):
+    module_name = f"_atlas_actual_grok_{module_label}"
+    module_path = Path(__file__).resolve().parents[1] / "modules/Providers/Grok/grok_generate_response.py"
+
+    if "xai_sdk" not in sys.modules:
+        xai_stub = types.ModuleType("xai_sdk")
+
+        class _StubClient:
+            def __init__(self, *_args, **_kwargs):
+                self.sampler = types.SimpleNamespace()
+
+        xai_stub.Client = _StubClient
+        sys.modules["xai_sdk"] = xai_stub
+
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+    finally:
+        sys.modules.pop(module_name, None)
+
+    return module.GrokGenerator
+
+
+def test_grok_generator_passes_model_to_sampler_non_streaming():
+    GrokGenerator = _load_real_grok_generator("non_stream")
+
+    class _Config:
+        @staticmethod
+        def get_grok_api_key():
+            return "token"
+
+    sampler_calls = []
+
+    class _Token:
+        def __init__(self, token_str):
+            self.token_str = token_str
+
+    async def exercise():
+        generator = GrokGenerator(_Config())
+
+        async def sample(prompt, *, max_len, model):
+            sampler_calls.append({
+                "prompt": prompt,
+                "max_len": max_len,
+                "model": model,
+            })
+            return [_Token("hello"), _Token(" world")]
+
+        generator.client = types.SimpleNamespace(
+            sampler=types.SimpleNamespace(sample=sample)
+        )
+
+        response = await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            model="grok-special",
+            max_tokens=77,
+            stream=False,
+        )
+
+        return response
+
+    response = asyncio.run(exercise())
+
+    assert response == "hello world"
+    assert sampler_calls == [{
+        "prompt": "user: Hi",
+        "max_len": 77,
+        "model": "grok-special",
+    }]
+
+
+def test_grok_generator_passes_model_to_sampler_streaming():
+    GrokGenerator = _load_real_grok_generator("stream")
+
+    class _Config:
+        @staticmethod
+        def get_grok_api_key():
+            return "token"
+
+    sampler_calls = []
+
+    class _Token:
+        def __init__(self, token_str):
+            self.token_str = token_str
+
+    def sample(prompt, *, max_len, model):
+        sampler_calls.append({
+            "prompt": prompt,
+            "max_len": max_len,
+            "model": model,
+        })
+
+        async def _generator():
+            yield _Token("hi")
+            yield _Token(" there")
+
+        return _generator()
+
+    async def exercise():
+        generator = GrokGenerator(_Config())
+        generator.client = types.SimpleNamespace(
+            sampler=types.SimpleNamespace(sample=sample)
+        )
+
+        stream = await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            model="grok-stream",
+            max_tokens=55,
+            stream=True,
+        )
+
+        chunks = []
+        async for chunk in stream:
+            chunks.append(chunk)
+
+        return chunks
+
+    chunks = asyncio.run(exercise())
+
+    assert chunks == ["hi", " there"]
+    assert sampler_calls == [{
+        "prompt": "user: Hi",
+        "max_len": 55,
+        "model": "grok-stream",
+    }]
 
 
 def test_generate_response_uses_configured_fallback(provider_manager):
