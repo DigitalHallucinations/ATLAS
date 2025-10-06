@@ -267,6 +267,26 @@ def test_concurrent_database_access_is_serialised(tmp_path, monkeypatch):
         service.close()
 
 
+def test_run_async_in_thread_accepts_sync_callables(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        account_future = run_async_in_thread(
+            service.register_user,
+            'alice',
+            'Password123',
+            'alice@example.com',
+        )
+        account = account_future.result(timeout=5)
+        assert account.username == 'alice'
+
+        users_future = run_async_in_thread(service.list_users)
+        users = users_future.result(timeout=5)
+        assert users and users[0]['username'] == 'alice'
+    finally:
+        service.close()
+
+
 def test_delete_user_removes_record_and_profile(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
