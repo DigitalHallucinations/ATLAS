@@ -574,6 +574,92 @@ def test_authenticate_user_lockout_consistency_with_threads(tmp_path, monkeypatc
         service.close()
 
 
+def test_lockout_persistence_survives_restart(tmp_path, monkeypatch):
+    overrides = {
+        'ACCOUNT_LOCKOUT_MAX_FAILURES': 2,
+        'ACCOUNT_LOCKOUT_WINDOW_SECONDS': 120,
+        'ACCOUNT_LOCKOUT_DURATION_SECONDS': 300,
+    }
+    clock = _TestClock()
+
+    service, _ = _create_service(
+        tmp_path,
+        monkeypatch,
+        config_overrides=overrides,
+        clock=clock,
+    )
+
+    try:
+        service.register_user('erin', 'Password123!', 'erin@example.com')
+
+        assert service.authenticate_user('erin', 'wrong') is False
+        assert service.authenticate_user('erin', 'wrong') is False
+
+        with pytest.raises(user_account_service.AccountLockedError):
+            service.authenticate_user('erin', 'wrong')
+    finally:
+        service.close()
+
+    service, _ = _create_service(
+        tmp_path,
+        monkeypatch,
+        config_overrides=overrides,
+        clock=clock,
+    )
+
+    try:
+        with pytest.raises(user_account_service.AccountLockedError):
+            service.authenticate_user('erin', 'Password123!')
+
+        clock.advance(301)
+        assert service.authenticate_user('erin', 'Password123!') is True
+        assert service._database.get_lockout_entry('erin') is None
+    finally:
+        service.close()
+
+
+def test_lockout_expiration_pruned_on_restart(tmp_path, monkeypatch):
+    overrides = {
+        'ACCOUNT_LOCKOUT_MAX_FAILURES': 2,
+        'ACCOUNT_LOCKOUT_WINDOW_SECONDS': 60,
+        'ACCOUNT_LOCKOUT_DURATION_SECONDS': 300,
+    }
+    clock = _TestClock()
+
+    service, _ = _create_service(
+        tmp_path,
+        monkeypatch,
+        config_overrides=overrides,
+        clock=clock,
+    )
+
+    try:
+        service.register_user('frank', 'Password123!', 'frank@example.com')
+
+        assert service.authenticate_user('frank', 'wrong') is False
+        assert service.authenticate_user('frank', 'wrong') is False
+
+        with pytest.raises(user_account_service.AccountLockedError):
+            service.authenticate_user('frank', 'wrong')
+    finally:
+        service.close()
+
+    clock.advance(400)
+
+    service, _ = _create_service(
+        tmp_path,
+        monkeypatch,
+        config_overrides=overrides,
+        clock=clock,
+    )
+
+    try:
+        assert service.authenticate_user('frank', 'Password123!') is True
+        assert service._database.get_lockout_entry('frank') is None
+    finally:
+        service.close()
+
+
 def test_search_users_returns_sorted_results(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 

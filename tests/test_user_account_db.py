@@ -201,6 +201,32 @@ def test_verify_user_password_uses_hash_check(tmp_path, monkeypatch):
         db.close_connection()
 
 
+def test_lockout_entry_crud_helpers(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    try:
+        first_attempts = ['2024-01-01T00:00:00Z']
+        db.set_lockout_entry('locked', first_attempts, '2024-01-01T00:05:00Z')
+
+        stored = db.get_lockout_entry('locked')
+        assert stored == (first_attempts, '2024-01-01T00:05:00Z')
+
+        all_entries = db.get_all_lockout_entries()
+        assert ('locked', first_attempts, '2024-01-01T00:05:00Z') in all_entries
+
+        updated_attempts = first_attempts + ['2024-01-01T00:02:00Z']
+        db.set_lockout_entry('locked', updated_attempts, None)
+
+        stored = db.get_lockout_entry('locked')
+        assert stored == (updated_attempts, None)
+
+        assert db.delete_lockout_entry('locked') is True
+        assert db.get_lockout_entry('locked') is None
+        assert db.delete_lockout_entry('locked') is False
+    finally:
+        db.close_connection()
+
+
 def test_update_user_refreshes_profile(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 

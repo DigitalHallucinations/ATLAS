@@ -14,7 +14,7 @@ import secrets
 import threading
 import datetime as _dt
 from dataclasses import dataclass, replace
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
@@ -127,6 +127,7 @@ class UserAccountService:
         self._failed_attempts: Dict[str, List[_dt.datetime]] = {}
         self._active_lockouts: Dict[str, _dt.datetime] = {}
         self._lockout_lock = threading.RLock()
+        self._load_lockout_state()
 
     def _resolve_password_requirements(self) -> PasswordRequirements:
         """Return the password policy taking configuration overrides into account."""
@@ -231,10 +232,134 @@ class UserAccountService:
             parsed = parsed.replace(tzinfo=_dt.timezone.utc)
         return parsed.astimezone(_dt.timezone.utc)
 
+    def _load_lockout_state(self) -> None:
+        """Initialise in-memory lockout tracking from persisted records."""
+
+        try:
+            entries = self._database.get_all_lockout_entries()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to load persisted lockout data: %s", exc)
+            return
+
+        now = self._current_time()
+        threshold = None
+        if self._lockout_window_seconds > 0:
+            threshold = now - _dt.timedelta(seconds=self._lockout_window_seconds)
+
+        updates: List[
+            Tuple[str, List[_dt.datetime], Optional[_dt.datetime], List[str], Optional[str]]
+        ] = []
+        deletions: List[str] = []
+
+        for username, attempt_isos, lockout_iso in entries:
+            parsed_attempts: List[_dt.datetime] = []
+            for attempt_iso in attempt_isos:
+                parsed = self._parse_timestamp(attempt_iso)
+                if parsed is None:
+                    continue
+                parsed_attempts.append(parsed)
+
+            if threshold is not None:
+                parsed_attempts = [
+                    attempt for attempt in parsed_attempts if attempt >= threshold
+                ]
+
+            parsed_attempts.sort()
+
+            lockout_until = self._parse_timestamp(lockout_iso)
+            if lockout_until is not None and lockout_until <= now:
+                lockout_until = None
+
+            if not parsed_attempts and lockout_until is None:
+                deletions.append(username)
+                continue
+
+            updates.append(
+                (username, parsed_attempts, lockout_until, attempt_isos, lockout_iso)
+            )
+
+        if not updates and not deletions:
+            return
+
+        with self._lockout_lock:
+            for username, attempts, lockout_until, _, _ in updates:
+                if attempts:
+                    self._failed_attempts[username] = attempts
+                else:
+                    self._failed_attempts.pop(username, None)
+
+                if lockout_until is not None:
+                    self._active_lockouts[username] = lockout_until
+                else:
+                    self._active_lockouts.pop(username, None)
+
+            for username in deletions:
+                self._failed_attempts.pop(username, None)
+                self._active_lockouts.pop(username, None)
+
+        for username in deletions:
+            try:
+                self._database.delete_lockout_entry(username)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.error(
+                    "Failed to remove expired lockout record for '%s': %s",
+                    username,
+                    exc,
+                )
+
+        for username, attempts, lockout_until, original_attempts, original_lockout in updates:
+            attempts_iso = [self._format_timestamp(moment) for moment in attempts]
+            lockout_iso = (
+                self._format_timestamp(lockout_until)
+                if lockout_until is not None
+                else None
+            )
+
+            if attempts_iso == list(original_attempts) and lockout_iso == original_lockout:
+                continue
+
+            try:
+                self._database.set_lockout_entry(username, attempts_iso, lockout_iso)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.error(
+                    "Failed to update persisted lockout data for '%s': %s",
+                    username,
+                    exc,
+                )
+
+    def _persist_lockout_state_locked(self, username: str) -> None:
+        """Persist the current lockout tracking state for ``username``."""
+
+        attempts = [
+            self._format_timestamp(moment)
+            for moment in self._failed_attempts.get(username, [])
+        ]
+        lockout_until = self._active_lockouts.get(username)
+        lockout_iso = (
+            self._format_timestamp(lockout_until)
+            if lockout_until is not None
+            else None
+        )
+
+        try:
+            if attempts or lockout_iso is not None:
+                self._database.set_lockout_entry(username, attempts, lockout_iso)
+            else:
+                self._database.delete_lockout_entry(username)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error(
+                "Failed to persist lockout data for '%s': %s", username, exc
+            )
+
     def _clear_failures(self, username: str) -> None:
         with self._lockout_lock:
-            self._failed_attempts.pop(username, None)
-            self._active_lockouts.pop(username, None)
+            removed_attempts = self._failed_attempts.pop(username, None)
+            removed_lockout = self._active_lockouts.pop(username, None)
+
+            if not removed_attempts and removed_lockout is None:
+                return
+
+            self._persist_lockout_state_locked(username)
 
     def _resolve_lockout_setting(self, key: str, default: int) -> int:
         """Return a validated integer lockout configuration value."""
@@ -277,9 +402,15 @@ class UserAccountService:
                 return
 
             threshold_time = now - _dt.timedelta(seconds=self._lockout_window_seconds)
-            self._failed_attempts[username] = [
+            pruned_attempts = [
                 attempt for attempt in attempts if attempt >= threshold_time
             ]
+
+            if pruned_attempts == attempts:
+                return
+
+            self._failed_attempts[username] = pruned_attempts
+            self._persist_lockout_state_locked(username)
 
     def _record_failure(self, username: str, now: _dt.datetime) -> None:
         if self._lockout_threshold <= 0 or self._lockout_duration_seconds <= 0:
@@ -292,6 +423,7 @@ class UserAccountService:
 
             attempts = self._failed_attempts.get(username, [])
             if len(attempts) < self._lockout_threshold:
+                self._persist_lockout_state_locked(username)
                 return
 
             lockout_until = now + _dt.timedelta(seconds=self._lockout_duration_seconds)
@@ -300,6 +432,7 @@ class UserAccountService:
                 "Temporarily locking user '%s' due to too many failed login attempts.",
                 username,
             )
+            self._persist_lockout_state_locked(username)
 
     def _remaining_lockout(self, username: str, now: _dt.datetime) -> Optional[int]:
         with self._lockout_lock:
