@@ -202,6 +202,14 @@ def _is_sensitive(widget):
     return getattr(widget, "_sensitive", True)
 
 
+def _expected_age_for_date(dob_str: str, today: _dt.date) -> int:
+    dob_date = _dt.date.fromisoformat(dob_str)
+    computed = today.year - dob_date.year - (
+        (today.month, today.day) < (dob_date.month, dob_date.day)
+    )
+    return max(computed, 0)
+
+
 def test_form_toggle_highlighting():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
@@ -812,6 +820,7 @@ def test_refresh_account_list_failure_clears_rows_and_details():
     assert dialog.account_details_name_value.get_text() == placeholder
     assert dialog.account_details_email_value.get_text() == placeholder
     assert dialog.account_details_dob_value.get_text() == placeholder
+    assert dialog.account_details_age_value.get_text() == placeholder
     assert dialog.account_details_last_login_value.get_text() == placeholder
 
 
@@ -1149,6 +1158,9 @@ def test_account_details_fetches_and_displays():
     assert dialog.account_details_email_value.get_text() == "alice@example.com"
     assert dialog.account_details_name_value.get_text() == "Alice"
     assert dialog.account_details_last_login_value.get_text() == "2024-05-20 10:00 UTC"
+    today = dialog._current_utc_time().date()
+    expected_age = _expected_age_for_date("1990-01-01", today)
+    assert dialog.account_details_age_value.get_text() == str(expected_age)
     assert (
         dialog._account_rows["alice"]["last_login_label"].get_text()
         == "Last sign-in: 2024-05-20 10:00 UTC"
@@ -1191,6 +1203,38 @@ def test_dialog_loads_active_user_details_without_clicks():
     assert dialog.account_details_name_value.get_text() == "Alice"
     assert dialog.account_details_email_value.get_text() == "alice@example.com"
     assert dialog.account_details_last_login_value.get_text() == "2024-05-20 10:00 UTC"
+    today = dialog._current_utc_time().date()
+    expected_age = _expected_age_for_date("1990-01-01", today)
+    assert dialog.account_details_age_value.get_text() == str(expected_age)
+
+
+def test_account_details_displays_age(monkeypatch):
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+    ]
+    atlas.details_result = {
+        "alice": {
+            "username": "alice",
+            "email": "alice@example.com",
+            "name": "Alice",
+            "dob": "2000-06-15",
+            "last_login": None,
+        }
+    }
+
+    fixed_now = _dt.datetime(2024, 6, 1, tzinfo=_dt.timezone.utc)
+    monkeypatch.setattr(AccountDialog, "_current_utc_time", lambda self: fixed_now, raising=False)
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    details_button = dialog._account_rows["alice"]["details_button"]
+    _click(details_button)
+    _drain_background(atlas)
+
+    assert dialog.account_details_dob_value.get_text() == "2000-06-15"
+    assert dialog.account_details_age_value.get_text() == "23"
 
 
 def test_delete_account_async_confirmation_accepts(monkeypatch):
