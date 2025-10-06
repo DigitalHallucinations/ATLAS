@@ -343,6 +343,52 @@ class PersonaManager:
         self.logger.info(f"Current persona is now: {self.current_persona}")
 
 
+    def _build_substitution_data(self, persona: dict) -> Dict[str, str]:
+        """Return the placeholder substitution dictionary for ``persona``."""
+
+        substitutions: Dict[str, str] = {"<<name>>": self.user}
+        user_data_manager = self.user_data_manager
+
+        # Profile placeholder
+        try:
+            if persona.get("user_profile_enabled") == "True":
+                self.logger.info(f"Adding Profile to persona: '{persona['name']}'.")
+                substitutions["<<Profile>>"] = user_data_manager.get_profile_text()
+            else:
+                self.logger.info(f"Profile not added for persona: '{persona['name']}'.")
+                substitutions["<<Profile>>"] = "Profile not available for this persona."
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.error("Failed to load profile text for persona '%s'", persona.get("name"), exc_info=True)
+            substitutions["<<Profile>>"] = f"Profile unavailable: {exc}"
+
+        # EMR placeholder
+        try:
+            if persona.get("medical_persona") == "True":
+                self.logger.info(f"Adding EMR to medical persona: '{persona['name']}'.")
+                substitutions["<<emr>>"] = user_data_manager.get_emr()
+            else:
+                self.logger.info(f"EMR not added for non-medical persona: '{persona['name']}'.")
+                substitutions["<<emr>>"] = "EMR not available for this persona."
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.error("Failed to load EMR for persona '%s'", persona.get("name"), exc_info=True)
+            substitutions["<<emr>>"] = f"EMR unavailable: {exc}"
+
+        # System info placeholder
+        try:
+            if persona.get("sys_info_enabled") == "True":
+                self.logger.info(f"Adding system info to persona: '{persona['name']}'.")
+                substitutions["<<sysinfo>>"] = user_data_manager.get_system_info()
+            else:
+                self.logger.info(f"System info not added for persona: '{persona['name']}'.")
+                substitutions["<<sysinfo>>"] = "System info not available for this persona."
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.error(
+                "Failed to load system info for persona '%s'", persona.get("name"), exc_info=True
+            )
+            substitutions["<<sysinfo>>"] = f"System info unavailable: {exc}"
+
+        return substitutions
+
     def build_system_prompt(self, persona: dict) -> str:
         """
         Builds the system prompt using user-specific information,
@@ -354,37 +400,9 @@ class PersonaManager:
         Returns:
             str: The personalized system prompt.
         """
+
         self.logger.info(f"Building system prompt for persona '{persona.get('name')}'.")
-        user_data_manager = self.user_data_manager
-
-        # General user data available to all personas
-        user_data = {
-            "<<name>>": self.user,
-        }
-
-        # Only add Profile if user_profile_enabled is True
-        if persona.get("user_profile_enabled") == "True":
-            self.logger.info(f"Adding Profile to persona: '{persona['name']}'.")
-            user_data["<<Profile>>"] = user_data_manager.get_profile_text()
-        else:
-            self.logger.info(f"Profile not added for persona: '{persona['name']}'.")
-            user_data["<<Profile>>"] = "Profile not available for this persona."
-
-        # Only add EMR if the persona is a medical persona
-        if persona.get("medical_persona") == "True":
-            self.logger.info(f"Adding EMR to medical persona: '{persona['name']}'.")
-            user_data["<<emr>>"] = user_data_manager.get_emr()
-        else:
-            self.logger.info(f"EMR not added for non-medical persona: '{persona['name']}'.")
-            user_data["<<emr>>"] = "EMR not available for this persona."
-
-        # Only add sysinfo if the persona is a sys_admin_persona
-        if persona.get("sys_info_enabled") == "True":
-            self.logger.info(f"Adding system info to persona: '{persona['name']}'.")
-            user_data["<<sysinfo>>"] = user_data_manager.get_system_info()
-        else:
-            self.logger.info(f"System info not added for persona: '{persona['name']}'.")
-            user_data["<<sysinfo>>"] = "System info not available for this persona."
+        substitutions = self._build_substitution_data(persona)
 
         # Assemble the system prompt from the content parts
         content = persona.get("content", {})
@@ -394,14 +412,44 @@ class PersonaManager:
             content.get("end_locked", "").strip(),
         ]
         # Filter out empty strings and join with spaces
-        personalized_content = ' '.join(filter(None, parts))
+        personalized_content = " ".join(filter(None, parts))
 
         # Replace placeholders in the assembled content with user data
-        for placeholder, data in user_data.items():
-            personalized_content = personalized_content.replace(placeholder, data)
+        for placeholder, data in substitutions.items():
+            personalized_content = personalized_content.replace(placeholder, str(data or ""))
 
-        self.logger.info(f"System prompt built for persona '{persona['name']}': {personalized_content}")
+        self.logger.info(
+            "System prompt built for persona '%s': %s", persona.get("name"), personalized_content
+        )
         return personalized_content
+
+    def get_current_persona_context(self) -> Dict[str, Any]:
+        """Return the active persona prompt and substitution metadata."""
+
+        persona = self.current_persona or {}
+        substitutions: Dict[str, str] = {}
+
+        if persona:
+            try:
+                substitutions = self._build_substitution_data(persona)
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                self.logger.error("Failed to compute substitution data: %s", exc, exc_info=True)
+                substitutions = {}
+
+        prompt = self.current_system_prompt
+        if persona and not prompt:
+            try:
+                prompt = self.build_system_prompt(persona)
+                self.current_system_prompt = prompt
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                self.logger.error("Failed to rebuild system prompt: %s", exc, exc_info=True)
+                prompt = None
+
+        return {
+            "system_prompt": prompt or "",
+            "substitutions": substitutions,
+            "persona_name": persona.get("name") if isinstance(persona, dict) else None,
+        }
 
     def update_persona(self, persona):
         """Update the persona settings and save them to the corresponding file."""
