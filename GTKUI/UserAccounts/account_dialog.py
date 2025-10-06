@@ -2004,9 +2004,36 @@ class AccountDialog(Gtk.Window):
             grabber()
 
     def _set_edit_busy(self, busy: bool, message: Optional[str] = None) -> None:
-        self.edit_save_button.set_sensitive(not busy)
+        sensitive = not busy
+
+        widgets = [
+            self.edit_save_button,
+            self.edit_username_entry,
+            self.edit_email_entry,
+            self.edit_current_password_entry,
+            self.edit_password_entry,
+            self.edit_confirm_entry,
+            self.edit_name_entry,
+            self.edit_dob_entry,
+        ]
+
+        for widget in widgets:
+            self._set_widget_sensitive(widget, sensitive)
+
+        password_entries = (
+            self.edit_current_password_entry,
+            self.edit_password_entry,
+            self.edit_confirm_entry,
+        )
+
+        for entry in password_entries:
+            for toggle in self._password_toggle_buttons_by_entry.get(entry, []):
+                self._set_widget_sensitive(toggle, sensitive)
+
         if message is not None:
             self.edit_feedback_label.set_text(message)
+        elif not busy:
+            self.edit_feedback_label.set_text("")
 
     def _on_edit_save_clicked(self, _button) -> None:
         username = self._editing_username
