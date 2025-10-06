@@ -10,6 +10,7 @@ UI can safely call from asynchronous code via thread executors.
 from __future__ import annotations
 
 import re
+import secrets
 import threading
 import datetime as _dt
 from dataclasses import dataclass, replace
@@ -27,6 +28,7 @@ from .user_account_db import (
 __all__ = [
     "UserAccount",
     "PasswordRequirements",
+    "PasswordResetChallenge",
     "UserAccountService",
     "DuplicateUserError",
     "InvalidCurrentPasswordError",
@@ -45,6 +47,21 @@ class UserAccount:
     dob: Optional[str]
     last_login: Optional[str]
 
+
+@dataclass(frozen=True)
+class PasswordResetChallenge:
+    """Describe a password reset token issued to a user."""
+
+    username: str
+    token: str
+    expires_at: _dt.datetime
+
+    def expires_at_iso(self) -> str:
+        timestamp = self.expires_at
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=_dt.timezone.utc)
+        timestamp = timestamp.astimezone(_dt.timezone.utc).replace(microsecond=0)
+        return timestamp.isoformat().replace("+00:00", "Z")
 
 
 class AccountLockedError(RuntimeError):
@@ -101,6 +118,10 @@ class UserAccountService:
         )
         self._lockout_duration_seconds = self._resolve_lockout_setting(
             "ACCOUNT_LOCKOUT_DURATION_SECONDS", 300
+        )
+        self._password_reset_validity_seconds = self._resolve_lockout_setting(
+            "ACCOUNT_PASSWORD_RESET_TOKEN_LIFETIME_SECONDS",
+            900,
         )
 
         self._failed_attempts: Dict[str, List[_dt.datetime]] = {}
@@ -181,6 +202,34 @@ class UserAccountService:
 
     def _current_time(self) -> _dt.datetime:
         return self._clock()
+
+    @staticmethod
+    def _format_timestamp(moment: _dt.datetime) -> str:
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=_dt.timezone.utc)
+        moment = moment.astimezone(_dt.timezone.utc).replace(microsecond=0)
+        return moment.isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _parse_timestamp(value: Optional[str]) -> Optional[_dt.datetime]:
+        if not value or not isinstance(value, str):
+            return None
+
+        text = value.strip()
+        if not text:
+            return None
+
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+
+        try:
+            parsed = _dt.datetime.fromisoformat(text)
+        except ValueError:
+            return None
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+        return parsed.astimezone(_dt.timezone.utc)
 
     def _clear_failures(self, username: str) -> None:
         with self._lockout_lock:
@@ -356,6 +405,21 @@ class UserAccountService:
             raise ValueError("Date of birth cannot be in the future.")
 
         return cleaned
+
+    def _resolve_username_from_identifier(self, identifier: str) -> Optional[str]:
+        """Attempt to resolve a username from a login identifier."""
+
+        candidate = self._normalise_username(identifier)
+        if candidate:
+            if self._database.get_user(candidate):
+                return candidate
+
+        if self._EMAIL_PATTERN.fullmatch(identifier):
+            username = self._database.get_username_for_email(identifier)
+            if username:
+                return username
+
+        return None
 
     def _require_existing_user(self, username: str) -> None:
         if not self._database.get_user(username):
@@ -626,6 +690,107 @@ class UserAccountService:
         account = self._row_to_account(record)
         self.logger.info("Updated user '%s'", normalised_username)
         return account
+
+    def initiate_password_reset(
+        self,
+        identifier: str,
+        *,
+        expires_in_seconds: Optional[int] = None,
+    ) -> Optional[PasswordResetChallenge]:
+        """Generate a password reset token for a username or e-mail."""
+
+        if not isinstance(identifier, str):
+            raise TypeError("Username or email must be provided as a string")
+
+        cleaned_identifier = identifier.strip()
+        if not cleaned_identifier:
+            raise ValueError("Username or email is required to reset a password.")
+
+        username = self._resolve_username_from_identifier(cleaned_identifier)
+        if not username:
+            self.logger.info(
+                "Password reset requested for unknown identifier %r", cleaned_identifier
+            )
+            return None
+
+        if expires_in_seconds is None:
+            lifetime = self._password_reset_validity_seconds
+        else:
+            try:
+                lifetime = int(expires_in_seconds)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("expires_in_seconds must be an integer value") from exc
+
+        if lifetime < 0:
+            lifetime = 0
+
+        now = self._current_time()
+        expires_at = now + _dt.timedelta(seconds=lifetime) if lifetime > 0 else now
+        token = secrets.token_urlsafe(24)
+        expires_at_iso = self._format_timestamp(expires_at)
+
+        self._database.create_password_reset_token(username, token, expires_at_iso)
+        self.logger.info("Issued password reset token for '%s'", username)
+        return PasswordResetChallenge(username=username, token=token, expires_at=expires_at)
+
+    def verify_password_reset_token(self, username: str, token: str) -> bool:
+        """Validate whether a password reset token is valid for the user."""
+
+        normalised_username = self._normalise_username(username)
+        if not normalised_username:
+            raise ValueError("Username must not be empty")
+
+        if not isinstance(token, str) or not token.strip():
+            raise ValueError("Reset token must not be empty")
+
+        token_value = token.strip()
+
+        self._require_existing_user(normalised_username)
+
+        matches, expires_at_raw = self._database.verify_password_reset_token(
+            normalised_username, token_value
+        )
+        if not matches:
+            return False
+
+        expires_at = self._parse_timestamp(expires_at_raw)
+        if not expires_at:
+            self._database.delete_password_reset_token(normalised_username)
+            return False
+
+        if self._current_time() > expires_at:
+            self._database.delete_password_reset_token(normalised_username)
+            return False
+
+        return True
+
+    def complete_password_reset(
+        self, username: str, token: str, new_password: str
+    ) -> bool:
+        """Update the password using a valid reset token."""
+
+        normalised_username = self._normalise_username(username)
+        if not normalised_username:
+            raise ValueError("Username must not be empty")
+
+        if not isinstance(token, str) or not token.strip():
+            raise ValueError("Reset token must not be empty")
+
+        if not isinstance(new_password, str) or not new_password:
+            raise ValueError("New password must not be empty")
+
+        if not self.verify_password_reset_token(normalised_username, token.strip()):
+            return False
+
+        validated_password = self._validate_password(new_password)
+        updated = self._database.set_user_password(normalised_username, validated_password)
+        if not updated:
+            return False
+
+        self._database.delete_password_reset_token(normalised_username)
+        self._clear_failures(normalised_username)
+        self.logger.info("Password reset completed for '%s'", normalised_username)
+        return True
 
     def get_password_requirements(self) -> PasswordRequirements:
         """Return the password policy enforced by the service."""

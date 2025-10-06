@@ -691,6 +691,50 @@ def test_run_async_in_thread_accepts_sync_callables(tmp_path, monkeypatch):
         service.close()
 
 
+def test_password_reset_flow_success(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('alice', 'Password123!', 'alice@example.com')
+
+        challenge = service.initiate_password_reset('alice@example.com')
+        assert isinstance(challenge, user_account_service.PasswordResetChallenge)
+        assert challenge.username == 'alice'
+        assert challenge.token
+        assert challenge.expires_at > service._current_time() - _dt.timedelta(seconds=1)
+
+        assert service.verify_password_reset_token('alice', challenge.token) is True
+        assert service.complete_password_reset('alice', challenge.token, 'NewPassword456!')
+        assert service.authenticate_user('alice', 'NewPassword456!') is True
+
+        assert service.initiate_password_reset('unknown@example.com') is None
+    finally:
+        service.close()
+
+
+def test_password_reset_token_expiry(tmp_path, monkeypatch):
+    clock = _TestClock()
+    service, _ = _create_service(
+        tmp_path,
+        monkeypatch,
+        config_overrides={'ACCOUNT_PASSWORD_RESET_TOKEN_LIFETIME_SECONDS': 60},
+        clock=clock,
+    )
+
+    try:
+        service.register_user('dana', 'Password123!', 'dana@example.com')
+        challenge = service.initiate_password_reset('dana')
+        assert challenge is not None
+
+        clock.advance(120)
+
+        assert service.verify_password_reset_token('dana', challenge.token) is False
+        assert service.complete_password_reset('dana', challenge.token, 'AnotherPass1!') is False
+        assert service._database.get_password_reset_token('dana') is None
+    finally:
+        service.close()
+
+
 def test_delete_user_removes_record_and_profile(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
