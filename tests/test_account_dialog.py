@@ -355,7 +355,7 @@ def test_account_list_populates_and_highlights_active():
     atlas.active_display_name = "Bobby"
     atlas.list_accounts_result = [
         {"username": "alice", "display_name": "Alice"},
-        {"username": "bob", "display_name": "Bobby"},
+        {"username": "bob", "display_name": "Bobby", "last_login": "2024-05-20T10:00:00Z"},
     ]
 
     dialog = AccountDialog(atlas)
@@ -366,6 +366,11 @@ def test_account_list_populates_and_highlights_active():
     assert set(dialog._account_rows.keys()) == {"alice", "bob"}
     assert dialog._account_rows["bob"]["active_label"].get_text() == "Active"
     assert dialog._account_rows["alice"]["active_label"].get_text() == ""
+    assert dialog._account_rows["alice"]["last_login_label"].get_text() == "Last sign-in: never"
+    assert (
+        dialog._account_rows["bob"]["last_login_label"].get_text()
+        == "Last sign-in: 2024-05-20 10:00 UTC"
+    )
 
     dialog._apply_active_user_state("alice", "Alice")
 
@@ -474,8 +479,9 @@ def test_account_details_fetches_and_displays():
         "alice": {
             "username": "alice",
             "email": "alice@example.com",
-            "name": "Alice", 
+            "name": "Alice",
             "dob": "1990-01-01",
+            "last_login": "2024-05-20T10:00:00Z",
         }
     }
 
@@ -491,6 +497,11 @@ def test_account_details_fetches_and_displays():
     assert atlas.details_called == "alice"
     assert dialog.account_details_email_value.get_text() == "alice@example.com"
     assert dialog.account_details_name_value.get_text() == "Alice"
+    assert dialog.account_details_last_login_value.get_text() == "2024-05-20 10:00 UTC"
+    assert (
+        dialog._account_rows["alice"]["last_login_label"].get_text()
+        == "Last sign-in: 2024-05-20 10:00 UTC"
+    )
 
     # Cached results should avoid another background call
     atlas.last_thread_name = None

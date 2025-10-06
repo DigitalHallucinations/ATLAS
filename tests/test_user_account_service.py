@@ -85,6 +85,7 @@ def test_register_user_persists_account(tmp_path, monkeypatch):
     try:
         account = service.register_user('alice', 'Password123', 'alice@example.com', 'Alice', '1999-01-01')
         assert account.username == 'alice'
+        assert account.last_login is None
 
         users = service.list_users()
         assert users[0]['username'] == 'alice'
@@ -168,6 +169,7 @@ def test_update_user_validates_and_persists(tmp_path, monkeypatch):
         assert updated_account.email == 'alice.new@example.com'
         assert updated_account.name == 'Alice Updated'
         assert updated_account.dob == '2000-02-02'
+        assert updated_account.last_login is None
 
         # Password is hashed in storage, so authenticate to confirm it changed.
         assert service.authenticate_user('alice', 'Newpass123') is True
@@ -246,8 +248,30 @@ def test_authenticate_user_success_and_failure(tmp_path, monkeypatch):
 
     try:
         service.register_user('bob', 'Secure123', 'bob@example.com')
+        details = service.get_user_details('bob')
+        assert details['last_login'] is None
+
+        timestamp = '2024-05-20T10:00:00Z'
+        monkeypatch.setattr(
+            user_account_service.UserAccountService,
+            '_current_timestamp',
+            staticmethod(lambda: timestamp),
+        )
+
         assert service.authenticate_user('bob', 'Secure123') is True
+        details = service.get_user_details('bob')
+        assert details['last_login'] == timestamp
+        assert service.list_users()[0]['last_login'] == timestamp
+
+        next_timestamp = '2024-05-21T11:00:00Z'
+        monkeypatch.setattr(
+            user_account_service.UserAccountService,
+            '_current_timestamp',
+            staticmethod(lambda: next_timestamp),
+        )
+
         assert service.authenticate_user('bob', 'wrong') is False
+        assert service.get_user_details('bob')['last_login'] == timestamp
         assert service.authenticate_user('unknown', 'Secure123') is False
     finally:
         service.close()
