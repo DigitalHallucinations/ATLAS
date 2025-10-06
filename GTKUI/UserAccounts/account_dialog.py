@@ -803,8 +803,146 @@ class AccountDialog(Gtk.Window):
                 return response == accept_value
             except Exception:  # pragma: no cover - alert dialogs are best-effort
                 pass
+        try:
+            return bool(self._show_fallback_delete_dialog(username))
+        except Exception:  # pragma: no cover - defensive fallback
+            return False
 
-        return True
+    def _show_fallback_delete_dialog(self, username: str) -> bool:
+        message = f'Delete saved account "{username}"?'
+
+        dialog = None
+        confirm_responses: set[object] = set()
+        cancel_responses: set[object] = {None, False}
+
+        message_dialog_cls = getattr(Gtk, "MessageDialog", None)
+        if message_dialog_cls is not None:
+            try:
+                kwargs = {
+                    "transient_for": self if isinstance(self, Gtk.Window) else None,
+                    "modal": True,
+                    "text": "Delete account?",
+                }
+                message_type = getattr(getattr(Gtk, "MessageType", object), "WARNING", None)
+                if message_type is not None:
+                    kwargs["message_type"] = message_type
+                buttons_type = getattr(getattr(Gtk, "ButtonsType", object), "NONE", None)
+                if buttons_type is not None:
+                    kwargs["buttons"] = buttons_type
+                dialog = message_dialog_cls(**kwargs)
+                setter = getattr(dialog, "set_secondary_text", None)
+                if callable(setter):
+                    try:
+                        setter(message)
+                    except Exception:
+                        pass
+            except Exception:
+                dialog = None
+
+        if dialog is None:
+            dialog_cls = getattr(Gtk, "Dialog", None)
+            if dialog_cls is None:
+                return False
+            try:
+                dialog = dialog_cls(transient_for=self if isinstance(self, Gtk.Window) else None, modal=True)
+            except Exception:
+                return False
+            content_area = getattr(dialog, "get_content_area", None)
+            if callable(content_area):
+                try:
+                    container = content_area()
+                except Exception:
+                    container = None
+                if container is not None:
+                    label_cls = getattr(Gtk, "Label", None)
+                    if label_cls is not None:
+                        try:
+                            label = label_cls(label="Delete account?")
+                        except Exception:
+                            label = None
+                        if label is not None:
+                            try:
+                                setter = getattr(label, "set_text", None)
+                                if callable(setter):
+                                    setter(message)
+                            except Exception:
+                                pass
+                            try:
+                                container.append(label)
+                            except Exception:
+                                pass
+
+        if dialog is None:
+            return False
+
+        response_type = getattr(Gtk, "ResponseType", object)
+        accept_value = getattr(response_type, "ACCEPT", None)
+        ok_value = getattr(response_type, "OK", None)
+        yes_value = getattr(response_type, "YES", None)
+        confirm_responses.update({accept_value, ok_value, yes_value, True, "delete", "accept", "ok", "yes"})
+        cancel_value = getattr(response_type, "CANCEL", None)
+        no_value = getattr(response_type, "NO", None)
+        reject_value = getattr(response_type, "REJECT", None)
+        cancel_responses.update({cancel_value, no_value, reject_value, "cancel", "reject", "no"})
+
+        add_button = getattr(dialog, "add_button", None)
+        if callable(add_button):
+            cancel_resp = cancel_value if cancel_value is not None else -1
+            confirm_resp = accept_value if accept_value is not None else (-2 if cancel_resp != -2 else -3)
+            try:
+                add_button("Cancel", cancel_resp)
+                add_button("Delete", confirm_resp)
+                confirm_responses.add(confirm_resp)
+                cancel_responses.add(cancel_resp)
+            except Exception:
+                pass
+
+        set_buttons = getattr(dialog, "set_buttons", None)
+        if callable(set_buttons):
+            try:
+                set_buttons(["Cancel", "Delete"])
+            except Exception:
+                pass
+
+        present = getattr(dialog, "present", None) or getattr(dialog, "show", None)
+        if callable(present):
+            try:
+                present()
+            except Exception:
+                pass
+
+        run = getattr(dialog, "run", None)
+        response = None
+        if callable(run):
+            try:
+                response = run()
+            except Exception:
+                response = None
+
+        destroy = getattr(dialog, "destroy", None) or getattr(dialog, "close", None)
+        if callable(destroy):
+            try:
+                destroy()
+            except Exception:
+                pass
+
+        confirm_responses.discard(None)
+        cancel_responses.discard(None)
+
+        if isinstance(response, str):
+            return response.lower() in {"delete", "accept", "ok", "yes"}
+        if isinstance(response, bool):
+            return response
+        if response in confirm_responses:
+            return True
+        if response in cancel_responses:
+            return False
+        if isinstance(response, int):
+            if response == -2 and -2 in confirm_responses:
+                return True
+            if response == -1 and -1 in cancel_responses:
+                return False
+        return False
 
     def _resolve_alert_dialog_response(self, response):
         wait_methods = ("wait_result", "wait")
