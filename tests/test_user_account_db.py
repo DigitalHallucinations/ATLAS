@@ -90,6 +90,9 @@ def test_add_user_creates_profile_files(tmp_path, monkeypatch):
         assert profile_contents['Full Name'] == 'Dave'
         assert profile_contents['DOB'] == '1995-09-01'
         assert profile_contents['Email'] == 'dave@example.com'
+        assert profile_contents['Interests']['observations'] == ''
+        assert profile_contents['Location']['observations'] == ''
+        assert profile_contents['Occupation']['observations'] == ''
 
         assert emr_path.exists()
         assert emr_path.read_text(encoding='utf-8') == ''
