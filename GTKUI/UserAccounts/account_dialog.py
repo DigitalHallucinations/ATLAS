@@ -1990,6 +1990,34 @@ class AccountDialog(Gtk.Window):
         self._login_busy = bool(busy)
         controls_sensitive = not busy and not self._login_lockout_active()
         self._set_login_controls_sensitive(controls_sensitive)
+
+        shared_sensitive = not busy and not self._forms_busy
+        self._set_widget_sensitive(getattr(self, "login_toggle_button", None), shared_sensitive)
+        self._set_widget_sensitive(getattr(self, "register_toggle_button", None), shared_sensitive)
+
+        register_sensitive = shared_sensitive and not self._register_busy
+        register_widgets = [
+            getattr(self, "register_box", None),
+            getattr(self, "register_button", None),
+            getattr(self, "register_username_entry", None),
+            getattr(self, "register_email_entry", None),
+            getattr(self, "register_password_entry", None),
+            getattr(self, "register_confirm_entry", None),
+            getattr(self, "register_name_entry", None),
+            getattr(self, "register_dob_entry", None),
+        ]
+
+        for widget in register_widgets:
+            self._set_widget_sensitive(widget, register_sensitive)
+
+        for entry in (
+            getattr(self, "register_password_entry", None),
+            getattr(self, "register_confirm_entry", None),
+        ):
+            if entry is None:
+                continue
+            for toggle in self._password_toggle_buttons_by_entry.get(entry, []):
+                self._set_widget_sensitive(toggle, register_sensitive)
         if message is not None:
             self.login_feedback_label.set_text(message)
 

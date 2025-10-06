@@ -529,6 +529,45 @@ def test_login_entry_activate_ignored_when_busy(monkeypatch):
     assert atlas.last_factory is first_factory
 
 
+def test_login_busy_disables_other_controls():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    toggle_widgets = []
+    for entry in (dialog.register_password_entry, dialog.register_confirm_entry):
+        toggle_widgets.extend(dialog._password_toggle_buttons_by_entry.get(entry, []))
+
+    widgets = [
+        dialog.login_toggle_button,
+        dialog.register_toggle_button,
+        dialog.register_button,
+        dialog.register_username_entry,
+        dialog.register_email_entry,
+        dialog.register_password_entry,
+        dialog.register_confirm_entry,
+        dialog.register_name_entry,
+        dialog.register_dob_entry,
+        *toggle_widgets,
+    ]
+
+    dialog.login_username_entry.set_text("alice")
+    dialog.login_password_entry.set_text("secret")
+
+    dialog._on_login_clicked(dialog.login_button)
+
+    assert dialog._login_busy is True
+    disabled_states = [_is_sensitive(widget) for widget in widgets]
+    assert all(state is False for state in disabled_states), disabled_states
+
+    _drain_background(atlas)
+
+    assert dialog._login_busy is False
+    enabled_states = [_is_sensitive(widget) for widget in widgets]
+    assert all(state is True for state in enabled_states), enabled_states
+
+
 def test_register_user_validation():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
