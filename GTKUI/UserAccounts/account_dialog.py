@@ -34,6 +34,13 @@ class AccountDialog(Gtk.Window):
         self._active_display_name: Optional[str] = None
         self._editing_username: Optional[str] = None
         self._editing_metadata: dict[str, object] = {}
+        self._account_records: list[dict[str, object]] = []
+        self._account_details_cache: dict[str, dict[str, object]] = {}
+        self._account_filter_text: str = ""
+        self._selected_username: Optional[str] = None
+        self._details_busy = False
+        self._visible_usernames: list[str] = []
+        self._password_toggle_buttons: list[Gtk.Widget] = []
 
         self.set_modal(True)
         if parent is not None:
@@ -118,7 +125,9 @@ class AccountDialog(Gtk.Window):
             self.register_button,
             self.edit_save_button,
             self.logout_button,
+            self.account_search_entry,
         ]
+        self._forms_sensitive_widgets.extend(self._password_toggle_buttons)
         self._set_forms_busy(False)
 
     def _build_account_section(self) -> Gtk.Widget:
@@ -142,6 +151,26 @@ class AccountDialog(Gtk.Window):
         self.account_refresh_button.connect("clicked", self._refresh_account_list)
         header.append(self.account_refresh_button)
 
+        search_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        wrapper.append(search_row)
+
+        search_entry_cls = getattr(Gtk, "SearchEntry", Gtk.Entry)
+        self.account_search_entry = search_entry_cls()
+        self.account_search_entry.set_placeholder_text("Search by username, email or name")
+        connectable_signals = ["changed", "search-changed"]
+        for signal in connectable_signals:
+            connect = getattr(self.account_search_entry, "connect", None)
+            if callable(connect):
+                try:
+                    connect(signal, self._on_account_filter_changed)
+                except TypeError:
+                    continue
+        search_row.append(self.account_search_entry)
+
+        clear_button = Gtk.Button(label="Clear")
+        clear_button.connect("clicked", self._on_account_search_clear)
+        search_row.append(clear_button)
+
         scroller = Gtk.ScrolledWindow()
         try:
             scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -149,6 +178,10 @@ class AccountDialog(Gtk.Window):
             pass
 
         self.account_list_box = getattr(Gtk, "ListBox", Gtk.Box)()
+        try:
+            self.account_list_box.connect("row-selected", self._on_account_row_selected)
+        except Exception:  # pragma: no cover - signal not available on fallback widgets
+            pass
         scroller.set_child(self.account_list_box)
         wrapper.append(scroller)
 
@@ -160,7 +193,39 @@ class AccountDialog(Gtk.Window):
         self.account_feedback_label.set_xalign(0.0)
         wrapper.append(self.account_feedback_label)
 
+        details_panel = self._build_account_details_panel()
+        wrapper.append(details_panel)
+
         return wrapper
+
+    def _build_account_details_panel(self) -> Gtk.Widget:
+        frame = Gtk.Frame(label="Account details")
+        content = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin=12)
+        frame.set_child(content)
+
+        self.account_details_status_label = Gtk.Label(label="Select an account to view details.")
+        self.account_details_status_label.set_xalign(0.0)
+        content.append(self.account_details_status_label)
+
+        grid = Gtk.Grid(column_spacing=8, row_spacing=6)
+        content.append(grid)
+
+        def _add_row(row_index: int, title: str) -> Gtk.Label:
+            label = Gtk.Label(label=title)
+            label.set_xalign(0.0)
+            grid.attach(label, 0, row_index, 1, 1)
+
+            value = Gtk.Label()
+            value.set_xalign(0.0)
+            grid.attach(value, 1, row_index, 1, 1)
+            return value
+
+        self.account_details_username_value = _add_row(0, "Username")
+        self.account_details_name_value = _add_row(1, "Display name")
+        self.account_details_email_value = _add_row(2, "Email")
+        self.account_details_dob_value = _add_row(3, "Date of birth")
+
+        return frame
 
     # ------------------------------------------------------------------
     # Account list handling
@@ -192,7 +257,96 @@ class AccountDialog(Gtk.Window):
             self._handle_account_list_error(exc)
 
     def _handle_account_list_result(self, accounts) -> bool:
+        normalised = self._normalise_account_payload(accounts)
+        self._account_records = normalised
+
+        known_usernames = {entry["username"] for entry in normalised}
+        self._account_details_cache = {
+            username: details
+            for username, details in self._account_details_cache.items()
+            if username in known_usernames
+        }
+        if self._selected_username not in known_usernames:
+            self._selected_username = None
+
+        visible_accounts = self._apply_account_filter(normalised)
+        message = self._render_account_rows(visible_accounts, context="load")
+
+        if self._post_refresh_feedback:
+            message = f"{self._post_refresh_feedback} {message}".strip()
+            self._post_refresh_feedback = None
+
+        self._set_account_busy(False, message, disable_forms=False)
+        return False
+
+    def _handle_account_list_error(self, exc: Exception) -> bool:
+        self.account_empty_label.set_text("Failed to load saved accounts.")
+        message = f"Account load failed: {exc}"
+        if self._post_refresh_feedback:
+            message = f"{self._post_refresh_feedback} {message}".strip()
+            self._post_refresh_feedback = None
+        self._set_account_busy(False, message, disable_forms=False)
+        return False
+
+    def _normalise_account_payload(self, accounts) -> list[dict[str, object]]:
+        iterable = list(accounts) if isinstance(accounts, (list, tuple)) else []
+        normalised: list[dict[str, object]] = []
+
+        for entry in iterable:
+            if isinstance(entry, dict):
+                source = dict(entry)
+            else:
+                source = {}
+                for attr in ("username", "display_name", "name", "email", "dob"):
+                    if hasattr(entry, attr):
+                        source[attr] = getattr(entry, attr)
+
+            username = str(source.get("username") or "").strip()
+            if not username:
+                continue
+
+            display_name = source.get("display_name") or source.get("name")
+
+            def _string_or_empty(value):
+                if value is None:
+                    return ""
+                return str(value)
+
+            account_data = {
+                "username": username,
+                "display_name": _string_or_empty(display_name) or "",
+                "email": _string_or_empty(source.get("email")),
+                "name": _string_or_empty(source.get("name")),
+                "dob": _string_or_empty(source.get("dob")),
+            }
+            normalised.append(account_data)
+
+        normalised.sort(key=lambda item: item["username"].lower())
+        return normalised
+
+    def _apply_account_filter(self, accounts: list[dict[str, object]]) -> list[dict[str, object]]:
+        if not self._account_filter_text:
+            return list(accounts)
+
+        needle = self._account_filter_text.lower()
+        filtered: list[dict[str, object]] = []
+
+        for account in accounts:
+            haystack_parts = [
+                account.get("username", ""),
+                account.get("email", ""),
+                account.get("name", ""),
+                account.get("display_name", ""),
+            ]
+            haystack = " \n".join(str(part).lower() for part in haystack_parts if part)
+            if needle in haystack:
+                filtered.append(account)
+
+        return filtered
+
+    def _render_account_rows(self, accounts: list[dict[str, object]], *, context: str) -> str:
         self._account_rows.clear()
+        self._visible_usernames = []
 
         removed = False
         remover = getattr(self.account_list_box, "remove_all", None)
@@ -224,62 +378,172 @@ class AccountDialog(Gtk.Window):
                 self.account_list_box.children = []
 
         count = 0
-        iterable = accounts if isinstance(accounts, (list, tuple)) else []
-        for entry in iterable:
-            if isinstance(entry, dict):
-                source = dict(entry)
-            else:
-                source = {}
-                for attr in ("username", "display_name", "name", "email", "dob"):
-                    if hasattr(entry, attr):
-                        source[attr] = getattr(entry, attr)
-
-            username = str(source.get("username") or "").strip()
-            if not username:
-                continue
-
-            display_name = source.get("display_name") or source.get("name")
-
-            def _string_or_empty(value):
-                if value is None:
-                    return ""
-                return str(value)
-
-            account_data = {
-                "username": username,
-                "display_name": display_name,
-                "email": _string_or_empty(source.get("email")),
-                "name": _string_or_empty(source.get("name")),
-                "dob": _string_or_empty(source.get("dob")),
-            }
-
+        for account_data in accounts:
             row = self._create_account_row(account_data)
             self.account_list_box.append(row["row"])
+            username = account_data["username"]
             self._account_rows[username] = row
+            self._visible_usernames.append(username)
             count += 1
 
         if count:
             self.account_empty_label.set_text("")
-            message = f"Loaded {count} account{'s' if count != 1 else ''}."
+            if context == "search":
+                message = f"Found {count} account{'s' if count != 1 else ''} matching your search."
+            else:
+                message = f"Loaded {count} account{'s' if count != 1 else ''}."
         else:
-            self.account_empty_label.set_text("No saved accounts yet.")
-            message = "No saved accounts found."
+            if context == "search":
+                empty_message = "No accounts match your search."
+                message = empty_message
+            else:
+                empty_message = "No saved accounts yet."
+                message = "No saved accounts found."
+            self.account_empty_label.set_text(empty_message)
 
-        if self._post_refresh_feedback:
-            message = f"{self._post_refresh_feedback} {message}".strip()
-            self._post_refresh_feedback = None
-
-        self._set_account_busy(False, message, disable_forms=False)
         self._highlight_active_account()
+        self._restore_account_details()
+        self._update_account_buttons_sensitive()
+        return message
+
+    def _restore_account_details(self) -> None:
+        if self._selected_username and self._selected_username in self._visible_usernames:
+            cached = self._account_details_cache.get(self._selected_username)
+            if cached:
+                self._apply_account_detail_mapping(cached)
+            else:
+                self._set_account_detail_message("Loading account details…")
+                self._on_account_details_clicked(self._selected_username)
+        else:
+            self._selected_username = None
+            self._set_account_detail_message("Select an account to view details.")
+
+    def _set_account_detail_message(self, message: str) -> None:
+        self.account_details_status_label.set_text(message)
+        if message:
+            placeholder = "—"
+            self.account_details_username_value.set_text(placeholder)
+            self.account_details_name_value.set_text(placeholder)
+            self.account_details_email_value.set_text(placeholder)
+            self.account_details_dob_value.set_text(placeholder)
+
+    def _apply_account_detail_mapping(self, details: dict[str, object]) -> None:
+        username = self._format_detail_value(details.get("username"))
+        display_name = details.get("display_name") or details.get("name")
+        email = self._format_detail_value(details.get("email"))
+        dob = self._format_detail_value(details.get("dob"))
+
+        self.account_details_status_label.set_text("")
+        self.account_details_username_value.set_text(username)
+        self.account_details_name_value.set_text(self._format_detail_value(display_name))
+        self.account_details_email_value.set_text(email)
+        self.account_details_dob_value.set_text(dob)
+
+    @staticmethod
+    def _format_detail_value(value: object, fallback: str = "—") -> str:
+        if value is None:
+            return fallback
+        text = str(value).strip()
+        return text or fallback
+
+    def _on_account_filter_changed(self, entry, *_args) -> None:
+        text = getattr(entry, "get_text", lambda: "")()
+        self._account_filter_text = (text or "").strip()
+        accounts = self._apply_account_filter(self._account_records)
+        context = "search" if self._account_filter_text else "load"
+        message = self._render_account_rows(accounts, context=context)
+        self.account_feedback_label.set_text(message)
+
+    def _on_account_search_clear(self, _button) -> None:
+        setter = getattr(self.account_search_entry, "set_text", None)
+        if callable(setter):
+            setter("")
+        self._account_filter_text = ""
+        accounts = self._apply_account_filter(self._account_records)
+        message = self._render_account_rows(accounts, context="load")
+        self.account_feedback_label.set_text(message)
+
+    def _on_account_row_selected(self, _listbox, row) -> None:
+        if row is None:
+            return
+
+        username = getattr(row, "username", None)
+        if username is None:
+            child_getter = getattr(row, "get_child", None)
+            if callable(child_getter):
+                child = child_getter()
+                username = getattr(child, "username", None)
+
+        if not username:
+            return
+
+        self._on_account_details_clicked(username)
+
+    def _on_account_details_clicked(self, username: str) -> None:
+        username = str(username or "").strip()
+        if not username:
+            return
+
+        if self._account_busy:
+            return
+
+        self._selected_username = username
+
+        cached = self._account_details_cache.get(username)
+        if cached:
+            self._apply_account_detail_mapping(cached)
+            return
+
+        self._set_account_details_busy(True, f"Loading {username}…")
+
+        def factory():
+            return self.ATLAS.get_user_account_details(username)
+
+        def on_success(result) -> None:
+            GLib.idle_add(self._handle_account_details_result, username, result)
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(self._handle_account_details_error, username, exc)
+
+        try:
+            self.ATLAS.run_in_background(
+                factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name="user-account-details",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to start details task: %s", exc, exc_info=True)
+            self._handle_account_details_error(username, exc)
+
+    def _set_account_details_busy(self, busy: bool, message: Optional[str] = None) -> None:
+        self._details_busy = bool(busy)
+        if message is not None:
+            self._set_account_detail_message(message)
+        self._update_account_buttons_sensitive()
+
+    def _handle_account_details_result(self, username: str, result) -> bool:
+        if self._selected_username != username:
+            return False
+
+        self._set_account_details_busy(False)
+
+        if isinstance(result, dict) and result.get("username"):
+            mapping = dict(result)
+            mapping.setdefault("display_name", mapping.get("name"))
+            self._account_details_cache[username] = mapping
+            self._apply_account_detail_mapping(mapping)
+        else:
+            self._set_account_detail_message("No additional details available.")
+
         return False
 
-    def _handle_account_list_error(self, exc: Exception) -> bool:
-        self.account_empty_label.set_text("Failed to load saved accounts.")
-        message = f"Account load failed: {exc}"
-        if self._post_refresh_feedback:
-            message = f"{self._post_refresh_feedback} {message}".strip()
-            self._post_refresh_feedback = None
-        self._set_account_busy(False, message, disable_forms=False)
+    def _handle_account_details_error(self, username: str, exc: Exception) -> bool:
+        if self._selected_username != username:
+            return False
+
+        self._set_account_details_busy(False)
+        self._set_account_detail_message(f"Failed to load details: {exc}")
         return False
 
     def _create_account_row(self, account_data: dict[str, object]) -> dict[str, Gtk.Widget]:
@@ -288,6 +552,24 @@ class AccountDialog(Gtk.Window):
 
         row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         row_box.username = username  # type: ignore[attr-defined]
+
+        container = row_box
+        list_box_cls = getattr(Gtk, "ListBox", None)
+        list_box_row_cls = getattr(Gtk, "ListBoxRow", None)
+        try:
+            if (
+                list_box_cls is not None
+                and list_box_row_cls is not None
+                and isinstance(self.account_list_box, list_box_cls)
+            ):
+                row_container = list_box_row_cls()
+                set_child = getattr(row_container, "set_child", None)
+                if callable(set_child):
+                    set_child(row_box)
+                    row_container.username = username  # type: ignore[attr-defined]
+                    container = row_container
+        except Exception:  # pragma: no cover - fallback when rows unsupported
+            container = row_box
 
         name_label = Gtk.Label(label=str(display_name or username))
         name_label.set_xalign(0.0)
@@ -308,6 +590,12 @@ class AccountDialog(Gtk.Window):
         use_button.connect("clicked", lambda _btn, user=username: self._on_use_account_clicked(user))
         row_box.append(use_button)
 
+        details_button = Gtk.Button(label="Details")
+        details_button.connect(
+            "clicked", lambda _btn, user=username: self._on_account_details_clicked(user)
+        )
+        row_box.append(details_button)
+
         edit_button = Gtk.Button(label="Edit")
         edit_button.connect("clicked", lambda _btn, user=username: self._on_edit_account_clicked(user))
         row_box.append(edit_button)
@@ -317,10 +605,12 @@ class AccountDialog(Gtk.Window):
         row_box.append(delete_button)
 
         return {
-            "row": row_box,
+            "row": container,
+            "row_box": row_box,
             "name_label": name_label,
             "active_label": badge_label,
             "use_button": use_button,
+            "details_button": details_button,
             "edit_button": edit_button,
             "delete_button": delete_button,
             "metadata": account_data,
@@ -495,6 +785,10 @@ class AccountDialog(Gtk.Window):
             self._set_widget_sensitive(widgets["use_button"], allow_use)
             self._set_widget_sensitive(widgets["edit_button"], not self._account_busy)
             self._set_widget_sensitive(widgets["delete_button"], not self._account_busy)
+            details_button = widgets.get("details_button")
+            if details_button is not None:
+                allow_details = not self._account_busy and not self._details_busy
+                self._set_widget_sensitive(details_button, allow_details)
 
     def _highlight_active_account(self) -> None:
         active_username = self._active_username or ""
@@ -531,6 +825,128 @@ class AccountDialog(Gtk.Window):
                 pass
         setattr(widget, "_sensitive", bool(sensitive))
 
+    def _configure_password_entry(
+        self,
+        entry: Gtk.Entry,
+        *,
+        strength_label: Optional[Gtk.Label] = None,
+    ) -> None:
+        entry.set_visibility(False)
+        entry.set_invisible_char("•")
+        setattr(entry, "_atlas_password_visible", False)
+
+        if strength_label is not None:
+            entry.connect(
+                "changed",
+                lambda widget: self._update_password_strength_label(widget, strength_label),
+            )
+
+        entry.connect("icon-press", self._on_password_icon_pressed)
+        self._set_password_entry_icon(entry)
+
+    def _create_password_toggle(self, entry: Gtk.Entry) -> Gtk.Widget:
+        toggle_cls = getattr(Gtk, "ToggleButton", None)
+
+        if toggle_cls is not None:
+            toggle = toggle_cls(label="Show")
+
+            def _on_toggled(button):
+                active = getattr(button, "get_active", lambda: False)()
+                self._set_password_entry_visibility(entry, active)
+                setter = getattr(button, "set_label", None)
+                if callable(setter):
+                    setter("Hide" if active else "Show")
+                self._set_password_entry_icon(entry)
+
+            toggle.connect("toggled", _on_toggled)
+        else:
+            toggle = Gtk.Button(label="Show")
+            setattr(toggle, "_atlas_toggle_active", False)
+
+            def _on_clicked(button):
+                current = getattr(button, "_atlas_toggle_active", False)
+                new_state = not current
+                setattr(button, "_atlas_toggle_active", new_state)
+                self._set_password_entry_visibility(entry, new_state)
+                setter = getattr(button, "set_label", None)
+                if callable(setter):
+                    setter("Hide" if new_state else "Show")
+                self._set_password_entry_icon(entry)
+
+            toggle.connect("clicked", _on_clicked)
+
+        self._password_toggle_buttons.append(toggle)
+        return toggle
+
+    def _set_password_entry_icon(self, entry: Gtk.Entry) -> None:
+        icon_setter = getattr(entry, "set_icon_from_icon_name", None)
+        icon_position = getattr(Gtk, "EntryIconPosition", None)
+        if not callable(icon_setter) or icon_position is None:
+            return
+
+        visible = getattr(entry, "_atlas_password_visible", False)
+        icon_name = "view-conceal-symbolic" if visible else "view-reveal-symbolic"
+
+        try:
+            icon_setter(icon_position.SECONDARY, icon_name)
+        except Exception:  # pragma: no cover - optional icon support
+            pass
+
+    def _set_password_entry_visibility(self, entry: Gtk.Entry, visible: bool) -> None:
+        entry.set_visibility(bool(visible))
+        setattr(entry, "_atlas_password_visible", bool(visible))
+        self._set_password_entry_icon(entry)
+
+    def _on_password_icon_pressed(self, entry: Gtk.Entry, icon_pos, _event) -> None:
+        icon_position = getattr(Gtk, "EntryIconPosition", None)
+        if icon_position is not None and icon_pos != icon_position.SECONDARY:
+            return
+
+        current = getattr(entry, "_atlas_password_visible", False)
+        self._set_password_entry_visibility(entry, not current)
+
+    def _update_password_strength_label(self, entry: Gtk.Entry, label: Gtk.Label) -> None:
+        password = entry.get_text() or ""
+        label.set_text(self._describe_password_strength(password))
+
+    @staticmethod
+    def _describe_password_strength(password: str) -> str:
+        password = password or ""
+        if not password:
+            return ""
+
+        score = 0
+
+        length = len(password)
+        if length >= 8:
+            score += 1
+        if length >= 12:
+            score += 1
+
+        has_lower = any(char.islower() for char in password)
+        has_upper = any(char.isupper() for char in password)
+        has_digit = any(char.isdigit() for char in password)
+        has_symbol = any(not char.isalnum() for char in password)
+
+        if has_lower and has_upper:
+            score += 1
+        if has_digit:
+            score += 1
+        if has_symbol:
+            score += 1
+
+        descriptions = {
+            0: "Weak password",
+            1: "Weak password",
+            2: "Fair password",
+            3: "Strong password",
+        }
+
+        if score >= 4:
+            return "Very strong password"
+
+        return descriptions.get(score, "Strong password")
+
     def _build_login_form(self) -> Gtk.Widget:
         wrapper = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=0)
 
@@ -550,10 +966,12 @@ class AccountDialog(Gtk.Window):
         grid.attach(password_label, 0, 1, 1, 1)
 
         self.login_password_entry = Gtk.Entry()
-        self.login_password_entry.set_visibility(False)
-        self.login_password_entry.set_invisible_char("•")
         self.login_password_entry.set_placeholder_text("Your password")
         grid.attach(self.login_password_entry, 1, 1, 1, 1)
+        self._configure_password_entry(self.login_password_entry)
+
+        login_toggle = self._create_password_toggle(self.login_password_entry)
+        grid.attach(login_toggle, 2, 1, 1, 1)
 
         self.login_feedback_label = Gtk.Label()
         self.login_feedback_label.set_xalign(0.0)
@@ -592,36 +1010,48 @@ class AccountDialog(Gtk.Window):
         grid.attach(password_label, 0, 2, 1, 1)
 
         self.register_password_entry = Gtk.Entry()
-        self.register_password_entry.set_visibility(False)
-        self.register_password_entry.set_invisible_char("•")
         self.register_password_entry.set_placeholder_text("Create a password")
         grid.attach(self.register_password_entry, 1, 2, 1, 1)
+        register_password_toggle = self._create_password_toggle(self.register_password_entry)
+        grid.attach(register_password_toggle, 2, 2, 1, 1)
 
         confirm_label = Gtk.Label(label="Confirm password")
         confirm_label.set_xalign(0.0)
         grid.attach(confirm_label, 0, 3, 1, 1)
 
         self.register_confirm_entry = Gtk.Entry()
-        self.register_confirm_entry.set_visibility(False)
-        self.register_confirm_entry.set_invisible_char("•")
         self.register_confirm_entry.set_placeholder_text("Repeat password")
         grid.attach(self.register_confirm_entry, 1, 3, 1, 1)
+        register_confirm_toggle = self._create_password_toggle(self.register_confirm_entry)
+        grid.attach(register_confirm_toggle, 2, 3, 1, 1)
+
+        self.register_password_strength_label = Gtk.Label()
+        self.register_password_strength_label.set_xalign(0.0)
+        grid.attach(self.register_password_strength_label, 1, 4, 2, 1)
+
+        self._configure_password_entry(
+            self.register_password_entry,
+            strength_label=self.register_password_strength_label,
+        )
+        self._configure_password_entry(self.register_confirm_entry)
+        self.register_password_entry.connect("changed", self._on_register_password_changed)
+        self.register_confirm_entry.connect("changed", self._on_register_confirm_changed)
 
         name_label = Gtk.Label(label="Display name (optional)")
         name_label.set_xalign(0.0)
-        grid.attach(name_label, 0, 4, 1, 1)
+        grid.attach(name_label, 0, 5, 1, 1)
 
         self.register_name_entry = Gtk.Entry()
         self.register_name_entry.set_placeholder_text("How should we greet you?")
-        grid.attach(self.register_name_entry, 1, 4, 1, 1)
+        grid.attach(self.register_name_entry, 1, 5, 1, 1)
 
         dob_label = Gtk.Label(label="Date of birth (optional)")
         dob_label.set_xalign(0.0)
-        grid.attach(dob_label, 0, 5, 1, 1)
+        grid.attach(dob_label, 0, 6, 1, 1)
 
         self.register_dob_entry = Gtk.Entry()
         self.register_dob_entry.set_placeholder_text("YYYY-MM-DD")
-        grid.attach(self.register_dob_entry, 1, 5, 1, 1)
+        grid.attach(self.register_dob_entry, 1, 6, 1, 1)
 
         self.register_feedback_label = Gtk.Label()
         self.register_feedback_label.set_xalign(0.0)
@@ -668,36 +1098,50 @@ class AccountDialog(Gtk.Window):
         grid.attach(password_label, 0, 2, 1, 1)
 
         self.edit_password_entry = Gtk.Entry()
-        self.edit_password_entry.set_visibility(False)
-        self.edit_password_entry.set_invisible_char("•")
         self.edit_password_entry.set_placeholder_text("Leave blank to keep current password")
         grid.attach(self.edit_password_entry, 1, 2, 1, 1)
+
+        edit_password_toggle = self._create_password_toggle(self.edit_password_entry)
+        grid.attach(edit_password_toggle, 2, 2, 1, 1)
 
         confirm_label = Gtk.Label(label="Confirm password")
         confirm_label.set_xalign(0.0)
         grid.attach(confirm_label, 0, 3, 1, 1)
 
         self.edit_confirm_entry = Gtk.Entry()
-        self.edit_confirm_entry.set_visibility(False)
-        self.edit_confirm_entry.set_invisible_char("•")
         self.edit_confirm_entry.set_placeholder_text("Repeat new password")
         grid.attach(self.edit_confirm_entry, 1, 3, 1, 1)
 
+        edit_confirm_toggle = self._create_password_toggle(self.edit_confirm_entry)
+        grid.attach(edit_confirm_toggle, 2, 3, 1, 1)
+
+        self.edit_password_strength_label = Gtk.Label()
+        self.edit_password_strength_label.set_xalign(0.0)
+        grid.attach(self.edit_password_strength_label, 1, 4, 2, 1)
+
         name_label = Gtk.Label(label="Display name (optional)")
         name_label.set_xalign(0.0)
-        grid.attach(name_label, 0, 4, 1, 1)
+        grid.attach(name_label, 0, 5, 1, 1)
 
         self.edit_name_entry = Gtk.Entry()
         self.edit_name_entry.set_placeholder_text("How should we greet you?")
-        grid.attach(self.edit_name_entry, 1, 4, 1, 1)
+        grid.attach(self.edit_name_entry, 1, 5, 1, 1)
 
         dob_label = Gtk.Label(label="Date of birth (optional)")
         dob_label.set_xalign(0.0)
-        grid.attach(dob_label, 0, 5, 1, 1)
+        grid.attach(dob_label, 0, 6, 1, 1)
 
         self.edit_dob_entry = Gtk.Entry()
         self.edit_dob_entry.set_placeholder_text("YYYY-MM-DD")
-        grid.attach(self.edit_dob_entry, 1, 5, 1, 1)
+        grid.attach(self.edit_dob_entry, 1, 6, 1, 1)
+
+        self._configure_password_entry(
+            self.edit_password_entry,
+            strength_label=self.edit_password_strength_label,
+        )
+        self._configure_password_entry(self.edit_confirm_entry)
+        self.edit_password_entry.connect("changed", self._on_edit_password_changed)
+        self.edit_confirm_entry.connect("changed", self._on_edit_confirm_changed)
 
         self.edit_feedback_label = Gtk.Label()
         self.edit_feedback_label.set_xalign(0.0)
@@ -879,6 +1323,7 @@ class AccountDialog(Gtk.Window):
             self.register_confirm_entry,
         ):
             self._mark_field_valid(widget)
+        self.register_password_strength_label.set_text("")
 
     def _on_register_clicked(self, _button) -> None:
         username = (self.register_username_entry.get_text() or "").strip()
@@ -969,6 +1414,32 @@ class AccountDialog(Gtk.Window):
             self.register_feedback_label.set_text(f"Registration failed: {exc}")
         return False
 
+    def _on_register_password_changed(self, _entry) -> None:
+        confirm_text = self.register_confirm_entry.get_text() or ""
+        password = self.register_password_entry.get_text() or ""
+
+        if not confirm_text:
+            self._mark_field_valid(self.register_confirm_entry)
+            return
+
+        if password == confirm_text:
+            self._mark_field_valid(self.register_confirm_entry)
+        else:
+            self._mark_field_invalid(self.register_confirm_entry)
+
+    def _on_register_confirm_changed(self, entry) -> None:
+        confirm_text = entry.get_text() or ""
+        password = self.register_password_entry.get_text() or ""
+
+        if not confirm_text:
+            self._mark_field_valid(entry)
+            return
+
+        if confirm_text == password:
+            self._mark_field_valid(entry)
+        else:
+            self._mark_field_invalid(entry)
+
     # ------------------------------------------------------------------
     # Account editing flow
     # ------------------------------------------------------------------
@@ -979,6 +1450,7 @@ class AccountDialog(Gtk.Window):
             self.edit_confirm_entry,
         ):
             self._mark_field_valid(widget)
+        self.edit_password_strength_label.set_text("")
 
     def _load_edit_form(self, username: str, metadata: dict[str, object]) -> None:
         self._editing_username = username
@@ -1133,6 +1605,32 @@ class AccountDialog(Gtk.Window):
         self._post_refresh_feedback = "Account updated."
         self._refresh_account_list()
         return False
+
+    def _on_edit_password_changed(self, _entry) -> None:
+        confirm_text = self.edit_confirm_entry.get_text() or ""
+        password = self.edit_password_entry.get_text() or ""
+
+        if not confirm_text:
+            self._mark_field_valid(self.edit_confirm_entry)
+            return
+
+        if password == confirm_text:
+            self._mark_field_valid(self.edit_confirm_entry)
+        else:
+            self._mark_field_invalid(self.edit_confirm_entry)
+
+    def _on_edit_confirm_changed(self, entry) -> None:
+        confirm_text = entry.get_text() or ""
+        password = self.edit_password_entry.get_text() or ""
+
+        if not confirm_text:
+            self._mark_field_valid(entry)
+            return
+
+        if password == confirm_text:
+            self._mark_field_valid(entry)
+        else:
+            self._mark_field_invalid(entry)
 
     def _handle_edit_error(self, exc: Exception) -> bool:
         self._set_edit_busy(False)

@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 import threading
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 try:
     from platformdirs import user_data_dir as _user_data_dir
@@ -274,6 +274,34 @@ class UserAccountDatabase:
             finally:
                 cursor.close()
 
+    def search_users(self, query_text: Optional[str] = None) -> List[Sequence[Any]]:
+        """Return user rows filtered by a case-insensitive search term."""
+
+        if query_text is None:
+            query_text = ""
+
+        search_term = str(query_text).strip().lower()
+
+        if not search_term:
+            rows = self.get_all_users() or []
+            return list(rows)
+
+        like_term = f"%{search_term}%"
+        query = (
+            "SELECT * FROM user_accounts "
+            "WHERE LOWER(username) LIKE ? OR LOWER(email) LIKE ? OR LOWER(IFNULL(name, '')) LIKE ?"
+        )
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(query, (like_term, like_term, like_term))
+                rows = cursor.fetchall()
+            finally:
+                cursor.close()
+
+        return list(rows)
+
     def get_user_profile(self, username):
         query = "SELECT * FROM user_accounts WHERE username = ?"
         with self._lock:
@@ -285,6 +313,21 @@ class UserAccountDatabase:
                 cursor.close()
 
         return result
+
+    def get_user_details(self, username: str) -> Optional[Dict[str, Any]]:
+        """Return a mapping of stored data for the given username."""
+
+        row = self.get_user(username)
+        if not row:
+            return None
+
+        return {
+            "id": row[0],
+            "username": row[1],
+            "email": row[3],
+            "name": row[4],
+            "dob": row[5],
+        }
 
     def close_connection(self):
         """Close the connection to the SQLite database."""

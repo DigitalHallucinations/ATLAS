@@ -256,6 +256,18 @@ class ATLAS:
         service = self._get_user_account_service()
         return await run_async_in_thread(service.list_users)
 
+    async def search_user_accounts(self, query_text: str) -> List[Dict[str, object]]:
+        """Search stored user accounts using the service layer."""
+
+        service = self._get_user_account_service()
+        return await run_async_in_thread(service.search_users, query_text)
+
+    async def get_user_account_details(self, username: str) -> Optional[Dict[str, object]]:
+        """Retrieve a single account record for display purposes."""
+
+        service = self._get_user_account_service()
+        return await run_async_in_thread(service.get_user_details, username)
+
     async def activate_user_account(self, username: str) -> None:
         """Activate an existing user account without credential prompts."""
 
