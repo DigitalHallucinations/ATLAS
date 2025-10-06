@@ -105,7 +105,7 @@ def _drain_background(atlas: _AtlasStub):
     atlas.last_factory = None
     result_or_coro = factory()
     if asyncio.iscoroutine(result_or_coro):
-        result = asyncio.get_event_loop().run_until_complete(result_or_coro)
+        result = asyncio.run(result_or_coro)
     else:
         result = result_or_coro
     if atlas.last_success is not None:
@@ -198,6 +198,26 @@ def test_register_validates_and_submits():
         "2000-01-01",
     )
     assert getattr(dialog, "closed", False)
+
+
+def test_refresh_account_list_handles_async_accounts():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+
+    # Drain the initial refresh triggered during dialog construction.
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+        {"username": "bob", "display_name": "Bob"},
+    ]
+
+    dialog._refresh_account_list()
+    _drain_background(atlas)
+
+    assert atlas.list_calls >= 1
+    assert [entry["username"] for entry in dialog._account_records] == ["alice", "bob"]
 
 
 def test_register_rejects_mismatched_passwords():
