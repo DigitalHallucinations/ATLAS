@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover - fall back gracefully when Gio is missing
 
 from GTKUI.Utils.utils import apply_css, create_box
 from modules.user_accounts.user_account_service import (
+    AccountLockedError,
     DuplicateUserError,
     InvalidCurrentPasswordError,
 )
@@ -1523,7 +1524,10 @@ class AccountDialog(Gtk.Window):
 
     def _handle_login_error(self, exc: Exception) -> bool:
         self._set_login_busy(False)
-        self.login_feedback_label.set_text(f"Login failed: {exc}")
+        if isinstance(exc, AccountLockedError):
+            self.login_feedback_label.set_text(str(exc))
+        else:
+            self.login_feedback_label.set_text(f"Login failed: {exc}")
         return False
 
     # ------------------------------------------------------------------
