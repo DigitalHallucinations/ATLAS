@@ -1772,6 +1772,12 @@ class AccountDialog(Gtk.Window):
             message = "No active account"
 
         self.status_label.set_text(message)
+        entry = getattr(self, "login_username_entry", None)
+        if entry is not None:
+            if username:
+                entry.set_text(username)
+            elif not persisted:
+                entry.set_text("")
         try:
             self.logout_button.set_sensitive(bool(persisted))
         except Exception:  # pragma: no cover - stub safety

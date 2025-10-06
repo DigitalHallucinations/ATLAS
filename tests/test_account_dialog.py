@@ -994,6 +994,26 @@ def test_account_list_populates_and_highlights_active():
     assert dialog._account_rows["bob"]["use_button"]._sensitive is True
 
 
+def test_active_user_state_updates_login_entry():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    assert dialog.login_username_entry.get_text() == ""
+
+    atlas.active_username = "carol"
+    dialog._apply_active_user_state("carol", "Carol")
+
+    assert dialog.login_username_entry.get_text() == "carol"
+
+    dialog.login_username_entry.set_text("should be cleared")
+    atlas.active_username = None
+    dialog._apply_active_user_state("", "Guest")
+
+    assert dialog.login_username_entry.get_text() == ""
+
+
 def test_use_account_triggers_activation_and_disables_forms():
     atlas = _AtlasStub()
     atlas.list_accounts_result = [
