@@ -474,6 +474,12 @@ class _AtlasForChatPage:
         self.user_display = "Guest"
         self.provider_listener = None
         self.active_listener = None
+        self.persona_context = {
+            "persona_name": "Helper",
+            "system_prompt": "",
+            "user_data": {},
+        }
+        self.chat_snapshot = {"messages": []}
 
     def add_provider_change_listener(self, listener):
         self.provider_listener = listener
@@ -495,6 +501,12 @@ class _AtlasForChatPage:
 
     def get_user_display_name(self):
         return self.user_display
+
+    def get_current_persona_context(self):
+        return dict(self.persona_context)
+
+    def get_chat_history_snapshot(self):
+        return dict(self.chat_snapshot)
 
     def get_chat_status_summary(self):
         return {}
@@ -568,9 +580,24 @@ class _AtlasStub:
         self.calls = []
         self.last_success = None
         self.last_error = None
+        self.persona_context = {
+            "persona_name": "Tester",
+            "system_prompt": "",
+            "user_data": {},
+        }
+        self.chat_snapshot = {"messages": []}
 
     def get_user_display_name(self):
         return self._user_display_name
+
+    def get_current_persona_context(self):
+        return dict(self.persona_context)
+
+    def get_chat_history_snapshot(self):
+        return dict(self.chat_snapshot)
+
+    def get_chat_status_summary(self):
+        return {}
 
     def send_chat_message_async(
         self,

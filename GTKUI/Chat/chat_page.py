@@ -9,6 +9,7 @@ It features robust error handling, nonblocking asynchronous processing via threa
 and schedules UI updates via GLib.idle_add.
 """
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -89,9 +90,15 @@ class ChatPage(Gtk.Window):
         self.export_btn.connect("clicked", self.on_export_chat)
         self.header_bar.pack_end(self.export_btn)
 
-        # Main vertical container.
-        self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.set_child(self.vbox)
+        # Main notebook container holding the chat UI and a diagnostics tab.
+        self.main_notebook = Gtk.Notebook()
+        self.main_notebook.set_hexpand(True)
+        self.main_notebook.set_vexpand(True)
+        self.set_child(self.main_notebook)
+
+        # Primary chat layout lives on the first tab so it remains immediately visible.
+        self.chat_page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.main_notebook.append_page(self.chat_page_box, Gtk.Label(label="Chat"))
 
         # Update window title with the current persona's name.
         self.update_persona_label()
@@ -108,7 +115,7 @@ class ChatPage(Gtk.Window):
         self.chat_history_scrolled.set_child(self.chat_history)
         self.chat_history_scrolled.set_hexpand(True)
         self.chat_history_scrolled.set_vexpand(True)
-        self.vbox.append(self.chat_history_scrolled)
+        self.chat_page_box.append(self.chat_history_scrolled)
 
         # Create the input area with a multiline entry, a microphone button, and a send button.
         input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -169,7 +176,7 @@ class ChatPage(Gtk.Window):
         self.send_button.connect("clicked", self.on_send_message)
         input_box.append(self.send_button)
 
-        self.vbox.append(input_box)
+        self.chat_page_box.append(input_box)
 
         # Add a status area at the bottom of the window with a busy spinner and label.
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -190,8 +197,13 @@ class ChatPage(Gtk.Window):
         self.status_label.set_tooltip_text(self._default_status_tooltip)
         status_box.append(self.status_label)
 
-        self.vbox.append(status_box)
+        self.chat_page_box.append(status_box)
         self.update_status_bar()
+
+        # Terminal-style diagnostics live on a dedicated tab with collapsible sections.
+        self._terminal_sections = {}
+        self.terminal_tab = self._build_terminal_tab()
+        self.main_notebook.append_page(self.terminal_tab, Gtk.Label(label="Terminal"))
 
         # Link provider changes to update the status bar.
         self._provider_change_handler = self.update_status_bar
@@ -212,6 +224,7 @@ class ChatPage(Gtk.Window):
             self._audio_output_dir = Path.home()
         self._export_dialog = None
 
+        self._refresh_terminal_tab()
         self.present()
 
     # --------------------------- Utilities ---------------------------
@@ -231,6 +244,149 @@ class ChatPage(Gtk.Window):
     def _set_button_icon(self, button: Gtk.Button, rel_path: str, fallback_icon_name: str):
         button.set_child(self._make_icon(rel_path, fallback_icon_name))
 
+    def _build_terminal_tab(self) -> Gtk.Widget:
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        container.set_margin_start(12)
+        container.set_margin_end(12)
+        container.set_margin_top(12)
+        container.set_margin_bottom(12)
+        container.set_hexpand(True)
+        container.set_vexpand(True)
+
+        sections = [
+            ("system_prompt", "System Prompt", True),
+            ("persona_data", "Persona Data", False),
+            ("conversation", "Conversation Messages", True),
+            ("metadata", "Additional Metadata", False),
+        ]
+
+        for key, title, expanded in sections:
+            expander = Gtk.Expander(label=title)
+            expander.set_hexpand(True)
+            expander.set_vexpand(key == "conversation")
+            expander.set_expanded(expanded)
+            expander.set_tooltip_text(f"Show {title.lower()} details")
+
+            textview = Gtk.TextView()
+            textview.set_editable(False)
+            textview.set_cursor_visible(False)
+            textview.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            textview.set_monospace(True)
+            textview.add_css_class("terminal-text")
+            textview.set_hexpand(True)
+            textview.set_vexpand(True)
+
+            buffer = textview.get_buffer()
+
+            scrolled = Gtk.ScrolledWindow()
+            scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            scrolled.set_hexpand(True)
+            scrolled.set_vexpand(True)
+            if key == "conversation":
+                scrolled.set_min_content_height(160)
+            scrolled.set_child(textview)
+
+            expander.set_child(scrolled)
+            container.append(expander)
+
+            self._terminal_sections[key] = {
+                "buffer": buffer,
+                "expander": expander,
+                "textview": textview,
+            }
+
+        return container
+
+    def _prepare_serializable(self, value):
+        if isinstance(value, dict):
+            return {str(k): self._prepare_serializable(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._prepare_serializable(v) for v in value]
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, bytes):
+            return f"<bytes:{len(value)}>"
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        return repr(value)
+
+    def _format_json(self, value) -> str:
+        if not value:
+            return "No data available."
+        serializable = self._prepare_serializable(value)
+        try:
+            return json.dumps(serializable, indent=2, ensure_ascii=False)
+        except TypeError:
+            return str(serializable)
+
+    def _format_conversation_messages(self, messages) -> str:
+        if not messages:
+            return "No conversation history recorded."
+        serializable = self._prepare_serializable(messages)
+        try:
+            return json.dumps(serializable, indent=2, ensure_ascii=False)
+        except TypeError:
+            return str(serializable)
+
+    def _update_terminal_section(self, key: str, text: str) -> None:
+        sections = self.__dict__.get("_terminal_sections") or {}
+        section = sections.get(key)
+        if not section:
+            return
+        buffer = section["buffer"]
+        buffer.set_text(text or "")
+
+    def _queue_terminal_tab_refresh(self) -> None:
+        if not self.__dict__.get("_terminal_sections"):
+            return
+        GLib.idle_add(self._refresh_terminal_tab)
+
+    def _refresh_terminal_tab(self):
+        sections = self.__dict__.get("_terminal_sections")
+        if not sections:
+            return False
+
+        try:
+            persona_context = self.ATLAS.get_current_persona_context()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.error("Failed to obtain persona context: %s", exc, exc_info=True)
+            persona_context = {}
+
+        system_prompt = (persona_context.get("system_prompt") or "").strip()
+        if not system_prompt:
+            system_prompt = "No system prompt is currently loaded."
+        self._update_terminal_section("system_prompt", system_prompt)
+
+        persona_name = persona_context.get("persona_name")
+        placeholders = persona_context.get("user_data") or {}
+        persona_payload = {
+            "persona_name": persona_name,
+            "placeholders": placeholders,
+        }
+        self._update_terminal_section("persona_data", self._format_json(persona_payload))
+
+        try:
+            history_snapshot = self.ATLAS.get_chat_history_snapshot()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.error("Failed to obtain chat history snapshot: %s", exc, exc_info=True)
+            history_snapshot = {}
+
+        messages = history_snapshot.get("messages") or []
+        self._update_terminal_section("conversation", self._format_conversation_messages(messages))
+
+        metadata_payload = {k: v for k, v in history_snapshot.items() if k != "messages"}
+        if persona_name and "persona_name" not in metadata_payload:
+            metadata_payload["persona_name"] = persona_name
+        if "status_summary" not in metadata_payload:
+            try:
+                metadata_payload["status_summary"] = self.ATLAS.get_chat_status_summary()
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                logger.error("Failed to refresh chat status summary: %s", exc, exc_info=True)
+
+        self._update_terminal_section("metadata", self._format_json(metadata_payload))
+
+        return False
+
     # --------------------------- Header helpers ---------------------------
 
     def update_persona_label(self):
@@ -248,6 +404,8 @@ class ChatPage(Gtk.Window):
             self.set_title(f"{persona_name} • {user_display}")
         else:
             self.set_title(persona_name)
+
+        self._queue_terminal_tab_refresh()
 
     def _register_active_user_listener(self) -> None:
         def _listener(username: str, display_name: str) -> None:
@@ -267,6 +425,7 @@ class ChatPage(Gtk.Window):
             self.user_title_label.set_text(f"Active user: {self._current_user_display_name}")
         self.update_persona_label()
         self.update_status_bar()
+        self._queue_terminal_tab_refresh()
         return False
 
     # --------------------------- Actions ---------------------------
@@ -300,6 +459,7 @@ class ChatPage(Gtk.Window):
                     audio=normalized.get("audio"),
                 )
                 self._on_response_complete()
+                self._refresh_terminal_tab()
                 return False
 
             GLib.idle_add(update)
@@ -311,6 +471,7 @@ class ChatPage(Gtk.Window):
             def update():
                 self.add_message_bubble(display_name, f"Error: {exc}", audio=None)
                 self._on_response_complete()
+                self._refresh_terminal_tab()
                 return False
 
             GLib.idle_add(update)
@@ -673,6 +834,8 @@ class ChatPage(Gtk.Window):
             GLib.timeout_add_seconds(
                 2, lambda: (self.update_status_bar(status_summary) or False)
             )
+
+        self._queue_terminal_tab_refresh()
 
     def on_export_chat(self, _btn):
         """Launch a modal dialog that lets the user export the chat history."""

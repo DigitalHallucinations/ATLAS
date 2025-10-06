@@ -521,6 +521,31 @@ class ATLAS:
                 return persona.get("system_prompt")
             return None
 
+    def get_current_persona_context(self) -> Dict[str, Any]:
+        """Expose the active persona's context and substitution payload."""
+
+        manager = self._require_persona_manager()
+        getter = getattr(manager, "get_current_persona_context", None)
+        if callable(getter):
+            try:
+                raw_context = getter()
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                self.logger.error("Failed to obtain persona context: %s", exc, exc_info=True)
+                raw_context = {}
+            context = dict(raw_context or {})
+        else:
+            context = {}
+
+        context.setdefault("persona_name", self.get_active_persona_name())
+        prompt = context.get("system_prompt")
+        if not prompt:
+            context["system_prompt"] = self.get_current_persona_prompt() or ""
+
+        user_data = context.get("user_data") or context.get("substitutions")
+        context["user_data"] = dict(user_data or {})
+        context.setdefault("persona", getattr(manager, "current_persona", None))
+        return context
+
     def get_persona_editor_state(self, persona_name: str) -> Optional[Dict[str, Any]]:
         """Fetch the structured editor state for the requested persona."""
 
@@ -588,6 +613,38 @@ class ATLAS:
             raise RuntimeError("Chat session is not initialized.")
 
         return session
+
+    def get_chat_history_snapshot(self) -> Dict[str, Any]:
+        """Return a snapshot of the active chat session for diagnostics."""
+
+        session = self._require_chat_session()
+        try:
+            messages = session.get_history()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.error("Failed to read chat history: %s", exc, exc_info=True)
+            messages = []
+
+        snapshot: Dict[str, Any] = {"messages": messages}
+
+        get_conversation_id = getattr(session, "get_conversation_id", None)
+        if callable(get_conversation_id):
+            try:
+                snapshot["conversation_id"] = get_conversation_id()
+            except Exception:  # pragma: no cover - defensive logging only
+                snapshot["conversation_id"] = getattr(session, "conversation_id", None)
+        else:
+            snapshot["conversation_id"] = getattr(session, "conversation_id", None)
+
+        snapshot["current_provider"] = getattr(session, "current_provider", None)
+        snapshot["current_model"] = getattr(session, "current_model", None)
+        snapshot["persona_prompt"] = getattr(session, "current_persona_prompt", None)
+
+        try:
+            snapshot["status_summary"] = self.get_chat_status_summary()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.error("Failed to compute chat status summary: %s", exc, exc_info=True)
+
+        return snapshot
 
     def reset_chat_history(self) -> Dict[str, Any]:
         """Reset the active chat session and provide a normalized payload for the UI."""
