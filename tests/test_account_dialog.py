@@ -348,6 +348,43 @@ def test_register_user_validation():
     assert all(state is True for state in enabled_states), enabled_states
 
 
+def test_edit_form_disabled_when_busy():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    toggle_widgets = []
+    for entry in (
+        dialog.edit_current_password_entry,
+        dialog.edit_password_entry,
+        dialog.edit_confirm_entry,
+    ):
+        toggle_widgets.extend(dialog._password_toggle_buttons_by_entry.get(entry, []))
+
+    widgets = [
+        dialog.edit_save_button,
+        dialog.edit_username_entry,
+        dialog.edit_email_entry,
+        dialog.edit_current_password_entry,
+        dialog.edit_password_entry,
+        dialog.edit_confirm_entry,
+        dialog.edit_name_entry,
+        dialog.edit_dob_entry,
+        *toggle_widgets,
+    ]
+
+    dialog._set_edit_busy(True, "Processing…")
+
+    disabled_states = [_is_sensitive(widget) for widget in widgets]
+    assert all(state is False for state in disabled_states), disabled_states
+
+    dialog._set_edit_busy(False)
+
+    enabled_states = [_is_sensitive(widget) for widget in widgets]
+    assert all(state is True for state in enabled_states), enabled_states
+
+
 def test_login_failure_displays_error():
     atlas = _AtlasStub()
     atlas.login_result = False
@@ -933,7 +970,7 @@ def test_delete_account_manual_dialog_requires_confirmation(monkeypatch):
     assert atlas.delete_called == "alice"
 
 
-def test_edit_account_prefills_and_updates():
+def test_edit_account_updates_fields():
     atlas = _AtlasStub()
     atlas.list_accounts_result = [
         {
