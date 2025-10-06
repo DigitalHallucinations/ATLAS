@@ -1,5 +1,7 @@
 # UI/Chat/chat_page.py
 
+from __future__ import annotations
+
 """
 This module implements the ChatPage window, which displays the conversation
 history, an input field, a microphone button for speech-to-text, and a send button.
@@ -20,8 +22,10 @@ import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib
 import logging
+from logging.handlers import RotatingFileHandler
 
 from GTKUI.Utils.utils import apply_css
+from GTKUI.Utils.logging import GTKUILogHandler, read_recent_log_lines
 
 # Configure logging for the chat page.
 logger = logging.getLogger(__name__)
@@ -234,13 +238,14 @@ class ChatPage(Gtk.Window):
 
         self.terminal_content_box.append(self.thinking_expander)
 
-        # --- Debug tab placeholder ---
-        self.debug_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.debug_tab_box.set_hexpand(True)
-        self.debug_tab_box.set_vexpand(True)
-        debug_label = Gtk.Label(label="Debug")
-        debug_label.add_css_class("caption")
-        self.notebook.append_page(self.debug_tab_box, debug_label)
+        # --- Debug tab with live logging ---
+        self._debug_log_handler: Optional[GTKUILogHandler] = None
+        self._debug_loggers_attached: List[logging.Logger] = []
+        self._debug_handler_name = f"chat-debug-{id(self)}"
+        self._debug_log_path: Optional[Path] = None
+        self._debug_controls_updating = False
+        self._debug_log_config = self._resolve_debug_log_config()
+        self._build_debug_tab()
 
         self.vbox.append(self.notebook)
         self._persona_change_handler = None
@@ -287,6 +292,7 @@ class ChatPage(Gtk.Window):
             logger.warning("Unable to create audio output directory: %s", exc)
             self._audio_output_dir = Path.home()
         self._export_dialog = None
+        self._initialize_debug_logging()
 
         self.present()
 
@@ -465,6 +471,377 @@ class ChatPage(Gtk.Window):
 
         metadata_text = "\n".join(metadata_lines)
         self._set_terminal_section_text("metadata", metadata_text)
+
+    # --------------------------- Debug tab helpers ---------------------------
+
+    def _resolve_debug_log_config(self) -> Dict[str, object]:
+        defaults: Dict[str, object] = {
+            "level": logging.INFO,
+            "max_lines": 2000,
+            "initial_lines": 400,
+            "logger_names": [],
+            "format": None,
+        }
+
+        manager = getattr(self.ATLAS, "config_manager", None)
+        if manager is None:
+            return defaults
+
+        def _extract_int(value, fallback):
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float):
+                return int(value)
+            if isinstance(value, str):
+                try:
+                    return int(value.strip())
+                except ValueError:
+                    return fallback
+            return fallback
+
+        try:
+            level_value = manager.get_config("UI_DEBUG_LOG_LEVEL")
+        except Exception:
+            level_value = None
+        if isinstance(level_value, str):
+            candidate = getattr(logging, level_value.upper(), None)
+            if isinstance(candidate, int):
+                defaults["level"] = candidate
+        elif isinstance(level_value, int):
+            defaults["level"] = level_value
+
+        try:
+            max_lines_value = manager.get_config("UI_DEBUG_LOG_MAX_LINES")
+        except Exception:
+            max_lines_value = None
+        defaults["max_lines"] = max(100, _extract_int(max_lines_value, defaults["max_lines"]))
+
+        try:
+            initial_lines_value = manager.get_config("UI_DEBUG_LOG_INITIAL_LINES")
+        except Exception:
+            initial_lines_value = None
+        defaults["initial_lines"] = max(0, _extract_int(initial_lines_value, defaults["initial_lines"]))
+
+        try:
+            logger_names_value = manager.get_config("UI_DEBUG_LOGGERS")
+        except Exception:
+            logger_names_value = None
+        logger_names: List[str] = []
+        if isinstance(logger_names_value, str):
+            for part in logger_names_value.split(","):
+                sanitized = part.strip()
+                if sanitized:
+                    logger_names.append(sanitized)
+        elif isinstance(logger_names_value, (list, tuple, set)):
+            for entry in logger_names_value:
+                sanitized = str(entry).strip()
+                if sanitized:
+                    logger_names.append(sanitized)
+        defaults["logger_names"] = logger_names
+
+        try:
+            format_value = manager.get_config("UI_DEBUG_LOG_FORMAT")
+        except Exception:
+            format_value = None
+        if isinstance(format_value, str) and format_value.strip():
+            defaults["format"] = format_value.strip()
+
+        return defaults
+
+    def _build_debug_tab(self) -> None:
+        self.debug_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.debug_tab_box.set_hexpand(True)
+        self.debug_tab_box.set_vexpand(True)
+        self.debug_tab_box.set_margin_top(6)
+        self.debug_tab_box.set_margin_bottom(6)
+        self.debug_tab_box.set_margin_start(6)
+        self.debug_tab_box.set_margin_end(6)
+
+        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        controls.set_margin_bottom(4)
+        self.debug_tab_box.append(controls)
+
+        self.debug_clear_btn = Gtk.Button(label="Clear")
+        self.debug_clear_btn.add_css_class("flat")
+        self.debug_clear_btn.set_tooltip_text("Clear debug log output")
+        self.debug_clear_btn.connect("clicked", self._on_debug_clear_clicked)
+        controls.append(self.debug_clear_btn)
+
+        self.debug_pause_btn = Gtk.ToggleButton(label="Pause")
+        self.debug_pause_btn.add_css_class("flat")
+        self.debug_pause_btn.set_tooltip_text("Temporarily pause live log updates")
+        self.debug_pause_btn.connect("toggled", self._on_debug_pause_toggled)
+        controls.append(self.debug_pause_btn)
+
+        controls.append(self._spacer())
+
+        level_label = Gtk.Label(label="Level:")
+        level_label.add_css_class("caption")
+        level_label.set_halign(Gtk.Align.END)
+        controls.append(level_label)
+
+        self._debug_level_options = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        self.debug_level_combo = Gtk.ComboBoxText()
+        for option in self._debug_level_options:
+            self.debug_level_combo.append_text(option)
+        self.debug_level_combo.set_tooltip_text("Adjust the minimum log level shown")
+        self.debug_level_combo.connect("changed", self._on_debug_level_changed)
+        controls.append(self.debug_level_combo)
+
+        retention_label = Gtk.Label(label="Max lines:")
+        retention_label.add_css_class("caption")
+        retention_label.set_halign(Gtk.Align.END)
+        controls.append(retention_label)
+
+        max_lines = int(self._debug_log_config.get("max_lines", 2000))
+        adjustment = Gtk.Adjustment(
+            value=float(max_lines),
+            lower=100.0,
+            upper=50000.0,
+            step_increment=100.0,
+            page_increment=500.0,
+        )
+        self.debug_retention_spin = Gtk.SpinButton()
+        self.debug_retention_spin.set_adjustment(adjustment)
+        self.debug_retention_spin.set_digits(0)
+        self.debug_retention_spin.set_width_chars(5)
+        self.debug_retention_spin.set_tooltip_text("Maximum number of log lines retained in the buffer")
+        self.debug_retention_spin.connect("value-changed", self._on_debug_retention_changed)
+        controls.append(self.debug_retention_spin)
+
+        self.debug_log_buffer = Gtk.TextBuffer()
+        self.debug_log_view = Gtk.TextView.new_with_buffer(self.debug_log_buffer)
+        self.debug_log_view.set_editable(False)
+        self.debug_log_view.set_cursor_visible(False)
+        self.debug_log_view.set_wrap_mode(Gtk.WrapMode.NONE)
+        if hasattr(self.debug_log_view, "set_monospace"):
+            self.debug_log_view.set_monospace(True)
+        self.debug_log_view.add_css_class("monospace")
+        self.debug_log_view.set_hexpand(True)
+        self.debug_log_view.set_vexpand(True)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+        scrolled.set_child(self.debug_log_view)
+        self.debug_tab_box.append(scrolled)
+
+        debug_label = Gtk.Label(label="Debug")
+        debug_label.add_css_class("caption")
+        self.notebook.append_page(self.debug_tab_box, debug_label)
+
+    def _initialize_debug_logging(self) -> None:
+        self._load_initial_debug_logs()
+        self._attach_debug_log_handler()
+        self._update_debug_controls()
+
+    def _load_initial_debug_logs(self) -> None:
+        buffer = getattr(self, "debug_log_buffer", None)
+        if buffer is None:
+            return
+
+        path = self._resolve_active_log_path()
+        if path is not None:
+            self._debug_log_path = path
+        limit = int(self._debug_log_config.get("initial_lines") or 0)
+        if limit <= 0:
+            limit = int(self._debug_log_config.get("max_lines", 2000))
+
+        if path is None or not path.exists():
+            buffer.set_text("")
+        else:
+            buffer.set_text(read_recent_log_lines(path, limit) or "")
+        self._scroll_debug_log_to_end()
+
+    def _resolve_active_log_path(self) -> Optional[Path]:
+        atlas_logger = getattr(self.ATLAS, "logger", None)
+        if isinstance(atlas_logger, logging.Logger):
+            for handler in getattr(atlas_logger, "handlers", []):
+                if isinstance(handler, RotatingFileHandler):
+                    base = getattr(handler, "baseFilename", None)
+                    if base:
+                        return Path(base)
+            for handler in getattr(atlas_logger, "handlers", []):
+                base = getattr(handler, "baseFilename", None)
+                if base:
+                    return Path(base)
+
+        manager = getattr(self.ATLAS, "config_manager", None)
+        if manager is None:
+            return None
+
+        try:
+            configured = manager.get_config("UI_DEBUG_LOG_FILE")
+        except Exception:
+            configured = None
+
+        try:
+            app_root = manager.get_config("APP_ROOT")
+        except Exception:
+            app_root = None
+
+        if configured:
+            base_path = Path(app_root or Path.cwd()) / "logs" / str(configured)
+            return base_path
+
+        if app_root:
+            candidate = Path(app_root) / "logs" / "CSSLM.log"
+            return candidate
+
+        return None
+
+    def _resolve_log_formatter(self) -> logging.Formatter:
+        atlas_logger = getattr(self.ATLAS, "logger", None)
+        if isinstance(atlas_logger, logging.Logger):
+            for handler in getattr(atlas_logger, "handlers", []):
+                formatter = getattr(handler, "formatter", None)
+                if formatter is not None:
+                    return formatter
+
+        fmt = self._debug_log_config.get("format") or "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        return logging.Formatter(fmt)
+
+    def _attach_debug_log_handler(self) -> None:
+        buffer = getattr(self, "debug_log_buffer", None)
+        if buffer is None:
+            return
+
+        self._detach_debug_log_handler()
+
+        handler = GTKUILogHandler(
+            buffer,
+            text_view=getattr(self, "debug_log_view", None),
+            max_lines=int(self._debug_log_config.get("max_lines", 2000)),
+        )
+        handler.set_name(self._debug_handler_name)
+        handler.setLevel(int(self._debug_log_config.get("level", logging.INFO)))
+        handler.setFormatter(self._resolve_log_formatter())
+
+        logger_candidates: List[logging.Logger] = []
+        atlas_logger = getattr(self.ATLAS, "logger", None)
+        if isinstance(atlas_logger, logging.Logger):
+            logger_candidates.append(atlas_logger)
+
+        extra_logger_names = self._debug_log_config.get("logger_names") or []
+        for name in extra_logger_names:
+            try:
+                candidate = logging.getLogger(name)
+            except Exception:
+                continue
+            if isinstance(candidate, logging.Logger):
+                logger_candidates.append(candidate)
+
+        attached: List[logging.Logger] = []
+        seen_ids = set()
+        for logger_obj in logger_candidates:
+            if id(logger_obj) in seen_ids:
+                continue
+            seen_ids.add(id(logger_obj))
+            duplicate = False
+            for existing in getattr(logger_obj, "handlers", []):
+                if existing.get_name() == handler.get_name():
+                    duplicate = True
+                    break
+            if duplicate:
+                continue
+            logger_obj.addHandler(handler)
+            attached.append(logger_obj)
+
+        if attached:
+            self._debug_log_handler = handler
+            self._debug_loggers_attached = attached
+        else:
+            handler.close()
+
+    def _detach_debug_log_handler(self) -> None:
+        handler = self._debug_log_handler
+        if handler is None:
+            return
+
+        for logger_obj in list(self._debug_loggers_attached):
+            try:
+                logger_obj.removeHandler(handler)
+            except ValueError:
+                pass
+        handler.close()
+        self._debug_loggers_attached = []
+        self._debug_log_handler = None
+
+    def _update_debug_controls(self) -> None:
+        if not hasattr(self, "debug_level_combo"):
+            return
+
+        self._debug_controls_updating = True
+        try:
+            handler = self._debug_log_handler
+            current_level = int(self._debug_log_config.get("level", logging.INFO))
+            if handler is not None:
+                current_level = handler.level
+            level_name = logging.getLevelName(current_level)
+            if isinstance(level_name, int):
+                level_name = logging.getLevelName(logging.INFO)
+            level_name = str(level_name)
+            try:
+                index = self._debug_level_options.index(level_name)
+            except ValueError:
+                index = self._debug_level_options.index("INFO")
+            self.debug_level_combo.set_active(index)
+
+            paused = handler.paused if handler is not None else False
+            self.debug_pause_btn.set_active(paused)
+            self.debug_pause_btn.set_label("Resume" if paused else "Pause")
+
+            max_lines = int(self._debug_log_config.get("max_lines", 2000))
+            if handler is not None:
+                max_lines = handler.max_lines
+            self.debug_retention_spin.set_value(float(max_lines))
+        finally:
+            self._debug_controls_updating = False
+
+    def _scroll_debug_log_to_end(self) -> None:
+        view = getattr(self, "debug_log_view", None)
+        buffer = getattr(self, "debug_log_buffer", None)
+        if view is None or buffer is None:
+            return
+        end_iter = buffer.get_end_iter()
+        view.scroll_to_iter(end_iter, 0.0, False, 0.0, 1.0)
+
+    def _on_debug_clear_clicked(self, *_args):
+        if self._debug_log_handler is not None:
+            self._debug_log_handler.clear()
+        elif hasattr(self, "debug_log_buffer"):
+            self.debug_log_buffer.set_text("")
+
+    def _on_debug_pause_toggled(self, button: Gtk.ToggleButton):
+        if self._debug_log_handler is None:
+            button.set_active(False)
+            return
+        paused = button.get_active()
+        self._debug_log_handler.set_paused(paused)
+        self._debug_pause_btn.set_label("Resume" if paused else "Pause")
+
+    def _on_debug_level_changed(self, combo: Gtk.ComboBoxText):
+        if self._debug_controls_updating:
+            return
+        index = combo.get_active()
+        if index < 0:
+            text = combo.get_active_text()
+            level_name = text or "INFO"
+        else:
+            level_name = self._debug_level_options[min(index, len(self._debug_level_options) - 1)]
+        level_value = getattr(logging, level_name, logging.INFO)
+        self._debug_log_config["level"] = level_value
+        if self._debug_log_handler is not None:
+            self._debug_log_handler.setLevel(level_value)
+
+    def _on_debug_retention_changed(self, spin: Gtk.SpinButton):
+        if self._debug_controls_updating:
+            return
+        value = spin.get_value_as_int()
+        self._debug_log_config["max_lines"] = value
+        if self._debug_log_handler is not None:
+            self._debug_log_handler.set_max_lines(value)
 
     def _format_conversation_history(self, history: List[Dict[str, object]]) -> str:
         if not history:
@@ -1069,6 +1446,7 @@ class ChatPage(Gtk.Window):
     def _on_close_request(self, *_args):
         """Unregister provider change listeners before the window closes."""
 
+        self._detach_debug_log_handler()
         self.ATLAS.remove_provider_change_listener(self._provider_change_handler)
         if self._active_user_listener is not None:
             self.ATLAS.remove_active_user_change_listener(self._active_user_listener)
