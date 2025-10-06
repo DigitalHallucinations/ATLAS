@@ -474,7 +474,12 @@ class AnthropicGenerator:
             response = await self._create_message_with_retry(message_params)
             if self.function_calling_enabled:
                 return self.process_function_call(response)
-            return self._extract_text_content(response.content)
+            text_content, thinking_content = self._extract_text_and_thinking_content(
+                getattr(response, "content", None) or []
+            )
+            if thinking_content:
+                return {"text": text_content, "thinking": thinking_content}
+            return text_content
 
         except asyncio.TimeoutError:
             self.logger.error(f"Request timed out after {self.timeout} seconds")
@@ -632,13 +637,27 @@ class AnthropicGenerator:
         event_type = getattr(event, "type", None)
 
         if event_type == "content_block_delta":
-            delta = getattr(event, "delta", None)
-            if delta and getattr(delta, "type", None) == "text_delta":
-                text = getattr(delta, "text", "")
-                if text:
-                    yield text
+            delta = getattr(event, "delta", None) or (
+                event.get("delta") if isinstance(event, dict) else None
+            )
+            if not delta:
+                return
+            delta_type = getattr(delta, "type", None) or (
+                delta.get("type") if isinstance(delta, dict) else None
+            )
+            text_value = getattr(delta, "text", None)
+            if text_value is None and isinstance(delta, dict):
+                text_value = delta.get("text")
+            if not text_value:
+                return
+            if delta_type == "text_delta":
+                yield text_value
+            elif delta_type == "thinking_delta":
+                yield {"__thinking_delta__": text_value}
         elif event_type == "content_block_start":
-            block = getattr(event, "content_block", None)
+            block = getattr(event, "content_block", None) or (
+                event.get("content_block") if isinstance(event, dict) else None
+            )
             if block is None:
                 return
             block_type = getattr(block, "type", None)
@@ -657,18 +676,36 @@ class AnthropicGenerator:
                     }
                 }
                 yield tool_payload
+            elif block_type == "thinking":
+                text_value = getattr(block, "text", None)
+                if text_value is None and isinstance(block, dict):
+                    text_value = block.get("text")
+                if text_value:
+                    yield {"__thinking_delta__": text_value}
 
     def _extract_text_content(self, content_blocks: List[Any]) -> str:
-        collected_text: List[str] = []
+        text, _ = self._extract_text_and_thinking_content(content_blocks)
+        return text
+
+    def _extract_text_and_thinking_content(
+        self, content_blocks: List[Any]
+    ) -> Tuple[str, str]:
+        text_segments: List[str] = []
+        thinking_segments: List[str] = []
         for block in content_blocks or []:
-            block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
-            if block_type == "text":
-                text = getattr(block, "text", None)
-                if text is None and isinstance(block, dict):
-                    text = block.get("text")
-                if text:
-                    collected_text.append(text)
-        return "".join(collected_text)
+            block_type = getattr(block, "type", None) or (
+                block.get("type") if isinstance(block, dict) else None
+            )
+            text_value = getattr(block, "text", None)
+            if text_value is None and isinstance(block, dict):
+                text_value = block.get("text")
+            if not text_value:
+                continue
+            if block_type == "thinking":
+                thinking_segments.append(text_value)
+            elif block_type == "text":
+                text_segments.append(text_value)
+        return "".join(text_segments), "".join(thinking_segments)
 
     async def process_response(
         self, response: Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]
@@ -684,20 +721,60 @@ class AnthropicGenerator:
             return response
 
         collected_text: List[str] = []
+        thinking_segments: List[str] = []
         async for chunk in response:
             if isinstance(chunk, str):
                 collected_text.append(chunk)
                 continue
 
             if isinstance(chunk, dict):
+                if "function_call" in chunk:
+                    if thinking_segments or collected_text:
+                        text_payload = "".join(collected_text)
+                        thinking_payload = "".join(thinking_segments)
+                        if thinking_payload:
+                            enriched = dict(chunk)
+                            if text_payload and "text" not in enriched:
+                                enriched["text"] = text_payload
+                            enriched["thinking"] = thinking_payload
+                            return enriched
+                    return chunk
+                thinking_delta = chunk.get("__thinking_delta__")
+                if thinking_delta:
+                    thinking_segments.append(str(thinking_delta))
+                    continue
                 return chunk
 
             if isinstance(chunk, Mapping):
-                return dict(chunk)
+                if "function_call" in chunk:
+                    enriched = dict(chunk)
+                    thinking_payload = "".join(thinking_segments)
+                    if thinking_payload:
+                        if collected_text and "text" not in enriched:
+                            enriched["text"] = "".join(collected_text)
+                        enriched["thinking"] = thinking_payload
+                    return enriched
+                thinking_delta = chunk.get("__thinking_delta__")
+                if thinking_delta:
+                    thinking_segments.append(str(thinking_delta))
+                    continue
+                enriched = dict(chunk)
+                if thinking_segments:
+                    enriched["thinking"] = "".join(thinking_segments)
+                if collected_text and "text" not in enriched:
+                    enriched["text"] = "".join(collected_text)
+                return enriched
 
             return chunk  # type: ignore[return-value]
 
-        return "".join(collected_text)
+        aggregated_text = "".join(collected_text)
+        aggregated_thinking = "".join(thinking_segments)
+        if aggregated_thinking:
+            return {
+                "text": aggregated_text,
+                "thinking": aggregated_thinking,
+            }
+        return aggregated_text
 
     def process_function_call(self, response):
         content_blocks = getattr(response, "content", None) or []
@@ -718,7 +795,11 @@ class AnthropicGenerator:
                     }
                 }
 
-        text_content = self._extract_text_content(content_blocks)
+        text_content, thinking_content = self._extract_text_and_thinking_content(
+            content_blocks
+        )
+        if thinking_content:
+            return {"text": text_content, "thinking": thinking_content}
         if text_content:
             return text_content
         return ""

@@ -193,6 +193,40 @@ class ChatPage(Gtk.Window):
         terminal_label.add_css_class("caption")
         self.notebook.append_page(self.terminal_tab_box, terminal_label)
 
+        self.terminal_content_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=6
+        )
+        self.terminal_content_box.set_margin_top(12)
+        self.terminal_content_box.set_margin_bottom(12)
+        self.terminal_content_box.set_margin_start(12)
+        self.terminal_content_box.set_margin_end(12)
+        self.terminal_content_box.set_hexpand(True)
+        self.terminal_content_box.set_vexpand(False)
+        self.terminal_tab_box.append(self.terminal_content_box)
+
+        self.terminal_placeholder_label = Gtk.Label(
+            label="No assistant thinking output available."
+        )
+        self.terminal_placeholder_label.set_halign(Gtk.Align.START)
+        self.terminal_placeholder_label.set_valign(Gtk.Align.START)
+        self.terminal_placeholder_label.add_css_class("dim-label")
+        self.terminal_content_box.append(self.terminal_placeholder_label)
+
+        self.thinking_expander = Gtk.Expander(label="Thinking")
+        self.thinking_expander.set_hexpand(True)
+        self.thinking_expander.set_visible(False)
+        self.thinking_expander.set_expanded(False)
+
+        self.thinking_label = Gtk.Label()
+        self.thinking_label.set_wrap(True)
+        self.thinking_label.set_xalign(0.0)
+        self.thinking_label.set_halign(Gtk.Align.START)
+        self.thinking_label.set_valign(Gtk.Align.START)
+        self.thinking_label.add_css_class("monospace")
+        self.thinking_expander.set_child(self.thinking_label)
+
+        self.terminal_content_box.append(self.thinking_expander)
+
         # --- Debug tab placeholder ---
         self.debug_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.debug_tab_box.set_hexpand(True)
@@ -330,6 +364,7 @@ class ChatPage(Gtk.Window):
                     display_name,
                     normalized["text"],
                     audio=normalized.get("audio"),
+                    thinking=normalized.get("thinking"),
                 )
                 self._on_response_complete()
                 return False
@@ -341,7 +376,12 @@ class ChatPage(Gtk.Window):
             logger.error(f"Error retrieving model response: {exc}")
 
             def update():
-                self.add_message_bubble(display_name, f"Error: {exc}", audio=None)
+                self.add_message_bubble(
+                    display_name,
+                    f"Error: {exc}",
+                    audio=None,
+                    thinking=None,
+                )
                 self._on_response_complete()
                 return False
 
@@ -471,7 +511,7 @@ class ChatPage(Gtk.Window):
         else:
             self.status_spinner.stop()
 
-    def add_message_bubble(self, sender, message, is_user=False, audio=None):
+    def add_message_bubble(self, sender, message, is_user=False, audio=None, thinking=None):
         """
         Adds a message bubble to the conversation history area.
 
@@ -531,8 +571,33 @@ class ChatPage(Gtk.Window):
         bubble.append(bubble_box)
         self.chat_history.append(bubble)
 
+        if not is_user:
+            self._update_terminal_thinking(thinking)
+
         # Schedule scrolling to the bottom after a short delay.
         GLib.timeout_add(100, self.scroll_to_bottom)
+
+    def _update_terminal_thinking(self, thinking: Optional[str]) -> None:
+        expander = getattr(self, "thinking_expander", None)
+        label = getattr(self, "thinking_label", None)
+        placeholder = getattr(self, "terminal_placeholder_label", None)
+
+        if expander is None or label is None:
+            return
+
+        has_thinking = thinking is not None and thinking != ""
+        if has_thinking:
+            label.set_text(str(thinking))
+            expander.set_visible(True)
+            if hasattr(expander, "set_expanded"):
+                expander.set_expanded(False)
+            if placeholder is not None:
+                placeholder.set_visible(False)
+        else:
+            label.set_text("")
+            expander.set_visible(False)
+            if placeholder is not None:
+                placeholder.set_visible(True)
 
     def _set_busy_state(self, busy: bool):
         self.awaiting_response = busy
@@ -598,7 +663,10 @@ class ChatPage(Gtk.Window):
                     "voice": payload.get("audio_voice"),
                     "id": payload.get("audio_id"),
                 }
-            return {"text": text, "audio": audio_payload}
+            normalized = {"text": text, "audio": audio_payload}
+            if payload.get("thinking") is not None:
+                normalized["thinking"] = str(payload.get("thinking") or "")
+            return normalized
 
         return {"text": str(payload or ""), "audio": None}
 
