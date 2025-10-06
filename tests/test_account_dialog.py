@@ -17,6 +17,28 @@ from modules.user_accounts.user_account_service import (
 from tests.test_chat_async_helper import make_alert_dialog_future
 
 
+class _FakeFuture:
+    def __init__(self) -> None:
+        self._cancelled = False
+        self._done = False
+
+    def cancel(self) -> bool:
+        if self._done:
+            return False
+        self._cancelled = True
+        self._done = True
+        return True
+
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+    def done(self) -> bool:
+        return self._done
+
+    def mark_done(self) -> None:
+        self._done = True
+
+
 class _AtlasStub:
     def __init__(self):
         self.logger = SimpleNamespace(error=lambda *args, **kwargs: None)
@@ -26,6 +48,7 @@ class _AtlasStub:
         self.last_success = None
         self.last_error = None
         self.last_thread_name = None
+        self.last_future: Optional[_FakeFuture] = None
         self.login_result = True
         self.login_error = None
         self.register_result = {"username": "new-user"}
@@ -92,7 +115,9 @@ class _AtlasStub:
         self.last_success = on_success
         self.last_error = on_error
         self.last_thread_name = thread_name
-        return SimpleNamespace()
+        future = _FakeFuture()
+        self.last_future = future
+        return future
 
     async def login_user_account(self, username, password):
         self.login_called = (username, password)
@@ -184,6 +209,8 @@ def _drain_background(atlas: _AtlasStub):
     assert atlas.last_factory is not None
     factory = atlas.last_factory
     atlas.last_factory = None
+    future = atlas.last_future
+    atlas.last_future = None
     try:
         result_or_coro = factory()
         if asyncio.iscoroutine(result_or_coro):
@@ -191,10 +218,14 @@ def _drain_background(atlas: _AtlasStub):
         else:
             result = result_or_coro
     except Exception as exc:  # noqa: BLE001 - mimic background worker behaviour
+        if future is not None:
+            future.mark_done()
         if atlas.last_error is not None:
             atlas.last_error(exc)
         return None
 
+    if future is not None:
+        future.mark_done()
     if atlas.last_success is not None:
         atlas.last_success(result)
     return result
@@ -1287,6 +1318,50 @@ def test_account_search_filters_rows():
     _drain_background(atlas)
 
     assert set(dialog._visible_usernames) == {"alice", "bob", "carol"}
+
+
+def test_rapid_account_search_only_uses_latest_result():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "initial", "display_name": "Initial"},
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    initial_records = list(dialog._account_records)
+
+    dialog._account_filter_text = "alpha"
+    dialog._start_account_search("alpha")
+    first_future = atlas.last_future
+    first_success = atlas.last_success
+
+    dialog._account_filter_text = "beta"
+    dialog._start_account_search("beta")
+    second_future = atlas.last_future
+
+    assert first_future is not None
+    assert first_future.cancelled()
+    assert second_future is dialog._active_account_task
+    assert dialog._active_account_request == ("search", "beta")
+
+    first_success([
+        {"username": "alpha", "display_name": "Alpha"},
+    ])
+
+    assert dialog._active_account_request == ("search", "beta")
+    assert dialog._account_records == initial_records
+
+    atlas.search_accounts_result = [
+        {"username": "beta", "display_name": "Beta"},
+    ]
+
+    _drain_background(atlas)
+
+    assert atlas.search_calls[-1] == "beta"
+    assert dialog._active_account_request is None
+    assert dialog._active_account_task is None
+    assert [account["username"] for account in dialog._account_records] == ["beta"]
 
 
 def test_account_details_fetches_and_displays():
