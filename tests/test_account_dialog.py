@@ -673,6 +673,49 @@ def test_delete_account_async_confirmation_cancels(monkeypatch):
     assert atlas.last_factory is None
 
 
+def test_delete_account_manual_dialog_requires_confirmation(monkeypatch):
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+    dialog._confirm_delete_handler = None
+
+    monkeypatch.delattr(Gtk, "AlertDialog", raising=False)
+
+    confirmations: list[tuple[str, bool]] = []
+    state = {"allow": False}
+
+    def fake_fallback(self, username):
+        confirmations.append((username, state["allow"]))
+        return state["allow"]
+
+    monkeypatch.setattr(AccountDialog, "_show_fallback_delete_dialog", fake_fallback, raising=False)
+
+    delete_button = dialog._account_rows["alice"]["delete_button"]
+
+    _click(delete_button)
+
+    assert confirmations == [("alice", False)]
+    assert atlas.delete_called is None
+    assert dialog.account_feedback_label.get_text() == "Deletion cancelled."
+
+    state["allow"] = True
+
+    _click(delete_button)
+
+    assert confirmations == [("alice", False), ("alice", True)]
+    assert atlas.last_thread_name == "user-account-delete"
+    assert dialog.account_feedback_label.get_text() == "Deleting alice…"
+
+    atlas.list_accounts_result = []
+    _drain_background(atlas)
+
+    assert atlas.delete_called == "alice"
+
+
 def test_edit_account_prefills_and_updates():
     atlas = _AtlasStub()
     atlas.list_accounts_result = [
