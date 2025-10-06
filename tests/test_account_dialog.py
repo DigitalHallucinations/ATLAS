@@ -236,6 +236,24 @@ def test_register_rejects_invalid_email_client_side():
     assert getattr(dialog.register_password_entry, "_atlas_invalid", False) is False
 
 
+def test_register_rejects_invalid_username_client_side():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    dialog.register_username_entry.set_text("ab")
+    dialog.register_email_entry.set_text("user@example.com")
+    dialog.register_password_entry.set_text("Password1")
+    dialog.register_confirm_entry.set_text("Password1")
+
+    dialog._on_register_clicked(dialog.register_button)
+
+    assert atlas.last_factory is None
+    assert dialog.register_feedback_label.get_text().startswith("Username must be")
+    assert getattr(dialog.register_username_entry, "_atlas_invalid", False) is True
+
+
 def test_register_rejects_weak_password_client_side():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
@@ -255,6 +273,25 @@ def test_register_rejects_weak_password_client_side():
         == "Password must be at least 8 characters and include letters and numbers."
     )
     assert getattr(dialog.register_password_entry, "_atlas_invalid", False) is True
+
+
+def test_register_rejects_invalid_dob_client_side():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    dialog.register_username_entry.set_text("newuser")
+    dialog.register_email_entry.set_text("user@example.com")
+    dialog.register_password_entry.set_text("Password1")
+    dialog.register_confirm_entry.set_text("Password1")
+    dialog.register_dob_entry.set_text("01-01-2000")
+
+    dialog._on_register_clicked(dialog.register_button)
+
+    assert atlas.last_factory is None
+    assert dialog.register_feedback_label.get_text() == "Enter date of birth as YYYY-MM-DD."
+    assert getattr(dialog.register_dob_entry, "_atlas_invalid", False) is True
 
 
 def test_register_surfaces_backend_value_errors():
@@ -706,6 +743,29 @@ def test_edit_account_validation_blocks_submission():
 
     assert dialog.edit_feedback_label.get_text() == "Enter the new password before confirming it."
     assert getattr(dialog.edit_password_entry, "_atlas_invalid", False) is True
+
+
+def test_edit_account_rejects_invalid_profile_fields():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice", "email": "alice@example.com"}
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    edit_button = dialog._account_rows["alice"]["edit_button"]
+    _click(edit_button)
+
+    dialog.edit_name_entry.set_text("X" * 81)
+    dialog.edit_dob_entry.set_text("2030-01-01")
+
+    dialog._on_edit_save_clicked(dialog.edit_save_button)
+
+    assert atlas.last_factory is None
+    assert dialog.edit_feedback_label.get_text().startswith("Display name must be")
+    assert getattr(dialog.edit_name_entry, "_atlas_invalid", False) is True
+    assert getattr(dialog.edit_dob_entry, "_atlas_invalid", False) is True
 
 
 def test_edit_account_duplicate_email_shows_error():

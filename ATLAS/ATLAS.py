@@ -304,6 +304,7 @@ class ATLAS:
             "email": account.email,
             "name": account.name,
             "dob": account.dob,
+            "display_name": account.name or account.username,
         }
 
     async def update_user_account(
@@ -345,6 +346,7 @@ class ATLAS:
             "email": account.email,
             "name": account.name,
             "dob": account.dob,
+            "display_name": account.name or account.username,
         }
 
     async def login_user_account(self, username: str, password: str) -> bool:
