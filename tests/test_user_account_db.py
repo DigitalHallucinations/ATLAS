@@ -79,7 +79,7 @@ def test_add_user_creates_profile_files(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 
     try:
-        db.add_user('dave', 'Password123', 'dave@example.com', 'Dave', '1995-09-01')
+        db.add_user('dave', 'Password123!', 'dave@example.com', 'Dave', '1995-09-01')
 
         profile_path = Path(db.user_profiles_dir) / 'dave.json'
         emr_path = Path(db.user_profiles_dir) / 'dave_emr.txt'
@@ -176,7 +176,7 @@ def test_update_user_refreshes_profile(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 
     try:
-        db.add_user('erin', 'Password1', 'erin@example.com', 'Erin', '1991-02-03')
+        db.add_user('erin', 'Password1!', 'erin@example.com', 'Erin', '1991-02-03')
 
         profile_path = Path(db.user_profiles_dir) / 'erin.json'
         original = json.loads(profile_path.read_text(encoding='utf-8'))
@@ -196,7 +196,7 @@ def test_update_user_refreshes_profile_on_email_change(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 
     try:
-        db.add_user('frank', 'Password1', 'frank@example.com', 'Frank', '1985-06-07')
+        db.add_user('frank', 'Password1!', 'frank@example.com', 'Frank', '1985-06-07')
 
         profile_path = Path(db.user_profiles_dir) / 'frank.json'
 
@@ -214,7 +214,7 @@ def test_update_user_preserves_extra_profile_fields(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 
     try:
-        db.add_user('gwen', 'Password1', 'gwen@example.com', 'Gwen', '1993-04-05')
+        db.add_user('gwen', 'Password1!', 'gwen@example.com', 'Gwen', '1993-04-05')
 
         profile_path = Path(db.user_profiles_dir) / 'gwen.json'
         profile_contents = json.loads(profile_path.read_text(encoding='utf-8'))
@@ -236,9 +236,9 @@ def test_search_users_filters_by_multiple_fields(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 
     try:
-        db.add_user('alice', 'Password1', 'alice@example.com', 'Alice', '1990-01-01')
-        db.add_user('bob', 'Password1', 'bob@example.com', 'Robert', '1991-02-02')
-        db.add_user('carol', 'Password1', 'carol@example.net', 'Carol', '1992-03-03')
+        db.add_user('alice', 'Password1!', 'alice@example.com', 'Alice', '1990-01-01')
+        db.add_user('bob', 'Password1!', 'bob@example.com', 'Robert', '1991-02-02')
+        db.add_user('carol', 'Password1!', 'carol@example.net', 'Carol', '1992-03-03')
 
         results = db.search_users('ali')
         assert [row[1] for row in results] == ['alice']
@@ -262,7 +262,7 @@ def test_get_user_details_returns_mapping(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 
     try:
-        db.add_user('dave', 'Password1', 'dave@example.com', 'Dave', '1980-05-05')
+        db.add_user('dave', 'Password1!', 'dave@example.com', 'Dave', '1980-05-05')
 
         details = db.get_user_details('dave')
         assert details == {
@@ -328,7 +328,7 @@ def test_delete_user_removes_profile_and_emr(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 
     try:
-        db.add_user('carol', 'Password1', 'carol@example.com', 'Carol', '1980-07-07')
+        db.add_user('carol', 'Password1!', 'carol@example.com', 'Carol', '1980-07-07')
 
         profile_path = Path(db.user_profiles_dir) / 'carol.json'
         emr_path = Path(db.user_profiles_dir) / 'carol_emr.txt'

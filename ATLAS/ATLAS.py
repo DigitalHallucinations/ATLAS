@@ -23,6 +23,7 @@ from ATLAS.persona_manager import PersonaManager
 from modules.Chat.chat_session import ChatHistoryExportError, ChatSession
 from modules.Speech_Services.speech_manager import SpeechManager
 from modules.background_tasks import run_async_in_thread
+from modules.user_accounts.user_account_service import PasswordRequirements
 
 class ATLAS:
     """
@@ -345,6 +346,18 @@ class ATLAS:
             "dob": account.dob,
             "display_name": account.name or account.username,
         }
+
+    def get_user_password_requirements(self) -> PasswordRequirements:
+        """Return the password policy enforced for user accounts."""
+
+        service = self._get_user_account_service()
+        return service.get_password_requirements()
+
+    def describe_user_password_requirements(self) -> str:
+        """Return a human-readable description of the password policy."""
+
+        service = self._get_user_account_service()
+        return service.describe_password_requirements()
 
     async def login_user_account(self, username: str, password: str) -> bool:
         """Validate credentials and mark the account as active."""

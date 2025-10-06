@@ -25,6 +25,7 @@ from .user_account_db import (
 
 __all__ = [
     "UserAccount",
+    "PasswordRequirements",
     "UserAccountService",
     "DuplicateUserError",
     "InvalidCurrentPasswordError",
@@ -42,6 +43,7 @@ class UserAccount:
     name: Optional[str]
     dob: Optional[str]
     last_login: Optional[str]
+
 
 
 class AccountLockedError(RuntimeError):
@@ -75,6 +77,7 @@ class UserAccountService:
     _USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
     _DOB_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
     _MAX_DISPLAY_NAME_LENGTH = 80
+    _DEFAULT_PASSWORD_REQUIREMENTS: "PasswordRequirements"
 
     def __init__(
         self,
@@ -87,6 +90,7 @@ class UserAccountService:
         self.config_manager = config_manager or ConfigManager()
         self._database = database or UserAccountDatabase()
         self._clock: Callable[[], _dt.datetime] = clock or self._default_clock
+        self._password_requirements = self._DEFAULT_PASSWORD_REQUIREMENTS
 
         self._lockout_threshold = int(
             self.config_manager.get_config("ACCOUNT_LOCKOUT_MAX_FAILURES", 5)
@@ -304,26 +308,36 @@ class UserAccountService:
         return candidate.lower()
 
     def _validate_password(self, password: str) -> str:
+        requirements = self._password_requirements
+        error_message = requirements.describe()
+
         if not isinstance(password, str):
             self.logger.error("Password must be provided as a string.")
-            raise ValueError(
-                "Password must be at least 8 characters long and include letters and numbers."
-            )
+            raise ValueError(error_message)
 
-        if len(password) < 8:
+        if requirements.forbid_whitespace and any(ch.isspace() for ch in password):
+            self.logger.error("Password contains forbidden whitespace.")
+            raise ValueError(error_message)
+
+        if len(password) < requirements.min_length:
             self.logger.error("Password failed minimum length requirement.")
-            raise ValueError(
-                "Password must be at least 8 characters long and include letters and numbers."
-            )
+            raise ValueError(error_message)
 
-        has_letter = any(char.isalpha() for char in password)
-        has_digit = any(char.isdigit() for char in password)
+        if requirements.require_lowercase and not any(ch.islower() for ch in password):
+            self.logger.error("Password missing lowercase character.")
+            raise ValueError(error_message)
 
-        if not (has_letter and has_digit):
-            self.logger.error("Password missing required character diversity.")
-            raise ValueError(
-                "Password must be at least 8 characters long and include letters and numbers."
-            )
+        if requirements.require_uppercase and not any(ch.isupper() for ch in password):
+            self.logger.error("Password missing uppercase character.")
+            raise ValueError(error_message)
+
+        if requirements.require_digit and not any(ch.isdigit() for ch in password):
+            self.logger.error("Password missing numeric character.")
+            raise ValueError(error_message)
+
+        if requirements.require_symbol and not any(not ch.isalnum() for ch in password):
+            self.logger.error("Password missing symbol character.")
+            raise ValueError(error_message)
 
         return password
 
@@ -492,6 +506,16 @@ class UserAccountService:
         self.logger.info("Updated user '%s'", normalised_username)
         return account
 
+    def get_password_requirements(self) -> PasswordRequirements:
+        """Return the password policy enforced by the service."""
+
+        return self._password_requirements
+
+    def describe_password_requirements(self) -> str:
+        """Return a human readable summary of the password policy."""
+
+        return self._password_requirements.describe()
+
     def close(self) -> None:
         """Release resources associated with the service."""
 
@@ -541,3 +565,56 @@ class UserAccountService:
         iso = now.isoformat()
         return iso.replace("+00:00", "Z")
 
+
+@dataclass(frozen=True)
+class PasswordRequirements:
+    """Describe the password policy enforced by :class:`UserAccountService`."""
+
+    min_length: int
+    require_uppercase: bool
+    require_lowercase: bool
+    require_digit: bool
+    require_symbol: bool
+    forbid_whitespace: bool
+
+    def bullet_points(self) -> list[str]:
+        """Return human readable bullet points describing the policy."""
+
+        lines: list[str] = [f"Be at least {self.min_length} characters long"]
+        if self.require_uppercase:
+            lines.append("Contain an uppercase letter")
+        if self.require_lowercase:
+            lines.append("Contain a lowercase letter")
+        if self.require_digit:
+            lines.append("Include a number")
+        if self.require_symbol:
+            lines.append("Include a symbol (e.g. !, @, #)")
+        if self.forbid_whitespace:
+            lines.append("Avoid spaces")
+        return lines
+
+    def describe(self) -> str:
+        """Return a single-sentence human readable description."""
+
+        fragments = self.bullet_points()
+        if not fragments:
+            return "Passwords must be provided."
+
+        if len(fragments) == 1:
+            return f"Passwords must {fragments[0].lower()}."
+
+        if len(fragments) == 2:
+            return f"Passwords must {fragments[0].lower()} and {fragments[1].lower()}."
+
+        requirements = ", ".join(fragment.lower() for fragment in fragments[:-1])
+        return f"Passwords must {requirements}, and {fragments[-1].lower()}."
+
+
+UserAccountService._DEFAULT_PASSWORD_REQUIREMENTS = PasswordRequirements(
+    min_length=10,
+    require_uppercase=True,
+    require_lowercase=True,
+    require_digit=True,
+    require_symbol=True,
+    forbid_whitespace=True,
+)

@@ -22,6 +22,7 @@ from modules.user_accounts.user_account_service import (
     AccountLockedError,
     DuplicateUserError,
     InvalidCurrentPasswordError,
+    PasswordRequirements,
 )
 
 
@@ -32,6 +33,7 @@ class AccountDialog(Gtk.Window):
     _USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
     _DOB_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
     _MAX_DISPLAY_NAME_LENGTH = 80
+    _STALE_ACCOUNT_THRESHOLD_DAYS = 90
 
     def __init__(self, atlas, parent: Optional[Gtk.Window] = None) -> None:
         super().__init__(title="Account Management")
@@ -49,6 +51,9 @@ class AccountDialog(Gtk.Window):
         self._details_busy = False
         self._visible_usernames: list[str] = []
         self._password_toggle_buttons: list[Gtk.Widget] = []
+        self._password_requirements: Optional[PasswordRequirements] = None
+        self._password_requirements_text: str = ""
+        self._password_requirement_labels: list[Gtk.Label] = []
 
         self.set_modal(True)
         if parent is not None:
@@ -65,6 +70,7 @@ class AccountDialog(Gtk.Window):
         context.add_class("sidebar")
 
         self._build_ui()
+        self._initialise_password_requirements()
         self._subscribe_to_active_user()
         self._refresh_account_list()
         self.connect("close-request", self._on_close_request)
@@ -137,6 +143,60 @@ class AccountDialog(Gtk.Window):
         ]
         self._forms_sensitive_widgets.extend(self._password_toggle_buttons)
         self._set_forms_busy(False)
+
+    def _default_password_requirements(self) -> PasswordRequirements:
+        return PasswordRequirements(
+            min_length=10,
+            require_uppercase=True,
+            require_lowercase=True,
+            require_digit=True,
+            require_symbol=True,
+            forbid_whitespace=True,
+        )
+
+    def _get_password_requirements(self) -> PasswordRequirements:
+        if self._password_requirements is None:
+            self._password_requirements = self._default_password_requirements()
+        return self._password_requirements
+
+    def _password_requirement_lines(self) -> list[str]:
+        requirements = self._get_password_requirements()
+        return requirements.bullet_points()
+
+    def _password_requirement_text(self) -> str:
+        lines = self._password_requirement_lines()
+        if not lines:
+            return ""
+        return "\n".join(f"• {line}" for line in lines)
+
+    def _update_password_requirement_labels(self) -> None:
+        text = self._password_requirement_text()
+        for label in self._password_requirement_labels:
+            label.set_text(text)
+
+    def _initialise_password_requirements(self) -> None:
+        requirements = self._default_password_requirements()
+        description: Optional[str] = None
+
+        getter = getattr(self.ATLAS, "get_user_password_requirements", None)
+        if callable(getter):
+            try:
+                candidate = getter()
+                if isinstance(candidate, PasswordRequirements):
+                    requirements = candidate
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.debug("Failed to fetch password requirements: %s", exc)
+
+        describer = getattr(self.ATLAS, "describe_user_password_requirements", None)
+        if callable(describer):
+            try:
+                description = str(describer()) or None
+            except Exception as exc:  # pragma: no cover - descriptive text optional
+                self.logger.debug("Failed to describe password requirements: %s", exc)
+
+        self._password_requirements = requirements
+        self._password_requirements_text = description or requirements.describe()
+        self._update_password_requirement_labels()
 
     def _build_account_section(self) -> Gtk.Widget:
         wrapper = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=0)
@@ -395,8 +455,10 @@ class AccountDialog(Gtk.Window):
             if hasattr(self.account_list_box, "children"):
                 self.account_list_box.children = []
 
+        ordered_accounts = self._sort_accounts_for_display(list(accounts))
+
         count = 0
-        for account_data in accounts:
+        for account_data in ordered_accounts:
             row = self._create_account_row(account_data)
             self.account_list_box.append(row["row"])
             username = account_data["username"]
@@ -503,6 +565,31 @@ class AccountDialog(Gtk.Window):
             return "—"
 
         return parsed.strftime("%Y-%m-%d %H:%M UTC")
+
+    @staticmethod
+    def _current_utc_time() -> _dt.datetime:
+        return _dt.datetime.now(_dt.timezone.utc)
+
+    def _determine_account_badge(self, metadata: dict[str, object]) -> str:
+        last_login_value = metadata.get("last_login") if isinstance(metadata, dict) else None
+        parsed = self._parse_last_login(last_login_value)
+        if parsed is None:
+            return "No sign-in yet"
+
+        threshold = self._current_utc_time() - _dt.timedelta(days=self._STALE_ACCOUNT_THRESHOLD_DAYS)
+        if parsed < threshold:
+            return f"Inactive {self._STALE_ACCOUNT_THRESHOLD_DAYS}+ days"
+
+        return ""
+
+    def _sort_accounts_for_display(self, accounts: list[dict[str, object]]) -> list[dict[str, object]]:
+        def _sort_key(account: dict[str, object]) -> tuple[float, str]:
+            parsed = self._parse_last_login(account.get("last_login"))
+            timestamp = parsed.timestamp() if parsed is not None else float("-inf")
+            username = str(account.get("username") or "").lower()
+            return (-timestamp, username)
+
+        return sorted(accounts, key=_sort_key)
 
     def _on_account_filter_changed(self, entry, *_args) -> None:
         text = getattr(entry, "get_text", lambda: "")()
@@ -715,6 +802,13 @@ class AccountDialog(Gtk.Window):
         last_login_label = widgets.get("last_login_label")
         if isinstance(last_login_label, Gtk.Label):
             last_login_label.set_text(self._format_last_login_for_row(metadata.get("last_login")))
+
+        badge_text = self._determine_account_badge(metadata)
+        metadata["_status_badge"] = badge_text
+
+        badge_label = widgets.get("active_label")
+        if isinstance(badge_label, Gtk.Label):
+            badge_label.set_text(badge_text)
 
     def _on_use_account_clicked(self, username: str) -> None:
         if self._account_busy:
@@ -1034,8 +1128,13 @@ class AccountDialog(Gtk.Window):
             self._set_row_active(widgets, username == active_username)
 
     def _set_row_active(self, widgets: dict[str, Gtk.Widget], active: bool) -> None:
+        metadata = widgets.get("metadata") if isinstance(widgets, dict) else {}
+        badge_text = ""
+        if isinstance(metadata, dict):
+            badge_text = str(metadata.get("_status_badge") or "")
+
         label = widgets["active_label"]
-        label.set_text("Active" if active else "")
+        label.set_text("Active" if active else badge_text)
         row = widgets["row"]
         if active:
             try:
@@ -1147,43 +1246,57 @@ class AccountDialog(Gtk.Window):
         password = entry.get_text() or ""
         label.set_text(self._describe_password_strength(password))
 
-    @staticmethod
-    def _describe_password_strength(password: str) -> str:
+    def _describe_password_strength(self, password: str) -> str:
         password = password or ""
         if not password:
             return ""
 
-        score = 0
+        requirements = self._get_password_requirements()
+
+        missing: list[str] = []
+        if requirements.forbid_whitespace and any(char.isspace() for char in password):
+            missing.append("remove spaces")
+        if requirements.require_lowercase and not any(char.islower() for char in password):
+            missing.append("add a lowercase letter")
+        if requirements.require_uppercase and not any(char.isupper() for char in password):
+            missing.append("add an uppercase letter")
+        if requirements.require_digit and not any(char.isdigit() for char in password):
+            missing.append("add a number")
+        if requirements.require_symbol and not any(not char.isalnum() for char in password):
+            missing.append("add a symbol")
+
+        if len(password) < requirements.min_length:
+            missing.append(f"use {requirements.min_length} or more characters")
+
+        if missing:
+            if len(missing) == 1:
+                return f"Weak password – {missing[0]}."
+            return "Weak password – " + ", ".join(missing[:-1]) + f", and {missing[-1]}."
 
         length = len(password)
-        if length >= 8:
-            score += 1
-        if length >= 12:
-            score += 1
+        diversity = sum(
+            1
+            for check in (
+                any(char.islower() for char in password),
+                any(char.isupper() for char in password),
+                any(char.isdigit() for char in password),
+                any(not char.isalnum() for char in password),
+            )
+            if check
+        )
 
-        has_lower = any(char.islower() for char in password)
-        has_upper = any(char.isupper() for char in password)
-        has_digit = any(char.isdigit() for char in password)
-        has_symbol = any(not char.isalnum() for char in password)
-
-        if has_lower and has_upper:
+        score = 0
+        if length >= requirements.min_length:
             score += 1
-        if has_digit:
+        if length >= requirements.min_length + 4:
             score += 1
-        if has_symbol:
-            score += 1
+        score += min(diversity, 3)
 
-        descriptions = {
-            0: "Weak password",
-            1: "Weak password",
-            2: "Fair password",
-            3: "Strong password",
-        }
-
-        if score >= 4:
+        if score >= 5:
             return "Very strong password"
-
-        return descriptions.get(score, "Strong password")
+        if score >= 4:
+            return "Strong password"
+        return "Fair password"
 
     def _build_login_form(self) -> Gtk.Widget:
         wrapper = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=0)
@@ -1273,6 +1386,18 @@ class AccountDialog(Gtk.Window):
         self.register_password_strength_label.set_xalign(0.0)
         grid.attach(self.register_password_strength_label, 1, 4, 2, 1)
 
+        self.register_password_requirements_label = Gtk.Label()
+        self.register_password_requirements_label.set_xalign(0.0)
+        try:
+            self.register_password_requirements_label.set_wrap(True)
+            justification = getattr(Gtk.Justification, "LEFT", None)
+            if justification is not None:
+                self.register_password_requirements_label.set_justify(justification)
+        except Exception:  # pragma: no cover - wrap support varies in tests
+            pass
+        grid.attach(self.register_password_requirements_label, 1, 5, 2, 1)
+        self._password_requirement_labels.append(self.register_password_requirements_label)
+
         self._configure_password_entry(
             self.register_password_entry,
             strength_label=self.register_password_strength_label,
@@ -1283,19 +1408,19 @@ class AccountDialog(Gtk.Window):
 
         name_label = Gtk.Label(label="Display name (optional)")
         name_label.set_xalign(0.0)
-        grid.attach(name_label, 0, 5, 1, 1)
+        grid.attach(name_label, 0, 6, 1, 1)
 
         self.register_name_entry = Gtk.Entry()
         self.register_name_entry.set_placeholder_text("How should we greet you?")
-        grid.attach(self.register_name_entry, 1, 5, 1, 1)
+        grid.attach(self.register_name_entry, 1, 6, 1, 1)
 
         dob_label = Gtk.Label(label="Date of birth (optional)")
         dob_label.set_xalign(0.0)
-        grid.attach(dob_label, 0, 6, 1, 1)
+        grid.attach(dob_label, 0, 7, 1, 1)
 
         self.register_dob_entry = Gtk.Entry()
         self.register_dob_entry.set_placeholder_text("YYYY-MM-DD")
-        grid.attach(self.register_dob_entry, 1, 6, 1, 1)
+        grid.attach(self.register_dob_entry, 1, 7, 1, 1)
 
         self.register_feedback_label = Gtk.Label()
         self.register_feedback_label.set_xalign(0.0)
@@ -1374,21 +1499,33 @@ class AccountDialog(Gtk.Window):
         self.edit_password_strength_label.set_xalign(0.0)
         grid.attach(self.edit_password_strength_label, 1, 5, 2, 1)
 
+        self.edit_password_requirements_label = Gtk.Label()
+        self.edit_password_requirements_label.set_xalign(0.0)
+        try:
+            self.edit_password_requirements_label.set_wrap(True)
+            justification = getattr(Gtk.Justification, "LEFT", None)
+            if justification is not None:
+                self.edit_password_requirements_label.set_justify(justification)
+        except Exception:  # pragma: no cover - wrap support varies in tests
+            pass
+        grid.attach(self.edit_password_requirements_label, 1, 6, 2, 1)
+        self._password_requirement_labels.append(self.edit_password_requirements_label)
+
         name_label = Gtk.Label(label="Display name (optional)")
         name_label.set_xalign(0.0)
-        grid.attach(name_label, 0, 6, 1, 1)
+        grid.attach(name_label, 0, 7, 1, 1)
 
         self.edit_name_entry = Gtk.Entry()
         self.edit_name_entry.set_placeholder_text("How should we greet you?")
-        grid.attach(self.edit_name_entry, 1, 6, 1, 1)
+        grid.attach(self.edit_name_entry, 1, 7, 1, 1)
 
         dob_label = Gtk.Label(label="Date of birth (optional)")
         dob_label.set_xalign(0.0)
-        grid.attach(dob_label, 0, 7, 1, 1)
+        grid.attach(dob_label, 0, 8, 1, 1)
 
         self.edit_dob_entry = Gtk.Entry()
         self.edit_dob_entry.set_placeholder_text("YYYY-MM-DD")
-        grid.attach(self.edit_dob_entry, 1, 7, 1, 1)
+        grid.attach(self.edit_dob_entry, 1, 8, 1, 1)
 
         self._configure_password_entry(
             self.edit_password_entry,
@@ -1600,14 +1737,25 @@ class AccountDialog(Gtk.Window):
         return None
 
     def _password_validation_error(self, password: str) -> Optional[str]:
-        if len(password) < 8:
-            return "Password must be at least 8 characters and include letters and numbers."
+        requirements = self._get_password_requirements()
 
-        has_letter = any(char.isalpha() for char in password)
-        has_digit = any(char.isdigit() for char in password)
+        if len(password) < requirements.min_length:
+            return f"Password must be at least {requirements.min_length} characters long."
 
-        if not (has_letter and has_digit):
-            return "Password must be at least 8 characters and include letters and numbers."
+        if requirements.forbid_whitespace and any(char.isspace() for char in password):
+            return "Password cannot contain spaces."
+
+        if requirements.require_lowercase and not any(char.islower() for char in password):
+            return "Password must include a lowercase letter."
+
+        if requirements.require_uppercase and not any(char.isupper() for char in password):
+            return "Password must include an uppercase letter."
+
+        if requirements.require_digit and not any(char.isdigit() for char in password):
+            return "Password must include a number."
+
+        if requirements.require_symbol and not any(not char.isalnum() for char in password):
+            return "Password must include a symbol such as ! or #."
 
         return None
 
