@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import threading
 from pathlib import Path
 import sys
 import types
@@ -437,6 +438,54 @@ def test_authenticate_user_lockout_expires_after_timeout(tmp_path, monkeypatch):
         assert service.authenticate_user('carol', 'nope') is False
         with pytest.raises(user_account_service.AccountLockedError):
             service.authenticate_user('carol', 'nope')
+    finally:
+        service.close()
+
+
+def test_authenticate_user_lockout_consistency_with_threads(tmp_path, monkeypatch):
+    clock = _TestClock()
+    service, _ = _create_service(
+        tmp_path,
+        monkeypatch,
+        config_overrides={
+            'ACCOUNT_LOCKOUT_MAX_FAILURES': 2,
+            'ACCOUNT_LOCKOUT_WINDOW_SECONDS': 60,
+            'ACCOUNT_LOCKOUT_DURATION_SECONDS': 90,
+        },
+        clock=clock,
+    )
+
+    try:
+        service.register_user('dave', 'Password123!', 'dave@example.com')
+
+        barrier = threading.Barrier(3)
+        results: list[bool] = []
+        lockout_errors: list[str] = []
+
+        def _attempt():
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                return
+
+            try:
+                results.append(service.authenticate_user('dave', 'wrong'))
+            except user_account_service.AccountLockedError:
+                lockout_errors.append('locked')
+
+        threads = [threading.Thread(target=_attempt) for _ in range(3)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert results.count(False) == 2
+        assert len(lockout_errors) == 1
+        assert 'dave' in service._active_lockouts
+        assert len(service._failed_attempts.get('dave', [])) == 2
+
+        with pytest.raises(user_account_service.AccountLockedError):
+            service.authenticate_user('dave', 'Password123!')
     finally:
         service.close()
 

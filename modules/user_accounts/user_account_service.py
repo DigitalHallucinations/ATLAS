@@ -10,6 +10,7 @@ UI can safely call from asynchronous code via thread executors.
 from __future__ import annotations
 
 import re
+import threading
 import datetime as _dt
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Optional
@@ -107,6 +108,7 @@ class UserAccountService:
 
         self._failed_attempts: Dict[str, List[_dt.datetime]] = {}
         self._active_lockouts: Dict[str, _dt.datetime] = {}
+        self._lockout_lock = threading.RLock()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -119,42 +121,47 @@ class UserAccountService:
         return self._clock()
 
     def _clear_failures(self, username: str) -> None:
-        self._failed_attempts.pop(username, None)
-        self._active_lockouts.pop(username, None)
+        with self._lockout_lock:
+            self._failed_attempts.pop(username, None)
+            self._active_lockouts.pop(username, None)
 
     def _prune_failures(self, username: str, now: _dt.datetime) -> None:
         if self._lockout_window_seconds <= 0:
             return
 
-        attempts = self._failed_attempts.get(username)
-        if not attempts:
-            return
+        with self._lockout_lock:
+            attempts = self._failed_attempts.get(username)
+            if not attempts:
+                return
 
-        threshold_time = now - _dt.timedelta(seconds=self._lockout_window_seconds)
-        self._failed_attempts[username] = [
-            attempt for attempt in attempts if attempt >= threshold_time
-        ]
+            threshold_time = now - _dt.timedelta(seconds=self._lockout_window_seconds)
+            self._failed_attempts[username] = [
+                attempt for attempt in attempts if attempt >= threshold_time
+            ]
 
     def _record_failure(self, username: str, now: _dt.datetime) -> None:
         if self._lockout_threshold <= 0 or self._lockout_duration_seconds <= 0:
             return
 
-        attempts = self._failed_attempts.setdefault(username, [])
-        attempts.append(now)
-        self._prune_failures(username, now)
+        with self._lockout_lock:
+            attempts = self._failed_attempts.setdefault(username, [])
+            attempts.append(now)
+            self._prune_failures(username, now)
 
-        if len(attempts) < self._lockout_threshold:
-            return
+            attempts = self._failed_attempts.get(username, [])
+            if len(attempts) < self._lockout_threshold:
+                return
 
-        lockout_until = now + _dt.timedelta(seconds=self._lockout_duration_seconds)
-        self._active_lockouts[username] = lockout_until
-        self.logger.warning(
-            "Temporarily locking user '%s' due to too many failed login attempts.",
-            username,
-        )
+            lockout_until = now + _dt.timedelta(seconds=self._lockout_duration_seconds)
+            self._active_lockouts[username] = lockout_until
+            self.logger.warning(
+                "Temporarily locking user '%s' due to too many failed login attempts.",
+                username,
+            )
 
     def _remaining_lockout(self, username: str, now: _dt.datetime) -> Optional[int]:
-        lockout_until = self._active_lockouts.get(username)
+        with self._lockout_lock:
+            lockout_until = self._active_lockouts.get(username)
         if lockout_until is None:
             return None
 
@@ -170,7 +177,8 @@ class UserAccountService:
         if remaining is None:
             return
 
-        retry_at = self._active_lockouts.get(username)
+        with self._lockout_lock:
+            retry_at = self._active_lockouts.get(username)
         raise AccountLockedError(
             username,
             retry_at=retry_at,
@@ -387,14 +395,23 @@ class UserAccountService:
         if password is None:
             return False
 
-        now = self._current_time()
-        self._prune_failures(normalised_username, now)
-        self._enforce_lockout(normalised_username, now)
+        timestamp: Optional[str] = None
+        with self._lockout_lock:
+            now = self._current_time()
+            self._prune_failures(normalised_username, now)
+            self._enforce_lockout(normalised_username, now)
 
-        valid = bool(self._database.verify_user_password(normalised_username, password))
-        if valid:
-            self._clear_failures(normalised_username)
-            timestamp = self._current_timestamp()
+            valid = bool(
+                self._database.verify_user_password(normalised_username, password)
+            )
+
+            if valid:
+                self._clear_failures(normalised_username)
+                timestamp = self._current_timestamp()
+            else:
+                self._record_failure(normalised_username, now)
+
+        if valid and timestamp is not None:
             try:
                 self._database.update_last_login(normalised_username, timestamp)
             except Exception as exc:  # pragma: no cover - defensive logging
@@ -403,8 +420,6 @@ class UserAccountService:
                     normalised_username,
                     exc,
                 )
-        else:
-            self._record_failure(normalised_username, now)
         return valid
 
     def list_users(self) -> List[Dict[str, object]]:
