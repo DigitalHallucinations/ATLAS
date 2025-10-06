@@ -123,7 +123,8 @@ class UserAccountDatabase:
             password TEXT NOT NULL,
             email TEXT NOT NULL UNIQUE,
             name TEXT,
-            DOB TEXT
+            DOB TEXT,
+            last_login TEXT
         );
         """
         with self._lock:
@@ -132,6 +133,26 @@ class UserAccountDatabase:
                 cursor.execute(query)
                 self.conn.commit()
                 self._ensure_unique_constraints()
+                self._ensure_last_login_column()
+            finally:
+                cursor.close()
+
+    def _ensure_last_login_column(self) -> None:
+        """Add the ``last_login`` column for databases created before it existed."""
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("PRAGMA table_info(user_accounts)")
+                columns = {row[1] for row in cursor.fetchall()}
+                if "last_login" in columns:
+                    return
+
+                cursor.execute("ALTER TABLE user_accounts ADD COLUMN last_login TEXT")
+                self.conn.commit()
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
             finally:
                 cursor.close()
 
@@ -230,8 +251,8 @@ class UserAccountDatabase:
     def add_user(self, username, password, email, name, dob):
         hashed_password = self._hash_password(password)
         query = """
-        INSERT INTO user_accounts (username, password, email, name, DOB)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO user_accounts (username, password, email, name, DOB, last_login)
+        VALUES (?, ?, ?, ?, ?, ?)
         """
         profile_data = None
         with self._lock:
@@ -245,6 +266,7 @@ class UserAccountDatabase:
                         email,
                         name if name not in ("", None) else None,
                         dob if dob not in ("", None) else None,
+                        None,
                     ),
                 )
                 self.conn.commit()
@@ -336,6 +358,7 @@ class UserAccountDatabase:
             "email": row[3],
             "name": row[4],
             "dob": row[5],
+            "last_login": row[6] if len(row) > 6 else None,
         }
 
     def close_connection(self):
@@ -405,6 +428,25 @@ class UserAccountDatabase:
 
         stored_hash = user_record[2]
         return self._verify_password(stored_hash, candidate_password)
+
+    def update_last_login(self, username: str, timestamp: str) -> bool:
+        """Persist the timestamp of the user's most recent successful login."""
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    "UPDATE user_accounts SET last_login = ? WHERE username = ?",
+                    (timestamp, username),
+                )
+                updated = cursor.rowcount > 0
+                self.conn.commit()
+                return updated
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
 
     def delete_user(self, username: str) -> bool:
         """Remove a user account and any associated profile data."""

@@ -31,6 +31,7 @@ class UserAccount:
     email: str
     name: Optional[str]
     dob: Optional[str]
+    last_login: Optional[str]
 
 
 class UserAccountService:
@@ -140,6 +141,7 @@ class UserAccountService:
     @staticmethod
     def _row_to_account(row: Iterable[object]) -> UserAccount:
         data = list(row)
+
         def _normalise_optional(value: object) -> Optional[str]:
             if value in (None, ""):
                 return None
@@ -151,6 +153,7 @@ class UserAccountService:
             email=str(data[3]),
             name=_normalise_optional(data[4]) if len(data) > 4 else None,
             dob=_normalise_optional(data[5]) if len(data) > 5 else None,
+            last_login=_normalise_optional(data[6]) if len(data) > 6 else None,
         )
 
     @staticmethod
@@ -162,6 +165,7 @@ class UserAccountService:
             "name": account.name,
             "dob": account.dob,
             "display_name": account.name or account.username,
+            "last_login": account.last_login,
         }
 
     def _rows_to_mappings(self, rows: Iterable[Iterable[object]]) -> List[Dict[str, object]]:
@@ -251,7 +255,18 @@ class UserAccountService:
         if password is None:
             return False
 
-        return bool(self._database.verify_user_password(normalised_username, password))
+        valid = bool(self._database.verify_user_password(normalised_username, password))
+        if valid:
+            timestamp = self._current_timestamp()
+            try:
+                self._database.update_last_login(normalised_username, timestamp)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.error(
+                    "Failed to update last-login timestamp for '%s': %s",
+                    normalised_username,
+                    exc,
+                )
+        return valid
 
     def list_users(self) -> List[Dict[str, object]]:
         """Return a list of stored user accounts as dictionaries."""
@@ -379,7 +394,16 @@ class UserAccountService:
                 details.get("email"),
                 details.get("name"),
                 details.get("dob"),
+                details.get("last_login"),
             ]
         )
         return self._account_to_mapping(account)
+
+    @staticmethod
+    def _current_timestamp() -> str:
+        """Return the current UTC timestamp for last-login tracking."""
+
+        now = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
+        iso = now.isoformat()
+        return iso.replace("+00:00", "Z")
 

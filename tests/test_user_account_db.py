@@ -97,6 +97,47 @@ def test_add_user_creates_profile_files(tmp_path, monkeypatch):
         db.close_connection()
 
 
+def test_existing_database_missing_last_login_column_is_migrated(tmp_path, monkeypatch):
+    _install_config_manager_stub(monkeypatch)
+    monkeypatch.setattr(user_account_db, 'setup_logger', lambda *_args, **_kwargs: _StubLogger())
+
+    user_profiles_dir = Path(tmp_path) / 'user_profiles'
+    user_profiles_dir.mkdir(parents=True)
+    db_path = user_profiles_dir / 'test_users.db'
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE user_accounts (
+                id INTEGER PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                password TEXT NOT NULL,
+                email TEXT NOT NULL,
+                name TEXT,
+                DOB TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO user_accounts (username, password, email, name, DOB) VALUES (?, ?, ?, ?, ?)",
+            ('legacy', 'hashed', 'legacy@example.com', 'Legacy', '1990-01-01'),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    db = user_account_db.UserAccountDatabase(db_name='test_users.db', base_dir=str(tmp_path))
+    try:
+        columns = [row[1] for row in db.conn.execute('PRAGMA table_info(user_accounts)')]
+        assert 'last_login' in columns
+
+        stored = db.get_user('legacy')
+        assert stored[6] is None
+    finally:
+        db.close_connection()
+
+
 def test_verify_user_password_uses_hash_check(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 
@@ -230,6 +271,7 @@ def test_get_user_details_returns_mapping(tmp_path, monkeypatch):
             'email': 'dave@example.com',
             'name': 'Dave',
             'dob': '1980-05-05',
+            'last_login': None,
         }
 
         assert db.get_user_details('missing') is None

@@ -236,6 +236,7 @@ class AccountDialog(Gtk.Window):
         self.account_details_name_value = _add_row(1, "Display name")
         self.account_details_email_value = _add_row(2, "Email")
         self.account_details_dob_value = _add_row(3, "Date of birth")
+        self.account_details_last_login_value = _add_row(4, "Last sign-in")
 
         return frame
 
@@ -330,6 +331,7 @@ class AccountDialog(Gtk.Window):
                 "email": _string_or_empty(source.get("email")),
                 "name": _string_or_empty(source.get("name")),
                 "dob": _string_or_empty(source.get("dob")),
+                "last_login": _string_or_empty(source.get("last_login")),
             }
             normalised.append(account_data)
 
@@ -438,18 +440,21 @@ class AccountDialog(Gtk.Window):
             self.account_details_name_value.set_text(placeholder)
             self.account_details_email_value.set_text(placeholder)
             self.account_details_dob_value.set_text(placeholder)
+            self.account_details_last_login_value.set_text(placeholder)
 
     def _apply_account_detail_mapping(self, details: dict[str, object]) -> None:
         username = self._format_detail_value(details.get("username"))
         display_name = details.get("display_name") or details.get("name")
         email = self._format_detail_value(details.get("email"))
         dob = self._format_detail_value(details.get("dob"))
+        last_login = self._format_last_login_detail(details.get("last_login"))
 
         self.account_details_status_label.set_text("")
         self.account_details_username_value.set_text(username)
         self.account_details_name_value.set_text(self._format_detail_value(display_name))
         self.account_details_email_value.set_text(email)
         self.account_details_dob_value.set_text(dob)
+        self.account_details_last_login_value.set_text(last_login)
 
     @staticmethod
     def _format_detail_value(value: object, fallback: str = "—") -> str:
@@ -457,6 +462,43 @@ class AccountDialog(Gtk.Window):
             return fallback
         text = str(value).strip()
         return text or fallback
+
+    @staticmethod
+    def _parse_last_login(value: object) -> Optional[_dt.datetime]:
+        if value is None:
+            return None
+
+        text = str(value).strip()
+        if not text:
+            return None
+
+        candidate = text.replace("Z", "+00:00")
+
+        try:
+            parsed = _dt.datetime.fromisoformat(candidate)
+        except ValueError:
+            return None
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+        else:
+            parsed = parsed.astimezone(_dt.timezone.utc)
+
+        return parsed
+
+    def _format_last_login_for_row(self, value: object) -> str:
+        parsed = self._parse_last_login(value)
+        if parsed is None:
+            return "Last sign-in: never"
+
+        return f"Last sign-in: {parsed.strftime('%Y-%m-%d %H:%M')} UTC"
+
+    def _format_last_login_detail(self, value: object) -> str:
+        parsed = self._parse_last_login(value)
+        if parsed is None:
+            return "—"
+
+        return parsed.strftime("%Y-%m-%d %H:%M UTC")
 
     def _on_account_filter_changed(self, entry, *_args) -> None:
         text = getattr(entry, "get_text", lambda: "")()
@@ -545,6 +587,12 @@ class AccountDialog(Gtk.Window):
             mapping.setdefault("display_name", mapping.get("name"))
             self._account_details_cache[username] = mapping
             self._apply_account_detail_mapping(mapping)
+            row_widgets = self._account_rows.get(username)
+            if row_widgets:
+                combined = dict(row_widgets.get("metadata") or {})
+                combined.update(mapping)
+                combined["username"] = username
+                self._apply_account_row_metadata(row_widgets, combined)
         else:
             self._set_account_detail_message("No additional details available.")
 
@@ -560,7 +608,6 @@ class AccountDialog(Gtk.Window):
 
     def _create_account_row(self, account_data: dict[str, object]) -> dict[str, Gtk.Widget]:
         username = str(account_data.get("username") or "").strip()
-        display_name = account_data.get("display_name") or account_data.get("name")
 
         row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         row_box.username = username  # type: ignore[attr-defined]
@@ -583,13 +630,33 @@ class AccountDialog(Gtk.Window):
         except Exception:  # pragma: no cover - fallback when rows unsupported
             container = row_box
 
-        name_label = Gtk.Label(label=str(display_name or username))
+        info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        row_box.append(info_box)
+
+        name_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        info_box.append(name_row)
+
+        name_label = Gtk.Label()
         name_label.set_xalign(0.0)
-        row_box.append(name_label)
+        try:
+            name_label.set_hexpand(True)
+        except Exception:  # pragma: no cover - compatibility for stubs lacking hexpand
+            pass
+        name_row.append(name_label)
 
         badge_label = Gtk.Label()
         badge_label.set_xalign(0.0)
-        row_box.append(badge_label)
+        name_row.append(badge_label)
+
+        last_login_label = Gtk.Label()
+        last_login_label.set_xalign(0.0)
+        add_dim = getattr(last_login_label, "add_css_class", None)
+        if callable(add_dim):
+            try:
+                add_dim("dim-label")
+            except Exception:  # pragma: no cover - CSS support varies in tests
+                pass
+        info_box.append(last_login_label)
 
         spacer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         try:
@@ -616,17 +683,34 @@ class AccountDialog(Gtk.Window):
         delete_button.connect("clicked", lambda _btn, user=username: self._on_delete_account_clicked(user))
         row_box.append(delete_button)
 
-        return {
+        row_widgets = {
             "row": container,
             "row_box": row_box,
             "name_label": name_label,
             "active_label": badge_label,
+            "last_login_label": last_login_label,
             "use_button": use_button,
             "details_button": details_button,
             "edit_button": edit_button,
             "delete_button": delete_button,
-            "metadata": account_data,
         }
+        self._apply_account_row_metadata(row_widgets, account_data)
+        return row_widgets
+
+    def _apply_account_row_metadata(
+        self, widgets: dict[str, Gtk.Widget], account_data: dict[str, object]
+    ) -> None:
+        metadata = dict(account_data) if isinstance(account_data, dict) else {}
+        username = str(metadata.get("username") or "").strip()
+        metadata["username"] = username
+        widgets["metadata"] = metadata
+
+        display_name = metadata.get("display_name") or metadata.get("name") or username
+        widgets["name_label"].set_text(str(display_name or username))
+
+        last_login_label = widgets.get("last_login_label")
+        if isinstance(last_login_label, Gtk.Label):
+            last_login_label.set_text(self._format_last_login_for_row(metadata.get("last_login")))
 
     def _on_use_account_clicked(self, username: str) -> None:
         if self._account_busy:
