@@ -1,4 +1,5 @@
 import asyncio
+import datetime as _dt
 from types import MethodType, SimpleNamespace
 
 import pytest
@@ -7,6 +8,7 @@ import tests.test_chat_async_helper  # noqa: F401 - ensure GTK stubs are registe
 from gi.repository import Gtk
 from GTKUI.UserAccounts.account_dialog import AccountDialog
 from modules.user_accounts.user_account_service import (
+    AccountLockedError,
     DuplicateUserError,
     InvalidCurrentPasswordError,
 )
@@ -23,6 +25,7 @@ class _AtlasStub:
         self.last_error = None
         self.last_thread_name = None
         self.login_result = True
+        self.login_error = None
         self.register_result = {"username": "new-user"}
         self.logout_called = False
         self.login_called = None
@@ -54,6 +57,8 @@ class _AtlasStub:
 
     async def login_user_account(self, username, password):
         self.login_called = (username, password)
+        if self.login_error is not None:
+            raise self.login_error
         return self.login_result
 
     async def register_user_account(self, username, password, email, name, dob):
@@ -116,11 +121,17 @@ def _drain_background(atlas: _AtlasStub):
     assert atlas.last_factory is not None
     factory = atlas.last_factory
     atlas.last_factory = None
-    result_or_coro = factory()
-    if asyncio.iscoroutine(result_or_coro):
-        result = asyncio.run(result_or_coro)
-    else:
-        result = result_or_coro
+    try:
+        result_or_coro = factory()
+        if asyncio.iscoroutine(result_or_coro):
+            result = asyncio.run(result_or_coro)
+        else:
+            result = result_or_coro
+    except Exception as exc:  # noqa: BLE001 - mimic background worker behaviour
+        if atlas.last_error is not None:
+            atlas.last_error(exc)
+        return None
+
     if atlas.last_success is not None:
         atlas.last_success(result)
     return result
@@ -183,6 +194,31 @@ def test_login_failure_displays_error():
     _drain_background(atlas)
 
     assert dialog.login_feedback_label.get_text() == "Invalid username or password."
+    assert not getattr(dialog, "closed", False)
+
+
+def test_login_lockout_error_displays_message():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    dialog.login_username_entry.set_text("alice")
+    dialog.login_password_entry.set_text("bad")
+
+    atlas.login_error = AccountLockedError(
+        "alice",
+        retry_at=_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=60),
+        retry_after=60,
+    )
+
+    dialog._on_login_clicked(dialog.login_button)
+    _drain_background(atlas)
+
+    assert (
+        dialog.login_feedback_label.get_text()
+        == "Too many failed login attempts. Try again in 60 seconds."
+    )
     assert not getattr(dialog, "closed", False)
 
 

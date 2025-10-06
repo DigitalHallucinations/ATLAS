@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 import datetime as _dt
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
@@ -28,6 +28,7 @@ __all__ = [
     "UserAccountService",
     "DuplicateUserError",
     "InvalidCurrentPasswordError",
+    "AccountLockedError",
 ]
 
 
@@ -43,6 +44,30 @@ class UserAccount:
     last_login: Optional[str]
 
 
+class AccountLockedError(RuntimeError):
+    """Raised when authentication is temporarily blocked for a username."""
+
+    def __init__(
+        self,
+        username: str,
+        *,
+        retry_at: Optional[_dt.datetime] = None,
+        retry_after: Optional[int] = None,
+    ) -> None:
+        self.username = username
+        self.retry_at = retry_at
+        self.retry_after = retry_after
+
+        message = "Too many failed login attempts. Please try again later."
+        if retry_after is not None and retry_after > 0:
+            plural = "s" if retry_after != 1 else ""
+            message = (
+                f"Too many failed login attempts. Try again in {retry_after} second{plural}."
+            )
+
+        super().__init__(message)
+
+
 class UserAccountService:
     """Provide high-level helpers for managing user accounts."""
 
@@ -56,14 +81,98 @@ class UserAccountService:
         *,
         config_manager: Optional[ConfigManager] = None,
         database: Optional[UserAccountDatabase] = None,
+        clock: Optional[Callable[[], _dt.datetime]] = None,
     ) -> None:
         self.logger = setup_logger(__name__)
         self.config_manager = config_manager or ConfigManager()
         self._database = database or UserAccountDatabase()
+        self._clock: Callable[[], _dt.datetime] = clock or self._default_clock
+
+        self._lockout_threshold = int(
+            self.config_manager.get_config("ACCOUNT_LOCKOUT_MAX_FAILURES", 5)
+            or 0
+        )
+        self._lockout_window_seconds = int(
+            self.config_manager.get_config("ACCOUNT_LOCKOUT_WINDOW_SECONDS", 300)
+            or 0
+        )
+        self._lockout_duration_seconds = int(
+            self.config_manager.get_config("ACCOUNT_LOCKOUT_DURATION_SECONDS", 300)
+            or 0
+        )
+
+        self._failed_attempts: Dict[str, List[_dt.datetime]] = {}
+        self._active_lockouts: Dict[str, _dt.datetime] = {}
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+    @staticmethod
+    def _default_clock() -> _dt.datetime:
+        return _dt.datetime.now(_dt.timezone.utc)
+
+    def _current_time(self) -> _dt.datetime:
+        return self._clock()
+
+    def _clear_failures(self, username: str) -> None:
+        self._failed_attempts.pop(username, None)
+        self._active_lockouts.pop(username, None)
+
+    def _prune_failures(self, username: str, now: _dt.datetime) -> None:
+        if self._lockout_window_seconds <= 0:
+            return
+
+        attempts = self._failed_attempts.get(username)
+        if not attempts:
+            return
+
+        threshold_time = now - _dt.timedelta(seconds=self._lockout_window_seconds)
+        self._failed_attempts[username] = [
+            attempt for attempt in attempts if attempt >= threshold_time
+        ]
+
+    def _record_failure(self, username: str, now: _dt.datetime) -> None:
+        if self._lockout_threshold <= 0 or self._lockout_duration_seconds <= 0:
+            return
+
+        attempts = self._failed_attempts.setdefault(username, [])
+        attempts.append(now)
+        self._prune_failures(username, now)
+
+        if len(attempts) < self._lockout_threshold:
+            return
+
+        lockout_until = now + _dt.timedelta(seconds=self._lockout_duration_seconds)
+        self._active_lockouts[username] = lockout_until
+        self.logger.warning(
+            "Temporarily locking user '%s' due to too many failed login attempts.",
+            username,
+        )
+
+    def _remaining_lockout(self, username: str, now: _dt.datetime) -> Optional[int]:
+        lockout_until = self._active_lockouts.get(username)
+        if lockout_until is None:
+            return None
+
+        if now >= lockout_until:
+            self._clear_failures(username)
+            return None
+
+        remaining = int((lockout_until - now).total_seconds())
+        return max(remaining, 0)
+
+    def _enforce_lockout(self, username: str, now: _dt.datetime) -> None:
+        remaining = self._remaining_lockout(username, now)
+        if remaining is None:
+            return
+
+        retry_at = self._active_lockouts.get(username)
+        raise AccountLockedError(
+            username,
+            retry_at=retry_at,
+            retry_after=remaining,
+        )
+
     @staticmethod
     def _normalise_username(username: Optional[str]) -> Optional[str]:
         if username is None:
@@ -264,8 +373,13 @@ class UserAccountService:
         if password is None:
             return False
 
+        now = self._current_time()
+        self._prune_failures(normalised_username, now)
+        self._enforce_lockout(normalised_username, now)
+
         valid = bool(self._database.verify_user_password(normalised_username, password))
         if valid:
+            self._clear_failures(normalised_username)
             timestamp = self._current_timestamp()
             try:
                 self._database.update_last_login(normalised_username, timestamp)
@@ -275,6 +389,8 @@ class UserAccountService:
                     normalised_username,
                     exc,
                 )
+        else:
+            self._record_failure(normalised_username, now)
         return valid
 
     def list_users(self) -> List[Dict[str, object]]:

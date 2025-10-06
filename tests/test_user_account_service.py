@@ -46,8 +46,9 @@ class _StubLogger:
 
 
 class _StubConfigManager:
-    def __init__(self):
+    def __init__(self, overrides: Optional[dict[str, int]] = None):
         self._active_user: Optional[str] = None
+        self._overrides = dict(overrides or {})
 
     def get_active_user(self) -> Optional[str]:
         return self._active_user
@@ -55,6 +56,9 @@ class _StubConfigManager:
     def set_active_user(self, username: Optional[str]) -> Optional[str]:
         self._active_user = username
         return username
+
+    def get_config(self, key: str, default=None):
+        return self._overrides.get(key, default)
 
 
 def _install_db_stubs(monkeypatch, app_root=None):
@@ -69,13 +73,17 @@ def _install_db_stubs(monkeypatch, app_root=None):
     monkeypatch.setattr(user_account_db, 'setup_logger', lambda *_args, **_kwargs: _StubLogger())
 
 
-def _create_service(tmp_path, monkeypatch):
+def _create_service(tmp_path, monkeypatch, *, config_overrides=None, clock=None):
     _install_db_stubs(monkeypatch)
     monkeypatch.setattr(user_account_service, 'setup_logger', lambda *_args, **_kwargs: _StubLogger())
 
     database = user_account_db.UserAccountDatabase(db_name='service_users.db', base_dir=str(tmp_path))
-    config = _StubConfigManager()
-    service = user_account_service.UserAccountService(config_manager=config, database=database)
+    config = _StubConfigManager(overrides=config_overrides)
+    service = user_account_service.UserAccountService(
+        config_manager=config,
+        database=database,
+        clock=clock,
+    )
     return service, config
 
 
@@ -333,6 +341,83 @@ def test_authenticate_user_success_and_failure(tmp_path, monkeypatch):
         assert service.authenticate_user('bob', 'wrong') is False
         assert service.get_user_details('bob')['last_login'] == timestamp
         assert service.authenticate_user('unknown', 'Secure123') is False
+    finally:
+        service.close()
+
+
+class _TestClock:
+    def __init__(self, start: Optional[_dt.datetime] = None):
+        self._now = start or _dt.datetime(2024, 1, 1, tzinfo=_dt.timezone.utc)
+
+    def __call__(self) -> _dt.datetime:
+        return self._now
+
+    def advance(self, seconds: int) -> None:
+        self._now = self._now + _dt.timedelta(seconds=seconds)
+
+
+def test_authenticate_user_lockout_and_success_reset(tmp_path, monkeypatch):
+    clock = _TestClock()
+    service, _ = _create_service(
+        tmp_path,
+        monkeypatch,
+        config_overrides={
+            'ACCOUNT_LOCKOUT_MAX_FAILURES': 2,
+            'ACCOUNT_LOCKOUT_WINDOW_SECONDS': 60,
+            'ACCOUNT_LOCKOUT_DURATION_SECONDS': 120,
+        },
+        clock=clock,
+    )
+
+    try:
+        service.register_user('alice', 'Password123', 'alice@example.com')
+
+        assert service.authenticate_user('alice', 'wrong') is False
+        assert service.authenticate_user('alice', 'wrong') is False
+
+        with pytest.raises(user_account_service.AccountLockedError):
+            service.authenticate_user('alice', 'wrong')
+
+        clock.advance(200)
+        assert service.authenticate_user('alice', 'Password123') is True
+
+        assert service.authenticate_user('alice', 'wrong') is False
+        assert service.authenticate_user('alice', 'wrong') is False
+        with pytest.raises(user_account_service.AccountLockedError):
+            service.authenticate_user('alice', 'wrong')
+    finally:
+        service.close()
+
+
+def test_authenticate_user_lockout_expires_after_timeout(tmp_path, monkeypatch):
+    clock = _TestClock()
+    service, _ = _create_service(
+        tmp_path,
+        monkeypatch,
+        config_overrides={
+            'ACCOUNT_LOCKOUT_MAX_FAILURES': 2,
+            'ACCOUNT_LOCKOUT_WINDOW_SECONDS': 60,
+            'ACCOUNT_LOCKOUT_DURATION_SECONDS': 90,
+        },
+        clock=clock,
+    )
+
+    try:
+        service.register_user('carol', 'Password123', 'carol@example.com')
+
+        assert service.authenticate_user('carol', 'nope') is False
+        assert service.authenticate_user('carol', 'nope') is False
+
+        with pytest.raises(user_account_service.AccountLockedError):
+            service.authenticate_user('carol', 'nope')
+
+        clock.advance(91)
+        assert service.authenticate_user('carol', 'nope') is False
+
+        # Lockout should re-trigger after repeated failures post-timeout.
+        assert service.authenticate_user('carol', 'nope') is False
+        with pytest.raises(user_account_service.AccountLockedError):
+            service.authenticate_user('carol', 'nope')
     finally:
         service.close()
 
