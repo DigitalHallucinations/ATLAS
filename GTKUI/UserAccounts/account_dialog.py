@@ -324,7 +324,8 @@ class AccountDialog(Gtk.Window):
         self.account_details_name_value = _add_row(1, "Display name")
         self.account_details_email_value = _add_row(2, "Email")
         self.account_details_dob_value = _add_row(3, "Date of birth")
-        self.account_details_last_login_value = _add_row(4, "Last sign-in")
+        self.account_details_age_value = _add_row(4, "Age")
+        self.account_details_last_login_value = _add_row(5, "Last sign-in")
 
         return frame
 
@@ -580,6 +581,7 @@ class AccountDialog(Gtk.Window):
             self.account_details_name_value.set_text(placeholder)
             self.account_details_email_value.set_text(placeholder)
             self.account_details_dob_value.set_text(placeholder)
+            self.account_details_age_value.set_text(placeholder)
             self.account_details_last_login_value.set_text(placeholder)
 
     def _apply_account_detail_mapping(self, details: dict[str, object]) -> None:
@@ -587,6 +589,7 @@ class AccountDialog(Gtk.Window):
         display_name = details.get("display_name") or details.get("name")
         email = self._format_detail_value(details.get("email"))
         dob = self._format_detail_value(details.get("dob"))
+        age = self._format_age_detail(details.get("dob"))
         last_login = self._format_last_login_detail(details.get("last_login"))
 
         self.account_details_status_label.set_text("")
@@ -594,6 +597,7 @@ class AccountDialog(Gtk.Window):
         self.account_details_name_value.set_text(self._format_detail_value(display_name))
         self.account_details_email_value.set_text(email)
         self.account_details_dob_value.set_text(dob)
+        self.account_details_age_value.set_text(age)
         self.account_details_last_login_value.set_text(last_login)
 
     @staticmethod
@@ -643,6 +647,31 @@ class AccountDialog(Gtk.Window):
     @staticmethod
     def _current_utc_time() -> _dt.datetime:
         return _dt.datetime.now(_dt.timezone.utc)
+
+    def _compute_age_from_dob(self, dob_value: object) -> Optional[int]:
+        if dob_value is None:
+            return None
+
+        text = str(dob_value).strip()
+        if not text:
+            return None
+
+        try:
+            dob_date = _dt.date.fromisoformat(text)
+        except ValueError:
+            return None
+
+        today = self._current_utc_time().date()
+        computed = today.year - dob_date.year - (
+            (today.month, today.day) < (dob_date.month, dob_date.day)
+        )
+        return max(computed, 0)
+
+    def _format_age_detail(self, dob_value: object) -> str:
+        age = self._compute_age_from_dob(dob_value)
+        if age is None:
+            return "—"
+        return str(age)
 
     def _determine_account_badge(self, metadata: dict[str, object]) -> str:
         last_login_value = metadata.get("last_login") if isinstance(metadata, dict) else None
