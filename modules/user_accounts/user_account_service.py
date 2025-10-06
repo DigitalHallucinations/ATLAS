@@ -17,9 +17,18 @@ from typing import Dict, Iterable, List, Optional
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 
-from .user_account_db import DuplicateUserError, UserAccountDatabase
+from .user_account_db import (
+    DuplicateUserError,
+    InvalidCurrentPasswordError,
+    UserAccountDatabase,
+)
 
-__all__ = ["UserAccount", "UserAccountService", "DuplicateUserError"]
+__all__ = [
+    "UserAccount",
+    "UserAccountService",
+    "DuplicateUserError",
+    "InvalidCurrentPasswordError",
+]
 
 
 @dataclass(frozen=True)
@@ -325,6 +334,7 @@ class UserAccountService:
         username: str,
         *,
         password: Optional[str] = None,
+        current_password: Optional[str] = None,
         email: Optional[str] = None,
         name: Optional[str] = None,
         dob: Optional[str] = None,
@@ -337,6 +347,13 @@ class UserAccountService:
 
         self._require_existing_user(normalised_username)
 
+        if password is not None:
+            if not isinstance(current_password, str) or not current_password:
+                raise ValueError("Current password is required to change the password.")
+
+            if not self._database.verify_user_password(normalised_username, current_password):
+                raise InvalidCurrentPasswordError("Current password is incorrect.")
+
         validated_password = self._validate_password(password) if password is not None else None
         validated_email = self._validate_email(email) if email is not None else None
         validated_name = self._validate_display_name(name, allow_empty=True)
@@ -345,6 +362,7 @@ class UserAccountService:
         self._database.update_user(
             normalised_username,
             password=validated_password,
+            current_password=current_password if password is not None else None,
             email=validated_email,
             name=validated_name,
             dob=validated_dob,

@@ -6,7 +6,10 @@ import pytest
 import tests.test_chat_async_helper  # noqa: F401 - ensure GTK stubs are registered
 from gi.repository import Gtk
 from GTKUI.UserAccounts.account_dialog import AccountDialog
-from modules.user_accounts.user_account_service import DuplicateUserError
+from modules.user_accounts.user_account_service import (
+    DuplicateUserError,
+    InvalidCurrentPasswordError,
+)
 from tests.test_chat_async_helper import make_alert_dialog_future
 
 
@@ -57,10 +60,20 @@ class _AtlasStub:
         self.register_called = (username, password, email, name, dob)
         return self.register_result
 
-    async def update_user_account(self, username, *, password=None, email=None, name=None, dob=None):
+    async def update_user_account(
+        self,
+        username,
+        *,
+        password=None,
+        current_password=None,
+        email=None,
+        name=None,
+        dob=None,
+    ):
         self.update_called = {
             "username": username,
             "password": password,
+            "current_password": current_password,
             "email": email,
             "name": name,
             "dob": dob,
@@ -740,6 +753,7 @@ def test_edit_account_prefills_and_updates():
     assert dialog.edit_email_entry.get_text() == "alice@example.com"
 
     dialog.edit_email_entry.set_text("alice.new@example.com")
+    dialog.edit_current_password_entry.set_text("Password0")
     dialog.edit_password_entry.set_text("Password1")
     dialog.edit_confirm_entry.set_text("Password1")
     dialog.edit_name_entry.set_text("Alice Cooper")
@@ -760,6 +774,7 @@ def test_edit_account_prefills_and_updates():
     assert atlas.update_called == {
         "username": "alice",
         "password": "Password1",
+        "current_password": "Password0",
         "email": "alice.new@example.com",
         "name": "Alice Cooper",
         "dob": "1990-01-02",
@@ -767,6 +782,7 @@ def test_edit_account_prefills_and_updates():
 
     assert dialog.edit_password_entry.get_text() == ""
     assert dialog.edit_confirm_entry.get_text() == ""
+    assert dialog.edit_current_password_entry.get_text() == ""
     assert dialog.edit_feedback_label.get_text().startswith("Account updated")
     assert dialog.edit_title_label.get_text() == "Editing Alice Cooper"
 
@@ -817,6 +833,55 @@ def test_edit_account_validation_blocks_submission():
 
     assert dialog.edit_feedback_label.get_text() == "Enter the new password before confirming it."
     assert getattr(dialog.edit_password_entry, "_atlas_invalid", False) is True
+
+
+def test_edit_account_requires_current_password_to_change_it():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "email": "alice@example.com"}
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    edit_button = dialog._account_rows["alice"]["edit_button"]
+    _click(edit_button)
+
+    dialog.edit_password_entry.set_text("Password2")
+    dialog.edit_confirm_entry.set_text("Password2")
+
+    dialog._on_edit_save_clicked(dialog.edit_save_button)
+
+    assert atlas.last_factory is None
+    assert dialog.edit_feedback_label.get_text() == "Enter your current password to change it."
+    assert getattr(dialog.edit_current_password_entry, "_atlas_invalid", False) is True
+
+
+def test_edit_account_backend_incorrect_password_marks_field():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "email": "alice@example.com"}
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    edit_button = dialog._account_rows["alice"]["edit_button"]
+    _click(edit_button)
+
+    dialog.edit_current_password_entry.set_text("WrongPass")
+    dialog.edit_password_entry.set_text("Password2")
+    dialog.edit_confirm_entry.set_text("Password2")
+
+    dialog._on_edit_save_clicked(dialog.edit_save_button)
+
+    assert atlas.last_thread_name == "user-account-update"
+    assert atlas.last_error is not None
+
+    atlas.last_error(InvalidCurrentPasswordError("Current password is incorrect."))
+
+    assert dialog.edit_feedback_label.get_text() == "Current password is incorrect."
+    assert getattr(dialog.edit_current_password_entry, "_atlas_invalid", False) is True
 
 
 def test_edit_account_rejects_invalid_profile_fields():
