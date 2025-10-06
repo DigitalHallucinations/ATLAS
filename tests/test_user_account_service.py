@@ -91,7 +91,7 @@ def test_register_user_persists_account(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        account = service.register_user('alice', 'Password123', 'alice@example.com', 'Alice', '1999-01-01')
+        account = service.register_user('alice', 'Password123!', 'alice@example.com', 'Alice', '1999-01-01')
         assert account.username == 'alice'
         assert account.last_login is None
 
@@ -100,7 +100,7 @@ def test_register_user_persists_account(tmp_path, monkeypatch):
         assert users[0]['display_name'] == 'Alice'
 
         with pytest.raises(user_account_db.DuplicateUserError):
-            service.register_user('alice', 'Newpass1', 'duplicate@example.com')
+            service.register_user('alice', 'Newpass1!@', 'duplicate@example.com')
     finally:
         service.close()
 
@@ -109,10 +109,10 @@ def test_register_user_duplicate_email(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('eve', 'Secret12', 'shared@example.com')
+        service.register_user('eve', 'Secret12!@', 'shared@example.com')
 
         with pytest.raises(user_account_db.DuplicateUserError):
-            service.register_user('frank', 'Secret12', 'shared@example.com')
+            service.register_user('frank', 'Secret12!@', 'shared@example.com')
     finally:
         service.close()
 
@@ -121,14 +121,14 @@ def test_register_user_canonicalises_email_and_rejects_case_duplicates(tmp_path,
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        account = service.register_user('caseuser', 'Password123', 'MiXeD@Example.COM ')
+        account = service.register_user('caseuser', 'Password123!', 'MiXeD@Example.COM ')
         assert account.email == 'mixed@example.com'
 
         users = service.list_users()
         assert users[0]['email'] == 'mixed@example.com'
 
         with pytest.raises(user_account_db.DuplicateUserError):
-            service.register_user('caseuser2', 'Password123', 'MIXED@example.com')
+            service.register_user('caseuser2', 'Password123!', 'MIXED@example.com')
     finally:
         service.close()
 
@@ -138,7 +138,7 @@ def test_register_user_rejects_invalid_email(tmp_path, monkeypatch):
 
     try:
         with pytest.raises(ValueError, match='valid email address'):
-            service.register_user('invalid', 'Password1', 'not-an-email')
+            service.register_user('invalid', 'Password1!', 'not-an-email')
 
         assert any(
             'Invalid email address provided' in args[0]
@@ -154,10 +154,10 @@ def test_register_user_rejects_invalid_username(tmp_path, monkeypatch):
 
     try:
         with pytest.raises(ValueError, match='Username must be 3-32 characters'):
-            service.register_user('ab', 'Password1', 'short@example.com')
+            service.register_user('ab', 'Password1!', 'short@example.com')
 
         with pytest.raises(ValueError, match='Username must be 3-32 characters'):
-            service.register_user('this-username-is-way-too-long-for-the-system', 'Password1', 'long@example.com')
+            service.register_user('this-username-is-way-too-long-for-the-system', 'Password1!', 'long@example.com')
     finally:
         service.close()
 
@@ -167,11 +167,11 @@ def test_register_user_rejects_invalid_dob(tmp_path, monkeypatch):
 
     try:
         with pytest.raises(ValueError, match='YYYY-MM-DD'):
-            service.register_user('validuser', 'Password1', 'valid@example.com', dob='01-01-2000')
+            service.register_user('validuser', 'Password1!', 'valid@example.com', dob='01-01-2000')
 
         future = (_dt.date.today().replace(year=_dt.date.today().year + 1)).isoformat()
         with pytest.raises(ValueError, match='future'):
-            service.register_user('futureuser', 'Password1', 'future@example.com', dob=future)
+            service.register_user('futureuser', 'Password1!', 'future@example.com', dob=future)
     finally:
         service.close()
 
@@ -180,12 +180,12 @@ def test_update_user_validates_and_persists(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('alice', 'Password123', 'alice@example.com', 'Alice', '1999-01-01')
+        service.register_user('alice', 'Password123!', 'alice@example.com', 'Alice', '1999-01-01')
 
         updated_account = service.update_user(
             'alice',
-            password='Newpass123',
-            current_password='Password123',
+            password='Newpass123!',
+            current_password='Password123!',
             email='alice.new@example.com',
             name='Alice Updated',
             dob='2000-02-02',
@@ -197,7 +197,7 @@ def test_update_user_validates_and_persists(tmp_path, monkeypatch):
         assert updated_account.last_login is None
 
         # Password is hashed in storage, so authenticate to confirm it changed.
-        assert service.authenticate_user('alice', 'Newpass123') is True
+        assert service.authenticate_user('alice', 'Newpass123!') is True
 
         stored = service.list_users()[0]
         assert stored['email'] == 'alice.new@example.com'
@@ -208,8 +208,8 @@ def test_update_user_validates_and_persists(tmp_path, monkeypatch):
         with pytest.raises(ValueError, match='valid email address'):
             service.update_user('alice', email='not-an-email')
 
-        with pytest.raises(ValueError, match='Password must be at least 8 characters'):
-            service.update_user('alice', password='short', current_password='Newpass123')
+        with pytest.raises(ValueError, match='Passwords must'):
+            service.update_user('alice', password='short', current_password='Newpass123!')
     finally:
         service.close()
 
@@ -218,10 +218,10 @@ def test_update_user_requires_current_password_for_password_change(tmp_path, mon
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('alice', 'Password123', 'alice@example.com')
+        service.register_user('alice', 'Password123!', 'alice@example.com')
 
         with pytest.raises(ValueError, match='Current password is required'):
-            service.update_user('alice', password='Newpass123')
+            service.update_user('alice', password='Newpass123!')
     finally:
         service.close()
 
@@ -230,10 +230,10 @@ def test_update_user_rejects_incorrect_current_password(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('alice', 'Password123', 'alice@example.com')
+        service.register_user('alice', 'Password123!', 'alice@example.com')
 
         with pytest.raises(user_account_service.InvalidCurrentPasswordError):
-            service.update_user('alice', password='Newpass123', current_password='Wrong123')
+            service.update_user('alice', password='Newpass123!', current_password='Wrong123')
     finally:
         service.close()
 
@@ -242,8 +242,8 @@ def test_update_user_rejects_duplicate_email_with_case_insensitive_match(tmp_pat
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('alpha', 'Password123', 'user@example.com')
-        service.register_user('beta', 'Password123', 'beta@example.com')
+        service.register_user('alpha', 'Password123!', 'user@example.com')
+        service.register_user('beta', 'Password123!', 'beta@example.com')
 
         with pytest.raises(user_account_db.DuplicateUserError):
             service.update_user('beta', email='USER@EXAMPLE.COM')
@@ -261,7 +261,7 @@ def test_update_user_allows_clearing_optional_fields(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('clearable', 'Password123', 'clear@example.com', 'Clear Me', '1999-01-01')
+        service.register_user('clearable', 'Password123!', 'clear@example.com', 'Clear Me', '1999-01-01')
 
         updated = service.update_user('clearable', name='', dob='')
         assert updated.name is None
@@ -279,21 +279,40 @@ def test_register_user_rejects_weak_password(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        with pytest.raises(ValueError, match='Password must be at least 8 characters'):
+        with pytest.raises(ValueError, match='Passwords must'):
             service.register_user('weak', 'short', 'weak@example.com')
 
-        with pytest.raises(ValueError, match='Password must be at least 8 characters'):
+        with pytest.raises(ValueError, match='Passwords must'):
             service.register_user('weak2', 'longpassword', 'weak2@example.com')
 
-        assert any(
-            'Password failed minimum length requirement' in args[0]
-            for args, _kwargs in service.logger.errors
-        )
-        assert any(
-            'Password missing required character diversity' in args[0]
-            for args, _kwargs in service.logger.errors
-        )
+        with pytest.raises(ValueError, match='Passwords must'):
+            service.register_user('weak3', 'NoSymbol12', 'weak3@example.com')
+
+        error_messages = [args[0] for args, _kwargs in service.logger.errors]
+        assert any('Password failed minimum length requirement' in message for message in error_messages)
+        assert any('Password missing uppercase character' in message for message in error_messages)
+        assert any('Password missing symbol character' in message for message in error_messages)
         assert service.list_users() == []
+    finally:
+        service.close()
+
+
+def test_password_requirements_reporting(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        requirements = service.get_password_requirements()
+        assert requirements.min_length == 10
+        assert requirements.require_uppercase is True
+        assert requirements.require_lowercase is True
+        assert requirements.require_digit is True
+        assert requirements.require_symbol is True
+        assert requirements.forbid_whitespace is True
+
+        description = service.describe_password_requirements()
+        assert 'at least 10 characters' in description
+        assert 'symbol' in description
+        assert description.endswith('spaces.')
     finally:
         service.close()
 
@@ -302,8 +321,8 @@ def test_update_user_duplicate_email_raises(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('eve', 'Secret12', 'shared@example.com')
-        service.register_user('frank', 'Secret12', 'frank@example.com')
+        service.register_user('eve', 'Secret12!@', 'shared@example.com')
+        service.register_user('frank', 'Secret12!@', 'frank@example.com')
 
         with pytest.raises(user_account_db.DuplicateUserError):
             service.update_user('frank', email='shared@example.com')
@@ -315,7 +334,7 @@ def test_authenticate_user_success_and_failure(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('bob', 'Secure123', 'bob@example.com')
+        service.register_user('bob', 'Secure123!', 'bob@example.com')
         details = service.get_user_details('bob')
         assert details['last_login'] is None
 
@@ -326,7 +345,7 @@ def test_authenticate_user_success_and_failure(tmp_path, monkeypatch):
             staticmethod(lambda: timestamp),
         )
 
-        assert service.authenticate_user('bob', 'Secure123') is True
+        assert service.authenticate_user('bob', 'Secure123!') is True
         details = service.get_user_details('bob')
         assert details['last_login'] == timestamp
         assert service.list_users()[0]['last_login'] == timestamp
@@ -340,7 +359,7 @@ def test_authenticate_user_success_and_failure(tmp_path, monkeypatch):
 
         assert service.authenticate_user('bob', 'wrong') is False
         assert service.get_user_details('bob')['last_login'] == timestamp
-        assert service.authenticate_user('unknown', 'Secure123') is False
+        assert service.authenticate_user('unknown', 'Secure123!') is False
     finally:
         service.close()
 
@@ -370,7 +389,7 @@ def test_authenticate_user_lockout_and_success_reset(tmp_path, monkeypatch):
     )
 
     try:
-        service.register_user('alice', 'Password123', 'alice@example.com')
+        service.register_user('alice', 'Password123!', 'alice@example.com')
 
         assert service.authenticate_user('alice', 'wrong') is False
         assert service.authenticate_user('alice', 'wrong') is False
@@ -379,7 +398,7 @@ def test_authenticate_user_lockout_and_success_reset(tmp_path, monkeypatch):
             service.authenticate_user('alice', 'wrong')
 
         clock.advance(200)
-        assert service.authenticate_user('alice', 'Password123') is True
+        assert service.authenticate_user('alice', 'Password123!') is True
 
         assert service.authenticate_user('alice', 'wrong') is False
         assert service.authenticate_user('alice', 'wrong') is False
@@ -403,7 +422,7 @@ def test_authenticate_user_lockout_expires_after_timeout(tmp_path, monkeypatch):
     )
 
     try:
-        service.register_user('carol', 'Password123', 'carol@example.com')
+        service.register_user('carol', 'Password123!', 'carol@example.com')
 
         assert service.authenticate_user('carol', 'nope') is False
         assert service.authenticate_user('carol', 'nope') is False
@@ -426,8 +445,8 @@ def test_search_users_returns_sorted_results(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('alice', 'Password123', 'alice@example.com', 'Alice', '1990-01-01')
-        service.register_user('bob', 'Password123', 'bob@example.com', 'Bob', '1991-02-02')
+        service.register_user('alice', 'Password123!', 'alice@example.com', 'Alice', '1990-01-01')
+        service.register_user('bob', 'Password123!', 'bob@example.com', 'Bob', '1991-02-02')
 
         results = service.search_users('bo')
         assert [item['username'] for item in results] == ['bob']
@@ -446,7 +465,7 @@ def test_get_user_details_returns_mapping(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('carol', 'Password123', 'carol@example.com', 'Carol', '1988-03-03')
+        service.register_user('carol', 'Password123!', 'carol@example.com', 'Carol', '1988-03-03')
 
         details = service.get_user_details('carol')
         assert details['username'] == 'carol'
@@ -461,8 +480,8 @@ def test_set_active_user_tracks_configuration(tmp_path, monkeypatch):
     service, config = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('carol', 'Password1', 'carol@example.com')
-        service.register_user('dave', 'Password1', 'dave@example.com')
+        service.register_user('carol', 'Password1!', 'carol@example.com')
+        service.register_user('dave', 'Password1!', 'dave@example.com')
 
         service.set_active_user('carol')
         assert config.get_active_user() == 'carol'
@@ -494,7 +513,7 @@ def test_concurrent_database_access_is_serialised(tmp_path, monkeypatch):
                 lambda index=index: _coroutine_factory(
                     service.register_user,
                     f'user{index}',
-                    'Password1',
+                    'Password1!',
                     f'user{index}@example.com',
                 )
             )
@@ -526,7 +545,7 @@ def test_run_async_in_thread_accepts_sync_callables(tmp_path, monkeypatch):
         account_future = run_async_in_thread(
             service.register_user,
             'alice',
-            'Password123',
+            'Password123!',
             'alice@example.com',
         )
         account = account_future.result(timeout=5)
@@ -543,7 +562,7 @@ def test_delete_user_removes_record_and_profile(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('henry', 'Password1', 'henry@example.com')
+        service.register_user('henry', 'Password1!', 'henry@example.com')
         profile_path = Path(service._database.user_profiles_dir) / 'henry.json'
         profile_path.write_text('{"name": "Henry"}', encoding='utf-8')
         emr_path = Path(service._database.user_profiles_dir) / 'henry_emr.txt'
@@ -581,7 +600,7 @@ def test_delete_active_user_clears_configuration(tmp_path, monkeypatch):
     service, config = _create_service(tmp_path, monkeypatch)
 
     try:
-        service.register_user('ivy', 'Password1', 'ivy@example.com')
+        service.register_user('ivy', 'Password1!', 'ivy@example.com')
         service.set_active_user('ivy')
 
         deleted = service.delete_user('ivy')

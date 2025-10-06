@@ -11,6 +11,7 @@ from modules.user_accounts.user_account_service import (
     AccountLockedError,
     DuplicateUserError,
     InvalidCurrentPasswordError,
+    PasswordRequirements,
 )
 from tests.test_chat_async_helper import make_alert_dialog_future
 
@@ -39,6 +40,19 @@ class _AtlasStub:
         self.update_called = None
         self.update_result = {"username": "updated-user"}
         self.config_manager = SimpleNamespace(get_active_user=lambda: self.active_username)
+
+    def get_user_password_requirements(self):
+        return PasswordRequirements(
+            min_length=10,
+            require_uppercase=True,
+            require_lowercase=True,
+            require_digit=True,
+            require_symbol=True,
+            forbid_whitespace=True,
+        )
+
+    def describe_user_password_requirements(self):
+        return self.get_user_password_requirements().describe()
 
     def add_active_user_change_listener(self, listener):
         self.active_listener = listener
@@ -262,8 +276,8 @@ def test_register_validates_and_submits():
 
     dialog.register_username_entry.set_text("newuser")
     dialog.register_email_entry.set_text("user@example.com")
-    dialog.register_password_entry.set_text("Password1")
-    dialog.register_confirm_entry.set_text("Password1")
+    dialog.register_password_entry.set_text("Password1!")
+    dialog.register_confirm_entry.set_text("Password1!")
     dialog.register_name_entry.set_text("Test User")
     dialog.register_dob_entry.set_text("2000-01-01")
 
@@ -273,7 +287,7 @@ def test_register_validates_and_submits():
     _drain_background(atlas)
     assert atlas.register_called == (
         "newuser",
-        "Password1",
+        "Password1!",
         "user@example.com",
         "Test User",
         "2000-01-01",
@@ -309,7 +323,7 @@ def test_register_rejects_mismatched_passwords():
 
     dialog.register_username_entry.set_text("newuser")
     dialog.register_email_entry.set_text("user@example.com")
-    dialog.register_password_entry.set_text("Password1")
+    dialog.register_password_entry.set_text("Password1!")
     dialog.register_confirm_entry.set_text("other")
 
     dialog._on_register_clicked(dialog.register_button)
@@ -326,8 +340,8 @@ def test_register_rejects_invalid_email_client_side():
 
     dialog.register_username_entry.set_text("newuser")
     dialog.register_email_entry.set_text("invalid-email")
-    dialog.register_password_entry.set_text("Password1")
-    dialog.register_confirm_entry.set_text("Password1")
+    dialog.register_password_entry.set_text("Password1!")
+    dialog.register_confirm_entry.set_text("Password1!")
 
     dialog._on_register_clicked(dialog.register_button)
 
@@ -345,8 +359,8 @@ def test_register_rejects_invalid_username_client_side():
 
     dialog.register_username_entry.set_text("ab")
     dialog.register_email_entry.set_text("user@example.com")
-    dialog.register_password_entry.set_text("Password1")
-    dialog.register_confirm_entry.set_text("Password1")
+    dialog.register_password_entry.set_text("Password1!")
+    dialog.register_confirm_entry.set_text("Password1!")
 
     dialog._on_register_clicked(dialog.register_button)
 
@@ -371,7 +385,7 @@ def test_register_rejects_weak_password_client_side():
     assert atlas.last_factory is None
     assert (
         dialog.register_feedback_label.get_text()
-        == "Password must be at least 8 characters and include letters and numbers."
+        == "Password must be at least 10 characters long."
     )
     assert getattr(dialog.register_password_entry, "_atlas_invalid", False) is True
 
@@ -384,8 +398,8 @@ def test_register_rejects_invalid_dob_client_side():
 
     dialog.register_username_entry.set_text("newuser")
     dialog.register_email_entry.set_text("user@example.com")
-    dialog.register_password_entry.set_text("Password1")
-    dialog.register_confirm_entry.set_text("Password1")
+    dialog.register_password_entry.set_text("Password1!")
+    dialog.register_confirm_entry.set_text("Password1!")
     dialog.register_dob_entry.set_text("01-01-2000")
 
     dialog._on_register_clicked(dialog.register_button)
@@ -403,8 +417,8 @@ def test_register_surfaces_backend_value_errors():
 
     dialog.register_username_entry.set_text("newuser")
     dialog.register_email_entry.set_text("user@example.com")
-    dialog.register_password_entry.set_text("Password1")
-    dialog.register_confirm_entry.set_text("Password1")
+    dialog.register_password_entry.set_text("Password1!")
+    dialog.register_confirm_entry.set_text("Password1!")
 
     dialog._on_register_clicked(dialog.register_button)
 
@@ -422,8 +436,8 @@ def test_register_duplicate_user_marks_fields_invalid():
 
     dialog.register_username_entry.set_text("existinguser")
     dialog.register_email_entry.set_text("exists@example.com")
-    dialog.register_password_entry.set_text("Password1")
-    dialog.register_confirm_entry.set_text("Password1")
+    dialog.register_password_entry.set_text("Password1!")
+    dialog.register_confirm_entry.set_text("Password1!")
 
     dialog._on_register_clicked(dialog.register_button)
 
@@ -466,7 +480,7 @@ def test_account_list_populates_and_highlights_active():
     assert atlas.list_calls == 1
     assert set(dialog._account_rows.keys()) == {"alice", "bob"}
     assert dialog._account_rows["bob"]["active_label"].get_text() == "Active"
-    assert dialog._account_rows["alice"]["active_label"].get_text() == ""
+    assert dialog._account_rows["alice"]["active_label"].get_text() == "No sign-in yet"
     assert dialog._account_rows["alice"]["last_login_label"].get_text() == "Last sign-in: never"
     assert (
         dialog._account_rows["bob"]["last_login_label"].get_text()
@@ -822,8 +836,8 @@ def test_edit_account_prefills_and_updates():
 
     dialog.edit_email_entry.set_text("alice.new@example.com")
     dialog.edit_current_password_entry.set_text("Password0")
-    dialog.edit_password_entry.set_text("Password1")
-    dialog.edit_confirm_entry.set_text("Password1")
+    dialog.edit_password_entry.set_text("Password1!")
+    dialog.edit_confirm_entry.set_text("Password1!")
     dialog.edit_name_entry.set_text("Alice Cooper")
     dialog.edit_dob_entry.set_text("1990-01-02")
 
@@ -841,7 +855,7 @@ def test_edit_account_prefills_and_updates():
 
     assert atlas.update_called == {
         "username": "alice",
-        "password": "Password1",
+        "password": "Password1!",
         "current_password": "Password0",
         "email": "alice.new@example.com",
         "name": "Alice Cooper",
@@ -895,7 +909,7 @@ def test_edit_account_validation_blocks_submission():
 
     dialog.edit_email_entry.set_text("alice@example.com")
     dialog.edit_password_entry.set_text("")
-    dialog.edit_confirm_entry.set_text("Password1")
+    dialog.edit_confirm_entry.set_text("Password1!")
 
     dialog._on_edit_save_clicked(dialog.edit_save_button)
 
@@ -915,8 +929,8 @@ def test_edit_account_requires_current_password_to_change_it():
     edit_button = dialog._account_rows["alice"]["edit_button"]
     _click(edit_button)
 
-    dialog.edit_password_entry.set_text("Password2")
-    dialog.edit_confirm_entry.set_text("Password2")
+    dialog.edit_password_entry.set_text("Password2!")
+    dialog.edit_confirm_entry.set_text("Password2!")
 
     dialog._on_edit_save_clicked(dialog.edit_save_button)
 
@@ -938,8 +952,8 @@ def test_edit_account_backend_incorrect_password_marks_field():
     _click(edit_button)
 
     dialog.edit_current_password_entry.set_text("WrongPass")
-    dialog.edit_password_entry.set_text("Password2")
-    dialog.edit_confirm_entry.set_text("Password2")
+    dialog.edit_password_entry.set_text("Password2!")
+    dialog.edit_confirm_entry.set_text("Password2!")
 
     dialog._on_edit_save_clicked(dialog.edit_save_button)
 
