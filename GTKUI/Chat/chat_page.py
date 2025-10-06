@@ -284,8 +284,8 @@ class ChatPage(Gtk.Window):
         self.vbox.append(status_box)
         self.update_status_bar()
 
-        # Link provider changes to update the status bar.
-        self._provider_change_handler = self.update_status_bar
+        # Link provider changes to update the status bar and terminal tab.
+        self._provider_change_handler = self._on_provider_changed
         self.ATLAS.add_provider_change_listener(self._provider_change_handler)
         self._active_user_listener = None
         self._current_user_display_name = self.ATLAS.get_user_display_name()
@@ -488,6 +488,12 @@ class ChatPage(Gtk.Window):
         self._set_terminal_section_text("metadata", metadata_text)
 
         self._refresh_tool_sections()
+
+    def _on_provider_changed(self, status_summary=None) -> None:
+        """Refresh UI elements when the active provider or model changes."""
+
+        self.update_status_bar(status_summary)
+        self._refresh_terminal_tab()
 
     def _refresh_tool_sections(self, history: Optional[List[Dict[str, object]]] = None) -> None:
         """Update the tool declaration and activity sections."""
@@ -1645,7 +1651,9 @@ class ChatPage(Gtk.Window):
         """Unregister provider change listeners before the window closes."""
 
         self._detach_debug_log_handler()
-        self.ATLAS.remove_provider_change_listener(self._provider_change_handler)
+        if self._provider_change_handler is not None:
+            self.ATLAS.remove_provider_change_listener(self._provider_change_handler)
+            self._provider_change_handler = None
         if self._active_user_listener is not None:
             self.ATLAS.remove_active_user_change_listener(self._active_user_listener)
             self._active_user_listener = None
