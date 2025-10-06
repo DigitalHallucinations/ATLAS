@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 try:
     from platformdirs import user_data_dir as _user_data_dir
@@ -159,41 +159,113 @@ class UserAccountDatabase:
     def _ensure_unique_constraints(self) -> None:
         """Ensure unique constraints exist for usernames and e-mail addresses."""
 
-        required_indices: Dict[str, str] = {
-            "idx_user_accounts_username": (
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_accounts_username"
-                " ON user_accounts (username)"
-            ),
-            "idx_user_accounts_email": (
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_accounts_email"
-                " ON user_accounts (email)"
-            ),
-        }
-
         with self._lock:
             cursor = self.conn.cursor()
             try:
-                for index_name, create_statement in required_indices.items():
-                    try:
-                        cursor.execute(create_statement)
-                    except sqlite3.IntegrityError as exc:
-                        self.conn.rollback()
-                        duplicates = self._find_duplicates(index_name)
-                        details = ", ".join(
-                            f"{field}: {values}" for field, values in duplicates.items() if values
-                        )
-                        message = (
-                            "Existing user account records violate uniqueness constraints. "
-                            "Please resolve duplicate entries before restarting the application."
-                        )
-                        if details:
-                            message = f"{message} ({details})"
-                        self.logger.error(message)
-                        raise RuntimeError(message) from exc
-
+                self._normalise_existing_emails(cursor)
+                self._ensure_username_index(cursor)
+                self._ensure_email_index(cursor)
                 self.conn.commit()
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
             finally:
                 cursor.close()
+
+    def _normalise_existing_emails(self, cursor: sqlite3.Cursor) -> None:
+        """Normalise stored e-mail addresses and detect duplicates ignoring case."""
+
+        cursor.execute(
+            """
+            SELECT LOWER(TRIM(email)) AS normalised_email, GROUP_CONCAT(username)
+            FROM user_accounts
+            WHERE email IS NOT NULL
+            GROUP BY normalised_email
+            HAVING COUNT(*) > 1
+            """
+        )
+        duplicates = cursor.fetchall()
+        if duplicates:
+            details = ", ".join(
+                f"{value}: {usernames}" for value, usernames in duplicates if value
+            )
+            message = (
+                "Existing user account records share the same email address when case is ignored. "
+                "Please resolve duplicate entries before restarting the application."
+            )
+            if details:
+                message = f"{message} ({details})"
+            self.logger.error(message)
+            raise RuntimeError(message)
+
+        cursor.execute(
+            """
+            UPDATE user_accounts
+            SET email = LOWER(TRIM(email))
+            WHERE email IS NOT NULL AND email <> LOWER(TRIM(email))
+            """
+        )
+
+    def _ensure_username_index(self, cursor: sqlite3.Cursor) -> None:
+        create_statement = (
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_accounts_username"
+            " ON user_accounts (username)"
+        )
+        self._create_unique_index(cursor, "idx_user_accounts_username", create_statement)
+
+    def _ensure_email_index(self, cursor: sqlite3.Cursor) -> None:
+        index_name = "idx_user_accounts_email"
+        index_exists, needs_rebuild = self._email_index_status(cursor, index_name)
+        if needs_rebuild:
+            cursor.execute(f"DROP INDEX IF EXISTS {index_name}")
+            index_exists = False
+
+        if index_exists:
+            return
+
+        create_statement = (
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_accounts_email"
+            " ON user_accounts (email COLLATE NOCASE)"
+        )
+        self._create_unique_index(cursor, index_name, create_statement)
+
+    def _email_index_status(
+        self, cursor: sqlite3.Cursor, index_name: str
+    ) -> Tuple[bool, bool]:
+        cursor.execute("PRAGMA index_list('user_accounts')")
+        for _, existing_name, *_rest in cursor.fetchall():
+            if existing_name != index_name:
+                continue
+            cursor.execute(f"PRAGMA index_xinfo('{index_name}')")
+            info_rows = cursor.fetchall()
+            collations = [
+                (row[4] or "").upper() for row in info_rows if row[1] != -1
+            ]
+            if not collations:
+                return True, True
+            needs_rebuild = any(collation != "NOCASE" for collation in collations)
+            return True, needs_rebuild
+        return False, False
+
+    def _create_unique_index(
+        self, cursor: sqlite3.Cursor, index_name: str, create_statement: str
+    ) -> None:
+        try:
+            cursor.execute(create_statement)
+        except sqlite3.IntegrityError as exc:
+            self.conn.rollback()
+            duplicates = self._find_duplicates(index_name)
+            details = ", ".join(
+                f"{field}: {values}" for field, values in duplicates.items() if values
+            )
+            message = (
+                "Existing user account records violate uniqueness constraints. "
+                "Please resolve duplicate entries before restarting the application."
+            )
+            if details:
+                message = f"{message} ({details})"
+            self.logger.error(message)
+            raise RuntimeError(message) from exc
 
     def _find_duplicates(self, index_name: str) -> Dict[str, str]:
         if index_name == "idx_user_accounts_username":
@@ -248,8 +320,20 @@ class UserAccountDatabase:
         candidate_hash = hashlib.pbkdf2_hmac('sha256', candidate_bytes, salt, iterations)
         return hmac.compare_digest(candidate_hash, expected_hash)
 
+    @staticmethod
+    def _canonicalize_email(email: Optional[str]) -> Optional[str]:
+        if email is None:
+            return None
+
+        if not isinstance(email, str):
+            email = str(email)
+
+        cleaned = email.strip()
+        return cleaned.lower()
+
     def add_user(self, username, password, email, name, dob):
         hashed_password = self._hash_password(password)
+        canonical_email = self._canonicalize_email(email)
         query = """
         INSERT INTO user_accounts (username, password, email, name, DOB, last_login)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -263,7 +347,7 @@ class UserAccountDatabase:
                     (
                         username,
                         hashed_password,
-                        email,
+                        canonical_email,
                         name if name not in ("", None) else None,
                         dob if dob not in ("", None) else None,
                         None,
@@ -272,7 +356,7 @@ class UserAccountDatabase:
                 self.conn.commit()
                 profile_data = {
                     'username': username,
-                    'email': email,
+                    'email': canonical_email,
                     'name': name if name not in ("", None) else None,
                     'dob': dob if dob not in ("", None) else None,
                 }
@@ -389,8 +473,9 @@ class UserAccountDatabase:
                     query = "UPDATE user_accounts SET password = ? WHERE username = ?"
                     _execute_update(query, (hashed_password, username))
                 if email is not None:
+                    canonical_email = self._canonicalize_email(email)
                     query = "UPDATE user_accounts SET email = ? WHERE username = ?"
-                    _execute_update(query, (email, username))
+                    _execute_update(query, (canonical_email, username))
                     profile_fields_modified = True
                 if name is not None:
                     query = "UPDATE user_accounts SET name = ? WHERE username = ?"

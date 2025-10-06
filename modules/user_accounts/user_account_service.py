@@ -183,7 +183,7 @@ class UserAccountService:
             self.logger.error("Invalid email address provided: %r", email)
             raise ValueError("Email must be a valid email address.")
 
-        return candidate
+        return candidate.lower()
 
     def _validate_password(self, password: str) -> str:
         if not isinstance(password, str):
