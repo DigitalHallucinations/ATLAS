@@ -306,6 +306,47 @@ def test_password_requirements_refresh_updates_labels():
     assert refreshed_tooltip != initial_tooltip
 
 
+def test_password_strength_requires_non_whitespace_symbol():
+    atlas = _AtlasStub()
+    atlas.set_password_requirements(
+        PasswordRequirements(
+            min_length=10,
+            require_uppercase=True,
+            require_lowercase=True,
+            require_digit=True,
+            require_symbol=True,
+            forbid_whitespace=False,
+        )
+    )
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    description = dialog._describe_password_strength("Password12 ")
+    assert "add a symbol" in description
+    assert "remove spaces" not in description
+
+
+def test_password_validation_error_requires_non_whitespace_symbol():
+    atlas = _AtlasStub()
+    atlas.set_password_requirements(
+        PasswordRequirements(
+            min_length=10,
+            require_uppercase=True,
+            require_lowercase=True,
+            require_digit=True,
+            require_symbol=True,
+            forbid_whitespace=False,
+        )
+    )
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    error = dialog._password_validation_error("Password12 ")
+    assert error == "Password must include a symbol such as ! or #."
+
+
 def test_password_toggle_icon_press_updates_state_and_label():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)

@@ -326,6 +326,21 @@ def test_register_user_rejects_weak_password(tmp_path, monkeypatch):
         service.close()
 
 
+def test_register_user_rejects_whitespace_symbol(tmp_path, monkeypatch):
+    overrides = {'ACCOUNT_PASSWORD_FORBID_WHITESPACE': False}
+    service, _ = _create_service(tmp_path, monkeypatch, config_overrides=overrides)
+
+    try:
+        with pytest.raises(ValueError, match='Passwords must'):
+            service.register_user('spacey', 'Password12 ', 'spacey@example.com')
+
+        error_messages = [args[0] for args, _kwargs in service.logger.errors]
+        assert any('Password missing symbol character' in message for message in error_messages)
+        assert service.list_users() == []
+    finally:
+        service.close()
+
+
 def test_password_requirements_reporting(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
