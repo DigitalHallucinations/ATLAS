@@ -34,6 +34,9 @@ class _AtlasStub:
         self.register_called = None
         self.list_accounts_result = []
         self.list_calls = 0
+        self.search_accounts_result = []
+        self.search_calls: list[str] = []
+        self.search_error: Optional[Exception] = None
         self.activate_called = None
         self.delete_called = None
         self.details_called = None
@@ -119,6 +122,12 @@ class _AtlasStub:
     async def list_user_accounts(self):
         self.list_calls += 1
         return list(self.list_accounts_result)
+
+    async def search_user_accounts(self, query_text: str):
+        self.search_calls.append(query_text)
+        if self.search_error is not None:
+            raise self.search_error
+        return list(self.search_accounts_result)
 
     async def activate_user_account(self, username):
         self.activate_called = username
@@ -889,6 +898,10 @@ def test_account_search_filters_rows():
         {"username": "bob", "display_name": "Bob"},
         {"username": "carol", "display_name": "Carol"},
     ]
+    atlas.search_accounts_result = [
+        {"username": "bob", "display_name": "Bob"},
+        {"username": "bobbie", "display_name": "Bobbie"},
+    ]
 
     dialog = AccountDialog(atlas)
     _drain_background(atlas)
@@ -896,11 +909,23 @@ def test_account_search_filters_rows():
     dialog.account_search_entry.set_text("bob")
     dialog._on_account_filter_changed(dialog.account_search_entry)
 
-    assert dialog._visible_usernames == ["bob"]
-    assert dialog.account_feedback_label.get_text().startswith("Found 1 account")
+    assert atlas.last_thread_name == "user-account-search"
+    assert dialog.account_feedback_label.get_text() == "Searching accounts…"
+    assert atlas.search_calls == []
+
+    _drain_background(atlas)
+
+    assert atlas.search_calls == ["bob"]
+    assert dialog._visible_usernames == ["bob", "bobbie"]
+    assert dialog.account_feedback_label.get_text().startswith("Found 2 account")
 
     dialog.account_search_entry.set_text("")
     dialog._on_account_filter_changed(dialog.account_search_entry)
+
+    assert atlas.last_thread_name == "user-account-list"
+    assert dialog.account_feedback_label.get_text() == "Loading saved accounts…"
+
+    _drain_background(atlas)
 
     assert set(dialog._visible_usernames) == {"alice", "bob", "carol"}
 

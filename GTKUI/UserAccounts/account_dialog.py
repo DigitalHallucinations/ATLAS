@@ -47,6 +47,7 @@ class AccountDialog(Gtk.Window):
         self._account_records: list[dict[str, object]] = []
         self._account_details_cache: dict[str, dict[str, object]] = {}
         self._account_filter_text: str = ""
+        self._active_account_request: Optional[tuple[str, str]] = None
         self._selected_username: Optional[str] = None
         self._details_busy = False
         self._login_busy = False
@@ -355,6 +356,7 @@ class AccountDialog(Gtk.Window):
             self._handle_account_list_error(exc)
 
     def _handle_account_list_result(self, accounts) -> bool:
+        self._active_account_request = None
         normalised = self._normalise_account_payload(accounts)
         self._account_records = normalised
 
@@ -378,6 +380,7 @@ class AccountDialog(Gtk.Window):
         return False
 
     def _handle_account_list_error(self, exc: Exception) -> bool:
+        self._active_account_request = None
         self.account_empty_label.set_text("Failed to load saved accounts.")
         message = f"Account load failed: {exc}"
         if self._post_refresh_feedback:
@@ -614,20 +617,90 @@ class AccountDialog(Gtk.Window):
 
     def _on_account_filter_changed(self, entry, *_args) -> None:
         text = getattr(entry, "get_text", lambda: "")()
-        self._account_filter_text = (text or "").strip()
-        accounts = self._apply_account_filter(self._account_records)
-        context = "search" if self._account_filter_text else "load"
-        message = self._render_account_rows(accounts, context=context)
-        self.account_feedback_label.set_text(message)
+        query = (text or "").strip()
+        self._account_filter_text = query
+
+        if query:
+            self._start_account_search(query)
+        else:
+            self._start_account_list_refresh()
 
     def _on_account_search_clear(self, _button) -> None:
         setter = getattr(self.account_search_entry, "set_text", None)
         if callable(setter):
             setter("")
-        self._account_filter_text = ""
-        accounts = self._apply_account_filter(self._account_records)
-        message = self._render_account_rows(accounts, context="load")
-        self.account_feedback_label.set_text(message)
+        self._on_account_filter_changed(self.account_search_entry)
+
+    def _start_account_search(self, query: str) -> None:
+        self._active_account_request = ("search", query)
+        self._set_account_busy(True, "Searching accounts…", disable_forms=False)
+        self.account_empty_label.set_text("Searching…")
+
+        def factory():
+            return self.ATLAS.search_user_accounts(query)
+
+        def on_success(result) -> None:
+            GLib.idle_add(self._handle_account_search_result, query, result)
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(self._handle_account_search_error, query, exc)
+
+        try:
+            self.ATLAS.run_in_background(
+                factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name="user-account-search",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to start account search: %s", exc, exc_info=True)
+            self._handle_account_search_error(query, exc)
+
+    def _start_account_list_refresh(self) -> None:
+        self._active_account_request = ("list", "")
+        self._set_account_busy(True, "Loading saved accounts…", disable_forms=False)
+
+        def factory():
+            return self.ATLAS.list_user_accounts()
+
+        def on_success(result) -> None:
+            GLib.idle_add(self._handle_account_list_result, result)
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(self._handle_account_list_error, exc)
+
+        try:
+            self.ATLAS.run_in_background(
+                factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name="user-account-list",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to refresh account list: %s", exc, exc_info=True)
+            self._handle_account_list_error(exc)
+
+    def _handle_account_search_result(self, query: str, accounts) -> bool:
+        if query != self._account_filter_text or self._active_account_request != ("search", query):
+            return False
+
+        self._active_account_request = None
+        normalised = self._normalise_account_payload(accounts)
+        self._account_records = normalised
+        filtered_accounts = self._apply_account_filter(normalised)
+        message = self._render_account_rows(filtered_accounts, context="search")
+        self._set_account_busy(False, message, disable_forms=False)
+        return False
+
+    def _handle_account_search_error(self, query: str, exc: Exception) -> bool:
+        if query != self._account_filter_text or self._active_account_request != ("search", query):
+            return False
+
+        self._active_account_request = None
+        self.account_empty_label.set_text("Search failed.")
+        message = f"Search failed: {exc}"
+        self._set_account_busy(False, message, disable_forms=False)
+        return False
 
     def _on_account_row_selected(self, _listbox, row) -> None:
         if row is None:
