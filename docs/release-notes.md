@@ -9,4 +9,7 @@
   configured application root (or explicit speech cache settings), ensuring
   custom installations store generated audio in the expected location and log
   permission issues clearly.
+- User account password policies can now be customised via configuration keys
+  for minimum length and character requirements. See `docs/password-policy.md`
+  for the full list of options.
 

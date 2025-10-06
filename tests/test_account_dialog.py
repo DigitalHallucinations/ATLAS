@@ -1,5 +1,6 @@
 import asyncio
 import datetime as _dt
+from typing import Optional
 from types import MethodType, SimpleNamespace
 
 import pytest
@@ -40,9 +41,7 @@ class _AtlasStub:
         self.update_called = None
         self.update_result = {"username": "updated-user"}
         self.config_manager = SimpleNamespace(get_active_user=lambda: self.active_username)
-
-    def get_user_password_requirements(self):
-        return PasswordRequirements(
+        self._password_requirements = PasswordRequirements(
             min_length=10,
             require_uppercase=True,
             require_lowercase=True,
@@ -50,8 +49,22 @@ class _AtlasStub:
             require_symbol=True,
             forbid_whitespace=True,
         )
+        self._password_requirements_description: Optional[str] = None
+
+    def set_password_requirements(
+        self,
+        requirements: PasswordRequirements,
+        description: Optional[str] = None,
+    ) -> None:
+        self._password_requirements = requirements
+        self._password_requirements_description = description
+
+    def get_user_password_requirements(self):
+        return self._password_requirements
 
     def describe_user_password_requirements(self):
+        if self._password_requirements_description is not None:
+            return self._password_requirements_description
         return self.get_user_password_requirements().describe()
 
     def add_active_user_change_listener(self, listener):
@@ -200,11 +213,30 @@ def test_form_toggle_highlighting():
 
 def test_password_requirements_rendered():
     atlas = _AtlasStub()
+    custom_requirements = PasswordRequirements(
+        min_length=16,
+        require_uppercase=False,
+        require_lowercase=True,
+        require_digit=True,
+        require_symbol=True,
+        forbid_whitespace=False,
+    )
+    custom_description = (
+        "Passwords must be at least 16 characters long, include a number and symbol."
+    )
+    atlas.set_password_requirements(custom_requirements, custom_description)
     dialog = AccountDialog(atlas)
     if atlas.last_factory is not None:
         _drain_background(atlas)
 
-    expected = atlas.describe_user_password_requirements()
+    expected_tooltip = atlas.describe_user_password_requirements()
+    expected_label_text = "\n".join(
+        f"• {line}" for line in custom_requirements.bullet_points()
+    )
+
+    assert dialog.register_password_requirements_label.get_text() == expected_label_text
+    assert dialog.edit_password_requirements_label.get_text() == expected_label_text
+
     widgets = [
         dialog.register_password_entry,
         dialog.register_confirm_entry,
@@ -215,13 +247,46 @@ def test_password_requirements_rendered():
     for widget in widgets:
         tooltip = getattr(widget, "_tooltip", None)
         assert tooltip is not None
-        assert expected in tooltip
+        assert tooltip == expected_tooltip
 
     dialog._password_requirements_text = "Use a memorable passphrase"
     dialog._update_password_requirement_labels()
 
     for widget in widgets:
         assert getattr(widget, "_tooltip", None) == "Use a memorable passphrase"
+
+
+def test_password_requirements_refresh_updates_labels():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    initial_tooltip = getattr(dialog.register_password_entry, "_tooltip", None)
+    assert initial_tooltip is not None
+
+    updated_requirements = PasswordRequirements(
+        min_length=8,
+        require_uppercase=True,
+        require_lowercase=True,
+        require_digit=False,
+        require_symbol=False,
+        forbid_whitespace=True,
+    )
+    updated_description = "Passwords must be at least 8 characters and avoid spaces."
+    atlas.set_password_requirements(updated_requirements, updated_description)
+
+    dialog._initialise_password_requirements()
+
+    expected_label_text = "\n".join(
+        f"• {line}" for line in updated_requirements.bullet_points()
+    )
+    assert dialog.register_password_requirements_label.get_text() == expected_label_text
+    assert dialog.edit_password_requirements_label.get_text() == expected_label_text
+
+    refreshed_tooltip = getattr(dialog.register_password_entry, "_tooltip", None)
+    assert refreshed_tooltip == updated_description
+    assert refreshed_tooltip != initial_tooltip
 
 
 def test_password_toggle_icon_press_updates_state_and_label():

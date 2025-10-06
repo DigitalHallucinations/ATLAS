@@ -47,7 +47,7 @@ class _StubLogger:
 
 
 class _StubConfigManager:
-    def __init__(self, overrides: Optional[dict[str, int]] = None):
+    def __init__(self, overrides: Optional[dict[str, object]] = None):
         self._active_user: Optional[str] = None
         self._overrides = dict(overrides or {})
 
@@ -86,6 +86,34 @@ def _create_service(tmp_path, monkeypatch, *, config_overrides=None, clock=None)
         clock=clock,
     )
     return service, config
+
+
+def test_password_requirements_follow_config_overrides(tmp_path, monkeypatch):
+    overrides = {
+        'ACCOUNT_PASSWORD_MIN_LENGTH': '6',
+        'ACCOUNT_PASSWORD_REQUIRE_UPPERCASE': 'false',
+        'ACCOUNT_PASSWORD_REQUIRE_LOWERCASE': 'true',
+        'ACCOUNT_PASSWORD_REQUIRE_DIGIT': True,
+        'ACCOUNT_PASSWORD_REQUIRE_SYMBOL': 'YES',
+        'ACCOUNT_PASSWORD_FORBID_WHITESPACE': 0,
+    }
+
+    service, _ = _create_service(tmp_path, monkeypatch, config_overrides=overrides)
+
+    try:
+        requirements = service.get_password_requirements()
+        assert requirements.min_length == 6
+        assert requirements.require_uppercase is False
+        assert requirements.require_lowercase is True
+        assert requirements.require_digit is True
+        assert requirements.require_symbol is True
+        assert requirements.forbid_whitespace is False
+
+        description = service.describe_password_requirements()
+        assert '6' in description
+        assert 'symbol' in description
+    finally:
+        service.close()
 
 
 def test_register_user_persists_account(tmp_path, monkeypatch):

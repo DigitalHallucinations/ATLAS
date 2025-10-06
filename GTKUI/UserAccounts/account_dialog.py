@@ -208,9 +208,16 @@ class AccountDialog(Gtk.Window):
             except Exception as exc:  # pragma: no cover - descriptive text optional
                 self.logger.debug("Failed to describe password requirements: %s", exc)
 
-        self._password_requirements = requirements
-        self._password_requirements_text = description or requirements.describe()
-        self._update_password_requirement_labels()
+        resolved_description = description or requirements.describe()
+
+        if (
+            self._password_requirements is None
+            or requirements != self._password_requirements
+            or resolved_description != self._password_requirements_text
+        ):
+            self._password_requirements = requirements
+            self._password_requirements_text = resolved_description
+            self._update_password_requirement_labels()
 
     def _build_account_section(self) -> Gtk.Widget:
         wrapper = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=0)
