@@ -5,7 +5,7 @@ from types import MethodType, SimpleNamespace
 import pytest
 
 import tests.test_chat_async_helper  # noqa: F401 - ensure GTK stubs are registered
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 from GTKUI.UserAccounts.account_dialog import AccountDialog
 from modules.user_accounts.user_account_service import (
     AccountLockedError,
@@ -451,6 +451,76 @@ def test_login_lockout_error_displays_message():
         == "Too many failed login attempts. Try again in 60 seconds."
     )
     assert not getattr(dialog, "closed", False)
+
+
+def test_login_lockout_countdown_disables_controls(monkeypatch):
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    timeouts: dict[int, tuple[int, object, tuple[object, ...]]] = {}
+    next_id = 1
+
+    def fake_timeout_add_seconds(interval, callback, *args):
+        nonlocal next_id
+        handle = next_id
+        next_id += 1
+        timeouts[handle] = (interval, callback, args)
+        return handle
+
+    def fake_source_remove(handle):
+        timeouts.pop(handle, None)
+        return True
+
+    monkeypatch.setattr(GLib, "timeout_add_seconds", fake_timeout_add_seconds, raising=False)
+    monkeypatch.setattr(GLib, "source_remove", fake_source_remove, raising=False)
+
+    dialog.login_username_entry.set_text("alice")
+    dialog.login_password_entry.set_text("bad")
+
+    atlas.login_error = AccountLockedError("alice", retry_after=3)
+
+    dialog._on_login_clicked(dialog.login_button)
+    _drain_background(atlas)
+
+    assert dialog.login_feedback_label.get_text() == (
+        "Too many failed login attempts. Try again in 3 seconds."
+    )
+    assert _is_sensitive(dialog.login_button) is False
+    assert _is_sensitive(dialog.login_username_entry) is False
+    assert _is_sensitive(dialog.login_password_entry) is False
+
+    timeout_id = dialog._login_lockout_timeout_id
+    assert timeout_id in timeouts
+
+    def tick_once():
+        interval, callback, args = timeouts[timeout_id]
+        keep_running = callback(*args)
+        if not keep_running:
+            timeouts.pop(timeout_id, None)
+        return keep_running
+
+    assert tick_once() is True
+    assert dialog.login_feedback_label.get_text() == (
+        "Too many failed login attempts. Try again in 2 seconds."
+    )
+    assert _is_sensitive(dialog.login_button) is False
+
+    assert tick_once() is True
+    assert dialog.login_feedback_label.get_text() == (
+        "Too many failed login attempts. Try again in 1 second."
+    )
+    assert _is_sensitive(dialog.login_button) is False
+
+    assert tick_once() is False
+    assert dialog.login_feedback_label.get_text() == "You can try signing in again."
+    assert _is_sensitive(dialog.login_button) is True
+    assert _is_sensitive(dialog.login_username_entry) is True
+    assert _is_sensitive(dialog.login_password_entry) is True
+    assert dialog._login_lockout_timeout_id is None
+    assert dialog._login_lockout_remaining_seconds is None
+    assert timeout_id not in timeouts
 
 
 def test_register_validates_and_submits():

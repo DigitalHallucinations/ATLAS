@@ -58,6 +58,8 @@ class AccountDialog(Gtk.Window):
         self._password_requirements_text: str = ""
         self._password_requirement_labels: list[Gtk.Label] = []
         self._password_requirement_tooltip_widgets: list[Gtk.Widget] = []
+        self._login_lockout_timeout_id: Optional[int] = None
+        self._login_lockout_remaining_seconds: Optional[int] = None
 
         self.set_modal(True)
         if parent is not None:
@@ -1680,17 +1682,84 @@ class AccountDialog(Gtk.Window):
     # ------------------------------------------------------------------
     # Login flow
     # ------------------------------------------------------------------
+    def _login_lockout_active(self) -> bool:
+        return bool(self._login_lockout_remaining_seconds and self._login_lockout_remaining_seconds > 0)
+
+    def _set_login_controls_sensitive(self, sensitive: bool) -> None:
+        self._set_widget_sensitive(self.login_button, sensitive)
+        self._set_widget_sensitive(self.login_username_entry, sensitive)
+        self._set_widget_sensitive(self.login_password_entry, sensitive)
+
+    def _cancel_login_lockout_timer(self) -> None:
+        timeout_id = self._login_lockout_timeout_id
+        self._login_lockout_timeout_id = None
+        self._login_lockout_remaining_seconds = None
+        if timeout_id is not None:
+            remover = getattr(GLib, "source_remove", None)
+            if callable(remover):
+                try:
+                    remover(timeout_id)
+                except Exception:  # pragma: no cover - defensive for stub environments
+                    pass
+        if not self._login_busy:
+            self._set_login_controls_sensitive(True)
+
+    def _update_login_lockout_feedback(self) -> None:
+        remaining = self._login_lockout_remaining_seconds
+        if remaining is None or remaining <= 0:
+            return
+        plural = "s" if remaining != 1 else ""
+        self.login_feedback_label.set_text(
+            f"Too many failed login attempts. Try again in {remaining} second{plural}."
+        )
+
+    def _start_login_lockout_timer(self, seconds: int) -> None:
+        seconds = max(int(seconds), 0)
+        if seconds <= 0:
+            self._cancel_login_lockout_timer()
+            return
+
+        self._cancel_login_lockout_timer()
+        self._login_lockout_remaining_seconds = seconds
+        self._set_login_controls_sensitive(False)
+        self._update_login_lockout_feedback()
+
+        try:
+            timeout_id = GLib.timeout_add_seconds(1, self._on_login_lockout_tick)
+        except Exception:  # pragma: no cover - stub environments may not implement timers
+            timeout_id = None
+        self._login_lockout_timeout_id = timeout_id
+
+    def _on_login_lockout_tick(self) -> bool:
+        if self._login_lockout_remaining_seconds is None:
+            self._login_lockout_timeout_id = None
+            return False
+
+        remaining = self._login_lockout_remaining_seconds - 1
+        if remaining <= 0:
+            self._login_lockout_remaining_seconds = None
+            self._login_lockout_timeout_id = None
+            if not self._login_busy:
+                self._set_login_controls_sensitive(True)
+            self.login_feedback_label.set_text("You can try signing in again.")
+            return False
+
+        self._login_lockout_remaining_seconds = remaining
+        self._update_login_lockout_feedback()
+        return True
+
     def _set_login_busy(self, busy: bool, message: Optional[str] = None) -> None:
         self._login_busy = bool(busy)
-        self._set_widget_sensitive(self.login_button, not busy)
-        self._set_widget_sensitive(self.login_username_entry, not busy)
-        self._set_widget_sensitive(self.login_password_entry, not busy)
+        controls_sensitive = not busy and not self._login_lockout_active()
+        self._set_login_controls_sensitive(controls_sensitive)
         if message is not None:
             self.login_feedback_label.set_text(message)
 
     def _on_login_clicked(self, _button) -> None:
-        if self._login_busy:
+        if self._login_busy or self._login_lockout_active():
             return
+
+        self._cancel_login_lockout_timer()
 
         username = (self.login_username_entry.get_text() or "").strip()
         password = self.login_password_entry.get_text() or ""
@@ -1723,6 +1792,7 @@ class AccountDialog(Gtk.Window):
 
     def _handle_login_result(self, success: bool) -> bool:
         self._set_login_busy(False)
+        self._cancel_login_lockout_timer()
         if success:
             self.login_feedback_label.set_text("Signed in successfully.")
             self.close()
@@ -1733,8 +1803,20 @@ class AccountDialog(Gtk.Window):
     def _handle_login_error(self, exc: Exception) -> bool:
         self._set_login_busy(False)
         if isinstance(exc, AccountLockedError):
-            self.login_feedback_label.set_text(str(exc))
+            retry_after = getattr(exc, "retry_after", None)
+            seconds = 0
+            if retry_after is not None:
+                try:
+                    seconds = int(retry_after)
+                except (TypeError, ValueError):  # pragma: no cover - defensive casting
+                    seconds = 0
+            if seconds > 0:
+                self._start_login_lockout_timer(seconds)
+            else:
+                self._cancel_login_lockout_timer()
+                self.login_feedback_label.set_text(str(exc))
         else:
+            self._cancel_login_lockout_timer()
             self.login_feedback_label.set_text(f"Login failed: {exc}")
         return False
 
