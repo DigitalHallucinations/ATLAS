@@ -61,6 +61,7 @@ class AccountDialog(Gtk.Window):
         self._password_requirement_tooltip_widgets: list[Gtk.Widget] = []
         self._login_lockout_timeout_id: Optional[int] = None
         self._login_lockout_remaining_seconds: Optional[int] = None
+        self._is_closing = False
 
         self.set_modal(True)
         if parent is not None:
@@ -1816,7 +1817,7 @@ class AccountDialog(Gtk.Window):
                     remover(timeout_id)
                 except Exception:  # pragma: no cover - defensive for stub environments
                     pass
-        if not self._login_busy:
+        if not self._login_busy and not self._is_closing:
             self._set_login_controls_sensitive(True)
 
     def _update_login_lockout_feedback(self) -> None:
@@ -2479,6 +2480,8 @@ class AccountDialog(Gtk.Window):
     # Cleanup
     # ------------------------------------------------------------------
     def _on_close_request(self, *_args) -> bool:
+        self._is_closing = True
+        self._cancel_login_lockout_timer()
         if self._active_user_listener is not None:
             try:
                 self.ATLAS.remove_active_user_change_listener(self._active_user_listener)
