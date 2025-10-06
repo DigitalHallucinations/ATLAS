@@ -205,6 +205,40 @@ def test_authenticate_user_success_and_failure(tmp_path, monkeypatch):
         service.close()
 
 
+def test_search_users_returns_sorted_results(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('alice', 'Password123', 'alice@example.com', 'Alice', '1990-01-01')
+        service.register_user('bob', 'Password123', 'bob@example.com', 'Bob', '1991-02-02')
+
+        results = service.search_users('bo')
+        assert [item['username'] for item in results] == ['bob']
+
+        results = service.search_users('example')
+        assert [item['username'] for item in results] == ['alice', 'bob']
+
+        results = service.search_users('unknown')
+        assert results == []
+    finally:
+        service.close()
+
+
+def test_get_user_details_returns_mapping(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('carol', 'Password123', 'carol@example.com', 'Carol', '1988-03-03')
+
+        details = service.get_user_details('carol')
+        assert details['username'] == 'carol'
+        assert details['email'] == 'carol@example.com'
+        assert details['name'] == 'Carol'
+        assert service.get_user_details('missing') is None
+    finally:
+        service.close()
+
+
 def test_set_active_user_tracks_configuration(tmp_path, monkeypatch):
     service, config = _create_service(tmp_path, monkeypatch)
 

@@ -28,6 +28,8 @@ class _AtlasStub:
         self.list_calls = 0
         self.activate_called = None
         self.delete_called = None
+        self.details_called = None
+        self.details_result = {}
         self.update_called = None
         self.update_result = {"username": "updated-user"}
         self.config_manager = SimpleNamespace(get_active_user=lambda: self.active_username)
@@ -83,6 +85,10 @@ class _AtlasStub:
     async def delete_user_account(self, username):
         self.delete_called = username
         return None
+
+    async def get_user_account_details(self, username):
+        self.details_called = username
+        return self.details_result.get(username)
 
     def get_user_display_name(self):
         return self.active_display_name
@@ -397,6 +403,62 @@ def test_delete_account_confirms_and_refreshes():
     assert atlas.list_calls >= 2
     assert dialog.account_feedback_label.get_text().startswith("Account deleted.")
     assert set(dialog._account_rows.keys()) == {"bob"}
+
+
+def test_account_search_filters_rows():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+        {"username": "bob", "display_name": "Bob"},
+        {"username": "carol", "display_name": "Carol"},
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    dialog.account_search_entry.set_text("bob")
+    dialog._on_account_filter_changed(dialog.account_search_entry)
+
+    assert dialog._visible_usernames == ["bob"]
+    assert dialog.account_feedback_label.get_text().startswith("Found 1 account")
+
+    dialog.account_search_entry.set_text("")
+    dialog._on_account_filter_changed(dialog.account_search_entry)
+
+    assert set(dialog._visible_usernames) == {"alice", "bob", "carol"}
+
+
+def test_account_details_fetches_and_displays():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+    ]
+    atlas.details_result = {
+        "alice": {
+            "username": "alice",
+            "email": "alice@example.com",
+            "name": "Alice", 
+            "dob": "1990-01-01",
+        }
+    }
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    details_button = dialog._account_rows["alice"]["details_button"]
+    _click(details_button)
+
+    assert atlas.last_thread_name == "user-account-details"
+    _drain_background(atlas)
+
+    assert atlas.details_called == "alice"
+    assert dialog.account_details_email_value.get_text() == "alice@example.com"
+    assert dialog.account_details_name_value.get_text() == "Alice"
+
+    # Cached results should avoid another background call
+    atlas.last_thread_name = None
+    _click(details_button)
+    assert atlas.last_thread_name is None
 
 
 def test_delete_account_async_confirmation_accepts(monkeypatch):

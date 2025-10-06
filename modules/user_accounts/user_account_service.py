@@ -76,6 +76,21 @@ class UserAccountService:
             dob=str(data[5]) if len(data) > 5 and data[5] is not None else None,
         )
 
+    @staticmethod
+    def _account_to_mapping(account: UserAccount) -> Dict[str, object]:
+        return {
+            "id": account.id,
+            "username": account.username,
+            "email": account.email,
+            "name": account.name,
+            "dob": account.dob,
+        }
+
+    def _rows_to_mappings(self, rows: Iterable[Iterable[object]]) -> List[Dict[str, object]]:
+        accounts = [self._row_to_account(row) for row in rows]
+        accounts.sort(key=lambda account: account.username.lower())
+        return [self._account_to_mapping(account) for account in accounts]
+
     def _validate_email(self, email: str) -> str:
         if not isinstance(email, str):
             self.logger.error("Email must be provided as a string.")
@@ -164,19 +179,7 @@ class UserAccountService:
         """Return a list of stored user accounts as dictionaries."""
 
         rows = self._database.get_all_users() or []
-        accounts = [self._row_to_account(row) for row in rows]
-        # Stable ordering ensures deterministic UI updates/tests.
-        accounts.sort(key=lambda account: account.username.lower())
-        return [
-            {
-                "id": account.id,
-                "username": account.username,
-                "email": account.email,
-                "name": account.name,
-                "dob": account.dob,
-            }
-            for account in accounts
-        ]
+        return self._rows_to_mappings(rows)
 
     def get_active_user(self) -> Optional[str]:
         """Return the username persisted as active in configuration."""
@@ -267,4 +270,36 @@ class UserAccountService:
             self._database.close_connection()
         except Exception:  # pragma: no cover - defensive cleanup
             pass
+
+    # ------------------------------------------------------------------
+    # Extended queries
+    # ------------------------------------------------------------------
+    def search_users(self, query_text: Optional[str]) -> List[Dict[str, object]]:
+        """Search for accounts by username, e-mail or display name."""
+
+        rows = self._database.search_users(query_text)
+        return self._rows_to_mappings(rows)
+
+    def get_user_details(self, username: str) -> Optional[Dict[str, object]]:
+        """Return a mapping of account details for the given username."""
+
+        normalised_username = self._normalise_username(username)
+        if not normalised_username:
+            return None
+
+        details = self._database.get_user_details(normalised_username)
+        if not details:
+            return None
+
+        account = self._row_to_account(
+            [
+                details.get("id"),
+                details.get("username"),
+                None,
+                details.get("email"),
+                details.get("name"),
+                details.get("dob"),
+            ]
+        )
+        return self._account_to_mapping(account)
 

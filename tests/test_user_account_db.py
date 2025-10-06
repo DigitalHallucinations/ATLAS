@@ -191,6 +191,52 @@ def test_update_user_preserves_extra_profile_fields(tmp_path, monkeypatch):
         db.close_connection()
 
 
+def test_search_users_filters_by_multiple_fields(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    try:
+        db.add_user('alice', 'Password1', 'alice@example.com', 'Alice', '1990-01-01')
+        db.add_user('bob', 'Password1', 'bob@example.com', 'Robert', '1991-02-02')
+        db.add_user('carol', 'Password1', 'carol@example.net', 'Carol', '1992-03-03')
+
+        results = db.search_users('ali')
+        assert [row[1] for row in results] == ['alice']
+
+        results = db.search_users('EXAMPLE')
+        assert {row[1] for row in results} == {'alice', 'bob', 'carol'}
+
+        results = db.search_users('robert')
+        assert [row[1] for row in results] == ['bob']
+
+        results = db.search_users('unknown')
+        assert results == []
+
+        results = db.search_users(None)
+        assert {row[1] for row in results} == {'alice', 'bob', 'carol'}
+    finally:
+        db.close_connection()
+
+
+def test_get_user_details_returns_mapping(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    try:
+        db.add_user('dave', 'Password1', 'dave@example.com', 'Dave', '1980-05-05')
+
+        details = db.get_user_details('dave')
+        assert details == {
+            'id': details['id'],
+            'username': 'dave',
+            'email': 'dave@example.com',
+            'name': 'Dave',
+            'dob': '1980-05-05',
+        }
+
+        assert db.get_user_details('missing') is None
+    finally:
+        db.close_connection()
+
+
 def test_database_uses_app_root_directory(tmp_path, monkeypatch):
     app_root = tmp_path / 'app-root'
     _install_config_manager_stub(monkeypatch, str(app_root))
