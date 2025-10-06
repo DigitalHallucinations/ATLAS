@@ -192,6 +192,7 @@ class UserAccountDatabase:
                 self._ensure_unique_constraints()
                 self._ensure_last_login_column()
                 self._ensure_password_reset_table()
+                self._ensure_lockout_table()
             finally:
                 cursor.close()
 
@@ -235,6 +236,34 @@ class UserAccountDatabase:
                     """
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at
                     ON password_reset_tokens (expires_at)
+                    """
+                )
+                self.conn.commit()
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    def _ensure_lockout_table(self) -> None:
+        """Create the table used for persisting temporary account lockouts."""
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS account_lockouts (
+                        username TEXT PRIMARY KEY,
+                        failed_attempts TEXT NOT NULL,
+                        lockout_until TEXT
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_account_lockouts_lockout_until
+                    ON account_lockouts (lockout_until)
                     """
                 )
                 self.conn.commit()
@@ -379,6 +408,35 @@ class UserAccountDatabase:
         return {column: values} if values else {}
 
     @staticmethod
+    def _serialise_failed_attempts(attempts: Sequence[str]) -> str:
+        try:
+            payload = list(attempts)
+        except TypeError:
+            payload = [str(value) for value in attempts]  # pragma: no cover - defensive
+        return json.dumps(payload)
+
+    @staticmethod
+    def _deserialise_failed_attempts(value: Optional[str]) -> List[str]:
+        if not value:
+            return []
+
+        try:
+            loaded = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return []
+
+        if not isinstance(loaded, list):
+            return []
+
+        attempts: List[str] = []
+        for item in loaded:
+            if isinstance(item, str):
+                attempts.append(item)
+            else:
+                attempts.append(str(item))  # pragma: no cover - defensive
+        return attempts
+
+    @staticmethod
     def _hash_password(password, *, iterations=100_000):
         if password is None:
             raise ValueError("Password must not be None when hashing.")
@@ -503,6 +561,100 @@ class UserAccountDatabase:
             try:
                 cursor.execute("DELETE FROM password_reset_tokens WHERE username = ?", (username,))
                 self.conn.commit()
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    def set_lockout_entry(
+        self,
+        username: str,
+        attempts: Sequence[str],
+        lockout_until: Optional[str],
+    ) -> None:
+        """Persist failed-attempt history and lockout expiry for a username."""
+
+        payload = self._serialise_failed_attempts(attempts)
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO account_lockouts (username, failed_attempts, lockout_until)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(username) DO UPDATE SET
+                        failed_attempts = excluded.failed_attempts,
+                        lockout_until = excluded.lockout_until
+                    """,
+                    (username, payload, lockout_until),
+                )
+                self.conn.commit()
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    def get_lockout_entry(
+        self, username: str
+    ) -> Optional[Tuple[List[str], Optional[str]]]:
+        """Return the stored failed attempts and lockout expiry for a user."""
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT failed_attempts, lockout_until FROM account_lockouts WHERE username = ?",
+                    (username,),
+                )
+                row = cursor.fetchone()
+            finally:
+                cursor.close()
+
+        if not row:
+            return None
+
+        attempts = self._deserialise_failed_attempts(row[0])
+        lockout_until = row[1]
+        return attempts, (str(lockout_until) if lockout_until is not None else None)
+
+    def get_all_lockout_entries(self) -> List[Tuple[str, List[str], Optional[str]]]:
+        """Return all persisted lockout records."""
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT username, failed_attempts, lockout_until FROM account_lockouts"
+                )
+                rows = cursor.fetchall()
+            finally:
+                cursor.close()
+
+        entries: List[Tuple[str, List[str], Optional[str]]] = []
+        for username, payload, lockout_until in rows:
+            attempts = self._deserialise_failed_attempts(payload)
+            normalised_lockout = (
+                str(lockout_until) if lockout_until is not None else None
+            )
+            entries.append((str(username), attempts, normalised_lockout))
+        return entries
+
+    def delete_lockout_entry(self, username: str) -> bool:
+        """Remove persisted lockout information for the given user."""
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    "DELETE FROM account_lockouts WHERE username = ?",
+                    (username,),
+                )
+                deleted = cursor.rowcount > 0
+                self.conn.commit()
+                return deleted
             except sqlite3.DatabaseError:
                 self.conn.rollback()
                 raise
