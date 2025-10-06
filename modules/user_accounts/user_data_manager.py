@@ -1,13 +1,23 @@
 # modules/user_accounts/user_data_manager.py
 
-import os
 import re
 import json
 import platform
 import subprocess
+from pathlib import Path
 from threading import Lock
+from typing import Optional
+
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
+
+try:
+    from platformdirs import user_data_dir as _user_data_dir
+except ImportError:  # pragma: no cover - optional dependency
+    try:
+        from appdirs import user_data_dir as _user_data_dir  # type: ignore
+    except ImportError:  # pragma: no cover - optional dependency
+        _user_data_dir = None
 
 
 class SystemInfo:
@@ -128,12 +138,13 @@ class UserDataManager:
     _system_info_cache = None
     _system_info_cache_lock = Lock()
 
-    def __init__(self, user):
+    def __init__(self, user, base_dir: Optional[str] = None):
         """
         Initializes the UserDataManager with the given user.
 
         Args:
             user (str): The username of the user.
+            base_dir (Optional[str]): Optional base directory override for user data.
         """
         self.config_manager = ConfigManager()
         self.logger = setup_logger(__name__)
@@ -142,6 +153,8 @@ class UserDataManager:
         self.profile = None
         self.emr = None
         self._system_info = None
+        self._base_directory = self._determine_base_directory(base_dir)
+        self._profiles_dir = self._base_directory / 'user_profiles'
 
     @classmethod
     def invalidate_system_info_cache(cls):
@@ -149,7 +162,50 @@ class UserDataManager:
         SystemInfo.invalidate_cache()
         with cls._system_info_cache_lock:
             cls._system_info_cache = None
-        
+
+
+    def _determine_base_directory(self, override_dir: Optional[str]) -> Path:
+        if override_dir is not None:
+            self.logger.debug(
+                "Using provided base directory for user data: %s",
+                override_dir,
+            )
+            return Path(override_dir).expanduser().resolve()
+
+        app_root = self._get_app_root()
+        if app_root:
+            resolved = Path(app_root).expanduser().resolve() / 'modules' / 'user_accounts'
+            self.logger.debug("Using app root directory for user data: %s", resolved)
+            return resolved
+
+        if _user_data_dir:
+            fallback_base = Path(_user_data_dir("ATLAS", "ATLAS"))
+            self.logger.debug(
+                "Using OS user data directory for user data: %s",
+                fallback_base,
+            )
+        else:  # pragma: no cover - only used when helpers unavailable
+            fallback_base = Path.home() / '.atlas'
+            self.logger.debug(
+                "Falling back to home directory for user data: %s",
+                fallback_base,
+            )
+
+        return fallback_base
+
+    def _get_app_root(self) -> Optional[str]:
+        get_app_root = getattr(self.config_manager, 'get_app_root', None)
+        if not callable(get_app_root):
+            return None
+
+        try:
+            return get_app_root()
+        except Exception as exc:  # pragma: no cover - defensive
+            self.logger.warning(
+                "Failed to retrieve app root from ConfigManager: %s",
+                exc,
+            )
+            return None
 
     def get_profile(self):
         """
@@ -160,16 +216,13 @@ class UserDataManager:
         """
         self.logger.info("Entering get_profile() method")
         try:
-            profile_path = os.path.join(
-                os.path.dirname(__file__), '..', '..', 'modules', 'user_accounts', 'user_profiles',
-                f"{self.user}.json"
-            )
+            profile_path = self._profiles_dir / f"{self.user}.json"
 
-            if not os.path.exists(profile_path):
+            if not profile_path.exists():
                 self.logger.error(f"Profile file does not exist: {profile_path}")
                 return {}
 
-            with open(profile_path, 'r', encoding='utf-8') as file:
+            with profile_path.open('r', encoding='utf-8') as file:
                 profile = json.load(file)
                 self.logger.info("Profile found")
                 return profile
@@ -221,20 +274,17 @@ class UserDataManager:
             return self.emr
 
         self.logger.info("Getting EMR.")
-        EMR_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', 'modules', 'user_accounts', 'user_profiles',
-            f"{self.user}_emr.txt"
-        )
+        EMR_path = self._profiles_dir / f"{self.user}_emr.txt"
 
         self.logger.info(f"EMR path: {EMR_path}")
 
-        if not os.path.exists(EMR_path):
+        if not EMR_path.exists():
             self.logger.error(f"EMR file does not exist: {EMR_path}")
             self.emr = ""
             return self.emr
-        
+
         try:
-            with open(EMR_path, 'r', encoding='utf-8') as file:
+            with EMR_path.open('r', encoding='utf-8') as file:
                 EMR = file.read()
                 EMR = EMR.replace("\n", " ")
                 EMR = re.sub(r'\s+', ' ', EMR)

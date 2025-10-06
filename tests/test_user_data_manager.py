@@ -1,3 +1,4 @@
+import json
 import sys
 import types
 
@@ -29,8 +30,10 @@ class _StubLogger:
 
 
 class _StubConfigManager:
+    _app_root_value = '.'
+
     def __init__(self):
-        self._app_root = '.'
+        self._app_root = self._app_root_value
 
     def get_app_root(self):
         return self._app_root
@@ -106,3 +109,36 @@ def test_get_memory_info_handles_no_capacity_data(monkeypatch):
     result = SystemInfo.get_memory_info()
 
     assert result == "Total Physical Memory: Unknown"
+
+
+def test_profile_and_emr_respect_base_directory_override(tmp_path, monkeypatch):
+    monkeypatch.setattr(user_data_manager_module, 'ConfigManager', _StubConfigManager)
+    monkeypatch.setattr(
+        user_data_manager_module,
+        'setup_logger',
+        lambda *_args, **_kwargs: _StubLogger(),
+    )
+    monkeypatch.setattr(
+        _StubConfigManager,
+        '_app_root_value',
+        str(tmp_path / 'unused-root'),
+    )
+
+    base_dir = tmp_path / 'redirected-base'
+    profiles_dir = base_dir / 'user_profiles'
+    profiles_dir.mkdir(parents=True)
+
+    profile_data = {
+        'Username': 'jordan',
+        'Full Name': 'Jordan Example',
+    }
+    profile_path = profiles_dir / 'jordan.json'
+    profile_path.write_text(json.dumps(profile_data), encoding='utf-8')
+
+    emr_path = profiles_dir / 'jordan_emr.txt'
+    emr_path.write_text('Line one\nLine two', encoding='utf-8')
+
+    manager = user_data_manager_module.UserDataManager('jordan', base_dir=str(base_dir))
+
+    assert manager.get_profile() == profile_data
+    assert manager.get_emr() == 'Line one Line two'
