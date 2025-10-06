@@ -436,6 +436,28 @@ class UserAccountDatabase:
             finally:
                 cursor.close()
 
+    def get_username_for_email(self, email: str) -> Optional[str]:
+        """Return the username associated with the given e-mail address."""
+
+        canonical_email = self._canonicalize_email(email)
+        if not canonical_email:
+            return None
+
+        query = "SELECT username FROM user_accounts WHERE email = ?"
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(query, (canonical_email,))
+                row = cursor.fetchone()
+            finally:
+                cursor.close()
+
+        if not row:
+            return None
+
+        username = row[0]
+        return str(username).strip() or None
+
     def get_all_users(self):
         query = "SELECT * FROM user_accounts"
         with self._lock:

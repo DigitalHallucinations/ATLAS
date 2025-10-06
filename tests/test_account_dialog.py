@@ -547,7 +547,7 @@ def test_login_failure_displays_error():
     dialog._on_login_clicked(dialog.login_button)
     _drain_background(atlas)
 
-    assert dialog.login_feedback_label.get_text() == "Invalid username or password."
+    assert dialog.login_feedback_label.get_text() == "Invalid username/email or password."
     assert not getattr(dialog, "closed", False)
     assert dialog.login_username_entry.has_css_class("error")
     assert dialog.login_password_entry.has_css_class("error")

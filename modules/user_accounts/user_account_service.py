@@ -483,11 +483,22 @@ class UserAccountService:
     def authenticate_user(self, username: str, password: str) -> bool:
         """Return ``True`` when supplied credentials are valid."""
 
-        normalised_username = self._normalise_username(username)
-        if not normalised_username:
+        identifier = self._normalise_username(username)
+        if not identifier:
             return False
 
         if password is None:
+            return False
+
+        lookup_username = identifier
+        if self._EMAIL_PATTERN.fullmatch(identifier):
+            resolved_username = self._database.get_username_for_email(identifier)
+            if not resolved_username:
+                return False
+            lookup_username = resolved_username
+
+        normalised_username = self._normalise_username(lookup_username)
+        if not normalised_username:
             return False
 
         timestamp: Optional[str] = None
