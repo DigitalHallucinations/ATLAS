@@ -50,6 +50,7 @@ class AccountDialog(Gtk.Window):
         self._selected_username: Optional[str] = None
         self._details_busy = False
         self._login_busy = False
+        self._register_busy = False
         self._visible_usernames: list[str] = []
         self._password_toggle_buttons: list[Gtk.Widget] = []
         self._password_toggle_buttons_by_entry: dict[Gtk.Entry, list[Gtk.Widget]] = {}
@@ -1726,7 +1727,26 @@ class AccountDialog(Gtk.Window):
     # Registration flow
     # ------------------------------------------------------------------
     def _set_register_busy(self, busy: bool, message: Optional[str] = None) -> None:
-        self.register_button.set_sensitive(not busy)
+        self._register_busy = bool(busy)
+        sensitive = not busy
+
+        widgets = [
+            self.register_button,
+            self.register_username_entry,
+            self.register_email_entry,
+            self.register_password_entry,
+            self.register_confirm_entry,
+            self.register_name_entry,
+            self.register_dob_entry,
+        ]
+
+        for widget in widgets:
+            self._set_widget_sensitive(widget, sensitive)
+
+        for entry in (self.register_password_entry, self.register_confirm_entry):
+            for toggle in self._password_toggle_buttons_by_entry.get(entry, []):
+                self._set_widget_sensitive(toggle, sensitive)
+
         if message is not None:
             self.register_feedback_label.set_text(message)
 

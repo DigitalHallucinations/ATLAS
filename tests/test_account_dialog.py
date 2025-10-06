@@ -168,6 +168,18 @@ def _get_toggle_state(toggle):
     return getattr(toggle, "_atlas_toggle_active", False)
 
 
+def _is_sensitive(widget):
+    if hasattr(widget, "_sensitive"):
+        return bool(getattr(widget, "_sensitive"))
+    getter = getattr(widget, "get_sensitive", None)
+    if callable(getter):
+        try:
+            return bool(getter())
+        except Exception:  # pragma: no cover - fallback for stub widgets
+            pass
+    return getattr(widget, "_sensitive", True)
+
+
 def test_form_toggle_highlighting():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
@@ -299,6 +311,41 @@ def test_login_entry_activate_ignored_when_busy(monkeypatch):
         pytest.fail("Password entry did not register an activate callback")
 
     assert atlas.last_factory is first_factory
+
+
+def test_register_user_validation():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    toggle_widgets = []
+    for entry in (dialog.register_password_entry, dialog.register_confirm_entry):
+        toggle_widgets.extend(dialog._password_toggle_buttons_by_entry.get(entry, []))
+
+    widgets = [
+        dialog.register_button,
+        dialog.register_username_entry,
+        dialog.register_email_entry,
+        dialog.register_password_entry,
+        dialog.register_confirm_entry,
+        dialog.register_name_entry,
+        dialog.register_dob_entry,
+        *toggle_widgets,
+    ]
+
+    dialog._set_register_busy(True, "Processing…")
+
+    assert dialog._register_busy is True
+    assert dialog.register_feedback_label.get_text() == "Processing…"
+    disabled_states = [_is_sensitive(widget) for widget in widgets]
+    assert all(state is False for state in disabled_states), disabled_states
+
+    dialog._set_register_busy(False)
+
+    assert dialog._register_busy is False
+    enabled_states = [_is_sensitive(widget) for widget in widgets]
+    assert all(state is True for state in enabled_states), enabled_states
 
 
 def test_login_failure_displays_error():
