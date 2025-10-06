@@ -9,10 +9,11 @@ It features robust error handling, nonblocking asynchronous processing via threa
 and schedules UI updates via GLib.idle_add.
 """
 
+import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 from concurrent.futures import Future
 from datetime import datetime
 import gi
@@ -185,10 +186,16 @@ class ChatPage(Gtk.Window):
         chat_label.add_css_class("caption")
         self.notebook.append_page(self.chat_tab_box, chat_label)
 
-        # --- Terminal tab placeholder ---
+        # --- Terminal tab with persona context ---
         self.terminal_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.terminal_tab_box.set_hexpand(True)
         self.terminal_tab_box.set_vexpand(True)
+        self.terminal_tab_box.set_margin_top(6)
+        self.terminal_tab_box.set_margin_bottom(6)
+        self.terminal_tab_box.set_margin_start(6)
+        self.terminal_tab_box.set_margin_end(6)
+        self._terminal_sections: Dict[str, Gtk.TextBuffer] = {}
+        self._build_terminal_tab()
         terminal_label = Gtk.Label(label="Terminal")
         terminal_label.add_css_class("caption")
         self.notebook.append_page(self.terminal_tab_box, terminal_label)
@@ -202,6 +209,8 @@ class ChatPage(Gtk.Window):
         self.notebook.append_page(self.debug_tab_box, debug_label)
 
         self.vbox.append(self.notebook)
+        self._persona_change_handler = None
+        self._refresh_terminal_tab()
 
         # Add a status area at the bottom of the window with a busy spinner and label.
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -233,6 +242,7 @@ class ChatPage(Gtk.Window):
         self.user_title_label.set_text(f"Active user: {self._current_user_display_name}")
         self.update_persona_label()
         self._register_active_user_listener()
+        self._register_persona_change_listener()
         self.connect("close-request", self._on_close_request)
 
         self.awaiting_response = False
@@ -263,6 +273,215 @@ class ChatPage(Gtk.Window):
     def _set_button_icon(self, button: Gtk.Button, rel_path: str, fallback_icon_name: str):
         button.set_child(self._make_icon(rel_path, fallback_icon_name))
 
+    # --------------------------- Terminal tab helpers ---------------------------
+
+    def _build_terminal_tab(self) -> None:
+        """Construct the collapsible sections within the terminal tab."""
+
+        sections = [
+            ("System Prompt", "system_prompt", True),
+            ("Persona Data", "persona_data", False),
+            ("Conversation Messages", "conversation", True),
+            ("Metadata", "metadata", False),
+        ]
+
+        for title, key, expanded in sections:
+            expander, buffer = self._create_terminal_section(title, expanded=expanded)
+            self._terminal_sections[key] = buffer
+            self.terminal_tab_box.append(expander)
+
+    def _create_terminal_section(self, title: str, *, expanded: bool = False) -> Tuple['Gtk.Widget', Gtk.TextBuffer]:
+        """Return an expander and backing text buffer for a terminal section."""
+
+        buffer = Gtk.TextBuffer()
+        text_view = Gtk.TextView.new_with_buffer(buffer)
+        text_view.set_editable(False)
+        text_view.set_cursor_visible(False)
+        text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        if hasattr(text_view, "set_monospace"):
+            text_view.set_monospace(True)
+        text_view.set_focusable(False)
+        text_view.add_css_class("terminal-text")
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_min_content_height(110)
+        scrolled.set_child(text_view)
+
+        expander_cls = getattr(Gtk, "Expander", None)
+        if expander_cls is None:
+            container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            header = Gtk.Label(label=title)
+            header.add_css_class("caption")
+            header.set_halign(Gtk.Align.START)
+            container.append(header)
+            container.append(scrolled)
+            container.set_hexpand(True)
+            container.set_margin_top(4)
+            container.set_margin_bottom(4)
+            container.set_margin_start(2)
+            container.set_margin_end(2)
+            return container, buffer
+
+        expander = expander_cls(label=title)
+        expander.set_child(scrolled)
+        expander.set_hexpand(True)
+        expander.set_margin_top(4)
+        expander.set_margin_bottom(4)
+        expander.set_margin_start(2)
+        expander.set_margin_end(2)
+        if hasattr(expander, "set_expanded"):
+            expander.set_expanded(expanded)
+
+        return expander, buffer
+
+    def _set_terminal_section_text(self, key: str, text: str) -> None:
+        sections = getattr(self, "_terminal_sections", None)
+        if not isinstance(sections, dict):
+            return
+        buffer = sections.get(key)
+        if buffer is None:
+            return
+        buffer.set_text(text or "")
+
+    def _refresh_terminal_tab(self, context: Optional[Dict[str, object]] = None) -> None:
+        """Update terminal tab widgets with the latest persona/chat context."""
+
+        context_data: Dict[str, object] = {}
+        if isinstance(context, dict):
+            context_data = context
+        else:
+            getter = getattr(self.ATLAS, "get_current_persona_context", None)
+            if callable(getter):
+                try:
+                    fetched = getter() or {}
+                except Exception as exc:
+                    logger.error("Failed to fetch persona context: %s", exc, exc_info=True)
+                else:
+                    if isinstance(fetched, dict):
+                        context_data = fetched
+
+        prompt_text = str(context_data.get("system_prompt") or "No system prompt available.")
+        self._set_terminal_section_text("system_prompt", prompt_text)
+
+        substitutions = context_data.get("substitutions")
+        if isinstance(substitutions, dict) and substitutions:
+            persona_data_text = json.dumps(substitutions, ensure_ascii=False, indent=2)
+        else:
+            persona_data_text = "No persona-specific data available."
+        self._set_terminal_section_text("persona_data", persona_data_text)
+
+        history: List[Dict[str, object]] = []
+        history_getter = getattr(self.ATLAS, "get_chat_history_snapshot", None)
+        if callable(history_getter):
+            try:
+                candidate = history_getter()
+            except Exception as exc:
+                logger.error("Failed to obtain chat history snapshot: %s", exc, exc_info=True)
+            else:
+                if isinstance(candidate, list):
+                    history = candidate
+
+        conversation_text = self._format_conversation_history(history)
+        self._set_terminal_section_text("conversation", conversation_text)
+
+        metadata_lines = []
+        persona_name = context_data.get("persona_name") if isinstance(context_data, dict) else None
+        if not persona_name:
+            persona_name_getter = getattr(self.ATLAS, "get_active_persona_name", None)
+            if callable(persona_name_getter):
+                try:
+                    persona_name = persona_name_getter()
+                except Exception as exc:
+                    logger.error("Failed to resolve active persona name: %s", exc, exc_info=True)
+
+        metadata_lines.append(f"Persona: {persona_name or 'Unknown'}")
+        metadata_lines.append(f"Messages recorded: {len(history)}")
+
+        conversation_id = None
+        session = getattr(self.ATLAS, "chat_session", None)
+        if session is not None:
+            get_conv_id = getattr(session, "get_conversation_id", None)
+            if callable(get_conv_id):
+                try:
+                    conversation_id = get_conv_id()
+                except Exception as exc:
+                    logger.error("Failed to obtain conversation ID: %s", exc, exc_info=True)
+            else:
+                conversation_id = getattr(session, "conversation_id", None)
+        metadata_lines.append(f"Conversation ID: {conversation_id or 'Unavailable'}")
+
+        summary = {}
+        status_getter = getattr(self.ATLAS, "get_chat_status_summary", None)
+        if callable(status_getter):
+            try:
+                candidate = status_getter() or {}
+            except Exception as exc:
+                logger.error("Failed to fetch chat status summary: %s", exc, exc_info=True)
+            else:
+                if isinstance(candidate, dict):
+                    summary = candidate
+
+        if summary:
+            metadata_lines.append("Status Summary:")
+            for key, value in summary.items():
+                metadata_lines.append(f"  {key}: {value}")
+
+        metadata_lines.append(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        metadata_text = "\n".join(metadata_lines)
+        self._set_terminal_section_text("metadata", metadata_text)
+
+    def _format_conversation_history(self, history: List[Dict[str, object]]) -> str:
+        if not history:
+            return "No conversation messages recorded yet."
+
+        lines: list[str] = []
+        for entry in history:
+            if not isinstance(entry, dict):
+                continue
+
+            timestamp = entry.get("timestamp") or ""
+            role = entry.get("role") or "unknown"
+            lines.append(f"[{timestamp}] {role}")
+
+            content = self._stringify_terminal_value(entry.get("content"))
+            if content:
+                for segment in content.splitlines() or [""]:
+                    lines.append(f"  {segment}")
+
+            metadata = entry.get("metadata")
+            if metadata:
+                metadata_text = self._stringify_terminal_value(metadata)
+                if metadata_text:
+                    lines.append(f"  metadata: {metadata_text}")
+
+            extra_keys = [
+                key for key in entry.keys() if key not in {"timestamp", "role", "content", "metadata"}
+            ]
+            for key in extra_keys:
+                value_text = self._stringify_terminal_value(entry.get(key))
+                if value_text:
+                    lines.append(f"  {key}: {value_text}")
+
+            lines.append("")
+
+        formatted = "\n".join(lines).strip()
+        return formatted or "No conversation messages recorded yet."
+
+    def _stringify_terminal_value(self, value: object) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        try:
+            return json.dumps(value, ensure_ascii=False, indent=2)
+        except TypeError:
+            return str(value)
+        except Exception:  # pragma: no cover - defensive fallback
+            logger.debug("Unable to stringify value for terminal view", exc_info=True)
+            return str(value)
+
     # --------------------------- Header helpers ---------------------------
 
     def update_persona_label(self):
@@ -292,6 +511,30 @@ class ChatPage(Gtk.Window):
             self._active_user_listener = None
         else:
             self._active_user_listener = _listener
+
+    def _register_persona_change_listener(self) -> None:
+        """Subscribe to persona context updates when the backend supports it."""
+
+        registrar = getattr(self.ATLAS, "add_persona_change_listener", None)
+        if not callable(registrar):
+            self._persona_change_handler = None
+            return
+
+        def _listener(context: Optional[Dict[str, object]]) -> None:
+            GLib.idle_add(self._on_persona_context_changed, context)
+
+        try:
+            registrar(_listener)
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.error("Unable to subscribe to persona changes: %s", exc, exc_info=True)
+            self._persona_change_handler = None
+        else:
+            self._persona_change_handler = _listener
+
+    def _on_persona_context_changed(self, context: Optional[Dict[str, object]]) -> bool:
+        self.update_persona_label()
+        self._refresh_terminal_tab(context)
+        return False
 
     def _apply_active_user_identity(self, username: str, display_name: str) -> bool:
         self._current_user_display_name = display_name or username
@@ -332,6 +575,7 @@ class ChatPage(Gtk.Window):
                     audio=normalized.get("audio"),
                 )
                 self._on_response_complete()
+                self._refresh_terminal_tab()
                 return False
 
             GLib.idle_add(update)
@@ -343,6 +587,7 @@ class ChatPage(Gtk.Window):
             def update():
                 self.add_message_bubble(display_name, f"Error: {exc}", audio=None)
                 self._on_response_complete()
+                self._refresh_terminal_tab()
                 return False
 
             GLib.idle_add(update)
@@ -760,6 +1005,14 @@ class ChatPage(Gtk.Window):
         if self._active_user_listener is not None:
             self.ATLAS.remove_active_user_change_listener(self._active_user_listener)
             self._active_user_listener = None
+        if self._persona_change_handler is not None:
+            remover = getattr(self.ATLAS, "remove_persona_change_listener", None)
+            if callable(remover):
+                try:
+                    remover(self._persona_change_handler)
+                except Exception as exc:  # pragma: no cover - defensive logging only
+                    logger.error("Failed to remove persona change listener: %s", exc, exc_info=True)
+            self._persona_change_handler = None
         return False
 
     def update_status_bar(self, status_summary=None):

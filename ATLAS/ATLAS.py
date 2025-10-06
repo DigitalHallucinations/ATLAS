@@ -48,6 +48,7 @@ class ATLAS:
         self._initialized = False
         self._provider_change_listeners: List[Callable[[Dict[str, str]], None]] = []
         self._active_user_change_listeners: List[Callable[[str, str], None]] = []
+        self._persona_change_listeners: List[Callable[[Dict[str, Any]], None]] = []
         self._message_dispatchers: List[Callable[[str, str], None]] = []
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
         self._default_status_tooltip = "Active LLM provider/model and TTS status"
@@ -250,6 +251,8 @@ class ATLAS:
             self.logger.error(
                 "Persona manager failed to accept active user '%s'", username, exc_info=True
             )
+        else:
+            self._notify_persona_change_listeners()
 
     async def list_user_accounts(self) -> List[Dict[str, object]]:
         """Return stored user accounts without blocking the event loop."""
@@ -449,8 +452,9 @@ class ATLAS:
         if default_tts_provider:
             self.speech_manager.set_default_tts_provider(default_tts_provider)
             self.logger.info(f"Default TTS provider set to: {default_tts_provider}")
-        
+
         self._initialized = True
+        self._notify_persona_change_listeners()
 
     def is_initialized(self) -> bool:
         """
@@ -491,6 +495,7 @@ class ATLAS:
         manager.updater(persona)
         self.current_persona = manager.current_persona  # Update the current_persona in ATLAS
         self.logger.info(f"Current persona set to: {self.current_persona}")
+        self._notify_persona_change_listeners()
 
     def get_active_persona_name(self) -> str:
         """Return the human-friendly name of the active persona."""
@@ -509,6 +514,37 @@ class ATLAS:
 
         return "Assistant"
 
+    def get_current_persona_context(self) -> Dict[str, Any]:
+        """Expose the active persona context for UI consumers."""
+
+        manager = getattr(self, "persona_manager", None)
+        if manager is None:
+            return {"system_prompt": "", "substitutions": {}, "persona_name": None}
+
+        getter = getattr(manager, "get_current_persona_context", None)
+        if callable(getter):
+            try:
+                context = getter()
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                self.logger.error("Persona manager context lookup failed: %s", exc, exc_info=True)
+            else:
+                if isinstance(context, dict):
+                    return context
+
+        try:
+            prompt = self.get_current_persona_prompt()
+        except Exception:  # pragma: no cover - fallback when persona manager unavailable
+            prompt = ""
+
+        persona = getattr(manager, "current_persona", None)
+        persona_name = None
+        if isinstance(persona, dict):
+            raw_name = persona.get("name")
+            if raw_name:
+                persona_name = str(raw_name)
+
+        return {"system_prompt": prompt or "", "substitutions": {}, "persona_name": persona_name}
+
     def get_current_persona_prompt(self) -> Optional[str]:
         """Return the system prompt for the active persona when available."""
 
@@ -525,6 +561,29 @@ class ATLAS:
         """Fetch the structured editor state for the requested persona."""
 
         return self._require_persona_manager().get_editor_state(persona_name)
+
+    def get_chat_history_snapshot(self) -> List[Dict[str, Any]]:
+        """Return a safe copy of the current conversation history."""
+
+        try:
+            session = self._require_chat_session()
+        except RuntimeError:
+            return []
+
+        getter = getattr(session, "get_history", None)
+        if not callable(getter):
+            return []
+
+        try:
+            history = getter()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.error("Failed to retrieve chat history snapshot: %s", exc, exc_info=True)
+            return []
+
+        if isinstance(history, list):
+            return list(history)
+
+        return []
 
     def compute_persona_locked_content(
         self,
@@ -929,6 +988,51 @@ class ATLAS:
             except Exception as exc:
                 self.logger.error(
                     "Provider change listener %s failed: %s", listener, exc, exc_info=True
+                )
+
+    def add_persona_change_listener(self, listener: Callable[[Dict[str, Any]], None]) -> None:
+        """Register callbacks that react to persona prompt/context updates."""
+
+        if not callable(listener):
+            raise TypeError("listener must be callable")
+
+        if listener in self._persona_change_listeners:
+            return
+
+        self._persona_change_listeners.append(listener)
+
+        try:
+            listener(self.get_current_persona_context())
+        except Exception:  # pragma: no cover - listener failures are logged elsewhere
+            self.logger.debug("Persona change listener raised during registration", exc_info=True)
+
+    def remove_persona_change_listener(self, listener: Callable[[Dict[str, Any]], None]) -> None:
+        """Remove a previously registered persona change listener."""
+
+        try:
+            self._persona_change_listeners.remove(listener)
+        except ValueError:
+            pass
+
+    def _notify_persona_change_listeners(self) -> None:
+        """Notify listeners that persona context has changed."""
+
+        if not self._persona_change_listeners:
+            return
+
+        try:
+            context = self.get_current_persona_context()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.error("Failed to assemble persona context snapshot: %s", exc, exc_info=True)
+            context = {"system_prompt": "", "substitutions": {}, "persona_name": None}
+
+        snapshot = dict(context)
+        for listener in list(self._persona_change_listeners):
+            try:
+                listener(snapshot)
+            except Exception as exc:
+                self.logger.error(
+                    "Persona change listener %s failed: %s", listener, exc, exc_info=True
                 )
 
     def register_message_dispatcher(self, dispatcher: Callable[[str, str], None]) -> None:
