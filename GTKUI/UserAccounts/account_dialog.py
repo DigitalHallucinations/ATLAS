@@ -373,7 +373,13 @@ class AccountDialog(Gtk.Window):
         if self._selected_username not in known_usernames:
             self._selected_username = None
 
+        previous_selection = self._selected_username or None
+        active_username = self._active_username or ""
         visible_accounts = self._apply_account_filter(normalised)
+        active_visible = bool(active_username) and any(
+            account.get("username") == active_username for account in visible_accounts
+        )
+        should_focus_active = active_visible and previous_selection is None
         message = self._render_account_rows(visible_accounts, context="load")
 
         if self._post_refresh_feedback:
@@ -381,6 +387,9 @@ class AccountDialog(Gtk.Window):
             self._post_refresh_feedback = None
 
         self._set_account_busy(False, message, disable_forms=False)
+
+        if should_focus_active:
+            self._focus_active_account_row(trigger_details=True)
         return False
 
     def _handle_account_list_error(self, exc: Exception) -> bool:
@@ -1271,10 +1280,54 @@ class AccountDialog(Gtk.Window):
                 allow_details = not self._account_busy and not self._details_busy
                 self._set_widget_sensitive(details_button, allow_details)
 
-    def _highlight_active_account(self) -> None:
+    def _select_list_box_row(self, row: Gtk.Widget) -> None:
+        list_box = getattr(self, "account_list_box", None)
+        if not list_box or row is None:
+            return
+
+        select_row = getattr(list_box, "select_row", None)
+        if callable(select_row):
+            try:
+                select_row(row)
+            except TypeError:
+                try:
+                    select_row(row=row)
+                except Exception:  # pragma: no cover - fall back quietly when signature differs
+                    pass
+            except Exception:  # pragma: no cover - compatibility with stub widgets
+                pass
+
+        scroll_to_row = getattr(list_box, "scroll_to_row", None)
+        if callable(scroll_to_row):
+            try:
+                scroll_to_row(row)
+            except TypeError:
+                try:
+                    scroll_to_row(row, None, False, 0.0, 0.0)
+                except Exception:  # pragma: no cover - tolerate differing GTK signatures
+                    pass
+            except Exception:  # pragma: no cover - stub compatibility
+                pass
+
+    def _focus_active_account_row(self, *, trigger_details: bool = False) -> None:
         active_username = self._active_username or ""
+        active_row = None
+
         for username, widgets in self._account_rows.items():
-            self._set_row_active(widgets, username == active_username)
+            is_active = username == active_username
+            self._set_row_active(widgets, is_active)
+            if is_active:
+                active_row = widgets.get("row")
+
+        if active_row is not None:
+            self._select_list_box_row(active_row)
+
+            if trigger_details and active_username:
+                if self._selected_username != active_username:
+                    self._on_account_details_clicked(active_username)
+
+    def _highlight_active_account(self) -> None:
+        self._focus_active_account_row()
 
     def _set_row_active(self, widgets: dict[str, Gtk.Widget], active: bool) -> None:
         metadata = widgets.get("metadata") if isinstance(widgets, dict) else {}

@@ -1140,6 +1140,39 @@ def test_account_details_fetches_and_displays():
     assert atlas.last_thread_name is None
 
 
+def test_dialog_loads_active_user_details_without_clicks():
+    atlas = _AtlasStub()
+    atlas.active_username = "alice"
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+        {"username": "bob", "display_name": "Bob"},
+    ]
+    atlas.details_result = {
+        "alice": {
+            "username": "alice",
+            "email": "alice@example.com",
+            "name": "Alice",
+            "dob": "1990-01-01",
+            "last_login": "2024-05-20T10:00:00Z",
+        }
+    }
+
+    dialog = AccountDialog(atlas)
+
+    _drain_background(atlas)
+    assert atlas.last_thread_name == "user-account-details"
+
+    _drain_background(atlas)
+
+    assert dialog._selected_username == "alice"
+    assert atlas.details_called == "alice"
+    assert dialog.account_details_status_label.get_text() == ""
+    assert dialog.account_details_username_value.get_text() == "alice"
+    assert dialog.account_details_name_value.get_text() == "Alice"
+    assert dialog.account_details_email_value.get_text() == "alice@example.com"
+    assert dialog.account_details_last_login_value.get_text() == "2024-05-20 10:00 UTC"
+
+
 def test_delete_account_async_confirmation_accepts(monkeypatch):
     atlas = _AtlasStub()
     atlas.list_accounts_result = [
