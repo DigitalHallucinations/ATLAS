@@ -3,22 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import threading
 from concurrent.futures import Future
-from typing import Awaitable, Callable, TypeVar
+from typing import Any, Awaitable, Callable, TypeVar, cast
 
 
 T = TypeVar("T")
 
 
 def run_async_in_thread(
-    coroutine_factory: Callable[[], Awaitable[T]],
-    *,
+    coroutine_factory: Callable[..., Awaitable[T] | T],
+    *factory_args: Any,
     on_success: Callable[[T], None] | None = None,
     on_error: Callable[[Exception], None] | None = None,
     logger: logging.Logger | None = None,
     thread_name: str | None = None,
+    **factory_kwargs: Any,
 ) -> Future[T]:
     """Execute an awaitable produced by ``coroutine_factory`` in a background thread.
 
@@ -43,7 +45,13 @@ def run_async_in_thread(
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(coroutine_factory())
+            maybe_awaitable = coroutine_factory(*factory_args, **factory_kwargs)
+
+            if asyncio.isfuture(maybe_awaitable) or inspect.isawaitable(maybe_awaitable):
+                awaitable = cast(Awaitable[T], maybe_awaitable)
+                result = loop.run_until_complete(awaitable)
+            else:
+                result = maybe_awaitable
         except Exception as exc:  # noqa: BLE001 - we want to propagate arbitrary exceptions
             future.set_exception(exc)
             if on_error is not None:
