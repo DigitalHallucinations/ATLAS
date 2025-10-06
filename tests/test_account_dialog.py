@@ -198,6 +198,32 @@ def test_form_toggle_highlighting():
     assert not dialog.register_toggle_button.has_css_class("suggested-action")
 
 
+def test_password_requirements_rendered():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    expected = atlas.describe_user_password_requirements()
+    widgets = [
+        dialog.register_password_entry,
+        dialog.register_confirm_entry,
+        dialog.edit_password_entry,
+        dialog.edit_confirm_entry,
+    ]
+
+    for widget in widgets:
+        tooltip = getattr(widget, "_tooltip", None)
+        assert tooltip is not None
+        assert expected in tooltip
+
+    dialog._password_requirements_text = "Use a memorable passphrase"
+    dialog._update_password_requirement_labels()
+
+    for widget in widgets:
+        assert getattr(widget, "_tooltip", None) == "Use a memorable passphrase"
+
+
 def test_password_toggle_icon_press_updates_state_and_label():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)

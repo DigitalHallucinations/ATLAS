@@ -57,6 +57,7 @@ class AccountDialog(Gtk.Window):
         self._password_requirements: Optional[PasswordRequirements] = None
         self._password_requirements_text: str = ""
         self._password_requirement_labels: list[Gtk.Label] = []
+        self._password_requirement_tooltip_widgets: list[Gtk.Widget] = []
 
         self.set_modal(True)
         if parent is not None:
@@ -176,6 +177,14 @@ class AccountDialog(Gtk.Window):
         text = self._password_requirement_text()
         for label in self._password_requirement_labels:
             label.set_text(text)
+        tooltip = self._password_requirements_text or text
+        for widget in self._password_requirement_tooltip_widgets:
+            setter = getattr(widget, "set_tooltip_text", None)
+            if callable(setter):
+                try:
+                    setter(tooltip)
+                except Exception:  # pragma: no cover - stub compatibility
+                    continue
 
     def _initialise_password_requirements(self) -> None:
         requirements = self._default_password_requirements()
@@ -1425,6 +1434,9 @@ class AccountDialog(Gtk.Window):
         grid.attach(self.register_confirm_entry, 1, 3, 1, 1)
         register_confirm_toggle = self._create_password_toggle(self.register_confirm_entry)
         grid.attach(register_confirm_toggle, 2, 3, 1, 1)
+        self._password_requirement_tooltip_widgets.extend(
+            [self.register_password_entry, self.register_confirm_entry]
+        )
 
         self.register_password_strength_label = Gtk.Label()
         self.register_password_strength_label.set_xalign(0.0)
@@ -1538,6 +1550,9 @@ class AccountDialog(Gtk.Window):
 
         edit_confirm_toggle = self._create_password_toggle(self.edit_confirm_entry)
         grid.attach(edit_confirm_toggle, 2, 4, 1, 1)
+        self._password_requirement_tooltip_widgets.extend(
+            [self.edit_password_entry, self.edit_confirm_entry]
+        )
 
         self.edit_password_strength_label = Gtk.Label()
         self.edit_password_strength_label.set_xalign(0.0)
