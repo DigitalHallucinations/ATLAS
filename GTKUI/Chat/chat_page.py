@@ -26,6 +26,7 @@ from logging.handlers import RotatingFileHandler
 
 from GTKUI.Utils.utils import apply_css
 from GTKUI.Utils.logging import GTKUILogHandler, read_recent_log_lines
+from modules.Tools.tool_event_system import event_system
 
 # Configure logging for the chat page.
 logger = logging.getLogger(__name__)
@@ -199,6 +200,8 @@ class ChatPage(Gtk.Window):
         self.terminal_tab_box.set_margin_start(6)
         self.terminal_tab_box.set_margin_end(6)
         self._terminal_sections: Dict[str, Gtk.TextBuffer] = {}
+        self._tool_log_entries: List[str] = []
+        self._tool_activity_listener = None
         self._build_terminal_tab()
         terminal_label = Gtk.Label(label="Terminal")
         terminal_label.add_css_class("caption")
@@ -282,6 +285,7 @@ class ChatPage(Gtk.Window):
         self.update_persona_label()
         self._register_active_user_listener()
         self._register_persona_change_listener()
+        self._register_tool_activity_listener()
         self.connect("close-request", self._on_close_request)
 
         self.awaiting_response = False
@@ -323,6 +327,9 @@ class ChatPage(Gtk.Window):
             ("Persona Data", "persona_data", False),
             ("Conversation Messages", "conversation", True),
             ("Metadata", "metadata", False),
+            ("Declared Tools", "declared_tools", False),
+            ("Tool Calls", "tool_calls", False),
+            ("Tool Logs", "tool_logs", False),
         ]
 
         for title, key, expanded in sections:
@@ -471,6 +478,160 @@ class ChatPage(Gtk.Window):
 
         metadata_text = "\n".join(metadata_lines)
         self._set_terminal_section_text("metadata", metadata_text)
+
+        self._refresh_tool_sections()
+
+    def _refresh_tool_sections(self, history: Optional[List[Dict[str, object]]] = None) -> None:
+        """Update the tool declaration and activity sections."""
+
+        tools_snapshot: Dict[str, object] = {}
+        tools_getter = getattr(self.ATLAS, "get_current_persona_tools", None)
+        if callable(tools_getter):
+            try:
+                candidate = tools_getter() or {}
+            except Exception as exc:
+                logger.error("Failed to obtain persona tools: %s", exc, exc_info=True)
+            else:
+                if isinstance(candidate, dict):
+                    tools_snapshot = candidate
+
+        declared_tools_text = self._format_declared_tools(tools_snapshot)
+        self._set_terminal_section_text("declared_tools", declared_tools_text)
+
+        tool_history: List[Dict[str, object]] = []
+        if isinstance(history, list):
+            tool_history = history
+        else:
+            history_getter = getattr(self.ATLAS, "get_tool_activity_log", None)
+            if callable(history_getter):
+                try:
+                    candidate = history_getter()
+                except Exception as exc:
+                    logger.error("Failed to obtain tool activity log: %s", exc, exc_info=True)
+                else:
+                    if isinstance(candidate, list):
+                        tool_history = candidate
+
+        tool_calls_text = self._format_tool_calls(tool_history)
+        self._set_terminal_section_text("tool_calls", tool_calls_text)
+
+        log_blocks = self._format_tool_log_entries(tool_history)
+        self._tool_log_entries = log_blocks
+        if log_blocks:
+            tool_logs_text = "\n\n".join(log_blocks)
+        else:
+            tool_logs_text = "No tool logs available."
+        self._set_terminal_section_text("tool_logs", tool_logs_text)
+
+    def _format_declared_tools(self, snapshot: Dict[str, object]) -> str:
+        if not snapshot:
+            return "No tools declared for this persona."
+
+        data = {}
+        function_map = snapshot.get("function_map") if isinstance(snapshot, dict) else None
+        if isinstance(function_map, dict) and function_map:
+            data["python_functions"] = function_map
+
+        payload = snapshot.get("function_payloads") if isinstance(snapshot, dict) else None
+        if payload is not None:
+            data["function_payloads"] = payload
+
+        if not data:
+            return "No tools declared for this persona."
+
+        try:
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except (TypeError, ValueError):
+            return str(data)
+
+    def _format_tool_calls(self, entries: List[Dict[str, object]]) -> str:
+        if not entries:
+            return "No tool activity recorded."
+
+        lines: List[str] = []
+        for entry in reversed(entries):
+            name = str(entry.get("tool_name", "unknown"))
+            timestamp = (
+                entry.get("completed_at")
+                or entry.get("started_at")
+                or "Unknown time"
+            )
+            status = str(entry.get("status", "unknown")).upper()
+            duration = entry.get("duration_ms")
+            if isinstance(duration, (int, float)):
+                duration_text = f"{duration:.0f} ms"
+            else:
+                duration_text = ""
+
+            args_text = entry.get("arguments_text") or self._stringify_tool_section_value(
+                entry.get("arguments")
+            )
+            if args_text:
+                args_text = " ".join(args_text.split())
+            if len(args_text) > 120:
+                args_text = args_text[:117] + "..."
+
+            line = f"[{timestamp}] {name}({args_text}) → {status}"
+            if duration_text:
+                line += f" • {duration_text}"
+            lines.append(line)
+
+        return "\n".join(lines)
+
+    def _format_tool_log_entries(self, entries: List[Dict[str, object]]) -> List[str]:
+        formatted: List[str] = []
+        for entry in reversed(entries):
+            name = str(entry.get("tool_name", "unknown"))
+            status = str(entry.get("status", "unknown")).upper()
+            started = entry.get("started_at") or "Unknown start"
+            completed = entry.get("completed_at") or "Unknown end"
+            duration = entry.get("duration_ms")
+            duration_line = None
+            if isinstance(duration, (int, float)):
+                duration_line = f"Duration: {duration:.0f} ms"
+
+            args_text = entry.get("arguments_text") or self._stringify_tool_section_value(
+                entry.get("arguments")
+            )
+            result_text = entry.get("result_text") or self._stringify_tool_section_value(
+                entry.get("result")
+            )
+            error_text = entry.get("error")
+            stdout_text = (entry.get("stdout") or "").strip()
+            stderr_text = (entry.get("stderr") or "").strip()
+
+            block_lines = [f"{name} • {status}", f"Started: {started}", f"Completed: {completed}"]
+            if duration_line:
+                block_lines.append(duration_line)
+            if args_text:
+                block_lines.append(f"Args: {args_text}")
+            if result_text:
+                block_lines.append(f"Result: {result_text}")
+            if stdout_text:
+                block_lines.append("stdout:\n" + self._indent_multiline(stdout_text))
+            if stderr_text:
+                block_lines.append("stderr:\n" + self._indent_multiline(stderr_text))
+            if error_text and status != "SUCCESS":
+                block_lines.append(f"Error: {error_text}")
+
+            formatted.append("\n".join(block_lines))
+
+        return formatted
+
+    def _stringify_tool_section_value(self, value: object) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return str(value)
+
+    def _indent_multiline(self, text: str, prefix: str = "    ") -> str:
+        if not text:
+            return ""
+        return "\n".join(f"{prefix}{line}" if line else prefix.rstrip() for line in text.splitlines())
 
     # --------------------------- Debug tab helpers ---------------------------
 
@@ -942,9 +1103,38 @@ class ChatPage(Gtk.Window):
         else:
             self._persona_change_handler = _listener
 
+    def _register_tool_activity_listener(self) -> None:
+        """Listen for tool activity updates to refresh terminal diagnostics."""
+
+        def _listener(entry: Optional[Dict[str, object]]) -> None:
+            GLib.idle_add(self._on_tool_activity_event, entry)
+
+        try:
+            event_system.subscribe("tool_activity", _listener)
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.error("Unable to subscribe to tool activity events: %s", exc, exc_info=True)
+            self._tool_activity_listener = None
+        else:
+            self._tool_activity_listener = _listener
+
     def _on_persona_context_changed(self, context: Optional[Dict[str, object]]) -> bool:
         self.update_persona_label()
         self._refresh_terminal_tab(context)
+        return False
+
+    def _on_tool_activity_event(self, _entry: Optional[Dict[str, object]]) -> bool:
+        history: Optional[List[Dict[str, object]]] = None
+        history_getter = getattr(self.ATLAS, "get_tool_activity_log", None)
+        if callable(history_getter):
+            try:
+                candidate = history_getter()
+            except Exception as exc:
+                logger.error("Failed to refresh tool activity log: %s", exc, exc_info=True)
+            else:
+                if isinstance(candidate, list):
+                    history = candidate
+
+        self._refresh_tool_sections(history=history)
         return False
 
     def _apply_active_user_identity(self, username: str, display_name: str) -> bool:
@@ -1459,6 +1649,12 @@ class ChatPage(Gtk.Window):
                 except Exception as exc:  # pragma: no cover - defensive logging only
                     logger.error("Failed to remove persona change listener: %s", exc, exc_info=True)
             self._persona_change_handler = None
+        if self._tool_activity_listener is not None:
+            try:
+                event_system.unsubscribe("tool_activity", self._tool_activity_listener)
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                logger.error("Failed to remove tool activity listener: %s", exc, exc_info=True)
+            self._tool_activity_listener = None
         return False
 
     def update_status_bar(self, status_summary=None):

@@ -16,6 +16,7 @@ from typing import (
     Tuple,
     Union,
 )
+from ATLAS import ToolManager as ToolManagerModule
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.provider_manager import ProviderManager
@@ -544,6 +545,69 @@ class ATLAS:
                 persona_name = str(raw_name)
 
         return {"system_prompt": prompt or "", "substitutions": {}, "persona_name": persona_name}
+
+    def get_current_persona_tools(self, *, refresh: bool = False) -> Dict[str, Any]:
+        """Return a snapshot of the tools declared for the active persona."""
+
+        persona = getattr(self, "current_persona", None)
+        if not persona:
+            manager = getattr(self, "persona_manager", None)
+            persona = getattr(manager, "current_persona", None)
+
+        if not isinstance(persona, dict):
+            return {"function_map": {}, "function_payloads": None}
+
+        try:
+            function_map = ToolManagerModule.load_function_map_from_current_persona(
+                persona,
+                refresh=refresh,
+                config_manager=self.config_manager,
+            ) or {}
+        except Exception as exc:
+            self.logger.error("Failed to load persona function map: %s", exc, exc_info=True)
+            function_map = {}
+
+        try:
+            functions_payload = ToolManagerModule.load_functions_from_json(
+                persona,
+                refresh=refresh,
+                config_manager=self.config_manager,
+            )
+        except Exception as exc:
+            self.logger.error("Failed to load persona function payloads: %s", exc, exc_info=True)
+            functions_payload = None
+
+        map_snapshot: Dict[str, str] = {}
+        if isinstance(function_map, dict):
+            for name, func in function_map.items():
+                descriptor = None
+                if callable(func):
+                    module = getattr(func, "__module__", None)
+                    qualname = getattr(func, "__qualname__", getattr(func, "__name__", None))
+                    if module and qualname:
+                        descriptor = f"{module}.{qualname}"
+                    elif qualname:
+                        descriptor = str(qualname)
+                map_snapshot[name] = descriptor or repr(func)
+
+        if isinstance(functions_payload, (dict, list)):
+            try:
+                payload_snapshot = json.loads(json.dumps(functions_payload, ensure_ascii=False))
+            except (TypeError, ValueError):
+                payload_snapshot = functions_payload
+        else:
+            payload_snapshot = functions_payload
+
+        return {"function_map": map_snapshot, "function_payloads": payload_snapshot}
+
+    def get_tool_activity_log(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Expose a copy of the recent tool invocation log for UI use."""
+
+        try:
+            return ToolManagerModule.get_tool_activity_log(limit=limit)
+        except Exception as exc:
+            self.logger.error("Failed to retrieve tool activity log: %s", exc, exc_info=True)
+            return []
 
     def get_current_persona_prompt(self) -> Optional[str]:
         """Return the system prompt for the active persona when available."""
