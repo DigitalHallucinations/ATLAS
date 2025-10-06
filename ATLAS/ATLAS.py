@@ -320,21 +320,16 @@ class ATLAS:
 
         service = self._get_user_account_service()
 
-        async def _load_active() -> Optional[str]:
-            return service.get_active_user()
+        active_username = await run_async_in_thread(service.get_active_user)
 
-        active_username = await run_async_in_thread(_load_active)
-
-        async def _perform_update() -> Any:
-            return service.update_user(
-                username,
-                password=password,
-                email=email,
-                name=name,
-                dob=dob,
-            )
-
-        account = await run_async_in_thread(_perform_update)
+        account = await run_async_in_thread(
+            service.update_user,
+            username,
+            password=password,
+            email=email,
+            name=name,
+            dob=dob,
+        )
 
         if active_username and account.username == active_username:
             await run_async_in_thread(service.set_active_user, account.username)

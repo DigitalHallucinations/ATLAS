@@ -7,10 +7,18 @@ import inspect
 import logging
 import threading
 from concurrent.futures import Future
-from typing import Any, Awaitable, Callable, TypeVar, cast
+from typing import Any, Awaitable, Callable, Generic, TypeVar, cast
 
 
 T = TypeVar("T")
+
+
+class AwaitableFuture(Future[T], Generic[T]):
+    """Future subclass that can be awaited within an asyncio event loop."""
+
+    def __await__(self):
+        loop = asyncio.get_running_loop()
+        return asyncio.wrap_future(self, loop=loop).__await__()
 
 
 def run_async_in_thread(
@@ -21,7 +29,7 @@ def run_async_in_thread(
     logger: logging.Logger | None = None,
     thread_name: str | None = None,
     **factory_kwargs: Any,
-) -> Future[T]:
+) -> AwaitableFuture[T]:
     """Execute an awaitable produced by ``coroutine_factory`` in a background thread.
 
     Args:
@@ -32,10 +40,10 @@ def run_async_in_thread(
         thread_name: Optional name for the spawned thread.
 
     Returns:
-        A :class:`concurrent.futures.Future` containing the coroutine result.
+        An awaitable :class:`concurrent.futures.Future` containing the coroutine result.
     """
 
-    future: Future[T] = Future()
+    future: AwaitableFuture[T] = AwaitableFuture()
 
     def log_callback_error(callback: Callable[..., None], exc: Exception) -> None:
         if logger is not None:
