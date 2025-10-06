@@ -63,6 +63,8 @@ class AccountDialog(Gtk.Window):
         self._login_lockout_remaining_seconds: Optional[int] = None
         self._is_closing = False
         self._is_closed = False
+        self._password_reset_prompt_queue: Optional[list[str]] = None
+        self._last_password_reset_message: Optional[str] = None
 
         self.set_modal(True)
         if parent is not None:
@@ -145,6 +147,7 @@ class AccountDialog(Gtk.Window):
             self.login_toggle_button,
             self.register_toggle_button,
             self.login_button,
+            self.forgot_password_button,
             self.register_button,
             self.edit_save_button,
             self.logout_button,
@@ -1608,6 +1611,13 @@ class AccountDialog(Gtk.Window):
         self.login_button.connect("clicked", self._on_login_clicked)
         wrapper.append(self.login_button)
 
+        self.forgot_password_button = Gtk.Button(label="Forgot password?")
+        self.forgot_password_button.connect(
+            "clicked",
+            self._on_forgot_password_clicked,
+        )
+        wrapper.append(self.forgot_password_button)
+
         def trigger_login_from_entry(*_args) -> None:
             self._on_login_clicked(self.login_button)
 
@@ -1916,6 +1926,7 @@ class AccountDialog(Gtk.Window):
         self._set_widget_sensitive(self.login_button, sensitive)
         self._set_widget_sensitive(self.login_username_entry, sensitive)
         self._set_widget_sensitive(self.login_password_entry, sensitive)
+        self._set_widget_sensitive(getattr(self, "forgot_password_button", None), sensitive)
 
     def _cancel_login_lockout_timer(self) -> None:
         timeout_id = self._login_lockout_timeout_id
@@ -2059,6 +2070,323 @@ class AccountDialog(Gtk.Window):
         else:
             self._cancel_login_lockout_timer()
             self.login_feedback_label.set_text(f"Login failed: {exc}")
+        return False
+
+    # ------------------------------------------------------------------
+    # Password reset flow
+    # ------------------------------------------------------------------
+    def _prompt_for_value(
+        self,
+        title: str,
+        message: str,
+        *,
+        placeholder: str = "",
+        is_secret: bool = False,
+    ) -> Optional[str]:
+        queue = getattr(self, "_password_reset_prompt_queue", None)
+        if isinstance(queue, list):
+            if queue:
+                return queue.pop(0)
+            return None
+
+        alert_cls = getattr(Gtk, "AlertDialog", None)
+        if alert_cls is None:
+            self.logger.warning("Password reset prompt unavailable: Gtk.AlertDialog missing.")
+            return None
+
+        entry = Gtk.Entry()
+        if placeholder:
+            setter = getattr(entry, "set_placeholder_text", None)
+            if callable(setter):
+                try:
+                    setter(placeholder)
+                except Exception:  # pragma: no cover - stub compatibility
+                    pass
+        if is_secret:
+            visibility = getattr(entry, "set_visibility", None)
+            if callable(visibility):
+                try:
+                    visibility(False)
+                except Exception:  # pragma: no cover - stub compatibility
+                    pass
+
+        dialog = alert_cls(title=title, body=message)
+        setter = getattr(dialog, "set_extra_child", None)
+        if callable(setter):
+            try:
+                setter(entry)
+            except Exception:  # pragma: no cover - stub compatibility
+                pass
+        button_setter = getattr(dialog, "set_buttons", None)
+        if callable(button_setter):
+            try:
+                button_setter(["Cancel", "Submit"])
+            except Exception:  # pragma: no cover
+                pass
+
+        try:
+            future = dialog.choose(self)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to present password reset dialog: %s", exc, exc_info=True)
+            return None
+
+        result: Optional[object] = None
+        try:
+            wait_result = getattr(future, "wait_result", None)
+            if callable(wait_result):
+                result = wait_result()
+            else:
+                wait = getattr(future, "wait", None)
+                result = wait() if callable(wait) else None
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Password reset dialog wait failed: %s", exc, exc_info=True)
+            return None
+
+        accept_values: set[object] = {"Submit", 1}
+        response_type = getattr(Gtk, "ResponseType", None)
+        if response_type is not None:
+            accept_values.add(getattr(response_type, "ACCEPT", None))
+            accept_values.add(getattr(response_type, "OK", None))
+
+        if result not in accept_values:
+            if isinstance(result, str) and result.lower() in {"ok", "accept"}:
+                pass
+            else:
+                return None
+
+        getter = getattr(entry, "get_text", None)
+        text = getter() if callable(getter) else ""
+        cleaned = (text or "").strip()
+        return cleaned or None
+
+    def _show_password_reset_message(self, title: str, message: str) -> None:
+        self._last_password_reset_message = message
+        dialog_cls = getattr(Gtk, "AlertDialog", None)
+        if dialog_cls is None:
+            self.login_feedback_label.set_text(message)
+            return
+
+        dialog = dialog_cls(title=title, body=message)
+        button_setter = getattr(dialog, "set_buttons", None)
+        if callable(button_setter):
+            try:
+                button_setter(["OK"])
+            except Exception:  # pragma: no cover
+                pass
+        try:
+            future = dialog.choose(self)
+            waiter = getattr(future, "wait_result", None) or getattr(future, "wait", None)
+            if callable(waiter):
+                waiter()
+        except Exception:  # pragma: no cover - dialog best-effort
+            pass
+
+    def _on_forgot_password_clicked(self, _button) -> None:
+        if self._login_busy:
+            return
+
+        identifier = self._prompt_for_value(
+            "Reset password",
+            "Enter your username or email to reset your password.",
+            placeholder="Username or email",
+        )
+        if not identifier:
+            self.login_feedback_label.set_text("Password reset cancelled.")
+            return
+
+        self._set_login_busy(True, "Requesting password reset…")
+
+        def factory():
+            return self.ATLAS.request_password_reset(identifier)
+
+        def on_success(result: Optional[dict]) -> None:
+            GLib.idle_add(self._handle_password_reset_challenge, identifier, result)
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(self._handle_password_reset_error, exc)
+
+        try:
+            self.ATLAS.run_in_background(
+                factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name="password-reset-request",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to start password reset request: %s", exc, exc_info=True)
+            self._handle_password_reset_error(exc)
+
+    def _handle_password_reset_challenge(
+        self,
+        identifier: str,
+        result: Optional[dict[str, object]],
+    ) -> bool:
+        if self._is_closed:
+            return False
+
+        self._set_login_busy(False)
+
+        if not result:
+            self.login_feedback_label.set_text(
+                "If the account exists, a password reset token has been generated."
+            )
+            return False
+
+        username = result.get("username") if isinstance(result, dict) else None
+        token = result.get("token") if isinstance(result, dict) else None
+        expires_at = result.get("expires_at") if isinstance(result, dict) else None
+
+        parts = []
+        if username:
+            parts.append(f"A reset token has been generated for {username}.")
+        if token:
+            parts.append(f"Token: {token}")
+        if expires_at:
+            parts.append(f"Expires at: {expires_at}")
+
+        if parts:
+            self._show_password_reset_message("Password reset", "\n".join(parts))
+        else:
+            self._show_password_reset_message(
+                "Password reset",
+                "A password reset token has been generated.",
+            )
+
+        self.login_feedback_label.set_text(
+            "Enter the reset token to update your password."
+        )
+
+        if not username:
+            username = identifier
+
+        self._prompt_for_reset_token(str(username))
+        return False
+
+    def _prompt_for_reset_token(self, username: str) -> None:
+        token = self._prompt_for_value(
+            "Enter reset token",
+            f"Enter the reset token for {username}.",
+            placeholder="Reset token",
+        )
+        if not token:
+            self.login_feedback_label.set_text("Password reset cancelled.")
+            return
+
+        self._verify_reset_token(username, token)
+
+    def _verify_reset_token(self, username: str, token: str) -> None:
+        self._set_login_busy(True, "Verifying reset token…")
+
+        def factory():
+            return self.ATLAS.verify_password_reset_token(username, token)
+
+        def on_success(valid: bool) -> None:
+            GLib.idle_add(self._handle_password_reset_token_verified, username, token, bool(valid))
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(self._handle_password_reset_error, exc)
+
+        try:
+            self.ATLAS.run_in_background(
+                factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name="password-reset-verify",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to verify password reset token: %s", exc, exc_info=True)
+            self._handle_password_reset_error(exc)
+
+    def _handle_password_reset_token_verified(
+        self,
+        username: str,
+        token: str,
+        valid: bool,
+    ) -> bool:
+        if self._is_closed:
+            return False
+
+        self._set_login_busy(False)
+
+        if not valid:
+            self.login_feedback_label.set_text("Invalid or expired password reset token.")
+            return False
+
+        new_password = self._prompt_for_value(
+            "Choose a new password",
+            "Enter your new password.",
+            is_secret=True,
+        )
+        if not new_password:
+            self.login_feedback_label.set_text("Password reset cancelled.")
+            return False
+
+        confirm_password = self._prompt_for_value(
+            "Confirm new password",
+            "Re-enter your new password.",
+            is_secret=True,
+        )
+        if new_password != confirm_password:
+            self.login_feedback_label.set_text("Passwords do not match.")
+            return False
+
+        validation_error = self._password_validation_error(new_password)
+        if validation_error:
+            self.login_feedback_label.set_text(validation_error)
+            return False
+
+        self._finalise_password_reset(username, token, new_password)
+        return False
+
+    def _finalise_password_reset(self, username: str, token: str, password: str) -> None:
+        self._set_login_busy(True, "Updating password…")
+
+        def factory():
+            return self.ATLAS.complete_password_reset(username, token, password)
+
+        def on_success(success: bool) -> None:
+            GLib.idle_add(self._handle_password_reset_complete, username, bool(success))
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(self._handle_password_reset_error, exc)
+
+        try:
+            self.ATLAS.run_in_background(
+                factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name="password-reset-complete",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to finalise password reset: %s", exc, exc_info=True)
+            self._handle_password_reset_error(exc)
+
+    def _handle_password_reset_complete(self, username: str, success: bool) -> bool:
+        if self._is_closed:
+            return False
+
+        self._set_login_busy(False)
+
+        if not success:
+            self.login_feedback_label.set_text("Password reset failed. Please try again.")
+            return False
+
+        self.login_feedback_label.set_text(
+            "Password reset complete. You can sign in with your new password."
+        )
+        try:
+            self.login_username_entry.set_text(username)
+            self.login_password_entry.grab_focus()
+        except Exception:  # pragma: no cover - stubs may not implement setters
+            pass
+        return False
+
+    def _handle_password_reset_error(self, exc: Exception) -> bool:
+        if self._is_closed:
+            return False
+
+        self._set_login_busy(False)
+        self.login_feedback_label.set_text(f"Password reset failed: {exc}")
         return False
 
     # ------------------------------------------------------------------

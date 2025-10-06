@@ -373,6 +373,46 @@ class ATLAS:
             self._refresh_active_user_identity()
         return bool(success)
 
+    async def request_password_reset(self, identifier: str) -> Optional[Dict[str, object]]:
+        """Initiate a password reset flow for the supplied identifier."""
+
+        service = self._get_user_account_service()
+        challenge = await run_async_in_thread(
+            service.initiate_password_reset,
+            identifier,
+        )
+        if not challenge:
+            return None
+
+        return {
+            "username": challenge.username,
+            "token": challenge.token,
+            "expires_at": challenge.expires_at_iso(),
+        }
+
+    async def verify_password_reset_token(self, username: str, token: str) -> bool:
+        """Check whether the supplied password reset token remains valid."""
+
+        service = self._get_user_account_service()
+        return await run_async_in_thread(
+            service.verify_password_reset_token,
+            username,
+            token,
+        )
+
+    async def complete_password_reset(
+        self, username: str, token: str, new_password: str
+    ) -> bool:
+        """Finish the password reset process by storing a new password."""
+
+        service = self._get_user_account_service()
+        return await run_async_in_thread(
+            service.complete_password_reset,
+            username,
+            token,
+            new_password,
+        )
+
     async def logout_active_user(self) -> None:
         """Clear any active account selection."""
 

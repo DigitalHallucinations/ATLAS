@@ -43,6 +43,15 @@ class _AtlasStub:
         self.details_result = {}
         self.update_called = None
         self.update_result = {"username": "updated-user"}
+        self.password_reset_identifier = None
+        self.password_reset_request_result: Optional[dict[str, object]] = None
+        self.password_reset_request_error: Optional[Exception] = None
+        self.password_reset_verify_result: bool = True
+        self.password_reset_verify_error: Optional[Exception] = None
+        self.password_reset_verify_called: Optional[tuple[str, str]] = None
+        self.password_reset_complete_result: bool = True
+        self.password_reset_complete_error: Optional[Exception] = None
+        self.password_reset_complete_called: Optional[tuple[str, str, str]] = None
         self.config_manager = SimpleNamespace(get_active_user=lambda: self.active_username)
         self._password_requirements = PasswordRequirements(
             min_length=10,
@@ -147,6 +156,24 @@ class _AtlasStub:
     def get_user_display_name(self):
         return self.active_display_name
 
+    async def request_password_reset(self, identifier: str):
+        self.password_reset_identifier = identifier
+        if self.password_reset_request_error is not None:
+            raise self.password_reset_request_error
+        return self.password_reset_request_result
+
+    async def verify_password_reset_token(self, username: str, token: str):
+        self.password_reset_verify_called = (username, token)
+        if self.password_reset_verify_error is not None:
+            raise self.password_reset_verify_error
+        return self.password_reset_verify_result
+
+    async def complete_password_reset(self, username: str, token: str, password: str):
+        self.password_reset_complete_called = (username, token, password)
+        if self.password_reset_complete_error is not None:
+            raise self.password_reset_complete_error
+        return self.password_reset_complete_result
+
 
 @pytest.fixture(autouse=True)
 def disable_css(monkeypatch):
@@ -226,6 +253,46 @@ def test_form_toggle_highlighting():
     dialog._show_form("edit")
     assert not dialog.login_toggle_button.has_css_class("suggested-action")
     assert not dialog.register_toggle_button.has_css_class("suggested-action")
+
+
+def test_password_reset_flow():
+    atlas = _AtlasStub()
+    atlas.password_reset_request_result = {
+        "username": "alice",
+        "token": "reset-token",
+        "expires_at": "2024-01-01T00:00:00Z",
+    }
+    atlas.password_reset_verify_result = True
+    atlas.password_reset_complete_result = True
+
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    dialog._password_reset_prompt_queue = [
+        "alice@example.com",
+        "reset-token",
+        "NewPassword123!",
+        "NewPassword123!",
+    ]
+
+    _click(dialog.forgot_password_button)
+
+    for _ in range(3):
+        if atlas.last_factory is None:
+            break
+        _drain_background(atlas)
+
+    assert atlas.password_reset_identifier == "alice@example.com"
+    assert atlas.password_reset_verify_called == ("alice", "reset-token")
+    assert atlas.password_reset_complete_called == (
+        "alice",
+        "reset-token",
+        "NewPassword123!",
+    )
+    assert "Password reset complete" in dialog.login_feedback_label.get_text()
+    assert dialog._password_reset_prompt_queue == []
+    assert "reset-token" in (dialog._last_password_reset_message or "")
 
 
 def test_password_requirements_rendered():

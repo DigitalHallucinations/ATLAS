@@ -6,7 +6,7 @@ import shutil
 import sqlite3
 import tempfile
 import threading
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -191,6 +191,7 @@ class UserAccountDatabase:
                 self.conn.commit()
                 self._ensure_unique_constraints()
                 self._ensure_last_login_column()
+                self._ensure_password_reset_table()
             finally:
                 cursor.close()
 
@@ -206,6 +207,36 @@ class UserAccountDatabase:
                     return
 
                 cursor.execute("ALTER TABLE user_accounts ADD COLUMN last_login TEXT")
+                self.conn.commit()
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    def _ensure_password_reset_table(self) -> None:
+        """Create the password reset token table when required."""
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                        username TEXT PRIMARY KEY,
+                        token_hash TEXT NOT NULL,
+                        expires_at TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        FOREIGN KEY(username) REFERENCES user_accounts(username) ON DELETE CASCADE
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at
+                    ON password_reset_tokens (expires_at)
+                    """
+                )
                 self.conn.commit()
             except sqlite3.DatabaseError:
                 self.conn.rollback()
@@ -378,6 +409,22 @@ class UserAccountDatabase:
         return hmac.compare_digest(candidate_hash, expected_hash)
 
     @staticmethod
+    def _hash_reset_token(token: str) -> str:
+        if token is None:
+            raise ValueError("Reset token must not be None")
+
+        token_bytes = token.encode('utf-8')
+        return hashlib.sha256(token_bytes).hexdigest()
+
+    @staticmethod
+    def _compare_reset_token(stored_hash: str, candidate: str) -> bool:
+        if not stored_hash or candidate is None:
+            return False
+
+        candidate_hash = hashlib.sha256(candidate.encode('utf-8')).hexdigest()
+        return hmac.compare_digest(stored_hash, candidate_hash)
+
+    @staticmethod
     def _canonicalize_email(email: Optional[str]) -> Optional[str]:
         if email is None:
             return None
@@ -387,6 +434,101 @@ class UserAccountDatabase:
 
         cleaned = email.strip()
         return cleaned.lower()
+
+    def create_password_reset_token(
+        self,
+        username: str,
+        token: str,
+        expires_at_iso: str,
+    ) -> None:
+        """Persist a password reset token for the specified user."""
+
+        hashed_token = self._hash_reset_token(token)
+        created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO password_reset_tokens (username, token_hash, expires_at, created_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(username) DO UPDATE SET
+                        token_hash = excluded.token_hash,
+                        expires_at = excluded.expires_at,
+                        created_at = excluded.created_at
+                    """,
+                    (username, hashed_token, expires_at_iso, created_at),
+                )
+                self.conn.commit()
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    def get_password_reset_token(self, username: str) -> Optional[Tuple[str, str]]:
+        """Return the stored reset token hash and expiry timestamp."""
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT token_hash, expires_at FROM password_reset_tokens WHERE username = ?",
+                    (username,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                return str(row[0]), str(row[1])
+            finally:
+                cursor.close()
+
+    def verify_password_reset_token(self, username: str, token: str) -> Tuple[bool, Optional[str]]:
+        """Check whether the supplied token matches the stored hash."""
+
+        stored = self.get_password_reset_token(username)
+        if not stored:
+            return False, None
+
+        stored_hash, expires_at = stored
+        matches = self._compare_reset_token(stored_hash, token)
+        return matches, expires_at if matches else expires_at
+
+    def delete_password_reset_token(self, username: str) -> None:
+        """Remove any stored reset token for the given user."""
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("DELETE FROM password_reset_tokens WHERE username = ?", (username,))
+                self.conn.commit()
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    def set_user_password(self, username: str, password: str) -> bool:
+        """Update the stored password hash for the user."""
+
+        hashed_password = self._hash_password(password)
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    "UPDATE user_accounts SET password = ? WHERE username = ?",
+                    (hashed_password, username),
+                )
+                updated = cursor.rowcount > 0
+                self.conn.commit()
+                return updated
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
 
     def add_user(self, username, password, email, name, dob):
         hashed_password = self._hash_password(password)
@@ -648,6 +790,7 @@ class UserAccountDatabase:
                 cursor.close()
 
             if deleted:
+                self.delete_password_reset_token(username)
                 for path, description in ((profile_path, "profile"), (emr_path, "EMR")):
                     try:
                         path.unlink()
