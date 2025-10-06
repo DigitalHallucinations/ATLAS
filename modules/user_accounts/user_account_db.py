@@ -237,13 +237,22 @@ class UserAccountDatabase:
         with self._lock:
             cursor = self.conn.cursor()
             try:
-                cursor.execute(query, (username, hashed_password, email, name, dob))
+                cursor.execute(
+                    query,
+                    (
+                        username,
+                        hashed_password,
+                        email,
+                        name if name not in ("", None) else None,
+                        dob if dob not in ("", None) else None,
+                    ),
+                )
                 self.conn.commit()
                 profile_data = {
                     'username': username,
                     'email': email,
-                    'name': name,
-                    'dob': dob,
+                    'name': name if name not in ("", None) else None,
+                    'dob': dob if dob not in ("", None) else None,
                 }
             except sqlite3.IntegrityError as exc:
                 self.conn.rollback()
@@ -362,11 +371,11 @@ class UserAccountDatabase:
                     profile_fields_modified = True
                 if name is not None:
                     query = "UPDATE user_accounts SET name = ? WHERE username = ?"
-                    _execute_update(query, (name, username))
+                    _execute_update(query, (None if name == "" else name, username))
                     profile_fields_modified = True
                 if dob is not None:
                     query = "UPDATE user_accounts SET DOB = ? WHERE username = ?"
-                    _execute_update(query, (dob, username))
+                    _execute_update(query, (None if dob == "" else dob, username))
                     profile_fields_modified = True
                 self.conn.commit()
 
@@ -380,8 +389,8 @@ class UserAccountDatabase:
                         profile_data = {
                             'username': row[0],
                             'email': row[1],
-                            'name': row[2],
-                            'dob': row[3],
+                            'name': row[2] if row[2] not in ("", None) else None,
+                            'dob': row[3] if row[3] not in ("", None) else None,
                         }
             finally:
                 cursor.close()

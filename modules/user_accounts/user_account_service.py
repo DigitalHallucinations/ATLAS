@@ -10,6 +10,7 @@ UI can safely call from asynchronous code via thread executors.
 from __future__ import annotations
 
 import re
+import datetime as _dt
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
 
@@ -36,6 +37,9 @@ class UserAccountService:
     """Provide high-level helpers for managing user accounts."""
 
     _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    _USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
+    _DOB_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    _MAX_DISPLAY_NAME_LENGTH = 80
 
     def __init__(
         self,
@@ -61,6 +65,74 @@ class UserAccountService:
         cleaned = username.strip()
         return cleaned or None
 
+    @classmethod
+    def _validate_username(cls, username: str) -> str:
+        normalised_username = cls._normalise_username(username)
+        if not normalised_username:
+            raise ValueError("Username must not be empty")
+
+        if not cls._USERNAME_PATTERN.fullmatch(normalised_username):
+            raise ValueError(
+                "Username must be 3-32 characters using letters, numbers, dots, hyphens or underscores."
+            )
+
+        return normalised_username
+
+    @staticmethod
+    def _normalise_optional_text(value: Optional[str], *, allow_empty: bool = False) -> Optional[str]:
+        if value is None:
+            return None
+
+        if not isinstance(value, str):
+            raise TypeError("Optional values must be strings when provided.")
+
+        cleaned = value.strip()
+        if cleaned:
+            return cleaned
+
+        if allow_empty:
+            return ""
+
+        return None
+
+    @classmethod
+    def _validate_display_name(
+        cls, value: Optional[str], *, allow_empty: bool = False
+    ) -> Optional[str]:
+        cleaned = cls._normalise_optional_text(value, allow_empty=allow_empty)
+
+        if cleaned in (None, ""):
+            return cleaned
+
+        if len(cleaned) > cls._MAX_DISPLAY_NAME_LENGTH:
+            raise ValueError(
+                f"Display name must be {cls._MAX_DISPLAY_NAME_LENGTH} characters or fewer."
+            )
+
+        return cleaned
+
+    @classmethod
+    def _validate_dob(
+        cls, value: Optional[str], *, allow_empty: bool = False
+    ) -> Optional[str]:
+        cleaned = cls._normalise_optional_text(value, allow_empty=allow_empty)
+
+        if cleaned in (None, ""):
+            return cleaned
+
+        if not cls._DOB_PATTERN.fullmatch(cleaned):
+            raise ValueError("Date of birth must be in YYYY-MM-DD format.")
+
+        try:
+            parsed = _dt.date.fromisoformat(cleaned)
+        except ValueError:
+            raise ValueError("Date of birth must be in YYYY-MM-DD format.") from None
+
+        if parsed > _dt.date.today():
+            raise ValueError("Date of birth cannot be in the future.")
+
+        return cleaned
+
     def _require_existing_user(self, username: str) -> None:
         if not self._database.get_user(username):
             raise ValueError(f"Unknown user: {username}")
@@ -68,12 +140,17 @@ class UserAccountService:
     @staticmethod
     def _row_to_account(row: Iterable[object]) -> UserAccount:
         data = list(row)
+        def _normalise_optional(value: object) -> Optional[str]:
+            if value in (None, ""):
+                return None
+            return str(value)
+
         return UserAccount(
             id=int(data[0]),
             username=str(data[1]),
             email=str(data[3]),
-            name=str(data[4]) if len(data) > 4 and data[4] is not None else None,
-            dob=str(data[5]) if len(data) > 5 and data[5] is not None else None,
+            name=_normalise_optional(data[4]) if len(data) > 4 else None,
+            dob=_normalise_optional(data[5]) if len(data) > 5 else None,
         )
 
     @staticmethod
@@ -84,6 +161,7 @@ class UserAccountService:
             "email": account.email,
             "name": account.name,
             "dob": account.dob,
+            "display_name": account.name or account.username,
         }
 
     def _rows_to_mappings(self, rows: Iterable[Iterable[object]]) -> List[Dict[str, object]]:
@@ -140,19 +218,19 @@ class UserAccountService:
     ) -> UserAccount:
         """Create a new user account in the backing store."""
 
-        normalised_username = self._normalise_username(username)
-        if not normalised_username:
-            raise ValueError("Username must not be empty")
+        normalised_username = self._validate_username(username)
 
         validated_email = self._validate_email(email)
         validated_password = self._validate_password(password)
+        validated_name = self._validate_display_name(name)
+        validated_dob = self._validate_dob(dob)
 
         self._database.add_user(
             normalised_username,
             validated_password,
             validated_email,
-            name,
-            dob,
+            validated_name,
+            validated_dob,
         )
 
         record = self._database.get_user(normalised_username)
@@ -246,13 +324,15 @@ class UserAccountService:
 
         validated_password = self._validate_password(password) if password is not None else None
         validated_email = self._validate_email(email) if email is not None else None
+        validated_name = self._validate_display_name(name, allow_empty=True)
+        validated_dob = self._validate_dob(dob, allow_empty=True)
 
         self._database.update_user(
             normalised_username,
             password=validated_password,
             email=validated_email,
-            name=name,
-            dob=dob,
+            name=validated_name,
+            dob=validated_dob,
         )
 
         record = self._database.get_user(normalised_username)

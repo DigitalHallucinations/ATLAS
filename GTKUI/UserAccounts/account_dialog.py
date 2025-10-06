@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 import logging
 import re
 from typing import Optional
@@ -24,6 +25,9 @@ class AccountDialog(Gtk.Window):
     """Provide login, registration, and logout flows for ATLAS accounts."""
 
     _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    _USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
+    _DOB_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    _MAX_DISPLAY_NAME_LENGTH = 80
 
     def __init__(self, atlas, parent: Optional[Gtk.Window] = None) -> None:
         super().__init__(title="Account Management")
@@ -1303,6 +1307,43 @@ class AccountDialog(Gtk.Window):
                 pass
         setattr(widget, "_atlas_invalid", True)
 
+    def _username_validation_error(self, username: str) -> Optional[str]:
+        if not username:
+            return "Username is required."
+
+        if not self._USERNAME_PATTERN.fullmatch(username):
+            return (
+                "Username must be 3-32 characters using letters, numbers, dots, hyphens or underscores."
+            )
+
+        return None
+
+    def _display_name_validation_error(self, name: Optional[str]) -> Optional[str]:
+        if not name:
+            return None
+
+        if len(name) > self._MAX_DISPLAY_NAME_LENGTH:
+            return f"Display name must be {self._MAX_DISPLAY_NAME_LENGTH} characters or fewer."
+
+        return None
+
+    def _dob_validation_error(self, dob: Optional[str]) -> Optional[str]:
+        if not dob:
+            return None
+
+        if not self._DOB_PATTERN.fullmatch(dob):
+            return "Enter date of birth as YYYY-MM-DD."
+
+        try:
+            parsed = _dt.date.fromisoformat(dob)
+        except ValueError:
+            return "Enter date of birth as YYYY-MM-DD."
+
+        if parsed > _dt.date.today():
+            return "Date of birth cannot be in the future."
+
+        return None
+
     def _password_validation_error(self, password: str) -> Optional[str]:
         if len(password) < 8:
             return "Password must be at least 8 characters and include letters and numbers."
@@ -1321,6 +1362,8 @@ class AccountDialog(Gtk.Window):
             self.register_email_entry,
             self.register_password_entry,
             self.register_confirm_entry,
+            self.register_name_entry,
+            self.register_dob_entry,
         ):
             self._mark_field_valid(widget)
         self.register_password_strength_label.set_text("")
@@ -1337,8 +1380,9 @@ class AccountDialog(Gtk.Window):
 
         errors: list[tuple[str, object]] = []
 
-        if not username:
-            errors.append(("Username is required.", self.register_username_entry))
+        username_error = self._username_validation_error(username)
+        if username_error:
+            errors.append((username_error, self.register_username_entry))
 
         if not email:
             errors.append(("Email is required.", self.register_email_entry))
@@ -1354,6 +1398,14 @@ class AccountDialog(Gtk.Window):
 
         if password != confirm:
             errors.append(("Passwords do not match.", self.register_confirm_entry))
+
+        name_error = self._display_name_validation_error(name)
+        if name_error:
+            errors.append((name_error, self.register_name_entry))
+
+        dob_error = self._dob_validation_error(dob)
+        if dob_error:
+            errors.append((dob_error, self.register_dob_entry))
 
         if errors:
             for _message, widget in errors:
@@ -1448,6 +1500,8 @@ class AccountDialog(Gtk.Window):
             self.edit_email_entry,
             self.edit_password_entry,
             self.edit_confirm_entry,
+            self.edit_name_entry,
+            self.edit_dob_entry,
         ):
             self._mark_field_valid(widget)
         self.edit_password_strength_label.set_text("")
@@ -1521,6 +1575,14 @@ class AccountDialog(Gtk.Window):
         if password != confirm:
             if password or confirm:
                 errors.append(("Passwords do not match.", self.edit_confirm_entry))
+
+        name_error = self._display_name_validation_error(name or None)
+        if name_error:
+            errors.append((name_error, self.edit_name_entry))
+
+        dob_error = self._dob_validation_error(dob or None)
+        if dob_error:
+            errors.append((dob_error, self.edit_dob_entry))
 
         if errors:
             for _message, widget in errors:

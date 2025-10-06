@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 from pathlib import Path
 import sys
 import types
@@ -87,6 +88,7 @@ def test_register_user_persists_account(tmp_path, monkeypatch):
 
         users = service.list_users()
         assert users[0]['username'] == 'alice'
+        assert users[0]['display_name'] == 'Alice'
 
         with pytest.raises(user_account_db.DuplicateUserError):
             service.register_user('alice', 'Newpass1', 'duplicate@example.com')
@@ -122,6 +124,33 @@ def test_register_user_rejects_invalid_email(tmp_path, monkeypatch):
         service.close()
 
 
+def test_register_user_rejects_invalid_username(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        with pytest.raises(ValueError, match='Username must be 3-32 characters'):
+            service.register_user('ab', 'Password1', 'short@example.com')
+
+        with pytest.raises(ValueError, match='Username must be 3-32 characters'):
+            service.register_user('this-username-is-way-too-long-for-the-system', 'Password1', 'long@example.com')
+    finally:
+        service.close()
+
+
+def test_register_user_rejects_invalid_dob(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        with pytest.raises(ValueError, match='YYYY-MM-DD'):
+            service.register_user('validuser', 'Password1', 'valid@example.com', dob='01-01-2000')
+
+        future = (_dt.date.today().replace(year=_dt.date.today().year + 1)).isoformat()
+        with pytest.raises(ValueError, match='future'):
+            service.register_user('futureuser', 'Password1', 'future@example.com', dob=future)
+    finally:
+        service.close()
+
+
 def test_update_user_validates_and_persists(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
@@ -147,12 +176,31 @@ def test_update_user_validates_and_persists(tmp_path, monkeypatch):
         assert stored['email'] == 'alice.new@example.com'
         assert stored['name'] == 'Alice Updated'
         assert stored['dob'] == '2000-02-02'
+        assert stored['display_name'] == 'Alice Updated'
 
         with pytest.raises(ValueError, match='valid email address'):
             service.update_user('alice', email='not-an-email')
 
         with pytest.raises(ValueError, match='Password must be at least 8 characters'):
             service.update_user('alice', password='short')
+    finally:
+        service.close()
+
+
+def test_update_user_allows_clearing_optional_fields(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('clearable', 'Password123', 'clear@example.com', 'Clear Me', '1999-01-01')
+
+        updated = service.update_user('clearable', name='', dob='')
+        assert updated.name is None
+        assert updated.dob is None
+
+        stored = service.list_users()[0]
+        assert stored['name'] is None
+        assert stored['dob'] is None
+        assert stored['display_name'] == 'clearable'
     finally:
         service.close()
 
@@ -214,6 +262,7 @@ def test_search_users_returns_sorted_results(tmp_path, monkeypatch):
 
         results = service.search_users('bo')
         assert [item['username'] for item in results] == ['bob']
+        assert results[0]['display_name'] == 'Bob'
 
         results = service.search_users('example')
         assert [item['username'] for item in results] == ['alice', 'bob']
