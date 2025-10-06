@@ -644,6 +644,56 @@ def test_refresh_account_list_handles_async_accounts():
     assert [entry["username"] for entry in dialog._account_records] == ["alice", "bob"]
 
 
+def test_refresh_account_list_failure_clears_rows_and_details():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+        {"username": "bob", "display_name": "Bob"},
+    ]
+    atlas.details_result = {
+        "alice": {
+            "username": "alice",
+            "display_name": "Alice",
+            "email": "alice@example.com",
+            "name": "Alice",  # legacy field fallback
+            "dob": "1990-01-01",
+            "last_login": "2024-05-20T10:00:00Z",
+        }
+    }
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    # Display account details to populate the panel with data.
+    details_button = dialog._account_rows["alice"]["details_button"]
+    _click(details_button)
+    _drain_background(atlas)
+
+    assert dialog.account_details_status_label.get_text() == ""
+    assert dialog.account_details_username_value.get_text() == "alice"
+    assert dialog.account_details_last_login_value.get_text() == "2024-05-20 10:00 UTC"
+
+    async def failing_list(self):
+        self.list_calls += 1
+        raise RuntimeError("backend unavailable")
+
+    atlas.list_user_accounts = MethodType(failing_list, atlas)
+
+    dialog._refresh_account_list()
+    _drain_background(atlas)
+
+    assert dialog._account_rows == {}
+    assert dialog._visible_usernames == []
+    assert getattr(dialog.account_list_box, "children", []) == []
+    assert dialog.account_details_status_label.get_text() == "Select an account to view details."
+    placeholder = "—"
+    assert dialog.account_details_username_value.get_text() == placeholder
+    assert dialog.account_details_name_value.get_text() == placeholder
+    assert dialog.account_details_email_value.get_text() == placeholder
+    assert dialog.account_details_dob_value.get_text() == placeholder
+    assert dialog.account_details_last_login_value.get_text() == placeholder
+
+
 def test_register_rejects_mismatched_passwords():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
