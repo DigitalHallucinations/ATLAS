@@ -1,6 +1,7 @@
 import json
 import sys
 import types
+from pathlib import Path
 
 if 'yaml' not in sys.modules:
     yaml_stub = types.ModuleType('yaml')
@@ -142,3 +143,55 @@ def test_profile_and_emr_respect_base_directory_override(tmp_path, monkeypatch):
 
     assert manager.get_profile() == profile_data
     assert manager.get_emr() == 'Line one Line two'
+
+
+def test_missing_profile_is_recreated_from_template(tmp_path, monkeypatch):
+    monkeypatch.setattr(user_data_manager_module, 'ConfigManager', _StubConfigManager)
+    monkeypatch.setattr(
+        user_data_manager_module,
+        'setup_logger',
+        lambda *_args, **_kwargs: _StubLogger(),
+    )
+
+    base_dir = tmp_path / 'base'
+    manager = user_data_manager_module.UserDataManager('jordan', base_dir=str(base_dir))
+
+    template_path = Path('modules/user_accounts/user_template')
+    expected = json.loads(template_path.read_text(encoding='utf-8'))
+    expected['Username'] = 'jordan'
+
+    profile = manager.get_profile()
+
+    assert profile == expected
+
+    profile_path = base_dir / 'user_profiles' / 'jordan.json'
+    assert profile_path.exists()
+    persisted = json.loads(profile_path.read_text(encoding='utf-8'))
+    assert persisted == expected
+
+
+def test_missing_profile_preserves_cached_identity(tmp_path, monkeypatch):
+    monkeypatch.setattr(user_data_manager_module, 'ConfigManager', _StubConfigManager)
+    monkeypatch.setattr(
+        user_data_manager_module,
+        'setup_logger',
+        lambda *_args, **_kwargs: _StubLogger(),
+    )
+
+    base_dir = tmp_path / 'base'
+    manager = user_data_manager_module.UserDataManager('jordan', base_dir=str(base_dir))
+    manager._profile_data = {
+        'Email': 'jordan@example.com',
+        'Full Name': 'Jordan Example',
+    }
+
+    profile = manager.get_profile()
+
+    assert profile['Username'] == 'jordan'
+    assert profile['Full Name'] == 'Jordan Example'
+    assert profile['Email'] == 'jordan@example.com'
+
+    profile_path = base_dir / 'user_profiles' / 'jordan.json'
+    persisted = json.loads(profile_path.read_text(encoding='utf-8'))
+    assert persisted['Full Name'] == 'Jordan Example'
+    assert persisted['Email'] == 'jordan@example.com'
