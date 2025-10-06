@@ -1984,6 +1984,10 @@ class AccountDialog(Gtk.Window):
 
         self._cancel_login_lockout_timer()
 
+        # Clear any previous validation errors when starting a new attempt.
+        self._mark_field_valid(self.login_username_entry)
+        self._mark_field_valid(self.login_password_entry)
+
         username = (self.login_username_entry.get_text() or "").strip()
         password = self.login_password_entry.get_text() or ""
 
@@ -2023,6 +2027,12 @@ class AccountDialog(Gtk.Window):
             self.close()
         else:
             self.login_feedback_label.set_text("Invalid username or password.")
+            self._mark_field_invalid(self.login_username_entry)
+            self._mark_field_invalid(self.login_password_entry)
+            try:
+                self.login_password_entry.grab_focus()
+            except Exception:  # pragma: no cover - grab_focus may be unavailable in stubs
+                pass
         return False
 
     def _handle_login_error(self, exc: Exception) -> bool:

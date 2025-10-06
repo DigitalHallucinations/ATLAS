@@ -508,6 +508,18 @@ def test_login_failure_displays_error():
 
     assert dialog.login_feedback_label.get_text() == "Invalid username or password."
     assert not getattr(dialog, "closed", False)
+    assert dialog.login_username_entry.has_css_class("error")
+    assert dialog.login_password_entry.has_css_class("error")
+
+    atlas.login_result = True
+    dialog.login_password_entry.set_text("good-password")
+
+    dialog._on_login_clicked(dialog.login_button)
+
+    assert not dialog.login_username_entry.has_css_class("error")
+    assert not dialog.login_password_entry.has_css_class("error")
+
+    _drain_background(atlas)
 
 
 def test_login_lockout_error_displays_message():
