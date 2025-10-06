@@ -226,6 +226,45 @@ def test_login_entry_activate_triggers_login(monkeypatch):
     assert atlas.login_called == ("alice", "secret")
 
 
+def test_login_entry_activate_ignored_when_busy(monkeypatch):
+    atlas = _AtlasStub()
+    activate_callbacks = []
+
+    original_connect = Gtk.Entry.connect
+
+    def recording_connect(self, signal, callback, *args):
+        if signal == "activate":
+            activate_callbacks.append((self, callback, args))
+        return original_connect(self, signal, callback, *args)
+
+    monkeypatch.setattr(Gtk.Entry, "connect", recording_connect, raising=False)
+
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    dialog.login_username_entry.set_text("alice")
+    dialog.login_password_entry.set_text("secret")
+
+    # Trigger the first login attempt and capture the factory used.
+    dialog._on_login_clicked(dialog.login_button)
+    first_factory = atlas.last_factory
+
+    assert dialog._login_busy is True
+    assert getattr(dialog.login_username_entry, "_sensitive", True) is False
+    assert getattr(dialog.login_password_entry, "_sensitive", True) is False
+
+    # Attempt to trigger login again via the activate callback while busy.
+    for widget, callback, args in activate_callbacks:
+        if widget is dialog.login_password_entry:
+            callback(widget, *args)
+            break
+    else:  # pragma: no cover - defensive assertion aid
+        pytest.fail("Password entry did not register an activate callback")
+
+    assert atlas.last_factory is first_factory
+
+
 def test_login_failure_displays_error():
     atlas = _AtlasStub()
     atlas.login_result = False
