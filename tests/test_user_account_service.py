@@ -32,6 +32,7 @@ class _StubLogger:
     def __init__(self):
         self.infos = []
         self.errors = []
+        self.warnings = []
 
     def info(self, *args, **kwargs):
         self.infos.append((args, kwargs))
@@ -40,7 +41,7 @@ class _StubLogger:
         pass
 
     def warning(self, *args, **kwargs):
-        pass
+        self.warnings.append((args, kwargs))
 
     def error(self, *args, **kwargs):
         self.errors.append((args, kwargs))
@@ -86,6 +87,28 @@ def _create_service(tmp_path, monkeypatch, *, config_overrides=None, clock=None)
         clock=clock,
     )
     return service, config
+
+
+def test_lockout_settings_use_defaults_for_invalid_config(tmp_path, monkeypatch):
+    overrides = {
+        'ACCOUNT_LOCKOUT_MAX_FAILURES': 'invalid',
+        'ACCOUNT_LOCKOUT_WINDOW_SECONDS': {},
+        'ACCOUNT_LOCKOUT_DURATION_SECONDS': -10,
+    }
+
+    service, _ = _create_service(tmp_path, monkeypatch, config_overrides=overrides)
+
+    try:
+        assert service._lockout_threshold == 5
+        assert service._lockout_window_seconds == 300
+        assert service._lockout_duration_seconds == 300
+
+        warning_keys = [args[1] for args, _kwargs in service.logger.warnings]
+        assert warning_keys.count('ACCOUNT_LOCKOUT_MAX_FAILURES') == 1
+        assert warning_keys.count('ACCOUNT_LOCKOUT_WINDOW_SECONDS') == 1
+        assert warning_keys.count('ACCOUNT_LOCKOUT_DURATION_SECONDS') == 1
+    finally:
+        service.close()
 
 
 def test_password_requirements_follow_config_overrides(tmp_path, monkeypatch):
