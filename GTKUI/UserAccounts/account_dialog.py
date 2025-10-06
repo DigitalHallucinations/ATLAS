@@ -18,7 +18,10 @@ except Exception:  # pragma: no cover - fall back gracefully when Gio is missing
     Gio = None  # type: ignore[assignment]
 
 from GTKUI.Utils.utils import apply_css, create_box
-from modules.user_accounts.user_account_service import DuplicateUserError
+from modules.user_accounts.user_account_service import (
+    DuplicateUserError,
+    InvalidCurrentPasswordError,
+)
 
 
 class AccountDialog(Gtk.Window):
@@ -1327,53 +1330,65 @@ class AccountDialog(Gtk.Window):
         self.edit_email_entry.set_placeholder_text("name@example.com")
         grid.attach(self.edit_email_entry, 1, 1, 1, 1)
 
+        current_password_label = Gtk.Label(label="Current password")
+        current_password_label.set_xalign(0.0)
+        grid.attach(current_password_label, 0, 2, 1, 1)
+
+        self.edit_current_password_entry = Gtk.Entry()
+        self.edit_current_password_entry.set_placeholder_text("Required to change password")
+        grid.attach(self.edit_current_password_entry, 1, 2, 1, 1)
+
+        current_password_toggle = self._create_password_toggle(self.edit_current_password_entry)
+        grid.attach(current_password_toggle, 2, 2, 1, 1)
+
         password_label = Gtk.Label(label="New password")
         password_label.set_xalign(0.0)
-        grid.attach(password_label, 0, 2, 1, 1)
+        grid.attach(password_label, 0, 3, 1, 1)
 
         self.edit_password_entry = Gtk.Entry()
         self.edit_password_entry.set_placeholder_text("Leave blank to keep current password")
-        grid.attach(self.edit_password_entry, 1, 2, 1, 1)
+        grid.attach(self.edit_password_entry, 1, 3, 1, 1)
 
         edit_password_toggle = self._create_password_toggle(self.edit_password_entry)
-        grid.attach(edit_password_toggle, 2, 2, 1, 1)
+        grid.attach(edit_password_toggle, 2, 3, 1, 1)
 
         confirm_label = Gtk.Label(label="Confirm password")
         confirm_label.set_xalign(0.0)
-        grid.attach(confirm_label, 0, 3, 1, 1)
+        grid.attach(confirm_label, 0, 4, 1, 1)
 
         self.edit_confirm_entry = Gtk.Entry()
         self.edit_confirm_entry.set_placeholder_text("Repeat new password")
-        grid.attach(self.edit_confirm_entry, 1, 3, 1, 1)
+        grid.attach(self.edit_confirm_entry, 1, 4, 1, 1)
 
         edit_confirm_toggle = self._create_password_toggle(self.edit_confirm_entry)
-        grid.attach(edit_confirm_toggle, 2, 3, 1, 1)
+        grid.attach(edit_confirm_toggle, 2, 4, 1, 1)
 
         self.edit_password_strength_label = Gtk.Label()
         self.edit_password_strength_label.set_xalign(0.0)
-        grid.attach(self.edit_password_strength_label, 1, 4, 2, 1)
+        grid.attach(self.edit_password_strength_label, 1, 5, 2, 1)
 
         name_label = Gtk.Label(label="Display name (optional)")
         name_label.set_xalign(0.0)
-        grid.attach(name_label, 0, 5, 1, 1)
+        grid.attach(name_label, 0, 6, 1, 1)
 
         self.edit_name_entry = Gtk.Entry()
         self.edit_name_entry.set_placeholder_text("How should we greet you?")
-        grid.attach(self.edit_name_entry, 1, 5, 1, 1)
+        grid.attach(self.edit_name_entry, 1, 6, 1, 1)
 
         dob_label = Gtk.Label(label="Date of birth (optional)")
         dob_label.set_xalign(0.0)
-        grid.attach(dob_label, 0, 6, 1, 1)
+        grid.attach(dob_label, 0, 7, 1, 1)
 
         self.edit_dob_entry = Gtk.Entry()
         self.edit_dob_entry.set_placeholder_text("YYYY-MM-DD")
-        grid.attach(self.edit_dob_entry, 1, 6, 1, 1)
+        grid.attach(self.edit_dob_entry, 1, 7, 1, 1)
 
         self._configure_password_entry(
             self.edit_password_entry,
             strength_label=self.edit_password_strength_label,
         )
         self._configure_password_entry(self.edit_confirm_entry)
+        self._configure_password_entry(self.edit_current_password_entry)
         self.edit_password_entry.connect("changed", self._on_edit_password_changed)
         self.edit_confirm_entry.connect("changed", self._on_edit_confirm_changed)
 
@@ -1728,6 +1743,7 @@ class AccountDialog(Gtk.Window):
     def _clear_edit_validation(self) -> None:
         for widget in (
             self.edit_email_entry,
+            self.edit_current_password_entry,
             self.edit_password_entry,
             self.edit_confirm_entry,
             self.edit_name_entry,
@@ -1748,6 +1764,7 @@ class AccountDialog(Gtk.Window):
         self.edit_email_entry.set_text(str(metadata.get("email") or ""))
         self.edit_name_entry.set_text(str(metadata.get("name") or ""))
         self.edit_dob_entry.set_text(str(metadata.get("dob") or ""))
+        self.edit_current_password_entry.set_text("")
         self.edit_password_entry.set_text("")
         self.edit_confirm_entry.set_text("")
         self.edit_feedback_label.set_text("")
@@ -1776,6 +1793,7 @@ class AccountDialog(Gtk.Window):
             metadata = dict(row["metadata"])
 
         email = (self.edit_email_entry.get_text() or "").strip()
+        current_password = self.edit_current_password_entry.get_text() or ""
         password = self.edit_password_entry.get_text() or ""
         confirm = self.edit_confirm_entry.get_text() or ""
         name = (self.edit_name_entry.get_text() or "").strip()
@@ -1801,6 +1819,14 @@ class AccountDialog(Gtk.Window):
             password_error = self._password_validation_error(password)
             if password_error:
                 errors.append((password_error, self.edit_password_entry))
+
+            if not current_password:
+                errors.append(
+                    (
+                        "Enter your current password to change it.",
+                        self.edit_current_password_entry,
+                    )
+                )
 
         if password != confirm:
             if password or confirm:
@@ -1828,6 +1854,7 @@ class AccountDialog(Gtk.Window):
         self._set_edit_busy(True, "Saving changes…")
 
         password_arg = password or None
+        current_password_arg = current_password if password_arg else None
 
         def _derive_update(new_value: str, original_value: str) -> Optional[str]:
             if new_value == original_value:
@@ -1843,6 +1870,7 @@ class AccountDialog(Gtk.Window):
             return self.ATLAS.update_user_account(
                 username,
                 password=password_arg,
+                current_password=current_password_arg,
                 email=email,
                 name=name_arg,
                 dob=dob_arg,
@@ -1888,6 +1916,7 @@ class AccountDialog(Gtk.Window):
 
         self.edit_password_entry.set_text("")
         self.edit_confirm_entry.set_text("")
+        self.edit_current_password_entry.set_text("")
 
         message = "Account updated."
         if username:
@@ -1930,6 +1959,12 @@ class AccountDialog(Gtk.Window):
             self.edit_feedback_label.set_text("Username or email already exists.")
             self._mark_field_invalid(self.edit_email_entry)
             grabber = getattr(self.edit_email_entry, "grab_focus", None)
+            if callable(grabber):
+                grabber()
+        elif isinstance(exc, InvalidCurrentPasswordError):
+            self.edit_feedback_label.set_text(str(exc))
+            self._mark_field_invalid(self.edit_current_password_entry)
+            grabber = getattr(self.edit_current_password_entry, "grab_focus", None)
             if callable(grabber):
                 grabber()
         elif isinstance(exc, ValueError):

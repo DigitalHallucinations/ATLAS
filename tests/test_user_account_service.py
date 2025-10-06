@@ -177,6 +177,7 @@ def test_update_user_validates_and_persists(tmp_path, monkeypatch):
         updated_account = service.update_user(
             'alice',
             password='Newpass123',
+            current_password='Password123',
             email='alice.new@example.com',
             name='Alice Updated',
             dob='2000-02-02',
@@ -200,7 +201,31 @@ def test_update_user_validates_and_persists(tmp_path, monkeypatch):
             service.update_user('alice', email='not-an-email')
 
         with pytest.raises(ValueError, match='Password must be at least 8 characters'):
-            service.update_user('alice', password='short')
+            service.update_user('alice', password='short', current_password='Newpass123')
+    finally:
+        service.close()
+
+
+def test_update_user_requires_current_password_for_password_change(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('alice', 'Password123', 'alice@example.com')
+
+        with pytest.raises(ValueError, match='Current password is required'):
+            service.update_user('alice', password='Newpass123')
+    finally:
+        service.close()
+
+
+def test_update_user_rejects_incorrect_current_password(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('alice', 'Password123', 'alice@example.com')
+
+        with pytest.raises(user_account_service.InvalidCurrentPasswordError):
+            service.update_user('alice', password='Newpass123', current_password='Wrong123')
     finally:
         service.close()
 

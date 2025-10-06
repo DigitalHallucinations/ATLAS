@@ -28,6 +28,10 @@ class DuplicateUserError(RuntimeError):
     """Raised when attempting to create a user with duplicate credentials."""
 
 
+class InvalidCurrentPasswordError(RuntimeError):
+    """Raised when the supplied current password does not match the stored hash."""
+
+
 _DUPLICATE_USER_MESSAGE = "A user with the same username or email already exists."
 
 
@@ -455,7 +459,16 @@ class UserAccountDatabase:
                 self.logger.info(f"Error closing connection: {e}")
                 raise
 
-    def update_user(self, username, password=None, email=None, name=None, dob=None):
+    def update_user(
+        self,
+        username,
+        password=None,
+        *,
+        current_password=None,
+        email=None,
+        name=None,
+        dob=None,
+    ):
         profile_data = None
         profile_fields_modified = False
         with self._lock:
@@ -469,6 +482,14 @@ class UserAccountDatabase:
                         raise DuplicateUserError(_DUPLICATE_USER_MESSAGE) from exc
 
                 if password is not None:
+                    if current_password is None:
+                        self.conn.rollback()
+                        raise InvalidCurrentPasswordError("Current password is required.")
+
+                    if not self.verify_user_password(username, current_password):
+                        self.conn.rollback()
+                        raise InvalidCurrentPasswordError("Current password is incorrect.")
+
                     hashed_password = self._hash_password(password)
                     query = "UPDATE user_accounts SET password = ? WHERE username = ?"
                     _execute_update(query, (hashed_password, username))
