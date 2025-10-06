@@ -9,7 +9,7 @@ from concurrent.futures import Future
 from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Iterator, Mapping, TypeVar, Union
+from typing import Any, Awaitable, Callable, Dict, Iterator, Mapping, Optional, TypeVar, Union
 
 from modules.background_tasks import run_async_in_thread
 
@@ -112,10 +112,13 @@ class ChatSession:
             raise
 
         response_text: str
+        thinking_text: Optional[str] = None
         audio_payload: Dict[str, Any] = {}
 
         if isinstance(response, dict):
             response_text = str(response.get("text") or "")
+            if response.get("thinking") is not None:
+                thinking_text = str(response.get("thinking") or "")
             audio_data = response.get("audio")
             if audio_data:
                 audio_payload = {
@@ -129,12 +132,16 @@ class ChatSession:
 
         await self.ATLAS.maybe_text_to_speech(response)
 
+        metadata = {"source": "model"}
+        if thinking_text:
+            metadata["thinking"] = thinking_text
+
         self.add_message(
             user=str(active_user) if active_user is not None else None,
             conversation_id=self._conversation_id,
             role="assistant",
             content=response_text,
-            metadata={"source": "model"},
+            metadata=metadata,
             **audio_payload,
         )
         return response

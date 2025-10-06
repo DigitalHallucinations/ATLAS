@@ -562,6 +562,34 @@ class _FakeTextView:
         self.focused = True
 
 
+class _StubExpander:
+    def __init__(self):
+        self.visible = False
+        self.expanded = None
+
+    def set_visible(self, value: bool):
+        self.visible = value
+
+    def set_expanded(self, value: bool):
+        self.expanded = value
+
+
+class _StubLabel:
+    def __init__(self):
+        self.text = ""
+
+    def set_text(self, value: str):
+        self.text = value
+
+
+class _StubPlaceholder:
+    def __init__(self):
+        self.visible = True
+
+    def set_visible(self, value: bool):
+        self.visible = value
+
+
 class _AtlasStub:
     def __init__(self, user="Tester"):
         self._user_display_name = user
@@ -677,7 +705,9 @@ def test_chat_page_on_send_message_dispatches_via_atlas(monkeypatch):
     page.ATLAS.last_success("Persona", "Reply text")
 
     page.add_message_bubble.assert_any_call("Tester", "Hello world", is_user=True, audio=None)
-    page.add_message_bubble.assert_any_call("Persona", "Reply text", audio=None)
+    page.add_message_bubble.assert_any_call(
+        "Persona", "Reply text", audio=None, thinking=None
+    )
     page._on_response_complete.assert_called()
 
 
@@ -702,8 +732,28 @@ def test_chat_page_on_send_message_handles_errors(monkeypatch):
     err = RuntimeError("failure")
     page.ATLAS.last_error("Helper", err)
 
-    page.add_message_bubble.assert_any_call("Helper", "Error: failure", audio=None)
+    page.add_message_bubble.assert_any_call(
+        "Helper", "Error: failure", audio=None, thinking=None
+    )
     page._on_response_complete.assert_called()
+
+
+def test_chat_page_updates_terminal_thinking_section():
+    page = ChatPage.__new__(ChatPage)
+    page.thinking_expander = _StubExpander()
+    page.thinking_label = _StubLabel()
+    page.terminal_placeholder_label = _StubPlaceholder()
+
+    page._update_terminal_thinking("Chain-of-thought output")
+    assert page.thinking_expander.visible is True
+    assert page.thinking_expander.expanded is False
+    assert page.thinking_label.text == "Chain-of-thought output"
+    assert page.terminal_placeholder_label.visible is False
+
+    page._update_terminal_thinking("")
+    assert page.thinking_expander.visible is False
+    assert page.terminal_placeholder_label.visible is True
+    assert page.thinking_label.text == ""
 
 
 def test_chat_page_updates_active_user(monkeypatch):
