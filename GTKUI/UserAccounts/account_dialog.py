@@ -1219,6 +1219,12 @@ class AccountDialog(Gtk.Window):
         self.login_button.connect("clicked", self._on_login_clicked)
         wrapper.append(self.login_button)
 
+        def trigger_login_from_entry(*_args) -> None:
+            self._on_login_clicked(self.login_button)
+
+        self.login_username_entry.connect("activate", trigger_login_from_entry)
+        self.login_password_entry.connect("activate", trigger_login_from_entry)
+
         return wrapper
 
     def _build_registration_form(self) -> Gtk.Widget:
