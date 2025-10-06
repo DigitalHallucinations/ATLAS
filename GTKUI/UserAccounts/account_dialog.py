@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as _dt
 import logging
 import re
+from concurrent.futures import Future
 from typing import Optional
 
 import gi
@@ -48,6 +49,7 @@ class AccountDialog(Gtk.Window):
         self._account_details_cache: dict[str, dict[str, object]] = {}
         self._account_filter_text: str = ""
         self._active_account_request: Optional[tuple[str, str]] = None
+        self._active_account_task: Optional[Future] = None
         self._selected_username: Optional[str] = None
         self._details_busy = False
         self._login_busy = False
@@ -361,9 +363,19 @@ class AccountDialog(Gtk.Window):
             self.logger.error("Failed to refresh account list: %s", exc, exc_info=True)
             self._handle_account_list_error(exc)
 
-    def _handle_account_list_result(self, accounts) -> bool:
+    def _handle_account_list_result(
+        self, accounts, future: Optional[Future] = None
+    ) -> bool:
+        if future is not None:
+            if future.cancelled():
+                return False
+            if future is not self._active_account_task:
+                return False
+
         if self._is_closed:
             return False
+        if future is self._active_account_task:
+            self._active_account_task = None
         self._active_account_request = None
         normalised = self._normalise_account_payload(accounts)
         self._account_records = normalised
@@ -396,9 +408,19 @@ class AccountDialog(Gtk.Window):
             self._focus_active_account_row(trigger_details=True)
         return False
 
-    def _handle_account_list_error(self, exc: Exception) -> bool:
+    def _handle_account_list_error(
+        self, exc: Exception, future: Optional[Future] = None
+    ) -> bool:
+        if future is not None:
+            if future.cancelled():
+                return False
+            if future is not self._active_account_task:
+                return False
+
         if self._is_closed:
             return False
+        if future is self._active_account_task:
+            self._active_account_task = None
         self._active_account_request = None
         self._account_rows.clear()
         self._visible_usernames = []
@@ -713,59 +735,89 @@ class AccountDialog(Gtk.Window):
             setter("")
         self._on_account_filter_changed(self.account_search_entry)
 
+    def _cancel_active_account_task(self) -> None:
+        task = self._active_account_task
+        self._active_account_task = None
+        if task is None:
+            return
+
+        try:
+            if not task.done():
+                task.cancel()
+        except Exception:  # pragma: no cover - defensive cancellation handling
+            pass
+
     def _start_account_search(self, query: str) -> None:
+        self._cancel_active_account_task()
         self._active_account_request = ("search", query)
         self._set_account_busy(True, "Searching accounts…", disable_forms=False)
         self.account_empty_label.set_text("Searching…")
+
+        future: Optional[Future] = None
 
         def factory():
             return self.ATLAS.search_user_accounts(query)
 
         def on_success(result) -> None:
-            GLib.idle_add(self._handle_account_search_result, query, result)
+            GLib.idle_add(self._handle_account_search_result, query, result, future)
 
         def on_error(exc: Exception) -> None:
-            GLib.idle_add(self._handle_account_search_error, query, exc)
+            GLib.idle_add(self._handle_account_search_error, query, exc, future)
 
         try:
-            self.ATLAS.run_in_background(
+            future = self.ATLAS.run_in_background(
                 factory,
                 on_success=on_success,
                 on_error=on_error,
                 thread_name="user-account-search",
             )
+            self._active_account_task = future
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to start account search: %s", exc, exc_info=True)
             self._handle_account_search_error(query, exc)
 
     def _start_account_list_refresh(self) -> None:
+        self._cancel_active_account_task()
         self._active_account_request = ("list", "")
         self._set_account_busy(True, "Loading saved accounts…", disable_forms=False)
+
+        future: Optional[Future] = None
 
         def factory():
             return self.ATLAS.list_user_accounts()
 
         def on_success(result) -> None:
-            GLib.idle_add(self._handle_account_list_result, result)
+            GLib.idle_add(self._handle_account_list_result, result, future)
 
         def on_error(exc: Exception) -> None:
-            GLib.idle_add(self._handle_account_list_error, exc)
+            GLib.idle_add(self._handle_account_list_error, exc, future)
 
         try:
-            self.ATLAS.run_in_background(
+            future = self.ATLAS.run_in_background(
                 factory,
                 on_success=on_success,
                 on_error=on_error,
                 thread_name="user-account-list",
             )
+            self._active_account_task = future
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to refresh account list: %s", exc, exc_info=True)
             self._handle_account_list_error(exc)
 
-    def _handle_account_search_result(self, query: str, accounts) -> bool:
+    def _handle_account_search_result(
+        self, query: str, accounts, future: Optional[Future] = None
+    ) -> bool:
+        if future is not None:
+            if future.cancelled():
+                return False
+            if future is not self._active_account_task:
+                return False
+
         if query != self._account_filter_text or self._active_account_request != ("search", query):
             return False
 
+        if future is self._active_account_task:
+            self._active_account_task = None
         self._active_account_request = None
         normalised = self._normalise_account_payload(accounts)
         self._account_records = normalised
@@ -774,10 +826,20 @@ class AccountDialog(Gtk.Window):
         self._set_account_busy(False, message, disable_forms=False)
         return False
 
-    def _handle_account_search_error(self, query: str, exc: Exception) -> bool:
+    def _handle_account_search_error(
+        self, query: str, exc: Exception, future: Optional[Future] = None
+    ) -> bool:
+        if future is not None:
+            if future.cancelled():
+                return False
+            if future is not self._active_account_task:
+                return False
+
         if query != self._account_filter_text or self._active_account_request != ("search", query):
             return False
 
+        if future is self._active_account_task:
+            self._active_account_task = None
         self._active_account_request = None
         self.account_empty_label.set_text("Search failed.")
         message = f"Search failed: {exc}"
