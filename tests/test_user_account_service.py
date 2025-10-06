@@ -109,6 +109,22 @@ def test_register_user_duplicate_email(tmp_path, monkeypatch):
         service.close()
 
 
+def test_register_user_canonicalises_email_and_rejects_case_duplicates(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        account = service.register_user('caseuser', 'Password123', 'MiXeD@Example.COM ')
+        assert account.email == 'mixed@example.com'
+
+        users = service.list_users()
+        assert users[0]['email'] == 'mixed@example.com'
+
+        with pytest.raises(user_account_db.DuplicateUserError):
+            service.register_user('caseuser2', 'Password123', 'MIXED@example.com')
+    finally:
+        service.close()
+
+
 def test_register_user_rejects_invalid_email(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 
@@ -185,6 +201,25 @@ def test_update_user_validates_and_persists(tmp_path, monkeypatch):
 
         with pytest.raises(ValueError, match='Password must be at least 8 characters'):
             service.update_user('alice', password='short')
+    finally:
+        service.close()
+
+
+def test_update_user_rejects_duplicate_email_with_case_insensitive_match(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('alpha', 'Password123', 'user@example.com')
+        service.register_user('beta', 'Password123', 'beta@example.com')
+
+        with pytest.raises(user_account_db.DuplicateUserError):
+            service.update_user('beta', email='USER@EXAMPLE.COM')
+
+        updated = service.update_user('beta', email='BETA@EXAMPLE.COM')
+        assert updated.email == 'beta@example.com'
+
+        users = {user['username']: user for user in service.list_users()}
+        assert users['beta']['email'] == 'beta@example.com'
     finally:
         service.close()
 
