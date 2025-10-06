@@ -635,6 +635,89 @@ def test_close_cancels_login_lockout_timer(monkeypatch):
     assert removed == [timeout_id]
 
 
+def test_close_ignores_async_callbacks(monkeypatch):
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    dialog._account_rows["alice"] = {"metadata": {}}
+    dialog._editing_metadata = {"username": "alice"}
+    dialog._selected_username = "alice"
+
+    dialog._on_close_request()
+
+    previous_account_busy = dialog._account_busy
+    dialog._set_account_busy(True, "ignored")
+    assert dialog._account_busy is previous_account_busy
+
+    previous_forms_busy = dialog._forms_busy
+    dialog._set_forms_busy(True)
+    assert dialog._forms_busy is previous_forms_busy
+
+    def guard_method(instance, name):
+        def _fail(self, *args, **kwargs):
+            raise AssertionError(f"{name} called after close")
+
+        monkeypatch.setattr(instance, name, MethodType(_fail, instance), raising=False)
+
+    guard_method(dialog, "_set_account_busy")
+    guard_method(dialog, "_set_forms_busy")
+    guard_method(dialog, "_render_account_rows")
+    guard_method(dialog, "_set_account_detail_message")
+    guard_method(dialog, "_update_account_buttons_sensitive")
+    guard_method(dialog, "_highlight_active_account")
+    guard_method(dialog, "_refresh_account_list")
+    guard_method(dialog, "_set_login_busy")
+    guard_method(dialog, "_set_register_busy")
+    guard_method(dialog, "_set_edit_busy")
+    guard_method(dialog, "_set_account_details_busy")
+    guard_method(dialog, "_apply_account_detail_mapping")
+    guard_method(dialog, "_cancel_login_lockout_timer")
+    guard_method(dialog, "close")
+
+    def guard_label(label, name):
+        def _fail(self, *args, **kwargs):
+            raise AssertionError(f"{name} called after close")
+
+        monkeypatch.setattr(label, "set_text", MethodType(_fail, label), raising=False)
+
+    guard_label(dialog.account_empty_label, "account_empty_label.set_text")
+    guard_label(dialog.login_feedback_label, "login_feedback_label.set_text")
+    guard_label(dialog.register_feedback_label, "register_feedback_label.set_text")
+    guard_label(dialog.edit_feedback_label, "edit_feedback_label.set_text")
+    guard_label(dialog.edit_title_label, "edit_title_label.set_text")
+
+    def guard_entry(entry, name):
+        def _fail(self, *args, **kwargs):
+            raise AssertionError(f"{name} called after close")
+
+        monkeypatch.setattr(entry, "set_text", MethodType(_fail, entry), raising=False)
+
+    for entry, name in [
+        (dialog.edit_email_entry, "edit_email_entry.set_text"),
+        (dialog.edit_name_entry, "edit_name_entry.set_text"),
+        (dialog.edit_dob_entry, "edit_dob_entry.set_text"),
+        (dialog.edit_password_entry, "edit_password_entry.set_text"),
+        (dialog.edit_confirm_entry, "edit_confirm_entry.set_text"),
+        (dialog.edit_current_password_entry, "edit_current_password_entry.set_text"),
+    ]:
+        guard_entry(entry, name)
+
+    assert dialog._handle_account_list_result([{"username": "alice"}]) is False
+    assert dialog._handle_account_list_error(Exception("boom")) is False
+    assert dialog._handle_account_details_result("alice", {"username": "alice"}) is False
+    assert dialog._handle_account_details_error("alice", Exception("boom")) is False
+    assert dialog._handle_activate_success() is False
+    assert dialog._handle_delete_success("alice") is False
+    assert dialog._handle_account_action_error(Exception("boom")) is False
+    assert dialog._handle_login_result(True) is False
+    assert dialog._handle_login_error(Exception("boom")) is False
+    assert dialog._handle_register_result({"username": "alice"}) is False
+    assert dialog._handle_register_error(Exception("boom")) is False
+    assert dialog._handle_edit_success({"username": "alice"}) is False
+    assert dialog._handle_edit_error(Exception("boom")) is False
+
 def test_register_validates_and_submits():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
