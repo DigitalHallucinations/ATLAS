@@ -152,6 +152,7 @@ class UserDataManager:
         self.user = user
         self.profile = None
         self.emr = None
+        self._profile_data = None
         self._system_info = None
         self._base_directory = self._determine_base_directory(base_dir)
         self._profiles_dir = self._base_directory / 'user_profiles'
@@ -207,6 +208,17 @@ class UserDataManager:
             )
             return None
 
+    def _load_profile_template(self):
+        """Load the default profile template from disk."""
+
+        template_path = Path(__file__).resolve().with_name('user_template')
+        try:
+            with template_path.open('r', encoding='utf-8') as file:
+                return json.load(file)
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            self.logger.error(f"Failed to load profile template: {exc}")
+            return {"Username": self.user}
+
     def get_profile(self):
         """
         Retrieves the user's profile from a JSON file.
@@ -215,17 +227,39 @@ class UserDataManager:
             dict: The user's profile as a dictionary.
         """
         self.logger.info("Entering get_profile() method")
+
         try:
             profile_path = self._profiles_dir / f"{self.user}.json"
 
+            cached_profile = self._profile_data or {}
+
             if not profile_path.exists():
                 self.logger.error(f"Profile file does not exist: {profile_path}")
-                return {}
+                profile_path.parent.mkdir(parents=True, exist_ok=True)
+                profile = self._load_profile_template()
+                profile['Username'] = self.user
+
+                for key in ('Email', 'Full Name'):
+                    value = cached_profile.get(key)
+                    if value:
+                        profile[key] = value
+
+                with profile_path.open('w', encoding='utf-8') as file:
+                    json.dump(profile, file, indent=4)
+
+                self._profile_data = profile
+                self.profile = None
+                return dict(self._profile_data)
+
+            if self._profile_data is not None:
+                return dict(self._profile_data)
 
             with profile_path.open('r', encoding='utf-8') as file:
                 profile = json.load(file)
                 self.logger.info("Profile found")
-                return profile
+                self._profile_data = profile
+                self.profile = None
+                return dict(self._profile_data)
 
         except Exception as e:
             self.logger.error(f"Error loading profile: {e}")
