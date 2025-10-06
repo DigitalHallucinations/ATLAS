@@ -753,6 +753,7 @@ class AccountDialog(Gtk.Window):
     # ------------------------------------------------------------------
     def _show_form(self, name: str) -> None:
         if name == self._active_form:
+            self._update_toggle_buttons()
             return
 
         for form_name, widget in self._forms.items():
@@ -767,12 +768,18 @@ class AccountDialog(Gtk.Window):
         self._update_toggle_buttons()
 
     def _update_toggle_buttons(self) -> None:
-        if self._active_form == "login":
+        login_active = self._active_form == "login"
+        register_active = self._active_form == "register"
+
+        if login_active:
             self.login_toggle_button.add_css_class("suggested-action")
-            self.register_toggle_button.remove_css_class("suggested-action")
         else:
-            self.register_toggle_button.add_css_class("suggested-action")
             self.login_toggle_button.remove_css_class("suggested-action")
+
+        if register_active:
+            self.register_toggle_button.add_css_class("suggested-action")
+        else:
+            self.register_toggle_button.remove_css_class("suggested-action")
 
     # ------------------------------------------------------------------
     # Login flow

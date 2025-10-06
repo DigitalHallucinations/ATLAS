@@ -23,6 +23,7 @@ class _DummyWidget:
         self._valign = None
         self._sensitive = True
         self.visible = True
+        self._css_classes: set[str] = set()
 
     def __call__(self, *args, **kwargs):  # pragma: no cover - convenience hook
         return self
@@ -33,8 +34,16 @@ class _DummyWidget:
     def connect(self, *_args, **_kwargs):  # pragma: no cover - event helper
         return None
 
-    def add_css_class(self, *_args, **_kwargs):  # pragma: no cover - styling helper
+    def add_css_class(self, name, *_args, **_kwargs):  # pragma: no cover - styling helper
+        self._css_classes.add(name)
         return None
+
+    def remove_css_class(self, name, *_args, **_kwargs):  # pragma: no cover - styling helper
+        self._css_classes.discard(name)
+        return None
+
+    def has_css_class(self, name):  # pragma: no cover - styling helper
+        return name in self._css_classes
 
     def get_style_context(self):  # pragma: no cover - styling helper
         return self
