@@ -158,6 +158,16 @@ def _click(button):
             break
 
 
+def _get_toggle_state(toggle):
+    getter = getattr(toggle, "get_active", None)
+    if callable(getter):
+        try:
+            return bool(getter())
+        except Exception:  # pragma: no cover - fallback for stub widgets
+            pass
+    return getattr(toggle, "_atlas_toggle_active", False)
+
+
 def test_form_toggle_highlighting():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
@@ -174,6 +184,32 @@ def test_form_toggle_highlighting():
     dialog._show_form("edit")
     assert not dialog.login_toggle_button.has_css_class("suggested-action")
     assert not dialog.register_toggle_button.has_css_class("suggested-action")
+
+
+def test_password_toggle_icon_press_updates_state_and_label():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    entry = dialog.login_password_entry
+    toggles = dialog._password_toggle_buttons_by_entry.get(entry)
+    assert toggles, "Password toggle should be registered for the login entry"
+    toggle = toggles[0]
+
+    initial_label = getattr(toggle, "label", "")
+    assert initial_label == "Show"
+    assert _get_toggle_state(toggle) is False
+
+    dialog._on_password_icon_pressed(entry, None, None)
+    assert entry.visible is True
+    assert getattr(toggle, "label", "") == "Hide"
+    assert _get_toggle_state(toggle) is True
+
+    dialog._on_password_icon_pressed(entry, None, None)
+    assert entry.visible is False
+    assert getattr(toggle, "label", "") == "Show"
+    assert _get_toggle_state(toggle) is False
 
 
 def test_login_uses_background_worker():

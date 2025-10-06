@@ -52,6 +52,7 @@ class AccountDialog(Gtk.Window):
         self._login_busy = False
         self._visible_usernames: list[str] = []
         self._password_toggle_buttons: list[Gtk.Widget] = []
+        self._password_toggle_buttons_by_entry: dict[Gtk.Entry, list[Gtk.Widget]] = {}
         self._password_requirements: Optional[PasswordRequirements] = None
         self._password_requirements_text: str = ""
         self._password_requirement_labels: list[Gtk.Label] = []
@@ -1182,6 +1183,13 @@ class AccountDialog(Gtk.Window):
         entry.connect("icon-press", self._on_password_icon_pressed)
         self._set_password_entry_icon(entry)
 
+    def _register_password_toggle(self, entry: Gtk.Entry, toggle: Gtk.Widget) -> None:
+        toggles = self._password_toggle_buttons_by_entry.setdefault(entry, [])
+        if toggle not in toggles:
+            toggles.append(toggle)
+        if toggle not in self._password_toggle_buttons:
+            self._password_toggle_buttons.append(toggle)
+
     def _create_password_toggle(self, entry: Gtk.Entry) -> Gtk.Widget:
         toggle_cls = getattr(Gtk, "ToggleButton", None)
 
@@ -1189,6 +1197,7 @@ class AccountDialog(Gtk.Window):
             toggle = toggle_cls(label="Show")
 
             def _on_toggled(button):
+                self._register_password_toggle(entry, button)
                 active = getattr(button, "get_active", lambda: False)()
                 self._set_password_entry_visibility(entry, active)
                 setter = getattr(button, "set_label", None)
@@ -1201,7 +1210,17 @@ class AccountDialog(Gtk.Window):
             toggle = Gtk.Button(label="Show")
             setattr(toggle, "_atlas_toggle_active", False)
 
+            def _stub_set_active(state: bool, *, _toggle=toggle) -> None:
+                setattr(_toggle, "_atlas_toggle_active", bool(state))
+
+            def _stub_get_active(*, _toggle=toggle) -> bool:
+                return bool(getattr(_toggle, "_atlas_toggle_active", False))
+
+            setattr(toggle, "set_active", _stub_set_active)
+            setattr(toggle, "get_active", _stub_get_active)
+
             def _on_clicked(button):
+                self._register_password_toggle(entry, button)
                 current = getattr(button, "_atlas_toggle_active", False)
                 new_state = not current
                 setattr(button, "_atlas_toggle_active", new_state)
@@ -1213,7 +1232,7 @@ class AccountDialog(Gtk.Window):
 
             toggle.connect("clicked", _on_clicked)
 
-        self._password_toggle_buttons.append(toggle)
+        self._register_password_toggle(entry, toggle)
         return toggle
 
     def _set_password_entry_icon(self, entry: Gtk.Entry) -> None:
@@ -1234,6 +1253,29 @@ class AccountDialog(Gtk.Window):
         entry.set_visibility(bool(visible))
         setattr(entry, "_atlas_password_visible", bool(visible))
         self._set_password_entry_icon(entry)
+        toggles = self._password_toggle_buttons_by_entry.get(entry, [])
+        for toggle in toggles:
+            label_setter = getattr(toggle, "set_label", None)
+            if callable(label_setter):
+                try:
+                    label_setter("Hide" if visible else "Show")
+                except Exception:  # pragma: no cover - defensive for stub widgets
+                    pass
+
+            set_active = getattr(toggle, "set_active", None)
+            if callable(set_active):
+                getter = getattr(toggle, "get_active", None)
+                try:
+                    current_state = bool(getter()) if callable(getter) else None
+                except Exception:  # pragma: no cover - fall back to unconditional set
+                    current_state = None
+                try:
+                    if current_state is None or current_state != bool(visible):
+                        set_active(bool(visible))
+                except Exception:  # pragma: no cover - defensive for stub widgets
+                    pass
+
+            setattr(toggle, "_atlas_toggle_active", bool(visible))
 
     def _on_password_icon_pressed(self, entry: Gtk.Entry, icon_pos, _event) -> None:
         icon_position = getattr(Gtk, "EntryIconPosition", None)
