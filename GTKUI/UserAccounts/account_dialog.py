@@ -156,7 +156,15 @@ class AccountDialog(Gtk.Window):
 
         search_entry_cls = getattr(Gtk, "SearchEntry", Gtk.Entry)
         self.account_search_entry = search_entry_cls()
-        self.account_search_entry.set_placeholder_text("Search by username, email or name")
+        placeholder_text = "Search by username, email or name"
+        set_placeholder = getattr(self.account_search_entry, "set_placeholder_text", None)
+        if callable(set_placeholder):
+            set_placeholder(placeholder_text)
+        else:  # pragma: no cover - compatibility fallback
+            try:
+                self.account_search_entry.set_property("placeholder-text", placeholder_text)
+            except Exception:
+                pass
         connectable_signals = ["changed", "search-changed"]
         for signal in connectable_signals:
             connect = getattr(self.account_search_entry, "connect", None)
