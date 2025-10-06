@@ -193,6 +193,7 @@ class UserAccountDatabase:
                 self._ensure_last_login_column()
                 self._ensure_password_reset_table()
                 self._ensure_lockout_table()
+                self._ensure_login_attempts_table()
             finally:
                 cursor.close()
 
@@ -264,6 +265,36 @@ class UserAccountDatabase:
                     """
                     CREATE INDEX IF NOT EXISTS idx_account_lockouts_lockout_until
                     ON account_lockouts (lockout_until)
+                    """
+                )
+                self.conn.commit()
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    def _ensure_login_attempts_table(self) -> None:
+        """Create the table used for recording user login attempts."""
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_login_attempts (
+                        id INTEGER PRIMARY KEY,
+                        username TEXT,
+                        attempted_at TEXT NOT NULL,
+                        successful INTEGER NOT NULL,
+                        reason TEXT
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_user_login_attempts_username
+                    ON user_login_attempts (username, attempted_at)
                     """
                 )
                 self.conn.commit()
@@ -917,6 +948,116 @@ class UserAccountDatabase:
                 updated = cursor.rowcount > 0
                 self.conn.commit()
                 return updated
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    def add_login_attempt(
+        self,
+        username: Optional[str],
+        timestamp: str,
+        successful: bool,
+        reason: Optional[str] = None,
+    ) -> None:
+        """Store a record of a login attempt for auditing purposes."""
+
+        normalised_username = None if username in (None, "") else str(username)
+        trimmed_reason: Optional[str]
+        if reason in (None, ""):
+            trimmed_reason = None
+        else:
+            trimmed_reason = str(reason)
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO user_login_attempts (
+                        username,
+                        attempted_at,
+                        successful,
+                        reason
+                    )
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        normalised_username,
+                        str(timestamp),
+                        1 if successful else 0,
+                        trimmed_reason,
+                    ),
+                )
+                self.conn.commit()
+            except sqlite3.DatabaseError:
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    def get_login_attempts(self, username: str, limit: int = 10) -> List[Dict[str, object]]:
+        """Return the most recent login attempts for a username."""
+
+        if limit <= 0:
+            return []
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    SELECT attempted_at, successful, reason
+                    FROM user_login_attempts
+                    WHERE username = ?
+                    ORDER BY attempted_at DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (username, int(limit)),
+                )
+                rows = cursor.fetchall()
+            finally:
+                cursor.close()
+
+        attempts: List[Dict[str, object]] = []
+        for attempted_at, successful, reason in rows:
+            attempts.append(
+                {
+                    "timestamp": str(attempted_at),
+                    "successful": bool(int(successful)),
+                    "reason": None if reason in (None, "") else str(reason),
+                }
+            )
+        return attempts
+
+    def prune_login_attempts(self, username: str, limit: int) -> None:
+        """Ensure only the most recent ``limit`` attempts are retained for a user."""
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                if limit <= 0:
+                    cursor.execute(
+                        "DELETE FROM user_login_attempts WHERE username = ?",
+                        (username,),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        DELETE FROM user_login_attempts
+                        WHERE username = ?
+                          AND id NOT IN (
+                              SELECT id
+                              FROM user_login_attempts
+                              WHERE username = ?
+                              ORDER BY attempted_at DESC, id DESC
+                              LIMIT ?
+                          )
+                        """,
+                        (username, username, int(limit)),
+                    )
+                self.conn.commit()
             except sqlite3.DatabaseError:
                 self.conn.rollback()
                 raise

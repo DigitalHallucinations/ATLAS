@@ -201,6 +201,45 @@ def test_verify_user_password_uses_hash_check(tmp_path, monkeypatch):
         db.close_connection()
 
 
+def test_login_attempts_are_recorded(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    try:
+        db.add_login_attempt('alice', '2024-05-20T10:00:00Z', True, None)
+        db.add_login_attempt('alice', '2024-05-20T11:00:00Z', False, 'invalid-credentials')
+
+        attempts = db.get_login_attempts('alice', limit=5)
+        assert [entry['timestamp'] for entry in attempts] == [
+            '2024-05-20T11:00:00Z',
+            '2024-05-20T10:00:00Z',
+        ]
+        assert attempts[0]['successful'] is False
+        assert attempts[0]['reason'] == 'invalid-credentials'
+        assert attempts[1]['successful'] is True
+        assert attempts[1]['reason'] is None
+    finally:
+        db.close_connection()
+
+
+def test_login_attempt_pruning_keeps_recent_entries(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    try:
+        for index in range(5):
+            db.add_login_attempt('alice', f'2024-05-20T0{index}:00:00Z', False, 'invalid-credentials')
+
+        db.prune_login_attempts('alice', 2)
+
+        attempts = db.get_login_attempts('alice', limit=10)
+        assert len(attempts) == 2
+        assert [entry['timestamp'] for entry in attempts] == [
+            '2024-05-20T04:00:00Z',
+            '2024-05-20T03:00:00Z',
+        ]
+    finally:
+        db.close_connection()
+
+
 def test_lockout_entry_crud_helpers(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 

@@ -47,6 +47,7 @@ class AccountDialog(Gtk.Window):
         self._editing_metadata: dict[str, object] = {}
         self._account_records: list[dict[str, object]] = []
         self._account_details_cache: dict[str, dict[str, object]] = {}
+        self._account_details_history_strings: list[str] = []
         self._account_filter_text: str = ""
         self._active_account_request: Optional[tuple[str, str]] = None
         self._active_account_task: Optional[Future] = None
@@ -332,6 +333,31 @@ class AccountDialog(Gtk.Window):
         self.account_details_age_value = _add_row(4, "Age")
         self.account_details_last_login_value = _add_row(5, "Last sign-in")
 
+        history_header = Gtk.Label(label="Recent sign-in attempts")
+        history_header.set_xalign(0.0)
+        content.append(history_header)
+
+        self.account_details_history_box = create_box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=4,
+            margin=0,
+        )
+        setter = getattr(self.account_details_history_box, "set_margin_top", None)
+        if callable(setter):
+            try:
+                setter(6)
+            except Exception:  # pragma: no cover - defensive for stub environments
+                pass
+        content.append(self.account_details_history_box)
+
+        self.account_details_history_placeholder = Gtk.Label(
+            label="No recent activity."
+        )
+        self.account_details_history_placeholder.set_xalign(0.0)
+        self.account_details_history_box.append(
+            self.account_details_history_placeholder
+        )
+
         return frame
 
     # ------------------------------------------------------------------
@@ -608,6 +634,7 @@ class AccountDialog(Gtk.Window):
             self.account_details_dob_value.set_text(placeholder)
             self.account_details_age_value.set_text(placeholder)
             self.account_details_last_login_value.set_text(placeholder)
+            self._show_login_history_placeholder()
 
     def _apply_account_detail_mapping(self, details: dict[str, object]) -> None:
         username = self._format_detail_value(details.get("username"))
@@ -624,6 +651,7 @@ class AccountDialog(Gtk.Window):
         self.account_details_dob_value.set_text(dob)
         self.account_details_age_value.set_text(age)
         self.account_details_last_login_value.set_text(last_login)
+        self._update_login_history(details.get("login_attempts"))
 
     @staticmethod
     def _format_detail_value(value: object, fallback: str = "—") -> str:
@@ -631,6 +659,117 @@ class AccountDialog(Gtk.Window):
             return fallback
         text = str(value).strip()
         return text or fallback
+
+    def _update_login_history(self, attempts: object) -> None:
+        entries = self._format_login_history_entries(attempts)
+        if not entries:
+            self._show_login_history_placeholder()
+            return
+
+        self._clear_login_history_widgets()
+
+        for text in entries:
+            label = Gtk.Label(label=text)
+            label.set_xalign(0.0)
+            self._append_to_history_container(label)
+
+        self._account_details_history_strings = entries
+
+    def _format_login_history_entries(self, attempts: object) -> list[str]:
+        if not isinstance(attempts, list):
+            return []
+
+        entries: list[str] = []
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                continue
+
+            timestamp_text = self._format_last_login_detail(attempt.get("timestamp"))
+            successful = bool(attempt.get("successful"))
+
+            if successful:
+                status = "Signed in"
+            else:
+                reason_text = self._describe_login_attempt_reason(attempt.get("reason"))
+                status = "Failed"
+                if reason_text:
+                    status = f"Failed ({reason_text})"
+
+            entries.append(f"{timestamp_text} — {status}")
+
+        return entries
+
+    def _describe_login_attempt_reason(self, reason: object) -> str:
+        if reason is None:
+            return ""
+
+        text = str(reason).strip()
+        if not text:
+            return ""
+
+        mapping = {
+            "invalid-credentials": "Invalid credentials",
+            "unknown-identifier": "Unknown account",
+            "invalid-identifier": "Invalid identifier",
+            "missing-password": "Missing password",
+            "account-locked": "Account locked",
+            "error": "Error",
+        }
+
+        if text in mapping:
+            return mapping[text]
+
+        return text.replace("-", " ").title()
+
+    def _append_to_history_container(self, widget: Gtk.Widget) -> None:
+        container = getattr(self, "account_details_history_box", None)
+        if container is None:
+            return
+
+        append = getattr(container, "append", None)
+        if callable(append):
+            append(widget)
+            return
+
+        add = getattr(container, "add", None)
+        if callable(add):
+            add(widget)
+            return
+
+        children = getattr(container, "children", None)
+        if isinstance(children, list):
+            children.append(widget)
+
+    def _clear_login_history_widgets(self) -> None:
+        container = getattr(self, "account_details_history_box", None)
+        if container is None:
+            self._account_details_history_strings = []
+            return
+
+        remove = getattr(container, "remove", None)
+        get_first_child = getattr(container, "get_first_child", None)
+        if callable(remove) and callable(get_first_child):
+            child = get_first_child()
+            while child is not None:
+                remove(child)
+                child = get_first_child()
+        else:
+            children = getattr(container, "children", None)
+            if isinstance(children, list):
+                children.clear()
+
+        self._account_details_history_strings = []
+
+    def _show_login_history_placeholder(self) -> None:
+        placeholder = getattr(self, "account_details_history_placeholder", None)
+        if placeholder is None:
+            placeholder = Gtk.Label(label="No recent activity.")
+            placeholder.set_xalign(0.0)
+            self.account_details_history_placeholder = placeholder
+
+        self._clear_login_history_widgets()
+        self._append_to_history_container(placeholder)
+        self._account_details_history_strings = []
 
     @staticmethod
     def _parse_last_login(value: object) -> Optional[_dt.datetime]:

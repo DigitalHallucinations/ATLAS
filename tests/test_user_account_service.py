@@ -431,6 +431,37 @@ def test_authenticate_user_success_and_failure(tmp_path, monkeypatch):
         service.close()
 
 
+def test_authenticate_user_records_login_attempts(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('gina', 'Password123!', 'gina@example.com')
+        service._login_history_limit = 3
+
+        assert service.authenticate_user('gina', None) is False
+        attempts = service._database.get_login_attempts('gina', 5)
+        assert attempts[0]['successful'] is False
+        assert attempts[0]['reason'] == 'missing-password'
+
+        assert service.authenticate_user('gina', 'wrong') is False
+        attempts = service._database.get_login_attempts('gina', 5)
+        assert attempts[0]['reason'] == 'invalid-credentials'
+
+        assert service.authenticate_user('gina', 'Password123!') is True
+        attempts = service._database.get_login_attempts('gina', 5)
+        assert len(attempts) == 3
+        assert attempts[0]['successful'] is True
+        assert attempts[0]['reason'] is None
+
+        details = service.get_user_details('gina')
+        assert details is not None
+        history = details.get('login_attempts') or []
+        assert history
+        assert history[0]['successful'] is True
+    finally:
+        service.close()
+
+
 def test_authenticate_user_with_email_identifier(tmp_path, monkeypatch):
     service, _ = _create_service(tmp_path, monkeypatch)
 

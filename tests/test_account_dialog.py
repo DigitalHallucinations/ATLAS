@@ -1012,6 +1012,8 @@ def test_refresh_account_list_failure_clears_rows_and_details():
     assert dialog.account_details_dob_value.get_text() == placeholder
     assert dialog.account_details_age_value.get_text() == placeholder
     assert dialog.account_details_last_login_value.get_text() == placeholder
+    assert dialog.account_details_history_placeholder.get_text() == "No recent activity."
+    assert dialog._account_details_history_strings == []
 
 
 def test_register_rejects_mismatched_passwords():
@@ -1029,6 +1031,42 @@ def test_register_rejects_mismatched_passwords():
 
     assert atlas.last_factory is None
     assert dialog.register_feedback_label.get_text() == "Passwords do not match."
+
+
+def test_account_details_render_login_history():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {"username": "alice", "display_name": "Alice"},
+    ]
+    atlas.details_result = {
+        "alice": {
+            "username": "alice",
+            "display_name": "Alice",
+            "email": "alice@example.com",
+            "dob": None,
+            "last_login": "2024-05-21T09:00:00Z",
+            "login_attempts": [
+                {"timestamp": "2024-05-21T09:00:00Z", "successful": True, "reason": None},
+                {
+                    "timestamp": "2024-05-21T08:30:00Z",
+                    "successful": False,
+                    "reason": "invalid-credentials",
+                },
+            ],
+        }
+    }
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+
+    details_button = dialog._account_rows["alice"]["details_button"]
+    _click(details_button)
+    _drain_background(atlas)
+
+    assert dialog._account_details_history_strings == [
+        "2024-05-21 09:00 UTC — Signed in",
+        "2024-05-21 08:30 UTC — Failed (Invalid credentials)",
+    ]
 
 
 def test_register_rejects_invalid_email_client_side():

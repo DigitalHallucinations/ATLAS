@@ -124,6 +124,7 @@ class UserAccountService:
             900,
         )
 
+        self._login_history_limit = 10
         self._failed_attempts: Dict[str, List[_dt.datetime]] = {}
         self._active_lockouts: Dict[str, _dt.datetime] = {}
         self._lockout_lock = threading.RLock()
@@ -434,6 +435,30 @@ class UserAccountService:
             )
             self._persist_lockout_state_locked(username)
 
+    def _record_login_attempt(
+        self,
+        username: Optional[str],
+        timestamp: str,
+        successful: bool,
+        reason: Optional[str],
+    ) -> None:
+        """Persist a login attempt and prune older records for the account."""
+
+        try:
+            self._database.add_login_attempt(username, timestamp, successful, reason)
+            if username:
+                self._database.prune_login_attempts(
+                    username,
+                    self._login_history_limit,
+                )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error(
+                "Failed to record login attempt for '%s': %s",
+                username,
+                exc,
+                exc_info=True,
+            )
+
     def _remaining_lockout(self, username: str, now: _dt.datetime) -> Optional[int]:
         with self._lockout_lock:
             lockout_until = self._active_lockouts.get(username)
@@ -680,41 +705,54 @@ class UserAccountService:
     def authenticate_user(self, username: str, password: str) -> bool:
         """Return ``True`` when supplied credentials are valid."""
 
+        timestamp = self._current_timestamp()
         identifier = self._normalise_username(username)
         if not identifier:
-            return False
-
-        if password is None:
+            self._record_login_attempt(None, timestamp, False, "invalid-identifier")
             return False
 
         lookup_username = identifier
         if self._EMAIL_PATTERN.fullmatch(identifier):
             resolved_username = self._database.get_username_for_email(identifier)
             if not resolved_username:
+                self._record_login_attempt(identifier, timestamp, False, "unknown-identifier")
                 return False
             lookup_username = resolved_username
 
         normalised_username = self._normalise_username(lookup_username)
         if not normalised_username:
+            self._record_login_attempt(lookup_username, timestamp, False, "invalid-identifier")
             return False
 
-        timestamp: Optional[str] = None
-        with self._lockout_lock:
-            now = self._current_time()
-            self._prune_failures(normalised_username, now)
-            self._enforce_lockout(normalised_username, now)
+        if password is None:
+            self._record_login_attempt(normalised_username, timestamp, False, "missing-password")
+            return False
 
-            valid = bool(
-                self._database.verify_user_password(normalised_username, password)
-            )
+        valid = False
+        try:
+            with self._lockout_lock:
+                now = self._current_time()
+                self._prune_failures(normalised_username, now)
+                self._enforce_lockout(normalised_username, now)
 
-            if valid:
-                self._clear_failures(normalised_username)
-                timestamp = self._current_timestamp()
-            else:
-                self._record_failure(normalised_username, now)
+                valid = bool(
+                    self._database.verify_user_password(normalised_username, password)
+                )
 
-        if valid and timestamp is not None:
+                if valid:
+                    self._clear_failures(normalised_username)
+                else:
+                    self._record_failure(normalised_username, now)
+        except AccountLockedError:
+            self._record_login_attempt(normalised_username, timestamp, False, "account-locked")
+            raise
+        except Exception:
+            self._record_login_attempt(normalised_username, timestamp, False, "error")
+            raise
+
+        if valid:
+            timestamp = self._current_timestamp()
+            self._record_login_attempt(normalised_username, timestamp, True, None)
             try:
                 self._database.update_last_login(normalised_username, timestamp)
             except Exception as exc:  # pragma: no cover - defensive logging
@@ -723,7 +761,10 @@ class UserAccountService:
                     normalised_username,
                     exc,
                 )
-        return valid
+            return True
+
+        self._record_login_attempt(normalised_username, timestamp, False, "invalid-credentials")
+        return False
 
     def list_users(self) -> List[Dict[str, object]]:
         """Return a list of stored user accounts as dictionaries."""
@@ -974,7 +1015,13 @@ class UserAccountService:
                 details.get("last_login"),
             ]
         )
-        return self._account_to_mapping(account)
+        mapping = self._account_to_mapping(account)
+        attempts = self._database.get_login_attempts(
+            account.username,
+            self._login_history_limit,
+        )
+        mapping["login_attempts"] = attempts
+        return mapping
 
     @staticmethod
     def _current_timestamp() -> str:
