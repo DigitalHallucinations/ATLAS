@@ -41,6 +41,8 @@ class PersonaManager:
         self.default_persona_name = "ATLAS"
         self.current_persona = None
         self.current_system_prompt = None
+        self._current_substitution_map: Dict[str, str] = {}
+        self._current_persona_context: Dict[str, Any] = {}
 
         # Load the default persona and generate the system prompt
         self.load_default_persona()
@@ -355,36 +357,7 @@ class PersonaManager:
             str: The personalized system prompt.
         """
         self.logger.info(f"Building system prompt for persona '{persona.get('name')}'.")
-        user_data_manager = self.user_data_manager
-
-        # General user data available to all personas
-        user_data = {
-            "<<name>>": self.user,
-        }
-
-        # Only add Profile if user_profile_enabled is True
-        if persona.get("user_profile_enabled") == "True":
-            self.logger.info(f"Adding Profile to persona: '{persona['name']}'.")
-            user_data["<<Profile>>"] = user_data_manager.get_profile_text()
-        else:
-            self.logger.info(f"Profile not added for persona: '{persona['name']}'.")
-            user_data["<<Profile>>"] = "Profile not available for this persona."
-
-        # Only add EMR if the persona is a medical persona
-        if persona.get("medical_persona") == "True":
-            self.logger.info(f"Adding EMR to medical persona: '{persona['name']}'.")
-            user_data["<<emr>>"] = user_data_manager.get_emr()
-        else:
-            self.logger.info(f"EMR not added for non-medical persona: '{persona['name']}'.")
-            user_data["<<emr>>"] = "EMR not available for this persona."
-
-        # Only add sysinfo if the persona is a sys_admin_persona
-        if persona.get("sys_info_enabled") == "True":
-            self.logger.info(f"Adding system info to persona: '{persona['name']}'.")
-            user_data["<<sysinfo>>"] = user_data_manager.get_system_info()
-        else:
-            self.logger.info(f"System info not added for persona: '{persona['name']}'.")
-            user_data["<<sysinfo>>"] = "System info not available for this persona."
+        user_data = self._build_substitution_map(persona)
 
         # Assemble the system prompt from the content parts
         content = persona.get("content", {})
@@ -401,7 +374,77 @@ class PersonaManager:
             personalized_content = personalized_content.replace(placeholder, data)
 
         self.logger.info(f"System prompt built for persona '{persona['name']}': {personalized_content}")
+        self._current_substitution_map = dict(user_data)
+        persona_snapshot = copy.deepcopy(persona)
+
+        self._current_persona_context = {
+            "persona_name": persona_snapshot.get("name"),
+            "system_prompt": personalized_content,
+            "user_data": dict(user_data),
+            "substitutions": dict(user_data),
+            "persona": persona_snapshot,
+        }
         return personalized_content
+
+    def _build_substitution_map(self, persona: dict) -> Dict[str, str]:
+        """Create the placeholder substitution map for ``persona``."""
+
+        user_data_manager = self.user_data_manager
+        substitutions: Dict[str, str] = {
+            "<<name>>": self.user,
+        }
+
+        profile_enabled = self._as_bool(persona.get("user_profile_enabled"))
+        if profile_enabled:
+            self.logger.info(f"Adding Profile to persona: '{persona.get('name')}'.")
+            substitutions["<<Profile>>"] = self._safe_fetch(
+                user_data_manager.get_profile_text,
+                "Profile not available for this persona.",
+            )
+        else:
+            self.logger.info(f"Profile not added for persona: '{persona.get('name')}'.")
+            substitutions["<<Profile>>"] = "Profile not available for this persona."
+
+        medical_enabled = self._as_bool(persona.get("medical_persona"))
+        if not medical_enabled:
+            medical_entry = (persona.get("type") or {}).get("medical_persona") or {}
+            medical_enabled = self._as_bool((medical_entry or {}).get("enabled"))
+
+        if medical_enabled:
+            self.logger.info(f"Adding EMR to medical persona: '{persona.get('name')}'.")
+            substitutions["<<emr>>"] = self._safe_fetch(
+                user_data_manager.get_emr,
+                "EMR not available for this persona.",
+            )
+        else:
+            self.logger.info(f"EMR not added for non-medical persona: '{persona.get('name')}'.")
+            substitutions["<<emr>>"] = "EMR not available for this persona."
+
+        sysinfo_enabled = self._as_bool(persona.get("sys_info_enabled"))
+        if sysinfo_enabled:
+            self.logger.info(f"Adding system info to persona: '{persona.get('name')}'.")
+            substitutions["<<sysinfo>>"] = self._safe_fetch(
+                user_data_manager.get_system_info,
+                "System info not available for this persona.",
+            )
+        else:
+            self.logger.info(f"System info not added for persona: '{persona.get('name')}'.")
+            substitutions["<<sysinfo>>"] = "System info not available for this persona."
+
+        return substitutions
+
+    def _safe_fetch(self, fetcher, fallback: str) -> str:
+        """Execute ``fetcher`` and guard against unexpected failures."""
+
+        try:
+            value = fetcher()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.error("Failed to fetch persona substitution data: %s", exc, exc_info=True)
+            return fallback
+
+        if value is None:
+            return fallback
+        return str(value)
 
     def update_persona(self, persona):
         """Update the persona settings and save them to the corresponding file."""
@@ -663,3 +706,42 @@ class PersonaManager:
     def get_current_persona_prompt(self) -> str:
         """Returns the current persona's system prompt."""
         return self.current_system_prompt
+
+    def get_current_persona_context(self) -> Dict[str, Any]:
+        """Return the active persona's prompt and substitution payload."""
+
+        if not self.current_persona:
+            substitutions = dict(self._current_substitution_map)
+            return {
+                "persona_name": None,
+                "system_prompt": self.current_system_prompt or "",
+                "user_data": substitutions,
+                "substitutions": dict(substitutions),
+                "persona": None,
+            }
+
+        context = copy.deepcopy(self._current_persona_context or {})
+
+        persona_name = context.get("persona_name")
+        if not persona_name:
+            persona_name = self.current_persona.get("name")
+        context["persona_name"] = persona_name
+
+        prompt = context.get("system_prompt") or self.current_system_prompt or ""
+        context["system_prompt"] = prompt
+
+        user_data = context.get("user_data") or context.get("substitutions")
+        if not user_data:
+            user_data = self._current_substitution_map
+        normalized_user_data = dict(user_data or {})
+        context["user_data"] = normalized_user_data
+        context["substitutions"] = dict(normalized_user_data)
+
+        persona_payload = context.get("persona")
+        if persona_payload is None:
+            persona_payload = copy.deepcopy(self.current_persona)
+        else:
+            persona_payload = copy.deepcopy(persona_payload)
+        context["persona"] = persona_payload
+
+        return context
