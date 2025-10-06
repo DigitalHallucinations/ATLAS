@@ -49,6 +49,7 @@ class AccountDialog(Gtk.Window):
         self._account_filter_text: str = ""
         self._selected_username: Optional[str] = None
         self._details_busy = False
+        self._login_busy = False
         self._visible_usernames: list[str] = []
         self._password_toggle_buttons: list[Gtk.Widget] = []
         self._password_requirements: Optional[PasswordRequirements] = None
@@ -1622,11 +1623,17 @@ class AccountDialog(Gtk.Window):
     # Login flow
     # ------------------------------------------------------------------
     def _set_login_busy(self, busy: bool, message: Optional[str] = None) -> None:
-        self.login_button.set_sensitive(not busy)
+        self._login_busy = bool(busy)
+        self._set_widget_sensitive(self.login_button, not busy)
+        self._set_widget_sensitive(self.login_username_entry, not busy)
+        self._set_widget_sensitive(self.login_password_entry, not busy)
         if message is not None:
             self.login_feedback_label.set_text(message)
 
     def _on_login_clicked(self, _button) -> None:
+        if self._login_busy:
+            return
+
         username = (self.login_username_entry.get_text() or "").strip()
         password = self.login_password_entry.get_text() or ""
 
