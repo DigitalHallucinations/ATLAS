@@ -1,22 +1,31 @@
 # ATLAS/Tools/ToolManager.py
 
 import asyncio
+import contextlib
+import io
 import json
 import inspect
 import importlib.util
 import sys
 import os
+import threading
+from collections import deque
 from collections.abc import AsyncIterator
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system
 
 from ATLAS.config import ConfigManager
 logger = setup_logger(__name__)
 
-_function_map_cache = {}
-_function_payload_cache = {}
-_default_config_manager = None
+_function_map_cache: Dict[str, Dict[str, Any]] = {}
+_function_payload_cache: Dict[str, Any] = {}
+_default_config_manager: Optional[ConfigManager] = None
+
+_TOOL_ACTIVITY_EVENT = "tool_activity"
+_tool_activity_log: deque = deque(maxlen=100)
+_tool_activity_lock = threading.Lock()
 
 
 async def _collect_async_chunks(stream: AsyncIterator) -> str:
@@ -110,6 +119,61 @@ def get_required_args(function):
         param.name for param in sig.parameters.values()
         if param.default == param.empty and param.name != 'self'
     ]
+
+
+def _clone_json_compatible(value: Any) -> Any:
+    """Return a JSON-compatible clone of ``value`` when possible."""
+
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False))
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _stringify_tool_value(value: Any) -> str:
+    """Return a human-readable string for tool payload data."""
+
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return value
+
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _record_tool_activity(entry: Dict[str, Any]) -> None:
+    """Append a tool activity entry to the ring buffer and publish an event."""
+
+    # Ensure we only store JSON-friendly copies to avoid mutating UI consumers.
+    stored_entry = {
+        **entry,
+        "arguments": _clone_json_compatible(entry.get("arguments")),
+        "result": _clone_json_compatible(entry.get("result")),
+    }
+
+    with _tool_activity_lock:
+        _tool_activity_log.append(stored_entry)
+
+    event_system.publish(_TOOL_ACTIVITY_EVENT, dict(stored_entry))
+
+
+def get_tool_activity_log(limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Return a copy of the recorded tool activity log."""
+
+    with _tool_activity_lock:
+        entries = list(_tool_activity_log)
+
+    if limit is not None and isinstance(limit, int) and limit >= 0:
+        entries = entries[-limit:]
+
+    return [dict(entry) for entry in entries]
 
 def load_function_map_from_current_persona(
     current_persona,
@@ -350,11 +414,47 @@ async def use_tool(
             try:
                 logger.info(f"Calling function '{function_name}' with arguments: {function_args}")
                 func = function_map[function_name]
-                if asyncio.iscoroutinefunction(func):
-                    function_response = await func(**function_args)
-                else:
-                    function_response = func(**function_args)
-                logger.info(f"Function '{function_name}' executed successfully. Response: {function_response}")
+                stdout_buffer = io.StringIO()
+                stderr_buffer = io.StringIO()
+                started_at = datetime.utcnow()
+                function_response = None
+                call_error: Optional[Exception] = None
+
+                with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+                    try:
+                        if asyncio.iscoroutinefunction(func):
+                            function_response = await func(**function_args)
+                        else:
+                            function_response = func(**function_args)
+                    except Exception as exc:
+                        call_error = exc
+
+                completed_at = datetime.utcnow()
+                duration_ms = (completed_at - started_at).total_seconds() * 1000
+                log_entry = {
+                    "tool_name": function_name,
+                    "arguments": function_args,
+                    "arguments_text": _stringify_tool_value(function_args),
+                    "started_at": started_at.isoformat(timespec="milliseconds"),
+                    "completed_at": completed_at.isoformat(timespec="milliseconds"),
+                    "duration_ms": duration_ms,
+                    "status": "success" if call_error is None else "error",
+                    "stdout": stdout_buffer.getvalue(),
+                    "stderr": stderr_buffer.getvalue(),
+                    "result": function_response,
+                    "result_text": _stringify_tool_value(function_response),
+                    "error": str(call_error) if call_error else None,
+                }
+                _record_tool_activity(log_entry)
+
+                if call_error is not None:
+                    raise call_error
+
+                logger.info(
+                    "Function '%s' executed successfully. Response: %s",
+                    function_name,
+                    function_response,
+                )
 
                 # Publish event for specific functions if needed
                 if function_name == "execute_python":
