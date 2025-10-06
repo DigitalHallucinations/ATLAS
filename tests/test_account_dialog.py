@@ -114,6 +114,24 @@ def _click(button):
             break
 
 
+def test_form_toggle_highlighting():
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    assert dialog.login_toggle_button.has_css_class("suggested-action")
+    assert not dialog.register_toggle_button.has_css_class("suggested-action")
+
+    dialog._show_form("register")
+    assert dialog.register_toggle_button.has_css_class("suggested-action")
+    assert not dialog.login_toggle_button.has_css_class("suggested-action")
+
+    dialog._show_form("edit")
+    assert not dialog.login_toggle_button.has_css_class("suggested-action")
+    assert not dialog.register_toggle_button.has_css_class("suggested-action")
+
+
 def test_login_uses_background_worker():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
