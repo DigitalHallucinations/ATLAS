@@ -180,6 +180,38 @@ def test_login_uses_background_worker():
     assert getattr(dialog, "closed", False)
 
 
+def test_login_entry_activate_triggers_login(monkeypatch):
+    atlas = _AtlasStub()
+    activate_callbacks = []
+
+    original_connect = Gtk.Entry.connect
+
+    def recording_connect(self, signal, callback, *args):
+        if signal == "activate":
+            activate_callbacks.append((self, callback, args))
+        return original_connect(self, signal, callback, *args)
+
+    monkeypatch.setattr(Gtk.Entry, "connect", recording_connect, raising=False)
+
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    dialog.login_username_entry.set_text("alice")
+    dialog.login_password_entry.set_text("secret")
+
+    for widget, callback, args in activate_callbacks:
+        if widget is dialog.login_password_entry:
+            callback(widget, *args)
+            break
+    else:  # pragma: no cover - defensive assertion aid
+        pytest.fail("Password entry did not register an activate callback")
+
+    assert atlas.last_thread_name == "user-login"
+    _drain_background(atlas)
+    assert atlas.login_called == ("alice", "secret")
+
+
 def test_login_failure_displays_error():
     atlas = _AtlasStub()
     atlas.login_result = False
