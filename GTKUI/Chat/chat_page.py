@@ -199,13 +199,21 @@ class ChatPage(Gtk.Window):
         self.terminal_tab_box.set_margin_bottom(6)
         self.terminal_tab_box.set_margin_start(6)
         self.terminal_tab_box.set_margin_end(6)
+
+        self.terminal_scrolled = Gtk.ScrolledWindow()
+        self.terminal_scrolled.set_policy(
+            Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC
+        )
+        self.terminal_scrolled.set_hexpand(True)
+        self.terminal_scrolled.set_vexpand(True)
+        self.terminal_scrolled.set_child(self.terminal_tab_box)
         self._terminal_sections: Dict[str, Gtk.TextBuffer] = {}
         self._tool_log_entries: List[str] = []
         self._tool_activity_listener = None
         self._build_terminal_tab()
         terminal_label = Gtk.Label(label="Terminal")
         terminal_label.add_css_class("caption")
-        self.notebook.append_page(self.terminal_tab_box, terminal_label)
+        self.notebook.append_page(self.terminal_scrolled, terminal_label)
 
         self.terminal_content_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=6
