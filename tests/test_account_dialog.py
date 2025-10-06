@@ -597,6 +597,44 @@ def test_login_lockout_countdown_disables_controls(monkeypatch):
     assert timeout_id not in timeouts
 
 
+def test_close_cancels_login_lockout_timer(monkeypatch):
+    atlas = _AtlasStub()
+    dialog = AccountDialog(atlas)
+    if atlas.last_factory is not None:
+        _drain_background(atlas)
+
+    timeouts: dict[int, tuple[int, object, tuple[object, ...]]] = {}
+    removed: list[int] = []
+    next_id = 1
+
+    def fake_timeout_add_seconds(interval, callback, *args):
+        nonlocal next_id
+        handle = next_id
+        next_id += 1
+        timeouts[handle] = (interval, callback, args)
+        return handle
+
+    def fake_source_remove(handle):
+        removed.append(handle)
+        timeouts.pop(handle, None)
+        return True
+
+    monkeypatch.setattr(GLib, "timeout_add_seconds", fake_timeout_add_seconds, raising=False)
+    monkeypatch.setattr(GLib, "source_remove", fake_source_remove, raising=False)
+
+    dialog._start_login_lockout_timer(5)
+    timeout_id = dialog._login_lockout_timeout_id
+    assert timeout_id is not None
+    assert timeout_id in timeouts
+
+    dialog._on_close_request()
+
+    assert dialog._login_lockout_timeout_id is None
+    assert dialog._login_lockout_remaining_seconds is None
+    assert timeout_id not in timeouts
+    assert removed == [timeout_id]
+
+
 def test_register_validates_and_submits():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
