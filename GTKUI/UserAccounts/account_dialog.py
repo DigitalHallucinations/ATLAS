@@ -381,6 +381,41 @@ class AccountDialog(Gtk.Window):
 
     def _handle_account_list_error(self, exc: Exception) -> bool:
         self._active_account_request = None
+        self._account_rows.clear()
+        self._visible_usernames = []
+
+        removed = False
+        remover = getattr(self.account_list_box, "remove_all", None)
+        if callable(remover):
+            try:
+                remover()
+                removed = True
+            except Exception:  # pragma: no cover - fallback for stub environments
+                removed = False
+
+        if not removed:
+            get_children = getattr(self.account_list_box, "get_children", None)
+            children = []
+            if callable(get_children):
+                try:
+                    children = list(get_children())
+                except Exception:  # pragma: no cover - compatibility with stubs
+                    children = []
+            elif hasattr(self.account_list_box, "children"):
+                children = list(getattr(self.account_list_box, "children", []))
+
+            for child in children:
+                try:
+                    self.account_list_box.remove(child)
+                except Exception:  # pragma: no cover - stub removal safety
+                    pass
+
+            if hasattr(self.account_list_box, "children"):
+                self.account_list_box.children = []
+
+        self._selected_username = None
+        self._set_account_detail_message("Select an account to view details.")
+        self._update_account_buttons_sensitive()
         self.account_empty_label.set_text("Failed to load saved accounts.")
         message = f"Account load failed: {exc}"
         if self._post_refresh_feedback:
