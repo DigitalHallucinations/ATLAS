@@ -1580,12 +1580,12 @@ class AccountDialog(Gtk.Window):
         grid = Gtk.Grid(column_spacing=8, row_spacing=8)
         wrapper.append(grid)
 
-        username_label = Gtk.Label(label="Username")
+        username_label = Gtk.Label(label="Username or email")
         username_label.set_xalign(0.0)
         grid.attach(username_label, 0, 0, 1, 1)
 
         self.login_username_entry = Gtk.Entry()
-        self.login_username_entry.set_placeholder_text("Your username")
+        self.login_username_entry.set_placeholder_text("Your username or email")
         grid.attach(self.login_username_entry, 1, 0, 1, 1)
 
         password_label = Gtk.Label(label="Password")
@@ -1996,7 +1996,7 @@ class AccountDialog(Gtk.Window):
         password = self.login_password_entry.get_text() or ""
 
         if not username or not password:
-            self.login_feedback_label.set_text("Username and password are required.")
+            self.login_feedback_label.set_text("Username or email and password are required.")
             return
 
         self._set_login_busy(True, "Signing in…")
@@ -2030,7 +2030,7 @@ class AccountDialog(Gtk.Window):
             self.login_feedback_label.set_text("Signed in successfully.")
             self.close()
         else:
-            self.login_feedback_label.set_text("Invalid username or password.")
+            self.login_feedback_label.set_text("Invalid username/email or password.")
             self._mark_field_invalid(self.login_username_entry)
             self._mark_field_invalid(self.login_password_entry)
             try:

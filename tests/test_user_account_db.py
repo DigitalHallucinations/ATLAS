@@ -239,6 +239,19 @@ def test_update_user_refreshes_profile_on_email_change(tmp_path, monkeypatch):
         db.close_connection()
 
 
+def test_get_username_for_email_is_case_insensitive(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    try:
+        db.add_user('gina', 'Password1!', 'gina@example.com', 'Gina', '1993-04-05')
+
+        assert db.get_username_for_email('gina@example.com') == 'gina'
+        assert db.get_username_for_email('GINA@EXAMPLE.COM') == 'gina'
+        assert db.get_username_for_email('unknown@example.com') is None
+    finally:
+        db.close_connection()
+
+
 def test_update_user_preserves_extra_profile_fields(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 
@@ -344,6 +357,7 @@ def test_database_uses_app_root_directory(tmp_path, monkeypatch):
 
     logger = _StubLogger()
     monkeypatch.setattr(user_account_db, 'setup_logger', lambda *_args, **_kwargs: logger)
+    monkeypatch.setattr(user_account_db, '_user_data_dir', None)
 
     db = user_account_db.UserAccountDatabase(db_name='app_root.db')
 
@@ -362,6 +376,7 @@ def test_database_migrates_from_legacy_location(tmp_path, monkeypatch):
 
     logger = _StubLogger()
     monkeypatch.setattr(user_account_db, 'setup_logger', lambda *_args, **_kwargs: logger)
+    monkeypatch.setattr(user_account_db, '_user_data_dir', None)
 
     legacy_dir = tmp_path / 'legacy'
     legacy_dir.mkdir()

@@ -431,6 +431,24 @@ def test_authenticate_user_success_and_failure(tmp_path, monkeypatch):
         service.close()
 
 
+def test_authenticate_user_with_email_identifier(tmp_path, monkeypatch):
+    service, _ = _create_service(tmp_path, monkeypatch)
+
+    try:
+        service.register_user('carol', 'Secure123!', 'carol@example.com')
+
+        assert service.authenticate_user('carol@example.com', 'Secure123!') is True
+        assert service.authenticate_user('CAROL@EXAMPLE.COM', 'Secure123!') is True
+
+        record = service._database.get_user('carol')
+        assert record[6] is not None
+
+        assert service.authenticate_user('carol@example.com', 'wrong') is False
+        assert service.authenticate_user('unknown@example.com', 'Secure123!') is False
+    finally:
+        service.close()
+
+
 class _TestClock:
     def __init__(self, start: Optional[_dt.datetime] = None):
         self._now = start or _dt.datetime(2024, 1, 1, tzinfo=_dt.timezone.utc)
