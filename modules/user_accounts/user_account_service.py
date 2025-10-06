@@ -93,17 +93,14 @@ class UserAccountService:
         self._clock: Callable[[], _dt.datetime] = clock or self._default_clock
         self._password_requirements = self._resolve_password_requirements()
 
-        self._lockout_threshold = int(
-            self.config_manager.get_config("ACCOUNT_LOCKOUT_MAX_FAILURES", 5)
-            or 0
+        self._lockout_threshold = self._resolve_lockout_setting(
+            "ACCOUNT_LOCKOUT_MAX_FAILURES", 5
         )
-        self._lockout_window_seconds = int(
-            self.config_manager.get_config("ACCOUNT_LOCKOUT_WINDOW_SECONDS", 300)
-            or 0
+        self._lockout_window_seconds = self._resolve_lockout_setting(
+            "ACCOUNT_LOCKOUT_WINDOW_SECONDS", 300
         )
-        self._lockout_duration_seconds = int(
-            self.config_manager.get_config("ACCOUNT_LOCKOUT_DURATION_SECONDS", 300)
-            or 0
+        self._lockout_duration_seconds = self._resolve_lockout_setting(
+            "ACCOUNT_LOCKOUT_DURATION_SECONDS", 300
         )
 
         self._failed_attempts: Dict[str, List[_dt.datetime]] = {}
@@ -189,6 +186,37 @@ class UserAccountService:
         with self._lockout_lock:
             self._failed_attempts.pop(username, None)
             self._active_lockouts.pop(username, None)
+
+    def _resolve_lockout_setting(self, key: str, default: int) -> int:
+        """Return a validated integer lockout configuration value."""
+
+        raw_value = self.config_manager.get_config(key, default)
+        unset_marker = getattr(self.config_manager, "UNSET", object())
+
+        if raw_value in (None, unset_marker):
+            return default
+
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            self.logger.warning(
+                "Ignoring %s override: %r is not an integer; using default %s",
+                key,
+                raw_value,
+                default,
+            )
+            return default
+
+        if parsed < 0:
+            self.logger.warning(
+                "Ignoring %s override: %r must be zero or positive; using default %s",
+                key,
+                raw_value,
+                default,
+            )
+            return default
+
+        return parsed
 
     def _prune_failures(self, username: str, now: _dt.datetime) -> None:
         if self._lockout_window_seconds <= 0:
