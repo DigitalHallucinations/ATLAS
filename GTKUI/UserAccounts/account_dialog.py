@@ -62,6 +62,7 @@ class AccountDialog(Gtk.Window):
         self._login_lockout_timeout_id: Optional[int] = None
         self._login_lockout_remaining_seconds: Optional[int] = None
         self._is_closing = False
+        self._is_closed = False
 
         self.set_modal(True)
         if parent is not None:
@@ -357,6 +358,8 @@ class AccountDialog(Gtk.Window):
             self._handle_account_list_error(exc)
 
     def _handle_account_list_result(self, accounts) -> bool:
+        if self._is_closed:
+            return False
         self._active_account_request = None
         normalised = self._normalise_account_payload(accounts)
         self._account_records = normalised
@@ -381,6 +384,8 @@ class AccountDialog(Gtk.Window):
         return False
 
     def _handle_account_list_error(self, exc: Exception) -> bool:
+        if self._is_closed:
+            return False
         self._active_account_request = None
         self._account_rows.clear()
         self._visible_usernames = []
@@ -798,6 +803,8 @@ class AccountDialog(Gtk.Window):
         self._update_account_buttons_sensitive()
 
     def _handle_account_details_result(self, username: str, result) -> bool:
+        if self._is_closed:
+            return False
         if self._selected_username != username:
             return False
 
@@ -820,6 +827,8 @@ class AccountDialog(Gtk.Window):
         return False
 
     def _handle_account_details_error(self, username: str, exc: Exception) -> bool:
+        if self._is_closed:
+            return False
         if self._selected_username != username:
             return False
 
@@ -1204,26 +1213,36 @@ class AccountDialog(Gtk.Window):
         return response
 
     def _handle_activate_success(self) -> bool:
+        if self._is_closed:
+            return False
         self._set_account_busy(False, "Account activated.", disable_forms=True)
         self._highlight_active_account()
         return False
 
     def _handle_delete_success(self, username: str) -> bool:
+        if self._is_closed:
+            return False
         self._set_account_busy(False, "Account deleted.", disable_forms=True)
         self._post_refresh_feedback = "Account deleted."
         self._refresh_account_list()
         return False
 
     def _handle_account_action_error(self, exc: Exception) -> bool:
+        if self._is_closed:
+            return False
         self._set_account_busy(False, f"Account action failed: {exc}", disable_forms=True)
         return False
 
     def _set_forms_busy(self, busy: bool) -> None:
+        if self._is_closed:
+            return
         self._forms_busy = bool(busy)
         for widget in getattr(self, "_forms_sensitive_widgets", []):
             self._set_widget_sensitive(widget, not busy)
 
     def _set_account_busy(self, busy: bool, message: str | None = None, *, disable_forms: bool = True) -> None:
+        if self._is_closed:
+            return
         self._account_busy = bool(busy)
         if message is not None:
             self.account_feedback_label.set_text(message)
@@ -1907,6 +1926,8 @@ class AccountDialog(Gtk.Window):
             self._handle_login_error(exc)
 
     def _handle_login_result(self, success: bool) -> bool:
+        if self._is_closed:
+            return False
         self._set_login_busy(False)
         self._cancel_login_lockout_timer()
         if success:
@@ -1917,6 +1938,8 @@ class AccountDialog(Gtk.Window):
         return False
 
     def _handle_login_error(self, exc: Exception) -> bool:
+        if self._is_closed:
+            return False
         self._set_login_busy(False)
         if isinstance(exc, AccountLockedError):
             retry_after = getattr(exc, "retry_after", None)
@@ -2126,6 +2149,8 @@ class AccountDialog(Gtk.Window):
             self._handle_register_error(exc)
 
     def _handle_register_result(self, result: dict) -> bool:
+        if self._is_closed:
+            return False
         self._set_register_busy(False)
         username = result.get("username") if isinstance(result, dict) else None
         self.register_feedback_label.set_text(
@@ -2135,6 +2160,8 @@ class AccountDialog(Gtk.Window):
         return False
 
     def _handle_register_error(self, exc: Exception) -> bool:
+        if self._is_closed:
+            return False
         self._set_register_busy(False)
         if isinstance(exc, DuplicateUserError):
             message = "Username or email already exists."
@@ -2361,6 +2388,8 @@ class AccountDialog(Gtk.Window):
             self._handle_edit_error(exc)
 
     def _handle_edit_success(self, result: dict | object) -> bool:
+        if self._is_closed:
+            return False
         self._set_edit_busy(False)
         username = None
         if isinstance(result, dict):
@@ -2421,6 +2450,8 @@ class AccountDialog(Gtk.Window):
             self._mark_field_invalid(entry)
 
     def _handle_edit_error(self, exc: Exception) -> bool:
+        if self._is_closed:
+            return False
         self._set_edit_busy(False)
         if isinstance(exc, DuplicateUserError):
             self.edit_feedback_label.set_text("Username or email already exists.")
@@ -2481,6 +2512,7 @@ class AccountDialog(Gtk.Window):
     # ------------------------------------------------------------------
     def _on_close_request(self, *_args) -> bool:
         self._is_closing = True
+        self._is_closed = True
         self._cancel_login_lockout_timer()
         if self._active_user_listener is not None:
             try:
