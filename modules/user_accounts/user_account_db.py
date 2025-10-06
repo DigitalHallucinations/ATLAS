@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import tempfile
 import threading
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -622,6 +623,20 @@ class UserAccountDatabase:
         profile_contents['Full Name'] = name or ''
         profile_contents['DOB'] = dob or ''
         profile_contents['Email'] = email or ''
+
+        age: Any = ''
+        if dob:
+            try:
+                parsed_dob = date.fromisoformat(dob)
+                today = date.today()
+                computed_age = today.year - parsed_dob.year - (
+                    (today.month, today.day) < (parsed_dob.month, parsed_dob.day)
+                )
+                age = max(computed_age, 0)
+            except ValueError:
+                age = ''
+
+        profile_contents['Age'] = age
 
         tmp_path: Optional[Path] = None
 

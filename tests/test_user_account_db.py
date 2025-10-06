@@ -2,6 +2,7 @@ import json
 import sqlite3
 import sys
 import types
+from datetime import date
 from pathlib import Path
 
 if 'yaml' not in sys.modules:
@@ -231,6 +232,36 @@ def test_update_user_preserves_extra_profile_fields(tmp_path, monkeypatch):
         assert updated['Full Name'] == 'Gwen Updated'
         assert updated['CustomField'] == 'custom-value'
         assert updated['Nested'] == {'key': 123}
+    finally:
+        db.close_connection()
+
+
+def test_profile_json_includes_computed_age(tmp_path, monkeypatch):
+    db = _create_db(tmp_path, monkeypatch)
+
+    def _expected_age(dob_str: str) -> int:
+        dob_date = date.fromisoformat(dob_str)
+        today = date.today()
+        computed = today.year - dob_date.year - (
+            (today.month, today.day) < (dob_date.month, dob_date.day)
+        )
+        return max(computed, 0)
+
+    try:
+        initial_dob = '2000-01-15'
+        db.add_user('henry', 'Password1!', 'henry@example.com', 'Henry', initial_dob)
+
+        profile_path = Path(db.user_profiles_dir) / 'henry.json'
+        profile_contents = json.loads(profile_path.read_text(encoding='utf-8'))
+        assert isinstance(profile_contents['Age'], int)
+        assert profile_contents['Age'] == _expected_age(initial_dob)
+
+        new_dob = '2010-06-30'
+        db.update_user('henry', dob=new_dob)
+
+        updated_contents = json.loads(profile_path.read_text(encoding='utf-8'))
+        assert isinstance(updated_contents['Age'], int)
+        assert updated_contents['Age'] == _expected_age(new_dob)
     finally:
         db.close_connection()
 
