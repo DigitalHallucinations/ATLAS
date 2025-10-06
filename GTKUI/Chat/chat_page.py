@@ -96,6 +96,16 @@ class ChatPage(Gtk.Window):
         # Update window title with the current persona's name.
         self.update_persona_label()
 
+        # Notebook container for chat/terminal/debug tabs
+        self.notebook = Gtk.Notebook()
+        self.notebook.set_hexpand(True)
+        self.notebook.set_vexpand(True)
+
+        # --- Chat tab ---
+        self.chat_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.chat_tab_box.set_hexpand(True)
+        self.chat_tab_box.set_vexpand(True)
+
         # Create a scrollable area for the conversation history.
         self.chat_history_scrolled = Gtk.ScrolledWindow()
         self.chat_history_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -108,7 +118,7 @@ class ChatPage(Gtk.Window):
         self.chat_history_scrolled.set_child(self.chat_history)
         self.chat_history_scrolled.set_hexpand(True)
         self.chat_history_scrolled.set_vexpand(True)
-        self.vbox.append(self.chat_history_scrolled)
+        self.chat_tab_box.append(self.chat_history_scrolled)
 
         # Create the input area with a multiline entry, a microphone button, and a send button.
         input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -169,7 +179,29 @@ class ChatPage(Gtk.Window):
         self.send_button.connect("clicked", self.on_send_message)
         input_box.append(self.send_button)
 
-        self.vbox.append(input_box)
+        self.chat_tab_box.append(input_box)
+
+        chat_label = Gtk.Label(label="Chat")
+        chat_label.add_css_class("caption")
+        self.notebook.append_page(self.chat_tab_box, chat_label)
+
+        # --- Terminal tab placeholder ---
+        self.terminal_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.terminal_tab_box.set_hexpand(True)
+        self.terminal_tab_box.set_vexpand(True)
+        terminal_label = Gtk.Label(label="Terminal")
+        terminal_label.add_css_class("caption")
+        self.notebook.append_page(self.terminal_tab_box, terminal_label)
+
+        # --- Debug tab placeholder ---
+        self.debug_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.debug_tab_box.set_hexpand(True)
+        self.debug_tab_box.set_vexpand(True)
+        debug_label = Gtk.Label(label="Debug")
+        debug_label.add_css_class("caption")
+        self.notebook.append_page(self.debug_tab_box, debug_label)
+
+        self.vbox.append(self.notebook)
 
         # Add a status area at the bottom of the window with a busy spinner and label.
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
