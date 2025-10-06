@@ -145,6 +145,43 @@ def test_profile_and_emr_respect_base_directory_override(tmp_path, monkeypatch):
     assert manager.get_emr() == 'Line one Line two'
 
 
+def test_base_directory_prefers_os_user_data_dir_when_app_root_unwritable(tmp_path, monkeypatch):
+    monkeypatch.setattr(user_data_manager_module, 'ConfigManager', _StubConfigManager)
+    monkeypatch.setattr(
+        user_data_manager_module,
+        'setup_logger',
+        lambda *_args, **_kwargs: _StubLogger(),
+    )
+
+    app_root = tmp_path / 'app-root'
+    monkeypatch.setattr(_StubConfigManager, '_app_root_value', str(app_root))
+
+    os_data_dir = tmp_path / 'os-data'
+    monkeypatch.setattr(
+        user_data_manager_module,
+        '_user_data_dir',
+        lambda *_args, **_kwargs: str(os_data_dir),
+    )
+
+    original_ensure = user_data_manager_module.UserDataManager._ensure_writable_directory
+    app_base = app_root.resolve() / 'modules' / 'user_accounts'
+
+    def fake_ensure(self, path):
+        if path == app_base:
+            return None
+        return original_ensure(self, path)
+
+    monkeypatch.setattr(
+        user_data_manager_module.UserDataManager,
+        '_ensure_writable_directory',
+        fake_ensure,
+    )
+
+    manager = user_data_manager_module.UserDataManager('jordan')
+
+    assert manager._base_directory == os_data_dir
+
+
 def test_missing_profile_is_recreated_from_template(tmp_path, monkeypatch):
     monkeypatch.setattr(user_data_manager_module, 'ConfigManager', _StubConfigManager)
     monkeypatch.setattr(

@@ -56,6 +56,31 @@ def _create_db(tmp_path, monkeypatch):
     return user_account_db.UserAccountDatabase(db_name='test_users.db', base_dir=str(tmp_path))
 
 
+def test_base_directory_prefers_os_user_data_dir_when_app_root_unwritable(tmp_path, monkeypatch):
+    app_root = tmp_path / 'app-root'
+    _install_config_manager_stub(monkeypatch, app_root=str(app_root))
+
+    os_data_dir = tmp_path / 'os-data'
+    monkeypatch.setattr(user_account_db, '_user_data_dir', lambda *_args, **_kwargs: str(os_data_dir))
+    monkeypatch.setattr(user_account_db, 'setup_logger', lambda *_args, **_kwargs: _StubLogger())
+
+    original_ensure = user_account_db.UserAccountDatabase._ensure_writable_directory
+    app_base = app_root.resolve() / 'modules' / 'user_accounts'
+
+    def fake_ensure(self, path):
+        if path == app_base:
+            return None
+        return original_ensure(self, path)
+
+    monkeypatch.setattr(user_account_db.UserAccountDatabase, '_ensure_writable_directory', fake_ensure)
+
+    db = user_account_db.UserAccountDatabase(db_name='test_users.db')
+    try:
+        assert db.user_profiles_dir.parent == os_data_dir
+    finally:
+        db.close_connection()
+
+
 def test_add_user_stores_hashed_password(tmp_path, monkeypatch):
     db = _create_db(tmp_path, monkeypatch)
 

@@ -57,23 +57,75 @@ class UserAccountDatabase:
 
     def _determine_base_directory(self, override_dir: Optional[str]) -> Path:
         if override_dir is not None:
-            self.logger.debug("Using provided base directory for user accounts: %s", override_dir)
-            return Path(override_dir).expanduser().resolve()
+            override_path = Path(override_dir).expanduser().resolve()
+            ensured = self._ensure_writable_directory(override_path)
+            if ensured:
+                self.logger.debug(
+                    "Using provided base directory for user accounts: %s",
+                    ensured,
+                )
+                return ensured
+            self.logger.warning(
+                "Provided base directory for user accounts is not writable: %s",
+                override_path,
+            )
+
+        if _user_data_dir:
+            os_data_dir = Path(_user_data_dir("ATLAS", "ATLAS"))
+            ensured = self._ensure_writable_directory(os_data_dir)
+            if ensured:
+                self.logger.debug(
+                    "Using OS user data directory for user accounts: %s",
+                    ensured,
+                )
+                return ensured
+            self.logger.warning(
+                "OS user data directory for user accounts is not writable: %s",
+                os_data_dir,
+            )
 
         app_root = self._get_app_root()
         if app_root:
-            resolved = (Path(app_root).expanduser().resolve() / 'modules' / 'user_accounts')
-            self.logger.debug("Using app root directory for user accounts: %s", resolved)
-            return resolved
+            resolved = Path(app_root).expanduser().resolve() / 'modules' / 'user_accounts'
+            ensured = self._ensure_writable_directory(resolved)
+            if ensured:
+                self.logger.debug("Using app root directory for user accounts: %s", ensured)
+                return ensured
+            self.logger.warning(
+                "App root directory for user accounts is not writable: %s",
+                resolved,
+            )
 
-        if _user_data_dir:
-            fallback_base = Path(_user_data_dir("ATLAS", "ATLAS"))
-            self.logger.debug("Using OS user data directory for user accounts: %s", fallback_base)
-        else:  # pragma: no cover - only used when no helper available
-            fallback_base = Path.home() / '.atlas'
-            self.logger.debug("Falling back to home directory for user accounts: %s", fallback_base)
+        fallback_base = Path.home() / '.atlas'
+        ensured = self._ensure_writable_directory(fallback_base)
+        if ensured:
+            self.logger.debug(
+                "Falling back to home directory for user accounts: %s",
+                ensured,
+            )
+            return ensured
 
-        return fallback_base
+        raise RuntimeError("No writable base directory available for user accounts")
+
+    def _ensure_writable_directory(self, path: Path) -> Optional[Path]:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.logger.warning("Failed to create base directory %s: %s", path, exc)
+            return None
+
+        try:
+            fd, tmp_path = tempfile.mkstemp(dir=str(path))
+        except OSError as exc:
+            self.logger.warning("Base directory %s is not writable: %s", path, exc)
+            return None
+        else:
+            os.close(fd)
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                self.logger.debug("Failed to remove temporary test file: %s", tmp_path)
+            return path
 
     def _get_app_root(self) -> Optional[str]:
         get_app_root = getattr(self.config_manager, 'get_app_root', None)
