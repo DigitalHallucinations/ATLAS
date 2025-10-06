@@ -408,7 +408,9 @@ class UserAccountService:
             self.logger.error("Password missing numeric character.")
             raise ValueError(error_message)
 
-        if requirements.require_symbol and not any(not ch.isalnum() for ch in password):
+        if requirements.require_symbol and not any(
+            (not ch.isalnum()) and (not ch.isspace()) for ch in password
+        ):
             self.logger.error("Password missing symbol character.")
             raise ValueError(error_message)
 

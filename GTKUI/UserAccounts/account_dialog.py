@@ -1534,7 +1534,9 @@ class AccountDialog(Gtk.Window):
             missing.append("add an uppercase letter")
         if requirements.require_digit and not any(char.isdigit() for char in password):
             missing.append("add a number")
-        if requirements.require_symbol and not any(not char.isalnum() for char in password):
+        if requirements.require_symbol and not any(
+            (not char.isalnum()) and (not char.isspace()) for char in password
+        ):
             missing.append("add a symbol")
 
         if len(password) < requirements.min_length:
@@ -1552,7 +1554,9 @@ class AccountDialog(Gtk.Window):
                 any(char.islower() for char in password),
                 any(char.isupper() for char in password),
                 any(char.isdigit() for char in password),
-                any(not char.isalnum() for char in password),
+                any(
+                    (not char.isalnum()) and (not char.isspace()) for char in password
+                ),
             )
             if check
         )
@@ -2157,7 +2161,9 @@ class AccountDialog(Gtk.Window):
         if requirements.require_digit and not any(char.isdigit() for char in password):
             return "Password must include a number."
 
-        if requirements.require_symbol and not any(not char.isalnum() for char in password):
+        if requirements.require_symbol and not any(
+            (not char.isalnum()) and (not char.isspace()) for char in password
+        ):
             return "Password must include a symbol such as ! or #."
 
         return None
