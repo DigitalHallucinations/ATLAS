@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 import threading
 import datetime as _dt
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Dict, Iterable, List, Optional
 
 from ATLAS.config import ConfigManager
@@ -91,7 +91,7 @@ class UserAccountService:
         self.config_manager = config_manager or ConfigManager()
         self._database = database or UserAccountDatabase()
         self._clock: Callable[[], _dt.datetime] = clock or self._default_clock
-        self._password_requirements = self._DEFAULT_PASSWORD_REQUIREMENTS
+        self._password_requirements = self._resolve_password_requirements()
 
         self._lockout_threshold = int(
             self.config_manager.get_config("ACCOUNT_LOCKOUT_MAX_FAILURES", 5)
@@ -109,6 +109,71 @@ class UserAccountService:
         self._failed_attempts: Dict[str, List[_dt.datetime]] = {}
         self._active_lockouts: Dict[str, _dt.datetime] = {}
         self._lockout_lock = threading.RLock()
+
+    def _resolve_password_requirements(self) -> PasswordRequirements:
+        """Return the password policy taking configuration overrides into account."""
+
+        base = self._DEFAULT_PASSWORD_REQUIREMENTS
+        overrides: Dict[str, object] = {}
+
+        min_length = self.config_manager.get_config(
+            "ACCOUNT_PASSWORD_MIN_LENGTH", ConfigManager.UNSET
+        )
+        if min_length not in (None, ConfigManager.UNSET):
+            try:
+                parsed = int(min_length)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Ignoring ACCOUNT_PASSWORD_MIN_LENGTH override: %r is not an integer",
+                    min_length,
+                )
+            else:
+                if parsed > 0:
+                    overrides["min_length"] = parsed
+                else:
+                    self.logger.warning(
+                        "Ignoring ACCOUNT_PASSWORD_MIN_LENGTH override: %r is not positive",
+                        min_length,
+                    )
+
+        def _resolve_bool(key: str) -> Optional[bool]:
+            raw_value = self.config_manager.get_config(key, ConfigManager.UNSET)
+            if raw_value in (None, ConfigManager.UNSET):
+                return None
+            if isinstance(raw_value, bool):
+                return raw_value
+            if isinstance(raw_value, (int, float)):
+                return bool(raw_value)
+            if isinstance(raw_value, str):
+                normalised = raw_value.strip().lower()
+                if normalised in {"1", "true", "yes", "on"}:
+                    return True
+                if normalised in {"0", "false", "no", "off"}:
+                    return False
+            self.logger.warning(
+                "Ignoring %s override: %r is not a recognised boolean value",
+                key,
+                raw_value,
+            )
+            return None
+
+        bool_overrides = {
+            "ACCOUNT_PASSWORD_REQUIRE_UPPERCASE": "require_uppercase",
+            "ACCOUNT_PASSWORD_REQUIRE_LOWERCASE": "require_lowercase",
+            "ACCOUNT_PASSWORD_REQUIRE_DIGIT": "require_digit",
+            "ACCOUNT_PASSWORD_REQUIRE_SYMBOL": "require_symbol",
+            "ACCOUNT_PASSWORD_FORBID_WHITESPACE": "forbid_whitespace",
+        }
+
+        for key, field_name in bool_overrides.items():
+            resolved = _resolve_bool(key)
+            if resolved is not None:
+                overrides[field_name] = resolved
+
+        if not overrides:
+            return base
+
+        return replace(base, **overrides)
 
     # ------------------------------------------------------------------
     # Internal helpers
