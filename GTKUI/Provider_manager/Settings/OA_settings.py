@@ -13,7 +13,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib
 
 from GTKUI.Utils.styled_window import AtlasWindow
-from GTKUI.Utils.utils import create_box
+from GTKUI.Utils.utils import apply_css, create_box
 from modules.background_tasks import run_async_in_thread
 
 logger = logging.getLogger(__name__)
@@ -1224,6 +1224,8 @@ class OpenAISettingsWindow(AtlasWindow):
             logger.debug("GTK message dialog unavailable; skipping display for '%s'.", title)
             return
 
+        self._style_dialog(dialog)
+
         if hasattr(dialog, "set_secondary_text"):
             dialog.set_secondary_text(message)
         else:
@@ -1231,6 +1233,27 @@ class OpenAISettingsWindow(AtlasWindow):
 
         dialog.connect("response", lambda dlg, *_: dlg.destroy())
         GLib.idle_add(dialog.present)
+
+    def _style_dialog(self, dialog: Gtk.Widget) -> None:
+        try:
+            apply_css()
+        except Exception:  # pragma: no cover - defensive styling fallback
+            logger.debug("Unable to apply CSS styling to dialog.")
+
+        get_style_context = getattr(dialog, "get_style_context", None)
+        if callable(get_style_context):
+            try:
+                style_context = get_style_context()
+            except Exception:  # pragma: no cover - stub safety
+                style_context = None
+            if style_context is not None:
+                add_class = getattr(style_context, "add_class", None)
+                if callable(add_class):
+                    for css_class in ("chat-page", "sidebar"):
+                        try:
+                            add_class(css_class)
+                        except Exception:  # pragma: no cover - ignore styling issues
+                            continue
 
     def _on_function_call_toggle_toggled(self, _button: Gtk.CheckButton):
         self._update_tool_controls_state()
