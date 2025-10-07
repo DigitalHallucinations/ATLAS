@@ -11,12 +11,13 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib
 
-from GTKUI.Utils.utils import apply_css, create_box
+from GTKUI.Utils.styled_window import AtlasWindow
+from GTKUI.Utils.utils import create_box
 
 logger = logging.getLogger(__name__)
 
 
-class GoogleSettingsWindow(Gtk.Window):
+class GoogleSettingsWindow(AtlasWindow):
     """Collect Google Gemini defaults such as model selection and safety filters."""
 
     _SAFETY_CATEGORIES: Tuple[Tuple[str, str], ...] = (
@@ -49,18 +50,15 @@ class GoogleSettingsWindow(Gtk.Window):
     )
 
     def __init__(self, ATLAS, config_manager, parent_window):
-        super().__init__(title="Google Settings")
-        apply_css()
-        style_context = self.get_style_context()
-        style_context.add_class("chat-page")
-        style_context.add_class("sidebar")
+        super().__init__(
+            title="Google Settings",
+            modal=True,
+            transient_for=parent_window,
+            default_size=(420, 520),
+        )
         self.ATLAS = ATLAS
         self.config_manager = config_manager
         self.parent_window = parent_window
-        if parent_window is not None:
-            self.set_transient_for(parent_window)
-        self.set_modal(True)
-        self.set_default_size(420, 520)
 
         self._api_key_visible = False
         self._defaults: Dict[str, Any] = {

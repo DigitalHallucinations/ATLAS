@@ -8,6 +8,7 @@ from gi.repository import Gtk, Gdk, GLib
 import os
 import logging
 
+from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css, create_box
 from .Settings.HF_settings import HuggingFaceSettingsWindow
 from .Settings.OA_settings import OpenAISettingsWindow
@@ -68,16 +69,13 @@ class ProviderManagement:
         Displays the provider selection window, listing all available providers.
         Each provider is displayed with a label and a settings icon.
         """
-        self.provider_window = Gtk.Window(title="Select Provider")
-        self.provider_window.set_default_size(300, 400)
-        self.provider_window.set_transient_for(self.parent_window)
-        self.provider_window.set_modal(True)
+        self.provider_window = AtlasWindow(
+            title="Select Provider",
+            default_size=(300, 400),
+            modal=True,
+            transient_for=self.parent_window,
+        )
         self.provider_window.set_tooltip_text("Choose a default LLM provider or open its settings.")
-
-        apply_css()
-        style_context = self.provider_window.get_style_context()
-        style_context.add_class("chat-page")
-        style_context.add_class("sidebar")
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -245,16 +243,13 @@ class ProviderManagement:
         Displays the settings window for a specific provider, including an API key entry
         with a visibility toggle (eye).
         """
-        settings_window = Gtk.Window(title=f"Settings for {provider_name}")
-        settings_window.set_default_size(400, 300)
-        settings_window.set_transient_for(self.parent_window)
-        settings_window.set_modal(True)
+        settings_window = AtlasWindow(
+            title=f"Settings for {provider_name}",
+            default_size=(400, 300),
+            modal=True,
+            transient_for=self.parent_window,
+        )
         settings_window.set_tooltip_text(f"Update API key and settings for {provider_name}.")
-
-        apply_css()
-        style_context = settings_window.get_style_context()
-        style_context.add_class("chat-page")
-        style_context.add_class("sidebar")
 
         main_vbox = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
         settings_window.set_child(main_vbox)

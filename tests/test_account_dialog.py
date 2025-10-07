@@ -215,6 +215,7 @@ class _AtlasStub:
 
 @pytest.fixture(autouse=True)
 def disable_css(monkeypatch):
+    monkeypatch.setattr("GTKUI.Utils.styled_window.apply_css", lambda: None)
     monkeypatch.setattr("GTKUI.UserAccounts.account_dialog.apply_css", lambda: None)
 
 

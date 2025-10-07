@@ -19,13 +19,14 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gdk, GLib
 
-from GTKUI.Utils.utils import apply_css, create_box
+from GTKUI.Utils.styled_window import AtlasWindow
+from GTKUI.Utils.utils import create_box
 
 
 logger = logging.getLogger(__name__)
 
 
-class HuggingFaceSettingsWindow(Gtk.Window):
+class HuggingFaceSettingsWindow(AtlasWindow):
     def __init__(self, ATLAS, config_manager, parent_window):
         """
         Initialize the HuggingFaceSettingsWindow.
@@ -35,16 +36,13 @@ class HuggingFaceSettingsWindow(Gtk.Window):
             config_manager: The configuration manager instance.
             parent_window: The parent GTK window.
         """
-        super().__init__(title="HuggingFace Settings")
-        apply_css()
-        style_context = self.get_style_context()
-        style_context.add_class("chat-page")
-        style_context.add_class("sidebar")
+        super().__init__(
+            title="HuggingFace Settings",
+            modal=True,
+            transient_for=parent_window,
+            default_size=(800, 600),
+        )
         self.parent_window = parent_window
-        self.set_transient_for(parent_window)
-        self.set_modal(True)
-        
-        self.set_default_size(800, 600)
         self.ATLAS = ATLAS
         self.config_manager = config_manager
 

@@ -18,6 +18,7 @@ try:  # pragma: no cover - Gio may be unavailable in some environments
 except Exception:  # pragma: no cover - fall back gracefully when Gio is missing
     Gio = None  # type: ignore[assignment]
 
+from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css, create_box
 from modules.user_accounts.user_account_service import (
     AccountLockedError,
@@ -27,7 +28,7 @@ from modules.user_accounts.user_account_service import (
 )
 
 
-class AccountDialog(Gtk.Window):
+class AccountDialog(AtlasWindow):
     """Provide login, registration, and logout flows for ATLAS accounts."""
 
     _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -37,7 +38,12 @@ class AccountDialog(Gtk.Window):
     _STALE_ACCOUNT_THRESHOLD_DAYS = 90
 
     def __init__(self, atlas, parent: Optional[Gtk.Window] = None) -> None:
-        super().__init__(title="Account Management")
+        super().__init__(
+            title="Account Management",
+            modal=True,
+            transient_for=parent,
+            default_size=(420, 420),
+        )
         self.logger = logging.getLogger(__name__)
         self.ATLAS = atlas
         self._active_user_listener = None
@@ -73,20 +79,6 @@ class AccountDialog(Gtk.Window):
         self._last_password_reset_message: Optional[str] = None
         self._account_summary: dict[str, object] = {}
         self._last_account_context: str = "list"
-
-        self.set_modal(True)
-        if parent is not None:
-            try:
-                self.set_transient_for(parent)
-            except Exception:  # pragma: no cover - defensive for stub environments
-                pass
-
-        self.set_default_size(420, 420)
-
-        apply_css()
-        context = self.get_style_context()
-        context.add_class("chat-page")
-        context.add_class("sidebar")
 
         self._build_ui()
         self._initialise_password_requirements()
