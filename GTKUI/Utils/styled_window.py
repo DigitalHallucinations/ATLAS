@@ -154,6 +154,18 @@ class AtlasWindow(Gtk.Window):
         if monitor is None:
             return None
 
+        # Prefer the workarea when available so we respect OS panels/docks.
+        try:
+            workarea = monitor.get_workarea()
+        except Exception:  # pragma: no cover - some GTK stubs omit workarea
+            workarea = None
+
+        if workarea is not None:
+            width = getattr(workarea, "width", None)
+            height = getattr(workarea, "height", None)
+            if width is not None and height is not None:
+                return int(width), int(height)
+
         try:
             geometry = monitor.get_geometry()
         except Exception:  # pragma: no cover - stub monitors may not support geometry
