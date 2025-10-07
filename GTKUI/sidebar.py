@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import logging
-from typing import Callable, Dict
+from typing import Any, Callable, Dict, Tuple
 
 import gi
 
@@ -20,6 +20,7 @@ from GTKUI.Settings.Speech.speech_settings import SpeechSettings
 from GTKUI.UserAccounts.account_dialog import AccountDialog
 from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css
+from GTKUI.History.history_page import HistoryPage
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class MainWindow(AtlasWindow):
         super().__init__(title="ATLAS", default_size=(1200, 800))
         self.ATLAS = atlas
         self._pages: Dict[str, Gtk.Widget] = {}
-        self._account_dialog: AccountDialog | None = None
+        self._page_controllers: Dict[str, Any] = {}
 
         apply_css()
 
@@ -109,23 +110,46 @@ class MainWindow(AtlasWindow):
 
         self._open_or_focus_page("settings", "Settings", factory)
 
-    def handle_history_button(self) -> None:
-        if not self._ensure_initialized():
-            return
-        self.ATLAS.log_history()
-
-    def show_account_dialog(self) -> None:
+    def show_history_page(self) -> None:
         if not self._ensure_initialized():
             return
 
-        if self._account_dialog is None:
-            dialog = AccountDialog(self.ATLAS)
-            dialog.set_transient_for(self)
-            dialog.set_modal(True)
-            dialog.connect("close-request", self._on_account_dialog_close_request)
-            self._account_dialog = dialog
+        def factory() -> Gtk.Widget:
+            self.ATLAS.log_history()
+            return HistoryPage(self.ATLAS)
 
-        self._account_dialog.present()
+        self._open_or_focus_page("history", "History", factory)
+
+    def show_accounts_page(self) -> None:
+        if not self._ensure_initialized():
+            return
+
+        def factory() -> Tuple[Gtk.Widget, AccountDialog]:
+            dialog = AccountDialog(
+                self.ATLAS,
+                parent=self,
+                on_close=lambda: self._close_page("accounts"),
+            )
+            content = dialog.get_child()
+            if content is None:
+                fallback = Gtk.Label(label="Account management is unavailable.")
+                fallback.set_hexpand(True)
+                fallback.set_vexpand(True)
+                return fallback, dialog
+
+            dialog.set_child(None)
+            content.set_hexpand(True)
+            content.set_vexpand(True)
+
+            scroller = Gtk.ScrolledWindow()
+            scroller.set_hexpand(True)
+            scroller.set_vexpand(True)
+            scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            scroller.set_child(content)
+
+            return scroller, dialog
+
+        self._open_or_focus_page("accounts", "Accounts", factory)
 
     def close_application(self) -> None:
         logger.info("Closing application")
@@ -137,7 +161,10 @@ class MainWindow(AtlasWindow):
     # Page management helpers
     # ------------------------------------------------------------------
     def _open_or_focus_page(
-        self, page_id: str, title: str, factory: Callable[[], Gtk.Widget]
+        self,
+        page_id: str,
+        title: str,
+        factory: Callable[[], Gtk.Widget | Tuple[Gtk.Widget, Any]],
     ) -> Gtk.Widget | None:
         widget = self._pages.get(page_id)
         if widget is not None:
@@ -145,11 +172,18 @@ class MainWindow(AtlasWindow):
             return widget
 
         try:
-            widget = factory()
+            result = factory()
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.error("Failed to build %s page: %s", page_id, exc, exc_info=True)
             self.show_error_dialog(str(exc) or f"Unable to open {title} page")
             return None
+
+        controller: Any | None = None
+        if isinstance(result, tuple):
+            widget, controller = result
+        else:
+            widget = result
+            controller = None
 
         if widget is None:
             return None
@@ -161,6 +195,8 @@ class MainWindow(AtlasWindow):
         self.notebook.set_tab_reorderable(widget, True)
         self.notebook.set_current_page(page_index)
         self._pages[page_id] = widget
+        if controller is not None:
+            self._page_controllers[page_id] = controller
         return widget
 
     def _focus_page(self, widget: Gtk.Widget) -> None:
@@ -179,6 +215,14 @@ class MainWindow(AtlasWindow):
             if page_index != -1:
                 self.notebook.remove_page(page_index)
 
+        controller = self._page_controllers.pop(page_id, None)
+        if controller is not None:
+            close_request = getattr(controller, "_on_close_request", None)
+            if callable(close_request):
+                try:
+                    close_request()
+                except Exception:  # pragma: no cover - defensive cleanup
+                    logger.debug("Error during controller close for %s", page_id, exc_info=True)
         if page_id == "providers":
             self.provider_management._provider_page = None
         elif page_id == "personas":
@@ -229,10 +273,6 @@ class MainWindow(AtlasWindow):
         dialog.connect("response", lambda d, r: d.destroy())
         dialog.present()
 
-    def _on_account_dialog_close_request(self, *_args):
-        self._account_dialog = None
-        return False
-
     def _apply_shared_styles(self, widget: Gtk.Widget) -> None:
         try:
             apply_css()
@@ -274,9 +314,9 @@ class _NavigationSidebar(Gtk.Box):
         self.set_size_request(96, -1)
 
         self._create_icon("Icons/providers.png", self.main_window.show_provider_menu, "Providers")
-        self._create_icon("Icons/history.png", self.main_window.handle_history_button, "History")
+        self._create_icon("Icons/history.png", self.main_window.show_history_page, "History")
         self._create_icon("Icons/chat.png", self.main_window.show_chat_page, "Chat")
-        self._create_icon("Icons/user.png", self.main_window.show_account_dialog, "Accounts")
+        self._create_icon("Icons/user.png", self.main_window.show_accounts_page, "Accounts")
         self._create_icon("Icons/speech.png", self.main_window.show_speech_settings, "Speech Settings")
         self._create_icon("Icons/agent.png", self.main_window.show_persona_menu, "Personas")
 
