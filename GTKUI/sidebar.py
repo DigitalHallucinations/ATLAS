@@ -319,23 +319,86 @@ class _NavigationSidebar(Gtk.Box):
         self.set_valign(Gtk.Align.FILL)
         self.set_size_request(96, -1)
 
-        self._create_icon("Icons/providers.png", self.main_window.show_provider_menu, "Providers")
-        self._create_icon("Icons/history.png", self.main_window.handle_history_button, "History")
-        self._create_icon("Icons/chat.png", self.main_window.show_chat_page, "Chat")
-        self._create_icon("Icons/user.png", self.main_window.show_accounts_page, "Accounts")
-        self._create_icon("Icons/speech.png", self.main_window.show_speech_settings, "Speech Settings")
-        self._create_icon("Icons/agent.png", self.main_window.show_persona_menu, "Personas")
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        content_box.set_hexpand(True)
+        content_box.set_vexpand(True)
+        self._content_box = content_box
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_vexpand(True)
+        scroller.set_child(content_box)
+        self.append(scroller)
+
+        self._create_icon(
+            "Icons/providers.png",
+            self.main_window.show_provider_menu,
+            "Providers",
+            container=content_box,
+        )
+        self._create_icon(
+            "Icons/history.png",
+            self.main_window.handle_history_button,
+            "History",
+            container=content_box,
+        )
+        self._create_icon(
+            "Icons/chat.png",
+            self.main_window.show_chat_page,
+            "Chat",
+            container=content_box,
+        )
+        self._create_icon(
+            "Icons/user.png",
+            self.main_window.show_accounts_page,
+            "Accounts",
+            container=content_box,
+        )
+        self._create_icon(
+            "Icons/speech.png",
+            self.main_window.show_speech_settings,
+            "Speech Settings",
+            container=content_box,
+        )
+        self._create_icon(
+            "Icons/agent.png",
+            self.main_window.show_persona_menu,
+            "Personas",
+            container=content_box,
+        )
+
+        bottom_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        bottom_box.set_valign(Gtk.Align.END)
+        bottom_box.set_hexpand(True)
 
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         separator.set_margin_top(10)
         separator.set_margin_bottom(10)
-        self.append(separator)
+        bottom_box.append(separator)
 
-        self._create_icon("Icons/settings.png", self.main_window.show_settings_page, "Settings")
-        self._create_icon("Icons/power_button.png", self.main_window.close_application, "Quit")
+        self._create_icon(
+            "Icons/settings.png",
+            self.main_window.show_settings_page,
+            "Settings",
+            container=bottom_box,
+        )
+        self._create_icon(
+            "Icons/power_button.png",
+            self.main_window.close_application,
+            "Quit",
+            container=bottom_box,
+        )
+
+        content_box.append(bottom_box)
 
     # ------------------------------------------------------------------
-    def _create_icon(self, icon_path: str, callback: Callable[[], None], tooltip: str | None = None) -> None:
+    def _create_icon(
+        self,
+        icon_path: str,
+        callback: Callable[[], None],
+        tooltip: str | None = None,
+        container: Gtk.Box | None = None,
+    ) -> None:
         button = Gtk.Button()
         button.add_css_class("icon")
         button.add_css_class("flat")
@@ -345,7 +408,8 @@ class _NavigationSidebar(Gtk.Box):
         picture = self._load_icon_texture(icon_path)
         button.set_child(picture)
         button.connect("clicked", lambda _btn: callback())
-        self.append(button)
+        target = container if container is not None else self._content_box
+        target.append(button)
 
     def _load_icon_texture(self, relative_path: str) -> Gtk.Widget:
         def _resolve_path(path: str) -> str:
