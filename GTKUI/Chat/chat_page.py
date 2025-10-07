@@ -1774,7 +1774,18 @@ class ChatPage(Gtk.Window):
         """
         for child in list(self.chat_history.get_children()):
             self.chat_history.remove(child)
-        result = self.ATLAS.reset_chat_history()
+
+        result: Dict[str, Optional[str]] = {}
+        try:
+            result = self.ATLAS.reset_chat_history() or {}
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Failed to reset chat history: %s", exc)
+            result = {"success": False, "error": "Failed to reset chat history."}
+        finally:
+            # Always clear the terminal/thinking panes so stale content is removed.
+            self._refresh_terminal_tab()
+            self._update_terminal_thinking(None)
+
         if result.get("success"):
             status_message = result.get("message", "Chat cleared.")
         else:
