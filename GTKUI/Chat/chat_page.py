@@ -213,6 +213,27 @@ class ChatPage(AtlasWindow):
         self.terminal_tab_box.set_margin_start(6)
         self.terminal_tab_box.set_margin_end(6)
 
+        terminal_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        terminal_header.set_hexpand(True)
+        terminal_header.set_halign(Gtk.Align.FILL)
+
+        terminal_header_spacer = Gtk.Box()
+        terminal_header_spacer.set_hexpand(True)
+        terminal_header.append(terminal_header_spacer)
+
+        self._terminal_wrap_mode = Gtk.WrapMode.WORD_CHAR
+        self._terminal_section_text_views: List[Gtk.TextView] = []
+
+        self.terminal_wrap_toggle = Gtk.CheckButton(label="Wrap lines")
+        self.terminal_wrap_toggle.set_tooltip_text(
+            "Toggle line wrapping in terminal sections."
+        )
+        self.terminal_wrap_toggle.set_active(True)
+        self.terminal_wrap_toggle.connect("toggled", self._on_terminal_wrap_toggled)
+        terminal_header.append(self.terminal_wrap_toggle)
+
+        self.terminal_tab_box.append(terminal_header)
+
         self.terminal_scrolled = Gtk.ScrolledWindow()
         self.terminal_scrolled.set_policy(
             Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC
@@ -345,6 +366,8 @@ class ChatPage(AtlasWindow):
     def _build_terminal_tab(self) -> None:
         """Construct the collapsible sections within the terminal tab."""
 
+        self._terminal_section_text_views.clear()
+
         sections = [
             ("System Prompt", "system_prompt", True),
             ("Persona Data", "persona_data", False),
@@ -367,10 +390,12 @@ class ChatPage(AtlasWindow):
         text_view = Gtk.TextView.new_with_buffer(buffer)
         text_view.set_editable(False)
         text_view.set_cursor_visible(False)
-        text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        text_view.set_wrap_mode(self._get_terminal_wrap_mode())
         if hasattr(text_view, "set_monospace"):
             text_view.set_monospace(True)
         text_view.add_css_class("terminal-text")
+
+        self._terminal_section_text_views.append(text_view)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -405,6 +430,20 @@ class ChatPage(AtlasWindow):
 
         self._install_terminal_copy_menu(expander, buffer, text_view)
         return expander, buffer
+
+    def _get_terminal_wrap_mode(self) -> Gtk.WrapMode:
+        """Return the effective wrap mode for terminal text views."""
+
+        if getattr(self, "terminal_wrap_toggle", None) and not self.terminal_wrap_toggle.get_active():
+            return Gtk.WrapMode.NONE
+        return self._terminal_wrap_mode
+
+    def _on_terminal_wrap_toggled(self, _button: Gtk.CheckButton) -> None:
+        """Update terminal text views when the wrap toggle changes."""
+
+        wrap_mode = self._get_terminal_wrap_mode()
+        for text_view in self._terminal_section_text_views:
+            text_view.set_wrap_mode(wrap_mode)
 
     def _install_terminal_copy_menu(
         self, section_widget: "Gtk.Widget", buffer: Gtk.TextBuffer, text_view: Gtk.TextView
