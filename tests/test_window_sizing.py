@@ -36,3 +36,32 @@ def test_calculate_safe_size_returns_desired_when_monitor_missing():
 
     assert width == 800
     assert height == 600
+
+
+def test_primary_monitor_size_prefers_workarea(monkeypatch):
+    window = _FakeWindow((0, 0))
+
+    class _StubRect:
+        def __init__(self, width, height):
+            self.width = width
+            self.height = height
+
+    class _StubMonitor:
+        def get_workarea(self):
+            return _StubRect(1024, 700)
+
+        def get_geometry(self):  # pragma: no cover - should not be called
+            raise AssertionError("geometry should not be queried when workarea is available")
+
+    class _StubDisplay:
+        def get_primary_monitor(self):
+            return _StubMonitor()
+
+    monkeypatch.setattr(
+        "GTKUI.Utils.styled_window.Gdk.Display.get_default",
+        lambda: _StubDisplay(),
+    )
+
+    # The fake window delegates to AtlasWindow._get_primary_monitor_size.
+    size = AtlasWindow._get_primary_monitor_size(window)
+    assert size == (1024, 700)
