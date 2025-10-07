@@ -8,8 +8,7 @@ import os
 
 from .General_Tab.general_tab import GeneralTab
 from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
-# Import the centralized CSS application function
-from GTKUI.Utils.utils import apply_css
+from GTKUI.Utils.styled_window import AtlasWindow
 
 
 class PersonaManagement:
@@ -30,6 +29,7 @@ class PersonaManagement:
         self.ATLAS = ATLAS
         self.parent_window = parent_window
         self.persona_window = None
+        self.settings_window = None
         self._persona_message_handler = self._handle_persona_message
         self.ATLAS.register_message_dispatcher(self._persona_message_handler)
         self._current_editor_state = None
@@ -94,17 +94,15 @@ class PersonaManagement:
     def show_persona_menu(self):
         """
         Displays the "Select Persona" window. This window lists all available
-        personas with a label and a settings icon next to each name. The window
-        is styled to match the sidebar by applying the same CSS and style class.
+        personas with a label and a settings icon next to each name. Styling is
+        provided via :class:`AtlasWindow` so the picker matches the chat UI.
         """
-        self.persona_window = Gtk.Window(title="Select Persona")
-        self.persona_window.set_default_size(220, 600)
-        self.persona_window.set_transient_for(self.parent_window)
-        self.persona_window.set_modal(True)
-
-        # Apply the same CSS as the sidebar and set class
-        apply_css()
-        self.persona_window.get_style_context().add_class("sidebar")
+        self.persona_window = AtlasWindow(
+            title="Select Persona",
+            default_size=(220, 600),
+            modal=True,
+            transient_for=self.parent_window,
+        )
         self.persona_window.set_tooltip_text("Choose a persona or open its settings.")
 
         # Container inside a scrolled window so long persona lists remain usable
@@ -225,32 +223,24 @@ class PersonaManagement:
             )
             return
 
-        self.show_persona_settings(state)
+        general_state = state.get('general', {})
+        persona_name = general_state.get('name') or state.get('original_name') or "Persona"
 
-    def show_persona_settings(self, persona_state):
-        """
-        Displays the settings window for a given persona. This window includes
-        tabs for General settings, Persona Type settings, and other configuration
-        options. The styling is applied consistently with the rest of the UI.
+        if self.settings_window:
+            self.settings_window.close()
 
-        Args:
-            persona_state (dict): The typed persona data.
-        """
+        self.settings_window = AtlasWindow(
+            title=f"Settings for {persona_name}",
+            default_size=(560, 820),
+            modal=True,
+            transient_for=self.parent_window,
+        )
+        self.show_persona_settings(state, self.settings_window)
+
+    def show_persona_settings(self, persona_state, settings_window):
+        """Populate and display the persona settings window."""
         self._current_editor_state = persona_state
-        general_state = persona_state.get('general', {})
-        persona_name = general_state.get('name') or persona_state.get('original_name') or "Persona"
-
-        title = f"Settings for {persona_name}"
-        settings_window = Gtk.Window(title=title)
-        settings_window.set_default_size(560, 820)
-        settings_window.set_transient_for(self.parent_window)
-        settings_window.set_modal(True)
         settings_window.set_tooltip_text("Configure the persona's details, provider/model, and speech options.")
-
-        # Apply the centralized CSS to ensure consistent styling.
-        apply_css()
-        # Optionally, add a style class to match the sidebar.
-        settings_window.get_style_context().add_class("sidebar")
 
         # Create a vertical box container for the settings.
         main_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
