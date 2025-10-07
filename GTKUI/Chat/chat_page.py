@@ -33,6 +33,26 @@ from modules.Tools.tool_event_system import event_system
 logger = logging.getLogger(__name__)
 
 
+class _HandlerLevelFilter(logging.Filter):
+    """Simple filter that enforces a minimum log level."""
+
+    def __init__(self, level: int) -> None:
+        super().__init__(name="chat-debug-level-filter")
+        self._level = int(level)
+
+    @property
+    def level(self) -> int:
+        return self._level
+
+    def set_level(self, level: int) -> None:
+        self._level = int(level)
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401 - standard API
+        """Return ``True`` when *record* meets the configured threshold."""
+
+        return record.levelno >= self._level
+
+
 class ChatPage(AtlasWindow):
     """
     ChatPage window for user interaction.
@@ -250,6 +270,7 @@ class ChatPage(AtlasWindow):
         self._debug_log_path: Optional[Path] = None
         self._debug_controls_updating = False
         self._debug_log_config = self._resolve_debug_log_config()
+        self._debug_level_filter: Optional[_HandlerLevelFilter] = None
         self._build_debug_tab()
 
         self.vbox.append(self.notebook)
@@ -968,6 +989,8 @@ class ChatPage(AtlasWindow):
             except (TypeError, ValueError):
                 level_value = logging.INFO
         handler.setLevel(level_value)
+        self._debug_level_filter = _HandlerLevelFilter(level_value)
+        handler.addFilter(self._debug_level_filter)
         handler.setFormatter(self._resolve_log_formatter())
 
         logger_candidates: List[logging.Logger] = []
@@ -1002,13 +1025,9 @@ class ChatPage(AtlasWindow):
         if attached:
             self._debug_log_handler = handler
             self._debug_loggers_attached = attached
-            for logger_obj in attached:
-                try:
-                    logger_obj.setLevel(level_value)
-                except Exception:
-                    continue
         else:
             handler.close()
+            self._debug_level_filter = None
 
         self._update_debug_log_button()
 
@@ -1022,9 +1041,15 @@ class ChatPage(AtlasWindow):
                 logger_obj.removeHandler(handler)
             except ValueError:
                 pass
+        if self._debug_level_filter is not None:
+            try:
+                handler.removeFilter(self._debug_level_filter)
+            except ValueError:
+                pass
         handler.close()
         self._debug_loggers_attached = []
         self._debug_log_handler = None
+        self._debug_level_filter = None
 
     def _update_debug_controls(self) -> None:
         if not hasattr(self, "debug_level_combo"):
@@ -1178,20 +1203,8 @@ class ChatPage(AtlasWindow):
         self._debug_log_config["level"] = level_value
         if self._debug_log_handler is not None:
             self._debug_log_handler.setLevel(level_value)
-        loggers_to_update: List[logging.Logger] = []
-        loggers_to_update.extend(list(self._debug_loggers_attached))
-        atlas_logger = getattr(self.ATLAS, "logger", None)
-        if isinstance(atlas_logger, logging.Logger):
-            loggers_to_update.append(atlas_logger)
-        seen_ids = set()
-        for logger_obj in loggers_to_update:
-            if id(logger_obj) in seen_ids:
-                continue
-            seen_ids.add(id(logger_obj))
-            try:
-                logger_obj.setLevel(level_value)
-            except Exception:
-                continue
+        if isinstance(self._debug_level_filter, _HandlerLevelFilter):
+            self._debug_level_filter.set_level(level_value)
 
         manager = getattr(self.ATLAS, "config_manager", None)
         if manager is not None:
