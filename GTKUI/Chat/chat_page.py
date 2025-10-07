@@ -13,6 +13,7 @@ and schedules UI updates via GLib.idle_add.
 
 import json
 import os
+import shlex
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -748,6 +749,13 @@ class ChatPage(Gtk.Window):
         self.debug_pause_btn.connect("toggled", self._on_debug_pause_toggled)
         controls.append(self.debug_pause_btn)
 
+        self.debug_open_log_btn = Gtk.Button(label="Open Log File…")
+        self.debug_open_log_btn.add_css_class("flat")
+        self.debug_open_log_btn.set_tooltip_text("Open the active debug log file in an external viewer")
+        self.debug_open_log_btn.set_sensitive(False)
+        self.debug_open_log_btn.connect("clicked", self._on_debug_open_log_clicked)
+        controls.append(self.debug_open_log_btn)
+
         controls.append(self._spacer())
 
         level_label = Gtk.Label(label="Level:")
@@ -842,6 +850,7 @@ class ChatPage(Gtk.Window):
         else:
             buffer.set_text(read_recent_log_lines(path, limit) or "")
         self._scroll_debug_log_to_end()
+        self._update_debug_log_button()
 
     def _resolve_active_log_path(self) -> Optional[Path]:
         atlas_logger = getattr(self.ATLAS, "logger", None)
@@ -894,6 +903,7 @@ class ChatPage(Gtk.Window):
     def _attach_debug_log_handler(self) -> None:
         buffer = getattr(self, "debug_log_buffer", None)
         if buffer is None:
+            self._update_debug_log_button()
             return
 
         self._detach_debug_log_handler()
@@ -955,6 +965,8 @@ class ChatPage(Gtk.Window):
         else:
             handler.close()
 
+        self._update_debug_log_button()
+
     def _detach_debug_log_handler(self) -> None:
         handler = self._debug_log_handler
         if handler is None:
@@ -1005,6 +1017,19 @@ class ChatPage(Gtk.Window):
         finally:
             self._debug_controls_updating = False
 
+    def _update_debug_log_button(self) -> None:
+        button = getattr(self, "debug_open_log_btn", None)
+        if not isinstance(button, Gtk.Button):
+            return
+
+        path_value = getattr(self, "_debug_log_path", None)
+        try:
+            path = Path(path_value) if path_value is not None else None
+        except (TypeError, ValueError):
+            path = None
+
+        button.set_sensitive(bool(path and path.exists()))
+
     def _scroll_debug_log_to_end(self) -> None:
         view = getattr(self, "debug_log_view", None)
         buffer = getattr(self, "debug_log_buffer", None)
@@ -1026,6 +1051,67 @@ class ChatPage(Gtk.Window):
         paused = button.get_active()
         self._debug_log_handler.set_paused(paused)
         self._debug_pause_btn.set_label("Resume" if paused else "Pause")
+
+    def _on_debug_open_log_clicked(self, *_args):
+        path_value = getattr(self, "_debug_log_path", None)
+        if not path_value:
+            self._update_debug_log_button()
+            return
+
+        try:
+            path = Path(path_value)
+        except (TypeError, ValueError):
+            logger.warning("Invalid debug log path: %s", path_value)
+            self._update_debug_log_button()
+            return
+
+        if not path.exists():
+            logger.warning("Debug log path does not exist: %s", path)
+            self._update_debug_log_button()
+            return
+
+        uri_launcher_cls = getattr(Gtk, "UriLauncher", None)
+        if uri_launcher_cls is not None:
+            launcher = None
+            try:
+                if hasattr(uri_launcher_cls, "new"):
+                    launcher = uri_launcher_cls.new(path.as_uri())
+            except Exception:
+                launcher = None
+
+            if launcher is None:
+                try:
+                    launcher = uri_launcher_cls(uri=path.as_uri())
+                except TypeError:
+                    try:
+                        launcher = uri_launcher_cls()
+                        if hasattr(launcher, "set_uri"):
+                            launcher.set_uri(path.as_uri())
+                        else:
+                            setattr(launcher, "uri", path.as_uri())
+                    except Exception:
+                        launcher = None
+                except Exception:
+                    launcher = None
+
+            if launcher is not None:
+                try:
+                    launcher.launch(self, None, None)
+                    return
+                except TypeError:
+                    try:
+                        launcher.launch(self, None)
+                        return
+                    except Exception:
+                        logger.warning("Failed to launch debug log via Gtk.UriLauncher", exc_info=True)
+                except Exception:
+                    logger.warning("Failed to launch debug log via Gtk.UriLauncher", exc_info=True)
+
+        try:
+            command = f"xdg-open {shlex.quote(str(path))}"
+            GLib.spawn_command_line_async(command)
+        except Exception:
+            logger.warning("Failed to open debug log via xdg-open", exc_info=True)
 
     def _on_debug_level_changed(self, combo: Gtk.ComboBoxText):
         if self._debug_controls_updating:
