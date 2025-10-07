@@ -67,6 +67,8 @@ class GTKUILogHandler(logging.Handler):
         clamped = max(int(max_lines), 0)
         with self._lock:
             self._max_lines = clamped
+            if self._paused:
+                self._trim_queue_locked()
         GLib.idle_add(self._enforce_retention, priority=self._idle_priority)
 
     def close(self) -> None:  # noqa: D401 - standard logging Handler API.
@@ -96,6 +98,7 @@ class GTKUILogHandler(logging.Handler):
         with self._lock:
             if self._paused:
                 self._queue.append(message)
+                self._trim_queue_locked()
                 return
 
             self._queue.append(message)
@@ -161,6 +164,15 @@ class GTKUILogHandler(logging.Handler):
     def _clear_buffer(self) -> bool:
         self._buffer.set_text("")
         return False
+
+    def _trim_queue_locked(self) -> None:
+        """Ensure the pending queue respects ``self._max_lines`` when paused."""
+
+        limit = self._max_lines
+        if limit <= 0:
+            return
+        while len(self._queue) > limit:
+            self._queue.popleft()
 
 
 def read_recent_log_lines(path: Path, limit: int) -> str:
