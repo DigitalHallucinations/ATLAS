@@ -2576,6 +2576,26 @@ class ConfigManager:
         # Optionally, write back to config.yaml if persistence is required
         self._write_yaml_config()
 
+    def set_ui_debug_logger_names(self, logger_names: Optional[Sequence[str]]) -> List[str]:
+        """Persist the list of logger names mirrored in the UI debug console."""
+
+        normalized: List[str] = []
+        if logger_names is not None:
+            for entry in logger_names:
+                sanitized = str(entry).strip()
+                if sanitized:
+                    normalized.append(sanitized)
+
+        if normalized:
+            self.yaml_config['UI_DEBUG_LOGGERS'] = list(normalized)
+            self.config['UI_DEBUG_LOGGERS'] = list(normalized)
+        else:
+            self.yaml_config.pop('UI_DEBUG_LOGGERS', None)
+            self.config.pop('UI_DEBUG_LOGGERS', None)
+
+        self._write_yaml_config()
+        return list(normalized)
+
     def _write_yaml_config(self):
         """
         Writes the current YAML configuration back to the config.yaml file.
