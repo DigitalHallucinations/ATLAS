@@ -48,9 +48,12 @@ class AccountDialog(Gtk.Window):
         self._account_records: list[dict[str, object]] = []
         self._account_details_cache: dict[str, dict[str, object]] = {}
         self._account_details_history_strings: list[str] = []
+        self._status_filter_value: str = "all"
+        self._status_filter_options: list[tuple[str, str]] = []
         self._account_filter_text: str = ""
         self._active_account_request: Optional[tuple[str, str]] = None
         self._active_account_task: Optional[Future] = None
+        self._active_summary_task: Optional[Future] = None
         self._selected_username: Optional[str] = None
         self._details_busy = False
         self._login_busy = False
@@ -68,6 +71,8 @@ class AccountDialog(Gtk.Window):
         self._is_closed = False
         self._password_reset_prompt_queue: Optional[list[str]] = None
         self._last_password_reset_message: Optional[str] = None
+        self._account_summary: dict[str, object] = {}
+        self._last_account_context: str = "list"
 
         self.set_modal(True)
         if parent is not None:
@@ -155,9 +160,11 @@ class AccountDialog(Gtk.Window):
             self.edit_save_button,
             self.logout_button,
             self.account_search_entry,
+            self.account_status_filter,
         ]
         self._forms_sensitive_widgets.extend(self._password_toggle_buttons)
         self._set_forms_busy(False)
+        self._set_account_summary_message("Loading summary…")
 
     def _default_password_requirements(self) -> PasswordRequirements:
         return PasswordRequirements(
@@ -249,6 +256,10 @@ class AccountDialog(Gtk.Window):
         self.account_refresh_button.connect("clicked", self._refresh_account_list)
         header.append(self.account_refresh_button)
 
+        self.account_summary_label = Gtk.Label()
+        self.account_summary_label.set_xalign(0.0)
+        wrapper.append(self.account_summary_label)
+
         search_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         wrapper.append(search_row)
 
@@ -277,6 +288,13 @@ class AccountDialog(Gtk.Window):
         clear_button.connect("clicked", self._on_account_search_clear)
         search_row.append(clear_button)
 
+        status_label = Gtk.Label(label="Status:")
+        status_label.set_xalign(0.0)
+        search_row.append(status_label)
+
+        self.account_status_filter = self._create_status_filter_widget()
+        search_row.append(self.account_status_filter)
+
         scroller = Gtk.ScrolledWindow()
         try:
             scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -304,6 +322,224 @@ class AccountDialog(Gtk.Window):
 
         return wrapper
 
+    def _create_status_filter_widget(self) -> Gtk.Widget:
+        options = [
+            ("all", "All accounts"),
+            ("active", "Active"),
+            ("locked", "Locked"),
+            ("inactive", f"Inactive {self._STALE_ACCOUNT_THRESHOLD_DAYS}+ days"),
+            ("never", "Never signed in"),
+        ]
+
+        self._status_filter_options = options
+        self._status_filter_value = "all"
+
+        drop_down_cls = getattr(Gtk, "DropDown", None)
+        if drop_down_cls is not None:
+            labels = [label for _value, label in options]
+            constructor = getattr(drop_down_cls, "new_from_strings", None)
+            widget = None
+            if callable(constructor):
+                try:
+                    widget = constructor(labels)
+                except Exception:
+                    widget = None
+            if widget is None:
+                string_list_cls = getattr(Gtk, "StringList", None)
+                if string_list_cls is not None:
+                    try:
+                        model = string_list_cls.new(labels)  # type: ignore[attr-defined]
+                    except AttributeError:
+                        model = string_list_cls()
+                        append = getattr(model, "append", None)
+                        if callable(append):
+                            for label in labels:
+                                append(label)
+                    try:
+                        widget = drop_down_cls(model=model)
+                    except Exception:
+                        widget = None
+
+            if widget is not None:
+                set_selected = getattr(widget, "set_selected", None)
+                if callable(set_selected):
+                    try:
+                        set_selected(0)
+                    except Exception:
+                        pass
+                widget.connect("notify::selected", self._on_status_filter_notify)
+                return widget
+
+        combo_cls = getattr(Gtk, "ComboBoxText", None)
+        if combo_cls is not None:
+            combo = combo_cls()
+            for value, label in options:
+                append = getattr(combo, "append", None)
+                if callable(append):
+                    append(value, label)
+            set_active = getattr(combo, "set_active", None)
+            if callable(set_active):
+                try:
+                    set_active(0)
+                except Exception:
+                    pass
+            combo.connect("changed", self._on_status_filter_combo_changed)
+            return combo
+
+        fallback = Gtk.Button(label="All accounts")
+        fallback.connect("clicked", lambda *_: None)
+        return fallback
+
+    def _on_status_filter_notify(self, widget, _param) -> None:
+        getter = getattr(widget, "get_selected", None)
+        if callable(getter):
+            try:
+                index = int(getter())
+            except Exception:
+                index = 0
+            self._set_status_filter_from_index(index)
+
+    def _on_status_filter_combo_changed(self, widget) -> None:
+        get_active_id = getattr(widget, "get_active_id", None)
+        if callable(get_active_id):
+            value = get_active_id()
+            if value is not None:
+                self._update_status_filter_value(str(value))
+                return
+
+        get_active = getattr(widget, "get_active", None)
+        if callable(get_active):
+            try:
+                index = int(get_active())
+            except Exception:
+                index = 0
+            self._set_status_filter_from_index(index)
+
+    def _set_status_filter_from_index(self, index: int) -> None:
+        if 0 <= index < len(self._status_filter_options):
+            value = self._status_filter_options[index][0]
+        else:
+            value = "all"
+        self._update_status_filter_value(value)
+
+    def _update_status_filter_value(self, value: str) -> None:
+        value = value or "all"
+        if value == self._status_filter_value:
+            self._refresh_filtered_accounts()
+            return
+        self._status_filter_value = value
+        self._refresh_filtered_accounts()
+
+    def _set_account_summary_message(self, message: str) -> None:
+        label = getattr(self, "account_summary_label", None)
+        if isinstance(label, Gtk.Label):
+            label.set_text(message)
+
+    def _format_account_summary(self, summary: dict[str, object]) -> str:
+        total = int(summary.get("total_accounts", 0) or 0)
+        parts = [f"Total accounts: {total}"]
+
+        active_display = str(summary.get("active_display_name") or "").strip()
+        if active_display:
+            parts.append(f"Active: {active_display}")
+
+        locked = int(summary.get("locked_accounts", 0) or 0)
+        if locked:
+            parts.append(f"Locked: {locked}")
+
+        stale = int(summary.get("stale_accounts", 0) or 0)
+        if stale:
+            parts.append(
+                f"Inactive {self._STALE_ACCOUNT_THRESHOLD_DAYS}+ days: {stale}"
+            )
+
+        never_signed_in = int(summary.get("never_signed_in", 0) or 0)
+        if never_signed_in:
+            parts.append(f"Never signed in: {never_signed_in}")
+
+        latest_username = str(summary.get("latest_sign_in_username") or "").strip()
+        latest_timestamp = summary.get("latest_sign_in_at")
+        if latest_username and latest_timestamp:
+            formatted = self._format_last_login_detail(latest_timestamp)
+            parts.append(f"Latest sign-in: {latest_username} ({formatted})")
+
+        return " • ".join(parts)
+
+    def _update_account_summary_display(self, summary: dict[str, object]) -> None:
+        self._account_summary = dict(summary)
+        message = self._format_account_summary(summary)
+        self._set_account_summary_message(message)
+
+    def _cancel_active_summary_task(self) -> None:
+        task = self._active_summary_task
+        self._active_summary_task = None
+        if task is None:
+            return
+        try:
+            if not task.done():
+                task.cancel()
+        except Exception:  # pragma: no cover - defensive cancellation
+            pass
+
+    def _request_account_summary(self) -> None:
+        getter = getattr(self.ATLAS, "get_user_account_overview", None)
+        if not callable(getter):
+            self._set_account_summary_message("Summary unavailable.")
+            return
+
+        self._cancel_active_summary_task()
+        self._set_account_summary_message("Loading summary…")
+
+        future: Optional[Future] = None
+
+        def factory():
+            return getter()
+
+        def on_success(result) -> None:
+            GLib.idle_add(self._handle_account_summary_result, result, future)
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(self._handle_account_summary_error, exc, future)
+
+        try:
+            future = self.ATLAS.run_in_background(
+                factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name="user-account-summary",
+            )
+            self._active_summary_task = future
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to request account summary: %s", exc, exc_info=True)
+            self._handle_account_summary_error(exc)
+
+    def _handle_account_summary_result(
+        self, summary, future: Optional[Future] = None
+    ) -> bool:
+        if future is not None:
+            if future.cancelled():
+                return False
+            if future is not self._active_summary_task:
+                return False
+            self._active_summary_task = None
+
+        if not isinstance(summary, dict):
+            summary = {}
+
+        self._update_account_summary_display(summary)
+        return False
+
+    def _handle_account_summary_error(
+        self, exc: Exception, future: Optional[Future] = None
+    ) -> bool:
+        if future is not None and future is not self._active_summary_task:
+            return False
+        if future is self._active_summary_task:
+            self._active_summary_task = None
+
+        self.logger.debug("Account summary failed: %s", exc)
+        self._set_account_summary_message("Summary unavailable.")
+        return False
     def _build_account_details_panel(self) -> Gtk.Widget:
         frame = Gtk.Frame(label="Account details")
         content = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin=12)
@@ -367,6 +603,7 @@ class AccountDialog(Gtk.Window):
         if self._account_busy:
             return
 
+        self._request_account_summary()
         self._set_account_busy(True, "Loading saved accounts…", disable_forms=False)
 
         def factory():
@@ -404,6 +641,7 @@ class AccountDialog(Gtk.Window):
             self._active_account_task = None
         self._active_account_request = None
         normalised = self._normalise_account_payload(accounts)
+        self._last_account_context = "list"
         self._account_records = normalised
 
         known_usernames = {entry["username"] for entry in normalised}
@@ -417,7 +655,7 @@ class AccountDialog(Gtk.Window):
 
         previous_selection = self._selected_username or None
         active_username = self._active_username or ""
-        visible_accounts = self._apply_account_filter(normalised)
+        visible_accounts = self._filter_accounts_for_display(normalised, context="list")
         active_visible = bool(active_username) and any(
             account.get("username") == active_username for account in visible_accounts
         )
@@ -484,6 +722,7 @@ class AccountDialog(Gtk.Window):
         self._set_account_detail_message("Select an account to view details.")
         self._update_account_buttons_sensitive()
         self.account_empty_label.set_text("Failed to load saved accounts.")
+        self._set_account_summary_message("Summary unavailable.")
         message = f"Account load failed: {exc}"
         if self._post_refresh_feedback:
             message = f"{self._post_refresh_feedback} {message}".strip()
@@ -515,14 +754,30 @@ class AccountDialog(Gtk.Window):
                     return ""
                 return str(value)
 
-            account_data = {
-                "username": username,
-                "display_name": _string_or_empty(display_name) or "",
-                "email": _string_or_empty(source.get("email")),
-                "name": _string_or_empty(source.get("name")),
-                "dob": _string_or_empty(source.get("dob")),
-                "last_login": _string_or_empty(source.get("last_login")),
-            }
+            account_data = dict(source)
+            account_data["username"] = username
+            account_data["display_name"] = _string_or_empty(display_name) or username
+            account_data["email"] = _string_or_empty(source.get("email"))
+            account_data["name"] = _string_or_empty(source.get("name"))
+            account_data["dob"] = _string_or_empty(source.get("dob"))
+            account_data["last_login"] = _string_or_empty(source.get("last_login"))
+
+            if "status_badge" in source:
+                account_data["status_badge"] = str(source.get("status_badge") or "")
+
+            if "is_active" in source:
+                account_data["is_active"] = bool(source.get("is_active"))
+
+            if "is_locked" in source:
+                account_data["is_locked"] = bool(source.get("is_locked"))
+
+            if "last_login_age_days" in source:
+                age_value = source.get("last_login_age_days")
+                try:
+                    account_data["last_login_age_days"] = float(age_value)
+                except (TypeError, ValueError):
+                    account_data["last_login_age_days"] = None
+
             normalised.append(account_data)
 
         normalised.sort(key=lambda item: item["username"].lower())
@@ -547,6 +802,63 @@ class AccountDialog(Gtk.Window):
                 filtered.append(account)
 
         return filtered
+
+    def _apply_status_filter(self, accounts: list[dict[str, object]]) -> list[dict[str, object]]:
+        value = self._status_filter_value or "all"
+        if value in {"all", ""}:
+            return list(accounts)
+
+        filtered: list[dict[str, object]] = []
+        threshold_days = self._STALE_ACCOUNT_THRESHOLD_DAYS
+
+        for account in accounts:
+            metadata = account if isinstance(account, dict) else {}
+            if value == "active":
+                if bool(metadata.get("is_active")):
+                    filtered.append(account)
+                continue
+
+            if value == "locked":
+                if bool(metadata.get("is_locked")):
+                    filtered.append(account)
+                continue
+
+            if value == "never":
+                last_login = str(metadata.get("last_login") or "").strip()
+                if not last_login:
+                    filtered.append(account)
+                continue
+
+            if value == "inactive":
+                age_value = metadata.get("last_login_age_days")
+                try:
+                    age = float(age_value)
+                except (TypeError, ValueError):
+                    age = None
+                if age is not None and age >= threshold_days:
+                    filtered.append(account)
+                continue
+
+        return filtered
+
+    def _filter_accounts_for_display(
+        self, accounts: list[dict[str, object]], *, context: str
+    ) -> list[dict[str, object]]:
+        filtered = self._apply_account_filter(accounts)
+        filtered = self._apply_status_filter(filtered)
+        return filtered
+
+    def _refresh_filtered_accounts(self) -> None:
+        if self._account_busy:
+            return
+
+        records = getattr(self, "_account_records", None)
+        if not isinstance(records, list):
+            return
+
+        filtered = self._filter_accounts_for_display(records, context=self._last_account_context)
+        message = self._render_account_rows(filtered, context=self._last_account_context)
+        self.account_feedback_label.set_text(message)
 
     def _render_account_rows(self, accounts: list[dict[str, object]], *, context: str) -> str:
         self._account_rows.clear()
@@ -838,10 +1150,16 @@ class AccountDialog(Gtk.Window):
         return str(age)
 
     def _determine_account_badge(self, metadata: dict[str, object]) -> str:
+        if bool(metadata.get("is_locked")):
+            return "Locked"
+
+        if bool(metadata.get("is_active")):
+            return "Active"
+
         last_login_value = metadata.get("last_login") if isinstance(metadata, dict) else None
         parsed = self._parse_last_login(last_login_value)
         if parsed is None:
-            return "No sign-in yet"
+            return "Never signed in"
 
         threshold = self._current_utc_time() - _dt.timedelta(days=self._STALE_ACCOUNT_THRESHOLD_DAYS)
         if parsed < threshold:
@@ -920,6 +1238,8 @@ class AccountDialog(Gtk.Window):
         self._active_account_request = ("list", "")
         self._set_account_busy(True, "Loading saved accounts…", disable_forms=False)
 
+        self._request_account_summary()
+
         future: Optional[Future] = None
 
         def factory():
@@ -959,8 +1279,9 @@ class AccountDialog(Gtk.Window):
             self._active_account_task = None
         self._active_account_request = None
         normalised = self._normalise_account_payload(accounts)
+        self._last_account_context = "search"
         self._account_records = normalised
-        filtered_accounts = self._apply_account_filter(normalised)
+        filtered_accounts = self._filter_accounts_for_display(normalised, context="search")
         message = self._render_account_rows(filtered_accounts, context="search")
         self._set_account_busy(False, message, disable_forms=False)
         return False
@@ -1120,6 +1441,16 @@ class AccountDialog(Gtk.Window):
         badge_label.set_xalign(0.0)
         name_row.append(badge_label)
 
+        email_label = Gtk.Label()
+        email_label.set_xalign(0.0)
+        add_dim = getattr(email_label, "add_css_class", None)
+        if callable(add_dim):
+            try:
+                add_dim("dim-label")
+            except Exception:  # pragma: no cover - CSS support varies in tests
+                pass
+        info_box.append(email_label)
+
         last_login_label = Gtk.Label()
         last_login_label.set_xalign(0.0)
         add_dim = getattr(last_login_label, "add_css_class", None)
@@ -1160,6 +1491,7 @@ class AccountDialog(Gtk.Window):
             "row_box": row_box,
             "name_label": name_label,
             "active_label": badge_label,
+            "email_label": email_label,
             "last_login_label": last_login_label,
             "use_button": use_button,
             "details_button": details_button,
@@ -1180,16 +1512,32 @@ class AccountDialog(Gtk.Window):
         display_name = metadata.get("display_name") or metadata.get("name") or username
         widgets["name_label"].set_text(str(display_name or username))
 
+        email_label = widgets.get("email_label")
+        if isinstance(email_label, Gtk.Label):
+            email_value = str(metadata.get("email") or "").strip()
+            email_label.set_text(email_value or "—")
+
         last_login_label = widgets.get("last_login_label")
         if isinstance(last_login_label, Gtk.Label):
             last_login_label.set_text(self._format_last_login_for_row(metadata.get("last_login")))
 
-        badge_text = self._determine_account_badge(metadata)
-        metadata["_status_badge"] = badge_text
+        badge_text = str(metadata.get("status_badge") or metadata.get("_status_badge") or "")
+        if not badge_text:
+            badge_text = self._determine_account_badge(metadata)
+        metadata["status_badge"] = badge_text
 
         badge_label = widgets.get("active_label")
         if isinstance(badge_label, Gtk.Label):
             badge_label.set_text(badge_text)
+            setter = getattr(badge_label, "set_tooltip_text", None)
+            if callable(setter):
+                try:
+                    setter(badge_text or None)
+                except Exception:  # pragma: no cover - defensive tooltip handling
+                    pass
+
+        row_box = widgets.get("row_box")
+        self._set_css_class(row_box, "warning", bool(metadata.get("is_locked")))
 
     def _on_use_account_clicked(self, username: str) -> None:
         if self._account_busy:
@@ -1566,7 +1914,7 @@ class AccountDialog(Gtk.Window):
         metadata = widgets.get("metadata") if isinstance(widgets, dict) else {}
         badge_text = ""
         if isinstance(metadata, dict):
-            badge_text = str(metadata.get("_status_badge") or "")
+            badge_text = str(metadata.get("status_badge") or metadata.get("_status_badge") or "")
 
         label = widgets["active_label"]
         label.set_text("Active" if active else badge_text)
@@ -1596,6 +1944,27 @@ class AccountDialog(Gtk.Window):
             except Exception:  # pragma: no cover - stub environments may not accept bools
                 pass
         setattr(widget, "_sensitive", bool(sensitive))
+
+    @staticmethod
+    def _set_css_class(widget, css_class: str, enabled: bool) -> None:
+        if widget is None:
+            return
+
+        if enabled:
+            adder = getattr(widget, "add_css_class", None)
+            if callable(adder):
+                try:
+                    adder(css_class)
+                except Exception:  # pragma: no cover - CSS support may vary
+                    pass
+            return
+
+        remover = getattr(widget, "remove_css_class", None)
+        if callable(remover):
+            try:
+                remover(css_class)
+            except Exception:  # pragma: no cover - defensive removal
+                pass
 
     def _configure_password_entry(
         self,
@@ -3175,6 +3544,8 @@ class AccountDialog(Gtk.Window):
         self._is_closing = True
         self._is_closed = True
         self._cancel_login_lockout_timer()
+        self._cancel_active_account_task()
+        self._cancel_active_summary_task()
         if self._active_user_listener is not None:
             try:
                 self.ATLAS.remove_active_user_change_listener(self._active_user_listener)

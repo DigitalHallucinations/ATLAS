@@ -75,6 +75,16 @@ class _AtlasStub:
         self.password_reset_complete_result: bool = True
         self.password_reset_complete_error: Optional[Exception] = None
         self.password_reset_complete_called: Optional[tuple[str, str, str]] = None
+        self.account_overview_result: dict[str, object] = {
+            "total_accounts": 0,
+            "active_username": "",
+            "active_display_name": "",
+            "locked_accounts": 0,
+            "stale_accounts": 0,
+            "never_signed_in": 0,
+            "latest_sign_in_username": None,
+            "latest_sign_in_at": None,
+        }
         self.config_manager = SimpleNamespace(get_active_user=lambda: self.active_username)
         self._password_requirements = PasswordRequirements(
             min_length=10,
@@ -178,6 +188,9 @@ class _AtlasStub:
         self.details_called = username
         return self.details_result.get(username)
 
+    async def get_user_account_overview(self):
+        return dict(self.account_overview_result)
+
     def get_user_display_name(self):
         return self.active_display_name
 
@@ -228,7 +241,17 @@ def _drain_background(atlas: _AtlasStub):
         future.mark_done()
     if atlas.last_success is not None:
         atlas.last_success(result)
+    if future is not None:
+        future.mark_done()
     return result
+
+
+def _complete_account_summary(dialog: AccountDialog, atlas: _AtlasStub):
+    future = dialog._active_summary_task
+    if future is None:
+        return
+    dialog._handle_account_summary_result(dict(atlas.account_overview_result), future)
+    future.mark_done()
 
 
 def _click(button):
@@ -1213,11 +1236,12 @@ def test_account_list_populates_and_highlights_active():
     dialog = AccountDialog(atlas)
     assert atlas.last_thread_name == "user-account-list"
     _drain_background(atlas)
+    _complete_account_summary(dialog, atlas)
 
     assert atlas.list_calls == 1
     assert set(dialog._account_rows.keys()) == {"alice", "bob"}
     assert dialog._account_rows["bob"]["active_label"].get_text() == "Active"
-    assert dialog._account_rows["alice"]["active_label"].get_text() == "No sign-in yet"
+    assert dialog._account_rows["alice"]["active_label"].get_text() == "Never signed in"
     assert dialog._account_rows["alice"]["last_login_label"].get_text() == "Last sign-in: never"
     assert (
         dialog._account_rows["bob"]["last_login_label"].get_text()
@@ -1231,11 +1255,79 @@ def test_account_list_populates_and_highlights_active():
     assert dialog._account_rows["bob"]["use_button"]._sensitive is True
 
 
+def test_account_summary_updates_with_overview():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = []
+    atlas.account_overview_result = {
+        "total_accounts": 3,
+        "active_username": "eve",
+        "active_display_name": "Eve",
+        "locked_accounts": 1,
+        "stale_accounts": 2,
+        "never_signed_in": 1,
+        "latest_sign_in_username": "bob",
+        "latest_sign_in_at": "2024-05-01T09:00:00Z",
+    }
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+    _complete_account_summary(dialog, atlas)
+
+    summary_text = dialog.account_summary_label.get_text()
+    assert "Total accounts: 3" in summary_text
+    assert "Active: Eve" in summary_text
+    assert "Locked: 1" in summary_text
+    assert "Inactive 90+ days: 2" in summary_text
+    assert "Never signed in: 1" in summary_text
+    assert "Latest sign-in: bob (2024-05-01 09:00 UTC)" in summary_text
+
+
+def test_status_filter_restricts_visible_accounts():
+    atlas = _AtlasStub()
+    atlas.list_accounts_result = [
+        {
+            "username": "alice",
+            "status_badge": "Locked",
+            "is_locked": True,
+            "last_login": "2024-04-01T00:00:00Z",
+        },
+        {
+            "username": "bob",
+            "status_badge": "Active",
+            "is_active": True,
+            "last_login": "2024-05-10T00:00:00Z",
+        },
+        {
+            "username": "carol",
+            "status_badge": "Never signed in",
+        },
+    ]
+
+    dialog = AccountDialog(atlas)
+    _drain_background(atlas)
+    _complete_account_summary(dialog, atlas)
+
+    assert dialog._visible_usernames == ["bob", "alice", "carol"]
+
+    dialog._update_status_filter_value("locked")
+    assert dialog._visible_usernames == ["alice"]
+
+    dialog._update_status_filter_value("never")
+    assert dialog._visible_usernames == ["carol"]
+
+    dialog._update_status_filter_value("active")
+    assert dialog._visible_usernames == ["bob"]
+
+    dialog._update_status_filter_value("all")
+    assert dialog._visible_usernames == ["bob", "alice", "carol"]
+
+
 def test_active_user_state_updates_login_entry():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
     if atlas.last_factory is not None:
         _drain_background(atlas)
+    _complete_account_summary(dialog, atlas)
 
     assert dialog.login_username_entry.get_text() == ""
 

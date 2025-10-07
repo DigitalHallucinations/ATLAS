@@ -273,6 +273,12 @@ class ATLAS:
         service = self._get_user_account_service()
         return await run_async_in_thread(service.get_user_details, username)
 
+    async def get_user_account_overview(self) -> Dict[str, object]:
+        """Return aggregated statistics for stored user accounts."""
+
+        service = self._get_user_account_service()
+        return await run_async_in_thread(service.get_user_overview)
+
     async def activate_user_account(self, username: str) -> None:
         """Activate an existing user account without credential prompts."""
 

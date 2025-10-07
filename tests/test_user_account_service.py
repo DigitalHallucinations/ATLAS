@@ -150,6 +150,10 @@ def test_register_user_persists_account(tmp_path, monkeypatch):
         users = service.list_users()
         assert users[0]['username'] == 'alice'
         assert users[0]['display_name'] == 'Alice'
+        assert users[0]['status_badge'] == 'Never signed in'
+        assert users[0]['is_active'] is False
+        assert users[0]['is_locked'] is False
+        assert users[0]['last_login_age_days'] is None
 
         with pytest.raises(user_account_db.DuplicateUserError):
             service.register_user('alice', 'Newpass1!@', 'duplicate@example.com')
@@ -848,6 +852,39 @@ def test_password_reset_token_expiry(tmp_path, monkeypatch):
         assert service.verify_password_reset_token('dana', challenge.token) is False
         assert service.complete_password_reset('dana', challenge.token, 'AnotherPass1!') is False
         assert service._database.get_password_reset_token('dana') is None
+    finally:
+        service.close()
+
+
+def test_get_user_overview_counts_accounts(tmp_path, monkeypatch):
+    now = _dt.datetime(2024, 6, 1, tzinfo=_dt.timezone.utc)
+    service, _ = _create_service(tmp_path, monkeypatch, clock=lambda: now)
+
+    try:
+        service.register_user('alice', 'Password123!', 'alice@example.com')
+        service.register_user('bob', 'Password123!', 'bob@example.com')
+        service.register_user('carol', 'Password123!', 'carol@example.com')
+
+        service.set_active_user('alice')
+        service._database.update_last_login('alice', '2024-05-31T12:00:00Z')
+        service._database.update_last_login('bob', '2023-01-01T00:00:00Z')
+
+        for _attempt in range(service._lockout_threshold):
+            try:
+                service.authenticate_user('bob', 'wrong-password')
+            except user_account_service.AccountLockedError:
+                break
+
+        overview = service.get_user_overview()
+
+        assert overview['total_accounts'] == 3
+        assert overview['active_username'] == 'alice'
+        assert overview['active_display_name'] == 'alice'
+        assert overview['locked_accounts'] == 1
+        assert overview['stale_accounts'] == 1
+        assert overview['never_signed_in'] == 1
+        assert overview['latest_sign_in_username'] == 'alice'
+        assert overview['latest_sign_in_at'] == '2024-05-31T12:00:00Z'
     finally:
         service.close()
 
