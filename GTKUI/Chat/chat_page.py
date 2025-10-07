@@ -201,6 +201,7 @@ class ChatPage(AtlasWindow):
         self.terminal_scrolled.set_vexpand(True)
         self.terminal_scrolled.set_child(self.terminal_tab_box)
         self._terminal_sections: Dict[str, Gtk.TextBuffer] = {}
+        self._terminal_section_buffers_by_widget: Dict[Gtk.Widget, Gtk.TextBuffer] = {}
         self._tool_log_entries: List[str] = []
         self._tool_activity_listener = None
         self._build_terminal_tab()
@@ -348,7 +349,6 @@ class ChatPage(AtlasWindow):
         text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         if hasattr(text_view, "set_monospace"):
             text_view.set_monospace(True)
-        text_view.set_focusable(False)
         text_view.add_css_class("terminal-text")
 
         scrolled = Gtk.ScrolledWindow()
@@ -369,6 +369,7 @@ class ChatPage(AtlasWindow):
             container.set_margin_bottom(4)
             container.set_margin_start(2)
             container.set_margin_end(2)
+            self._install_terminal_copy_menu(container, buffer, text_view)
             return container, buffer
 
         expander = expander_cls(label=title)
@@ -381,7 +382,59 @@ class ChatPage(AtlasWindow):
         if hasattr(expander, "set_expanded"):
             expander.set_expanded(expanded)
 
+        self._install_terminal_copy_menu(expander, buffer, text_view)
         return expander, buffer
+
+    def _install_terminal_copy_menu(
+        self, section_widget: "Gtk.Widget", buffer: Gtk.TextBuffer, text_view: Gtk.TextView
+    ) -> None:
+        """Attach a context menu that copies the section buffer to the clipboard."""
+
+        if not isinstance(getattr(self, "_terminal_section_buffers_by_widget", None), dict):
+            self._terminal_section_buffers_by_widget = {}
+
+        self._terminal_section_buffers_by_widget[section_widget] = buffer
+
+        popover = Gtk.Popover()
+        popover.set_has_arrow(True)
+        popover.set_parent(text_view)
+
+        menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        popover.set_child(menu_box)
+
+        copy_button = Gtk.Button(label="Copy")
+        copy_button.add_css_class("flat")
+        copy_button.set_halign(Gtk.Align.FILL)
+        copy_button.set_hexpand(True)
+        menu_box.append(copy_button)
+
+        def _copy_buffer_to_clipboard(*_args: object) -> None:
+            target_buffer = self._terminal_section_buffers_by_widget.get(section_widget, buffer)
+            start_iter = target_buffer.get_start_iter()
+            end_iter = target_buffer.get_end_iter()
+            text = target_buffer.get_text(start_iter, end_iter, True)
+            display = text_view.get_display()
+            if display is None:
+                return
+            clipboard = display.get_clipboard()
+            if clipboard is None:
+                return
+            clipboard.set_text(text or "")
+            popover.popdown()
+
+        copy_button.connect("clicked", _copy_buffer_to_clipboard)
+
+        click_controller = Gtk.GestureClick()
+        click_controller.set_button(Gdk.BUTTON_SECONDARY)
+
+        def _show_popover(gesture: Gtk.GestureClick, _n_press: int, x: float, y: float) -> None:
+            if gesture.get_current_button() != Gdk.BUTTON_SECONDARY:
+                return
+            popover.set_pointing_to(Gdk.Rectangle(int(x), int(y), 1, 1))
+            popover.popup()
+
+        click_controller.connect("pressed", _show_popover)
+        text_view.add_controller(click_controller)
 
     def _set_terminal_section_text(self, key: str, text: str) -> None:
         sections = getattr(self, "_terminal_sections", None)
