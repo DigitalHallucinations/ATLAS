@@ -30,6 +30,7 @@ class PersonaManagement:
         self.ATLAS = ATLAS
         self.parent_window = parent_window
         self.persona_window = None
+        self._persona_page = None
         self.settings_window = None
         self._persona_message_handler = self._handle_persona_message
         self.ATLAS.register_message_dispatcher(self._persona_message_handler)
@@ -100,26 +101,12 @@ class PersonaManagement:
 
     # --------------------------- Menu ---------------------------
 
-    def show_persona_menu(self):
-        """
-        Displays the "Select Persona" window. This window lists all available
-        personas with a label and a settings icon next to each name. Styling is
-        provided via :class:`AtlasWindow` so the picker matches the chat UI.
-        """
-        self.persona_window = AtlasWindow(
-            title="Select Persona",
-            default_size=(220, 600),
-            modal=True,
-            transient_for=self.parent_window,
-        )
-        self.persona_window.set_tooltip_text("Choose a persona or open its settings.")
-
-        # Container inside a scrolled window so long persona lists remain usable
+    def _build_persona_list_widget(self) -> Gtk.Widget:
+        """Create the persona selection list suitable for embedding."""
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scroll.set_hexpand(True)
         scroll.set_vexpand(True)
-        self.persona_window.set_child(scroll)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         outer.set_margin_top(10)
@@ -135,14 +122,11 @@ class PersonaManagement:
         list_box.set_valign(Gtk.Align.START)
         outer.append(list_box)
 
-        # Retrieve persona names from ATLAS
         persona_names = self.ATLAS.get_persona_names() or []
 
         for persona_name in persona_names:
-            # Each row is an HBox with a "Select" button (label-styled) and a gear button
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
-            # Select button for persona (improves keyboard/accessibility over raw label+gesture)
             select_btn = Gtk.Button()
             select_btn.add_css_class("flat")
             select_btn.add_css_class("sidebar")
@@ -154,15 +138,13 @@ class PersonaManagement:
             name_lbl = Gtk.Label(label=persona_name)
             name_lbl.set_xalign(0.0)
             name_lbl.set_yalign(0.5)
-            name_lbl.get_style_context().add_class("provider-label")  # reuse bold-ish style if present
+            name_lbl.get_style_context().add_class("provider-label")
             name_lbl.set_halign(Gtk.Align.START)
             name_lbl.set_hexpand(True)
             select_btn.set_child(name_lbl)
 
-            # When clicked, select persona
             select_btn.connect("clicked", lambda _b, pname=persona_name: self.select_persona(pname))
 
-            # Settings button (gear icon)
             settings_btn = Gtk.Button()
             settings_btn.add_css_class("flat")
             settings_btn.set_can_focus(True)
@@ -178,20 +160,16 @@ class PersonaManagement:
             row.append(select_btn)
             row.append(settings_btn)
 
-            # Put row into a ListBoxRow for nicer selection/hover
             lrow = Gtk.ListBoxRow()
             lrow.set_child(row)
             list_box.append(lrow)
 
-        # Hint footer
         hint = Gtk.Label(label="Tip: double-click a row to select.")
         hint.set_tooltip_text("You can also use arrow keys to move and Enter to activate.")
         hint.set_margin_top(6)
         outer.append(hint)
 
-        # Double-click behavior on rows (optional)
         def on_row_activated(_lb, lbrow):
-            # Find the select button inside the row and activate it
             box = lbrow.get_child()
             if isinstance(box, Gtk.Box):
                 child = box.get_first_child()
@@ -200,6 +178,29 @@ class PersonaManagement:
 
         list_box.connect("row-activated", on_row_activated)
 
+        return scroll
+
+    def get_embeddable_widget(self) -> Gtk.Widget:
+        if self._persona_page is None:
+            self._persona_page = self._build_persona_list_widget()
+        return self._persona_page
+
+    def show_persona_menu(self):
+        """
+        Displays the "Select Persona" window. This window lists all available
+        personas with a label and a settings icon next to each name. Styling is
+        provided via :class:`AtlasWindow` so the picker matches the chat UI.
+        """
+        self.persona_window = AtlasWindow(
+            title="Select Persona",
+            default_size=(220, 600),
+            modal=True,
+            transient_for=self.parent_window,
+        )
+        self.persona_window.set_tooltip_text("Choose a persona or open its settings.")
+
+        # Container inside a scrolled window so long persona lists remain usable
+        self.persona_window.set_child(self._build_persona_list_widget())
         self.persona_window.present()
 
     def select_persona(self, persona):
