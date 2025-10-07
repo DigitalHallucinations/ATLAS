@@ -1603,10 +1603,34 @@ class ChatPage(Gtk.Box):
         if hasattr(self, "user_title_label") and user_display:
             self.user_title_label.set_text(f"Active user: {user_display}")
 
+        # Update the title on the containing window when available. ``ChatPage``
+        # is a ``Gtk.Box`` embedded inside the main notebook, so it no longer
+        # inherits a ``set_title`` method directly. Query the current root
+        # widget and update its title when supported to avoid attribute errors
+        # on GTK4.
+        target_title: Optional[str]
         if user_display:
-            self.set_title(f"{persona_name} • {user_display}")
+            target_title = f"{persona_name} • {user_display}"
         else:
-            self.set_title(persona_name)
+            target_title = persona_name
+
+        if not target_title:
+            return
+
+        # Prefer ``self.set_title`` for backwards compatibility (e.g. unit
+        # tests that monkeypatch the method). Fallback to the root window.
+        set_title = getattr(self, "set_title", None)
+        if callable(set_title):
+            set_title(target_title)
+            return
+
+        root = getattr(self, "get_root", None)
+        if callable(root):
+            root_widget = root()
+            if root_widget is not None:
+                window_set_title = getattr(root_widget, "set_title", None)
+                if callable(window_set_title):
+                    window_set_title(target_title)
 
     def _register_active_user_listener(self) -> None:
         def _listener(username: str, display_name: str) -> None:

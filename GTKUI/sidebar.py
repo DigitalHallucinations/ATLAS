@@ -263,7 +263,17 @@ class MainWindow(AtlasWindow):
             text="Initialization Error",
         )
         self._apply_shared_styles(dialog)
-        dialog.format_secondary_text(message)
+        # ``Gtk.MessageDialog.format_secondary_text`` was removed in GTK4.
+        # Prefer ``set_secondary_text`` when available and fall back to
+        # directly assigning the property for compatibility with GTK 4.x.
+        set_secondary = getattr(dialog, "set_secondary_text", None)
+        if callable(set_secondary):
+            set_secondary(message)
+        else:
+            try:
+                dialog.props.secondary_text = message
+            except Exception:  # pragma: no cover - property unavailable
+                pass
         dialog.connect("response", lambda d, r: d.destroy())
         dialog.present()
 
