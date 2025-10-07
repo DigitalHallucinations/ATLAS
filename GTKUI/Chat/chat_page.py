@@ -230,7 +230,8 @@ class ChatPage(AtlasWindow):
         self.terminal_wrap_toggle.set_tooltip_text(
             "Toggle line wrapping in terminal sections."
         )
-        self.terminal_wrap_toggle.set_active(True)
+        saved_wrap_state = self._load_terminal_wrap_preference()
+        self.terminal_wrap_toggle.set_active(saved_wrap_state)
         self.terminal_wrap_toggle.connect("toggled", self._on_terminal_wrap_toggled)
         terminal_header.append(self.terminal_wrap_toggle)
 
@@ -464,8 +465,44 @@ class ChatPage(AtlasWindow):
             return Gtk.WrapMode.NONE
         return self._terminal_wrap_mode
 
+    def _load_terminal_wrap_preference(self) -> bool:
+        """Read the persisted terminal wrap preference, defaulting to wrapping."""
+
+        manager = getattr(self.ATLAS, "config_manager", None)
+        if manager is None:
+            return True
+
+        getter = getattr(manager, "get_ui_terminal_wrap_enabled", None)
+        if callable(getter):
+            try:
+                return bool(getter())
+            except Exception:  # pragma: no cover - defensive fallback
+                logger.debug("Failed to load terminal wrap preference", exc_info=True)
+                return True
+
+        try:
+            value = manager.get_config("UI_TERMINAL_WRAP_ENABLED", True)
+        except Exception:  # pragma: no cover - defensive fallback
+            logger.debug("Error reading terminal wrap config", exc_info=True)
+            return True
+
+        if isinstance(value, bool):
+            return value
+
+        return True
+
     def _on_terminal_wrap_toggled(self, _button: Gtk.CheckButton) -> None:
         """Update terminal text views when the wrap toggle changes."""
+
+        wrap_enabled = self.terminal_wrap_toggle.get_active()
+        manager = getattr(self.ATLAS, "config_manager", None)
+        if manager is not None:
+            setter = getattr(manager, "set_ui_terminal_wrap_enabled", None)
+            if callable(setter):
+                try:
+                    setter(wrap_enabled)
+                except Exception:  # pragma: no cover - defensive fallback
+                    logger.debug("Failed to persist terminal wrap preference", exc_info=True)
 
         wrap_mode = self._get_terminal_wrap_mode()
         for text_view in self._terminal_section_text_views:
