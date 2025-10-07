@@ -8,7 +8,7 @@ from types import MethodType
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk
+from gi.repository import Gtk, Gdk
 
 from .utils import apply_css
 
@@ -30,7 +30,8 @@ class AtlasWindow(Gtk.Window):
 
         if default_size is not None:
             try:
-                self.set_default_size(*default_size)
+                safe_width, safe_height = self._calculate_safe_size(*default_size)
+                self.set_default_size(safe_width, safe_height)
             except Exception:  # pragma: no cover - defensive for stub environments
                 pass
 
@@ -101,3 +102,66 @@ class AtlasWindow(Gtk.Window):
             return len(handlers) - 1
 
         setattr(self, "connect", MethodType(_connect_fallback, self))
+
+    # ------------------------------------------------------------------
+    # Window sizing helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _clamp_dimension(desired: int, available: int, margin: int) -> int:
+        """Clamp a dimension so it never exceeds the available space."""
+
+        usable_space = max(1, available - max(margin, 0))
+        return min(desired, usable_space)
+
+    def _calculate_safe_size(self, desired_width: int, desired_height: int) -> tuple[int, int]:
+        """Clamp the window size so it never exceeds the primary monitor."""
+
+        margin = 64
+        monitor_size = self._get_primary_monitor_size()
+        if monitor_size is None:
+            return desired_width, desired_height
+
+        monitor_width, monitor_height = monitor_size
+        safe_width = self._clamp_dimension(desired_width, monitor_width, margin)
+        safe_height = self._clamp_dimension(desired_height, monitor_height, margin)
+        return safe_width, safe_height
+
+    def _get_primary_monitor_size(self) -> tuple[int, int] | None:
+        """Return the primary monitor geometry if available."""
+
+        try:
+            display = Gdk.Display.get_default()
+        except Exception:  # pragma: no cover - GTK may be unavailable in tests
+            return None
+
+        if display is None:
+            return None
+
+        monitor = None
+        try:
+            monitor = display.get_primary_monitor()
+        except Exception:  # pragma: no cover - display may not support the call
+            monitor = None
+
+        if monitor is None:
+            try:
+                surface = getattr(self, "get_surface", lambda: None)()
+                if surface is not None:
+                    monitor = display.get_monitor_at_surface(surface)
+            except Exception:  # pragma: no cover - fallback best effort
+                monitor = None
+
+        if monitor is None:
+            return None
+
+        try:
+            geometry = monitor.get_geometry()
+        except Exception:  # pragma: no cover - stub monitors may not support geometry
+            return None
+
+        width = getattr(geometry, "width", None)
+        height = getattr(geometry, "height", None)
+        if width is None or height is None:
+            return None
+
+        return int(width), int(height)
