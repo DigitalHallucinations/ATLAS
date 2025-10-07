@@ -1001,18 +1001,20 @@ class ChatPage(AtlasWindow):
         self.debug_log_view = Gtk.TextView.new_with_buffer(self.debug_log_buffer)
         self.debug_log_view.set_editable(False)
         self.debug_log_view.set_cursor_visible(False)
-        self.debug_log_view.set_wrap_mode(Gtk.WrapMode.NONE)
+        self.debug_log_view.set_wrap_mode(self._get_terminal_wrap_mode())
         if hasattr(self.debug_log_view, "set_monospace"):
             self.debug_log_view.set_monospace(True)
         self.debug_log_view.add_css_class("monospace")
         self.debug_log_view.set_hexpand(True)
         self.debug_log_view.set_vexpand(True)
+        self._terminal_section_text_views.append(self.debug_log_view)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
         scrolled.set_child(self.debug_log_view)
+        self._install_terminal_copy_menu(self.debug_log_view, self.debug_log_buffer, self.debug_log_view)
         self.debug_tab_box.append(scrolled)
 
         debug_label = Gtk.Label(label="Debug")
