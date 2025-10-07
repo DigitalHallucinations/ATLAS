@@ -114,27 +114,51 @@ class AccountDialog(AtlasWindow):
         account_section = self._build_account_section()
         container.append(account_section)
 
-        toggle_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        container.append(toggle_box)
+        form_wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        container.append(form_wrapper)
 
-        self.login_toggle_button = Gtk.Button(label="Sign in")
-        self.login_toggle_button.connect("clicked", lambda *_: self._show_form("login"))
-        toggle_box.append(self.login_toggle_button)
+        stack_cls = getattr(Gtk, "Stack", None)
+        notebook_cls = getattr(Gtk, "Notebook", None)
 
-        self.register_toggle_button = Gtk.Button(label="Create account")
-        self.register_toggle_button.connect("clicked", lambda *_: self._show_form("register"))
-        toggle_box.append(self.register_toggle_button)
+        if stack_cls is not None:
+            self._form_container_mode = "stack"
+            self.form_stack = stack_cls()
+            self.form_stack.set_hexpand(True)
+            self.form_stack.set_vexpand(False)
+            self.form_switcher = Gtk.StackSwitcher()
+            try:
+                self.form_switcher.set_stack(self.form_stack)
+            except Exception:  # pragma: no cover - GTK stubs may lack full API
+                pass
+            self.form_switcher.set_halign(Gtk.Align.START)
+            form_wrapper.append(self.form_switcher)
+            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            form_wrapper.append(separator)
+        elif notebook_cls is not None:
+            self._form_container_mode = "notebook"
+            self.form_stack = notebook_cls()
+            try:
+                self.form_stack.set_hexpand(True)
+                self.form_stack.set_vexpand(False)
+            except Exception:  # pragma: no cover - compatibility guard
+                pass
+            self.form_switcher = None
+        else:
+            self._form_container_mode = "box"
+            self.form_stack = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            self.form_switcher = None
+
+        form_wrapper.append(self.form_stack)
+        self._form_page_indexes: dict[str, int] = {}
 
         self.login_box = self._build_login_form()
-        container.append(self.login_box)
+        self._add_form_page(self.login_box, "login", "Sign in")
 
         self.register_box = self._build_registration_form()
-        self._set_widget_visible(self.register_box, False)
-        container.append(self.register_box)
+        self._add_form_page(self.register_box, "register", "Create account")
 
         self.edit_box = self._build_edit_form()
-        self._set_widget_visible(self.edit_box, False)
-        container.append(self.edit_box)
+        self._add_form_page(self.edit_box, "edit", "Edit account")
 
         self.logout_button = Gtk.Button(label="Log out")
         self.logout_button.connect("clicked", self._on_logout_clicked)
@@ -146,14 +170,12 @@ class AccountDialog(AtlasWindow):
             "edit": self.edit_box,
         }
         self._active_form = "login"
-        self._update_toggle_buttons()
+        self._ensure_active_form_visible()
 
         self._forms_sensitive_widgets = [
             self.login_box,
             self.register_box,
             self.edit_box,
-            self.login_toggle_button,
-            self.register_toggle_button,
             self.login_button,
             self.forgot_password_button,
             self.register_button,
@@ -162,9 +184,119 @@ class AccountDialog(AtlasWindow):
             self.account_search_entry,
             self.account_status_filter,
         ]
+        if self.form_switcher is not None:
+            self._forms_sensitive_widgets.append(self.form_switcher)
+        self._forms_sensitive_widgets.append(self.form_stack)
         self._forms_sensitive_widgets.extend(self._password_toggle_buttons)
         self._set_forms_busy(False)
         self._set_account_summary_message("Loading summary…")
+
+    def _add_form_page(self, widget: Gtk.Widget, name: str, title: str) -> None:
+        mode = getattr(self, "_form_container_mode", "stack")
+
+        if mode == "stack":
+            add_titled = getattr(self.form_stack, "add_titled", None)
+            if callable(add_titled):
+                try:
+                    add_titled(widget, name, title)
+                    return
+                except Exception:
+                    pass
+
+            add_named = getattr(self.form_stack, "add_named", None)
+            if callable(add_named):
+                try:
+                    add_named(widget, name)
+                except Exception:
+                    pass
+
+            add_child = getattr(self.form_stack, "add_child", None)
+            if callable(add_child):
+                try:
+                    add_child(widget)
+                except Exception:
+                    pass
+
+            self._tag_form_widget(widget, name)
+            return
+
+        if mode == "notebook":
+            label = Gtk.Label(label=title)
+            label.set_xalign(0.0)
+            append_page = getattr(self.form_stack, "append_page", None)
+            page_index = None
+            if callable(append_page):
+                try:
+                    page_index = append_page(widget, label)
+                except Exception:
+                    page_index = None
+            if isinstance(page_index, int):
+                self._form_page_indexes[name] = page_index
+            else:
+                get_n_pages = getattr(self.form_stack, "get_n_pages", None)
+                if callable(get_n_pages):
+                    try:
+                        count = int(get_n_pages())
+                        self._form_page_indexes[name] = max(0, count - 1)
+                    except Exception:
+                        self._form_page_indexes[name] = 0
+                else:
+                    self._form_page_indexes[name] = 0
+            self._tag_form_widget(widget, name)
+            return
+
+        # Fallback mode - simple box layout
+        self.form_stack.append(widget)
+        self._tag_form_widget(widget, name)
+
+    def _tag_form_widget(self, widget: Gtk.Widget, name: str) -> None:
+        setter = getattr(widget, "set_name", None)
+        if callable(setter):
+            try:
+                setter(name)
+                return
+            except Exception:
+                pass
+        setattr(widget, "_atlas_form_name", name)
+
+    def _ensure_active_form_visible(self) -> None:
+        stack = getattr(self, "form_stack", None)
+        mode = getattr(self, "_form_container_mode", "stack")
+        if not stack:
+            mode = "box"
+
+        if mode == "stack":
+            setter = getattr(stack, "set_visible_child_name", None)
+            if callable(setter):
+                try:
+                    setter(self._active_form)
+                    return
+                except Exception:
+                    pass
+
+            child = self._forms.get(self._active_form)
+            if child is not None:
+                set_visible_child = getattr(stack, "set_visible_child", None)
+                if callable(set_visible_child):
+                    try:
+                        set_visible_child(child)
+                        return
+                    except Exception:
+                        pass
+
+        elif mode == "notebook":
+            index = self._form_page_indexes.get(self._active_form)
+            if index is not None:
+                set_page = getattr(stack, "set_current_page", None)
+                if callable(set_page):
+                    try:
+                        set_page(index)
+                        return
+                    except Exception:
+                        pass
+
+        for form_name, widget in self._forms.items():
+            self._set_widget_visible(widget, form_name == self._active_form)
 
     def _default_password_requirements(self) -> PasswordRequirements:
         return PasswordRequirements(
@@ -1995,6 +2127,8 @@ class AccountDialog(AtlasWindow):
 
     @staticmethod
     def _set_widget_sensitive(widget, sensitive: bool) -> None:
+        if widget is None:
+            return
         setter = getattr(widget, "set_sensitive", None)
         if callable(setter):
             try:
@@ -2512,37 +2646,51 @@ class AccountDialog(AtlasWindow):
         return False
 
     # ------------------------------------------------------------------
-    # Toggle helpers
+    # Form navigation helpers
     # ------------------------------------------------------------------
     def _show_form(self, name: str) -> None:
-        if name == self._active_form:
-            self._update_toggle_buttons()
+        if name == self._active_form or name not in self._forms:
+            self._ensure_active_form_visible()
             return
 
-        for form_name, widget in self._forms.items():
-            should_show = form_name == name
-            if not self._set_widget_visible(widget, should_show):
-                if should_show:
-                    getattr(widget, "show", lambda: None)()
-                else:
-                    getattr(widget, "hide", lambda: None)()
+        stack = getattr(self, "form_stack", None)
+        mode = getattr(self, "_form_container_mode", "stack")
+        widget = self._forms.get(name)
+
+        if mode == "stack" and stack is not None and widget is not None:
+            setter = getattr(stack, "set_visible_child_name", None)
+            if callable(setter):
+                try:
+                    setter(name)
+                except Exception:
+                    pass
+            else:
+                set_visible_child = getattr(stack, "set_visible_child", None)
+                if callable(set_visible_child):
+                    try:
+                        set_visible_child(widget)
+                    except Exception:
+                        pass
+        elif mode == "notebook" and stack is not None:
+            index = self._form_page_indexes.get(name)
+            if index is not None:
+                set_page = getattr(stack, "set_current_page", None)
+                if callable(set_page):
+                    try:
+                        set_page(index)
+                    except Exception:
+                        pass
+        else:
+            for form_name, child in self._forms.items():
+                should_show = form_name == name
+                if not self._set_widget_visible(child, should_show):
+                    if should_show:
+                        getattr(child, "show", lambda: None)()
+                    else:
+                        getattr(child, "hide", lambda: None)()
 
         self._active_form = name
-        self._update_toggle_buttons()
-
-    def _update_toggle_buttons(self) -> None:
-        login_active = self._active_form == "login"
-        register_active = self._active_form == "register"
-
-        if login_active:
-            self.login_toggle_button.add_css_class("suggested-action")
-        else:
-            self.login_toggle_button.remove_css_class("suggested-action")
-
-        if register_active:
-            self.register_toggle_button.add_css_class("suggested-action")
-        else:
-            self.register_toggle_button.remove_css_class("suggested-action")
+        self._ensure_active_form_visible()
 
     # ------------------------------------------------------------------
     # Login flow
@@ -2620,8 +2768,8 @@ class AccountDialog(AtlasWindow):
         self._set_login_controls_sensitive(controls_sensitive)
 
         shared_sensitive = not busy and not self._forms_busy
-        self._set_widget_sensitive(getattr(self, "login_toggle_button", None), shared_sensitive)
-        self._set_widget_sensitive(getattr(self, "register_toggle_button", None), shared_sensitive)
+        self._set_widget_sensitive(getattr(self, "form_switcher", None), shared_sensitive)
+        self._set_widget_sensitive(getattr(self, "form_stack", None), shared_sensitive)
 
         register_sensitive = shared_sensitive and not self._register_busy
         register_widgets = [

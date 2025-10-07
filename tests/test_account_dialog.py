@@ -284,6 +284,32 @@ def _is_sensitive(widget):
     return getattr(widget, "_sensitive", True)
 
 
+def _get_visible_form(dialog: AccountDialog) -> str:
+    stack = getattr(dialog, "form_stack", None)
+    if stack is not None:
+        get_name = getattr(stack, "get_visible_child_name", None)
+        if callable(get_name):
+            try:
+                name = get_name()
+                if name:
+                    return str(name)
+            except Exception:  # pragma: no cover - fallback for stub widgets
+                pass
+
+        get_child = getattr(stack, "get_visible_child", None)
+        if callable(get_child):
+            try:
+                widget = get_child()
+            except Exception:  # pragma: no cover - fallback for stub widgets
+                widget = None
+            if widget is not None:
+                for form_name, form_widget in dialog._forms.items():
+                    if widget is form_widget:
+                        return form_name
+
+    return dialog._active_form
+
+
 def _expected_age_for_date(dob_str: str, today: _dt.date) -> int:
     dob_date = _dt.date.fromisoformat(dob_str)
     computed = today.year - dob_date.year - (
@@ -292,22 +318,18 @@ def _expected_age_for_date(dob_str: str, today: _dt.date) -> int:
     return max(computed, 0)
 
 
-def test_form_toggle_highlighting():
+def test_form_tab_switching():
     atlas = _AtlasStub()
     dialog = AccountDialog(atlas)
     if atlas.last_factory is not None:
         _drain_background(atlas)
 
-    assert dialog.login_toggle_button.has_css_class("suggested-action")
-    assert not dialog.register_toggle_button.has_css_class("suggested-action")
-
+    assert _get_visible_form(dialog) == "login"
     dialog._show_form("register")
-    assert dialog.register_toggle_button.has_css_class("suggested-action")
-    assert not dialog.login_toggle_button.has_css_class("suggested-action")
+    assert _get_visible_form(dialog) == "register"
 
     dialog._show_form("edit")
-    assert not dialog.login_toggle_button.has_css_class("suggested-action")
-    assert not dialog.register_toggle_button.has_css_class("suggested-action")
+    assert _get_visible_form(dialog) == "edit"
 
 
 def test_password_reset_flow():
@@ -595,8 +617,8 @@ def test_login_busy_disables_other_controls():
         toggle_widgets.extend(dialog._password_toggle_buttons_by_entry.get(entry, []))
 
     widgets = [
-        dialog.login_toggle_button,
-        dialog.register_toggle_button,
+        dialog.form_switcher,
+        dialog.form_stack,
         dialog.register_button,
         dialog.register_username_entry,
         dialog.register_email_entry,
@@ -606,6 +628,7 @@ def test_login_busy_disables_other_controls():
         dialog.register_dob_entry,
         *toggle_widgets,
     ]
+    widgets = [widget for widget in widgets if widget is not None]
 
     dialog.login_username_entry.set_text("alice")
     dialog.login_password_entry.set_text("secret")
