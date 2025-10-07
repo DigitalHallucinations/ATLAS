@@ -22,11 +22,12 @@ from GTKUI.Chat.chat_page import ChatPage
 from GTKUI.Persona_manager.persona_management import PersonaManagement
 from GTKUI.Provider_manager.provider_management import ProviderManagement
 from GTKUI.UserAccounts.account_dialog import AccountDialog
-from GTKUI.Utils.utils import apply_css, create_box
+from GTKUI.Utils.styled_window import AtlasWindow
+from GTKUI.Utils.utils import create_box
 
 logger = logging.getLogger(__name__)
 
-class Sidebar(Gtk.Window):
+class Sidebar(AtlasWindow):
     def __init__(self, atlas):
         """
         Initializes the Sidebar window.
@@ -34,7 +35,7 @@ class Sidebar(Gtk.Window):
         Args:
             atlas: The main ATLAS application instance.
         """
-        super().__init__(title="Sidebar")
+        super().__init__(title="Sidebar", default_size=(80, 600))
         self.ATLAS = atlas
         self.persona_management = PersonaManagement(self.ATLAS, self)
         self.provider_management = ProviderManagement(self.ATLAS, self)
@@ -42,10 +43,7 @@ class Sidebar(Gtk.Window):
         self._account_dialog = None
 
         # Set default window size and style.
-        self.set_default_size(80, 600)
         self.set_decorated(False)
-        self.get_style_context().add_class("sidebar")
-        apply_css()
 
         # Create the main container box.
         self.box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=5, margin=10)

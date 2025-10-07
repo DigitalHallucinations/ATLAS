@@ -24,10 +24,11 @@ import os
 import logging
 from typing import Any, Dict, List, Optional
 
+from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css
 logger = logging.getLogger(__name__)
 
-class SpeechSettings(Gtk.Window):
+class SpeechSettings(AtlasWindow):
     def __init__(self, atlas):
         """
         Initializes the Speech Settings window with a tabbed interface.
@@ -35,19 +36,14 @@ class SpeechSettings(Gtk.Window):
         Args:
             atlas: The main ATLAS application instance.
         """
-        super().__init__(title="Speech Settings")
+        super().__init__(title="Speech Settings", default_size=(500, 800))
         self.ATLAS = atlas
 
         # Paths for custom eye icons (fallbacks to themed symbolic icons if not found)
         self._eye_icon_path = self._abs_icon("../../Icons/eye.png")
         self._eye_off_icon_path = self._abs_icon("../../Icons/eye-off.png")
 
-        # Apply global CSS styling.
-        self.get_style_context().add_class("chat-page")
-        self.get_style_context().add_class("sidebar")
-        apply_css()
-
-        self.set_default_size(500, 800)
+        # Apply global CSS styling via AtlasWindow base class.
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         vbox.set_margin_top(10)
         vbox.set_margin_bottom(10)

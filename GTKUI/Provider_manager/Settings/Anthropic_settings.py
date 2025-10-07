@@ -11,28 +11,26 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib
 
-from GTKUI.Utils.utils import apply_css, create_box
+from GTKUI.Utils.styled_window import AtlasWindow
+from GTKUI.Utils.utils import create_box
 from modules.background_tasks import run_async_in_thread
 
 logger = logging.getLogger(__name__)
 
 
-class AnthropicSettingsWindow(Gtk.Window):
+class AnthropicSettingsWindow(AtlasWindow):
     """Collect Anthropic-specific preferences such as default model and retries."""
 
     def __init__(self, ATLAS, config_manager, parent_window):
-        super().__init__(title="Anthropic Settings")
-        apply_css()
-        style_context = self.get_style_context()
-        style_context.add_class("chat-page")
-        style_context.add_class("sidebar")
+        super().__init__(
+            title="Anthropic Settings",
+            modal=True,
+            transient_for=parent_window,
+            default_size=(480, 360),
+        )
         self.ATLAS = ATLAS
         self.config_manager = config_manager
         self.parent_window = parent_window
-        if parent_window is not None:
-            self.set_transient_for(parent_window)
-        self.set_modal(True)
-        self.set_default_size(480, 360)
 
         self._last_message: Optional[Tuple[str, str, Gtk.MessageType]] = None
 

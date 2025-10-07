@@ -3398,9 +3398,7 @@ def test_anthropic_settings_window_dispatches_updates(provider_manager):
 
 def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypatch):
     monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
-    monkeypatch.setattr(
-        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
-    )
+    monkeypatch.setattr("GTKUI.Utils.styled_window.apply_css", lambda: None)
     monkeypatch.setattr(
         Gtk.Window,
         "get_style_context",
@@ -3636,9 +3634,7 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
 
 def test_mistral_settings_window_saves_api_key(provider_manager, monkeypatch):
     monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
-    monkeypatch.setattr(
-        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
-    )
+    monkeypatch.setattr("GTKUI.Utils.styled_window.apply_css", lambda: None)
     monkeypatch.setattr(
         Gtk.Window,
         "get_style_context",
@@ -3706,9 +3702,7 @@ def test_mistral_settings_window_saves_api_key_with_fallback(
     provider_manager, monkeypatch
 ):
     monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
-    monkeypatch.setattr(
-        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
-    )
+    monkeypatch.setattr("GTKUI.Utils.styled_window.apply_css", lambda: None)
     monkeypatch.setattr(
         Gtk.Window,
         "get_style_context",
@@ -3768,9 +3762,7 @@ def test_mistral_settings_window_refresh_requires_api_key(
     provider_manager, monkeypatch
 ):
     monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
-    monkeypatch.setattr(
-        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
-    )
+    monkeypatch.setattr("GTKUI.Utils.styled_window.apply_css", lambda: None)
     monkeypatch.setattr(
         Gtk.Window,
         "get_style_context",
@@ -3805,9 +3797,7 @@ def test_mistral_settings_window_refresh_requires_api_key(
 
 def test_mistral_settings_window_refresh_updates_models(provider_manager, monkeypatch):
     monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
-    monkeypatch.setattr(
-        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
-    )
+    monkeypatch.setattr("GTKUI.Utils.styled_window.apply_css", lambda: None)
     monkeypatch.setattr(
         Gtk.Window,
         "get_style_context",
@@ -3878,9 +3868,7 @@ def test_mistral_settings_window_refresh_updates_models(provider_manager, monkey
 
 def test_mistral_settings_window_refresh_handles_error(provider_manager, monkeypatch):
     monkeypatch.setattr("GTKUI.Utils.utils.apply_css", lambda: None)
-    monkeypatch.setattr(
-        "GTKUI.Provider_manager.Settings.Mistral_settings.apply_css", lambda: None
-    )
+    monkeypatch.setattr("GTKUI.Utils.styled_window.apply_css", lambda: None)
     monkeypatch.setattr(
         Gtk.Window,
         "get_style_context",

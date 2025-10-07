@@ -25,7 +25,7 @@ from gi.repository import Gtk, Gdk, GLib
 import logging
 from logging.handlers import RotatingFileHandler
 
-from GTKUI.Utils.utils import apply_css
+from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.logging import GTKUILogHandler, read_recent_log_lines
 from modules.Tools.tool_event_system import event_system
 
@@ -33,7 +33,7 @@ from modules.Tools.tool_event_system import event_system
 logger = logging.getLogger(__name__)
 
 
-class ChatPage(Gtk.Window):
+class ChatPage(AtlasWindow):
     """
     ChatPage window for user interaction.
 
@@ -49,16 +49,8 @@ class ChatPage(Gtk.Window):
         Args:
             atlas: The main ATLAS application instance.
         """
-        super().__init__()
+        super().__init__(default_size=(700, 520))
         self.ATLAS = atlas
-        self.set_default_size(700, 520)
-
-        # Apply style classes to match the dark theme of the sidebar.
-        self.get_style_context().add_class("chat-page")
-        self.get_style_context().add_class("sidebar")
-
-        # Apply centralized CSS styling.
-        apply_css()
 
         # --- Header bar with persona title & quick actions ---
         self.header_bar = Gtk.HeaderBar()
