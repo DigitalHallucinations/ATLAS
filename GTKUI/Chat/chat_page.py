@@ -274,13 +274,28 @@ class ChatPage(AtlasWindow):
         self.thinking_expander.set_visible(False)
         self.thinking_expander.set_expanded(False)
 
-        self.thinking_label = Gtk.Label()
-        self.thinking_label.set_wrap(True)
-        self.thinking_label.set_xalign(0.0)
-        self.thinking_label.set_halign(Gtk.Align.START)
-        self.thinking_label.set_valign(Gtk.Align.START)
-        self.thinking_label.add_css_class("monospace")
-        self.thinking_expander.set_child(self.thinking_label)
+        self.thinking_buffer = Gtk.TextBuffer()
+        self.thinking_text_view = Gtk.TextView.new_with_buffer(self.thinking_buffer)
+        self.thinking_text_view.set_editable(False)
+        self.thinking_text_view.set_cursor_visible(False)
+        self.thinking_text_view.set_wrap_mode(self._get_terminal_wrap_mode())
+        if hasattr(self.thinking_text_view, "set_monospace"):
+            self.thinking_text_view.set_monospace(True)
+        self.thinking_text_view.add_css_class("terminal-text")
+        self.thinking_text_view.add_css_class("monospace")
+        self._terminal_section_text_views.append(self.thinking_text_view)
+
+        self.thinking_scrolled = Gtk.ScrolledWindow()
+        self.thinking_scrolled.set_policy(
+            Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC
+        )
+        self.thinking_scrolled.set_min_content_height(110)
+        self.thinking_scrolled.set_child(self.thinking_text_view)
+
+        self.thinking_expander.set_child(self.thinking_scrolled)
+        self._install_terminal_copy_menu(
+            self.thinking_expander, self.thinking_buffer, self.thinking_text_view
+        )
 
         self.terminal_content_box.append(self.thinking_expander)
 
@@ -1688,22 +1703,22 @@ class ChatPage(AtlasWindow):
 
     def _update_terminal_thinking(self, thinking: Optional[str]) -> None:
         expander = getattr(self, "thinking_expander", None)
-        label = getattr(self, "thinking_label", None)
+        buffer = getattr(self, "thinking_buffer", None)
         placeholder = getattr(self, "terminal_placeholder_label", None)
 
-        if expander is None or label is None:
+        if expander is None or buffer is None:
             return
 
         has_thinking = thinking is not None and thinking != ""
         if has_thinking:
-            label.set_text(str(thinking))
+            buffer.set_text(str(thinking))
             expander.set_visible(True)
             if hasattr(expander, "set_expanded"):
                 expander.set_expanded(False)
             if placeholder is not None:
                 placeholder.set_visible(False)
         else:
-            label.set_text("")
+            buffer.set_text("")
             expander.set_visible(False)
             if placeholder is not None:
                 placeholder.set_visible(True)
