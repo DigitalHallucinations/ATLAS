@@ -488,16 +488,23 @@ class ChatPage(AtlasWindow):
         menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         popover.set_child(menu_box)
 
-        copy_button = Gtk.Button(label="Copy")
+        copy_button = Gtk.Button(label="Copy Text")
         copy_button.add_css_class("flat")
         copy_button.set_halign(Gtk.Align.FILL)
         copy_button.set_hexpand(True)
+        copy_button.set_tooltip_text(
+            "Copy selected text, or the entire section if nothing is selected."
+        )
         menu_box.append(copy_button)
 
         def _copy_buffer_to_clipboard(*_args: object) -> None:
             target_buffer = self._terminal_section_buffers_by_widget.get(section_widget, buffer)
-            start_iter = target_buffer.get_start_iter()
-            end_iter = target_buffer.get_end_iter()
+            selection_bounds = target_buffer.get_selection_bounds()
+            if selection_bounds and selection_bounds[0]:
+                _has_selection, start_iter, end_iter = selection_bounds
+            else:
+                start_iter = target_buffer.get_start_iter()
+                end_iter = target_buffer.get_end_iter()
             text = target_buffer.get_text(start_iter, end_iter, True)
             display = text_view.get_display()
             if display is None:
