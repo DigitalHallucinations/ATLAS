@@ -9,6 +9,7 @@ import os
 from .General_Tab.general_tab import GeneralTab
 from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
 from GTKUI.Utils.styled_window import AtlasWindow
+from GTKUI.Utils.utils import apply_css
 
 
 class PersonaManagement:
@@ -41,6 +42,13 @@ class PersonaManagement:
         base = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         return os.path.join(base, rel_path)
 
+    def _style_dialog(self, dialog: Gtk.Dialog) -> None:
+        """Ensure dialogs inherit the app styling and dark theme classes."""
+        apply_css()
+        context = dialog.get_style_context()
+        context.add_class("chat-page")
+        context.add_class("sidebar")
+
     def _handle_persona_message(self, role: str, message: str) -> None:
         """Surface persona manager messages via a modal dialog."""
         if not message:
@@ -65,6 +73,7 @@ class PersonaManagement:
                 buttons=Gtk.ButtonsType.OK,
                 text=title,
             )
+            self._style_dialog(dialog)
             dialog.format_secondary_text(message)
             dialog.connect("response", lambda d, *_: d.destroy())
             dialog.present()
