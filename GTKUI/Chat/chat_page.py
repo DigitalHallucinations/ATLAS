@@ -53,6 +53,20 @@ class _HandlerLevelFilter(logging.Filter):
         return record.levelno >= self._level
 
 
+class _DebugLogButtonUpdateFilter(logging.Filter):
+    """Filter that schedules debug log button state refreshes."""
+
+    def __init__(self, owner: "ChatPage") -> None:
+        super().__init__(name="chat-debug-button-filter")
+        self._owner = owner
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401 - standard API
+        """Always allow the record and queue a button state update."""
+
+        self._owner._queue_debug_log_button_update()
+        return True
+
+
 class ChatPage(AtlasWindow):
     """
     ChatPage window for user interaction.
@@ -316,6 +330,8 @@ class ChatPage(AtlasWindow):
         self._debug_handler_name = f"chat-debug-{id(self)}"
         self._debug_log_path: Optional[Path] = None
         self._debug_controls_updating = False
+        self._debug_log_button_source_id: int = 0
+        self._debug_log_button_filter: Optional[logging.Filter] = None
         self._debug_log_config = self._resolve_debug_log_config()
         self._debug_level_filter: Optional[_HandlerLevelFilter] = None
         self._build_debug_tab()
@@ -988,7 +1004,7 @@ class ChatPage(AtlasWindow):
         else:
             buffer.set_text(read_recent_log_lines(path, limit) or "")
         self._scroll_debug_log_to_end()
-        self._update_debug_log_button()
+        self._ensure_debug_log_button_enabled()
 
     def _resolve_active_log_path(self) -> Optional[Path]:
         atlas_logger = getattr(self.ATLAS, "logger", None)
@@ -1041,7 +1057,7 @@ class ChatPage(AtlasWindow):
     def _attach_debug_log_handler(self) -> None:
         buffer = getattr(self, "debug_log_buffer", None)
         if buffer is None:
-            self._update_debug_log_button()
+            self._ensure_debug_log_button_enabled()
             return
 
         self._detach_debug_log_handler()
@@ -1064,6 +1080,10 @@ class ChatPage(AtlasWindow):
         self._debug_level_filter = _HandlerLevelFilter(level_value)
         handler.addFilter(self._debug_level_filter)
         handler.setFormatter(self._resolve_log_formatter())
+
+        if self._debug_log_button_filter is None:
+            self._debug_log_button_filter = _DebugLogButtonUpdateFilter(self)
+        handler.addFilter(self._debug_log_button_filter)
 
         logger_candidates: List[logging.Logger] = []
         atlas_logger = getattr(self.ATLAS, "logger", None)
@@ -1101,16 +1121,22 @@ class ChatPage(AtlasWindow):
             handler.close()
             self._debug_level_filter = None
 
-        self._update_debug_log_button()
+        self._ensure_debug_log_button_enabled()
 
     def _detach_debug_log_handler(self) -> None:
         handler = self._debug_log_handler
         if handler is None:
+            self._cancel_debug_log_button_update()
             return
 
         for logger_obj in list(self._debug_loggers_attached):
             try:
                 logger_obj.removeHandler(handler)
+            except ValueError:
+                pass
+        if self._debug_log_button_filter is not None:
+            try:
+                handler.removeFilter(self._debug_log_button_filter)
             except ValueError:
                 pass
         if self._debug_level_filter is not None:
@@ -1122,6 +1148,7 @@ class ChatPage(AtlasWindow):
         self._debug_loggers_attached = []
         self._debug_log_handler = None
         self._debug_level_filter = None
+        self._cancel_debug_log_button_update()
 
     def _update_debug_controls(self) -> None:
         if not hasattr(self, "debug_level_combo"):
@@ -1158,6 +1185,50 @@ class ChatPage(AtlasWindow):
                 entry.set_text(", ".join(str(name) for name in names_value))
         finally:
             self._debug_controls_updating = False
+
+    def _queue_debug_log_button_update(self) -> None:
+        source_id = getattr(self, "_debug_log_button_source_id", 0)
+        if source_id:
+            return
+
+        def _on_idle() -> bool:
+            self._debug_log_button_source_id = 0
+            self._ensure_debug_log_button_enabled()
+            return False
+
+        try:
+            source_handle = GLib.idle_add(_on_idle)
+        except Exception:
+            source_handle = 0
+        if source_handle:
+            self._debug_log_button_source_id = int(source_handle)
+        else:
+            _on_idle()
+
+    def _cancel_debug_log_button_update(self) -> None:
+        source_id = getattr(self, "_debug_log_button_source_id", 0)
+        if not source_id:
+            return
+        try:
+            GLib.source_remove(source_id)
+        except Exception:
+            pass
+        self._debug_log_button_source_id = 0
+
+    def _ensure_debug_log_button_enabled(self) -> None:
+        path_value = getattr(self, "_debug_log_path", None)
+        try:
+            path = Path(path_value) if path_value is not None else None
+        except (TypeError, ValueError):
+            path = None
+
+        if path is None or not path.exists():
+            candidate = self._resolve_active_log_path()
+            if candidate is not None and candidate.exists():
+                self._debug_log_path = candidate
+                path = candidate
+
+        self._update_debug_log_button()
 
     def _update_debug_log_button(self) -> None:
         button = getattr(self, "debug_open_log_btn", None)
