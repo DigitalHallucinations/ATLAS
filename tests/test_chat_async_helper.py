@@ -574,7 +574,7 @@ class _StubExpander:
         self.expanded = value
 
 
-class _StubLabel:
+class _StubTextBuffer:
     def __init__(self):
         self.text = ""
 
@@ -741,19 +741,19 @@ def test_chat_page_on_send_message_handles_errors(monkeypatch):
 def test_chat_page_updates_terminal_thinking_section():
     page = ChatPage.__new__(ChatPage)
     page.thinking_expander = _StubExpander()
-    page.thinking_label = _StubLabel()
+    page.thinking_buffer = _StubTextBuffer()
     page.terminal_placeholder_label = _StubPlaceholder()
 
     page._update_terminal_thinking("Chain-of-thought output")
     assert page.thinking_expander.visible is True
     assert page.thinking_expander.expanded is False
-    assert page.thinking_label.text == "Chain-of-thought output"
+    assert page.thinking_buffer.text == "Chain-of-thought output"
     assert page.terminal_placeholder_label.visible is False
 
     page._update_terminal_thinking("")
     assert page.thinking_expander.visible is False
     assert page.terminal_placeholder_label.visible is True
-    assert page.thinking_label.text == ""
+    assert page.thinking_buffer.text == ""
 
 
 def test_chat_page_updates_active_user(monkeypatch):
