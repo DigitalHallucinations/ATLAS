@@ -1627,6 +1627,46 @@ class AccountDialog(AtlasWindow):
         except Exception:  # pragma: no cover - defensive fallback
             return False
 
+    def _style_dialog(self, dialog) -> None:
+        """Apply ATLAS styling to dialogs in a defensive manner."""
+        try:
+            apply_css()
+        except Exception:  # pragma: no cover - styling is best-effort
+            pass
+
+        get_style_context = getattr(dialog, "get_style_context", None)
+        if not callable(get_style_context):
+            return
+
+        try:
+            style_context = get_style_context()
+        except Exception:  # pragma: no cover - widget quirks
+            return
+
+        if style_context is None:
+            return
+
+        for class_name in ("chat-page", "sidebar"):
+            for method_name in ("add_css_class", "add_class"):
+                add_class = getattr(style_context, method_name, None)
+                if callable(add_class):
+                    try:
+                        add_class(class_name)
+                    except Exception:  # pragma: no cover - tolerate stub quirks
+                        pass
+                    else:
+                        break
+
+    def _close_dialog(self) -> None:
+        closer = getattr(self, "close", None)
+        if callable(closer):
+            try:
+                closer()
+                return
+            except Exception:  # pragma: no cover - stub environments may lack close support
+                pass
+        setattr(self, "closed", True)
+
     def _show_fallback_delete_dialog(self, username: str) -> bool:
         message = f'Delete saved account "{username}"?'
 
@@ -1649,6 +1689,7 @@ class AccountDialog(AtlasWindow):
                 if buttons_type is not None:
                     kwargs["buttons"] = buttons_type
                 dialog = message_dialog_cls(**kwargs)
+                self._style_dialog(dialog)
                 setter = getattr(dialog, "set_secondary_text", None)
                 if callable(setter):
                     try:
@@ -1664,6 +1705,7 @@ class AccountDialog(AtlasWindow):
                 return False
             try:
                 dialog = dialog_cls(transient_for=self if isinstance(self, Gtk.Window) else None, modal=True)
+                self._style_dialog(dialog)
             except Exception:
                 return False
             content_area = getattr(dialog, "get_content_area", None)
@@ -2629,7 +2671,7 @@ class AccountDialog(AtlasWindow):
         self._cancel_login_lockout_timer()
         if success:
             self.login_feedback_label.set_text("Signed in successfully.")
-            self.close()
+            self._close_dialog()
         else:
             self.login_feedback_label.set_text("Invalid username/email or password.")
             self._mark_field_invalid(self.login_username_entry)
@@ -3178,7 +3220,7 @@ class AccountDialog(AtlasWindow):
         self.register_feedback_label.set_text(
             f"Account created for {username or 'new user'}." if username else "Account created successfully."
         )
-        self.close()
+        self._close_dialog()
         return False
 
     def _handle_register_error(self, exc: Exception) -> bool:
