@@ -1,237 +1,222 @@
 # GTKUI/sidebar.py
 
-"""
-Sidebar Module
---------------
-This module implements the Sidebar window, which provides quick access to core
-application functionalities including provider management, chat, persona management,
-and settings. A new speech settings icon is added to allow configuration of speech services.
+"""Main application window with navigation sidebar and central workspace."""
 
-Authors: Jeremy Shows - Digital Hallucinations
-Date: 05-11-2025
-"""
+from __future__ import annotations
 
 import os
-import gi
-gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk, GLib
 import logging
+from typing import Callable, Dict
 
-# Import UI components and utility functions.
+import gi
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk, Gdk
+
 from GTKUI.Chat.chat_page import ChatPage
 from GTKUI.Persona_manager.persona_management import PersonaManagement
 from GTKUI.Provider_manager.provider_management import ProviderManagement
+from GTKUI.Settings.Speech.speech_settings import SpeechSettings
 from GTKUI.UserAccounts.account_dialog import AccountDialog
 from GTKUI.Utils.styled_window import AtlasWindow
-from GTKUI.Utils.utils import apply_css, create_box
+from GTKUI.Utils.utils import apply_css
 
 logger = logging.getLogger(__name__)
 
-class Sidebar(AtlasWindow):
-    def __init__(self, atlas):
-        """
-        Initializes the Sidebar window.
 
-        Args:
-            atlas: The main ATLAS application instance.
-        """
-        super().__init__(title="Sidebar", default_size=(80, 600))
+class MainWindow(AtlasWindow):
+    """Top-level Atlas window with a navigation column and notebook workspace."""
+
+    def __init__(self, atlas) -> None:
+        super().__init__(title="ATLAS", default_size=(1200, 800))
         self.ATLAS = atlas
+        self._pages: Dict[str, Gtk.Widget] = {}
+        self._account_dialog: AccountDialog | None = None
+
+        apply_css()
+
         self.persona_management = PersonaManagement(self.ATLAS, self)
         self.provider_management = ProviderManagement(self.ATLAS, self)
-        self._chat_page = None
-        self._account_dialog = None
 
-        # Set default window size and style.
-        self.set_decorated(False)
+        layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        layout.set_hexpand(True)
+        layout.set_vexpand(True)
+        self.set_child(layout)
 
-        # Create the main container box.
-        self.box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=5, margin=10)
-        self.set_child(self.box)
+        self.sidebar = _NavigationSidebar(self)
+        layout.append(self.sidebar)
 
-        # Add primary icons.
-        self.create_icon("Icons/providers.png", self.show_provider_menu, 42, tooltip="Providers")
-        self.create_icon("Icons/history.png", self.handle_history_button, 42, tooltip="History")
-        self.create_icon("Icons/chat.png", self.show_chat_page, 42, tooltip="Chat")
-        self.create_icon("Icons/user.png", self.show_account_dialog, 42, tooltip="Accounts")
-        # Speech settings icon.
-        self.create_icon("Icons/speech.png", self.show_speech_settings, 42, tooltip="Speech Settings")
-        self.create_icon("Icons/agent.png", self.show_persona_menu, 42, tooltip="Personas")
+        separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        layout.append(separator)
 
-        # Add a visual spacer.
-        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        separator.set_margin_top(10)
-        separator.set_margin_bottom(10)
-        self.box.append(separator)
+        self.notebook = Gtk.Notebook()
+        self.notebook.set_hexpand(True)
+        self.notebook.set_vexpand(True)
+        self.notebook.set_scrollable(True)
+        layout.append(self.notebook)
 
-        # Add secondary icons.
-        self.create_icon("Icons/settings.png", self.show_settings_page, 42, tooltip="Settings")
-        self.create_icon("Icons/power_button.png", self.close_application, 42, tooltip="Quit")
+    # ------------------------------------------------------------------
+    # Navigation actions
+    # ------------------------------------------------------------------
+    def show_chat_page(self) -> None:
+        if not self._ensure_initialized():
+            return
 
-    def create_icon(self, icon_path, callback, icon_size, tooltip=None):
-        """
-        Creates and adds an icon widget to the sidebar.
+        def factory() -> Gtk.Widget:
+            return ChatPage(self.ATLAS)
 
-        Args:
-            icon_path (str): Relative path to the icon image.
-            callback (function): Function to call when the icon is clicked.
-            icon_size (int): Desired size for the icon.
-            tooltip (str, optional): Tooltip text for the icon.
-        """
-        def _resolve_path(path):
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            return os.path.abspath(os.path.join(current_dir, "..", path))
+        self._open_or_focus_page("chat", "Chat", factory)
 
-        # Load the texture with a fallback
-        texture = None
-        try:
-            full_icon_path = _resolve_path(icon_path)
-            texture = Gdk.Texture.new_from_filename(full_icon_path)
-        except Exception as e:
-            logger.error(f"Error loading icon '{icon_path}': {e}")
-            try:
-                fallback_icon_path = _resolve_path("Icons/default.png")
-                texture = Gdk.Texture.new_from_filename(fallback_icon_path)
-            except Exception as e2:
-                logger.error(f"Error loading fallback icon: {e2}")
-                texture = None
+    def show_provider_menu(self) -> None:
+        if not self._ensure_initialized():
+            return
 
-        # Picture that displays the icon
-        if texture:
-            picture = Gtk.Picture.new_for_paintable(texture)
-            picture.set_content_fit(Gtk.ContentFit.CONTAIN)
-            picture.set_size_request(icon_size, icon_size)
-        else:
-            picture = Gtk.Image.new_from_icon_name("image-missing")
-            picture.set_size_request(icon_size, icon_size)
+        def factory() -> Gtk.Widget:
+            return self.provider_management.get_embeddable_widget()
 
-        # Wrap the picture in a Button for proper accessibility & keyboard support
-        button = Gtk.Button()
-        button.add_css_class("icon")   # keep existing CSS hover/active behavior
-        button.add_css_class("flat")   # minimal chrome in a sidebar
-        button.set_child(picture)
-        button.set_can_focus(True)
+        self._open_or_focus_page("providers", "Providers", factory)
 
-        if tooltip:
-            button.set_tooltip_text(tooltip)
+    def show_persona_menu(self) -> None:
+        if not self._ensure_initialized():
+            return
 
-        # Accessible role is safe to set in GTK4
-        button.set_accessible_role(Gtk.AccessibleRole.BUTTON)
+        def factory() -> Gtk.Widget:
+            return self.persona_management.get_embeddable_widget()
 
-        button.connect("clicked", lambda _btn: callback())
-        self.box.append(button)
+        self._open_or_focus_page("personas", "Personas", factory)
 
-    def show_provider_menu(self):
-        """
-        Opens the provider selection menu if ATLAS is initialized.
-        """
-        if self.ATLAS.is_initialized():
-            self.provider_management.show_provider_menu()
-        else:
-            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+    def show_speech_settings(self) -> None:
+        if not self._ensure_initialized():
+            return
 
-    def handle_history_button(self):
-        """
-        Triggers the history logging functionality of ATLAS.
-        """
-        if self.ATLAS.is_initialized():
-            self.ATLAS.log_history()
-        else:
-            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+        def factory() -> Gtk.Widget:
+            return SpeechSettings(self.ATLAS)
 
-    def show_chat_page(self):
-        """
-        Opens the chat page.
-        """
-        if self.ATLAS.is_initialized():
-            if self._chat_page is None:
-                chat_page = ChatPage(self.ATLAS)
-                chat_page.connect("close-request", self._on_chat_page_close_request)
-                self._chat_page = chat_page
-            self._chat_page.present()
-        else:
-            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+        self._open_or_focus_page("speech", "Speech", factory)
 
-    def _on_chat_page_close_request(self, *_args):
-        """Reset the tracked chat page reference when the window closes."""
+    def show_settings_page(self) -> None:
+        def factory() -> Gtk.Widget:
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            box.set_margin_top(24)
+            box.set_margin_bottom(24)
+            box.set_margin_start(24)
+            box.set_margin_end(24)
+            label = Gtk.Label(label="Settings workspaces are coming soon.")
+            label.set_wrap(True)
+            label.set_justify(Gtk.Justification.CENTER)
+            box.append(label)
+            return box
 
-        self._chat_page = None
-        return False
+        self._open_or_focus_page("settings", "Settings", factory)
 
-    def show_account_dialog(self):
-        """Open the account management dialog."""
+    def handle_history_button(self) -> None:
+        if not self._ensure_initialized():
+            return
+        self.ATLAS.log_history()
 
-        if not self.ATLAS.is_initialized():
-            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+    def show_account_dialog(self) -> None:
+        if not self._ensure_initialized():
             return
 
         if self._account_dialog is None:
             dialog = AccountDialog(self.ATLAS)
-            dialog.set_transient_for(None)
+            dialog.set_transient_for(self)
             dialog.set_modal(True)
             dialog.connect("close-request", self._on_account_dialog_close_request)
             self._account_dialog = dialog
 
         self._account_dialog.present()
 
-    def _on_account_dialog_close_request(self, *_args):
-        """Clear account dialog tracking once the window closes."""
-
-        self._account_dialog = None
-        return False
-
-    def show_persona_menu(self):
-        """
-        Opens the persona management menu.
-        """
-        if self.ATLAS.is_initialized():
-            self.persona_management.show_persona_menu()
-        else:
-            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
-
-    def show_settings_page(self):
-        """
-        Opens the general settings page.
-        """
-        if self.ATLAS.is_initialized():
-            settings_window = AtlasWindow(title="Settings", default_size=(300, 400))
-            settings_window.set_transient_for(self)
-            settings_window.set_modal(True)
-            vbox = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
-            settings_window.set_child(vbox)
-            label = Gtk.Label(label="Settings Page Content Here")
-            vbox.append(label)
-            settings_window.present()
-        else:
-            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
-
-    def show_speech_settings(self):
-        """
-        Opens the dedicated Speech Settings page for configuring speech services.
-        """
-        if self.ATLAS.is_initialized():
-            from GTKUI.Settings.Speech.speech_settings import SpeechSettings
-            speech_settings_page = SpeechSettings(self.ATLAS)
-            speech_settings_page.present()
-        else:
-            self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
-
-    def close_application(self):
-        """
-        Closes the application by quitting the parent application.
-        """
+    def close_application(self) -> None:
         logger.info("Closing application")
         app = self.get_application()
         if app:
             app.quit()
 
-    def show_error_dialog(self, message):
-        """
-        Displays an error dialog.
+    # ------------------------------------------------------------------
+    # Page management helpers
+    # ------------------------------------------------------------------
+    def _open_or_focus_page(
+        self, page_id: str, title: str, factory: Callable[[], Gtk.Widget]
+    ) -> Gtk.Widget | None:
+        widget = self._pages.get(page_id)
+        if widget is not None:
+            self._focus_page(widget)
+            return widget
 
-        Args:
-            message (str): Error message to display.
-        """
+        try:
+            widget = factory()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Failed to build %s page: %s", page_id, exc, exc_info=True)
+            self.show_error_dialog(str(exc) or f"Unable to open {title} page")
+            return None
+
+        if widget is None:
+            return None
+
+        widget.set_hexpand(True)
+        widget.set_vexpand(True)
+        tab_label = self._create_tab_header(title, page_id)
+        page_index = self.notebook.append_page(widget, tab_label)
+        self.notebook.set_tab_reorderable(widget, True)
+        self.notebook.set_current_page(page_index)
+        self._pages[page_id] = widget
+        return widget
+
+    def _focus_page(self, widget: Gtk.Widget) -> None:
+        page_index = self.notebook.page_num(widget)
+        if page_index != -1:
+            self.notebook.set_current_page(page_index)
+
+    def _close_page(self, page_id: str) -> None:
+        widget = self._pages.pop(page_id, None)
+        if widget is None:
+            return
+        try:
+            self.notebook.remove(widget)
+        except Exception:  # pragma: no cover - fallback for older GTK stubs
+            page_index = self.notebook.page_num(widget)
+            if page_index != -1:
+                self.notebook.remove_page(page_index)
+
+        if page_id == "providers":
+            self.provider_management._provider_page = None
+        elif page_id == "personas":
+            self.persona_management._persona_page = None
+
+    def _create_tab_header(self, title: str, page_id: str) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        box.set_margin_top(4)
+        box.set_margin_bottom(4)
+        box.set_margin_start(8)
+        box.set_margin_end(4)
+
+        label = Gtk.Label(label=title)
+        label.set_xalign(0.0)
+        label.set_yalign(0.5)
+        box.append(label)
+
+        close_btn = Gtk.Button()
+        close_btn.add_css_class("flat")
+        close_btn.set_tooltip_text(f"Close {title} tab")
+        icon = Gtk.Image.new_from_icon_name("window-close")
+        icon.set_pixel_size(12)
+        close_btn.set_child(icon)
+        close_btn.connect("clicked", lambda _btn: self._close_page(page_id))
+        box.append(close_btn)
+
+        return box
+
+    def _ensure_initialized(self) -> bool:
+        if self.ATLAS.is_initialized():
+            return True
+        self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
+        return False
+
+    # ------------------------------------------------------------------
+    # Dialog helpers
+    # ------------------------------------------------------------------
+    def show_error_dialog(self, message: str) -> None:
         dialog = Gtk.MessageDialog(
             transient_for=self,
             modal=True,
@@ -244,11 +229,14 @@ class Sidebar(AtlasWindow):
         dialog.connect("response", lambda d, r: d.destroy())
         dialog.present()
 
-    def _apply_shared_styles(self, widget):
-        """Apply the shared ATLAS styling to the provided widget."""
+    def _on_account_dialog_close_request(self, *_args):
+        self._account_dialog = None
+        return False
+
+    def _apply_shared_styles(self, widget: Gtk.Widget) -> None:
         try:
             apply_css()
-        except Exception:  # pragma: no cover - styling is best-effort in tests
+        except Exception:  # pragma: no cover
             pass
 
         get_context = getattr(widget, "get_style_context", None)
@@ -262,6 +250,75 @@ class Sidebar(AtlasWindow):
         for css_class in ("chat-page", "sidebar"):
             try:
                 context.add_class(css_class)
-            except Exception:  # pragma: no cover - GTK stubs in unit tests
+            except Exception:
                 continue
 
+
+class _NavigationSidebar(Gtk.Box):
+    """Vertical navigation used along the left edge of the main window."""
+
+    ICON_SIZE = 42
+
+    def __init__(self, main_window: MainWindow) -> None:
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        self.main_window = main_window
+        self.ATLAS = main_window.ATLAS
+        self.persona_management = main_window.persona_management
+        self.provider_management = main_window.provider_management
+
+        self.set_margin_top(10)
+        self.set_margin_bottom(10)
+        self.set_margin_start(10)
+        self.set_margin_end(10)
+        self.set_valign(Gtk.Align.FILL)
+        self.set_size_request(96, -1)
+
+        self._create_icon("Icons/providers.png", self.main_window.show_provider_menu, "Providers")
+        self._create_icon("Icons/history.png", self.main_window.handle_history_button, "History")
+        self._create_icon("Icons/chat.png", self.main_window.show_chat_page, "Chat")
+        self._create_icon("Icons/user.png", self.main_window.show_account_dialog, "Accounts")
+        self._create_icon("Icons/speech.png", self.main_window.show_speech_settings, "Speech Settings")
+        self._create_icon("Icons/agent.png", self.main_window.show_persona_menu, "Personas")
+
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        separator.set_margin_top(10)
+        separator.set_margin_bottom(10)
+        self.append(separator)
+
+        self._create_icon("Icons/settings.png", self.main_window.show_settings_page, "Settings")
+        self._create_icon("Icons/power_button.png", self.main_window.close_application, "Quit")
+
+    # ------------------------------------------------------------------
+    def _create_icon(self, icon_path: str, callback: Callable[[], None], tooltip: str | None = None) -> None:
+        button = Gtk.Button()
+        button.add_css_class("icon")
+        button.add_css_class("flat")
+        button.set_can_focus(True)
+        button.set_tooltip_text(tooltip)
+
+        picture = self._load_icon_texture(icon_path)
+        button.set_child(picture)
+        button.connect("clicked", lambda _btn: callback())
+        self.append(button)
+
+    def _load_icon_texture(self, relative_path: str) -> Gtk.Widget:
+        def _resolve_path(path: str) -> str:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            return os.path.abspath(os.path.join(current_dir, "..", path))
+
+        try:
+            full_path = _resolve_path(relative_path)
+            texture = Gdk.Texture.new_from_filename(full_path)
+            picture = Gtk.Picture.new_for_paintable(texture)
+            picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+            picture.set_size_request(self.ICON_SIZE, self.ICON_SIZE)
+            return picture
+        except Exception as exc:
+            logger.error("Error loading icon '%s': %s", relative_path, exc)
+            fallback = Gtk.Image.new_from_icon_name("image-missing")
+            fallback.set_size_request(self.ICON_SIZE, self.ICON_SIZE)
+            return fallback
+
+
+# Backwards compatibility for imports expecting ``Sidebar``
+Sidebar = MainWindow

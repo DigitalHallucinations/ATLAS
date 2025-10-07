@@ -24,11 +24,10 @@ import os
 import logging
 from typing import Any, Dict, List, Optional
 
-from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css
 logger = logging.getLogger(__name__)
 
-class SpeechSettings(AtlasWindow):
+class SpeechSettings(Gtk.Box):
     def __init__(self, atlas):
         """
         Initializes the Speech Settings window with a tabbed interface.
@@ -36,25 +35,24 @@ class SpeechSettings(AtlasWindow):
         Args:
             atlas: The main ATLAS application instance.
         """
-        super().__init__(title="Speech Settings", default_size=(500, 800))
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.ATLAS = atlas
 
         # Paths for custom eye icons (fallbacks to themed symbolic icons if not found)
         self._eye_icon_path = self._abs_icon("../../Icons/eye.png")
         self._eye_off_icon_path = self._abs_icon("../../Icons/eye-off.png")
 
-        # Apply global CSS styling via AtlasWindow base class.
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        vbox.set_margin_top(10)
-        vbox.set_margin_bottom(10)
-        vbox.set_margin_start(10)
-        vbox.set_margin_end(10)
-        self.set_child(vbox)
+        self.set_margin_top(10)
+        self.set_margin_bottom(10)
+        self.set_margin_start(10)
+        self.set_margin_end(10)
+
+        apply_css()
 
         # Notebook for tabs.
         self.notebook = Gtk.Notebook()
         self.notebook.get_style_context().add_class("sidebar-notebook")
-        vbox.append(self.notebook)
+        self.append(self.notebook)
 
         # Keep track of unsaved changes per tab using tab indices.
         self.tab_dirty = {}  # e.g. {0: False, 1: False, ...}
@@ -81,17 +79,19 @@ class SpeechSettings(AtlasWindow):
         file_upload_box.append(upload_label)
         file_upload_box.append(self.file_upload_button)
         file_upload_box.append(self.selected_file_label)
-        vbox.append(file_upload_box)
+        self.append(file_upload_box)
 
         # Transcription History button.
         history_button = Gtk.Button(label="View Transcription History")
         history_button.set_tooltip_text("Open a quick log of past transcriptions.")
         history_button.connect("clicked", self.show_history)
-        vbox.append(history_button)
-
-        self.present()
+        self.append(history_button)
 
     # ----------------------- Helpers -----------------------
+
+    def _parent_window(self) -> Gtk.Window | None:
+        root = self.get_root()
+        return root if isinstance(root, Gtk.Window) else None
 
     def _abs_icon(self, relative_path: str) -> str:
         """Resolve absolute path for an icon relative to this file."""
@@ -174,7 +174,7 @@ class SpeechSettings(AtlasWindow):
 
     def _show_message(self, title: str, message: str, message_type: Gtk.MessageType = Gtk.MessageType.INFO):
         dialog = Gtk.MessageDialog(
-            transient_for=self,
+            transient_for=self._parent_window(),
             modal=True,
             message_type=message_type,
             buttons=Gtk.ButtonsType.OK,
@@ -256,7 +256,7 @@ class SpeechSettings(AtlasWindow):
         old_index = self.current_page_index
         if self.tab_dirty.get(old_index, False):
             dialog = Gtk.MessageDialog(
-                transient_for=self,
+                transient_for=self._parent_window(),
                 modal=True,
                 message_type=Gtk.MessageType.WARNING,
                 buttons=Gtk.ButtonsType.NONE,
@@ -628,7 +628,7 @@ class SpeechSettings(AtlasWindow):
             dialog = Gtk.FileChooserNative(
                 title="Select Google Credentials JSON",
                 action=Gtk.FileChooserAction.OPEN,
-                transient_for=self
+                transient_for=self._parent_window()
             )
             # Filter for .json files
             json_filter = Gtk.FileFilter()
@@ -1089,7 +1089,7 @@ class SpeechSettings(AtlasWindow):
         dialog = Gtk.FileChooserNative(
             title="Select Audio File",
             action=Gtk.FileChooserAction.OPEN,
-            transient_for=self
+            transient_for=self._parent_window()
         )
         audio_filter = self._create_audio_filter()
         dialog.add_filter(audio_filter)
@@ -1103,7 +1103,7 @@ class SpeechSettings(AtlasWindow):
     def show_history(self, widget):
         history = self.ATLAS.get_transcription_history(formatted=True)
         dialog = Gtk.MessageDialog(
-            transient_for=self,
+            transient_for=self._parent_window(),
             flags=0,
             message_type=Gtk.MessageType.INFO,
             buttons=Gtk.ButtonsType.OK,

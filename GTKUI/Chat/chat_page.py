@@ -27,7 +27,6 @@ from gi.repository import Gtk, Gdk, GLib
 import logging
 from logging.handlers import RotatingFileHandler
 
-from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.logging import GTKUILogHandler, read_recent_log_lines
 from modules.Tools.tool_event_system import event_system
 
@@ -69,7 +68,7 @@ class _DebugLogButtonUpdateFilter(logging.Filter):
         return True
 
 
-class ChatPage(AtlasWindow):
+class ChatPage(Gtk.Box):
     """
     ChatPage window for user interaction.
 
@@ -85,12 +84,13 @@ class ChatPage(AtlasWindow):
         Args:
             atlas: The main ATLAS application instance.
         """
-        super().__init__(default_size=(700, 520))
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.ATLAS = atlas
 
         # --- Header bar with persona title & quick actions ---
         self.header_bar = Gtk.HeaderBar()
-        self.set_titlebar(self.header_bar)
+        self.header_bar.add_css_class("flat")
+        self.append(self.header_bar)
 
         # Persona title and active user labels inside header
         self.header_title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -126,7 +126,9 @@ class ChatPage(AtlasWindow):
 
         # Main vertical container.
         self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.set_child(self.vbox)
+        self.vbox.set_hexpand(True)
+        self.vbox.set_vexpand(True)
+        self.append(self.vbox)
 
         # Update window title with the current persona's name.
         self.update_persona_label()
@@ -375,7 +377,6 @@ class ChatPage(AtlasWindow):
         self._register_active_user_listener()
         self._register_persona_change_listener()
         self._register_tool_activity_listener()
-        self.connect("close-request", self._on_close_request)
 
         self.awaiting_response = False
         self._audio_output_dir = Path.home() / ".atlas" / "audio_responses"
@@ -386,8 +387,6 @@ class ChatPage(AtlasWindow):
             self._audio_output_dir = Path.home()
         self._export_dialog = None
         self._initialize_debug_logging()
-
-        self.present()
 
     # --------------------------- Utilities ---------------------------
 
@@ -1168,27 +1167,35 @@ class ChatPage(AtlasWindow):
         self._ensure_debug_log_button_enabled()
 
     def _detach_debug_log_handler(self) -> None:
-        handler = self._debug_log_handler
+        handler = getattr(self, "_debug_log_handler", None)
         if handler is None:
             self._cancel_debug_log_button_update()
             return
+
+        attached = getattr(self, "_debug_loggers_attached", [])
+        if not isinstance(attached, list):
+            attached = []
+        self._debug_loggers_attached = attached
 
         for logger_obj in list(self._debug_loggers_attached):
             try:
                 logger_obj.removeHandler(handler)
             except ValueError:
                 pass
-        if self._debug_log_button_filter is not None:
+        button_filter = getattr(self, "_debug_log_button_filter", None)
+        if button_filter is not None and hasattr(handler, "removeFilter"):
             try:
-                handler.removeFilter(self._debug_log_button_filter)
+                handler.removeFilter(button_filter)
             except ValueError:
                 pass
-        if self._debug_level_filter is not None:
+        level_filter = getattr(self, "_debug_level_filter", None)
+        if level_filter is not None and hasattr(handler, "removeFilter"):
             try:
-                handler.removeFilter(self._debug_level_filter)
+                handler.removeFilter(level_filter)
             except ValueError:
                 pass
-        handler.close()
+        if hasattr(handler, "close"):
+            handler.close()
         self._debug_loggers_attached = []
         self._debug_log_handler = None
         self._debug_level_filter = None

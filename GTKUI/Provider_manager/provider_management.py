@@ -33,6 +33,7 @@ class ProviderManagement:
         self.ATLAS = ATLAS
         self.parent_window = parent_window
         self.provider_window = None
+        self._provider_page = None
         self.config_manager = self.ATLAS.config_manager
         self.logger = logging.getLogger(__name__)
 
@@ -64,6 +65,63 @@ class ProviderManagement:
 
     # ------------------------ Provider Menu ------------------------
 
+    def _build_provider_list_widget(self) -> Gtk.Widget:
+        """Create the reusable widget listing available providers."""
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+
+        box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
+        box.set_tooltip_text("Available providers registered in ATLAS.")
+        box.set_valign(Gtk.Align.START)
+        scrolled.set_child(box)
+
+        provider_names = self.ATLAS.get_available_providers()
+
+        for provider_name in provider_names:
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+
+            # Create and configure the provider label.
+            label = Gtk.Button()
+            label.add_css_class("flat")
+            label.set_halign(Gtk.Align.FILL)
+            label.set_hexpand(True)
+            label.set_tooltip_text(f"Select {provider_name} as the active provider")
+            inner_label = Gtk.Label(label=provider_name)
+            inner_label.set_xalign(0.0)
+            inner_label.set_yalign(0.5)
+            inner_label.get_style_context().add_class("provider-label")
+            inner_label.set_halign(Gtk.Align.START)
+            inner_label.set_hexpand(True)
+            label.set_child(inner_label)
+
+            label.connect("clicked", lambda _btn, provider_name=provider_name: self.select_provider(provider_name))
+
+            settings_icon_path = self._abs_icon("Icons/settings.png")
+            settings_widget = self._load_icon_picture(settings_icon_path, "emblem-system-symbolic", 16)
+            settings_widget.set_tooltip_text(f"Open {provider_name} settings (API keys, options).")
+
+            settings_btn = Gtk.Button()
+            settings_btn.add_css_class("flat")
+            settings_btn.set_child(settings_widget)
+            settings_btn.connect(
+                "clicked",
+                lambda _btn, provider_name=provider_name: self.open_provider_settings(provider_name),
+            )
+
+            hbox.append(label)
+            hbox.append(settings_btn)
+            box.append(hbox)
+
+        return scrolled
+
+    def get_embeddable_widget(self) -> Gtk.Widget:
+        """Return a reusable provider management widget for embedding."""
+        if self._provider_page is None:
+            self._provider_page = self._build_provider_list_widget()
+        return self._provider_page
+
     def show_provider_menu(self):
         """
         Displays the provider selection window, listing all available providers.
@@ -77,53 +135,7 @@ class ProviderManagement:
         )
         self.provider_window.set_tooltip_text("Choose a default LLM provider or open its settings.")
 
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_hexpand(True)
-        scrolled.set_vexpand(True)
-        self.provider_window.set_child(scrolled)
-
-        box = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
-        box.set_tooltip_text("Available providers registered in ATLAS.")
-        box.set_valign(Gtk.Align.START)
-        scrolled.set_child(box)
-
-        provider_names = self.ATLAS.get_available_providers()
-
-        for provider_name in provider_names:
-            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-
-            # Create and configure the provider label.
-            label = Gtk.Label(label=provider_name)
-            label.set_xalign(0.0)
-            label.set_yalign(0.5)
-            label.get_style_context().add_class("provider-label")
-            label.set_tooltip_text(f"Click to select {provider_name} as the active provider.")
-
-            # Attach a click gesture to the label for provider selection.
-            label_click = Gtk.GestureClick.new()
-            label_click.connect(
-                "released",
-                lambda gesture, n_press, x, y, provider_name=provider_name: self.select_provider(provider_name)
-            )
-            label.add_controller(label_click)
-
-            # Settings icon (file -> themed fallback).
-            settings_icon_path = self._abs_icon("Icons/settings.png")
-            settings_widget = self._load_icon_picture(settings_icon_path, "emblem-system-symbolic", 16)
-            settings_widget.set_tooltip_text(f"Open {provider_name} settings (API keys, options).")
-
-            settings_click = Gtk.GestureClick.new()
-            settings_click.connect(
-                "released",
-                lambda gesture, n_press, x, y, provider_name=provider_name: self.open_provider_settings(provider_name)
-            )
-            settings_widget.add_controller(settings_click)
-
-            hbox.append(label)
-            hbox.append(settings_widget)
-            box.append(hbox)
-
+        self.provider_window.set_child(self._build_provider_list_widget())
         self.provider_window.present()
 
     def select_provider(self, provider: str):
