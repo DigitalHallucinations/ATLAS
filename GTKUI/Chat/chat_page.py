@@ -890,7 +890,8 @@ class ChatPage(Gtk.Window):
             max_lines=int(self._debug_log_config.get("max_lines", 2000)),
         )
         handler.set_name(self._debug_handler_name)
-        handler.setLevel(int(self._debug_log_config.get("level", logging.INFO)))
+        level_value = int(self._debug_log_config.get("level", logging.INFO))
+        handler.setLevel(level_value)
         handler.setFormatter(self._resolve_log_formatter())
 
         logger_candidates: List[logging.Logger] = []
@@ -926,6 +927,11 @@ class ChatPage(Gtk.Window):
         if attached:
             self._debug_log_handler = handler
             self._debug_loggers_attached = attached
+            for logger_obj in attached:
+                try:
+                    logger_obj.setLevel(level_value)
+                except Exception:
+                    continue
         else:
             handler.close()
 
@@ -1009,6 +1015,29 @@ class ChatPage(Gtk.Window):
         self._debug_log_config["level"] = level_value
         if self._debug_log_handler is not None:
             self._debug_log_handler.setLevel(level_value)
+        for logger_obj in list(self._debug_loggers_attached):
+            try:
+                logger_obj.setLevel(level_value)
+            except Exception:
+                continue
+
+        manager = getattr(self.ATLAS, "config_manager", None)
+        if manager is not None:
+            persisted_value: object = logging.getLevelName(level_value)
+            if isinstance(persisted_value, int):
+                persisted_value = level_value
+            if isinstance(getattr(manager, "config", None), dict):
+                manager.config["UI_DEBUG_LOG_LEVEL"] = persisted_value
+            if isinstance(getattr(manager, "yaml_config", None), dict):
+                manager.yaml_config["UI_DEBUG_LOG_LEVEL"] = persisted_value
+            writer = getattr(manager, "_write_yaml_config", None)
+            if callable(writer):
+                try:
+                    writer()
+                except Exception:
+                    logger.warning(
+                        "Failed to persist UI debug log level", exc_info=True
+                    )
 
     def _on_debug_retention_changed(self, spin: Gtk.SpinButton):
         if self._debug_controls_updating:
