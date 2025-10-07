@@ -975,7 +975,7 @@ class ChatPage(AtlasWindow):
         self.debug_logger_entry.set_text(logger_names_text)
         self.debug_logger_entry.set_tooltip_text("Comma-separated logger names to mirror in the UI debug console")
         self.debug_logger_entry.connect("activate", self._on_debug_logger_names_committed)
-        self.debug_logger_entry.connect("focus-out-event", self._on_debug_logger_names_committed)
+        self.debug_logger_entry.connect("focus-out", self._on_debug_logger_names_committed)
         controls.append(self.debug_logger_entry)
 
         retention_label = Gtk.Label(label="Max lines:")
