@@ -20,7 +20,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gdk, GLib
 
 from GTKUI.Utils.styled_window import AtlasWindow
-from GTKUI.Utils.utils import create_box
+from GTKUI.Utils.utils import apply_css, create_box
 
 
 logger = logging.getLogger(__name__)
@@ -1304,12 +1304,13 @@ class HuggingFaceSettingsWindow(AtlasWindow):
             bool: True if the user selects Yes, False otherwise.
         """
         dialog = Gtk.MessageDialog(
-            transient_for=self.parent_window, 
+            transient_for=self.parent_window,
             modal=True,
             message_type=Gtk.MessageType.QUESTION,
             buttons=Gtk.ButtonsType.YES_NO,
             text=message,
         )
+        self._style_dialog(dialog)
         response = dialog.run()
         dialog.destroy()
         return response == Gtk.ResponseType.YES
@@ -1324,12 +1325,34 @@ class HuggingFaceSettingsWindow(AtlasWindow):
             message_type (Gtk.MessageType): The type of the message (INFO, ERROR, etc.).
         """
         dialog = Gtk.MessageDialog(
-            transient_for=self.parent_window,  
+            transient_for=self.parent_window,
             modal=True,
             message_type=message_type,
             buttons=Gtk.ButtonsType.OK
         )
+        self._style_dialog(dialog)
         dialog.text = title
         dialog.secondary_text = message
         dialog.connect("response", lambda dialog, response: dialog.destroy())
         dialog.present()
+
+    def _style_dialog(self, dialog: Gtk.Widget) -> None:
+        try:
+            apply_css()
+        except Exception:  # pragma: no cover - defensive styling fallback
+            logger.debug("Unable to apply CSS styling to Hugging Face dialog.")
+
+        get_style_context = getattr(dialog, "get_style_context", None)
+        if callable(get_style_context):
+            try:
+                style_context = get_style_context()
+            except Exception:  # pragma: no cover - stub fallback
+                style_context = None
+            if style_context is not None:
+                add_class = getattr(style_context, "add_class", None)
+                if callable(add_class):
+                    for css_class in ("chat-page", "sidebar"):
+                        try:
+                            add_class(css_class)
+                        except Exception:  # pragma: no cover - ignore styling issues
+                            continue
