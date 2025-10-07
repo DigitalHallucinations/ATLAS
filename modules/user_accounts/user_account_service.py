@@ -124,6 +124,11 @@ class UserAccountService:
             900,
         )
 
+        self._stale_account_threshold_days = self._resolve_lockout_setting(
+            "ACCOUNT_STALE_THRESHOLD_DAYS",
+            90,
+        )
+
         self._login_history_limit = 10
         self._failed_attempts: Dict[str, List[_dt.datetime]] = {}
         self._active_lockouts: Dict[str, _dt.datetime] = {}
@@ -616,7 +621,109 @@ class UserAccountService:
     def _rows_to_mappings(self, rows: Iterable[Iterable[object]]) -> List[Dict[str, object]]:
         accounts = [self._row_to_account(row) for row in rows]
         accounts.sort(key=lambda account: account.username.lower())
-        return [self._account_to_mapping(account) for account in accounts]
+
+        now = self._current_time()
+        active_username = self.get_active_user()
+        locked_usernames = self._locked_usernames(now)
+
+        mappings: List[Dict[str, object]] = []
+        for account in accounts:
+            mapping = self._account_to_mapping(account)
+            metadata = self._augment_account_metadata(
+                mapping,
+                account,
+                active_username,
+                locked_usernames,
+                now,
+            )
+            mappings.append(metadata)
+
+        return mappings
+
+    def _augment_account_metadata(
+        self,
+        mapping: Dict[str, object],
+        account: "UserAccount",
+        active_username: Optional[str],
+        locked_usernames: Iterable[str],
+        now: Optional[_dt.datetime] = None,
+    ) -> Dict[str, object]:
+        enriched = dict(mapping)
+
+        if now is None:
+            now = self._current_time()
+
+        enriched["is_active"] = bool(
+            active_username and account.username.lower() == active_username.lower()
+        )
+
+        locked_set = {username.lower() for username in locked_usernames}
+        enriched["is_locked"] = account.username.lower() in locked_set
+
+        parsed_last_login = self._parse_timestamp(account.last_login)
+        if parsed_last_login is not None and parsed_last_login > now:
+            parsed_last_login = now
+
+        last_login_age_days: Optional[float] = None
+        if parsed_last_login is not None:
+            last_login_age_days = max(
+                (now - parsed_last_login).total_seconds() / 86400.0,
+                0.0,
+            )
+        enriched["last_login_age_days"] = last_login_age_days
+
+        enriched["status_badge"] = self._derive_status_badge(
+            enriched,
+            parsed_last_login,
+        )
+
+        return enriched
+
+    def _derive_status_badge(
+        self,
+        mapping: Dict[str, object],
+        last_login: Optional[_dt.datetime],
+    ) -> str:
+        if mapping.get("is_locked"):
+            return "Locked"
+
+        if mapping.get("is_active"):
+            return "Active"
+
+        if last_login is None:
+            return "Never signed in"
+
+        threshold_days = max(int(self._stale_account_threshold_days or 0), 0)
+        if threshold_days:
+            threshold = last_login + _dt.timedelta(days=threshold_days)
+            now = self._current_time()
+            if now >= threshold:
+                return f"Inactive {threshold_days}+ days"
+
+        return ""
+
+    def _locked_usernames(self, now: Optional[_dt.datetime] = None) -> List[str]:
+        if now is None:
+            now = self._current_time()
+
+        active: List[str] = []
+        expired: List[str] = []
+
+        with self._lockout_lock:
+            for username, lockout_until in list(self._active_lockouts.items()):
+                if lockout_until is None:
+                    continue
+                if now >= lockout_until:
+                    expired.append(username)
+                else:
+                    active.append(username)
+
+            for username in expired:
+                self._failed_attempts.pop(username, None)
+                self._active_lockouts.pop(username, None)
+                self._persist_lockout_state_locked(username)
+
+        return active
 
     def _validate_email(self, email: str) -> str:
         if not isinstance(email, str):
@@ -1022,6 +1129,61 @@ class UserAccountService:
         )
         mapping["login_attempts"] = attempts
         return mapping
+
+    def get_user_overview(self) -> Dict[str, object]:
+        """Return aggregated statistics describing stored user accounts."""
+
+        rows = self._database.get_all_users() or []
+        total_accounts = len(rows)
+
+        now = self._current_time()
+        locked_usernames = set(self._locked_usernames(now))
+        stale_threshold_days = max(int(self._stale_account_threshold_days or 0), 0)
+        stale_delta = _dt.timedelta(days=stale_threshold_days) if stale_threshold_days else None
+
+        active_username = self.get_active_user()
+        active_display_name = ""
+
+        never_signed_in = 0
+        stale_accounts = 0
+        most_recent_login: Optional[_dt.datetime] = None
+        most_recent_username: Optional[str] = None
+
+        for row in rows:
+            account = self._row_to_account(row)
+            mapping = self._account_to_mapping(account)
+
+            if active_username and account.username.lower() == active_username.lower():
+                active_display_name = str(mapping.get("display_name") or account.username)
+
+            parsed_last_login = self._parse_timestamp(account.last_login)
+            if parsed_last_login is None:
+                never_signed_in += 1
+            else:
+                if stale_delta is not None and now - parsed_last_login >= stale_delta:
+                    stale_accounts += 1
+
+                if most_recent_login is None or parsed_last_login > most_recent_login:
+                    most_recent_login = parsed_last_login
+                    most_recent_username = account.username
+
+        overview: Dict[str, object] = {
+            "total_accounts": total_accounts,
+            "active_username": active_username or "",
+            "active_display_name": active_display_name or active_username or "",
+            "locked_accounts": len(locked_usernames),
+            "stale_accounts": stale_accounts,
+            "never_signed_in": never_signed_in,
+        }
+
+        if most_recent_login is not None:
+            overview["latest_sign_in_username"] = most_recent_username
+            overview["latest_sign_in_at"] = self._format_timestamp(most_recent_login)
+        else:
+            overview["latest_sign_in_username"] = None
+            overview["latest_sign_in_at"] = None
+
+        return overview
 
     @staticmethod
     def _current_timestamp() -> str:
