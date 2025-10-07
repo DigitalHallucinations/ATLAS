@@ -2576,6 +2576,29 @@ class ConfigManager:
         # Optionally, write back to config.yaml if persistence is required
         self._write_yaml_config()
 
+    def set_ui_debug_log_max_lines(self, max_lines: Optional[int]) -> Optional[int]:
+        """Persist the maximum number of UI debug log lines retained."""
+
+        normalized: Optional[int]
+        if max_lines is None:
+            normalized = None
+        else:
+            try:
+                normalized = int(max_lines)
+            except (TypeError, ValueError):
+                normalized = None
+
+        if normalized is not None:
+            normalized = max(100, normalized)
+            self.yaml_config['UI_DEBUG_LOG_MAX_LINES'] = normalized
+            self.config['UI_DEBUG_LOG_MAX_LINES'] = normalized
+        else:
+            self.yaml_config.pop('UI_DEBUG_LOG_MAX_LINES', None)
+            self.config.pop('UI_DEBUG_LOG_MAX_LINES', None)
+
+        self._write_yaml_config()
+        return normalized
+
     def set_ui_debug_logger_names(self, logger_names: Optional[Sequence[str]]) -> List[str]:
         """Persist the list of logger names mirrored in the UI debug console."""
 
