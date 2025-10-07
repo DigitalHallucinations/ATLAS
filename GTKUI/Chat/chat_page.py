@@ -205,13 +205,15 @@ class ChatPage(AtlasWindow):
         self.notebook.append_page(self.chat_tab_box, chat_label)
 
         # --- Terminal tab with persona context ---
-        self.terminal_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.terminal_tab_box.set_hexpand(True)
-        self.terminal_tab_box.set_vexpand(True)
-        self.terminal_tab_box.set_margin_top(6)
-        self.terminal_tab_box.set_margin_bottom(6)
-        self.terminal_tab_box.set_margin_start(6)
-        self.terminal_tab_box.set_margin_end(6)
+        self.terminal_tab_container = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=6
+        )
+        self.terminal_tab_container.set_hexpand(True)
+        self.terminal_tab_container.set_vexpand(True)
+        self.terminal_tab_container.set_margin_top(6)
+        self.terminal_tab_container.set_margin_bottom(6)
+        self.terminal_tab_container.set_margin_start(6)
+        self.terminal_tab_container.set_margin_end(6)
 
         terminal_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         terminal_header.set_hexpand(True)
@@ -232,7 +234,7 @@ class ChatPage(AtlasWindow):
         self.terminal_wrap_toggle.connect("toggled", self._on_terminal_wrap_toggled)
         terminal_header.append(self.terminal_wrap_toggle)
 
-        self.terminal_tab_box.append(terminal_header)
+        self.terminal_tab_container.append(terminal_header)
 
         self.terminal_scrolled = Gtk.ScrolledWindow()
         self.terminal_scrolled.set_policy(
@@ -240,6 +242,15 @@ class ChatPage(AtlasWindow):
         )
         self.terminal_scrolled.set_hexpand(True)
         self.terminal_scrolled.set_vexpand(True)
+        self.terminal_tab_container.append(self.terminal_scrolled)
+
+        self.terminal_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.terminal_tab_box.set_margin_top(6)
+        self.terminal_tab_box.set_margin_bottom(6)
+        self.terminal_tab_box.set_margin_start(6)
+        self.terminal_tab_box.set_margin_end(6)
+        self.terminal_tab_box.set_hexpand(True)
+        self.terminal_tab_box.set_vexpand(True)
         self.terminal_scrolled.set_child(self.terminal_tab_box)
         self._terminal_sections: Dict[str, Gtk.TextBuffer] = {}
         self._terminal_section_buffers_by_widget: Dict[Gtk.Widget, Gtk.TextBuffer] = {}
@@ -248,7 +259,7 @@ class ChatPage(AtlasWindow):
         self._build_terminal_tab()
         terminal_label = Gtk.Label(label="Terminal")
         terminal_label.add_css_class("caption")
-        self.notebook.append_page(self.terminal_scrolled, terminal_label)
+        self.notebook.append_page(self.terminal_tab_container, terminal_label)
 
         self.terminal_content_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=6
