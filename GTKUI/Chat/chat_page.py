@@ -976,12 +976,7 @@ class ChatPage(AtlasWindow):
         self.debug_logger_entry.set_tooltip_text("Comma-separated logger names to mirror in the UI debug console")
         self.debug_logger_entry.connect("activate", self._on_debug_logger_names_committed)
         focus_controller = Gtk.EventControllerFocus()
-        focus_controller.connect(
-            "leave",
-            lambda _controller, *_args: self._on_debug_logger_names_committed(
-                self.debug_logger_entry
-            ),
-        )
+        focus_controller.connect("leave", self._on_debug_logger_entry_focus_leave)
         self.debug_logger_entry.add_controller(focus_controller)
         self._debug_logger_focus_controller = focus_controller
         controls.append(self.debug_logger_entry)
@@ -1462,6 +1457,23 @@ class ChatPage(AtlasWindow):
                     logger.warning(
                         "Failed to persist UI debug log level", exc_info=True
                     )
+
+    def _on_debug_logger_entry_focus_leave(
+        self, controller: Gtk.EventControllerFocus, *_args
+    ) -> bool:
+        entry: Optional[Gtk.Entry]
+        widget = None
+        if controller is not None:
+            getter = getattr(controller, "get_widget", None)
+            if callable(getter):
+                widget = getter()
+        if isinstance(widget, Gtk.Entry):
+            entry = widget
+        else:
+            entry = getattr(self, "debug_logger_entry", None)
+        if isinstance(entry, Gtk.Entry):
+            self._on_debug_logger_names_committed(entry)
+        return False
 
     def _on_debug_logger_names_committed(self, entry: Gtk.Entry, *_args):
         if self._debug_controls_updating:
