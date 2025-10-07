@@ -1180,12 +1180,20 @@ class ChatPage(AtlasWindow):
             self.debug_log_buffer.set_text("")
 
     def _on_debug_pause_toggled(self, button: Gtk.ToggleButton):
-        if self._debug_log_handler is None:
-            button.set_active(False)
+        handler = getattr(self, "_debug_log_handler", None)
+        target_btn = getattr(self, "debug_pause_btn", None)
+
+        if handler is None:
+            if button.get_active():
+                button.set_active(False)
+            if isinstance(target_btn, Gtk.ToggleButton):
+                target_btn.set_label("Pause")
             return
+
         paused = button.get_active()
-        self._debug_log_handler.set_paused(paused)
-        self._debug_pause_btn.set_label("Resume" if paused else "Pause")
+        handler.set_paused(paused)
+        if isinstance(target_btn, Gtk.ToggleButton):
+            target_btn.set_label("Resume" if paused else "Pause")
 
     def _on_debug_open_log_clicked(self, *_args):
         path_value = getattr(self, "_debug_log_path", None)
