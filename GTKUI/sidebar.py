@@ -166,7 +166,9 @@ class Sidebar(AtlasWindow):
             return
 
         if self._account_dialog is None:
-            dialog = AccountDialog(self.ATLAS, self)
+            dialog = AccountDialog(self.ATLAS)
+            dialog.set_transient_for(None)
+            dialog.set_modal(True)
             dialog.connect("close-request", self._on_account_dialog_close_request)
             self._account_dialog = dialog
 
