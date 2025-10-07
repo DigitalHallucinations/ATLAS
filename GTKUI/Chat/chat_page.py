@@ -143,6 +143,16 @@ class ChatPage(Gtk.Box):
         self.chat_tab_box.set_hexpand(True)
         self.chat_tab_box.set_vexpand(True)
 
+        self.chat_sub_notebook = Gtk.Notebook()
+        self.chat_sub_notebook.set_hexpand(True)
+        self.chat_sub_notebook.set_vexpand(True)
+        self.chat_sub_notebook.set_scrollable(True)
+        self.chat_tab_box.append(self.chat_sub_notebook)
+
+        self.dialogue_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.dialogue_tab_box.set_hexpand(True)
+        self.dialogue_tab_box.set_vexpand(True)
+
         # Create a scrollable area for the conversation history.
         self.chat_history_scrolled = Gtk.ScrolledWindow()
         self.chat_history_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -155,7 +165,7 @@ class ChatPage(Gtk.Box):
         self.chat_history_scrolled.set_child(self.chat_history)
         self.chat_history_scrolled.set_hexpand(True)
         self.chat_history_scrolled.set_vexpand(True)
-        self.chat_tab_box.append(self.chat_history_scrolled)
+        self.dialogue_tab_box.append(self.chat_history_scrolled)
 
         # Create the input area with a multiline entry, a microphone button, and a send button.
         input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -216,9 +226,67 @@ class ChatPage(Gtk.Box):
         self.send_button.connect("clicked", self.on_send_message)
         input_box.append(self.send_button)
 
-        self.chat_tab_box.append(input_box)
+        self.dialogue_tab_box.append(input_box)
 
-        chat_label = Gtk.Label(label="Chat")
+        dialogue_label = Gtk.Label(label="Dialogue")
+        dialogue_label.add_css_class("caption")
+        self.chat_sub_notebook.append_page(self.dialogue_tab_box, dialogue_label)
+
+        # Concerns sub-tab keeps extracted user concerns separated from the transcript.
+        self.concerns_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.concerns_tab_box.set_hexpand(True)
+        self.concerns_tab_box.set_vexpand(True)
+        self.concerns_tab_box.set_margin_top(12)
+        self.concerns_tab_box.set_margin_bottom(12)
+        self.concerns_tab_box.set_margin_start(12)
+        self.concerns_tab_box.set_margin_end(12)
+
+        self.concerns_intro_label = Gtk.Label(
+            label=(
+                "Review conversation concerns captured by the assistant. "
+                "Items are grouped separately from the live dialogue so "
+                "they remain readable even during longer sessions."
+            )
+        )
+        self.concerns_intro_label.set_wrap(True)
+        self.concerns_intro_label.set_xalign(0.0)
+        self.concerns_intro_label.add_css_class("concerns-intro")
+        self.concerns_tab_box.append(self.concerns_intro_label)
+
+        self.concerns_stack = Gtk.Stack()
+        self.concerns_stack.set_hexpand(True)
+        self.concerns_stack.set_vexpand(True)
+
+        self.concerns_placeholder_label = Gtk.Label(
+            label="No concerns captured yet."
+        )
+        self.concerns_placeholder_label.set_wrap(True)
+        self.concerns_placeholder_label.set_xalign(0.0)
+        self.concerns_placeholder_label.add_css_class("dim-label")
+        self.concerns_placeholder_label.set_margin_top(24)
+        self.concerns_placeholder_label.set_margin_bottom(24)
+        self.concerns_stack.add_named(self.concerns_placeholder_label, "placeholder")
+
+        self.concerns_list_box = Gtk.ListBox()
+        self.concerns_list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.concerns_list_box.add_css_class("concerns-list")
+
+        concerns_scrolled = Gtk.ScrolledWindow()
+        concerns_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        concerns_scrolled.set_hexpand(True)
+        concerns_scrolled.set_vexpand(True)
+        concerns_scrolled.set_child(self.concerns_list_box)
+        self.concerns_stack.add_named(concerns_scrolled, "list")
+
+        self.concerns_stack.set_visible_child_name("placeholder")
+
+        self.concerns_tab_box.append(self.concerns_stack)
+
+        concerns_label = Gtk.Label(label="Concerns")
+        concerns_label.add_css_class("caption")
+        self.chat_sub_notebook.append_page(self.concerns_tab_box, concerns_label)
+
+        chat_label = Gtk.Label(label="User Dialogue")
         chat_label.add_css_class("caption")
         self.notebook.append_page(self.chat_tab_box, chat_label)
 
@@ -633,6 +701,8 @@ class ChatPage(Gtk.Box):
         conversation_text = self._format_conversation_history(history)
         self._set_terminal_section_text("conversation", conversation_text)
 
+        self._update_concerns_view(history)
+
         metadata_lines = []
         persona_name = context_data.get("persona_name") if isinstance(context_data, dict) else None
         if not persona_name:
@@ -681,6 +751,147 @@ class ChatPage(Gtk.Box):
         self._set_terminal_section_text("metadata", metadata_text)
 
         self._refresh_tool_sections()
+
+    def _update_concerns_view(self, history: Optional[List[Dict[str, object]]] = None) -> None:
+        """Refresh the concerns sub-tab with data extracted from chat history."""
+
+        if not hasattr(self, "concerns_stack"):
+            return
+
+        concerns_items: List[Tuple[str, str, str]] = []
+        records: List[Dict[str, object]] = []
+
+        if history is None:
+            history_getter = getattr(self.ATLAS, "get_chat_history_snapshot", None)
+            if callable(history_getter):
+                try:
+                    candidate = history_getter()
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    logger.error("Failed to obtain chat history for concerns: %s", exc, exc_info=True)
+                else:
+                    if isinstance(candidate, list):
+                        records = candidate
+        else:
+            records = history
+
+        for entry in records or []:
+            if not isinstance(entry, dict):
+                continue
+            metadata = entry.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            concern_values = metadata.get("concerns")
+            if concern_values is None:
+                continue
+            concern_strings = self._iter_concern_strings(concern_values)
+            if not concern_strings:
+                continue
+            role = str(entry.get("role") or "assistant").strip().capitalize() or "Assistant"
+            preview = self._make_concern_preview(entry.get("content"))
+            for concern_text in concern_strings:
+                concerns_items.append((role, preview, concern_text))
+
+        self._clear_list_box(self.concerns_list_box)
+
+        if not concerns_items:
+            self.concerns_stack.set_visible_child_name("placeholder")
+            return
+
+        for role, preview, concern_text in concerns_items:
+            row = self._create_concern_row(role, preview, concern_text)
+            self.concerns_list_box.append(row)
+
+        self.concerns_stack.set_visible_child_name("list")
+
+    def _clear_list_box(self, list_box: Gtk.ListBox) -> None:
+        """Remove all children from a :class:`Gtk.ListBox`."""
+
+        child = list_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            list_box.remove(child)
+            child = next_child
+
+    def _iter_concern_strings(self, value: object) -> List[str]:
+        """Normalise a concerns payload into a list of readable strings."""
+
+        if value is None:
+            return []
+        if isinstance(value, str):
+            text = value.strip()
+            return [text] if text else []
+        if isinstance(value, (list, tuple, set)):
+            results: List[str] = []
+            for item in value:
+                results.extend(self._iter_concern_strings(item))
+            return results
+        if isinstance(value, dict):
+            results: List[str] = []
+            for key, item in value.items():
+                if isinstance(item, (list, tuple, set, dict)):
+                    nested = self._iter_concern_strings(item)
+                    prefix = str(key).strip()
+                    if prefix:
+                        results.extend([f"{prefix}: {entry}" for entry in nested])
+                    else:
+                        results.extend(nested)
+                    continue
+                if item is None or item == "":
+                    text = str(key).strip()
+                else:
+                    text = f"{key}: {item}".strip()
+                if text:
+                    results.append(text)
+            return results
+
+        text = str(value).strip()
+        return [text] if text else []
+
+    def _make_concern_preview(self, content: object, *, limit: int = 140) -> str:
+        """Return a truncated preview of the originating chat message."""
+
+        if content is None:
+            return ""
+        text = str(content).strip()
+        if not text:
+            return ""
+        if len(text) <= limit:
+            return text
+        return text[: limit - 1].rstrip() + "…"
+
+    def _create_concern_row(self, role: str, preview: str, concern_text: str) -> Gtk.ListBoxRow:
+        """Create a list box row widget for a single concern entry."""
+
+        row = Gtk.ListBoxRow()
+        row.set_selectable(False)
+        row.set_activatable(False)
+
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        container.set_margin_top(6)
+        container.set_margin_bottom(6)
+        container.set_margin_start(8)
+        container.set_margin_end(8)
+
+        role_label = Gtk.Label(label=role)
+        role_label.set_xalign(0.0)
+        role_label.add_css_class("caption")
+        container.append(role_label)
+
+        concern_label = Gtk.Label(label=concern_text)
+        concern_label.set_wrap(True)
+        concern_label.set_xalign(0.0)
+        concern_label.add_css_class("concern-title")
+        container.append(concern_label)
+
+        if preview:
+            preview_label = Gtk.Label(label=preview)
+            preview_label.set_wrap(True)
+            preview_label.set_xalign(0.0)
+            preview_label.add_css_class("concern-preview")
+            container.append(preview_label)
+
+        row.set_child(container)
+        return row
 
     def _on_provider_changed(self, status_summary=None) -> None:
         """Refresh UI elements when the active provider or model changes."""
