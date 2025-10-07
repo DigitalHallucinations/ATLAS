@@ -6,7 +6,7 @@ import datetime as _dt
 import logging
 import re
 from concurrent.futures import Future
-from typing import Optional
+from typing import Callable, Optional
 
 import gi
 
@@ -37,7 +37,13 @@ class AccountDialog(AtlasWindow):
     _MAX_DISPLAY_NAME_LENGTH = 80
     _STALE_ACCOUNT_THRESHOLD_DAYS = 90
 
-    def __init__(self, atlas, parent: Optional[Gtk.Window] = None) -> None:
+    def __init__(
+        self,
+        atlas,
+        parent: Optional[Gtk.Window] = None,
+        *,
+        on_close: Optional[Callable[[], None]] = None,
+    ) -> None:
         super().__init__(
             title="Account Management",
             modal=True,
@@ -46,6 +52,8 @@ class AccountDialog(AtlasWindow):
         )
         self.logger = logging.getLogger(__name__)
         self.ATLAS = atlas
+        self._host_window: Optional[Gtk.Window] = parent
+        self._close_callback = on_close
         self._active_user_listener = None
         self._active_username: Optional[str] = None
         self._active_display_name: Optional[str] = None
@@ -1615,7 +1623,8 @@ class AccountDialog(AtlasWindow):
                 setter = getattr(dialog, "set_buttons", None)
                 if callable(setter):
                     setter(["Cancel", "Delete"])
-                response = self._resolve_alert_dialog_response(dialog.choose(self))
+                parent = self._dialog_parent() or self
+                response = self._resolve_alert_dialog_response(dialog.choose(parent))
                 if isinstance(response, str):
                     return response.lower() in {"delete", "accept"}
                 accept_value = getattr(getattr(Gtk, "ResponseType", object), "ACCEPT", None)
@@ -1657,7 +1666,22 @@ class AccountDialog(AtlasWindow):
                     else:
                         break
 
+    def _dialog_parent(self) -> Optional[Gtk.Window]:
+        if isinstance(self._host_window, Gtk.Window):
+            return self._host_window
+        if isinstance(self, Gtk.Window):
+            return self
+        return None
+
     def _close_dialog(self) -> None:
+        if callable(self._close_callback):
+            self._is_closed = True
+            try:
+                self._close_callback()
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.error("Account dialog close callback failed: %s", exc, exc_info=True)
+            setattr(self, "closed", True)
+            return
         closer = getattr(self, "close", None)
         if callable(closer):
             try:
@@ -1678,7 +1702,7 @@ class AccountDialog(AtlasWindow):
         if message_dialog_cls is not None:
             try:
                 kwargs = {
-                    "transient_for": self if isinstance(self, Gtk.Window) else None,
+                    "transient_for": self._dialog_parent(),
                     "modal": True,
                     "text": "Delete account?",
                 }
@@ -1704,7 +1728,7 @@ class AccountDialog(AtlasWindow):
             if dialog_cls is None:
                 return False
             try:
-                dialog = dialog_cls(transient_for=self if isinstance(self, Gtk.Window) else None, modal=True)
+                dialog = dialog_cls(transient_for=self._dialog_parent(), modal=True)
                 self._style_dialog(dialog)
             except Exception:
                 return False
@@ -2757,7 +2781,8 @@ class AccountDialog(AtlasWindow):
                 pass
 
         try:
-            future = dialog.choose(self)
+            parent = self._dialog_parent() or self
+            future = dialog.choose(parent)
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to present password reset dialog: %s", exc, exc_info=True)
             return None
@@ -2806,7 +2831,8 @@ class AccountDialog(AtlasWindow):
             except Exception:  # pragma: no cover
                 pass
         try:
-            future = dialog.choose(self)
+            parent = self._dialog_parent() or self
+            future = dialog.choose(parent)
             waiter = getattr(future, "wait_result", None) or getattr(future, "wait", None)
             if callable(waiter):
                 waiter()
