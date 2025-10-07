@@ -890,7 +890,14 @@ class ChatPage(Gtk.Window):
             max_lines=int(self._debug_log_config.get("max_lines", 2000)),
         )
         handler.set_name(self._debug_handler_name)
-        level_value = int(self._debug_log_config.get("level", logging.INFO))
+        configured_level = self._debug_log_config.get("level", logging.INFO)
+        try:
+            level_value = int(configured_level)
+        except (TypeError, ValueError):
+            try:
+                level_value = int(getattr(logging, str(configured_level), logging.INFO))
+            except (TypeError, ValueError):
+                level_value = logging.INFO
         handler.setLevel(level_value)
         handler.setFormatter(self._resolve_log_formatter())
 
@@ -919,9 +926,8 @@ class ChatPage(Gtk.Window):
                 if existing.get_name() == handler.get_name():
                     duplicate = True
                     break
-            if duplicate:
-                continue
-            logger_obj.addHandler(handler)
+            if not duplicate:
+                logger_obj.addHandler(handler)
             attached.append(logger_obj)
 
         if attached:
@@ -1011,11 +1017,27 @@ class ChatPage(Gtk.Window):
             level_name = text or "INFO"
         else:
             level_name = self._debug_level_options[min(index, len(self._debug_level_options) - 1)]
-        level_value = getattr(logging, level_name, logging.INFO)
+        level_value = getattr(logging, level_name, None)
+        if not isinstance(level_value, int):
+            try:
+                level_value = int(level_name)
+            except (TypeError, ValueError):
+                level_value = getattr(logging, str(level_name).upper(), logging.INFO)
+        if not isinstance(level_value, int):
+            level_value = logging.INFO
         self._debug_log_config["level"] = level_value
         if self._debug_log_handler is not None:
             self._debug_log_handler.setLevel(level_value)
-        for logger_obj in list(self._debug_loggers_attached):
+        loggers_to_update: List[logging.Logger] = []
+        loggers_to_update.extend(list(self._debug_loggers_attached))
+        atlas_logger = getattr(self.ATLAS, "logger", None)
+        if isinstance(atlas_logger, logging.Logger):
+            loggers_to_update.append(atlas_logger)
+        seen_ids = set()
+        for logger_obj in loggers_to_update:
+            if id(logger_obj) in seen_ids:
+                continue
+            seen_ids.add(id(logger_obj))
             try:
                 logger_obj.setLevel(level_value)
             except Exception:
