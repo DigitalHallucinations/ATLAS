@@ -2620,6 +2620,32 @@ class ConfigManager:
         self._write_yaml_config()
         return list(normalized)
 
+    def get_ui_terminal_wrap_enabled(self) -> bool:
+        """Return whether terminal sections in the UI should wrap lines."""
+
+        value = self.get_config('UI_TERMINAL_WRAP_ENABLED', self.UNSET)
+
+        if isinstance(value, bool):
+            return value
+
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {'true', '1', 'yes', 'on'}:
+                return True
+            if normalized in {'false', '0', 'no', 'off'}:
+                return False
+
+        return True
+
+    def set_ui_terminal_wrap_enabled(self, enabled: bool) -> bool:
+        """Persist the line wrapping preference for UI terminal sections."""
+
+        normalized = bool(enabled)
+        self.yaml_config['UI_TERMINAL_WRAP_ENABLED'] = normalized
+        self.config['UI_TERMINAL_WRAP_ENABLED'] = normalized
+        self._write_yaml_config()
+        return normalized
+
     def _write_yaml_config(self):
         """
         Writes the current YAML configuration back to the config.yaml file.
