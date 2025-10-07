@@ -23,7 +23,7 @@ from GTKUI.Persona_manager.persona_management import PersonaManagement
 from GTKUI.Provider_manager.provider_management import ProviderManagement
 from GTKUI.UserAccounts.account_dialog import AccountDialog
 from GTKUI.Utils.styled_window import AtlasWindow
-from GTKUI.Utils.utils import create_box
+from GTKUI.Utils.utils import apply_css, create_box
 
 logger = logging.getLogger(__name__)
 
@@ -192,15 +192,9 @@ class Sidebar(AtlasWindow):
         Opens the general settings page.
         """
         if self.ATLAS.is_initialized():
-            settings_window = Gtk.Window(title="Settings")
-            settings_window.set_default_size(300, 400)
+            settings_window = AtlasWindow(title="Settings", default_size=(300, 400))
             settings_window.set_transient_for(self)
             settings_window.set_modal(True)
-
-            apply_css()
-            style_context = settings_window.get_style_context()
-            style_context.add_class("chat-page")
-            style_context.add_class("sidebar")
             vbox = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=10)
             settings_window.set_child(vbox)
             label = Gtk.Label(label="Settings Page Content Here")
@@ -243,7 +237,29 @@ class Sidebar(AtlasWindow):
             buttons=Gtk.ButtonsType.OK,
             text="Initialization Error",
         )
+        self._apply_shared_styles(dialog)
         dialog.format_secondary_text(message)
         dialog.connect("response", lambda d, r: d.destroy())
         dialog.present()
+
+    def _apply_shared_styles(self, widget):
+        """Apply the shared ATLAS styling to the provided widget."""
+        try:
+            apply_css()
+        except Exception:  # pragma: no cover - styling is best-effort in tests
+            pass
+
+        get_context = getattr(widget, "get_style_context", None)
+        if not callable(get_context):
+            return
+
+        context = get_context()
+        if context is None:
+            return
+
+        for css_class in ("chat-page", "sidebar"):
+            try:
+                context.add_class(css_class)
+            except Exception:  # pragma: no cover - GTK stubs in unit tests
+                continue
 
