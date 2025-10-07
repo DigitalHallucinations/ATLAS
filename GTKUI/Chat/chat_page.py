@@ -763,6 +763,20 @@ class ChatPage(Gtk.Window):
         self.debug_level_combo.connect("changed", self._on_debug_level_changed)
         controls.append(self.debug_level_combo)
 
+        logger_label = Gtk.Label(label="Loggers:")
+        logger_label.add_css_class("caption")
+        logger_label.set_halign(Gtk.Align.END)
+        controls.append(logger_label)
+
+        self.debug_logger_entry = Gtk.Entry()
+        self.debug_logger_entry.set_hexpand(True)
+        logger_names_text = ", ".join(self._debug_log_config.get("logger_names") or [])
+        self.debug_logger_entry.set_text(logger_names_text)
+        self.debug_logger_entry.set_tooltip_text("Comma-separated logger names to mirror in the UI debug console")
+        self.debug_logger_entry.connect("activate", self._on_debug_logger_names_committed)
+        self.debug_logger_entry.connect("focus-out-event", self._on_debug_logger_names_committed)
+        controls.append(self.debug_logger_entry)
+
         retention_label = Gtk.Label(label="Max lines:")
         retention_label.add_css_class("caption")
         retention_label.set_halign(Gtk.Align.END)
@@ -983,6 +997,11 @@ class ChatPage(Gtk.Window):
             if handler is not None:
                 max_lines = handler.max_lines
             self.debug_retention_spin.set_value(float(max_lines))
+
+            entry = getattr(self, "debug_logger_entry", None)
+            if isinstance(entry, Gtk.Entry):
+                names_value = self._debug_log_config.get("logger_names") or []
+                entry.set_text(", ".join(str(name) for name in names_value))
         finally:
             self._debug_controls_updating = False
 
@@ -1060,6 +1079,36 @@ class ChatPage(Gtk.Window):
                     logger.warning(
                         "Failed to persist UI debug log level", exc_info=True
                     )
+
+    def _on_debug_logger_names_committed(self, entry: Gtk.Entry, *_args):
+        if self._debug_controls_updating:
+            return False
+
+        text = entry.get_text() if isinstance(entry, Gtk.Entry) else ""
+        updated_names: List[str] = []
+        for part in text.split(","):
+            sanitized = part.strip()
+            if sanitized:
+                updated_names.append(sanitized)
+
+        entry.set_text(", ".join(updated_names))
+
+        current_names = list(self._debug_log_config.get("logger_names") or [])
+        if updated_names == current_names:
+            return False
+
+        self._debug_log_config["logger_names"] = updated_names
+        self._attach_debug_log_handler()
+
+        manager = getattr(self.ATLAS, "config_manager", None)
+        setter = getattr(manager, "set_ui_debug_logger_names", None)
+        if callable(setter):
+            try:
+                setter(updated_names)
+            except Exception as exc:
+                logger.warning("Failed to persist debug logger names: %s", exc)
+
+        return False
 
     def _on_debug_retention_changed(self, spin: Gtk.SpinButton):
         if self._debug_controls_updating:
