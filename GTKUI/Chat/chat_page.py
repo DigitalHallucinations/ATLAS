@@ -1323,6 +1323,25 @@ class ChatPage(AtlasWindow):
         if self._debug_controls_updating:
             return
         value = spin.get_value_as_int()
+
+        manager = getattr(self.ATLAS, "config_manager", None)
+        setter = getattr(manager, "set_ui_debug_log_max_lines", None)
+        persisted_value: Optional[int] = None
+        if callable(setter):
+            try:
+                persisted_value = setter(value)
+            except Exception as exc:
+                logger.warning("Failed to persist debug retention limit: %s", exc)
+
+        if isinstance(persisted_value, int):
+            if persisted_value != value:
+                self._debug_controls_updating = True
+                try:
+                    spin.set_value(float(persisted_value))
+                finally:
+                    self._debug_controls_updating = False
+            value = persisted_value
+
         self._debug_log_config["max_lines"] = value
         if self._debug_log_handler is not None:
             self._debug_log_handler.set_max_lines(value)
