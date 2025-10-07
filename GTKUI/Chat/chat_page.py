@@ -14,6 +14,8 @@ and schedules UI updates via GLib.idle_add.
 import json
 import os
 import shlex
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -1367,11 +1369,50 @@ class ChatPage(AtlasWindow):
                 except Exception:
                     logger.warning("Failed to launch debug log via Gtk.UriLauncher", exc_info=True)
 
-        try:
-            command = f"xdg-open {shlex.quote(str(path))}"
-            GLib.spawn_command_line_async(command)
-        except Exception:
-            logger.warning("Failed to open debug log via xdg-open", exc_info=True)
+        platform_value = sys.platform
+        fallback_order = "Windows os.startfile -> macOS open -> Linux xdg-open"
+
+        if platform_value.startswith("win"):
+            attempted = "Windows os.startfile"
+        elif platform_value == "darwin":
+            attempted = "macOS open"
+        else:
+            attempted = "Linux xdg-open"
+
+        logger.info(
+            "Gtk.UriLauncher unavailable or failed; attempting %s (fallback order: %s)",
+            attempted,
+            fallback_order,
+        )
+
+        if platform_value.startswith("win"):
+            try:
+                os.startfile(str(path))
+                return
+            except Exception:
+                logger.warning(
+                    "Failed to open debug log via Windows os.startfile", exc_info=True
+                )
+                self._update_debug_log_button()
+                return
+        elif platform_value == "darwin":
+            try:
+                subprocess.Popen(["open", str(path)])
+                return
+            except Exception:
+                logger.warning(
+                    "Failed to open debug log via macOS 'open' command", exc_info=True
+                )
+                self._update_debug_log_button()
+                return
+        else:
+            try:
+                command = f"xdg-open {shlex.quote(str(path))}"
+                GLib.spawn_command_line_async(command)
+                return
+            except Exception:
+                logger.warning("Failed to open debug log via xdg-open", exc_info=True)
+                self._update_debug_log_button()
 
     def _on_debug_level_changed(self, combo: Gtk.ComboBoxText):
         if self._debug_controls_updating:
