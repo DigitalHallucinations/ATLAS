@@ -28,7 +28,9 @@ class MainWindow(AtlasWindow):
     """Top-level Atlas window with a navigation column and notebook workspace."""
 
     def __init__(self, atlas) -> None:
-        super().__init__(title="ATLAS", default_size=(1200, 800))
+        super().__init__(title="ATLAS")
+        safe_width, safe_height = self._calculate_safe_size(1200, 800)
+        self.set_default_size(safe_width, safe_height)
         self.ATLAS = atlas
         self._pages: Dict[str, Gtk.Widget] = {}
         self._page_controllers: Dict[str, Any] = {}
