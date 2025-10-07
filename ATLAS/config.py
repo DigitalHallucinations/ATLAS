@@ -2589,6 +2589,7 @@ class ConfigManager:
                 normalized = None
 
         if normalized is not None:
+            # Enforce a practical lower bound so the UI handler can operate safely.
             normalized = max(100, normalized)
             self.yaml_config['UI_DEBUG_LOG_MAX_LINES'] = normalized
             self.config['UI_DEBUG_LOG_MAX_LINES'] = normalized
