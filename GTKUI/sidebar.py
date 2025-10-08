@@ -367,6 +367,10 @@ class _NavigationSidebar(Gtk.Box):
             container=content_box,
         )
 
+        spacer = Gtk.Box()
+        spacer.set_vexpand(True)
+        content_box.append(spacer)
+
         bottom_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         bottom_box.set_valign(Gtk.Align.END)
         bottom_box.set_hexpand(True)
