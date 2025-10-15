@@ -345,7 +345,9 @@ async def use_tool(
     presence_penalty_var,
     conversation_manager,
     provider_manager=None,
-    config_manager=None
+    config_manager=None,
+    *,
+    stream: Optional[bool] = None,
 ):
     logger.info(f"use_tool called for user: {user}, conversation_id: {conversation_id}")
     logger.info(f"Message received: {message}")
@@ -545,6 +547,8 @@ async def use_tool(
     messages = conversation_history.get_history(user, conversation_id)
     logger.info(f"Conversation history after tool execution: {messages}")
 
+    effective_stream = bool(stream) if stream is not None else False
+
     new_text = await call_model_with_new_prompt(
         messages,
         current_persona,
@@ -558,9 +562,16 @@ async def use_tool(
         conversation_manager=conversation_manager,
         conversation_id=conversation_id,
         user=user,
+        stream=effective_stream,
     )
 
     logger.info(f"Model response after function execution: {new_text}")
+
+    if effective_stream and (
+        isinstance(new_text, AsyncIterator) or inspect.isasyncgen(new_text)
+    ):
+        logger.info("Returning streaming response produced after tool execution.")
+        return new_text
 
     if new_text is None:
         logger.warning("Model returned None response. Using default fallback message.")
@@ -568,6 +579,12 @@ async def use_tool(
             "Tool Manager says: Sorry, I couldn't generate a meaningful response. "
             "Please try again or provide more context."
         )
+
+    if isinstance(new_text, AsyncIterator) or inspect.isasyncgen(new_text):
+        logger.info(
+            "Received async iterator response but streaming was disabled; collecting chunks."
+        )
+        new_text = await _collect_async_chunks(new_text)
 
     if new_text:
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -618,6 +635,7 @@ async def call_model_with_new_prompt(
     conversation_id=None,
     user=None,
     prompt=None,
+    stream: bool = False,
 ):
     logger.info("Calling model after tool execution.")
     logger.info(f"Messages provided to model: {messages}")
@@ -644,10 +662,13 @@ async def call_model_with_new_prompt(
             conversation_manager=conversation_manager,
             conversation_id=conversation_id,
             user=user,
-            stream=False,
+            stream=stream,
         )
+        if stream:
+            return response
+
         if isinstance(response, AsyncIterator) or inspect.isasyncgen(response):
-            logger.info("Received streaming response; collecting chunks into text.")
+            logger.info("Received streaming response while streaming disabled; collecting chunks into text.")
             response = await _collect_async_chunks(response)
 
         logger.info(f"Model's response: {response}")

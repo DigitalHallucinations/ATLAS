@@ -4,7 +4,7 @@ import asyncio
 import inspect
 import json
 import threading
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, AsyncIterator as AsyncIteratorABC
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
 from weakref import WeakKeyDictionary
 
@@ -443,6 +443,7 @@ class MistralGenerator:
                             top_p=effective_top_p,
                             frequency_penalty=effective_frequency_penalty,
                             presence_penalty=effective_presence_penalty,
+                            stream=bool(effective_stream),
                         )
                         if tool_result is not None:
                             return tool_result
@@ -806,9 +807,10 @@ class MistralGenerator:
                     top_p=top_p,
                     frequency_penalty=frequency_penalty,
                     presence_penalty=presence_penalty,
+                    stream=True,
                 )
-                if tool_result is not None:
-                    yield tool_result
+                async for chunk in self._forward_tool_stream(tool_result):
+                    yield chunk
             elif kind == "error":
                 raise payload
             elif kind == "done":
@@ -988,6 +990,18 @@ class MistralGenerator:
                 messages.append(normalized)
         return messages
 
+    def _is_async_stream(self, value: Any) -> bool:
+        return isinstance(value, AsyncIteratorABC) or inspect.isasyncgen(value)
+
+    async def _forward_tool_stream(self, result: Any):
+        if self._is_async_stream(result):
+            async for chunk in result:
+                if chunk is None:
+                    continue
+                yield chunk
+        elif result is not None:
+            yield result
+
     async def _handle_tool_messages(
         self,
         tool_messages: List[Dict[str, Any]],
@@ -1002,6 +1016,7 @@ class MistralGenerator:
         top_p: Optional[float] = None,
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        stream: Optional[bool] = None,
     ) -> Optional[Any]:
         if not tool_messages:
             return None
@@ -1036,7 +1051,12 @@ class MistralGenerator:
                 conversation_manager=conversation_manager,
                 provider_manager=provider_manager,
                 config_manager=self.config_manager,
+                stream=stream,
             )
+            if stream and self._is_async_stream(tool_response):
+                self.logger.info("Tool response will stream from Mistral flow.")
+                return tool_response
+
             if tool_response is not None:
                 return tool_response
 

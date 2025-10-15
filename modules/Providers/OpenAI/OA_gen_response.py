@@ -3,6 +3,7 @@
 import base64
 import inspect
 import json
+from collections.abc import AsyncIterator as AsyncIteratorABC
 from weakref import WeakKeyDictionary
 
 from openai import AsyncOpenAI
@@ -350,6 +351,7 @@ class OpenAIGenerator:
                             top_p,
                             frequency_penalty,
                             presence_penalty,
+                            stream=bool(stream),
                         )
                         if result:
                             results.append(result)
@@ -1332,6 +1334,7 @@ class OpenAIGenerator:
                         top_p=top_p,
                         frequency_penalty=frequency_penalty,
                         presence_penalty=presence_penalty,
+                        stream=False,
                     )
                     if result:
                         results.append(result)
@@ -1470,6 +1473,29 @@ class OpenAIGenerator:
 
         return
 
+    def _is_async_stream(self, value: Any) -> bool:
+        return isinstance(value, AsyncIteratorABC) or inspect.isasyncgen(value)
+
+    async def _forward_tool_stream(self, result: Any):
+        if self._is_async_stream(result):
+            async for chunk in result:
+                if chunk is None:
+                    continue
+                yield chunk
+        elif result is not None:
+            yield result
+
+    def _stringify_tool_stream_chunk(self, chunk: Any) -> str:
+        if isinstance(chunk, dict):
+            for key in ("text", "content", "message"):
+                value = chunk.get(key)
+                if isinstance(value, str) and value:
+                    return value
+            return ""
+        if chunk is None:
+            return ""
+        return str(chunk)
+
     async def process_streaming_response(
         self,
         response: AsyncIterator[Dict],
@@ -1558,10 +1584,13 @@ class OpenAIGenerator:
                     top_p,
                     frequency_penalty,
                     presence_penalty,
+                    stream=True,
                 )
-                if result:
-                    yield result
-                    full_response += str(result)
+                async for chunk in self._forward_tool_stream(result):
+                    yield chunk
+                    text_piece = self._stringify_tool_stream_chunk(chunk)
+                    if text_piece:
+                        full_response += text_piece
 
         if pending_tool_calls:
             tool_messages = self._finalize_pending_tool_calls(pending_tool_calls)
@@ -1590,10 +1619,13 @@ class OpenAIGenerator:
                     top_p,
                     frequency_penalty,
                     presence_penalty,
+                    stream=True,
                 )
-                if tool_result:
-                    yield tool_result
-                    full_response += str(tool_result)
+                async for chunk in self._forward_tool_stream(tool_result):
+                    yield chunk
+                    text_piece = self._stringify_tool_stream_chunk(chunk)
+                    if text_piece:
+                        full_response += text_piece
 
         if conversation_manager:
             conversation_manager.add_message(user, conversation_id, "assistant", full_response)
@@ -1623,6 +1655,8 @@ class OpenAIGenerator:
         top_p,
         frequency_penalty,
         presence_penalty,
+        *,
+        stream: Optional[bool] = None,
     ):
         normalized = self._normalize_tool_call(message)
         if not normalized and isinstance(message, dict):
@@ -1676,7 +1710,12 @@ class OpenAIGenerator:
             conversation_manager=conversation_manager,
             provider_manager=provider_manager,
             config_manager=self.config_manager,
+            stream=stream,
         )
+
+        if stream and self._is_async_stream(tool_response):
+            self.logger.info("Tool response will be streamed back to the caller.")
+            return tool_response
 
         if tool_response:
             self.logger.info(f"Tool response generated: {tool_response}")
