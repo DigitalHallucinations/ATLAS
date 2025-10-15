@@ -542,35 +542,12 @@ async def use_tool(
     if not executed_calls:
         return None
 
-    if len(executed_calls) == 1:
-        call = executed_calls[0]
-        formatted_function_response = (
-            "System Message: The function call was executed successfully with the following results: "
-            f"{call['name']}: {call['result_text']} "
-            "If needed, you can make another tool call for further processing or multi-step requests. "
-            "Provide the answer to the user's question, a summary, or ask for further details."
-        )
-    else:
-        lines = [
-            f"{index + 1}. {call['name']}: {call['result_text']}"
-            for index, call in enumerate(executed_calls)
-        ]
-        formatted_function_response = (
-            "System Message: The following tool calls were executed successfully with these results:\n"
-            + "\n".join(lines)
-            + "\nIf needed, you can make another tool call for further processing or multi-step requests. "
-            + "Provide the answer to the user's question, a summary, or ask for further details."
-        )
-
-    logger.info(f"Formatted function response for model: {formatted_function_response}")
-
     messages = conversation_history.get_history(user, conversation_id)
-    logger.info(f"Conversation history: {messages}")
+    logger.info(f"Conversation history after tool execution: {messages}")
 
     new_text = await call_model_with_new_prompt(
-        formatted_function_response,
-        current_persona,
         messages,
+        current_persona,
         temperature_var,
         top_p_var,
         frequency_penalty_var,
@@ -627,9 +604,8 @@ async def use_tool(
     return new_text
 
 async def call_model_with_new_prompt(
-    prompt,
-    current_persona,
     messages,
+    current_persona,
     temperature_var,
     top_p_var,
     frequency_penalty_var,
@@ -641,17 +617,24 @@ async def call_model_with_new_prompt(
     conversation_manager=None,
     conversation_id=None,
     user=None,
+    prompt=None,
 ):
-    logger.info("Calling model with new prompt after function execution.")
-    logger.info(f"Prompt: {prompt}")
+    logger.info("Calling model after tool execution.")
+    logger.info(f"Messages provided to model: {messages}")
+    if prompt:
+        logger.info(f"Additional user prompt supplied: {prompt}")
 
     provider_manager, config_manager = _resolve_provider_manager(
         provider_manager, config_manager
     )
 
     try:
+        messages_payload: List[Dict[str, Any]] = list(messages or [])
+        if prompt:
+            messages_payload.append({"role": "user", "content": prompt})
+
         response = await provider_manager.generate_response(
-            messages=messages + [{"role": "user", "content": prompt}],
+            messages=messages_payload,
             model=provider_manager.get_current_model(),
             temperature=temperature_var,
             top_p=top_p_var,
