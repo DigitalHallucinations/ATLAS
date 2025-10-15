@@ -1100,6 +1100,117 @@ class OpenAIGenerator:
 
         return tool_messages
 
+    def _extract_responses_required_action_tool_calls(self, response) -> List[Dict[str, Any]]:
+        required_action = self._safe_get(response, "required_action")
+        if not required_action:
+            return []
+
+        submit_payload = self._safe_get(required_action, "submit_tool_outputs")
+        if not submit_payload:
+            return []
+
+        raw_calls = self._safe_get(submit_payload, "tool_calls") or []
+        normalized_calls: List[Dict[str, Any]] = []
+        for call in raw_calls:
+            normalized = self._normalize_tool_call(call)
+            if normalized:
+                normalized_calls.append(normalized)
+        return normalized_calls
+
+    def _stringify_tool_output(self, value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (bytes, bytearray)):
+            try:
+                return bytes(value).decode("utf-8")
+            except Exception:
+                return base64.b64encode(bytes(value)).decode("ascii")
+        if isinstance(value, (dict, list)):
+            try:
+                return json.dumps(value)
+            except (TypeError, ValueError):
+                pass
+        try:
+            return str(value)
+        except Exception:
+            return ""
+
+    async def _handle_responses_required_actions(
+        self,
+        response,
+        *,
+        user,
+        conversation_id,
+        conversation_manager,
+        function_map,
+        functions,
+        current_persona,
+        temperature,
+        top_p,
+        frequency_penalty,
+        presence_penalty,
+        model,
+    ):
+        resolved_results: List[Dict[str, Any]] = []
+        while self._safe_get(response, "status") == "requires_action":
+            tool_messages = self._extract_responses_required_action_tool_calls(response)
+            if not tool_messages:
+                self.logger.warning("Response requires action but no tool calls were provided.")
+                break
+
+            self._record_assistant_tool_message(
+                conversation_manager,
+                user,
+                conversation_id,
+                tool_messages=tool_messages,
+                default_content=self._get_response_text(response),
+            )
+
+            tool_outputs: List[Dict[str, Any]] = []
+            for tool_message in tool_messages:
+                tool_result = await self.handle_function_call(
+                    user,
+                    conversation_id,
+                    tool_message,
+                    conversation_manager,
+                    function_map=function_map,
+                    functions=functions,
+                    current_persona=current_persona,
+                    temperature=temperature,
+                    model=model,
+                    top_p=top_p,
+                    frequency_penalty=frequency_penalty,
+                    presence_penalty=presence_penalty,
+                    stream=False,
+                )
+
+                output_text = self._stringify_tool_output(tool_result)
+                resolved_results.append({"message": tool_message, "text": output_text})
+
+                tool_call_id = self._safe_get(tool_message, "id")
+                if not tool_call_id:
+                    self.logger.warning("Tool call missing id; skipping submit payload: %s", tool_message)
+                    continue
+
+                tool_outputs.append({"tool_call_id": tool_call_id, "output": output_text})
+
+            if not tool_outputs:
+                break
+
+            response_id = self._safe_get(response, "id")
+            if not response_id:
+                self.logger.warning("Cannot submit tool outputs without a response id: %s", response)
+                break
+
+            response = await self.client.responses.submit_tool_outputs(
+                response_id=response_id,
+                tool_outputs=tool_outputs,
+            )
+
+        return response, resolved_results
+
     def _extract_chat_tool_calls(self, message) -> List[Dict[str, Any]]:
         tool_messages: List[Dict[str, Any]] = []
         tool_calls = self._safe_get(message, "tool_calls")
@@ -1274,6 +1385,23 @@ class OpenAIGenerator:
             )
 
         response = await self.client.responses.create(**request_kwargs)
+
+        if allow_function_calls:
+            response, _ = await self._handle_responses_required_actions(
+                response,
+                user=user,
+                conversation_id=conversation_id,
+                conversation_manager=conversation_manager,
+                function_map=function_map,
+                functions=functions,
+                current_persona=current_persona,
+                temperature=temperature,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
+                model=model,
+            )
+
         return await self._handle_responses_completion(
             response=response,
             user=user,
@@ -1417,6 +1545,27 @@ class OpenAIGenerator:
                 final_response = await getter()
 
         if allow_function_calls and final_response is not None:
+            final_response, required_action_results = await self._handle_responses_required_actions(
+                final_response,
+                user=user,
+                conversation_id=conversation_id,
+                conversation_manager=conversation_manager,
+                function_map=function_map,
+                functions=functions,
+                current_persona=current_persona,
+                temperature=temperature,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
+                model=model,
+            )
+
+            for resolved in required_action_results:
+                text_piece = resolved.get("text")
+                if text_piece:
+                    yield text_piece
+                    full_response += text_piece
+
             tool_messages = self._extract_responses_tool_calls(final_response)
             if tool_messages:
                 self._record_assistant_tool_message(
@@ -1445,6 +1594,17 @@ class OpenAIGenerator:
                     full_response += tool_result
 
         if conversation_manager:
+            if allow_function_calls and final_response is not None:
+                final_text = self._get_response_text(final_response)
+                if final_text:
+                    if final_text.startswith(full_response):
+                        suffix = final_text[len(full_response) :]
+                    else:
+                        suffix = final_text
+                    if suffix:
+                        yield suffix
+                        full_response += suffix
+
             conversation_manager.add_message(user, conversation_id, "assistant", full_response)
             self.logger.info("Full streaming response added to conversation history.")
 
