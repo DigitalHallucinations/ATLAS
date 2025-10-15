@@ -12,10 +12,13 @@
                 "k": {
                     "type": "integer",
                     "default": 10,
-                    "description": "Select first k results in the search results as response."
+                    "description": "Select the first k results in the search results as the response.",
+                    "minimum": 1
                 }
             },
-            "required": ["query"]
+            "required": [
+                "query"
+            ]
         }
     },
     {
@@ -26,7 +29,13 @@
             "properties": {
                 "format_type": {
                     "type": "string",
-                    "enum": ["time", "date", "day", "month_year", "timestamp"],
+                    "enum": [
+                        "time",
+                        "date",
+                        "day",
+                        "month_year",
+                        "timestamp"
+                    ],
                     "default": "timestamp"
                 }
             },
@@ -37,14 +46,16 @@
         "name": "execute_python",
         "description": "Execute Python code and return the result",
         "parameters": {
-          "type": "object",
-          "properties": {
-            "command": {
-              "type": "string",
-              "description": "The Python code to execute"
-            }
-          },
-          "required": ["command"]
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The Python code to execute"
+                }
+            },
+            "required": [
+                "command"
+            ]
         }
     },
     {
@@ -87,7 +98,9 @@
                     "description": "The maximum number of retries to attempt if the command fails due to temporary issues."
                 }
             },
-            "required": ["command"]
+            "required": [
+                "command"
+            ]
         }
     }
 ]
