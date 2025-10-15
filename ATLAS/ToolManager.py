@@ -47,6 +47,19 @@ async def _collect_async_chunks(stream: AsyncIterator) -> str:
     return "".join(chunks)
 
 
+async def _gather_async_iterator(stream: AsyncIterator) -> List[Any]:
+    """Consume an async iterator into a list, skipping ``None`` items."""
+
+    items: List[Any] = []
+
+    async for item in stream:
+        if item is None:
+            continue
+        items.append(item)
+
+    return items
+
+
 def _extract_text_and_audio(payload):
     """Return textual content and optional audio payload from ``payload``."""
 
@@ -468,11 +481,21 @@ async def use_tool(
             call_error: Optional[Exception] = None
 
             try:
-                if asyncio.iscoroutinefunction(func):
+                if inspect.isasyncgenfunction(func):
                     with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
                         stderr_buffer
                     ):
-                        function_response = await func(**function_args)
+                        async_stream = func(**function_args)
+                        function_response = await _gather_async_iterator(async_stream)
+                elif asyncio.iscoroutinefunction(func):
+                    with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
+                        stderr_buffer
+                    ):
+                        result = await func(**function_args)
+                        if inspect.isasyncgen(result) or isinstance(result, AsyncIterator):
+                            function_response = await _gather_async_iterator(result)
+                        else:
+                            function_response = result
                 else:
                     def _run_sync_function():
                         with contextlib.redirect_stdout(
@@ -481,6 +504,14 @@ async def use_tool(
                             return func(**function_args)
 
                     function_response = await asyncio.to_thread(_run_sync_function)
+
+                    if inspect.isasyncgen(function_response) or isinstance(
+                        function_response, AsyncIterator
+                    ):
+                        with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
+                            stderr_buffer
+                        ):
+                            function_response = await _gather_async_iterator(function_response)
             except Exception as exc:
                 call_error = exc
 
