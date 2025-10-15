@@ -176,6 +176,10 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
         assert payload["conversation_manager"] is conversation_history
         assert payload["conversation_id"] == "conversation"
         assert payload["user"] == "user"
+        assert payload["messages"] == [
+            {"role": "user", "content": "Hi"},
+            {"role": "tool", "content": "ping", "tool_call_id": "call-echo"},
+        ]
         recorded_message = conversation_history.messages[-1]
         assert isinstance(recorded_message["content"], str)
         assert recorded_message["content"] == "model-output"
@@ -314,9 +318,19 @@ def test_use_tool_handles_multiple_tool_calls(monkeypatch):
         ]
 
         assert provider.generate_calls, "Model should be called after executing tools"
-        prompt = provider.generate_calls[0]["messages"][-1]["content"]
-        assert "1. async_tool: async:one" in prompt
-        assert "2. sync_tool: sync:two" in prompt
+        assert provider.generate_calls[0]["messages"] == [
+            {"role": "user", "content": "Hi"},
+            {
+                "role": "tool",
+                "content": "async:one",
+                "tool_call_id": "call-async",
+            },
+            {
+                "role": "tool",
+                "content": "sync:two",
+                "tool_call_id": "call-sync",
+            },
+        ]
 
         log_entries = tool_manager.get_tool_activity_log()
         assert len(log_entries) >= 2
@@ -439,6 +453,10 @@ def test_use_tool_runs_sync_tool_in_thread(monkeypatch):
         log_entries = tool_manager.get_tool_activity_log()
         assert log_entries[-1]["tool_call_id"] == "call-slow"
         assert provider.generate_calls, "Provider should be invoked after tool execution"
+        assert provider.generate_calls[0]["messages"] == [
+            {"role": "user", "content": "Hi"},
+            {"role": "tool", "content": "slow:one", "tool_call_id": "call-slow"},
+        ]
 
     asyncio.run(run_test())
 
@@ -469,9 +487,8 @@ def test_call_model_with_new_prompt_collects_stream(monkeypatch):
 
     result = asyncio.run(
         tool_manager.call_model_with_new_prompt(
-            "Please continue",
-            current_persona=None,
             messages=[{"role": "user", "content": "Hi"}],
+            current_persona=None,
             temperature_var=0.5,
             top_p_var=0.9,
             frequency_penalty_var=0.0,
@@ -481,6 +498,7 @@ def test_call_model_with_new_prompt_collects_stream(monkeypatch):
             conversation_manager=None,
             conversation_id="conversation",
             user="user",
+            prompt="Please continue",
         )
     )
 
