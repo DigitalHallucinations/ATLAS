@@ -19,12 +19,20 @@
                 },
                 "units": {
                     "type": "string",
-                    "enum": ["standard", "metric", "imperial"],
+                    "enum": [
+                        "standard",
+                        "metric",
+                        "imperial"
+                    ],
                     "default": "imperial",
                     "description": "Units of measurement"
                 }
             },
-            "required": ["lat", "lon", "units"]
+            "required": [
+                "lat",
+                "lon",
+                "units"
+            ]
         }
     },
     {
@@ -47,7 +55,11 @@
                 },
                 "units": {
                     "type": "string",
-                    "enum": ["standard", "metric", "imperial"],
+                    "enum": [
+                        "standard",
+                        "metric",
+                        "imperial"
+                    ],
                     "default": "imperial",
                     "description": "Units of measurement"
                 },
@@ -56,7 +68,12 @@
                     "description": "Language for the output"
                 }
             },
-            "required": ["lat", "lon", "dt", "units"]
+            "required": [
+                "lat",
+                "lon",
+                "dt",
+                "units"
+            ]
         }
     },
     {
@@ -79,7 +96,11 @@
                 },
                 "units": {
                     "type": "string",
-                    "enum": ["standard", "metric", "imperial"],
+                    "enum": [
+                        "standard",
+                        "metric",
+                        "imperial"
+                    ],
                     "default": "imperial",
                     "description": "Units of measurement"
                 },
@@ -89,10 +110,14 @@
                 },
                 "tz": {
                     "type": "string",
-                    "description": "Timezone in the ±XX:XX format"
+                    "description": "Timezone in the \u00b1XX:XX format"
                 }
             },
-            "required": ["lat", "lon", "date"]
+            "required": [
+                "lat",
+                "lon",
+                "date"
+            ]
         }
     },
     {
@@ -103,7 +128,13 @@
             "properties": {
                 "format_type": {
                     "type": "string",
-                    "enum": ["time", "date", "day", "month_year", "timestamp"],
+                    "enum": [
+                        "time",
+                        "date",
+                        "day",
+                        "month_year",
+                        "timestamp"
+                    ],
                     "default": "timestamp"
                 }
             },
@@ -123,11 +154,13 @@
                 "k": {
                     "type": "integer",
                     "default": 10,
-                    "description": "Select first k results in the search results as response."
+                    "description": "Select the first k results in the search results as the response.",
+                    "minimum": 1
                 }
             },
-            "required": ["query"]
+            "required": [
+                "query"
+            ]
         }
     }
-       
-      ]
+]

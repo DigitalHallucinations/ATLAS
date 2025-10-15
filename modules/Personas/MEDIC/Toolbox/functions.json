@@ -12,10 +12,13 @@
                 "k": {
                     "type": "integer",
                     "default": 10,
-                    "description": "Select first k results in the search results as response."
+                    "description": "Select the first k results in the search results as the response.",
+                    "minimum": 1
                 }
             },
-            "required": ["query"]
+            "required": [
+                "query"
+            ]
         }
     },
     {
@@ -33,7 +36,9 @@
                     "description": "The maximum number of results to return."
                 }
             },
-            "required": ["query"]
+            "required": [
+                "query"
+            ]
         }
     },
     {
@@ -47,7 +52,9 @@
                     "description": "The PMCID of the article."
                 }
             },
-            "required": ["pmcid"]
+            "required": [
+                "pmcid"
+            ]
         }
     },
     {
@@ -58,7 +65,13 @@
             "properties": {
                 "format_type": {
                     "type": "string",
-                    "enum": ["time", "date", "day", "month_year", "timestamp"],
+                    "enum": [
+                        "time",
+                        "date",
+                        "day",
+                        "month_year",
+                        "timestamp"
+                    ],
                     "default": "timestamp"
                 }
             },
