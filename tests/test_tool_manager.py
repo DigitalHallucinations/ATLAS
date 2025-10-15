@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import types
+import time
 from pathlib import Path
 import shutil
 import textwrap
@@ -248,6 +249,91 @@ def test_use_tool_handles_multiple_tool_calls(monkeypatch):
         assert len(log_entries) >= 2
         assert log_entries[-2]["tool_name"] == "async_tool"
         assert log_entries[-1]["tool_name"] == "sync_tool"
+
+    asyncio.run(run_test())
+
+
+def test_use_tool_runs_sync_tool_in_thread(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.history = [{"role": "user", "content": "Hi"}]
+            self.responses = []
+            self.messages = []
+
+        def add_response(self, user, conversation_id, response, timestamp):
+            self.responses.append((user, conversation_id, response, timestamp))
+            self.history.append({"role": "function", "name": "tool", "content": str(response)})
+
+        def add_message(self, user, conversation_id, role, content, timestamp, **kwargs):
+            self.messages.append((user, conversation_id, role, content, timestamp, kwargs))
+            entry = {"role": role, "content": content}
+            if kwargs:
+                entry.update(kwargs)
+            self.history.append(entry)
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+    class DummyProviderManager:
+        def __init__(self):
+            self.generate_calls = []
+
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **kwargs):
+            self.generate_calls.append(kwargs)
+            return "model-output"
+
+    conversation_history = DummyConversationHistory()
+    provider = DummyProviderManager()
+    tool_manager._tool_activity_log.clear()
+
+    def slow_tool(value):
+        time.sleep(0.2)
+        return f"slow:{value}"
+
+    message = {
+        "function_call": {
+            "name": "slow_tool",
+            "arguments": json.dumps({"value": "one"}),
+        }
+    }
+
+    function_map = {"slow_tool": slow_tool}
+
+    async def run_test():
+        task = asyncio.create_task(
+            tool_manager.use_tool(
+                user="user",
+                conversation_id="conversation",
+                message=message,
+                conversation_history=conversation_history,
+                function_map=function_map,
+                functions=None,
+                current_persona=None,
+                temperature_var=0.5,
+                top_p_var=0.9,
+                frequency_penalty_var=0.0,
+                presence_penalty_var=0.0,
+                conversation_manager=conversation_history,
+                provider_manager=provider,
+                config_manager=None,
+            )
+        )
+
+        await asyncio.sleep(0.05)
+        assert not task.done(), "use_tool should not block the event loop when running sync tools"
+
+        response = await task
+        assert response == "model-output"
+        assert conversation_history.responses[-1][2] == "slow:one"
+        assert provider.generate_calls, "Provider should be invoked after tool execution"
 
     asyncio.run(run_test())
 

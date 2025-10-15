@@ -445,14 +445,22 @@ async def use_tool(
             function_response = None
             call_error: Optional[Exception] = None
 
-            with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
-                try:
-                    if asyncio.iscoroutinefunction(func):
+            try:
+                if asyncio.iscoroutinefunction(func):
+                    with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
+                        stderr_buffer
+                    ):
                         function_response = await func(**function_args)
-                    else:
-                        function_response = func(**function_args)
-                except Exception as exc:
-                    call_error = exc
+                else:
+                    def _run_sync_function():
+                        with contextlib.redirect_stdout(
+                            stdout_buffer
+                        ), contextlib.redirect_stderr(stderr_buffer):
+                            return func(**function_args)
+
+                    function_response = await asyncio.to_thread(_run_sync_function)
+            except Exception as exc:
+                call_error = exc
 
             completed_at = datetime.utcnow()
             duration_ms = (completed_at - started_at).total_seconds() * 1000
