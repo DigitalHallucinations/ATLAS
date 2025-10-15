@@ -359,35 +359,57 @@ async def use_tool(
             return target.get(key, default)
         return getattr(target, key, default)
 
-    if not message.get("function_call"):
-        tool_calls_payload = message.get("tool_calls")
-        tool_call_entry = None
-        if isinstance(tool_calls_payload, list) and tool_calls_payload:
-            tool_call_entry = tool_calls_payload[0]
-        elif tool_calls_payload:
-            tool_call_entry = tool_calls_payload
-        if tool_call_entry is None:
-            tool_call_entry = message.get("tool_call")
+    def _normalize_tool_call_entry(raw_entry):
+        if not raw_entry:
+            return None
 
-        if tool_call_entry:
-            function_payload = _safe_get(tool_call_entry, "function") or tool_call_entry
-            name = _safe_get(function_payload, "name") or _safe_get(tool_call_entry, "name")
-            arguments = _safe_get(function_payload, "arguments")
-            if arguments is None:
-                arguments = _safe_get(tool_call_entry, "arguments")
-            if name:
-                if not isinstance(arguments, str):
-                    try:
-                        arguments = json.dumps(arguments)
-                    except (TypeError, ValueError):
-                        arguments = str(arguments)
-                message = dict(message)
-                message["function_call"] = {"name": name, "arguments": arguments}
+        function_payload = _safe_get(raw_entry, "function") or raw_entry
+        name = _safe_get(function_payload, "name") or _safe_get(raw_entry, "name")
+        arguments = _safe_get(function_payload, "arguments")
+        if arguments is None:
+            arguments = _safe_get(raw_entry, "arguments")
 
-    if message.get("function_call"):
-        function_name = message["function_call"].get("name")
-        logger.info(f"Function call detected: {function_name}")
-        function_args_json = message["function_call"].get("arguments", "{}")
+        if not name:
+            return None
+
+        if not isinstance(arguments, str):
+            try:
+                arguments = json.dumps(arguments)
+            except (TypeError, ValueError):
+                arguments = str(arguments)
+
+        return {"name": name, "arguments": arguments}
+
+    tool_call_entries: List[Dict[str, str]] = []
+    tool_calls_payload = message.get("tool_calls")
+
+    def _append_tool_entry(raw_entry):
+        normalized = _normalize_tool_call_entry(raw_entry)
+        if normalized:
+            tool_call_entries.append(normalized)
+
+    if isinstance(tool_calls_payload, list):
+        for raw_entry in tool_calls_payload:
+            _append_tool_entry(raw_entry)
+    elif tool_calls_payload:
+        _append_tool_entry(tool_calls_payload)
+    else:
+        _append_tool_entry(message.get("function_call"))
+        _append_tool_entry(message.get("tool_call"))
+
+    if tool_call_entries and not message.get("function_call"):
+        message = dict(message)
+        message["function_call"] = dict(tool_call_entries[0])
+
+    if not tool_call_entries:
+        return None
+
+    executed_calls: List[Dict[str, Any]] = []
+
+    for index, tool_call_entry in enumerate(tool_call_entries):
+        function_name = tool_call_entry.get("name")
+        logger.info(f"Function call detected: {function_name} (index {index})")
+        function_args_json = tool_call_entry.get("arguments", "{}")
         logger.info(f"Function arguments (JSON): {function_args_json}")
 
         try:
@@ -397,143 +419,161 @@ async def use_tool(
             logger.error(f"Error decoding JSON for function arguments: {e}", exc_info=True)
             return f"Error: Invalid JSON in function arguments: {e}", True
 
-        if function_name in function_map:
-            required_args = get_required_args(function_map[function_name])
-            logger.info(f"Required arguments for function '{function_name}': {required_args}")
-            provided_args = list(function_args.keys())
-            logger.info(f"Provided arguments for function '{function_name}': {provided_args}")
-            missing_args = set(required_args) - set(function_args.keys())
-
-            if missing_args:
-                logger.error(f"Missing required arguments for function '{function_name}': {missing_args}")
-                return (
-                    f"Error: Missing required arguments for function '{function_name}': {', '.join(missing_args)}",
-                    True
-                )
-
-            try:
-                logger.info(f"Calling function '{function_name}' with arguments: {function_args}")
-                func = function_map[function_name]
-                stdout_buffer = io.StringIO()
-                stderr_buffer = io.StringIO()
-                started_at = datetime.utcnow()
-                function_response = None
-                call_error: Optional[Exception] = None
-
-                with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
-                    try:
-                        if asyncio.iscoroutinefunction(func):
-                            function_response = await func(**function_args)
-                        else:
-                            function_response = func(**function_args)
-                    except Exception as exc:
-                        call_error = exc
-
-                completed_at = datetime.utcnow()
-                duration_ms = (completed_at - started_at).total_seconds() * 1000
-                log_entry = {
-                    "tool_name": function_name,
-                    "arguments": function_args,
-                    "arguments_text": _stringify_tool_value(function_args),
-                    "started_at": started_at.isoformat(timespec="milliseconds"),
-                    "completed_at": completed_at.isoformat(timespec="milliseconds"),
-                    "duration_ms": duration_ms,
-                    "status": "success" if call_error is None else "error",
-                    "stdout": stdout_buffer.getvalue(),
-                    "stderr": stderr_buffer.getvalue(),
-                    "result": function_response,
-                    "result_text": _stringify_tool_value(function_response),
-                    "error": str(call_error) if call_error else None,
-                }
-                _record_tool_activity(log_entry)
-
-                if call_error is not None:
-                    raise call_error
-
-                logger.info(
-                    "Function '%s' executed successfully. Response: %s",
-                    function_name,
-                    function_response,
-                )
-
-                # Publish event for specific functions if needed
-                if function_name == "execute_python":
-                    command = function_args.get('command')
-                    event_system.publish("code_executed", command, function_response)
-                    logger.info("Published 'code_executed' event.")
-
-                # Add the function response to conversation history
-                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                conversation_history.add_response(user, conversation_id, function_response, current_time)
-                logger.info("Function response added to conversation history.")
-
-                # Prepare the system message for the model
-                formatted_function_response = (
-                    f"System Message: The function call was executed successfully with the following results: "
-                    f"{function_name}: {function_response} "
-                    "If needed, you can make another tool call for further processing or multi-step requests. "
-                    "Provide the answer to the user's question, a summary, or ask for further details."
-                )
-                logger.info(f"Formatted function response for model: {formatted_function_response}")
-
-                # Retrieve updated conversation history
-                messages = conversation_history.get_history(user, conversation_id)
-                logger.info(f"Conversation history: {messages}")
-
-                # Call the model with the new prompt
-                new_text = await call_model_with_new_prompt(
-                    formatted_function_response,
-                    current_persona,
-                    messages,
-                    temperature_var,
-                    top_p_var,
-                    frequency_penalty_var,
-                    presence_penalty_var,
-                    functions,
-                    config_manager,
-                    provider_manager=provider_manager,
-                    conversation_manager=conversation_manager,
-                    conversation_id=conversation_id,
-                    user=user,
-                )
-                
-                logger.info(f"Model response after function execution: {new_text}")
-
-                if new_text is None:
-                    logger.warning("Model returned None response. Using default fallback message.")
-                    new_text = (
-                        "Tool Manager says: Sorry, I couldn't generate a meaningful response. "
-                        "Please try again or provide more context."
-                    )
-
-                if new_text:
-                    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    text_payload, audio_payload = _extract_text_and_audio(new_text)
-                    entry_kwargs = {}
-                    if audio_payload is not None:
-                        entry_kwargs["audio"] = audio_payload
-                    conversation_history.add_message(
-                        user,
-                        conversation_id,
-                        "assistant",
-                        text_payload,
-                        current_time,
-                        **entry_kwargs,
-                    )
-                    new_text = text_payload
-                    logger.info("Assistant's message added to conversation history.")
-
-                return new_text
-
-            except Exception as e:
-                logger.error(f"Exception during function '{function_name}' execution: {e}", exc_info=True)
-                return f"Error: Exception during function '{function_name}' execution: {e}", True
-
-        else:
+        if function_name not in function_map:
             logger.error(f"Function '{function_name}' not found in function map.")
             return f"Error: Function '{function_name}' not found.", True
 
-    return None
+        required_args = get_required_args(function_map[function_name])
+        logger.info(f"Required arguments for function '{function_name}': {required_args}")
+        provided_args = list(function_args.keys())
+        logger.info(f"Provided arguments for function '{function_name}': {provided_args}")
+        missing_args = set(required_args) - set(function_args.keys())
+
+        if missing_args:
+            logger.error(f"Missing required arguments for function '{function_name}': {missing_args}")
+            return (
+                f"Error: Missing required arguments for function '{function_name}': {', '.join(missing_args)}",
+                True,
+            )
+
+        try:
+            logger.info(f"Calling function '{function_name}' with arguments: {function_args}")
+            func = function_map[function_name]
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
+            started_at = datetime.utcnow()
+            function_response = None
+            call_error: Optional[Exception] = None
+
+            with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+                try:
+                    if asyncio.iscoroutinefunction(func):
+                        function_response = await func(**function_args)
+                    else:
+                        function_response = func(**function_args)
+                except Exception as exc:
+                    call_error = exc
+
+            completed_at = datetime.utcnow()
+            duration_ms = (completed_at - started_at).total_seconds() * 1000
+            log_entry = {
+                "tool_name": function_name,
+                "arguments": function_args,
+                "arguments_text": _stringify_tool_value(function_args),
+                "started_at": started_at.isoformat(timespec="milliseconds"),
+                "completed_at": completed_at.isoformat(timespec="milliseconds"),
+                "duration_ms": duration_ms,
+                "status": "success" if call_error is None else "error",
+                "stdout": stdout_buffer.getvalue(),
+                "stderr": stderr_buffer.getvalue(),
+                "result": function_response,
+                "result_text": _stringify_tool_value(function_response),
+                "error": str(call_error) if call_error else None,
+            }
+            _record_tool_activity(log_entry)
+
+            if call_error is not None:
+                raise call_error
+
+            logger.info(
+                "Function '%s' executed successfully. Response: %s",
+                function_name,
+                function_response,
+            )
+
+            if function_name == "execute_python":
+                command = function_args.get('command')
+                event_system.publish("code_executed", command, function_response)
+                logger.info("Published 'code_executed' event.")
+
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            conversation_history.add_response(user, conversation_id, function_response, current_time)
+            logger.info("Function response added to conversation history.")
+
+            executed_calls.append(
+                {
+                    "name": function_name,
+                    "arguments": function_args,
+                    "result": function_response,
+                    "result_text": log_entry["result_text"],
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Exception during function '{function_name}' execution: {e}", exc_info=True)
+            return f"Error: Exception during function '{function_name}' execution: {e}", True
+
+    if not executed_calls:
+        return None
+
+    if len(executed_calls) == 1:
+        call = executed_calls[0]
+        formatted_function_response = (
+            "System Message: The function call was executed successfully with the following results: "
+            f"{call['name']}: {call['result_text']} "
+            "If needed, you can make another tool call for further processing or multi-step requests. "
+            "Provide the answer to the user's question, a summary, or ask for further details."
+        )
+    else:
+        lines = [
+            f"{index + 1}. {call['name']}: {call['result_text']}"
+            for index, call in enumerate(executed_calls)
+        ]
+        formatted_function_response = (
+            "System Message: The following tool calls were executed successfully with these results:\n"
+            + "\n".join(lines)
+            + "\nIf needed, you can make another tool call for further processing or multi-step requests. "
+            + "Provide the answer to the user's question, a summary, or ask for further details."
+        )
+
+    logger.info(f"Formatted function response for model: {formatted_function_response}")
+
+    messages = conversation_history.get_history(user, conversation_id)
+    logger.info(f"Conversation history: {messages}")
+
+    new_text = await call_model_with_new_prompt(
+        formatted_function_response,
+        current_persona,
+        messages,
+        temperature_var,
+        top_p_var,
+        frequency_penalty_var,
+        presence_penalty_var,
+        functions,
+        config_manager,
+        provider_manager=provider_manager,
+        conversation_manager=conversation_manager,
+        conversation_id=conversation_id,
+        user=user,
+    )
+
+    logger.info(f"Model response after function execution: {new_text}")
+
+    if new_text is None:
+        logger.warning("Model returned None response. Using default fallback message.")
+        new_text = (
+            "Tool Manager says: Sorry, I couldn't generate a meaningful response. "
+            "Please try again or provide more context."
+        )
+
+    if new_text:
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        text_payload, audio_payload = _extract_text_and_audio(new_text)
+        entry_kwargs = {}
+        if audio_payload is not None:
+            entry_kwargs["audio"] = audio_payload
+        conversation_history.add_message(
+            user,
+            conversation_id,
+            "assistant",
+            text_payload,
+            current_time,
+            **entry_kwargs,
+        )
+        new_text = text_payload
+        logger.info("Assistant's message added to conversation history.")
+
+    return new_text
 
 async def call_model_with_new_prompt(
     prompt,

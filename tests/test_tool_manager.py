@@ -154,6 +154,104 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
     asyncio.run(run_test())
 
 
+def test_use_tool_handles_multiple_tool_calls(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.history = [{"role": "user", "content": "Hi"}]
+            self.responses = []
+            self.messages = []
+
+        def add_response(self, user, conversation_id, response, timestamp):
+            self.responses.append((user, conversation_id, response, timestamp))
+            self.history.append({"role": "function", "name": "tool", "content": str(response)})
+
+        def add_message(self, user, conversation_id, role, content, timestamp, **kwargs):
+            self.messages.append((user, conversation_id, role, content, timestamp, kwargs))
+            entry = {"role": role, "content": content}
+            if kwargs:
+                entry.update(kwargs)
+            self.history.append(entry)
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+    class DummyProviderManager:
+        def __init__(self):
+            self.generate_calls = []
+
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **kwargs):
+            self.generate_calls.append(kwargs)
+            return "model-output"
+
+    conversation_history = DummyConversationHistory()
+    provider = DummyProviderManager()
+    tool_manager._tool_activity_log.clear()
+
+    call_sequence = []
+
+    async def async_tool(value):
+        call_sequence.append(("async_tool", value))
+        await asyncio.sleep(0)
+        return f"async:{value}"
+
+    def sync_tool(value):
+        call_sequence.append(("sync_tool", value))
+        return f"sync:{value}"
+
+    message = {
+        "tool_calls": [
+            {"function": {"name": "async_tool", "arguments": json.dumps({"value": "one"})}},
+            {"function": {"name": "sync_tool", "arguments": {"value": "two"}}},
+        ]
+    }
+
+    function_map = {"async_tool": async_tool, "sync_tool": sync_tool}
+
+    async def run_test():
+        response = await tool_manager.use_tool(
+            user="user",
+            conversation_id="conversation",
+            message=message,
+            conversation_history=conversation_history,
+            function_map=function_map,
+            functions=None,
+            current_persona=None,
+            temperature_var=0.5,
+            top_p_var=0.9,
+            frequency_penalty_var=0.0,
+            presence_penalty_var=0.0,
+            conversation_manager=conversation_history,
+            provider_manager=provider,
+            config_manager=None,
+        )
+
+        assert response == "model-output"
+        assert call_sequence == [("async_tool", "one"), ("sync_tool", "two")]
+        assert len(conversation_history.responses) == 2
+        assert conversation_history.responses[0][2] == "async:one"
+        assert conversation_history.responses[1][2] == "sync:two"
+
+        assert provider.generate_calls, "Model should be called after executing tools"
+        prompt = provider.generate_calls[0]["messages"][-1]["content"]
+        assert "1. async_tool: async:one" in prompt
+        assert "2. sync_tool: sync:two" in prompt
+
+        log_entries = tool_manager.get_tool_activity_log()
+        assert len(log_entries) >= 2
+        assert log_entries[-2]["tool_name"] == "async_tool"
+        assert log_entries[-1]["tool_name"] == "sync_tool"
+
+    asyncio.run(run_test())
+
+
 def test_call_model_with_new_prompt_collects_stream(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)
