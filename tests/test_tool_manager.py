@@ -538,6 +538,29 @@ def test_load_function_map_caches_by_persona(monkeypatch):
 
         module = sys.modules[module_name]
         assert getattr(module, "EXECUTION_COUNTER", 0) == 1
+
+        maps_path.write_text(
+            textwrap.dedent(
+                """
+                EXECUTION_COUNTER = globals().get("EXECUTION_COUNTER", 0) + 1
+
+                def updated_tool():
+                    return "updated"
+
+                function_map = {"updated_tool": updated_tool}
+                """
+            )
+        )
+
+        new_time = os.path.getmtime(maps_path) + 1
+        os.utime(maps_path, (new_time, new_time))
+
+        third_map = tool_manager.load_function_map_from_current_persona(persona_payload)
+
+        assert spec_calls["count"] == 2
+        assert third_map is not first_map
+        assert "updated_tool" in third_map
+
     finally:
         sys.modules.pop(module_name, None)
         shutil.rmtree(Path("modules/Personas") / persona_name, ignore_errors=True)

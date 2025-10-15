@@ -12,14 +12,14 @@ import threading
 from collections import deque
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system
 
 from ATLAS.config import ConfigManager
 logger = setup_logger(__name__)
 
-_function_map_cache: Dict[str, Dict[str, Any]] = {}
+_function_map_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _function_payload_cache: Dict[str, Any] = {}
 _default_config_manager: Optional[ConfigManager] = None
 
@@ -211,12 +211,27 @@ def load_function_map_from_current_persona(
             _function_map_cache.pop(persona_name, None)
             _function_payload_cache.pop(persona_name, None)
 
-        if not refresh and persona_name in _function_map_cache:
+        file_mtime = os.path.getmtime(maps_path)
+
+        cache_entry = _function_map_cache.get(persona_name)
+
+        if not refresh and cache_entry:
+            cached_mtime, cached_map = cache_entry
+            if cached_mtime == file_mtime:
+                logger.info(
+                    "Returning cached function map for persona '%s' without reloading module.",
+                    persona_name,
+                )
+                return cached_map
+
             logger.info(
-                "Returning cached function map for persona '%s' without reloading module.",
+                "Detected updated maps.py for persona '%s' (cached mtime %s, current mtime %s); reloading.",
                 persona_name,
+                cached_mtime,
+                file_mtime,
             )
-            return _function_map_cache[persona_name]
+            sys.modules.pop(module_name, None)
+            _function_map_cache.pop(persona_name, None)
 
         module = sys.modules.get(module_name)
 
@@ -247,7 +262,7 @@ def load_function_map_from_current_persona(
                 persona_name,
                 module.function_map,
             )
-            _function_map_cache[persona_name] = module.function_map
+            _function_map_cache[persona_name] = (file_mtime, module.function_map)
             return module.function_map
         else:
             logger.warning(
