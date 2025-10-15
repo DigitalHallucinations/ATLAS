@@ -1,13 +1,21 @@
 # src/components/location_services/geocode.py
 
 import aiohttp
+import logging
 import os
 
 DEBUG_MODE = False
 
+
+logger = logging.getLogger(__name__)
+
 async def geocode_location(location):
     """Get the coordinates of a location by its name using OpenWeather's Geocoding API"""
-    OPENWEATHER_API_KEY = os.environ['OPENWEATHERMAP_API_KEY']
+    OPENWEATHER_API_KEY = os.getenv('OPENWEATHERMAP_API_KEY')
+    if not OPENWEATHER_API_KEY:
+        message = "Missing OpenWeatherMap API key"
+        logger.error(message)
+        return {'error': message}
     BASE_URL = "http://api.openweathermap.org/geo/1.0/direct"
 
     params = {
