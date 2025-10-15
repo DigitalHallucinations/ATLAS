@@ -1,8 +1,10 @@
 # modules/Tools/Base_Tools/Universal_Tools/Google_search.py
 
+import asyncio
 import os
-import requests
 from typing import Tuple, Union
+
+import requests
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 
@@ -26,13 +28,20 @@ class GoogleSearch:
         logger.info("URL: %s", url)
 
         try:
-            response = requests.get(url, timeout=self.timeout)
+            response = await asyncio.to_thread(
+                requests.get,
+                url,
+                timeout=self.timeout,
+            )
             logger.info("Response status code: %d", response.status_code)
             response.raise_for_status()
             return response.status_code, response.json()
         except requests.HTTPError as http_err:
             logger.error("Error during the request: %s", http_err)
-            return response.status_code, str(http_err)
+            status_code = (
+                http_err.response.status_code if http_err.response else -1
+            )
+            return status_code, str(http_err)
         except Exception as e:
             logger.error("An error occurred: %s", e)
             return -1, str(e)
