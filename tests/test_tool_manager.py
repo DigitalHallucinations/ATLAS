@@ -69,6 +69,19 @@ def _ensure_dotenv(monkeypatch):
     if "dotenv" in sys.modules:
         return
 
+def _ensure_pytz(monkeypatch):
+    if "pytz" in sys.modules:
+        return
+
+    import datetime
+
+    pytz_stub = types.SimpleNamespace(
+        timezone=lambda *_args, **_kwargs: datetime.timezone.utc,
+        utc=datetime.timezone.utc,
+    )
+    monkeypatch.setitem(sys.modules, "pytz", pytz_stub)
+
+
     dotenv_stub = types.ModuleType("dotenv")
 
     def _load_dotenv(*_args, **_kwargs):  # pragma: no cover - stub helper
@@ -92,6 +105,7 @@ def test_tool_manager_import_without_credentials(monkeypatch):
     _clear_provider_env(monkeypatch)
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
     sys.modules.pop("ATLAS.ToolManager", None)
 
     module = importlib.import_module("ATLAS.ToolManager")
@@ -102,6 +116,7 @@ def test_tool_manager_import_without_credentials(monkeypatch):
 def test_use_tool_prefers_supplied_config_manager(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
     tool_manager = importlib.import_module("ATLAS.ToolManager")
     tool_manager = importlib.reload(tool_manager)
 
@@ -884,3 +899,194 @@ def test_load_function_map_caches_by_persona(monkeypatch):
     finally:
         sys.modules.pop(module_name, None)
         shutil.rmtree(Path("modules/Personas") / persona_name, ignore_errors=True)
+
+
+def test_load_function_map_falls_back_to_default(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    persona_name = "MissingPersonaFallback"
+    persona_dir = Path("modules/Personas") / persona_name
+    shutil.rmtree(persona_dir, ignore_errors=True)
+
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
+
+    tool_manager._function_map_cache.clear()
+    tool_manager._default_function_map_cache = None
+    sys.modules.pop(f"persona_{persona_name}_maps", None)
+    sys.modules.pop("modules.Tools.tool_maps.maps", None)
+
+    try:
+        function_map = tool_manager.load_function_map_from_current_persona({"name": persona_name})
+
+        assert isinstance(function_map, dict)
+        assert "google_search" in function_map
+        assert persona_name not in tool_manager._function_map_cache
+        assert tool_manager._default_function_map_cache is not None
+    finally:
+        sys.modules.pop(f"persona_{persona_name}_maps", None)
+        tool_manager._default_function_map_cache = None
+        shutil.rmtree(persona_dir, ignore_errors=True)
+
+
+def test_use_tool_resolves_google_search_with_default_map(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    persona_name = "PersonaWithoutToolbox"
+    persona_dir = Path("modules/Personas") / persona_name
+    shutil.rmtree(persona_dir, ignore_errors=True)
+
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
+
+    tool_manager._function_map_cache.clear()
+    tool_manager._default_function_map_cache = None
+    sys.modules.pop(f"persona_{persona_name}_maps", None)
+    sys.modules.pop("modules.Tools.tool_maps.maps", None)
+
+    persona_payload = {"name": persona_name}
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.history = [{"role": "user", "content": "hello"}]
+            self.responses = []
+            self.messages = []
+
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {
+                "role": "tool",
+                "content": _normalize_tool_response_payload(response),
+            }
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            self.history.append(entry)
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+    class DummyProviderManager:
+        def __init__(self):
+            self.generate_calls = []
+
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **kwargs):
+            self.generate_calls.append(kwargs)
+            return "final-response"
+
+    shared_map = tool_manager.load_function_map_from_current_persona(persona_payload, refresh=True)
+
+    assert isinstance(shared_map, dict)
+    assert "google_search" in shared_map
+
+    captured_args = {}
+
+    async def fake_google_search(query, k=None):
+        captured_args["query"] = query
+        captured_args["k"] = k
+        return {"query": query, "k": k}
+
+    function_map = dict(shared_map)
+    function_map["google_search"] = fake_google_search
+
+    conversation_history = DummyConversationHistory()
+    provider_manager = DummyProviderManager()
+
+    message = {
+        "tool_calls": [
+            {
+                "id": "call-google",
+                "type": "tool",
+                "function": {
+                    "name": "google_search",
+                    "arguments": json.dumps({"query": "atlas project", "k": 3}),
+                },
+            }
+        ]
+    }
+
+    tool_manager._tool_activity_log.clear()
+
+    async def run_test():
+        return await tool_manager.use_tool(
+            user="user",
+            conversation_id="conversation",
+            message=message,
+            conversation_history=conversation_history,
+            function_map=function_map,
+            functions=None,
+            current_persona=persona_payload,
+            temperature_var=0.1,
+            top_p_var=0.9,
+            frequency_penalty_var=0.0,
+            presence_penalty_var=0.0,
+            conversation_manager=conversation_history,
+            provider_manager=provider_manager,
+            config_manager=None,
+        )
+
+    try:
+        result = asyncio.run(run_test())
+
+        assert result == "final-response"
+        assert captured_args == {"query": "atlas project", "k": 3}
+        assert conversation_history.responses
+        response_entry = conversation_history.responses[-1]
+        assert response_entry["tool_call_id"] == "call-google"
+        assert response_entry["content"] == {"query": "atlas project", "k": 3}
+        assert provider_manager.generate_calls
+        final_entry = conversation_history.messages[-1]
+        assert final_entry["content"] == "final-response"
+        assert persona_name not in tool_manager._function_map_cache
+        assert tool_manager._default_function_map_cache is not None
+    finally:
+        sys.modules.pop(f"persona_{persona_name}_maps", None)
+        tool_manager._default_function_map_cache = None
+        shutil.rmtree(persona_dir, ignore_errors=True)
+
