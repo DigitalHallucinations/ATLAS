@@ -86,6 +86,36 @@ class DummyModelManager:
         self.current_model = model
 
 
+class RecordingConversation:
+    def __init__(self):
+        self.records = []
+
+    def add_message(
+        self,
+        user,
+        conversation_id,
+        role,
+        content,
+        timestamp=None,
+        metadata=None,
+        **extra,
+    ):
+        entry = {
+            "user": user,
+            "conversation_id": conversation_id,
+            "role": role,
+            "content": content,
+        }
+        if metadata is not None:
+            entry["metadata"] = metadata
+        entry.update({key: value for key, value in extra.items() if value is not None})
+        self.records.append(entry)
+        return entry
+
+    def get_history(self, *_args, **_kwargs):  # pragma: no cover - helper for compatibility
+        return list(self.records)
+
+
 def _build_generator(config):
     model_manager = DummyModelManager(config)
     return oa_module.OpenAIGenerator(config, model_manager=model_manager)
@@ -163,6 +193,7 @@ def test_reasoning_model_routes_to_responses(monkeypatch):
 
 def test_responses_tool_call_invokes_tool(monkeypatch):
     recorded = {}
+    conversation = RecordingConversation()
 
     async def fake_use_tool(*args, **kwargs):
         if "message" in kwargs:
@@ -171,6 +202,9 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
             recorded["message"] = args[2]
         else:  # pragma: no cover - defensive fallback
             recorded["message"] = None
+        assert len(conversation.records) == 1
+        entry = conversation.records[0]
+        assert entry["role"] == "assistant"
         return "tool-output"
 
     monkeypatch.setattr(oa_module, "use_tool", fake_use_tool)
@@ -182,7 +216,11 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
                     {
                         "type": "tool_call",
                         "tool_calls": [
-                            {"function": {"name": "my_tool", "arguments": {"value": 1}}}
+                            {
+                                "id": "tool-call-1",
+                                "type": "function",
+                                "function": {"name": "my_tool", "arguments": {"value": 1}},
+                            }
                         ],
                     }
                 ],
@@ -228,6 +266,9 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
             model="o1-preview",
             stream=False,
             functions=[{"name": "my_tool"}],
+            conversation_manager=conversation,
+            user="tester",
+            conversation_id="conv-openai-resp",
         )
 
     result = asyncio.run(exercise())
@@ -235,6 +276,10 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
     assert result == "tool-output"
     assert recorded["message"]["function_call"]["name"] == "my_tool"
     assert recorded["message"]["function_call"]["arguments"] == "{\"value\": 1}"
+    assert conversation.records
+    history_entry = conversation.records[0]
+    assert history_entry["tool_calls"][0]["function"]["name"] == "my_tool"
+    assert history_entry["tool_calls"][0]["id"] == "tool-call-1"
 
 
 def test_non_reasoning_model_uses_chat_completions(monkeypatch):
@@ -814,6 +859,7 @@ def test_responses_streaming_emits_final_audio_chunk(monkeypatch):
 
 def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
     recorded = {}
+    conversation = RecordingConversation()
 
     async def fake_use_tool(*args, **kwargs):
         if "message" in kwargs:
@@ -822,6 +868,9 @@ def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
             recorded["message"] = args[2]
         else:  # pragma: no cover - defensive fallback
             recorded["message"] = None
+        assert len(conversation.records) == 1
+        entry = conversation.records[0]
+        assert entry["role"] == "assistant"
         return "tool-response"
 
     monkeypatch.setattr(oa_module, "use_tool", fake_use_tool)
@@ -829,7 +878,13 @@ def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
     message = SimpleNamespace(
         content=None,
         function_call=None,
-        tool_calls=[{"function": {"name": "my_tool", "arguments": "{\"value\": 2}"}}],
+        tool_calls=[
+            {
+                "id": "openai-call-1",
+                "type": "function",
+                "function": {"name": "my_tool", "arguments": "{\"value\": 2}"},
+            }
+        ],
     )
 
     class DummyChat:
@@ -854,6 +909,9 @@ def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
             model="gpt-4o",
             stream=False,
             functions=[{"name": "my_tool"}],
+            conversation_manager=conversation,
+            user="user-1",
+            conversation_id="conv-openai-chat",
         )
 
     result = asyncio.run(exercise())
@@ -861,6 +919,10 @@ def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
     assert result == "tool-response"
     assert recorded["message"]["function_call"]["name"] == "my_tool"
     assert recorded["message"]["function_call"]["arguments"] == "{\"value\": 2}"
+    assert conversation.records
+    history_entry = conversation.records[0]
+    assert history_entry["tool_calls"][0]["function"]["name"] == "my_tool"
+    assert history_entry["tool_calls"][0]["id"] == "openai-call-1"
 
 
 def test_handle_function_call_formats_code_interpreter_output(monkeypatch):

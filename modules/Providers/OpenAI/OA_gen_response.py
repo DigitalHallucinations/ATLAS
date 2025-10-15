@@ -324,6 +324,13 @@ class OpenAIGenerator:
                 message = response.choices[0].message
                 tool_messages = self._extract_chat_tool_calls(message)
                 if tool_messages:
+                    self._record_assistant_tool_message(
+                        conversation_manager,
+                        user,
+                        conversation_id,
+                        message=message,
+                        tool_messages=tool_messages,
+                    )
                     results = []
                     for tool_message in tool_messages:
                         self.logger.info(
@@ -873,6 +880,107 @@ class OpenAIGenerator:
             return target.get(attribute, default)
         return getattr(target, attribute, default)
 
+    def _clone_for_history(self, value: Any) -> Any:
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+
+        if hasattr(value, "model_dump"):
+            try:
+                return value.model_dump()
+            except Exception:
+                pass
+
+        if isinstance(value, dict):
+            return {key: self._clone_for_history(val) for key, val in value.items()}
+
+        if isinstance(value, (list, tuple, set)):
+            return [self._clone_for_history(item) for item in value]
+
+        if hasattr(value, "__dict__") and not isinstance(value, type):
+            return {
+                key: self._clone_for_history(val)
+                for key, val in vars(value).items()
+                if not key.startswith("_")
+            }
+
+        try:
+            return json.loads(json.dumps(value))
+        except Exception:
+            try:
+                return str(value)
+            except Exception:
+                return None
+
+    def _record_assistant_tool_message(
+        self,
+        conversation_manager,
+        user,
+        conversation_id,
+        *,
+        message: Optional[Any] = None,
+        tool_messages: Optional[List[Dict[str, Any]]] = None,
+        default_content: str = "",
+    ) -> None:
+        if conversation_manager is None:
+            return
+
+        role = self._safe_get(message, "role", "assistant") if message else "assistant"
+        content_value = self._safe_get(message, "content") if message else None
+        text_content = self._coerce_content_to_text(content_value)
+        if not text_content:
+            text_content = default_content or ""
+
+        extra_fields: Dict[str, Any] = {}
+
+        message_id = self._safe_get(message, "id") if message else None
+        if message_id is not None:
+            extra_fields["id"] = message_id
+
+        function_call_payload = self._safe_get(message, "function_call") if message else None
+        if function_call_payload is not None:
+            extra_fields["function_call"] = self._clone_for_history(function_call_payload)
+
+        tool_calls_payload: Optional[List[Any]] = None
+        if message is not None:
+            raw_tool_calls = self._safe_get(message, "tool_calls")
+            if raw_tool_calls:
+                if not isinstance(raw_tool_calls, (list, tuple, set)):
+                    raw_tool_calls = [raw_tool_calls]
+                tool_calls_payload = [
+                    self._clone_for_history(call) for call in raw_tool_calls
+                ]
+            else:
+                single_tool_call = self._safe_get(message, "tool_call")
+                if single_tool_call:
+                    tool_calls_payload = [self._clone_for_history(single_tool_call)]
+
+        if tool_calls_payload is None and tool_messages:
+            calls: List[Any] = []
+            for entry in tool_messages:
+                if isinstance(entry, dict):
+                    raw_call = entry.get("raw_call")
+                    if raw_call is not None:
+                        calls.append(self._clone_for_history(raw_call))
+                    else:
+                        calls.append(self._clone_for_history(entry))
+                else:
+                    calls.append(self._clone_for_history(entry))
+            if calls:
+                tool_calls_payload = calls
+
+        if tool_calls_payload is not None:
+            extra_fields["tool_calls"] = tool_calls_payload
+
+        sanitized_fields = {key: value for key, value in extra_fields.items() if value is not None}
+
+        conversation_manager.add_message(
+            user,
+            conversation_id,
+            role or "assistant",
+            text_content,
+            **sanitized_fields,
+        )
+
     def _coerce_content_to_text(self, content: Any) -> str:
         if content is None:
             return ""
@@ -1203,6 +1311,12 @@ class OpenAIGenerator:
         if allow_function_calls:
             tool_messages = self._extract_responses_tool_calls(response)
             if tool_messages:
+                self._record_assistant_tool_message(
+                    conversation_manager,
+                    user,
+                    conversation_id,
+                    tool_messages=tool_messages,
+                )
                 results = []
                 for tool_message in tool_messages:
                     result = await self.handle_function_call(
@@ -1301,6 +1415,13 @@ class OpenAIGenerator:
 
         if allow_function_calls and final_response is not None:
             tool_messages = self._extract_responses_tool_calls(final_response)
+            if tool_messages:
+                self._record_assistant_tool_message(
+                    conversation_manager,
+                    user,
+                    conversation_id,
+                    tool_messages=tool_messages,
+                )
             for tool_message in tool_messages:
                 tool_result = await self.handle_function_call(
                     user,
@@ -1414,6 +1535,16 @@ class OpenAIGenerator:
                     "Function call detected during streaming: %s",
                     function_call_delta,
                 )
+                normalized_delta = self._normalize_tool_call(
+                    {"type": "function", "function": function_call_delta}
+                )
+                self._record_assistant_tool_message(
+                    conversation_manager,
+                    user,
+                    conversation_id,
+                    message={"role": "assistant", "function_call": function_call_delta},
+                    tool_messages=[normalized_delta] if normalized_delta else None,
+                )
                 result = await self.handle_function_call(
                     user,
                     conversation_id,
@@ -1434,6 +1565,13 @@ class OpenAIGenerator:
 
         if pending_tool_calls:
             tool_messages = self._finalize_pending_tool_calls(pending_tool_calls)
+            if tool_messages:
+                self._record_assistant_tool_message(
+                    conversation_manager,
+                    user,
+                    conversation_id,
+                    tool_messages=tool_messages,
+                )
             for tool_message in tool_messages:
                 self.logger.info(
                     "Processing aggregated streaming tool call: %s",
