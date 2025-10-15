@@ -424,6 +424,13 @@ class MistralGenerator:
                     message = self._safe_get(response.choices[0], "message")
                     tool_messages = self._extract_tool_messages(message)
                     if tool_messages:
+                        self._record_tool_request_message(
+                            conversation_manager,
+                            user,
+                            conversation_id,
+                            source_message=message,
+                            tool_messages=tool_messages,
+                        )
                         tool_result = await self._handle_tool_messages(
                             tool_messages,
                             user=user,
@@ -507,7 +514,90 @@ class MistralGenerator:
         ):
             return [self._clone_message_value(item) for item in value]
 
+        if hasattr(value, "__dict__") and not isinstance(value, type):
+            return {
+                key: self._clone_message_value(val)
+                for key, val in vars(value).items()
+                if not key.startswith("_")
+            }
+
         return value
+
+    def _record_tool_request_message(
+        self,
+        conversation_manager,
+        user,
+        conversation_id,
+        *,
+        source_message: Optional[Any] = None,
+        tool_messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        if conversation_manager is None:
+            return
+
+        role = self._safe_get(source_message, "role") if source_message else None
+        if not isinstance(role, str) or not role:
+            role = "assistant"
+
+        content_value = self._safe_get(source_message, "content") if source_message else None
+        if isinstance(content_value, str):
+            content_text = content_value
+        elif content_value is None:
+            content_text = ""
+        else:
+            try:
+                content_text = json.dumps(content_value)
+            except Exception:
+                content_text = str(content_value)
+
+        extra_fields: Dict[str, Any] = {}
+
+        message_id = self._safe_get(source_message, "id") if source_message else None
+        if message_id is not None:
+            extra_fields["id"] = message_id
+
+        function_call_payload = (
+            self._safe_get(source_message, "function_call") if source_message else None
+        )
+        if function_call_payload is not None:
+            extra_fields["function_call"] = self._clone_message_value(function_call_payload)
+
+        tool_calls_payload: Optional[List[Any]] = None
+        if source_message is not None:
+            raw_tool_calls = self._safe_get(source_message, "tool_calls")
+            if raw_tool_calls:
+                if not isinstance(raw_tool_calls, (list, tuple, set)):
+                    raw_tool_calls = [raw_tool_calls]
+                tool_calls_payload = [
+                    self._clone_message_value(call) for call in raw_tool_calls
+                ]
+
+        if tool_calls_payload is None and tool_messages:
+            collected: List[Any] = []
+            for entry in tool_messages:
+                if isinstance(entry, Mapping):
+                    raw_call = entry.get("raw_call")
+                    if raw_call is not None:
+                        collected.append(self._clone_message_value(raw_call))
+                    else:
+                        collected.append(self._clone_message_value(entry))
+                else:
+                    collected.append(self._clone_message_value(entry))
+            if collected:
+                tool_calls_payload = collected
+
+        if tool_calls_payload is not None:
+            extra_fields["tool_calls"] = tool_calls_payload
+
+        sanitized_fields = {key: value for key, value in extra_fields.items() if value is not None}
+
+        conversation_manager.add_message(
+            user,
+            conversation_id,
+            role,
+            content_text,
+            **sanitized_fields,
+        )
 
     def _prepare_json_schema(self, schema: Any) -> Optional[Dict[str, Any]]:
         if schema is None:
@@ -698,6 +788,12 @@ class MistralGenerator:
             if kind == "chunk":
                 yield payload
             elif kind == "tools":
+                self._record_tool_request_message(
+                    conversation_manager,
+                    user,
+                    conversation_id,
+                    tool_messages=payload,
+                )
                 tool_result = await self._handle_tool_messages(
                     payload,
                     user=user,

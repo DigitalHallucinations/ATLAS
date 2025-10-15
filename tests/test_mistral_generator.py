@@ -117,6 +117,36 @@ class DummyModelManager:
         self.current_model = model
 
 
+class RecordingConversation:
+    def __init__(self):
+        self.records = []
+
+    def add_message(
+        self,
+        user,
+        conversation_id,
+        role,
+        content,
+        timestamp=None,
+        metadata=None,
+        **extra,
+    ):
+        entry = {
+            "user": user,
+            "conversation_id": conversation_id,
+            "role": role,
+            "content": content,
+        }
+        if metadata is not None:
+            entry["metadata"] = metadata
+        entry.update({key: value for key, value in extra.items() if value is not None})
+        self.records.append(entry)
+        return entry
+
+    def get_history(self, *_args, **_kwargs):  # pragma: no cover - helper for compatibility
+        return list(self.records)
+
+
 def _build_generator(config):
     model_manager = DummyModelManager(config)
     return mistral_module.MistralGenerator(config, model_manager=model_manager)
@@ -724,6 +754,7 @@ def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
 
     generator = _build_generator(DummyConfig(settings))
     recorded_messages = []
+    conversation = RecordingConversation()
 
     async def fake_use_tool(*args, **_kwargs):
         if "message" in _kwargs:
@@ -732,6 +763,9 @@ def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
             recorded_messages.append(args[2])
         else:  # pragma: no cover - defensive fallback
             recorded_messages.append(None)
+        assert len(conversation.records) == 1
+        entry = conversation.records[0]
+        assert entry["role"] == "assistant"
         return "tool-result"
 
     monkeypatch.setattr(mistral_module, "use_tool", fake_use_tool)
@@ -761,7 +795,7 @@ def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
             current_persona={"name": "tester"},
             user="user-1",
             conversation_id="conv-1",
-            conversation_manager=SimpleNamespace(),
+            conversation_manager=conversation,
         )
 
     result = asyncio.run(exercise())
@@ -775,6 +809,10 @@ def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
             }
         }
     ]
+    assert conversation.records
+    history_entry = conversation.records[0]
+    assert history_entry["tool_calls"][0]["function"]["name"] == "lookup"
+    assert history_entry["tool_calls"][0]["id"] == "call_1"
 
 
 def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
@@ -785,6 +823,7 @@ def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
 
     generator = _build_generator(DummyConfig(settings))
     recorded_messages = []
+    conversation = RecordingConversation()
 
     async def fake_use_tool(*args, **_kwargs):
         if "message" in _kwargs:
@@ -793,6 +832,9 @@ def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
             recorded_messages.append(args[2])
         else:  # pragma: no cover - defensive fallback
             recorded_messages.append(None)
+        assert len(conversation.records) == 1
+        entry = conversation.records[0]
+        assert entry["role"] == "assistant"
         return "stream-tool"
 
     monkeypatch.setattr(mistral_module, "use_tool", fake_use_tool)
@@ -874,7 +916,7 @@ def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
             current_persona={"name": "tester"},
             user="user-2",
             conversation_id="conv-2",
-            conversation_manager=SimpleNamespace(),
+            conversation_manager=conversation,
             stream=True,
         )
         parts = []
@@ -893,3 +935,7 @@ def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
             }
         }
     ]
+    assert conversation.records
+    history_entry = conversation.records[0]
+    assert history_entry["tool_calls"][0]["function"]["name"] == "lookup"
+    assert history_entry["tool_calls"][0]["id"] == "call_1"
