@@ -282,6 +282,194 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
     assert history_entry["tool_calls"][0]["id"] == "tool-call-1"
 
 
+def test_responses_requires_action_submits_tool_outputs(monkeypatch):
+    recorded = {"order": []}
+    conversation = RecordingConversation()
+
+    async def fake_use_tool(*_args, **kwargs):
+        recorded.setdefault("messages", []).append(kwargs.get("message"))
+        return {"ok": True}
+
+    monkeypatch.setattr(oa_module, "use_tool", fake_use_tool)
+
+    class DummyResponses:
+        async def create(self, **_kwargs):
+            recorded["order"].append("create")
+            return SimpleNamespace(
+                id="resp-1",
+                status="requires_action",
+                output=[],
+                output_text="",
+                required_action={
+                    "submit_tool_outputs": {
+                        "tool_calls": [
+                            {
+                                "id": "call-1",
+                                "type": "function",
+                                "function": {"name": "my_tool", "arguments": {"value": 9}},
+                            }
+                        ]
+                    }
+                },
+            )
+
+        async def submit_tool_outputs(self, response_id, tool_outputs):
+            recorded["order"].append("submit")
+            recorded["submitted"] = {"response_id": response_id, "tool_outputs": tool_outputs}
+            return SimpleNamespace(
+                id=response_id,
+                status="completed",
+                output=[],
+                output_text="final reply",
+            )
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, *args, **kwargs):
+                raise AssertionError("chat.completions.create should not be called")
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.responses = DummyResponses()
+            self.chat = DummyChat()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+
+    settings = DummyConfig({"function_calling": True})
+    generator = _build_generator(settings)
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "call tool"}],
+            model="o1-mini",
+            stream=False,
+            functions=[{"name": "my_tool"}],
+            conversation_manager=conversation,
+            user="tester",
+            conversation_id="conv-resp",
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "final reply"
+    assert recorded["order"] == ["create", "submit"]
+    submitted = recorded["submitted"]
+    assert submitted["response_id"] == "resp-1"
+    assert submitted["tool_outputs"] == [
+        {"tool_call_id": "call-1", "output": '{"ok": true}'}
+    ]
+    assert recorded["messages"][0]["function_call"]["name"] == "my_tool"
+    assert conversation.records
+
+
+def test_responses_streaming_requires_action_flushes_tool_outputs(monkeypatch):
+    recorded = {"order": []}
+    conversation = RecordingConversation()
+
+    async def fake_use_tool(*_args, **kwargs):
+        recorded.setdefault("messages", []).append(kwargs.get("message"))
+        return "tool says hi"
+
+    monkeypatch.setattr(oa_module, "use_tool", fake_use_tool)
+
+    class DummyStream:
+        def __init__(self, **kwargs):
+            recorded["order"].append("stream")
+            recorded["stream_kwargs"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+        async def get_final_response(self):
+            return SimpleNamespace(
+                id="resp-stream",
+                status="requires_action",
+                output=[],
+                output_text="",
+                required_action={
+                    "submit_tool_outputs": {
+                        "tool_calls": [
+                            {
+                                "id": "call-stream",
+                                "type": "function",
+                                "function": {"name": "my_tool", "arguments": {}},
+                            }
+                        ]
+                    }
+                },
+            )
+
+    class DummyResponses:
+        def stream(self, **kwargs):
+            return DummyStream(**kwargs)
+
+        async def submit_tool_outputs(self, response_id, tool_outputs):
+            recorded["order"].append("submit")
+            recorded["submitted"] = {"response_id": response_id, "tool_outputs": tool_outputs}
+            return SimpleNamespace(
+                id=response_id,
+                status="completed",
+                output=[],
+                output_text="final stream reply",
+            )
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, *args, **kwargs):
+                raise AssertionError("chat.completions.create should not be called")
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.responses = DummyResponses()
+            self.chat = DummyChat()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+
+    settings = DummyConfig({"function_calling": True, "stream": True})
+    generator = _build_generator(settings)
+
+    async def exercise():
+        response = await generator.generate_response(
+            messages=[{"role": "user", "content": "stream tool"}],
+            model="o1-mini",
+            stream=True,
+            functions=[{"name": "my_tool"}],
+            conversation_manager=conversation,
+            user="tester",
+            conversation_id="conv-stream",
+        )
+        outputs = []
+        async for chunk in response:
+            outputs.append(chunk)
+        return outputs
+
+    chunks = asyncio.run(exercise())
+
+    assert chunks == ["tool says hi", "final stream reply"]
+    assert recorded["order"] == ["stream", "submit"]
+    submitted = recorded["submitted"]
+    assert submitted["response_id"] == "resp-stream"
+    assert submitted["tool_outputs"] == [
+        {"tool_call_id": "call-stream", "output": "tool says hi"}
+    ]
+    assert conversation.records
+    final_entry = conversation.records[-1]
+    assert final_entry["content"] == "tool says hifinal stream reply"
+
+
 def test_non_reasoning_model_uses_chat_completions(monkeypatch):
     captured = {}
 
