@@ -10,6 +10,38 @@ import shutil
 import textwrap
 
 
+def _normalize_tool_response_payload(response):
+    def _clone(value):
+        if isinstance(value, dict):
+            return {key: _clone(val) for key, val in value.items()}
+        if isinstance(value, list):
+            return [_clone(item) for item in value]
+        if isinstance(value, tuple):
+            return [_clone(item) for item in value]
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        return str(value)
+
+    if isinstance(response, dict):
+        return _clone(response)
+
+    if isinstance(response, list):
+        normalized = []
+        for item in response:
+            if isinstance(item, (dict, list, tuple)):
+                normalized.append(_normalize_tool_response_payload(item))
+            else:
+                normalized.append(
+                    {"type": "output_text", "text": "" if item is None else str(item)}
+                )
+        return normalized
+
+    if isinstance(response, tuple):
+        return _normalize_tool_response_payload(list(response))
+
+    return {"type": "output_text", "text": "" if response is None else str(response)}
+
+
 def _clear_provider_env(monkeypatch):
     for key in [
         "OPENAI_API_KEY",
@@ -88,7 +120,10 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
             tool_call_id=None,
             metadata=None,
         ):
-            entry = {"role": "tool", "content": str(response)}
+            entry = {
+                "role": "tool",
+                "content": _normalize_tool_response_payload(response),
+            }
             if tool_call_id is not None:
                 entry["tool_call_id"] = tool_call_id
             if metadata:
@@ -178,7 +213,11 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
         assert payload["user"] == "user"
         assert payload["messages"] == [
             {"role": "user", "content": "Hi"},
-            {"role": "tool", "content": "ping", "tool_call_id": "call-echo"},
+            {
+                "role": "tool",
+                "content": {"type": "output_text", "text": "ping"},
+                "tool_call_id": "call-echo",
+            },
         ]
         recorded_message = conversation_history.messages[-1]
         assert isinstance(recorded_message["content"], str)
@@ -212,7 +251,10 @@ def test_use_tool_handles_multiple_tool_calls(monkeypatch):
             tool_call_id=None,
             metadata=None,
         ):
-            entry = {"role": "tool", "content": str(response)}
+            entry = {
+                "role": "tool",
+                "content": _normalize_tool_response_payload(response),
+            }
             if tool_call_id is not None:
                 entry["tool_call_id"] = tool_call_id
             if metadata:
@@ -304,9 +346,9 @@ def test_use_tool_handles_multiple_tool_calls(monkeypatch):
         assert response == "model-output"
         assert call_sequence == [("async_tool", "one"), ("sync_tool", "two")]
         assert len(conversation_history.responses) == 2
-        assert conversation_history.responses[0]["content"] == "async:one"
+        assert conversation_history.responses[0]["content"]["text"] == "async:one"
         assert conversation_history.responses[0]["tool_call_id"] == "call-async"
-        assert conversation_history.responses[1]["content"] == "sync:two"
+        assert conversation_history.responses[1]["content"]["text"] == "sync:two"
         assert conversation_history.responses[1]["tool_call_id"] == "call-sync"
 
         tool_entries = [
@@ -322,12 +364,12 @@ def test_use_tool_handles_multiple_tool_calls(monkeypatch):
             {"role": "user", "content": "Hi"},
             {
                 "role": "tool",
-                "content": "async:one",
+                "content": {"type": "output_text", "text": "async:one"},
                 "tool_call_id": "call-async",
             },
             {
                 "role": "tool",
-                "content": "sync:two",
+                "content": {"type": "output_text", "text": "sync:two"},
                 "tool_call_id": "call-sync",
             },
         ]
@@ -364,7 +406,10 @@ def test_use_tool_runs_sync_tool_in_thread(monkeypatch):
             tool_call_id=None,
             metadata=None,
         ):
-            entry = {"role": "tool", "content": str(response)}
+            entry = {
+                "role": "tool",
+                "content": _normalize_tool_response_payload(response),
+            }
             if tool_call_id is not None:
                 entry["tool_call_id"] = tool_call_id
             if metadata:
@@ -448,14 +493,18 @@ def test_use_tool_runs_sync_tool_in_thread(monkeypatch):
 
         response = await task
         assert response == "model-output"
-        assert conversation_history.responses[-1]["content"] == "slow:one"
+        assert conversation_history.responses[-1]["content"]["text"] == "slow:one"
         assert conversation_history.responses[-1]["tool_call_id"] == "call-slow"
         log_entries = tool_manager.get_tool_activity_log()
         assert log_entries[-1]["tool_call_id"] == "call-slow"
         assert provider.generate_calls, "Provider should be invoked after tool execution"
         assert provider.generate_calls[0]["messages"] == [
             {"role": "user", "content": "Hi"},
-            {"role": "tool", "content": "slow:one", "tool_call_id": "call-slow"},
+            {
+                "role": "tool",
+                "content": {"type": "output_text", "text": "slow:one"},
+                "tool_call_id": "call-slow",
+            },
         ]
 
     asyncio.run(run_test())

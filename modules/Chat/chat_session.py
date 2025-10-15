@@ -332,6 +332,61 @@ class ChatSession:
         self.conversation_history.append(entry)
         return entry
 
+    def _clone_tool_payload(self, value: Any) -> Any:
+        """Return a JSON-friendly clone of ``value`` suitable for storage."""
+
+        if isinstance(value, dict):
+            return {key: self._clone_tool_payload(val) for key, val in value.items()}
+
+        if isinstance(value, list):
+            return [self._clone_tool_payload(item) for item in value]
+
+        if isinstance(value, tuple):
+            return [self._clone_tool_payload(item) for item in value]
+
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+
+        try:
+            return json.loads(json.dumps(value, ensure_ascii=False))
+        except (TypeError, ValueError):
+            return str(value)
+
+    def _normalize_tool_response(
+        self, response: Any, *, wrap_text: bool = True
+    ) -> Any:
+        """Normalize a tool response for structured storage."""
+
+        if isinstance(response, dict):
+            return self._clone_tool_payload(response)
+
+        if isinstance(response, list):
+            normalized_list = []
+            for item in response:
+                if isinstance(item, (dict, list, tuple)):
+                    normalized_list.append(
+                        self._normalize_tool_response(item, wrap_text=wrap_text)
+                    )
+                elif wrap_text:
+                    normalized_list.append(
+                        {
+                            "type": "output_text",
+                            "text": "" if item is None else str(item),
+                        }
+                    )
+                else:
+                    normalized_list.append("" if item is None else str(item))
+            return normalized_list
+
+        if isinstance(response, tuple):
+            return self._normalize_tool_response(list(response), wrap_text=wrap_text)
+
+        if wrap_text:
+            text_value = "" if response is None else str(response)
+            return {"type": "output_text", "text": text_value}
+
+        return "" if response is None else str(response)
+
     def add_response(
         self,
         user,
@@ -341,6 +396,7 @@ class ChatSession:
         *,
         tool_call_id: str | None = None,
         metadata: Dict[str, Any] | None = None,
+        wrap_text: bool = True,
     ) -> Dict[str, Any]:
         """Record a tool/function response in the conversation history."""
 
@@ -348,9 +404,11 @@ class ChatSession:
         if metadata:
             base_metadata.update(metadata)
 
+        normalized_content = self._normalize_tool_response(response, wrap_text=wrap_text)
+
         entry = self._base_entry(
             role="tool",
-            content=str(response),
+            content=normalized_content,
             user=user,
             conversation_id=conversation_id,
             timestamp=timestamp,

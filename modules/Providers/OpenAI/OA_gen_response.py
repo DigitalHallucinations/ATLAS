@@ -414,22 +414,56 @@ class OpenAIGenerator:
 
     def _map_messages_to_responses_input(self, messages: List[Dict[str, str]]):
         formatted = []
+
+        def _clone_payload(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: _clone_payload(val) for key, val in value.items()}
+            if isinstance(value, list):
+                return [_clone_payload(item) for item in value]
+            if isinstance(value, tuple):
+                return [_clone_payload(item) for item in value]
+            return value
+
+        def _append_content(parts: List[Dict[str, Any]], item: Any) -> None:
+            if item is None:
+                return
+
+            if isinstance(item, list):
+                for sub_item in item:
+                    _append_content(parts, sub_item)
+                return
+
+            if isinstance(item, dict):
+                item_type = item.get("type") if isinstance(item.get("type"), str) else None
+                if item_type in {"text", "output_text"}:
+                    text_value = item.get("text")
+                    if text_value is None:
+                        text_value = item.get("content", "")
+                    parts.append({"type": "text", "text": str(text_value or "")})
+                    return
+
+                try:
+                    serialized = json.dumps(item, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    serialized = str(item)
+
+                parts.append({"type": "text", "text": serialized})
+                return
+
+            parts.append({"type": "text", "text": str(item)})
+
         for message in messages:
             role = message.get("role", "user") if isinstance(message, dict) else "user"
             content = message.get("content") if isinstance(message, dict) else message
             if content is None:
                 continue
-            if isinstance(content, list):
-                normalized_content = []
-                for item in content:
-                    if isinstance(item, dict):
-                        normalized_content.append(item)
-                    else:
-                        normalized_content.append({"type": "text", "text": str(item)})
-            else:
-                normalized_content = [{"type": "text", "text": str(content)}]
 
-            formatted.append({"role": role, "content": normalized_content})
+            content_parts: List[Dict[str, Any]] = []
+            _append_content(content_parts, _clone_payload(content))
+            if not content_parts:
+                continue
+
+            formatted.append({"role": role, "content": content_parts})
         return formatted
 
     def _convert_functions_to_tools(self, functions):
