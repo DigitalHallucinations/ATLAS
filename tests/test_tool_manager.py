@@ -5,6 +5,7 @@ import os
 import sys
 import types
 import time
+from collections.abc import AsyncIterator as AsyncIteratorABC
 from pathlib import Path
 import shutil
 import textwrap
@@ -554,6 +555,128 @@ def test_call_model_with_new_prompt_collects_stream(monkeypatch):
     assert result == "Hello world"
     assert provider.generate_calls
     assert provider.generate_calls[0].get("stream") is False
+
+
+def test_use_tool_streams_final_response_when_enabled(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.history = [{"role": "user", "content": "Hi"}]
+            self.responses = []
+            self.messages = []
+
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {
+                "role": "tool",
+                "content": _normalize_tool_response_payload(response),
+            }
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            self.history.append(entry)
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+    class StreamingProviderManager:
+        def __init__(self):
+            self.generate_calls = []
+
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **kwargs):
+            self.generate_calls.append(kwargs)
+
+            async def _generator():
+                for chunk in ["stream", "-", "result"]:
+                    yield chunk
+
+            return _generator()
+
+    provider = StreamingProviderManager()
+
+    async def tool_fn(value):
+        return f"tool:{value}"
+
+    conversation_history = DummyConversationHistory()
+
+    message = {
+        "function_call": {
+            "id": "call-stream",
+            "name": "tool_fn",
+            "arguments": json.dumps({"value": "input"}),
+        }
+    }
+
+    tool_manager._tool_activity_log.clear()
+
+    async def run_test():
+        response = await tool_manager.use_tool(
+            user="user",
+            conversation_id="conversation",
+            message=message,
+            conversation_history=conversation_history,
+            function_map={"tool_fn": tool_fn},
+            functions=None,
+            current_persona=None,
+            temperature_var=0.5,
+            top_p_var=0.9,
+            frequency_penalty_var=0.0,
+            presence_penalty_var=0.0,
+            conversation_manager=conversation_history,
+            provider_manager=provider,
+            config_manager=None,
+            stream=True,
+        )
+
+        assert isinstance(response, AsyncIteratorABC)
+        chunks = []
+        async for piece in response:
+            chunks.append(piece)
+        return "".join(chunks)
+
+    collected = asyncio.run(run_test())
+
+    assert collected == "stream-result"
+    assert provider.generate_calls
+    assert provider.generate_calls[0].get("stream") is True
+    assert conversation_history.responses
+    assert not conversation_history.messages, "Assistant message should stream externally"
 
 
 def test_load_function_map_caches_by_persona(monkeypatch):
