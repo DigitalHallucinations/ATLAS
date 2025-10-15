@@ -368,6 +368,7 @@ async def use_tool(
         arguments = _safe_get(function_payload, "arguments")
         if arguments is None:
             arguments = _safe_get(raw_entry, "arguments")
+        tool_call_id = _safe_get(raw_entry, "id") or _safe_get(function_payload, "id")
 
         if not name:
             return None
@@ -378,9 +379,12 @@ async def use_tool(
             except (TypeError, ValueError):
                 arguments = str(arguments)
 
-        return {"name": name, "arguments": arguments}
+        entry: Dict[str, Any] = {"name": name, "arguments": arguments}
+        if tool_call_id:
+            entry["id"] = tool_call_id
+        return entry
 
-    tool_call_entries: List[Dict[str, str]] = []
+    tool_call_entries: List[Dict[str, Any]] = []
     tool_calls_payload = message.get("tool_calls")
 
     def _append_tool_entry(raw_entry):
@@ -408,6 +412,7 @@ async def use_tool(
 
     for index, tool_call_entry in enumerate(tool_call_entries):
         function_name = tool_call_entry.get("name")
+        tool_call_id = tool_call_entry.get("id")
         logger.info(f"Function call detected: {function_name} (index {index})")
         function_args_json = tool_call_entry.get("arguments", "{}")
         logger.info(f"Function arguments (JSON): {function_args_json}")
@@ -466,6 +471,7 @@ async def use_tool(
             duration_ms = (completed_at - started_at).total_seconds() * 1000
             log_entry = {
                 "tool_name": function_name,
+                "tool_call_id": tool_call_id,
                 "arguments": function_args,
                 "arguments_text": _stringify_tool_value(function_args),
                 "started_at": started_at.isoformat(timespec="milliseconds"),
@@ -495,11 +501,18 @@ async def use_tool(
                 logger.info("Published 'code_executed' event.")
 
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            conversation_history.add_response(user, conversation_id, function_response, current_time)
+            conversation_history.add_response(
+                user,
+                conversation_id,
+                function_response,
+                current_time,
+                tool_call_id=tool_call_id,
+            )
             logger.info("Function response added to conversation history.")
 
             executed_calls.append(
                 {
+                    "id": tool_call_id,
                     "name": function_name,
                     "arguments": function_args,
                     "result": function_response,
@@ -567,15 +580,30 @@ async def use_tool(
     if new_text:
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         text_payload, audio_payload = _extract_text_and_audio(new_text)
-        entry_kwargs = {}
+        entry_kwargs: Dict[str, Any] = {}
+        metadata_payload: Optional[Dict[str, Any]] = None
+        role = "assistant"
+
+        if isinstance(new_text, dict):
+            metadata_candidate = new_text.get("metadata")
+            if isinstance(metadata_candidate, dict):
+                metadata_payload = dict(metadata_candidate)
+            role = str(new_text.get("role", role))
+            for key, value in new_text.items():
+                if key in {"content", "text", "message", "audio", "role", "metadata"}:
+                    continue
+                entry_kwargs[key] = value
+
         if audio_payload is not None:
             entry_kwargs["audio"] = audio_payload
+
         conversation_history.add_message(
             user,
             conversation_id,
-            "assistant",
+            role,
             text_payload,
             current_time,
+            metadata=metadata_payload,
             **entry_kwargs,
         )
         new_text = text_payload

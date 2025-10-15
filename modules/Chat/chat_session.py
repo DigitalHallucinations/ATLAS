@@ -338,6 +338,8 @@ class ChatSession:
         conversation_id,
         response,
         timestamp=None,
+        *,
+        tool_call_id: str | None = None,
         metadata: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """Record a tool/function response in the conversation history."""
@@ -347,13 +349,18 @@ class ChatSession:
             base_metadata.update(metadata)
 
         entry = self._base_entry(
-            role="function",
+            role="tool",
             content=str(response),
             user=user,
             conversation_id=conversation_id,
             timestamp=timestamp,
             metadata=base_metadata,
         )
+
+        if tool_call_id is not None:
+            entry["tool_call_id"] = tool_call_id
+            entry_metadata = entry.setdefault("metadata", {})
+            entry_metadata.setdefault("tool_call_id", tool_call_id)
 
         self.conversation_history.append(entry)
         return entry

@@ -78,15 +78,41 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
             self.responses = []
             self.messages = []
 
-        def add_response(self, user, conversation_id, response, timestamp):
-            self.responses.append((user, conversation_id, response, timestamp))
-            self.history.append({"role": "function", "name": "tool", "content": str(response)})
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {"role": "tool", "content": str(response)}
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
 
-        def add_message(self, user, conversation_id, role, content, timestamp, **kwargs):
-            self.messages.append((user, conversation_id, role, content, timestamp, kwargs))
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
             entry = {"role": role, "content": content}
+            if metadata:
+                entry["metadata"] = dict(metadata)
             if kwargs:
                 entry.update(kwargs)
+            self.messages.append(entry)
             self.history.append(entry)
 
         def get_history(self, user, conversation_id):
@@ -115,12 +141,14 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
 
     message = {
         "function_call": {
+            "id": "call-echo",
             "name": "echo_tool",
             "arguments": json.dumps({"value": "ping"}),
         }
     }
 
     function_map = {"echo_tool": echo_tool}
+    tool_manager._tool_activity_log.clear()
 
     async def run_test():
         response = await tool_manager.use_tool(
@@ -149,8 +177,11 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
         assert payload["conversation_id"] == "conversation"
         assert payload["user"] == "user"
         recorded_message = conversation_history.messages[-1]
-        assert isinstance(recorded_message[3], str)
-        assert recorded_message[3] == "model-output"
+        assert isinstance(recorded_message["content"], str)
+        assert recorded_message["content"] == "model-output"
+        assert conversation_history.responses[-1]["tool_call_id"] == "call-echo"
+        log_entries = tool_manager.get_tool_activity_log()
+        assert log_entries[-1]["tool_call_id"] == "call-echo"
 
     asyncio.run(run_test())
 
@@ -167,15 +198,41 @@ def test_use_tool_handles_multiple_tool_calls(monkeypatch):
             self.responses = []
             self.messages = []
 
-        def add_response(self, user, conversation_id, response, timestamp):
-            self.responses.append((user, conversation_id, response, timestamp))
-            self.history.append({"role": "function", "name": "tool", "content": str(response)})
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {"role": "tool", "content": str(response)}
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
 
-        def add_message(self, user, conversation_id, role, content, timestamp, **kwargs):
-            self.messages.append((user, conversation_id, role, content, timestamp, kwargs))
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
             entry = {"role": role, "content": content}
+            if metadata:
+                entry["metadata"] = dict(metadata)
             if kwargs:
                 entry.update(kwargs)
+            self.messages.append(entry)
             self.history.append(entry)
 
         def get_history(self, user, conversation_id):
@@ -209,8 +266,14 @@ def test_use_tool_handles_multiple_tool_calls(monkeypatch):
 
     message = {
         "tool_calls": [
-            {"function": {"name": "async_tool", "arguments": json.dumps({"value": "one"})}},
-            {"function": {"name": "sync_tool", "arguments": {"value": "two"}}},
+            {
+                "id": "call-async",
+                "function": {"name": "async_tool", "arguments": json.dumps({"value": "one"})},
+            },
+            {
+                "id": "call-sync",
+                "function": {"name": "sync_tool", "arguments": {"value": "two"}},
+            },
         ]
     }
 
@@ -237,8 +300,18 @@ def test_use_tool_handles_multiple_tool_calls(monkeypatch):
         assert response == "model-output"
         assert call_sequence == [("async_tool", "one"), ("sync_tool", "two")]
         assert len(conversation_history.responses) == 2
-        assert conversation_history.responses[0][2] == "async:one"
-        assert conversation_history.responses[1][2] == "sync:two"
+        assert conversation_history.responses[0]["content"] == "async:one"
+        assert conversation_history.responses[0]["tool_call_id"] == "call-async"
+        assert conversation_history.responses[1]["content"] == "sync:two"
+        assert conversation_history.responses[1]["tool_call_id"] == "call-sync"
+
+        tool_entries = [
+            entry for entry in conversation_history.history if entry.get("role") == "tool"
+        ]
+        assert [entry.get("tool_call_id") for entry in tool_entries[-2:]] == [
+            "call-async",
+            "call-sync",
+        ]
 
         assert provider.generate_calls, "Model should be called after executing tools"
         prompt = provider.generate_calls[0]["messages"][-1]["content"]
@@ -248,7 +321,9 @@ def test_use_tool_handles_multiple_tool_calls(monkeypatch):
         log_entries = tool_manager.get_tool_activity_log()
         assert len(log_entries) >= 2
         assert log_entries[-2]["tool_name"] == "async_tool"
+        assert log_entries[-2]["tool_call_id"] == "call-async"
         assert log_entries[-1]["tool_name"] == "sync_tool"
+        assert log_entries[-1]["tool_call_id"] == "call-sync"
 
     asyncio.run(run_test())
 
@@ -265,15 +340,41 @@ def test_use_tool_runs_sync_tool_in_thread(monkeypatch):
             self.responses = []
             self.messages = []
 
-        def add_response(self, user, conversation_id, response, timestamp):
-            self.responses.append((user, conversation_id, response, timestamp))
-            self.history.append({"role": "function", "name": "tool", "content": str(response)})
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {"role": "tool", "content": str(response)}
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
 
-        def add_message(self, user, conversation_id, role, content, timestamp, **kwargs):
-            self.messages.append((user, conversation_id, role, content, timestamp, kwargs))
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
             entry = {"role": role, "content": content}
+            if metadata:
+                entry["metadata"] = dict(metadata)
             if kwargs:
                 entry.update(kwargs)
+            self.messages.append(entry)
             self.history.append(entry)
 
         def get_history(self, user, conversation_id):
@@ -300,6 +401,7 @@ def test_use_tool_runs_sync_tool_in_thread(monkeypatch):
 
     message = {
         "function_call": {
+            "id": "call-slow",
             "name": "slow_tool",
             "arguments": json.dumps({"value": "one"}),
         }
@@ -332,7 +434,10 @@ def test_use_tool_runs_sync_tool_in_thread(monkeypatch):
 
         response = await task
         assert response == "model-output"
-        assert conversation_history.responses[-1][2] == "slow:one"
+        assert conversation_history.responses[-1]["content"] == "slow:one"
+        assert conversation_history.responses[-1]["tool_call_id"] == "call-slow"
+        log_entries = tool_manager.get_tool_activity_log()
+        assert log_entries[-1]["tool_call_id"] == "call-slow"
         assert provider.generate_calls, "Provider should be invoked after tool execution"
 
     asyncio.run(run_test())
