@@ -21,6 +21,8 @@ logger = setup_logger(__name__)
 
 _function_map_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _function_payload_cache: Dict[str, Any] = {}
+_default_function_map_cache: Optional[Tuple[float, Dict[str, Any]]] = None
+_default_function_map_lock = threading.Lock()
 _default_config_manager: Optional[ConfigManager] = None
 
 _TOOL_ACTIVITY_EVENT = "tool_activity"
@@ -188,6 +190,83 @@ def get_tool_activity_log(limit: Optional[int] = None) -> List[Dict[str, Any]]:
 
     return [dict(entry) for entry in entries]
 
+def load_default_function_map(*, refresh: bool = False, config_manager=None):
+    """Load the shared default tool function map."""
+
+    logger.info("Attempting to load shared default function map.")
+
+    try:
+        app_root = _get_config_manager(config_manager).get_app_root()
+    except Exception as exc:
+        logger.error(
+            "Unable to determine application root when loading shared tools: %s",
+            exc,
+        )
+        return None
+
+    maps_path = os.path.join(app_root, "modules", "Tools", "tool_maps", "maps.py")
+    module_name = "modules.Tools.tool_maps.maps"
+
+    global _default_function_map_cache
+
+    try:
+        with _default_function_map_lock:
+            try:
+                file_mtime = os.path.getmtime(maps_path)
+            except FileNotFoundError:
+                logger.error("Default maps.py not found at path: %s", maps_path)
+                _default_function_map_cache = None
+                return None
+
+            cache_entry = None if refresh else _default_function_map_cache
+            if cache_entry:
+                cached_mtime, cached_map = cache_entry
+                if cached_mtime == file_mtime:
+                    logger.info("Returning cached shared function map without reloading module.")
+                    return cached_map
+
+                logger.info(
+                    "Detected updated shared maps.py (cached mtime %s, current mtime %s); reloading.",
+                    cached_mtime,
+                    file_mtime,
+                )
+                sys.modules.pop(module_name, None)
+                _default_function_map_cache = None
+
+            if refresh:
+                logger.info("Refresh requested for shared tool map; clearing cached module.")
+                sys.modules.pop(module_name, None)
+                _default_function_map_cache = None
+
+            module = sys.modules.get(module_name)
+
+            if module is None:
+                logger.info("Loading shared tool map module '%s' from '%s'.", module_name, maps_path)
+                spec = importlib.util.spec_from_file_location(module_name, maps_path)
+                if spec is None or spec.loader is None:
+                    raise ImportError(f"Could not load specification for shared tool map from {maps_path}")
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+            else:
+                logger.info("Reusing already loaded shared tool map module '%s'.", module_name)
+
+            function_map = getattr(module, "function_map", None)
+
+            if isinstance(function_map, dict):
+                _default_function_map_cache = (file_mtime, function_map)
+                return function_map
+
+            logger.warning("Shared tool map module '%s' does not define 'function_map'.", module_name)
+            _default_function_map_cache = None
+            return None
+    except Exception as exc:
+        logger.error("Error loading shared default function map: %s", exc, exc_info=True)
+        with _default_function_map_lock:
+            _default_function_map_cache = None
+        return None
+
+
 def load_function_map_from_current_persona(
     current_persona,
     *,
@@ -197,7 +276,7 @@ def load_function_map_from_current_persona(
     logger.info("Attempting to load function map from current persona.")
     if not current_persona or "name" not in current_persona:
         logger.error("Current persona is None or does not have a 'name' key.")
-        return None
+        return load_default_function_map(refresh=refresh, config_manager=config_manager)
 
     persona_name = current_persona["name"]
     try:
@@ -208,11 +287,12 @@ def load_function_map_from_current_persona(
             persona_name,
             exc,
         )
-        return None
+        return load_default_function_map(refresh=refresh, config_manager=config_manager)
 
     toolbox_root = os.path.join(app_root, "modules", "Personas", persona_name, "Toolbox")
     maps_path = os.path.join(toolbox_root, "maps.py")
     module_name = f'persona_{persona_name}_maps'
+    function_map_result = None
 
     try:
         if refresh:
@@ -276,19 +356,27 @@ def load_function_map_from_current_persona(
                 module.function_map,
             )
             _function_map_cache[persona_name] = (file_mtime, module.function_map)
-            return module.function_map
+            function_map_result = module.function_map
         else:
             logger.warning(
                 "No 'function_map' found in maps.py for persona '%s'.",
                 persona_name,
             )
             _function_map_cache.pop(persona_name, None)
-            return None
     except FileNotFoundError:
         logger.error(f"maps.py file not found for persona '{persona_name}' at path: {maps_path}")
     except Exception as e:
         logger.error(f"Error loading function map for persona '{persona_name}': {e}", exc_info=True)
-    return None
+
+    if function_map_result is not None:
+        return function_map_result
+
+    logger.info(
+        "Falling back to shared default function map for persona '%s'.",
+        persona_name,
+    )
+    return load_default_function_map(refresh=refresh, config_manager=config_manager)
+
 
 def load_functions_from_json(
     current_persona,
