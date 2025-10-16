@@ -64,6 +64,9 @@
         "name": "execute_python",
         "version": "1.0.0",
         "side_effects": "write",
+        "safety_level": "high",
+        "requires_consent": true,
+        "persona_allowlist": ["CodeGenius"],
         "default_timeout": 45,
         "auth": {
             "required": false
@@ -88,6 +91,9 @@
         "name": "terminal_command",
         "version": "1.0.0",
         "side_effects": "write",
+        "safety_level": "high",
+        "requires_consent": true,
+        "persona_allowlist": ["CodeGenius"],
         "default_timeout": 60,
         "auth": {
             "required": false

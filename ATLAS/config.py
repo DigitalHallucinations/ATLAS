@@ -70,6 +70,17 @@ class ConfigManager:
         tool_logging_block.setdefault('payload_summary_length', 256)
         self.config['tool_logging'] = tool_logging_block
 
+        tool_safety_block = self.config.get('tool_safety')
+        if not isinstance(tool_safety_block, Mapping):
+            tool_safety_block = {}
+        else:
+            tool_safety_block = dict(tool_safety_block)
+        normalized_allowlist = self._normalize_network_allowlist(
+            tool_safety_block.get('network_allowlist')
+        )
+        tool_safety_block['network_allowlist'] = normalized_allowlist
+        self.config['tool_safety'] = tool_safety_block
+
         # Ensure any persisted OpenAI speech preferences are reflected in the active config
         self._synchronize_openai_speech_block()
 
@@ -107,6 +118,26 @@ class ConfigManager:
             )
             self.logger.warning(warning_message)
             self._pending_provider_warnings[default_provider] = warning_message
+
+    def _normalize_network_allowlist(self, value):
+        """Return a sanitized allowlist for sandboxed tool networking."""
+
+        if value is None or value is False:
+            return None
+
+        if isinstance(value, str):
+            candidate = value.strip()
+            return [candidate] if candidate else None
+
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            normalized = []
+            for item in value:
+                host = str(item).strip()
+                if host:
+                    normalized.append(host)
+            return normalized or None
+
+        return None
 
     def get_llm_fallback_config(self) -> Dict[str, Any]:
         """Return the configured fallback provider settings with sensible defaults."""

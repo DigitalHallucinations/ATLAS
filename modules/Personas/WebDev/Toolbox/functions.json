@@ -64,6 +64,9 @@
         "name": "terminal_command",
         "version": "1.0.0",
         "side_effects": "write",
+        "safety_level": "high",
+        "requires_consent": true,
+        "persona_allowlist": ["WebDev"],
         "default_timeout": 60,
         "auth": {
             "required": false
