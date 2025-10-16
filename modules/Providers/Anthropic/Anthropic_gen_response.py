@@ -12,6 +12,12 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
 
 from anthropic import APIError, AsyncAnthropic, RateLimitError
 
+from ATLAS.ToolManager import (
+    ToolExecutionError,
+    load_function_map_from_current_persona,
+    load_functions_from_json,
+    use_tool,
+)
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 
@@ -394,6 +400,10 @@ class AnthropicGenerator:
         current_persona=None,
         functions: Optional[List[Dict]] = None,
         stop_sequences: Optional[Any] = None,
+        conversation_manager=None,
+        user=None,
+        conversation_id=None,
+        generation_settings: Optional[Mapping[str, Any]] = None,
         **kwargs
     ) -> Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]:
         try:
@@ -437,6 +447,9 @@ class AnthropicGenerator:
                 **kwargs
             }
 
+            function_map = None
+            resolved_functions = functions
+
             if resolved_max_output_tokens is not None:
                 message_params["max_output_tokens"] = resolved_max_output_tokens
 
@@ -459,8 +472,19 @@ class AnthropicGenerator:
             if thinking_payload is not None:
                 message_params["thinking"] = thinking_payload
 
-            if self.function_calling_enabled and functions:
-                message_params["tools"] = functions
+            if self.function_calling_enabled:
+                if resolved_functions is None:
+                    resolved_functions = load_functions_from_json(
+                        current_persona,
+                        config_manager=self.config_manager,
+                    )
+                if current_persona is not None:
+                    function_map = load_function_map_from_current_persona(
+                        current_persona,
+                        config_manager=self.config_manager,
+                    )
+                if resolved_functions:
+                    message_params["tools"] = resolved_functions
                 tool_choice_payload = _build_tool_choice_payload(
                     self.tool_choice,
                     self.tool_choice_name,
@@ -469,11 +493,34 @@ class AnthropicGenerator:
                     message_params["tool_choice"] = tool_choice_payload
 
             if stream:
-                return self.process_streaming_response(message_params)
+                return self.process_streaming_response(
+                    message_params,
+                    user=user,
+                    conversation_id=conversation_id,
+                    conversation_manager=conversation_manager,
+                    function_map=function_map,
+                    functions=resolved_functions,
+                    current_persona=current_persona,
+                    temperature=temperature,
+                    top_p=top_p,
+                    generation_settings=generation_settings,
+                )
 
             response = await self._create_message_with_retry(message_params)
             if self.function_calling_enabled:
-                return self.process_function_call(response)
+                return await self.process_function_call(
+                    response,
+                    user=user,
+                    conversation_id=conversation_id,
+                    conversation_manager=conversation_manager,
+                    function_map=function_map,
+                    functions=resolved_functions,
+                    current_persona=current_persona,
+                    temperature=temperature,
+                    top_p=top_p,
+                    generation_settings=generation_settings,
+                    stream=False,
+                )
             text_content, thinking_content = self._extract_text_and_thinking_content(
                 getattr(response, "content", None) or []
             )
@@ -553,7 +600,20 @@ class AnthropicGenerator:
         system_prompt = "\n\n".join(system_messages).strip()
         return system_prompt, formatted_messages
 
-    async def process_streaming_response(self, message_params: Dict[str, Any]) -> AsyncIterator[Union[str, Dict[str, Any]]]:
+    async def process_streaming_response(
+        self,
+        message_params: Dict[str, Any],
+        *,
+        user=None,
+        conversation_id=None,
+        conversation_manager=None,
+        function_map=None,
+        functions=None,
+        current_persona=None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        generation_settings: Optional[Mapping[str, Any]] = None,
+    ) -> AsyncIterator[Union[str, Dict[str, Any]]]:
         schedule = self._build_retry_schedule()
         base_delay = max(1, schedule.base_delay)
 
@@ -570,9 +630,21 @@ class AnthropicGenerator:
 
                             final_response = await stream.get_final_response()
                             if self.function_calling_enabled:
-                                function_call = self.process_function_call(final_response)
-                                if isinstance(function_call, dict):
-                                    yield function_call
+                                tool_response = await self.process_function_call(
+                                    final_response,
+                                    user=user,
+                                    conversation_id=conversation_id,
+                                    conversation_manager=conversation_manager,
+                                    function_map=function_map,
+                                    functions=functions,
+                                    current_persona=current_persona,
+                                    temperature=temperature,
+                                    top_p=top_p,
+                                    generation_settings=generation_settings,
+                                    stream=True,
+                                )
+                                async for tool_chunk in self._forward_tool_response(tool_response):
+                                    yield tool_chunk
                             return
                 else:
                     stream_cm = self.client.messages.stream(**message_params)
@@ -588,9 +660,21 @@ class AnthropicGenerator:
                             stream.get_final_response(), timeout=self.timeout
                         )
                         if self.function_calling_enabled:
-                            function_call = self.process_function_call(final_response)
-                            if isinstance(function_call, dict):
-                                yield function_call
+                            tool_response = await self.process_function_call(
+                                final_response,
+                                user=user,
+                                conversation_id=conversation_id,
+                                conversation_manager=conversation_manager,
+                                function_map=function_map,
+                                functions=functions,
+                                current_persona=current_persona,
+                                temperature=temperature,
+                                top_p=top_p,
+                                generation_settings=generation_settings,
+                                stream=True,
+                            )
+                            async for tool_chunk in self._forward_tool_response(tool_response):
+                                yield tool_chunk
                         return
                     finally:
                         await asyncio.wait_for(
@@ -776,24 +860,107 @@ class AnthropicGenerator:
             }
         return aggregated_text
 
-    def process_function_call(self, response):
+    async def process_function_call(
+        self,
+        response,
+        *,
+        user=None,
+        conversation_id=None,
+        conversation_manager=None,
+        function_map=None,
+        functions=None,
+        current_persona=None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        generation_settings: Optional[Mapping[str, Any]] = None,
+        stream: bool = False,
+    ):
         content_blocks = getattr(response, "content", None) or []
         for block in content_blocks:
-            block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
-            if block_type == "tool_use":
-                name = getattr(block, "name", None) or (block.get("name") if isinstance(block, dict) else None)
-                arguments = getattr(block, "input", None) or (block.get("input") if isinstance(block, dict) else None)
-                if isinstance(arguments, str):
-                    try:
-                        arguments = json.loads(arguments)
-                    except json.JSONDecodeError:
-                        pass
+            block_type = getattr(block, "type", None) or (
+                block.get("type") if isinstance(block, dict) else None
+            )
+            if block_type != "tool_use":
+                continue
+
+            name = getattr(block, "name", None) or (
+                block.get("name") if isinstance(block, dict) else None
+            )
+            if not name:
+                self.logger.warning("Tool call received without a name: %s", block)
+                continue
+
+            arguments = getattr(block, "input", None) or (
+                block.get("input") if isinstance(block, dict) else None
+            )
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except json.JSONDecodeError:
+                    self.logger.debug(
+                        "Failed to decode tool arguments for %s; passing raw string.",
+                        name,
+                        exc_info=True,
+                    )
+
+            tool_call_id = getattr(block, "id", None) or (
+                block.get("id") if isinstance(block, dict) else None
+            )
+            function_payload: Dict[str, Any] = {
+                "name": name,
+                "arguments": arguments,
+            }
+            if tool_call_id and "id" not in function_payload:
+                function_payload["id"] = tool_call_id
+
+            message_payload: Dict[str, Any] = {"function_call": function_payload}
+            if tool_call_id:
+                message_payload["tool_call_id"] = tool_call_id
+                message_payload.setdefault("id", tool_call_id)
+
+            provider_manager = self._resolve_provider_manager(conversation_manager)
+
+            try:
+                return await use_tool(
+                    user=user,
+                    conversation_id=conversation_id,
+                    message=message_payload,
+                    conversation_history=conversation_manager,
+                    function_map=function_map,
+                    functions=functions,
+                    current_persona=current_persona,
+                    temperature_var=temperature,
+                    top_p_var=top_p,
+                    frequency_penalty_var=None,
+                    presence_penalty_var=None,
+                    conversation_manager=conversation_manager,
+                    provider_manager=provider_manager,
+                    config_manager=self.config_manager,
+                    stream=stream,
+                    generation_settings=generation_settings,
+                )
+            except ToolExecutionError as exc:
+                self.logger.error(
+                    "Tool execution failed for %s: %s",
+                    exc.function_name or name,
+                    exc,
+                    exc_info=True,
+                )
                 return {
-                    "function_call": {
-                        "name": name,
-                        "arguments": arguments
-                    }
+                    "error": str(exc),
+                    "function_call": function_payload,
                 }
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.error(
+                    "Unexpected error executing tool %s: %s", name, exc, exc_info=True
+                )
+                return {
+                    "error": str(exc),
+                    "function_call": function_payload,
+                }
+
+        if stream:
+            return None
 
         text_content, thinking_content = self._extract_text_and_thinking_content(
             content_blocks
@@ -803,6 +970,25 @@ class AnthropicGenerator:
         if text_content:
             return text_content
         return ""
+
+    async def _forward_tool_response(self, result):
+        if result is None:
+            return
+        if hasattr(result, "__aiter__"):
+            async for chunk in result:
+                yield chunk
+            return
+        yield result
+
+    def _resolve_provider_manager(self, conversation_manager):
+        provider_manager = None
+        if conversation_manager is not None:
+            atlas = getattr(conversation_manager, "ATLAS", None)
+            if atlas is not None:
+                provider_manager = getattr(atlas, "provider_manager", None)
+        if provider_manager is None:
+            provider_manager = getattr(self.config_manager, "provider_manager", None)
+        return provider_manager
 
     def set_streaming(self, enabled: bool):
         self.streaming_enabled = enabled
