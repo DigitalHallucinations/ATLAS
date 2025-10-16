@@ -137,6 +137,7 @@ def _serialize_entry(entry: ToolManifestEntry) -> Dict[str, Any]:
         "cost_per_call": entry.cost_per_call,
         "cost_unit": entry.cost_unit,
         "persona_allowlist": entry.persona_allowlist,
+        "providers": entry.providers,
         "source": entry.source,
     }
 

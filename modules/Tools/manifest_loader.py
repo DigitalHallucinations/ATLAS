@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Iterable, Iterator, List, Optional
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional
 
 if "yaml" not in sys.modules:
     sys.modules["yaml"] = SimpleNamespace(
@@ -45,6 +45,7 @@ class ToolManifestEntry:
     cost_per_call: Optional[float]
     cost_unit: Optional[str]
     persona_allowlist: List[str]
+    providers: List[Mapping[str, Any]]
     source: str
 
     @property
@@ -158,6 +159,7 @@ def _normalize_entry(
         "cost_per_call": _coerce_optional_float(entry.get("cost_per_call")),
         "cost_unit": _coerce_optional_string(entry.get("cost_unit")),
         "persona_allowlist": _coerce_string_list(entry.get("persona_allowlist")),
+        "providers": _coerce_provider_list(entry.get("providers")),
     }
 
     return ToolManifestEntry(
@@ -176,6 +178,7 @@ def _normalize_entry(
         cost_per_call=metadata["cost_per_call"],
         cost_unit=metadata["cost_unit"],
         persona_allowlist=metadata["persona_allowlist"],
+        providers=metadata["providers"],
         source=_relative_source(source, app_root),
     )
 
@@ -247,6 +250,58 @@ def _coerce_string_list(value: Any) -> List[str]:
                 items.append(text)
         return items
     return []
+
+
+def _coerce_provider_list(value: Any) -> List[Mapping[str, Any]]:
+    if not isinstance(value, Iterable) or isinstance(value, (str, bytes, bytearray)):
+        return []
+
+    providers: List[Mapping[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+
+        name = _coerce_string(item.get("name"))
+        if not name:
+            continue
+
+        provider: Dict[str, Any] = {"name": name}
+
+        priority = item.get("priority")
+        if isinstance(priority, (int, float)):
+            provider["priority"] = int(priority)
+        elif isinstance(priority, str) and priority.strip():
+            try:
+                provider["priority"] = int(float(priority.strip()))
+            except ValueError:
+                pass
+
+        interval = item.get("health_check_interval")
+        if isinstance(interval, (int, float)) and interval >= 0:
+            provider["health_check_interval"] = float(interval)
+        elif isinstance(interval, str) and interval.strip():
+            try:
+                parsed = float(interval.strip())
+            except ValueError:
+                parsed = None
+            if parsed is not None and parsed >= 0:
+                provider["health_check_interval"] = parsed
+
+        config = item.get("config")
+        if isinstance(config, Mapping):
+            provider["config"] = dict(config)
+
+        # Preserve any additional metadata for consumers that may rely on it.
+        for key, raw_value in item.items():
+            if key in provider:
+                continue
+            if key in {"name", "priority", "config", "health_check_interval"}:
+                continue
+            provider[key] = raw_value
+
+        providers.append(provider)
+
+    return providers
 
 
 def _normalize_auth(value: Any) -> Dict[str, Any]:

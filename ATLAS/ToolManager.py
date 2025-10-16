@@ -19,13 +19,14 @@ from collections import deque
 from collections.abc import AsyncIterator, Mapping
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from types import MappingProxyType
 
 from jsonschema import Draft7Validator, ValidationError
 
 from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system
+from modules.Tools.providers.router import ToolProviderRouter
 
 from ATLAS.config import ConfigManager
 logger = setup_logger(__name__)
@@ -87,6 +88,7 @@ _KNOWN_METADATA_FIELDS = (
     "capabilities",
     "cost_per_call",
     "cost_unit",
+    "providers",
 )
 
 _TOOL_ACTIVITY_EVENT = "tool_activity"
@@ -1132,7 +1134,28 @@ def _annotate_function_map(
         metadata = MappingProxyType({})
         if metadata_lookup and name in metadata_lookup:
             metadata = metadata_lookup[name]
-        annotated[name] = {"callable": func, "metadata": metadata}
+
+        entry: Dict[str, Any] = {"metadata": metadata}
+
+        providers: List[Mapping[str, Any]] = []
+        raw_providers = metadata.get("providers") if isinstance(metadata, Mapping) else None
+        if isinstance(raw_providers, Iterable):
+            for provider in raw_providers:
+                if isinstance(provider, Mapping):
+                    providers.append(provider)
+
+        if providers:
+            router = ToolProviderRouter(
+                tool_name=name,
+                provider_specs=providers,
+                fallback_callable=func,
+            )
+            entry["callable"] = router.call
+            entry["provider_router"] = router
+        else:
+            entry["callable"] = func
+
+        annotated[name] = entry
 
     return annotated
 
