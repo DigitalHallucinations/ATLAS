@@ -88,6 +88,143 @@ def _extract_text_and_audio(payload):
     return text, audio
 
 
+def _store_assistant_message(
+    conversation_history,
+    user,
+    conversation_id,
+    payload,
+    *,
+    metadata_overrides: Optional[Dict[str, Any]] = None,
+    timestamp: Optional[str] = None,
+):
+    """Normalize ``payload`` and persist the assistant message to history."""
+
+    if payload is None:
+        return ""
+
+    if timestamp is None:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    text_payload, audio_payload = _extract_text_and_audio(payload)
+    if text_payload is None:
+        text_payload = ""
+
+    entry_kwargs: Dict[str, Any] = {}
+    metadata_payload: Optional[Dict[str, Any]] = None
+    role = "assistant"
+
+    if isinstance(payload, dict):
+        metadata_candidate = payload.get("metadata")
+        if isinstance(metadata_candidate, dict):
+            metadata_payload = dict(metadata_candidate)
+        role = str(payload.get("role", role))
+        for key, value in payload.items():
+            if key in {"content", "text", "message", "audio", "role", "metadata"}:
+                continue
+            entry_kwargs[key] = value
+
+        if audio_payload is None and "audio" in payload:
+            audio_payload = payload.get("audio")
+
+    if metadata_overrides:
+        merged_metadata: Dict[str, Any] = dict(metadata_payload or {})
+        for key, value in metadata_overrides.items():
+            if value is None:
+                continue
+            merged_metadata[key] = value
+        metadata_payload = merged_metadata
+
+    if audio_payload is not None:
+        entry_kwargs["audio"] = audio_payload
+
+    conversation_history.add_message(
+        user,
+        conversation_id,
+        role,
+        text_payload,
+        timestamp,
+        metadata=metadata_payload,
+        **entry_kwargs,
+    )
+
+    return text_payload
+
+
+def _proxy_streaming_response(
+    stream: AsyncIterator,
+    *,
+    conversation_history,
+    user,
+    conversation_id,
+    metadata_overrides: Optional[Dict[str, Any]] = None,
+):
+    """Yield chunks while capturing the final payload for history persistence."""
+
+    async def _generator():
+        collected_parts: List[str] = []
+        metadata_payload: Optional[Dict[str, Any]] = None
+        entry_kwargs: Dict[str, Any] = {}
+        role = "assistant"
+        audio_payload = None
+
+        async for chunk in stream:
+            if chunk is None:
+                continue
+
+            text_piece: Optional[str] = None
+
+            if isinstance(chunk, dict):
+                metadata_candidate = chunk.get("metadata")
+                if isinstance(metadata_candidate, dict):
+                    metadata_payload = dict(metadata_candidate)
+
+                if "audio" in chunk and chunk.get("audio") is not None:
+                    audio_payload = chunk.get("audio")
+
+                role = str(chunk.get("role", role))
+
+                for key, value in chunk.items():
+                    if key in {"content", "text", "message", "metadata", "role", "audio"}:
+                        continue
+                    entry_kwargs[key] = value
+
+                text_piece, _ = _extract_text_and_audio(chunk)
+            else:
+                text_piece = str(chunk)
+
+            if text_piece:
+                collected_parts.append(text_piece)
+
+            yield chunk
+
+        aggregated_text = "".join(collected_parts)
+
+        if metadata_payload or entry_kwargs or audio_payload is not None or role != "assistant":
+            payload: Any = {"content": aggregated_text}
+            if metadata_payload:
+                payload["metadata"] = metadata_payload
+            if audio_payload is not None:
+                payload["audio"] = audio_payload
+            if role:
+                payload["role"] = role
+            if entry_kwargs:
+                payload.update(entry_kwargs)
+        else:
+            payload = aggregated_text
+
+        _store_assistant_message(
+            conversation_history,
+            user,
+            conversation_id,
+            payload,
+            metadata_overrides=metadata_overrides,
+        )
+
+        return
+
+    return _generator()
+
+
 def _get_config_manager(candidate=None):
     """Return a :class:`ConfigManager`, caching the default instance."""
 
@@ -668,6 +805,22 @@ async def use_tool(
 
     effective_stream = bool(stream) if stream is not None else False
 
+    executed_call_ids = [
+        call.get("id") for call in executed_calls if call.get("id")
+    ]
+    metadata_overrides: Optional[Dict[str, Any]] = None
+    if executed_call_ids or current_persona:
+        metadata_overrides = {}
+        if executed_call_ids:
+            metadata_overrides["tool_call_ids"] = list(executed_call_ids)
+        if current_persona:
+            persona_name = getattr(current_persona, "name", None)
+            if persona_name is None:
+                persona_name = getattr(current_persona, "persona_name", None)
+            if persona_name is None:
+                persona_name = str(current_persona)
+            metadata_overrides["persona"] = persona_name
+
     new_text = await call_model_with_new_prompt(
         messages,
         current_persona,
@@ -690,7 +843,13 @@ async def use_tool(
         isinstance(new_text, AsyncIterator) or inspect.isasyncgen(new_text)
     ):
         logger.info("Returning streaming response produced after tool execution.")
-        return new_text
+        return _proxy_streaming_response(
+            new_text,
+            conversation_history=conversation_history,
+            user=user,
+            conversation_id=conversation_id,
+            metadata_overrides=metadata_overrides,
+        )
 
     if new_text is None:
         logger.warning("Model returned None response. Using default fallback message.")
@@ -706,35 +865,13 @@ async def use_tool(
         new_text = await _collect_async_chunks(new_text)
 
     if new_text:
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        text_payload, audio_payload = _extract_text_and_audio(new_text)
-        entry_kwargs: Dict[str, Any] = {}
-        metadata_payload: Optional[Dict[str, Any]] = None
-        role = "assistant"
-
-        if isinstance(new_text, dict):
-            metadata_candidate = new_text.get("metadata")
-            if isinstance(metadata_candidate, dict):
-                metadata_payload = dict(metadata_candidate)
-            role = str(new_text.get("role", role))
-            for key, value in new_text.items():
-                if key in {"content", "text", "message", "audio", "role", "metadata"}:
-                    continue
-                entry_kwargs[key] = value
-
-        if audio_payload is not None:
-            entry_kwargs["audio"] = audio_payload
-
-        conversation_history.add_message(
+        new_text = _store_assistant_message(
+            conversation_history,
             user,
             conversation_id,
-            role,
-            text_payload,
-            current_time,
-            metadata=metadata_payload,
-            **entry_kwargs,
+            new_text,
+            metadata_overrides=metadata_overrides,
         )
-        new_text = text_payload
         logger.info("Assistant's message added to conversation history.")
 
     return new_text
