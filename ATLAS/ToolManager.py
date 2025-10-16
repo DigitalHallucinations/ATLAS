@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import copy
 import io
 import json
 import inspect
@@ -63,29 +64,90 @@ async def _gather_async_iterator(stream: AsyncIterator) -> List[Any]:
 
 
 def _extract_text_and_audio(payload):
-    """Return textual content and optional audio payload from ``payload``."""
+    """Return normalized content parts, audio payload, and a text fallback."""
 
     if payload is None:
-        return None, None
+        return [], None, ""
 
-    audio = None
-    text = None
+    def _normalize_single_part(value):
+        if value is None:
+            return {"type": "output_text", "text": ""}
+        if isinstance(value, str):
+            return {"type": "output_text", "text": value}
+        if isinstance(value, list):
+            return [_normalize_single_part(item) for item in value]
+        if isinstance(value, tuple):
+            return [_normalize_single_part(item) for item in value]
+        if isinstance(value, dict):
+            return copy.deepcopy(value)
+        return {"type": "output_text", "text": str(value)}
+
+    def _normalize_content_parts(value):
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [_normalize_single_part(item) for item in value]
+        return [_normalize_single_part(value)]
+
+    def _collect_text_from_parts(parts):
+        texts: List[str] = []
+
+        def _collect(value):
+            if isinstance(value, dict):
+                if value.get("type") == "output_text":
+                    text_value = value.get("text")
+                    if isinstance(text_value, str):
+                        texts.append(text_value)
+                elif "content" in value:
+                    _collect(value["content"])
+            elif isinstance(value, list):
+                for item in value:
+                    _collect(item)
+            elif isinstance(value, str):
+                texts.append(value)
+
+        for part in parts:
+            _collect(part)
+
+        return "".join(texts)
+
+    audio_payload = None
+    content_parts: List[Any] = []
 
     if isinstance(payload, dict):
-        audio = payload.get("audio")
-        for key in ("content", "text", "message"):
+        audio_payload = payload.get("audio")
+        if "content" in payload:
+            content_parts = _normalize_content_parts(payload.get("content"))
+        else:
+            for key in ("text", "message", "output_text"):
+                value = payload.get(key)
+                if value is not None:
+                    content_parts = _normalize_content_parts(value)
+                    break
+    else:
+        content_parts = _normalize_content_parts(payload)
+
+    text_fallback = _collect_text_from_parts(content_parts)
+
+    if not text_fallback and isinstance(payload, dict):
+        for key in ("text", "message", "output_text"):
             value = payload.get(key)
             if isinstance(value, str) and value:
-                text = value
+                text_fallback = value
+                if not content_parts:
+                    content_parts = _normalize_content_parts(value)
                 break
+        if not text_fallback:
+            content_value = payload.get("content")
+            if isinstance(content_value, str) and content_value:
+                text_fallback = content_value
+                if not content_parts:
+                    content_parts = _normalize_content_parts(content_value)
 
-    if text is None:
-        if isinstance(payload, str):
-            text = payload
-        else:
-            text = str(payload)
+    if not text_fallback and not content_parts:
+        text_fallback = "" if payload is None else str(payload)
 
-    return text, audio
+    return content_parts, audio_payload, text_fallback
 
 
 def _store_assistant_message(
@@ -105,9 +167,12 @@ def _store_assistant_message(
     if timestamp is None:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    text_payload, audio_payload = _extract_text_and_audio(payload)
-    if text_payload is None:
-        text_payload = ""
+    content_parts, audio_payload, text_fallback = _extract_text_and_audio(payload)
+
+    if not content_parts:
+        content_value: Any = text_fallback or ""
+    else:
+        content_value = content_parts
 
     entry_kwargs: Dict[str, Any] = {}
     metadata_payload: Optional[Dict[str, Any]] = None
@@ -141,13 +206,13 @@ def _store_assistant_message(
         user,
         conversation_id,
         role,
-        text_payload,
+        content_value,
         timestamp,
         metadata=metadata_payload,
         **entry_kwargs,
     )
 
-    return text_payload
+    return text_fallback
 
 
 def _proxy_streaming_response(
@@ -161,7 +226,8 @@ def _proxy_streaming_response(
     """Yield chunks while capturing the final payload for history persistence."""
 
     async def _generator():
-        collected_parts: List[str] = []
+        collected_texts: List[str] = []
+        normalized_parts: List[Any] = []
         metadata_payload: Optional[Dict[str, Any]] = None
         entry_kwargs: Dict[str, Any] = {}
         role = "assistant"
@@ -171,15 +237,21 @@ def _proxy_streaming_response(
             if chunk is None:
                 continue
 
-            text_piece: Optional[str] = None
+            chunk_parts, chunk_audio, chunk_text = _extract_text_and_audio(chunk)
+
+            if chunk_parts:
+                normalized_parts.extend(chunk_parts)
+
+            if chunk_audio is not None:
+                audio_payload = chunk_audio
+
+            if chunk_text:
+                collected_texts.append(chunk_text)
 
             if isinstance(chunk, dict):
                 metadata_candidate = chunk.get("metadata")
                 if isinstance(metadata_candidate, dict):
                     metadata_payload = dict(metadata_candidate)
-
-                if "audio" in chunk and chunk.get("audio") is not None:
-                    audio_payload = chunk.get("audio")
 
                 role = str(chunk.get("role", role))
 
@@ -188,19 +260,13 @@ def _proxy_streaming_response(
                         continue
                     entry_kwargs[key] = value
 
-                text_piece, _ = _extract_text_and_audio(chunk)
-            else:
-                text_piece = str(chunk)
-
-            if text_piece:
-                collected_parts.append(text_piece)
-
             yield chunk
 
-        aggregated_text = "".join(collected_parts)
+        aggregated_text = "".join(collected_texts)
 
-        if metadata_payload or entry_kwargs or audio_payload is not None or role != "assistant":
-            payload: Any = {"content": aggregated_text}
+        if metadata_payload or entry_kwargs or audio_payload is not None or role != "assistant" or normalized_parts:
+            payload_content: Any = normalized_parts if normalized_parts else aggregated_text
+            payload = {"content": payload_content}
             if metadata_payload:
                 payload["metadata"] = metadata_payload
             if audio_payload is not None:
