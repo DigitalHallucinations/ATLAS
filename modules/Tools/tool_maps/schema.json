@@ -12,7 +12,8 @@
       "side_effects",
       "default_timeout",
       "auth",
-      "allow_parallel"
+      "allow_parallel",
+      "idempotency_key"
     ],
     "properties": {
       "name": {
@@ -98,6 +99,23 @@
       },
       "allow_parallel": {
         "type": "boolean"
+      },
+      "idempotency_key": {
+        "oneOf": [
+          {"type": "boolean"},
+          {
+            "type": "object",
+            "required": [
+              "required"
+            ],
+            "properties": {
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          }
+        ]
       },
       "examples": {
         "type": "array"

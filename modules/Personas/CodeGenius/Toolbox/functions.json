@@ -10,6 +10,7 @@
             "env": "GOOGLE_API_KEY"
         },
         "allow_parallel": true,
+        "idempotency_key": false,
         "description": "A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.",
         "parameters": {
             "type": "object",
@@ -39,6 +40,7 @@
             "required": false
         },
         "allow_parallel": true,
+        "idempotency_key": false,
         "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
         "parameters": {
             "type": "object",
@@ -67,6 +69,7 @@
             "required": false
         },
         "allow_parallel": false,
+        "idempotency_key": false,
         "description": "Execute Python code and return the result",
         "parameters": {
             "type": "object",
@@ -90,6 +93,7 @@
             "required": false
         },
         "allow_parallel": false,
+        "idempotency_key": false,
         "description": "Execute a terminal command and return the output, error, and status code.",
         "parameters": {
             "type": "object",

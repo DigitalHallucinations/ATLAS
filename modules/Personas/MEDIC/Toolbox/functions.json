@@ -10,6 +10,7 @@
             "env": "GOOGLE_API_KEY"
         },
         "allow_parallel": true,
+        "idempotency_key": false,
         "description": "A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.",
         "parameters": {
             "type": "object",
@@ -39,6 +40,7 @@
             "required": false
         },
         "allow_parallel": true,
+        "idempotency_key": false,
         "description": "Searches PubMed for articles related to the given query.",
         "parameters": {
             "type": "object",
@@ -66,6 +68,7 @@
             "required": false
         },
         "allow_parallel": false,
+        "idempotency_key": false,
         "description": "Searches PMC for a specific article using its PMCID, and downloads the article package to the Workspace directory.",
         "parameters": {
             "type": "object",
@@ -89,6 +92,7 @@
             "required": false
         },
         "allow_parallel": true,
+        "idempotency_key": false,
         "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
         "parameters": {
             "type": "object",
