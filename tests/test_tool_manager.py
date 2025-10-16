@@ -236,11 +236,128 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
             },
         ]
         recorded_message = conversation_history.messages[-1]
-        assert isinstance(recorded_message["content"], str)
-        assert recorded_message["content"] == "model-output"
+        assert recorded_message["content"] == [
+            {"type": "output_text", "text": "model-output"}
+        ]
         assert conversation_history.responses[-1]["tool_call_id"] == "call-echo"
         log_entries = tool_manager.get_tool_activity_log()
         assert log_entries[-1]["tool_call_id"] == "call-echo"
+
+    asyncio.run(run_test())
+
+
+def test_use_tool_records_structured_follow_up(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.history = [{"role": "user", "content": "Hi"}]
+            self.responses = []
+            self.messages = []
+
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {
+                "role": "tool",
+                "content": _normalize_tool_response_payload(response),
+            }
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            self.history.append(entry)
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+    class DummyProviderManager:
+        def __init__(self):
+            self.generate_calls = []
+
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **kwargs):
+            self.generate_calls.append(kwargs)
+            return {
+                "content": [
+                    {"type": "output_text", "text": "Here is data:"},
+                    {"type": "output_json", "json": {"value": 1}},
+                ],
+                "audio": {"voice": "tester"},
+            }
+
+    conversation_history = DummyConversationHistory()
+    provider = DummyProviderManager()
+
+    async def echo_tool(value):
+        return value
+
+    message = {
+        "function_call": {
+            "id": "call-echo",
+            "name": "echo_tool",
+            "arguments": json.dumps({"value": "ping"}),
+        }
+    }
+
+    async def run_test():
+        response = await tool_manager.use_tool(
+            user="user",
+            conversation_id="conversation",
+            message=message,
+            conversation_history=conversation_history,
+            function_map={"echo_tool": echo_tool},
+            functions=None,
+            current_persona=None,
+            temperature_var=0.5,
+            top_p_var=0.9,
+            frequency_penalty_var=0.0,
+            presence_penalty_var=0.0,
+            conversation_manager=conversation_history,
+            provider_manager=provider,
+            config_manager=None,
+        )
+
+        assert response == "Here is data:"
+        assert provider.generate_calls
+        stored_message = conversation_history.messages[-1]
+        assert stored_message["content"] == [
+            {"type": "output_text", "text": "Here is data:"},
+            {"type": "output_json", "json": {"value": 1}},
+        ]
+        assert stored_message.get("audio") == {"voice": "tester"}
 
     asyncio.run(run_test())
 
@@ -696,7 +813,11 @@ def test_use_tool_streams_final_response_when_enabled(monkeypatch):
     assert conversation_history.responses
     assert conversation_history.messages, "Assistant follow-up should be stored after streaming"
     recorded_message = conversation_history.messages[-1]
-    assert recorded_message["content"] == "stream-result"
+    assert recorded_message["content"] == [
+        {"type": "output_text", "text": "stream"},
+        {"type": "output_text", "text": "-"},
+        {"type": "output_text", "text": "result"},
+    ]
     assert recorded_message.get("metadata", {}).get("tool_call_ids") == [
         "call-stream"
     ]
@@ -821,7 +942,9 @@ def test_use_tool_consumes_async_generator_tool(monkeypatch):
         {"type": "output_text", "text": "CHUNK"},
     ]
     assert tool_entry["content"] == _normalize_tool_response_payload(expected_chunks)
-    assert conversation_history.messages[0]["content"] == "model-output"
+    assert conversation_history.messages[0]["content"] == [
+        {"type": "output_text", "text": "model-output"}
+    ]
 
     assert provider.generate_calls
 
@@ -1091,7 +1214,9 @@ def test_use_tool_resolves_google_search_with_default_map(monkeypatch):
         assert response_entry["content"] == {"query": "atlas project", "k": 3}
         assert provider_manager.generate_calls
         final_entry = conversation_history.messages[-1]
-        assert final_entry["content"] == "final-response"
+        assert final_entry["content"] == [
+            {"type": "output_text", "text": "final-response"}
+        ]
         assert persona_name not in tool_manager._function_map_cache
         assert tool_manager._default_function_map_cache is not None
     finally:
