@@ -14,6 +14,7 @@ from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 from ATLAS.config import ConfigManager
 from ATLAS.model_manager import ModelManager
 from ATLAS.ToolManager import (
+    ToolExecutionError,
     load_function_map_from_current_persona,
     load_functions_from_json,
     use_tool,
@@ -1002,6 +1003,31 @@ class MistralGenerator:
         elif result is not None:
             yield result
 
+    def _format_tool_error_payload(self, error: ToolExecutionError) -> Dict[str, Any]:
+        """Return a structured payload describing a tool execution error."""
+
+        if error.entry:
+            return error.entry
+
+        payload: Dict[str, Any] = {
+            "role": "tool",
+            "content": [{"type": "output_text", "text": str(error)}],
+        }
+
+        if error.tool_call_id is not None:
+            payload["tool_call_id"] = error.tool_call_id
+
+        metadata: Dict[str, Any] = {"status": "error"}
+        if error.function_name:
+            metadata["name"] = error.function_name
+        if error.error_type:
+            metadata["error_type"] = error.error_type
+
+        if metadata:
+            payload["metadata"] = metadata
+
+        return payload
+
     async def _handle_tool_messages(
         self,
         tool_messages: List[Dict[str, Any]],
@@ -1036,23 +1062,32 @@ class MistralGenerator:
                     provider_manager = getattr(atlas, "provider_manager", None)
             if provider_manager is None:
                 provider_manager = getattr(self.config_manager, "provider_manager", None)
-            tool_response = await use_tool(
-                user=user,
-                conversation_id=conversation_id,
-                message={"function_call": function_payload},
-                conversation_history=conversation_manager,
-                function_map=function_map,
-                functions=functions,
-                current_persona=current_persona,
-                temperature_var=temperature,
-                top_p_var=top_p,
-                frequency_penalty_var=frequency_penalty,
-                presence_penalty_var=presence_penalty,
-                conversation_manager=conversation_manager,
-                provider_manager=provider_manager,
-                config_manager=self.config_manager,
-                stream=stream,
-            )
+            try:
+                tool_response = await use_tool(
+                    user=user,
+                    conversation_id=conversation_id,
+                    message={"function_call": function_payload},
+                    conversation_history=conversation_manager,
+                    function_map=function_map,
+                    functions=functions,
+                    current_persona=current_persona,
+                    temperature_var=temperature,
+                    top_p_var=top_p,
+                    frequency_penalty_var=frequency_penalty,
+                    presence_penalty_var=presence_penalty,
+                    conversation_manager=conversation_manager,
+                    provider_manager=provider_manager,
+                    config_manager=self.config_manager,
+                    stream=stream,
+                )
+            except ToolExecutionError as exc:
+                self.logger.error(
+                    "Tool execution failed for %s: %s",
+                    exc.function_name or function_payload.get("name"),
+                    exc,
+                    exc_info=True,
+                )
+                return self._format_tool_error_payload(exc)
             if stream and self._is_async_stream(tool_response):
                 self.logger.info("Tool response will stream from Mistral flow.")
                 return tool_response

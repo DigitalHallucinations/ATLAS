@@ -1165,6 +1165,63 @@ def test_handle_function_call_formats_code_interpreter_output(monkeypatch):
     assert result == "result: 42"
 
 
+def test_handle_function_call_returns_structured_tool_error(monkeypatch):
+    class DummyClient:
+        def __init__(self, **_):
+            self.chat = SimpleNamespace()
+            self.responses = SimpleNamespace()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+
+    generator = _build_generator(DummyConfig())
+
+    error_entry = {
+        "role": "tool",
+        "tool_call_id": "call-error",
+        "content": [{"type": "output_text", "text": "boom"}],
+        "metadata": {"status": "error", "name": "broken", "error_type": "execution_error"},
+    }
+
+    async def failing_use_tool(**_kwargs):
+        raise oa_module.ToolExecutionError(
+            "boom",
+            tool_call_id="call-error",
+            function_name="broken",
+            error_type="execution_error",
+            entry=error_entry,
+        )
+
+    monkeypatch.setattr(oa_module, "use_tool", failing_use_tool)
+
+    message = {
+        "function_call": {
+            "id": "call-error",
+            "name": "broken",
+            "arguments": "{}",
+        }
+    }
+
+    async def exercise():
+        return await generator.handle_function_call(
+            user="user",
+            conversation_id="conv",
+            message=message,
+            conversation_manager=None,
+            function_map=None,
+            functions=None,
+            current_persona=None,
+            temperature=0.0,
+            model="gpt-4o",
+            top_p=1.0,
+            frequency_penalty=0.0,
+            presence_penalty=0.0,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == error_entry
+
+
 def test_chat_completion_sends_tool_preferences(monkeypatch):
     captured = {}
 
