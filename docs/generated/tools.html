@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ATLAS Tool Manifest</title>
+  <style>table {border-collapse: collapse; width: 100%;} th, td {border: 1px solid #ccc; padding: 0.5em; text-align: left;} th {background: #f5f5f5;} caption {text-align: left; font-weight: bold; margin: 1em 0 0.5em;}</style>
+</head>
+<body>
+  <h1>Tool Manifest</h1>
+  <h2>Persona: ATLAS</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: Cleverbot</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: CodeGenius</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>execute_python</td><td>1.0.0</td><td>—</td><td>high</td><td>No</td><td>Execute Python code and return the result</td></tr>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>terminal_command</td><td>1.0.0</td><td>—</td><td>high</td><td>No</td><td>Execute a terminal command and return the output, error, and status code.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: DocGenius</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: Einstein</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: MEDIC</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>search_pmc</td><td>1.0.0</td><td>—</td><td>high</td><td>No</td><td>Searches PMC for a specific article using its PMCID, and downloads the article package to the Workspace directory.</td></tr>
+      <tr><td>search_pubmed</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Searches PubMed for articles related to the given query.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: Nikola Tesla</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: ResumeGenius</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: Shared</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: WeatherGenius</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>get_current_weather</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Get current and forecast weather data for a location</td></tr>
+      <tr><td>get_daily_weather_summary</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Get daily aggregated historical weather data for a location</td></tr>
+      <tr><td>get_historical_weather</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Get historical weather data for a location</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: WebDev</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>terminal_command</td><td>1.0.0</td><td>—</td><td>high</td><td>No</td><td>Execute a terminal command and return the output, error, and status code.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: genius</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>
