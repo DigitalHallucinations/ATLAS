@@ -17,6 +17,13 @@
             "web_search",
             "knowledge_lookup"
         ],
+        "providers": [
+            {
+                "name": "serpapi",
+                "priority": 0,
+                "health_check_interval": 300
+            }
+        ],
         "description": "A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.",
         "parameters": {
             "type": "object",
