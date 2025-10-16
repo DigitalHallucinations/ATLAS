@@ -757,22 +757,37 @@ class ChatPage(Gtk.Box):
 
         lines: List[str] = []
         for entry in reversed(entries):
+            metrics = entry.get("metrics") or {}
+            payload = entry.get("payload") if entry.get("payload_included") else None
+            payload_preview = entry.get("payload_preview") or {}
+
+            def _payload_value(key: str):
+                if isinstance(payload, dict) and key in payload:
+                    return payload.get(key)
+                return payload_preview.get(key, entry.get(key))
+
             name = str(entry.get("tool_name", "unknown"))
             timestamp = (
-                entry.get("completed_at")
+                metrics.get("completed_at")
+                or metrics.get("started_at")
+                or entry.get("completed_at")
                 or entry.get("started_at")
                 or "Unknown time"
             )
-            status = str(entry.get("status", "unknown")).upper()
-            duration = entry.get("duration_ms")
+            status_value = metrics.get("status") or entry.get("status", "unknown")
+            status = str(status_value).upper()
+            duration = (
+                metrics.get("latency_ms")
+                if metrics.get("latency_ms") is not None
+                else entry.get("duration_ms")
+            )
             if isinstance(duration, (int, float)):
                 duration_text = f"{duration:.0f} ms"
             else:
                 duration_text = ""
 
-            args_text = entry.get("arguments_text") or self._stringify_tool_section_value(
-                entry.get("arguments")
-            )
+            args_source = entry.get("arguments_text") or _payload_value("arguments")
+            args_text = self._stringify_tool_section_value(args_source)
             if args_text:
                 args_text = " ".join(args_text.split())
             if len(args_text) > 120:
@@ -788,24 +803,44 @@ class ChatPage(Gtk.Box):
     def _format_tool_log_entries(self, entries: List[Dict[str, object]]) -> List[str]:
         formatted: List[str] = []
         for entry in reversed(entries):
+            metrics = entry.get("metrics") or {}
+            payload = entry.get("payload") if entry.get("payload_included") else None
+            payload_preview = entry.get("payload_preview") or {}
+
+            def _payload_value(key: str):
+                if isinstance(payload, dict) and key in payload:
+                    return payload.get(key)
+                return payload_preview.get(key, entry.get(key))
+
             name = str(entry.get("tool_name", "unknown"))
-            status = str(entry.get("status", "unknown")).upper()
-            started = entry.get("started_at") or "Unknown start"
-            completed = entry.get("completed_at") or "Unknown end"
-            duration = entry.get("duration_ms")
+            status_value = metrics.get("status") or entry.get("status", "unknown")
+            status = str(status_value).upper()
+            started = (
+                metrics.get("started_at")
+                or entry.get("started_at")
+                or "Unknown start"
+            )
+            completed = (
+                metrics.get("completed_at")
+                or entry.get("completed_at")
+                or "Unknown end"
+            )
+            duration = (
+                metrics.get("latency_ms")
+                if metrics.get("latency_ms") is not None
+                else entry.get("duration_ms")
+            )
             duration_line = None
             if isinstance(duration, (int, float)):
                 duration_line = f"Duration: {duration:.0f} ms"
 
-            args_text = entry.get("arguments_text") or self._stringify_tool_section_value(
-                entry.get("arguments")
-            )
-            result_text = entry.get("result_text") or self._stringify_tool_section_value(
-                entry.get("result")
-            )
+            args_source = entry.get("arguments_text") or _payload_value("arguments")
+            args_text = self._stringify_tool_section_value(args_source)
+            result_source = entry.get("result_text") or _payload_value("result")
+            result_text = self._stringify_tool_section_value(result_source)
             error_text = entry.get("error")
-            stdout_text = (entry.get("stdout") or "").strip()
-            stderr_text = (entry.get("stderr") or "").strip()
+            stdout_text = self._stringify_tool_section_value(_payload_value("stdout")).strip()
+            stderr_text = self._stringify_tool_section_value(_payload_value("stderr")).strip()
 
             block_lines = [f"{name} • {status}", f"Started: {started}", f"Completed: {completed}"]
             if duration_line:
