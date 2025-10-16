@@ -98,22 +98,10 @@ def _ensure_yaml(monkeypatch):
     monkeypatch.setitem(sys.modules, "yaml", yaml_stub)
 
 
+
 def _ensure_dotenv(monkeypatch):
     if "dotenv" in sys.modules:
         return
-
-def _ensure_pytz(monkeypatch):
-    if "pytz" in sys.modules:
-        return
-
-    import datetime
-
-    pytz_stub = types.SimpleNamespace(
-        timezone=lambda *_args, **_kwargs: datetime.timezone.utc,
-        utc=datetime.timezone.utc,
-    )
-    monkeypatch.setitem(sys.modules, "pytz", pytz_stub)
-
 
     dotenv_stub = types.ModuleType("dotenv")
 
@@ -130,6 +118,18 @@ def _ensure_pytz(monkeypatch):
     dotenv_stub.set_key = _set_key
     dotenv_stub.find_dotenv = _find_dotenv
     monkeypatch.setitem(sys.modules, "dotenv", dotenv_stub)
+
+def _ensure_pytz(monkeypatch):
+    if "pytz" in sys.modules:
+        return
+
+    import datetime
+
+    pytz_stub = types.SimpleNamespace(
+        timezone=lambda *_args, **_kwargs: datetime.timezone.utc,
+        utc=datetime.timezone.utc,
+    )
+    monkeypatch.setitem(sys.modules, "pytz", pytz_stub)
 
 
 def test_tool_manager_import_without_credentials(monkeypatch):
@@ -1158,6 +1158,8 @@ def test_call_model_with_new_prompt_collects_stream(monkeypatch):
 
 
 def test_use_tool_streams_final_response_when_enabled(monkeypatch):
+
+
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)
     tool_manager = importlib.import_module("ATLAS.ToolManager")
@@ -1291,6 +1293,144 @@ def test_use_tool_streams_final_response_when_enabled(monkeypatch):
     ]
     assert recorded_message.get("metadata", {}).get("persona") == "Persona-Alpha"
 
+
+
+def test_use_tool_streams_tool_activity(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.history = [{"role": "user", "content": "Hi"}]
+            self.responses = []
+            self.messages = []
+
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {
+                "role": "tool",
+                "content": _normalize_tool_response_payload(response),
+            }
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            self.history.append(entry)
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+    class DummyProviderManager:
+        def __init__(self):
+            self.generate_calls = []
+
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **kwargs):
+            self.generate_calls.append(kwargs)
+            return "model-output"
+
+    conversation_history = DummyConversationHistory()
+    provider = DummyProviderManager()
+
+    async def generator_tool(value):
+        yield {"type": "output_text", "text": value}
+        await asyncio.sleep(0)
+        yield {"type": "output_text", "text": value.upper()}
+
+    message = {
+        "function_call": {
+            "id": "call-generator-stream",
+            "name": "generator_tool",
+            "arguments": json.dumps({"value": "chunk"}),
+        }
+    }
+
+    published_entries: list[dict[str, object]] = []
+
+    def fake_publish(event_name, payload):
+        if event_name == "tool_activity":
+            published_entries.append(payload)
+
+    monkeypatch.setattr(tool_manager.event_system, "publish", fake_publish)
+    tool_manager._tool_activity_log.clear()
+
+    async def run_test():
+        return await tool_manager.use_tool(
+            user="user",
+            conversation_id="conversation",
+            message=message,
+            conversation_history=conversation_history,
+            function_map={"generator_tool": generator_tool},
+            functions=None,
+            current_persona=None,
+            temperature_var=0.5,
+            top_p_var=0.9,
+            frequency_penalty_var=0.0,
+            presence_penalty_var=0.0,
+            conversation_manager=conversation_history,
+            provider_manager=provider,
+            config_manager=None,
+            stream=True,
+        )
+
+    response = asyncio.run(run_test())
+
+    assert response == "model-output"
+    assert provider.generate_calls
+    assert conversation_history.responses
+    assert conversation_history.messages
+
+    tool_entry = conversation_history.responses[0]
+    expected_chunks = [
+        {"type": "output_text", "text": "chunk"},
+        {"type": "output_text", "text": "CHUNK"},
+    ]
+    assert tool_entry["content"] == _normalize_tool_response_payload(expected_chunks)
+
+    assert published_entries, "tool activity events should be published"
+    tracked = [
+        entry
+        for entry in published_entries
+        if entry.get("tool_call_id") == "call-generator-stream"
+    ]
+    assert tracked, "expected matching tool activity events"
+    recorded_results = [entry.get("result") for entry in tracked]
+    assert recorded_results[0] == []
+    assert recorded_results[-1] == expected_chunks
+    assert any(len(result) == 1 for result in recorded_results if isinstance(result, list))
 
 def test_use_tool_consumes_async_generator_tool(monkeypatch):
     _ensure_yaml(monkeypatch)
