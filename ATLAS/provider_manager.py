@@ -465,6 +465,20 @@ class ProviderManager:
             payload["max_tokens"] = call_kwargs["max_tokens"]
         if "stream" in call_kwargs and call_kwargs["stream"] is not None:
             payload["stream"] = call_kwargs["stream"]
+        for optional_key in (
+            "temperature",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "current_persona",
+            "functions",
+            "conversation_manager",
+            "user",
+            "conversation_id",
+            "generation_settings",
+        ):
+            if optional_key in call_kwargs:
+                payload[optional_key] = call_kwargs.get(optional_key)
         return await func(**payload)
 
     async def update_provider_api_key(

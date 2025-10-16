@@ -2792,10 +2792,38 @@ def _load_real_grok_generator(module_label: str = "test"):
 
         class _StubClient:
             def __init__(self, *_args, **_kwargs):
-                self.sampler = types.SimpleNamespace()
+                empty_response = types.SimpleNamespace(content="", tool_calls=[])
+
+                def _create(**_kwargs):
+                    return types.SimpleNamespace(
+                        sample=lambda: empty_response,
+                        stream=lambda: iter(()),
+                    )
+
+                self.chat = types.SimpleNamespace(create=_create)
 
         xai_stub.Client = _StubClient
         sys.modules["xai_sdk"] = xai_stub
+
+        chat_module = types.ModuleType("xai_sdk.chat")
+
+        def _wrap(role):
+            return lambda content: {"role": role, "content": content}
+
+        def _tool(name, description, parameters):
+            return {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+            }
+
+        chat_module.assistant = _wrap("assistant")
+        chat_module.system = _wrap("system")
+        chat_module.user = _wrap("user")
+        chat_module.tool_result = _wrap("tool")
+        chat_module.tool = _tool
+
+        sys.modules["xai_sdk.chat"] = chat_module
 
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     module = importlib.util.module_from_spec(spec)
@@ -2817,25 +2845,30 @@ def test_grok_generator_passes_model_to_sampler_non_streaming():
         def get_grok_api_key():
             return "token"
 
-    sampler_calls = []
+    create_calls = []
 
-    class _Token:
-        def __init__(self, token_str):
-            self.token_str = token_str
+    class _StubResponse:
+        def __init__(self):
+            self.content = "hello world"
+            self.tool_calls = []
+
+    class _StubChat:
+        def __init__(self):
+            self.sample_count = 0
+
+        def sample(self):
+            self.sample_count += 1
+            return _StubResponse()
 
     async def exercise():
         generator = GrokGenerator(_Config())
 
-        async def sample(prompt, *, max_len, model):
-            sampler_calls.append({
-                "prompt": prompt,
-                "max_len": max_len,
-                "model": model,
-            })
-            return [_Token("hello"), _Token(" world")]
+        def create(**kwargs):
+            create_calls.append(kwargs)
+            return _StubChat()
 
         generator.client = types.SimpleNamespace(
-            sampler=types.SimpleNamespace(sample=sample)
+            chat=types.SimpleNamespace(create=create)
         )
 
         response = await generator.generate_response(
@@ -2850,11 +2883,11 @@ def test_grok_generator_passes_model_to_sampler_non_streaming():
     response = asyncio.run(exercise())
 
     assert response == "hello world"
-    assert sampler_calls == [{
-        "prompt": "user: Hi",
-        "max_len": 77,
-        "model": "grok-special",
-    }]
+    assert len(create_calls) == 1
+    call = create_calls[0]
+    assert call["model"] == "grok-special"
+    assert call["max_tokens"] == 77
+    assert len(call["messages"]) == 1
 
 
 def test_grok_generator_passes_model_to_sampler_streaming():
@@ -2865,29 +2898,33 @@ def test_grok_generator_passes_model_to_sampler_streaming():
         def get_grok_api_key():
             return "token"
 
-    sampler_calls = []
+    create_calls = []
 
-    class _Token:
-        def __init__(self, token_str):
-            self.token_str = token_str
+    class _StubResponse:
+        def __init__(self):
+            self.content = ""
+            self.tool_calls = []
 
-    def sample(prompt, *, max_len, model):
-        sampler_calls.append({
-            "prompt": prompt,
-            "max_len": max_len,
-            "model": model,
-        })
+    class _StubChunk:
+        def __init__(self, content: str):
+            self.content = content
 
-        async def _generator():
-            yield _Token("hi")
-            yield _Token(" there")
-
-        return _generator()
+    class _StubChat:
+        def stream(self):
+            response = _StubResponse()
+            for part in ("hi", " there"):
+                response.content += part
+                yield response, _StubChunk(part)
 
     async def exercise():
         generator = GrokGenerator(_Config())
+
+        def create(**kwargs):
+            create_calls.append(kwargs)
+            return _StubChat()
+
         generator.client = types.SimpleNamespace(
-            sampler=types.SimpleNamespace(sample=sample)
+            chat=types.SimpleNamespace(create=create)
         )
 
         stream = await generator.generate_response(
@@ -2906,11 +2943,11 @@ def test_grok_generator_passes_model_to_sampler_streaming():
     chunks = asyncio.run(exercise())
 
     assert chunks == ["hi", " there"]
-    assert sampler_calls == [{
-        "prompt": "user: Hi",
-        "max_len": 55,
-        "model": "grok-stream",
-    }]
+    assert len(create_calls) == 1
+    call = create_calls[0]
+    assert call["model"] == "grok-stream"
+    assert call["max_tokens"] == 55
+    assert len(call["messages"]) == 1
 
 
 def test_generate_response_uses_configured_fallback(provider_manager):
