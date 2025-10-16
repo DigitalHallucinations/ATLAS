@@ -80,6 +80,12 @@ _TOOL_ACTIVITY_EVENT = "tool_activity"
 _tool_activity_log: deque = deque(maxlen=100)
 _tool_activity_lock = threading.Lock()
 
+_DEFAULT_TOOL_TIMEOUT_SECONDS = 30.0
+_DEFAULT_CONVERSATION_TOOL_BUDGET_MS = 120000.0
+
+_conversation_tool_runtime_ms: Dict[str, float] = {}
+_conversation_runtime_lock = threading.Lock()
+
 
 def _load_default_functions_payload(*, refresh: bool = False, config_manager=None):
     """Load the shared functions.json payload for default tools."""
@@ -558,6 +564,121 @@ def _freeze_metadata(metadata: Optional[Dict[str, Any]]) -> Mapping[str, Any]:
         for key, value in dict(metadata).items():
             serialized[key] = value
         return MappingProxyType(serialized)
+
+
+def _get_config_section(config_manager, key: str):
+    """Return a configuration block by key when available."""
+
+    manager = config_manager
+    if manager is None:
+        try:
+            manager = _get_config_manager()
+        except Exception:  # pragma: no cover - best effort fallback
+            return None
+
+    getter = getattr(manager, "get_config", None)
+    if callable(getter):
+        try:
+            value = getter(key, ConfigManager.UNSET)
+        except TypeError:
+            value = getter(key)
+        if value is ConfigManager.UNSET:
+            return None
+        return value
+
+    raw_config = getattr(manager, "config", None)
+    if isinstance(raw_config, Mapping):
+        return raw_config.get(key)
+
+    return None
+
+
+def _resolve_tool_timeout_seconds(config_manager, metadata_timeout: Optional[Any]) -> Optional[float]:
+    """Determine the timeout for a tool call in seconds."""
+
+    if isinstance(metadata_timeout, (int, float)):
+        if metadata_timeout <= 0:
+            return None
+        return float(metadata_timeout)
+
+    section = _get_config_section(config_manager, "tool_defaults")
+    if isinstance(section, Mapping):
+        candidate = section.get("timeout_seconds")
+        if isinstance(candidate, (int, float)):
+            if candidate <= 0:
+                return None
+            return float(candidate)
+
+    return _DEFAULT_TOOL_TIMEOUT_SECONDS
+
+
+def _get_conversation_tool_budget_ms(config_manager) -> Optional[float]:
+    """Return the configured per-conversation tool runtime budget in milliseconds."""
+
+    section = _get_config_section(config_manager, "conversation")
+    if isinstance(section, Mapping):
+        candidate = section.get("max_tool_duration_ms")
+        if isinstance(candidate, (int, float)):
+            if candidate <= 0:
+                return None
+            return float(candidate)
+
+    return _DEFAULT_CONVERSATION_TOOL_BUDGET_MS
+
+
+def _get_conversation_runtime_ms(conversation_id: Optional[str]) -> float:
+    """Return the accumulated runtime for ``conversation_id`` in milliseconds."""
+
+    if not conversation_id:
+        return 0.0
+
+    with _conversation_runtime_lock:
+        return _conversation_tool_runtime_ms.get(conversation_id, 0.0)
+
+
+def _increment_conversation_runtime_ms(conversation_id: Optional[str], duration_ms: float) -> None:
+    """Add ``duration_ms`` to the tracked runtime for ``conversation_id``."""
+
+    if not conversation_id:
+        return
+
+    try:
+        increment = float(duration_ms)
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return
+
+    with _conversation_runtime_lock:
+        previous = _conversation_tool_runtime_ms.get(conversation_id, 0.0)
+        _conversation_tool_runtime_ms[conversation_id] = previous + increment
+
+
+async def _run_with_timeout(awaitable, timeout: Optional[float]):
+    """Await ``awaitable`` enforcing ``timeout`` seconds when positive."""
+
+    if timeout is None or timeout <= 0:
+        return await awaitable
+
+    if asyncio.isfuture(awaitable) or isinstance(awaitable, asyncio.Task):
+        task = awaitable
+        created_task = False
+    elif inspect.isawaitable(awaitable):
+        task = asyncio.create_task(awaitable)
+        created_task = True
+    else:  # pragma: no cover - defensive guard
+        return await awaitable
+
+    try:
+        return await asyncio.wait_for(task, timeout)
+    except asyncio.TimeoutError:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        raise
+    finally:
+        if created_task and task.done():
+            # Ensure any exception state is retrieved without suppressing the original error
+            with contextlib.suppress(BaseException):
+                task.result()
 
 
 def _build_metadata_lookup(functions_payload: Any) -> Dict[str, Mapping[str, Any]]:
@@ -1108,6 +1229,8 @@ async def use_tool(
     if not tool_call_entries:
         return None
 
+    conversation_budget_ms = _get_conversation_tool_budget_ms(config_manager)
+
     executed_calls: List[Dict[str, Any]] = []
 
     for index, tool_call_entry in enumerate(tool_call_entries):
@@ -1116,6 +1239,31 @@ async def use_tool(
         logger.info(f"Function call detected: {function_name} (index {index})")
         function_args_json = tool_call_entry.get("arguments", "{}")
         logger.info(f"Function arguments (JSON): {function_args_json}")
+
+        if conversation_budget_ms is not None:
+            consumed_ms = _get_conversation_runtime_ms(conversation_id)
+            if consumed_ms >= conversation_budget_ms:
+                budget_message = (
+                    "Tool runtime budget exceeded for conversation "
+                    f"'{conversation_id}': {consumed_ms:.0f}ms used of "
+                    f"{conversation_budget_ms:.0f}ms allowed."
+                )
+                error_entry = _record_tool_failure(
+                    conversation_history,
+                    user,
+                    conversation_id,
+                    tool_call_id=tool_call_id,
+                    function_name=function_name,
+                    message=budget_message,
+                    error_type="tool_runtime_budget_exceeded",
+                )
+                raise ToolExecutionError(
+                    budget_message,
+                    tool_call_id=tool_call_id,
+                    function_name=function_name,
+                    error_type="tool_runtime_budget_exceeded",
+                    entry=error_entry,
+                )
 
         try:
             function_args = json.loads(function_args_json)
@@ -1204,6 +1352,12 @@ async def use_tool(
                 metadata_candidate = function_entry.get("metadata")
                 if isinstance(metadata_candidate, Mapping):
                     entry_metadata = dict(metadata_candidate)
+            metadata_timeout = None
+            if entry_metadata:
+                metadata_timeout = entry_metadata.get("default_timeout")
+            timeout_seconds = _resolve_tool_timeout_seconds(
+                config_manager, metadata_timeout
+            )
             stdout_buffer = io.StringIO()
             stderr_buffer = io.StringIO()
             started_at = datetime.utcnow()
@@ -1212,20 +1366,29 @@ async def use_tool(
 
             try:
                 if inspect.isasyncgenfunction(func):
-                    with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
-                        stderr_buffer
-                    ):
-                        async_stream = func(**function_args)
-                        function_response = await _gather_async_iterator(async_stream)
+                    async def _execute_async_gen():
+                        with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
+                            stderr_buffer
+                        ):
+                            async_stream = func(**function_args)
+                            return await _gather_async_iterator(async_stream)
+
+                    function_response = await _run_with_timeout(
+                        _execute_async_gen(), timeout_seconds
+                    )
                 elif asyncio.iscoroutinefunction(func):
-                    with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
-                        stderr_buffer
-                    ):
-                        result = await func(**function_args)
-                        if inspect.isasyncgen(result) or isinstance(result, AsyncIterator):
-                            function_response = await _gather_async_iterator(result)
-                        else:
-                            function_response = result
+                    async def _execute_coroutine():
+                        with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
+                            stderr_buffer
+                        ):
+                            result = await func(**function_args)
+                            if inspect.isasyncgen(result) or isinstance(result, AsyncIterator):
+                                return await _gather_async_iterator(result)
+                            return result
+
+                    function_response = await _run_with_timeout(
+                        _execute_coroutine(), timeout_seconds
+                    )
                 else:
                     def _run_sync_function():
                         with contextlib.redirect_stdout(
@@ -1233,20 +1396,28 @@ async def use_tool(
                         ), contextlib.redirect_stderr(stderr_buffer):
                             return func(**function_args)
 
-                    function_response = await asyncio.to_thread(_run_sync_function)
+                    function_response = await _run_with_timeout(
+                        asyncio.to_thread(_run_sync_function), timeout_seconds
+                    )
 
                     if inspect.isasyncgen(function_response) or isinstance(
                         function_response, AsyncIterator
                     ):
-                        with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
-                            stderr_buffer
-                        ):
-                            function_response = await _gather_async_iterator(function_response)
+                        async def _consume_iterator():
+                            with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
+                                stderr_buffer
+                            ):
+                                return await _gather_async_iterator(function_response)
+
+                        function_response = await _run_with_timeout(
+                            _consume_iterator(), timeout_seconds
+                        )
             except Exception as exc:
                 call_error = exc
 
             completed_at = datetime.utcnow()
             duration_ms = (completed_at - started_at).total_seconds() * 1000
+            _increment_conversation_runtime_ms(conversation_id, duration_ms)
             log_entry = {
                 "tool_name": function_name,
                 "tool_call_id": tool_call_id,
@@ -1262,14 +1433,34 @@ async def use_tool(
                 "result_text": _stringify_tool_value(function_response),
                 "error": str(call_error) if call_error else None,
             }
+            if timeout_seconds is not None:
+                log_entry["timeout_seconds"] = timeout_seconds
+            if call_error is not None:
+                if isinstance(call_error, asyncio.TimeoutError):
+                    log_entry["error_type"] = "timeout"
+                else:
+                    log_entry["error_type"] = "execution_error"
             if entry_metadata:
                 log_entry["metadata"] = entry_metadata
             _record_tool_activity(log_entry)
 
             if call_error is not None:
-                error_message = (
-                    f"Exception during function '{function_name}' execution: {call_error}"
-                )
+                if isinstance(call_error, asyncio.TimeoutError):
+                    if timeout_seconds is not None:
+                        timeout_display = f"{timeout_seconds:g}" if timeout_seconds is not None else "configured"
+                        error_message = (
+                            f"Function '{function_name}' exceeded the timeout of {timeout_display} seconds."
+                        )
+                    else:
+                        error_message = (
+                            f"Function '{function_name}' exceeded the configured timeout."
+                        )
+                    error_type = "timeout"
+                else:
+                    error_message = (
+                        f"Exception during function '{function_name}' execution: {call_error}"
+                    )
+                    error_type = "execution_error"
                 error_entry = _record_tool_failure(
                     conversation_history,
                     user,
@@ -1277,14 +1468,14 @@ async def use_tool(
                     tool_call_id=tool_call_id,
                     function_name=function_name,
                     message=error_message,
-                    error_type="execution_error",
+                    error_type=error_type,
                     timestamp=completed_at,
                 )
                 raise ToolExecutionError(
                     error_message,
                     tool_call_id=tool_call_id,
                     function_name=function_name,
-                    error_type="execution_error",
+                    error_type=error_type,
                     entry=error_entry,
                 ) from call_error
 
