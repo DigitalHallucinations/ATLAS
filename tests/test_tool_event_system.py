@@ -119,13 +119,20 @@ def test_record_tool_activity_survives_subscriber_failure(caplog, tool_manager):
         event_system.subscribe(event_name, bad_callback)
         event_system.subscribe(event_name, good_callback)
 
-        entry = {"tool": "echo", "arguments": {"value": "ping"}, "result": {"ok": True}}
+        entry = {
+            "tool": "echo",
+            "arguments": {"value": "ping"},
+            "result": {"ok": True},
+            "status": "success",
+        }
         with caplog.at_level(logging.ERROR):
             tool_manager._record_tool_activity(entry)  # noqa: SLF001
 
         assert len(tool_manager.get_tool_activity_log()) == initial_len + 1
         assert deliveries
         assert deliveries[-1]["tool"] == "echo"
+        assert deliveries[-1].get("payload_preview")
+        assert deliveries[-1].get("metrics", {}).get("status") == "success"
         assert any(
             "Error while notifying subscriber" in record.getMessage()
             for record in caplog.records

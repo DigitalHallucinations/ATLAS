@@ -9,6 +9,7 @@ import inspect
 import importlib.util
 import sys
 import os
+import re
 import threading
 from collections import deque
 from collections.abc import AsyncIterator, Mapping
@@ -80,6 +81,22 @@ _KNOWN_METADATA_FIELDS = (
 _TOOL_ACTIVITY_EVENT = "tool_activity"
 _tool_activity_log: deque = deque(maxlen=100)
 _tool_activity_lock = threading.Lock()
+
+_SENSITIVE_PAYLOAD_FIELDS = ("arguments", "result", "stdout", "stderr")
+_REDACTION_REPLACEMENT = "<redacted>"
+_SECRET_PATTERNS = (
+    re.compile(r"sk-[A-Za-z0-9\-]{8,}"),
+    re.compile(r"rk-[A-Za-z0-9\-]{8,}"),
+    re.compile(r"pk-[A-Za-z0-9\-]{8,}"),
+    re.compile(r"AKIA[0-9A-Z]{12,}"),
+    re.compile(r"AIza[0-9A-Za-z\-_]{20,}"),
+)
+_SECRET_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)(api[_-]?key|token|secret|password)(\s*[:=]\s*)([A-Za-z0-9\-_=]{6,})"
+)
+_SECRET_JSON_PATTERN = re.compile(
+    r"(?i)(\"(?:api[_-]?key|token|secret|password)\"\s*:\s*\")([^\"\\]{4,})(\")"
+)
 
 _DEFAULT_TOOL_TIMEOUT_SECONDS = 30.0
 _DEFAULT_CONVERSATION_TOOL_BUDGET_MS = 120000.0
@@ -810,6 +827,174 @@ def _stringify_tool_value(value: Any) -> str:
         return str(value)
 
 
+def _redact_text(value: str) -> str:
+    """Mask sensitive tokens within ``value`` using regex patterns."""
+
+    if not value:
+        return value
+
+    redacted = value
+    for pattern in _SECRET_PATTERNS:
+        redacted = pattern.sub(_REDACTION_REPLACEMENT, redacted)
+
+    redacted = _SECRET_ASSIGNMENT_PATTERN.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}{_REDACTION_REPLACEMENT}",
+        redacted,
+    )
+
+    redacted = _SECRET_JSON_PATTERN.sub(
+        lambda match: f"{match.group(1)}{_REDACTION_REPLACEMENT}{match.group(3)}",
+        redacted,
+    )
+
+    return redacted
+
+
+def _redact_payload_value(value: Any) -> Any:
+    """Recursively redact sensitive content in payload values."""
+
+    if isinstance(value, str):
+        return _redact_text(value)
+
+    if isinstance(value, Mapping):
+        return {key: _redact_payload_value(item) for key, item in value.items()}
+
+    if isinstance(value, list):
+        return [_redact_payload_value(item) for item in value]
+
+    if isinstance(value, tuple):
+        return tuple(_redact_payload_value(item) for item in value)
+
+    if isinstance(value, set):
+        return {_redact_payload_value(item) for item in value}
+
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+
+    return _redact_text(str(value))
+
+
+def _summarize_payload_value(value: Any, *, limit: int) -> str:
+    """Return a truncated, human-readable representation of ``value``."""
+
+    text = _stringify_tool_value(value).strip()
+    if limit <= 0 or len(text) <= limit:
+        return text
+
+    if limit == 1:
+        return "…"
+
+    return text[: limit - 1] + "…"
+
+
+def _get_tool_logging_preferences(config_manager=None) -> Dict[str, Any]:
+    """Return tool logging preferences from configuration."""
+
+    section = _get_config_section(config_manager, "tool_logging")
+    if not isinstance(section, Mapping):
+        return {"log_full_payloads": False, "payload_summary_length": 256}
+
+    preferences = dict(section)
+    preferences.setdefault("log_full_payloads", False)
+    preferences.setdefault("payload_summary_length", 256)
+    return preferences
+
+
+def _build_tool_metrics(entry: Mapping[str, Any]) -> Dict[str, Any]:
+    """Construct the structured metrics block for a tool activity entry."""
+
+    metrics: Dict[str, Any] = {}
+
+    status = entry.get("status")
+    if status is not None:
+        metrics["status"] = status
+
+    latency = entry.get("duration_ms")
+    if latency is not None:
+        metrics["latency_ms"] = latency
+
+    started = entry.get("started_at")
+    if started is not None:
+        metrics["started_at"] = started
+
+    completed = entry.get("completed_at")
+    if completed is not None:
+        metrics["completed_at"] = completed
+
+    timeout_seconds = entry.get("timeout_seconds")
+    if timeout_seconds is not None:
+        metrics["timeout_seconds"] = timeout_seconds
+
+    error_type = entry.get("error_type")
+    if error_type is not None:
+        metrics["error_type"] = error_type
+
+    result_value = entry.get("result")
+    if isinstance(result_value, list):
+        metrics["result_item_count"] = len(result_value)
+
+    tool_version = entry.get("tool_version")
+    metadata = entry.get("metadata")
+    if tool_version is not None:
+        metrics["tool_version"] = tool_version
+    elif isinstance(metadata, Mapping):
+        candidate = metadata.get("version") or metadata.get("tool_version")
+        if candidate is not None:
+            metrics["tool_version"] = candidate
+
+    return metrics
+
+
+def _build_public_tool_entry(
+    entry: Mapping[str, Any], *, config_manager=None
+) -> Dict[str, Any]:
+    """Return a redacted, configuration-aware view of ``entry``."""
+
+    preferences = _get_tool_logging_preferences(config_manager)
+    log_full_payloads = bool(preferences.get("log_full_payloads"))
+    summary_limit = int(preferences.get("payload_summary_length", 256) or 0)
+
+    public_entry: Dict[str, Any] = {}
+    for key, value in entry.items():
+        if key in _SENSITIVE_PAYLOAD_FIELDS:
+            continue
+        if key.startswith("_"):
+            continue
+        if isinstance(value, str) and key in {"arguments_text", "result_text", "error"}:
+            redacted_value = _redact_text(value)
+            if not log_full_payloads and key in {"arguments_text", "result_text"}:
+                redacted_value = _summarize_payload_value(
+                    redacted_value, limit=summary_limit
+                )
+            public_entry[key] = redacted_value
+            continue
+        public_entry[key] = _clone_json_compatible(value)
+
+    sanitized_payload: Dict[str, Any] = {}
+    payload_preview: Dict[str, str] = {}
+    for field in _SENSITIVE_PAYLOAD_FIELDS:
+        sanitized_value = _redact_payload_value(entry.get(field))
+        sanitized_payload[field] = _clone_json_compatible(sanitized_value)
+        payload_preview[field] = _summarize_payload_value(
+            sanitized_value, limit=summary_limit
+        )
+
+    if log_full_payloads:
+        public_entry.update({
+            field: sanitized_payload[field] for field in _SENSITIVE_PAYLOAD_FIELDS
+        })
+        public_entry["payload"] = dict(sanitized_payload)
+    else:
+        public_entry.update({field: payload_preview[field] for field in _SENSITIVE_PAYLOAD_FIELDS})
+        public_entry["payload"] = None
+
+    public_entry["payload_preview"] = payload_preview
+    public_entry["payload_included"] = log_full_payloads
+    public_entry["metrics"] = _build_tool_metrics(entry)
+
+    return public_entry
+
+
 def _record_tool_activity(
     entry: Dict[str, Any], *, replace: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
@@ -820,6 +1005,8 @@ def _record_tool_activity(
         **entry,
         "arguments": _clone_json_compatible(entry.get("arguments")),
         "result": _clone_json_compatible(entry.get("result")),
+        "stdout": _clone_json_compatible(entry.get("stdout")),
+        "stderr": _clone_json_compatible(entry.get("stderr")),
     }
 
     with _tool_activity_lock:
@@ -830,7 +1017,8 @@ def _record_tool_activity(
         else:
             _tool_activity_log.append(stored_entry)
 
-    event_system.publish(_TOOL_ACTIVITY_EVENT, dict(stored_entry))
+    public_entry = _build_public_tool_entry(stored_entry)
+    event_system.publish(_TOOL_ACTIVITY_EVENT, public_entry)
     return stored_entry
 
 
@@ -885,7 +1073,7 @@ def get_tool_activity_log(limit: Optional[int] = None) -> List[Dict[str, Any]]:
     if limit is not None and isinstance(limit, int) and limit >= 0:
         entries = entries[-limit:]
 
-    return [dict(entry) for entry in entries]
+    return [_build_public_tool_entry(entry) for entry in entries]
 
 def load_default_function_map(*, refresh: bool = False, config_manager=None):
     """Load the shared default tool function map."""

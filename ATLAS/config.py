@@ -61,6 +61,15 @@ class ConfigManager:
         conversation_block.setdefault('max_tool_duration_ms', 120000)
         self.config['conversation'] = conversation_block
 
+        tool_logging_block = self.config.get('tool_logging')
+        if not isinstance(tool_logging_block, Mapping):
+            tool_logging_block = {}
+        else:
+            tool_logging_block = dict(tool_logging_block)
+        tool_logging_block.setdefault('log_full_payloads', False)
+        tool_logging_block.setdefault('payload_summary_length', 256)
+        self.config['tool_logging'] = tool_logging_block
+
         # Ensure any persisted OpenAI speech preferences are reflected in the active config
         self._synchronize_openai_speech_block()
 

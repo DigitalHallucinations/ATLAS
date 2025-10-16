@@ -51,6 +51,19 @@ def _resolve_callable(entry):
     return entry
 
 
+class _DummyConfigManager:
+    def __init__(self, *, log_full_payloads: bool = False, summary_length: int = 256):
+        self._config = {
+            "tool_logging": {
+                "log_full_payloads": log_full_payloads,
+                "payload_summary_length": summary_length,
+            }
+        }
+
+    def get_config(self, key, default=None):
+        return self._config.get(key, default)
+
+
 def _clear_provider_env(monkeypatch):
     for key in [
         "OPENAI_API_KEY",
@@ -1385,6 +1398,12 @@ def test_use_tool_streams_tool_activity(monkeypatch):
             published_entries.append(payload)
 
     monkeypatch.setattr(tool_manager.event_system, "publish", fake_publish)
+    monkeypatch.setattr(
+        tool_manager,
+        "_default_config_manager",
+        _DummyConfigManager(log_full_payloads=True),
+        raising=False,
+    )
     tool_manager._tool_activity_log.clear()
 
     async def run_test():
@@ -1431,6 +1450,90 @@ def test_use_tool_streams_tool_activity(monkeypatch):
     assert recorded_results[0] == []
     assert recorded_results[-1] == expected_chunks
     assert any(len(result) == 1 for result in recorded_results if isinstance(result, list))
+
+
+def test_tool_activity_log_redacts_sensitive_values(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+    tool_manager._tool_activity_log.clear()
+
+    monkeypatch.setattr(
+        tool_manager,
+        "_default_config_manager",
+        _DummyConfigManager(log_full_payloads=False, summary_length=64),
+        raising=False,
+    )
+
+    entry = {
+        "tool_name": "secrets",
+        "tool_call_id": "call-1",
+        "status": "success",
+        "started_at": "2024-01-01T00:00:00",
+        "completed_at": "2024-01-01T00:00:01",
+        "arguments": {"api_key": "sk-live-1234567890ABCDEF"},
+        "result": {"token": "AKIA1234567890ABCD"},
+        "stdout": "api_key=sk-live-ABCDEF0123456789",
+        "stderr": "token=AKIA1234567890ABCD",
+        "duration_ms": 1000,
+    }
+
+    published: list[dict[str, object]] = []
+
+    def capture_publish(event_name, payload):
+        if event_name == "tool_activity":
+            published.append(payload)
+
+    monkeypatch.setattr(tool_manager.event_system, "publish", capture_publish)
+
+    tool_manager._record_tool_activity(entry)
+
+    log_entry = tool_manager.get_tool_activity_log()[-1]
+    assert log_entry["payload_included"] is False
+    for field in ("arguments", "result", "stdout", "stderr"):
+        preview = log_entry["payload_preview"][field]
+        assert "<redacted>" in preview
+    assert log_entry["metrics"]["status"] == "success"
+    assert log_entry["metrics"]["latency_ms"] == 1000
+
+    assert published, "expected a published tool activity event"
+    published_entry = published[-1]
+    assert published_entry["payload_included"] is False
+    assert "<redacted>" in published_entry["arguments"]
+
+
+def test_tool_activity_log_honors_full_payload_logging(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+    tool_manager._tool_activity_log.clear()
+
+    monkeypatch.setattr(
+        tool_manager,
+        "_default_config_manager",
+        _DummyConfigManager(log_full_payloads=True, summary_length=32),
+        raising=False,
+    )
+
+    entry = {
+        "tool_name": "inspector",
+        "status": "success",
+        "arguments": {"value": "ok"},
+        "result": ["a", "b"],
+        "stdout": "plain output",
+        "stderr": "",
+    }
+
+    tool_manager._record_tool_activity(entry)
+    log_entry = tool_manager.get_tool_activity_log()[-1]
+    assert log_entry["payload_included"] is True
+    assert log_entry["payload"]["result"] == ["a", "b"]
+    assert log_entry["result"] == ["a", "b"]
+    assert log_entry["metrics"]["status"] == "success"
+
+
 
 def test_use_tool_consumes_async_generator_tool(monkeypatch):
     _ensure_yaml(monkeypatch)
