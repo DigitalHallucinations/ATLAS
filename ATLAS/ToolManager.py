@@ -22,6 +22,7 @@ logger = setup_logger(__name__)
 
 _function_map_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _function_payload_cache: Dict[str, Any] = {}
+_function_payload_cache_lock = threading.Lock()
 _default_function_map_cache: Optional[Tuple[float, Dict[str, Any]]] = None
 _default_function_map_lock = threading.Lock()
 _default_config_manager: Optional[ConfigManager] = None
@@ -608,31 +609,52 @@ def load_functions_from_json(
 
     try:
         file_mtime = os.path.getmtime(functions_json_path)
-        cache_entry = _function_payload_cache.get(persona_name)
-        if not refresh and cache_entry:
-            cached_mtime, cached_functions = cache_entry
-            if cached_mtime == file_mtime:
-                logger.info(
-                    "Returning cached functions for persona '%s' (mtime %s).",
-                    persona_name,
-                    cached_mtime,
-                )
-                return cached_functions
+        if not refresh:
+            cache_entry = _function_payload_cache.get(persona_name)
+            if cache_entry:
+                cached_mtime, cached_functions = cache_entry
+                if cached_mtime == file_mtime:
+                    logger.info(
+                        "Returning cached functions for persona '%s' (mtime %s).",
+                        persona_name,
+                        cached_mtime,
+                    )
+                    return cached_functions
 
-        with open(functions_json_path, 'r') as file:
-            functions = json.load(file)
-            logger.info(f"Functions successfully loaded from JSON for persona '{persona_name}': {functions}")
-            _function_payload_cache[persona_name] = (file_mtime, functions)
-            return functions
+        with _function_payload_cache_lock:
+            if not refresh:
+                cache_entry = _function_payload_cache.get(persona_name)
+                if cache_entry:
+                    cached_mtime, cached_functions = cache_entry
+                    if cached_mtime == file_mtime:
+                        logger.info(
+                            "Returning cached functions for persona '%s' (mtime %s).",
+                            persona_name,
+                            cached_mtime,
+                        )
+                        return cached_functions
+
+            with open(functions_json_path, 'r') as file:
+                functions = json.load(file)
+                logger.info(
+                    "Functions successfully loaded from JSON for persona '%s': %s",
+                    persona_name,
+                    functions,
+                )
+                _function_payload_cache[persona_name] = (file_mtime, functions)
+                return functions
     except FileNotFoundError:
         logger.error(f"functions.json file not found for persona '{persona_name}' at path: {functions_json_path}")
-        _function_payload_cache.pop(persona_name, None)
+        with _function_payload_cache_lock:
+            _function_payload_cache.pop(persona_name, None)
     except json.JSONDecodeError as e:
         logger.error(f"JSON decoding error in functions.json for persona '{persona_name}': {e}", exc_info=True)
-        _function_payload_cache.pop(persona_name, None)
+        with _function_payload_cache_lock:
+            _function_payload_cache.pop(persona_name, None)
     except Exception as e:
         logger.error(f"Unexpected error loading functions for persona '{persona_name}': {e}", exc_info=True)
-        _function_payload_cache.pop(persona_name, None)
+        with _function_payload_cache_lock:
+            _function_payload_cache.pop(persona_name, None)
     return None
 
 async def use_tool(
