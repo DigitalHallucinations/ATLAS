@@ -14,9 +14,10 @@ from typing import List, Dict, Union, AsyncIterator, Optional, Any, Set
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.ToolManager import (
+    ToolExecutionError,
     load_function_map_from_current_persona,
     load_functions_from_json,
-    use_tool
+    use_tool,
 )
 
 class OpenAIGenerator:
@@ -356,7 +357,7 @@ class OpenAIGenerator:
                         if result:
                             results.append(result)
                     if results:
-                        return "\n".join(str(item) for item in results)
+                        return self._combine_tool_results(results)
                 self.logger.info("No function or tool call detected in response.")
                 text_response = self._coerce_content_to_text(getattr(message, "content", ""))
                 audio_payload = self._extract_chat_completion_audio(
@@ -1467,7 +1468,7 @@ class OpenAIGenerator:
                     if result:
                         results.append(result)
                 if results:
-                    return "\n".join(results)
+                    return self._combine_tool_results(results)
 
         text = self._get_response_text(response)
         audio_payload = self._extract_responses_audio(
@@ -1801,6 +1802,44 @@ class OpenAIGenerator:
                     "audio_voice": captured_audio_voice,
                 }
 
+    def _format_tool_error_payload(self, error: ToolExecutionError) -> Dict[str, Any]:
+        """Return a structured payload describing a tool execution error."""
+
+        if error.entry:
+            return error.entry
+
+        payload: Dict[str, Any] = {
+            "role": "tool",
+            "content": [{"type": "output_text", "text": str(error)}],
+        }
+
+        if error.tool_call_id is not None:
+            payload["tool_call_id"] = error.tool_call_id
+
+        metadata: Dict[str, Any] = {"status": "error"}
+        if error.function_name:
+            metadata["name"] = error.function_name
+        if error.error_type:
+            metadata["error_type"] = error.error_type
+
+        if metadata:
+            payload["metadata"] = metadata
+
+        return payload
+
+    def _combine_tool_results(self, results: List[Any]) -> Any:
+        """Normalize collected tool results into a single payload."""
+
+        if not results:
+            return None
+
+        if any(isinstance(item, dict) for item in results):
+            if len(results) == 1:
+                return results[0]
+            return [item for item in results]
+
+        return "\n".join(str(item) for item in results)
+
     async def handle_function_call(
         self,
         user,
@@ -1855,23 +1894,32 @@ class OpenAIGenerator:
                 provider_manager = getattr(atlas, "provider_manager", None)
         if provider_manager is None:
             provider_manager = getattr(self.config_manager, "provider_manager", None)
-        tool_response = await use_tool(
-            user=user,
-            conversation_id=conversation_id,
-            message={"function_call": function_payload},
-            conversation_history=conversation_manager,
-            function_map=function_map,
-            functions=functions,
-            current_persona=current_persona,
-            temperature_var=temperature,
-            top_p_var=top_p,
-            frequency_penalty_var=frequency_penalty,
-            presence_penalty_var=presence_penalty,
-            conversation_manager=conversation_manager,
-            provider_manager=provider_manager,
-            config_manager=self.config_manager,
-            stream=stream,
-        )
+        try:
+            tool_response = await use_tool(
+                user=user,
+                conversation_id=conversation_id,
+                message={"function_call": function_payload},
+                conversation_history=conversation_manager,
+                function_map=function_map,
+                functions=functions,
+                current_persona=current_persona,
+                temperature_var=temperature,
+                top_p_var=top_p,
+                frequency_penalty_var=frequency_penalty,
+                presence_penalty_var=presence_penalty,
+                conversation_manager=conversation_manager,
+                provider_manager=provider_manager,
+                config_manager=self.config_manager,
+                stream=stream,
+            )
+        except ToolExecutionError as exc:
+            self.logger.error(
+                "Tool execution failed for %s: %s",
+                exc.function_name or function_payload.get("name"),
+                exc,
+                exc_info=True,
+            )
+            return self._format_tool_error_payload(exc)
 
         if stream and self._is_async_stream(tool_response):
             self.logger.info("Tool response will be streamed back to the caller.")

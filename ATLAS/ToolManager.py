@@ -20,6 +20,25 @@ from modules.Tools.tool_event_system import event_system
 from ATLAS.config import ConfigManager
 logger = setup_logger(__name__)
 
+
+class ToolExecutionError(RuntimeError):
+    """Exception raised when a tool call fails to execute successfully."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        tool_call_id: Optional[str] = None,
+        function_name: Optional[str] = None,
+        error_type: Optional[str] = None,
+        entry: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(message)
+        self.tool_call_id = tool_call_id
+        self.function_name = function_name
+        self.error_type = error_type
+        self.entry = entry
+
 _function_map_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _function_payload_cache: Dict[str, Any] = {}
 _function_payload_cache_lock = threading.Lock()
@@ -381,6 +400,48 @@ def _record_tool_activity(entry: Dict[str, Any]) -> None:
         _tool_activity_log.append(stored_entry)
 
     event_system.publish(_TOOL_ACTIVITY_EVENT, dict(stored_entry))
+
+
+def _record_tool_failure(
+    conversation_history,
+    user,
+    conversation_id,
+    *,
+    tool_call_id: Optional[str],
+    function_name: Optional[str],
+    message: str,
+    error_type: Optional[str] = None,
+    timestamp: Optional[datetime] = None,
+) -> Optional[Dict[str, Any]]:
+    """Persist a structured tool failure message in the conversation history."""
+
+    if conversation_history is None or not hasattr(conversation_history, "add_message"):
+        return None
+
+    timestamp_value = timestamp or datetime.now()
+    metadata: Dict[str, Any] = {"status": "error"}
+    if function_name:
+        metadata["name"] = function_name
+    if error_type:
+        metadata["error_type"] = error_type
+
+    entry_kwargs: Dict[str, Any] = {}
+    if tool_call_id is not None:
+        entry_kwargs["tool_call_id"] = tool_call_id
+
+    try:
+        return conversation_history.add_message(
+            user,
+            conversation_id,
+            "tool",
+            [{"type": "output_text", "text": message}],
+            timestamp_value.strftime("%Y-%m-%d %H:%M:%S"),
+            metadata=metadata,
+            **entry_kwargs,
+        )
+    except Exception:  # pragma: no cover - history failures should not crash tools
+        logger.exception("Failed to record tool failure in conversation history.")
+        return None
 
 
 def get_tool_activity_log(limit: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -763,13 +824,47 @@ async def use_tool(
         try:
             function_args = json.loads(function_args_json)
             logger.info(f"Function arguments (parsed): {function_args}")
-        except json.JSONDecodeError as e:
-            logger.error(f"Error decoding JSON for function arguments: {e}", exc_info=True)
-            return f"Error: Invalid JSON in function arguments: {e}", True
+        except json.JSONDecodeError as exc:
+            logger.error(
+                "Error decoding JSON for function arguments: %s", exc, exc_info=True
+            )
+            error_message = f"Invalid JSON in function arguments: {exc}"
+            error_entry = _record_tool_failure(
+                conversation_history,
+                user,
+                conversation_id,
+                tool_call_id=tool_call_id,
+                function_name=function_name,
+                message=error_message,
+                error_type="invalid_arguments",
+            )
+            raise ToolExecutionError(
+                error_message,
+                tool_call_id=tool_call_id,
+                function_name=function_name,
+                error_type="invalid_arguments",
+                entry=error_entry,
+            ) from exc
 
         if function_name not in function_map:
             logger.error(f"Function '{function_name}' not found in function map.")
-            return f"Error: Function '{function_name}' not found.", True
+            error_message = f"Function '{function_name}' not found."
+            error_entry = _record_tool_failure(
+                conversation_history,
+                user,
+                conversation_id,
+                tool_call_id=tool_call_id,
+                function_name=function_name,
+                message=error_message,
+                error_type="function_not_found",
+            )
+            raise ToolExecutionError(
+                error_message,
+                tool_call_id=tool_call_id,
+                function_name=function_name,
+                error_type="function_not_found",
+                entry=error_entry,
+            )
 
         required_args = get_required_args(function_map[function_name])
         logger.info(f"Required arguments for function '{function_name}': {required_args}")
@@ -778,10 +873,30 @@ async def use_tool(
         missing_args = set(required_args) - set(function_args.keys())
 
         if missing_args:
-            logger.error(f"Missing required arguments for function '{function_name}': {missing_args}")
-            return (
-                f"Error: Missing required arguments for function '{function_name}': {', '.join(missing_args)}",
-                True,
+            logger.error(
+                "Missing required arguments for function '%s': %s",
+                function_name,
+                missing_args,
+            )
+            error_message = (
+                "Missing required arguments for function "
+                f"'{function_name}': {', '.join(missing_args)}"
+            )
+            error_entry = _record_tool_failure(
+                conversation_history,
+                user,
+                conversation_id,
+                tool_call_id=tool_call_id,
+                function_name=function_name,
+                message=error_message,
+                error_type="missing_arguments",
+            )
+            raise ToolExecutionError(
+                error_message,
+                tool_call_id=tool_call_id,
+                function_name=function_name,
+                error_type="missing_arguments",
+                entry=error_entry,
             )
 
         try:
@@ -848,7 +963,26 @@ async def use_tool(
             _record_tool_activity(log_entry)
 
             if call_error is not None:
-                raise call_error
+                error_message = (
+                    f"Exception during function '{function_name}' execution: {call_error}"
+                )
+                error_entry = _record_tool_failure(
+                    conversation_history,
+                    user,
+                    conversation_id,
+                    tool_call_id=tool_call_id,
+                    function_name=function_name,
+                    message=error_message,
+                    error_type="execution_error",
+                    timestamp=completed_at,
+                )
+                raise ToolExecutionError(
+                    error_message,
+                    tool_call_id=tool_call_id,
+                    function_name=function_name,
+                    error_type="execution_error",
+                    entry=error_entry,
+                ) from call_error
 
             logger.info(
                 "Function '%s' executed successfully. Response: %s",
@@ -881,9 +1015,34 @@ async def use_tool(
                 }
             )
 
-        except Exception as e:
-            logger.error(f"Exception during function '{function_name}' execution: {e}", exc_info=True)
-            return f"Error: Exception during function '{function_name}' execution: {e}", True
+        except ToolExecutionError:
+            raise
+        except Exception as exc:
+            logger.error(
+                "Exception during function '%s' execution: %s",
+                function_name,
+                exc,
+                exc_info=True,
+            )
+            error_message = (
+                f"Exception during function '{function_name}' execution: {exc}"
+            )
+            error_entry = _record_tool_failure(
+                conversation_history,
+                user,
+                conversation_id,
+                tool_call_id=tool_call_id,
+                function_name=function_name,
+                message=error_message,
+                error_type="execution_error",
+            )
+            raise ToolExecutionError(
+                error_message,
+                tool_call_id=tool_call_id,
+                function_name=function_name,
+                error_type="execution_error",
+                entry=error_entry,
+            ) from exc
 
     if not executed_calls:
         return None

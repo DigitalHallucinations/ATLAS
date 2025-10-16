@@ -596,6 +596,60 @@ def test_mistral_generator_translates_functions_to_tools():
     assert tools[0]["function"]["parameters"] == {"type": "object", "properties": {}}
 
 
+def test_mistral_generator_returns_structured_tool_error(monkeypatch):
+    settings = {"model": "mistral-large-latest", "stream": False}
+    generator = _build_generator(DummyConfig(settings))
+
+    error_entry = {
+        "role": "tool",
+        "tool_call_id": "call-error",
+        "content": [{"type": "output_text", "text": "boom"}],
+        "metadata": {"status": "error", "name": "broken", "error_type": "execution_error"},
+    }
+
+    async def failing_use_tool(**_kwargs):
+        raise mistral_module.ToolExecutionError(
+            "boom",
+            tool_call_id="call-error",
+            function_name="broken",
+            error_type="execution_error",
+            entry=error_entry,
+        )
+
+    monkeypatch.setattr(mistral_module, "use_tool", failing_use_tool)
+
+    tool_messages = [
+        {
+            "type": "function",
+            "function_call": {
+                "id": "call-error",
+                "name": "broken",
+                "arguments": "{}",
+            },
+        }
+    ]
+
+    async def exercise():
+        return await generator._handle_tool_messages(
+            tool_messages,
+            user="user",
+            conversation_id="conv",
+            conversation_manager=None,
+            function_map=None,
+            functions=None,
+            current_persona=None,
+            temperature=0.0,
+            top_p=1.0,
+            frequency_penalty=0.0,
+            presence_penalty=0.0,
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == error_entry
+
+
 def test_mistral_generator_preserves_message_metadata_in_payload():
     settings = {
         "model": "mistral-large-latest",

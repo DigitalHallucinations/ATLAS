@@ -10,6 +10,8 @@ from pathlib import Path
 import shutil
 import textwrap
 
+import pytest
+
 
 def _normalize_tool_response_payload(response):
     def _clone(value):
@@ -358,6 +360,87 @@ def test_use_tool_records_structured_follow_up(monkeypatch):
             {"type": "output_json", "json": {"value": 1}},
         ]
         assert stored_message.get("audio") == {"voice": "tester"}
+
+    asyncio.run(run_test())
+
+
+def test_use_tool_records_structured_error(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.messages = []
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content, "timestamp": timestamp}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            return entry
+
+        def add_response(self, *args, **kwargs):  # pragma: no cover - safety guard
+            raise AssertionError("add_response should not be called during error handling")
+
+    conversation_history = DummyConversationHistory()
+    provider_manager = types.SimpleNamespace(get_current_model=lambda: "dummy-model")
+
+    async def run_test():
+        with pytest.raises(tool_manager.ToolExecutionError) as excinfo:
+            await tool_manager.use_tool(
+                user="user",
+                conversation_id="conversation",
+                message={
+                    "function_call": {
+                        "id": "call-error",
+                        "name": "echo_tool",
+                        "arguments": "{not-json}",
+                    }
+                },
+                conversation_history=conversation_history,
+                function_map={"echo_tool": lambda value: value},
+                functions=None,
+                current_persona=None,
+                temperature_var=0.0,
+                top_p_var=1.0,
+                frequency_penalty_var=0.0,
+                presence_penalty_var=0.0,
+                conversation_manager=conversation_history,
+                provider_manager=provider_manager,
+                config_manager=None,
+            )
+
+        error = excinfo.value
+        assert isinstance(error, tool_manager.ToolExecutionError)
+        assert error.tool_call_id == "call-error"
+        assert error.function_name == "echo_tool"
+        assert error.error_type == "invalid_arguments"
+        assert conversation_history.messages, "Error should be recorded in history"
+        recorded_entry = conversation_history.messages[-1]
+        assert error.entry == recorded_entry
+        assert recorded_entry["role"] == "tool"
+        assert recorded_entry["tool_call_id"] == "call-error"
+        assert recorded_entry["content"][0]["type"] == "output_text"
+        assert "Invalid JSON in function arguments" in recorded_entry["content"][0]["text"]
+        metadata = recorded_entry["metadata"]
+        assert metadata["status"] == "error"
+        assert metadata["name"] == "echo_tool"
+        assert metadata["error_type"] == "invalid_arguments"
 
     asyncio.run(run_test())
 
