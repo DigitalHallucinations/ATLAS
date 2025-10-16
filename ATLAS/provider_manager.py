@@ -1716,6 +1716,14 @@ class ProviderManager:
         stream: Optional[bool] = None,
         current_persona=None,
         functions=None,
+        function_calling: Optional[bool] = None,
+        parallel_tool_calls: Optional[bool] = None,
+        tool_choice: Optional[Any] = None,
+        json_mode: Optional[Any] = None,
+        json_schema: Optional[Any] = None,
+        audio_enabled: Optional[bool] = None,
+        audio_voice: Optional[str] = None,
+        audio_format: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
         llm_call_type: str = None,
         user: Optional[str] = None,
@@ -1744,6 +1752,14 @@ class ProviderManager:
             stream (bool, optional): Whether to stream the response. Uses saved default when omitted.
             current_persona (optional): The current persona.
             functions (optional): Functions to use.
+            function_calling (bool, optional): Explicitly enable/disable tool calling when supported.
+            parallel_tool_calls (bool, optional): Override parallel tool call preference when supported.
+            tool_choice (optional): Force a particular tool to run when supported by the provider.
+            json_mode (optional): Force JSON output mode when supported.
+            json_schema (optional): Structured response schema when supported by the provider.
+            audio_enabled (bool, optional): Enable audio output for providers that support it.
+            audio_voice (str, optional): Voice identifier for audio-capable providers.
+            audio_format (str, optional): Audio format hint for providers that support speech synthesis.
             reasoning_effort (str, optional): Effort level for reasoning models.
             llm_call_type (str, optional): The type of LLM call.
             user (str, optional): Identifier for the active user.
@@ -1850,11 +1866,19 @@ class ProviderManager:
             else defaults.get("presence_penalty", 0.0)
         )
         resolved_stream = stream if stream is not None else defaults.get("stream", True)
-        resolved_function_calling = defaults.get("function_calling", True)
-        if resolved_function_calling is None:
-            resolved_function_calling = True
-        resolved_parallel_tool_calls = defaults.get("parallel_tool_calls", True)
-        resolved_tool_choice = defaults.get("tool_choice")
+        if function_calling is not None:
+            resolved_function_calling = bool(function_calling)
+        else:
+            resolved_function_calling = defaults.get("function_calling", True)
+            if resolved_function_calling is None:
+                resolved_function_calling = True
+
+        if parallel_tool_calls is not None:
+            resolved_parallel_tool_calls = bool(parallel_tool_calls)
+        else:
+            resolved_parallel_tool_calls = defaults.get("parallel_tool_calls", True)
+
+        resolved_tool_choice = tool_choice if tool_choice is not None else defaults.get("tool_choice")
         if resolved_function_calling is False:
             resolved_tool_choice = "none"
         resolved_reasoning_effort = (
@@ -1863,9 +1887,27 @@ class ProviderManager:
             else defaults.get("reasoning_effort")
         )
 
-        resolved_audio_enabled = defaults.get("audio_enabled", False)
-        resolved_audio_voice = defaults.get("audio_voice")
-        resolved_audio_format = defaults.get("audio_format")
+        if json_schema is not None:
+            resolved_json_schema = json_schema
+        else:
+            resolved_json_schema = defaults.get("json_schema")
+
+        if json_mode is not None:
+            resolved_json_mode = json_mode
+        else:
+            resolved_json_mode = defaults.get("json_mode")
+
+        resolved_audio_enabled = (
+            bool(audio_enabled)
+            if audio_enabled is not None
+            else bool(defaults.get("audio_enabled", False))
+        )
+        resolved_audio_voice = (
+            audio_voice if audio_voice is not None else defaults.get("audio_voice")
+        )
+        resolved_audio_format = (
+            audio_format if audio_format is not None else defaults.get("audio_format")
+        )
 
         # Log the incoming parameters
         self.logger.info(
@@ -1932,9 +1974,19 @@ class ProviderManager:
                     tool_choice=resolved_tool_choice,
                     max_output_tokens=resolved_max_output_tokens,
                     reasoning_effort=resolved_reasoning_effort,
+                    json_mode=resolved_json_mode,
+                    json_schema=resolved_json_schema,
                     audio_enabled=resolved_audio_enabled,
                     audio_voice=resolved_audio_voice,
                     audio_format=resolved_audio_format,
+                )
+            elif requested_provider == "Mistral":
+                call_kwargs.update(
+                    top_p=resolved_top_p,
+                    frequency_penalty=resolved_frequency_penalty,
+                    presence_penalty=resolved_presence_penalty,
+                    parallel_tool_calls=resolved_parallel_tool_calls,
+                    tool_choice=resolved_tool_choice,
                 )
             elif requested_provider == "Anthropic":
                 call_kwargs.pop("max_tokens", None)

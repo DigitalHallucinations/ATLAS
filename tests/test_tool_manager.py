@@ -600,6 +600,118 @@ def test_use_tool_handles_multiple_tool_calls(monkeypatch):
     asyncio.run(run_test())
 
 
+def test_use_tool_replays_generation_settings(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.history = [
+                {"role": "system", "content": "Rules"},
+                {"role": "user", "content": "Hi"},
+            ]
+            self.responses = []
+            self.messages = []
+
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {"role": "tool", "content": _normalize_tool_response_payload(response)}
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            self.history.append(entry)
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+    class RecordingProviderManager:
+        def __init__(self):
+            self.generate_calls = []
+
+        def get_current_model(self):
+            return "default-model"
+
+        async def generate_response(self, **kwargs):
+            self.generate_calls.append(kwargs)
+            return "assistant-reply"
+
+    conversation_history = DummyConversationHistory()
+    provider = RecordingProviderManager()
+
+    async def echo_tool(value: str):
+        return f"echo:{value}"
+
+    async def run_test():
+        await tool_manager.use_tool(
+            user="user",
+            conversation_id="conversation",
+            message={
+                "function_call": {
+                    "id": "call-1",
+                    "name": "echo_tool",
+                    "arguments": json.dumps({"value": "data"}),
+                }
+            },
+            conversation_history=conversation_history,
+            function_map={"echo_tool": echo_tool},
+            functions=[{"name": "echo_tool"}],
+            current_persona={"name": "Helper"},
+            temperature_var=0.2,
+            top_p_var=0.5,
+            frequency_penalty_var=0.0,
+            presence_penalty_var=0.0,
+            conversation_manager=conversation_history,
+            provider_manager=provider,
+            config_manager=None,
+            generation_settings={
+                "model": "persona-model",
+                "tool_choice": {"type": "function", "function": {"name": "echo_tool"}},
+                "parallel_tool_calls": False,
+                "json_mode": True,
+            },
+        )
+
+    asyncio.run(run_test())
+
+    assert provider.generate_calls, "Follow-up generation should be invoked"
+    call_kwargs = provider.generate_calls[0]
+    assert call_kwargs.get("model") == "persona-model"
+    assert call_kwargs.get("tool_choice", {}).get("function", {}).get("name") == "echo_tool"
+    assert call_kwargs.get("parallel_tool_calls") is False
+    assert call_kwargs.get("json_mode") is True
+
+
 def test_use_tool_runs_sync_tool_in_thread(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)

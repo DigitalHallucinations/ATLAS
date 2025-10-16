@@ -5,12 +5,13 @@ import inspect
 import json
 from collections.abc import AsyncIterator as AsyncIteratorABC
 from weakref import WeakKeyDictionary
+from types import MappingProxyType
 
 from openai import AsyncOpenAI
 from ATLAS.model_manager import ModelManager
 
 from tenacity import retry, stop_after_attempt, wait_exponential
-from typing import List, Dict, Union, AsyncIterator, Optional, Any, Set
+from typing import List, Dict, Union, AsyncIterator, Optional, Any, Set, Mapping
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from ATLAS.ToolManager import (
@@ -254,6 +255,17 @@ class OpenAIGenerator:
                     audio_enabled=effective_audio_enabled,
                     audio_voice=effective_voice,
                     audio_format=effective_audio_format,
+                    generation_settings=self._build_generation_settings(
+                        model=model,
+                        tool_choice=normalized_tool_choice,
+                        parallel_tool_calls=effective_parallel_tool_calls,
+                        json_schema=normalized_schema,
+                        force_json_mode=force_json_mode,
+                        audio_enabled=effective_audio_enabled,
+                        audio_voice=effective_voice,
+                        audio_format=effective_audio_format,
+                        current_persona=current_persona,
+                    ),
                 )
 
             function_call_mode = None
@@ -299,6 +311,18 @@ class OpenAIGenerator:
                     effective_audio_format,
                 )
 
+            generation_settings = self._build_generation_settings(
+                model=model,
+                tool_choice=normalized_tool_choice,
+                parallel_tool_calls=effective_parallel_tool_calls,
+                json_schema=normalized_schema,
+                force_json_mode=force_json_mode,
+                audio_enabled=effective_audio_enabled,
+                audio_voice=effective_voice,
+                audio_format=effective_audio_format,
+                current_persona=current_persona,
+            )
+
             response = await self.client.chat.completions.create(**request_kwargs)
 
             self.logger.info("Received response from OpenAI API.")
@@ -321,6 +345,7 @@ class OpenAIGenerator:
                     effective_audio_enabled,
                     effective_voice,
                     effective_audio_format,
+                    generation_settings=generation_settings,
                 )
             else:
                 message = response.choices[0].message
@@ -353,6 +378,7 @@ class OpenAIGenerator:
                             frequency_penalty,
                             presence_penalty,
                             stream=bool(stream),
+                            generation_settings=generation_settings,
                         )
                         if result:
                             results.append(result)
@@ -876,6 +902,75 @@ class OpenAIGenerator:
 
         return None
 
+    def _extract_persona_overrides(self, persona) -> Dict[str, Any]:
+        overrides: Dict[str, Any] = {}
+        provider = self._safe_get(persona, "provider")
+        if isinstance(provider, str):
+            trimmed = provider.strip()
+            if trimmed:
+                overrides["provider"] = trimmed
+
+        model_override = self._safe_get(persona, "model")
+        if isinstance(model_override, str):
+            trimmed = model_override.strip()
+            if trimmed:
+                overrides["model"] = trimmed
+
+        return overrides
+
+    def _build_generation_settings(
+        self,
+        *,
+        model: Optional[str],
+        tool_choice: Optional[Any],
+        parallel_tool_calls: Optional[bool],
+        json_schema: Optional[Dict[str, Any]],
+        force_json_mode: bool,
+        audio_enabled: Optional[bool],
+        audio_voice: Optional[str],
+        audio_format: Optional[str],
+        current_persona,
+    ) -> MappingProxyType:
+        settings: Dict[str, Any] = {}
+
+        if isinstance(model, str) and model:
+            settings["model"] = model
+
+        provider = None
+        getter = getattr(self.model_manager, "get_current_provider", None)
+        if callable(getter):
+            try:
+                provider = getter()
+            except Exception:
+                provider = None
+        if isinstance(provider, str) and provider:
+            settings["provider"] = provider
+
+        if tool_choice is not None:
+            settings["tool_choice"] = tool_choice
+
+        if parallel_tool_calls is not None:
+            settings["parallel_tool_calls"] = bool(parallel_tool_calls)
+
+        if json_schema is not None:
+            settings["json_schema"] = json_schema
+
+        if force_json_mode:
+            settings["json_mode"] = True
+
+        persona_overrides = self._extract_persona_overrides(current_persona)
+        if persona_overrides:
+            settings["persona_overrides"] = persona_overrides
+
+        if audio_enabled is not None:
+            settings["audio_enabled"] = bool(audio_enabled)
+        if audio_voice is not None:
+            settings["audio_voice"] = audio_voice
+        if audio_format is not None:
+            settings["audio_format"] = audio_format
+
+        return MappingProxyType(settings)
+
     def _safe_get(self, target, attribute: str, default=None):
         if target is None:
             return default
@@ -1153,6 +1248,7 @@ class OpenAIGenerator:
         frequency_penalty,
         presence_penalty,
         model,
+        generation_settings: Optional[Mapping[str, Any]] = None,
     ):
         resolved_results: List[Dict[str, Any]] = []
         while self._safe_get(response, "status") == "requires_action":
@@ -1185,6 +1281,7 @@ class OpenAIGenerator:
                     frequency_penalty=frequency_penalty,
                     presence_penalty=presence_penalty,
                     stream=False,
+                    generation_settings=generation_settings,
                 )
 
                 output_text = self._stringify_tool_output(tool_result)
@@ -1338,6 +1435,7 @@ class OpenAIGenerator:
         audio_enabled,
         audio_voice,
         audio_format,
+        generation_settings: Optional[Mapping[str, Any]] = None,
     ):
         request_kwargs = {
             "model": model,
@@ -1383,6 +1481,7 @@ class OpenAIGenerator:
                 audio_enabled=audio_enabled,
                 audio_voice=audio_voice,
                 audio_format=audio_format,
+                generation_settings=generation_settings,
             )
 
         response = await self.client.responses.create(**request_kwargs)
@@ -1401,6 +1500,7 @@ class OpenAIGenerator:
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
                 model=model,
+                generation_settings=generation_settings,
             )
 
         return await self._handle_responses_completion(
@@ -1419,6 +1519,7 @@ class OpenAIGenerator:
             conversation_manager=conversation_manager,
             audio_voice=audio_voice,
             audio_format=audio_format,
+            generation_settings=generation_settings,
         )
 
     async def _handle_responses_completion(
@@ -1438,6 +1539,7 @@ class OpenAIGenerator:
         conversation_manager,
         audio_voice,
         audio_format,
+        generation_settings: Optional[Mapping[str, Any]] = None,
     ):
         if allow_function_calls:
             tool_messages = self._extract_responses_tool_calls(response)
@@ -1464,6 +1566,7 @@ class OpenAIGenerator:
                         frequency_penalty=frequency_penalty,
                         presence_penalty=presence_penalty,
                         stream=False,
+                        generation_settings=generation_settings,
                     )
                     if result:
                         results.append(result)
@@ -1502,6 +1605,7 @@ class OpenAIGenerator:
         audio_enabled,
         audio_voice,
         audio_format,
+        generation_settings: Optional[Mapping[str, Any]] = None,
     ):
         full_response = ""
         final_response = None
@@ -1559,6 +1663,7 @@ class OpenAIGenerator:
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
                 model=model,
+                generation_settings=generation_settings,
             )
 
             for resolved in required_action_results:
@@ -1589,6 +1694,7 @@ class OpenAIGenerator:
                     top_p,
                     frequency_penalty,
                     presence_penalty,
+                    generation_settings=generation_settings,
                 )
                 if tool_result:
                     yield tool_result
@@ -1674,6 +1780,8 @@ class OpenAIGenerator:
         audio_enabled: bool,
         audio_voice: Optional[str],
         audio_format: Optional[str],
+        *,
+        generation_settings: Optional[Mapping[str, Any]] = None,
     ):
         full_response = ""
         pending_tool_calls: Dict[int, Dict[str, Any]] = {}
@@ -1746,6 +1854,7 @@ class OpenAIGenerator:
                     frequency_penalty,
                     presence_penalty,
                     stream=True,
+                    generation_settings=generation_settings,
                 )
                 async for chunk in self._forward_tool_stream(result):
                     yield chunk
@@ -1781,6 +1890,7 @@ class OpenAIGenerator:
                     frequency_penalty,
                     presence_penalty,
                     stream=True,
+                    generation_settings=generation_settings,
                 )
                 async for chunk in self._forward_tool_stream(tool_result):
                     yield chunk
@@ -1856,6 +1966,7 @@ class OpenAIGenerator:
         presence_penalty,
         *,
         stream: Optional[bool] = None,
+        generation_settings: Optional[Mapping[str, Any]] = None,
     ):
         normalized = self._normalize_tool_call(message)
         if not normalized and isinstance(message, dict):
@@ -1911,6 +2022,7 @@ class OpenAIGenerator:
                 provider_manager=provider_manager,
                 config_manager=self.config_manager,
                 stream=stream,
+                generation_settings=generation_settings,
             )
         except ToolExecutionError as exc:
             self.logger.error(

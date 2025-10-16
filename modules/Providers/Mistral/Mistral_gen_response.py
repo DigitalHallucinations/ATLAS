@@ -5,6 +5,7 @@ import inspect
 import json
 import threading
 from collections.abc import Iterable, Mapping, AsyncIterator as AsyncIteratorABC
+from types import MappingProxyType
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
 from weakref import WeakKeyDictionary
 
@@ -355,6 +356,14 @@ class MistralGenerator:
                     elif settings.get('json_mode'):
                         response_format_payload = {'type': 'json_object'}
 
+                    generation_settings = self._build_generation_settings(
+                        model=effective_model,
+                        tool_choice=configured_tool_choice,
+                        parallel_tool_calls=effective_parallel,
+                        response_format=response_format_payload,
+                        current_persona=current_persona,
+                    )
+
                     def _resolve_prompt_mode_setting() -> Optional[str]:
                         mode_value = settings.get('prompt_mode')
                         if isinstance(mode_value, str):
@@ -416,6 +425,7 @@ class MistralGenerator:
                             top_p=effective_top_p,
                             frequency_penalty=effective_frequency_penalty,
                             presence_penalty=effective_presence_penalty,
+                            generation_settings=generation_settings,
                         )
 
                     response = await asyncio.to_thread(
@@ -445,6 +455,7 @@ class MistralGenerator:
                             frequency_penalty=effective_frequency_penalty,
                             presence_penalty=effective_presence_penalty,
                             stream=bool(effective_stream),
+                            generation_settings=generation_settings,
                         )
                         if tool_result is not None:
                             return tool_result
@@ -725,6 +736,7 @@ class MistralGenerator:
         top_p: Optional[float] = None,
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        generation_settings: Optional[Mapping[str, Any]] = None,
     ) -> AsyncIterator[str]:
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[Tuple[str, Any]] = asyncio.Queue()
@@ -809,6 +821,7 @@ class MistralGenerator:
                     frequency_penalty=frequency_penalty,
                     presence_penalty=presence_penalty,
                     stream=True,
+                    generation_settings=generation_settings,
                 )
                 async for chunk in self._forward_tool_stream(tool_result):
                     yield chunk
@@ -821,6 +834,62 @@ class MistralGenerator:
         if isinstance(target, dict):
             return target.get(attribute, default)
         return getattr(target, attribute, default)
+
+    def _build_generation_settings(
+        self,
+        *,
+        model: Optional[str],
+        tool_choice: Optional[Any],
+        parallel_tool_calls: Optional[bool],
+        response_format: Optional[Dict[str, Any]],
+        current_persona,
+    ) -> MappingProxyType:
+        settings: Dict[str, Any] = {}
+
+        if isinstance(model, str) and model:
+            settings["model"] = model
+
+        provider_name = None
+        getter = getattr(self.model_manager, "get_current_provider", None)
+        if callable(getter):
+            try:
+                provider_name = getter()
+            except Exception:
+                provider_name = None
+        if isinstance(provider_name, str) and provider_name:
+            settings["provider"] = provider_name
+
+        if tool_choice is not None:
+            settings["tool_choice"] = tool_choice
+
+        if parallel_tool_calls is not None:
+            settings["parallel_tool_calls"] = bool(parallel_tool_calls)
+
+        if isinstance(response_format, Mapping):
+            format_type = response_format.get("type")
+            if format_type == "json_schema":
+                schema = response_format.get("json_schema")
+                if schema is not None:
+                    settings["json_schema"] = schema
+                    settings["json_mode"] = True
+            elif format_type == "json_object":
+                settings["json_mode"] = True
+
+        persona_overrides: Dict[str, Any] = {}
+        provider_override = self._safe_get(current_persona, "provider")
+        if isinstance(provider_override, str):
+            trimmed = provider_override.strip()
+            if trimmed:
+                persona_overrides["provider"] = trimmed
+        model_override = self._safe_get(current_persona, "model")
+        if isinstance(model_override, str):
+            trimmed_model = model_override.strip()
+            if trimmed_model:
+                persona_overrides["model"] = trimmed_model
+        if persona_overrides:
+            settings["persona_overrides"] = persona_overrides
+
+        return MappingProxyType(settings)
 
     def _stringify_function_arguments(self, arguments) -> str:
         if arguments is None:
@@ -1043,6 +1112,7 @@ class MistralGenerator:
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
         stream: Optional[bool] = None,
+        generation_settings: Optional[Mapping[str, Any]] = None,
     ) -> Optional[Any]:
         if not tool_messages:
             return None
@@ -1079,6 +1149,7 @@ class MistralGenerator:
                     provider_manager=provider_manager,
                     config_manager=self.config_manager,
                     stream=stream,
+                    generation_settings=generation_settings,
                 )
             except ToolExecutionError as exc:
                 self.logger.error(
