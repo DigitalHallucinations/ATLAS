@@ -68,6 +68,13 @@ class GrokGenerator:
         user: Optional[str] = None,
         conversation_id: Optional[str] = None,
         generation_settings: Optional[Any] = None,
+        function_calling: Optional[bool] = None,
+        parallel_tool_calls: Optional[bool] = None,
+        tool_choice: Optional[Any] = None,
+        tool_choice_name: Optional[str] = None,
+        allowed_function_names: Optional[Any] = None,
+        function_call_mode: Optional[str] = None,
+        tool_prompt_data: Optional[Any] = None,
         **_kwargs: Any,
     ) -> Union[str, AsyncIterator[str]]:
         """Generate a response using the Grok chat API."""
@@ -95,6 +102,16 @@ class GrokGenerator:
             function_map = {}
 
         tools = self._convert_functions_to_tools(resolved_functions)
+        merged_generation_settings = self._merge_generation_settings(
+            generation_settings,
+            function_calling=function_calling,
+            parallel_tool_calls=parallel_tool_calls,
+            tool_choice=tool_choice,
+            tool_choice_name=tool_choice_name,
+            allowed_function_names=allowed_function_names,
+            function_call_mode=function_call_mode,
+            tool_prompt_data=tool_prompt_data,
+        )
         chat_kwargs = self._build_chat_kwargs(
             messages=messages,
             model=model,
@@ -119,8 +136,23 @@ class GrokGenerator:
             "top_p": top_p,
             "frequency_penalty": frequency_penalty,
             "presence_penalty": presence_penalty,
-            "generation_settings": generation_settings,
+            "generation_settings": merged_generation_settings,
         }
+
+        if function_calling is not None:
+            context["function_calling"] = function_calling
+        if parallel_tool_calls is not None:
+            context["parallel_tool_calls"] = parallel_tool_calls
+        if tool_choice is not None:
+            context["tool_choice"] = tool_choice
+        if tool_choice_name is not None:
+            context["tool_choice_name"] = tool_choice_name
+        if allowed_function_names is not None:
+            context["allowed_function_names"] = allowed_function_names
+        if function_call_mode is not None:
+            context["function_call_mode"] = function_call_mode
+        if tool_prompt_data is not None:
+            context["tool_prompt_data"] = tool_prompt_data
 
         try:
             if stream:
@@ -414,6 +446,42 @@ class GrokGenerator:
             )
 
         return tools or None
+
+    def _merge_generation_settings(
+        self,
+        generation_settings: Optional[Any],
+        *,
+        function_calling: Optional[bool],
+        parallel_tool_calls: Optional[bool],
+        tool_choice: Optional[Any],
+        tool_choice_name: Optional[str],
+        allowed_function_names: Optional[Any],
+        function_call_mode: Optional[str],
+        tool_prompt_data: Optional[Any],
+    ) -> Optional[Any]:
+        extras = {
+            "function_calling": function_calling,
+            "parallel_tool_calls": parallel_tool_calls,
+            "tool_choice": tool_choice,
+            "tool_choice_name": tool_choice_name,
+            "allowed_function_names": allowed_function_names,
+            "function_call_mode": function_call_mode,
+            "tool_prompt_data": tool_prompt_data,
+        }
+        extras = {key: value for key, value in extras.items() if value is not None}
+        if not extras:
+            return generation_settings
+
+        if isinstance(generation_settings, Mapping):
+            merged = dict(generation_settings)
+            for key, value in extras.items():
+                merged.setdefault(key, value)
+            return merged
+
+        if generation_settings is not None:
+            extras.setdefault("raw_generation_settings", generation_settings)
+
+        return extras
 
     def _build_chat_kwargs(
         self,

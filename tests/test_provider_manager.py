@@ -2740,13 +2740,24 @@ def test_generate_response_switches_provider_uses_default_models(provider_manage
 
 
 def test_generate_response_grok_uses_adapter(provider_manager):
-    captured = {}
+    captured: Dict[str, Any] = {}
+    persona = {"name": "Helper", "description": "Assistant persona"}
+    functions_payload = [{"name": "tool", "description": "Does work"}]
+    conversation_manager = object()
 
-    async def fake_generate_response(self, messages, model="grok-2", max_tokens=1000, stream=False):
+    async def fake_generate_response(
+        self,
+        messages,
+        model="grok-2",
+        max_tokens=1000,
+        stream=False,
+        **kwargs,
+    ):
         captured["messages"] = messages
         captured["model"] = model
         captured["max_tokens"] = max_tokens
         captured["stream"] = stream
+        captured["kwargs"] = kwargs
         return "grok-ok"
 
     async def exercise():
@@ -2756,14 +2767,21 @@ def test_generate_response_grok_uses_adapter(provider_manager):
         generator.generate_response = types.MethodType(fake_generate_response, generator)
         provider_manager.generate_response_func = generator.generate_response
         provider_manager.providers["Grok"] = generator.generate_response
-        provider_manager.current_functions = [{"name": "tool"}]
+        provider_manager.current_functions = [{"name": "unused"}]
         result = await provider_manager.generate_response(
             messages=[{"role": "user", "content": "pong"}],
             provider="Grok",
             model="grok-special",
             max_tokens=42,
             temperature=0.5,
-            functions=[{"name": "tool"}],
+            top_p=0.25,
+            frequency_penalty=0.1,
+            presence_penalty=0.05,
+            functions=functions_payload,
+            current_persona=persona,
+            conversation_manager=conversation_manager,
+            conversation_id="conv-123",
+            user="alice",
             stream=True,
         )
 
@@ -2780,6 +2798,17 @@ def test_generate_response_grok_uses_adapter(provider_manager):
     assert captured["model"] == "grok-special"
     assert captured["max_tokens"] == 42
     assert captured["stream"] is True
+    forwarded_kwargs = captured["kwargs"]
+    assert forwarded_kwargs["temperature"] == 0.5
+    assert forwarded_kwargs["top_p"] == 0.25
+    assert forwarded_kwargs["frequency_penalty"] == 0.1
+    assert forwarded_kwargs["presence_penalty"] == 0.05
+    assert forwarded_kwargs["current_persona"] is persona
+    assert forwarded_kwargs["functions"] == functions_payload
+    assert forwarded_kwargs["functions"] is functions_payload
+    assert forwarded_kwargs["conversation_manager"] is conversation_manager
+    assert forwarded_kwargs["conversation_id"] == "conv-123"
+    assert forwarded_kwargs["user"] == "alice"
     assert streaming_output == "grok-stream"
 
 
@@ -2948,6 +2977,37 @@ def test_grok_generator_passes_model_to_sampler_streaming():
     assert call["model"] == "grok-stream"
     assert call["max_tokens"] == 55
     assert len(call["messages"]) == 1
+
+
+def test_grok_generator_merges_generation_settings_metadata():
+    GrokGenerator = _load_real_grok_generator("merge")
+
+    class _Config:
+        @staticmethod
+        def get_grok_api_key():
+            return "token"
+
+    generator = GrokGenerator(_Config())
+
+    merged = generator._merge_generation_settings(  # type: ignore[attr-defined]
+        {"existing": "value"},
+        function_calling=True,
+        parallel_tool_calls=False,
+        tool_choice="auto",
+        tool_choice_name="special",
+        allowed_function_names=["tool_a"],
+        function_call_mode="require",
+        tool_prompt_data={"notes": "metadata"},
+    )
+
+    assert merged["existing"] == "value"
+    assert merged["function_calling"] is True
+    assert merged["parallel_tool_calls"] is False
+    assert merged["tool_choice"] == "auto"
+    assert merged["tool_choice_name"] == "special"
+    assert merged["allowed_function_names"] == ["tool_a"]
+    assert merged["function_call_mode"] == "require"
+    assert merged["tool_prompt_data"] == {"notes": "metadata"}
 
 
 def test_generate_response_uses_configured_fallback(provider_manager):
