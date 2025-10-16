@@ -812,14 +812,27 @@ def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
 
     async def fake_use_tool(*args, **_kwargs):
         if "message" in _kwargs:
-            recorded_messages.append(_kwargs["message"])
+            message_payload = _kwargs["message"]
         elif len(args) > 2:
-            recorded_messages.append(args[2])
+            message_payload = args[2]
         else:  # pragma: no cover - defensive fallback
-            recorded_messages.append(None)
+            message_payload = None
+        recorded_messages.append(message_payload)
         assert len(conversation.records) == 1
         entry = conversation.records[0]
         assert entry["role"] == "assistant"
+        tool_call_id = None
+        if isinstance(message_payload, dict):
+            tool_call_id = (
+                message_payload.get("tool_call_id") or message_payload.get("id")
+            )
+        conversation.add_message(
+            _kwargs.get("user"),
+            _kwargs.get("conversation_id"),
+            "tool",
+            [{"type": "output_text", "text": "tool-result"}],
+            tool_call_id=tool_call_id,
+        )
         return "tool-result"
 
     monkeypatch.setattr(mistral_module, "use_tool", fake_use_tool)
@@ -860,13 +873,23 @@ def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
             "function_call": {
                 "name": "lookup",
                 "arguments": '{"query":"value"}',
-            }
+                "id": "call_1",
+            },
+            "tool_call_id": "call_1",
+            "id": "call_1",
         }
     ]
     assert conversation.records
     history_entry = conversation.records[0]
     assert history_entry["tool_calls"][0]["function"]["name"] == "lookup"
     assert history_entry["tool_calls"][0]["id"] == "call_1"
+    tool_response_entry = conversation.records[1]
+    assert tool_response_entry["role"] == "tool"
+    assert tool_response_entry["tool_call_id"] == "call_1"
+    mistral_payload = generator.convert_messages_to_mistral_format(
+        conversation.records
+    )
+    assert mistral_payload[-1]["tool_call_id"] == "call_1"
 
 
 def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
@@ -881,14 +904,27 @@ def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
 
     async def fake_use_tool(*args, **_kwargs):
         if "message" in _kwargs:
-            recorded_messages.append(_kwargs["message"])
+            message_payload = _kwargs["message"]
         elif len(args) > 2:
-            recorded_messages.append(args[2])
+            message_payload = args[2]
         else:  # pragma: no cover - defensive fallback
-            recorded_messages.append(None)
+            message_payload = None
+        recorded_messages.append(message_payload)
         assert len(conversation.records) == 1
         entry = conversation.records[0]
         assert entry["role"] == "assistant"
+        tool_call_id = None
+        if isinstance(message_payload, dict):
+            tool_call_id = (
+                message_payload.get("tool_call_id") or message_payload.get("id")
+            )
+        conversation.add_message(
+            _kwargs.get("user"),
+            _kwargs.get("conversation_id"),
+            "tool",
+            [{"type": "output_text", "text": "stream-tool"}],
+            tool_call_id=tool_call_id,
+        )
         return "stream-tool"
 
     monkeypatch.setattr(mistral_module, "use_tool", fake_use_tool)
@@ -986,10 +1022,16 @@ def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
             "function_call": {
                 "name": "lookup",
                 "arguments": '{"query":"value"}',
-            }
+                "id": "call_1",
+            },
+            "tool_call_id": "call_1",
+            "id": "call_1",
         }
     ]
     assert conversation.records
     history_entry = conversation.records[0]
     assert history_entry["tool_calls"][0]["function"]["name"] == "lookup"
     assert history_entry["tool_calls"][0]["id"] == "call_1"
+    tool_response_entry = conversation.records[1]
+    assert tool_response_entry["role"] == "tool"
+    assert tool_response_entry["tool_call_id"] == "call_1"

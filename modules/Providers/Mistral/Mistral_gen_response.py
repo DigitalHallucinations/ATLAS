@@ -1125,6 +1125,14 @@ class MistralGenerator:
             function_payload = message.get("function_call")
             if not function_payload:
                 continue
+            function_payload = dict(function_payload)
+            tool_call_identifier = message.get("tool_call_id") or message.get("id")
+            if tool_call_identifier and "id" not in function_payload:
+                function_payload["id"] = tool_call_identifier
+            tool_message_payload: Dict[str, Any] = {"function_call": function_payload}
+            if tool_call_identifier:
+                tool_message_payload["tool_call_id"] = tool_call_identifier
+                tool_message_payload.setdefault("id", tool_call_identifier)
             provider_manager = None
             if conversation_manager is not None:
                 atlas = getattr(conversation_manager, "ATLAS", None)
@@ -1136,7 +1144,7 @@ class MistralGenerator:
                 tool_response = await use_tool(
                     user=user,
                     conversation_id=conversation_id,
-                    message={"function_call": function_payload},
+                    message=tool_message_payload,
                     conversation_history=conversation_manager,
                     function_map=function_map,
                     functions=functions,
