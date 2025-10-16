@@ -44,6 +44,12 @@ numpy
 # For environment variables
 python-dotenv
 
+# HTTP client for API integrations
+requests
+
+# Timezone handling utilities
+pytz
+
 # Transformers for model architectures and pipelines
 transformers>=4.31.0
 
