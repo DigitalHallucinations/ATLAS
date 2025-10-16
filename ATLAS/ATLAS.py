@@ -2,7 +2,7 @@
 
 import getpass
 import json
-from collections.abc import AsyncIterator as AbcAsyncIterator
+from collections.abc import AsyncIterator as AbcAsyncIterator, Mapping
 from concurrent.futures import Future
 from pathlib import Path
 from typing import (
@@ -623,18 +623,34 @@ class ATLAS:
             self.logger.error("Failed to load persona function payloads: %s", exc, exc_info=True)
             functions_payload = None
 
-        map_snapshot: Dict[str, str] = {}
+        map_snapshot: Dict[str, Any] = {}
         if isinstance(function_map, dict):
-            for name, func in function_map.items():
+            for name, entry in function_map.items():
+                callable_obj = ToolManagerModule._resolve_function_callable(entry)
                 descriptor = None
-                if callable(func):
-                    module = getattr(func, "__module__", None)
-                    qualname = getattr(func, "__qualname__", getattr(func, "__name__", None))
+                if callable(callable_obj):
+                    module = getattr(callable_obj, "__module__", None)
+                    qualname = getattr(
+                        callable_obj, "__qualname__", getattr(callable_obj, "__name__", None)
+                    )
                     if module and qualname:
                         descriptor = f"{module}.{qualname}"
                     elif qualname:
                         descriptor = str(qualname)
-                map_snapshot[name] = descriptor or repr(func)
+                entry_snapshot: Dict[str, Any] = {
+                    "callable": descriptor or repr(callable_obj)
+                }
+                metadata_candidate = None
+                if isinstance(entry, dict):
+                    metadata_candidate = entry.get("metadata")
+                if isinstance(metadata_candidate, Mapping):
+                    try:
+                        entry_snapshot["metadata"] = json.loads(
+                            json.dumps(dict(metadata_candidate), ensure_ascii=False)
+                        )
+                    except (TypeError, ValueError):
+                        entry_snapshot["metadata"] = dict(metadata_candidate)
+                map_snapshot[name] = entry_snapshot
 
         if isinstance(functions_payload, (dict, list)):
             try:

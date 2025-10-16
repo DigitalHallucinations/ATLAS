@@ -5,7 +5,7 @@ import os
 import sys
 import types
 import time
-from collections.abc import AsyncIterator as AsyncIteratorABC
+from collections.abc import AsyncIterator as AsyncIteratorABC, Mapping
 from pathlib import Path
 import shutil
 import textwrap
@@ -43,6 +43,12 @@ def _normalize_tool_response_payload(response):
         return _normalize_tool_response_payload(list(response))
 
     return {"type": "output_text", "text": "" if response is None else str(response)}
+
+
+def _resolve_callable(entry):
+    if isinstance(entry, dict) and "callable" in entry:
+        return entry["callable"]
+    return entry
 
 
 def _clear_provider_env(monkeypatch):
@@ -1195,7 +1201,11 @@ def test_load_function_map_caches_by_persona(monkeypatch):
         first_map = tool_manager.load_function_map_from_current_persona(persona_payload)
         second_map = tool_manager.load_function_map_from_current_persona(persona_payload)
 
-        assert first_map is second_map
+        assert set(first_map.keys()) == {"sample_tool"}
+        assert set(second_map.keys()) == {"sample_tool"}
+        first_entry = first_map["sample_tool"]
+        second_entry = second_map["sample_tool"]
+        assert _resolve_callable(first_entry) is _resolve_callable(second_entry)
         assert spec_calls["count"] == 1
 
         module = sys.modules[module_name]
@@ -1220,8 +1230,8 @@ def test_load_function_map_caches_by_persona(monkeypatch):
         third_map = tool_manager.load_function_map_from_current_persona(persona_payload)
 
         assert spec_calls["count"] == 2
-        assert third_map is not first_map
         assert "updated_tool" in third_map
+        assert "sample_tool" not in third_map
 
     finally:
         sys.modules.pop(module_name, None)
@@ -1261,6 +1271,48 @@ def test_load_function_map_falls_back_to_default(monkeypatch):
         sys.modules.pop(f"persona_{persona_name}_maps", None)
         tool_manager._default_function_map_cache = None
         shutil.rmtree(persona_dir, ignore_errors=True)
+
+
+def test_persona_function_map_includes_metadata(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
+
+    persona_payload = {"name": "ATLAS"}
+
+    function_map = tool_manager.load_function_map_from_current_persona(
+        persona_payload, refresh=True
+    )
+
+    assert "google_search" in function_map
+    google_entry = function_map["google_search"]
+    assert isinstance(google_entry, dict)
+    assert callable(_resolve_callable(google_entry))
+
+    metadata = google_entry.get("metadata")
+    assert isinstance(metadata, Mapping)
+    assert metadata.get("version") == "1.0.0"
+    assert metadata.get("side_effects") == "none"
+    assert metadata.get("allow_parallel") is True
+    auth_block = metadata.get("auth")
+    assert isinstance(auth_block, dict)
+    assert auth_block.get("env") == "GOOGLE_API_KEY"
+
+    time_entry = function_map["get_current_info"]
+    assert isinstance(time_entry, dict)
+    time_meta = time_entry.get("metadata")
+    assert isinstance(time_meta, Mapping)
+    assert time_meta.get("default_timeout") == 5
+    assert time_meta.get("side_effects") == "none"
 
 
 def test_use_tool_resolves_google_search_with_default_map(monkeypatch):

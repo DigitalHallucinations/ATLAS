@@ -1,6 +1,15 @@
 [
     {
         "name": "google_search",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 30,
+        "auth": {
+            "required": true,
+            "type": "api_key",
+            "env": "GOOGLE_API_KEY"
+        },
+        "allow_parallel": true,
         "description": "A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.",
         "parameters": {
             "type": "object",
@@ -23,6 +32,13 @@
     },
     {
         "name": "get_current_info",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
         "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
         "parameters": {
             "type": "object",
@@ -44,6 +60,13 @@
     },
     {
         "name": "execute_python",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 45,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
         "description": "Execute Python code and return the result",
         "parameters": {
             "type": "object",
@@ -60,6 +83,13 @@
     },
     {
         "name": "terminal_command",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 60,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
         "description": "Execute a terminal command and return the output, error, and status code.",
         "parameters": {
             "type": "object",
