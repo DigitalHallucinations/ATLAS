@@ -25,6 +25,23 @@ def stub_tool_manager_dependencies(monkeypatch):
         yaml_stub.safe_load = lambda stream: {}
         monkeypatch.setitem(sys.modules, "yaml", yaml_stub)
 
+    if "jsonschema" not in sys.modules:
+        jsonschema_stub = types.ModuleType("jsonschema")
+
+        class _DummyValidationError(Exception):
+            pass
+
+        class _DummyValidator:
+            def __init__(self, *_args, **_kwargs):
+                return
+
+            def is_valid(self, *_args, **_kwargs):  # pragma: no cover
+                return True
+
+        jsonschema_stub.ValidationError = _DummyValidationError
+        jsonschema_stub.Draft7Validator = _DummyValidator
+        monkeypatch.setitem(sys.modules, "jsonschema", jsonschema_stub)
+
     if "dotenv" not in sys.modules:
         dotenv_stub = types.ModuleType("dotenv")
 
