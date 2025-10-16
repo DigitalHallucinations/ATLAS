@@ -50,13 +50,18 @@ class GoogleSearch:
                     )
                     k = DEFAULT_RESULTS_COUNT
 
-        url = f"https://serpapi.com/search?q={query}&api_key={self.api_key}"
-        logger.info("URL: %s", url)
+        url = "https://serpapi.com/search"
+        params = {"q": query, "api_key": self.api_key}
+        sanitized_params = params.copy()
+        if sanitized_params.get("api_key"):
+            sanitized_params["api_key"] = "***REDACTED***"
+        logger.info("Requesting %s with params: %s", url, sanitized_params)
 
         try:
             response = await asyncio.to_thread(
                 requests.get,
                 url,
+                params=params,
                 timeout=self.timeout,
             )
             logger.info("Response status code: %d", response.status_code)
