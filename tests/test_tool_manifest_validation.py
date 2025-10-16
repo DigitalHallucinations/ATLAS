@@ -22,7 +22,6 @@ if "dotenv" not in sys.modules:
     )
 
 import ATLAS.ToolManager as tool_manager
-from ATLAS.ToolManager import ToolManifestValidationError
 
 
 def _manifest_entry(name: str, **overrides):
@@ -39,6 +38,10 @@ def _manifest_entry(name: str, **overrides):
         "default_timeout": 15,
         "auth": {"required": False},
         "allow_parallel": True,
+        "cost_per_call": 0.25,
+        "cost_unit": "credits",
+        "capabilities": ["demo"],
+        "idempotency_key": False,
     }
     entry.update(overrides)
     return entry
@@ -86,7 +89,7 @@ def test_invalid_manifest_raises_structured_error(persona_workspace):
     functions_path.write_text(json.dumps([invalid_entry]))
     os.utime(functions_path, None)
 
-    with pytest.raises(ToolManifestValidationError) as exc_info:
+    with pytest.raises(tool_manager.ToolManifestValidationError) as exc_info:
         tool_manager.load_functions_from_json(persona, refresh=True)
 
     error = exc_info.value.errors

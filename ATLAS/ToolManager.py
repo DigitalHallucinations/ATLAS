@@ -84,6 +84,9 @@ _KNOWN_METADATA_FIELDS = (
     "safety_level",
     "requires_consent",
     "persona_allowlist",
+    "capabilities",
+    "cost_per_call",
+    "cost_unit",
 )
 
 _TOOL_ACTIVITY_EVENT = "tool_activity"

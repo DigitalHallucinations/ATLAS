@@ -128,6 +128,21 @@
       "requires_consent": {
         "type": "boolean"
       },
+      "capabilities": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "cost_per_call": {
+        "type": "number",
+        "minimum": 0
+      },
+      "cost_unit": {
+        "type": "string",
+        "minLength": 1
+      },
       "persona_allowlist": {
         "type": "array",
         "items": {

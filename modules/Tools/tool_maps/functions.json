@@ -11,6 +11,12 @@
         },
         "allow_parallel": true,
         "idempotency_key": false,
+        "cost_per_call": 0.005,
+        "cost_unit": "USD",
+        "capabilities": [
+            "web_search",
+            "knowledge_lookup"
+        ],
         "description": "A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.",
         "parameters": {
             "type": "object",
@@ -41,6 +47,12 @@
         },
         "allow_parallel": true,
         "idempotency_key": false,
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "time_information",
+            "date_information"
+        ],
         "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
         "parameters": {
             "type": "object",
