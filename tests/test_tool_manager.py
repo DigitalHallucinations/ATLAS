@@ -660,6 +660,8 @@ def test_use_tool_streams_final_response_when_enabled(monkeypatch):
 
     tool_manager._tool_activity_log.clear()
 
+    persona = types.SimpleNamespace(name="Persona-Alpha")
+
     async def run_test():
         response = await tool_manager.use_tool(
             user="user",
@@ -668,7 +670,7 @@ def test_use_tool_streams_final_response_when_enabled(monkeypatch):
             conversation_history=conversation_history,
             function_map={"tool_fn": tool_fn},
             functions=None,
-            current_persona=None,
+            current_persona=persona,
             temperature_var=0.5,
             top_p_var=0.9,
             frequency_penalty_var=0.0,
@@ -683,15 +685,22 @@ def test_use_tool_streams_final_response_when_enabled(monkeypatch):
         chunks = []
         async for piece in response:
             chunks.append(piece)
-        return "".join(chunks)
+        return "".join(chunks), list(chunks)
 
-    collected = asyncio.run(run_test())
+    collected, chunk_list = asyncio.run(run_test())
 
     assert collected == "stream-result"
+    assert chunk_list == ["stream", "-", "result"]
     assert provider.generate_calls
     assert provider.generate_calls[0].get("stream") is True
     assert conversation_history.responses
-    assert not conversation_history.messages, "Assistant message should stream externally"
+    assert conversation_history.messages, "Assistant follow-up should be stored after streaming"
+    recorded_message = conversation_history.messages[-1]
+    assert recorded_message["content"] == "stream-result"
+    assert recorded_message.get("metadata", {}).get("tool_call_ids") == [
+        "call-stream"
+    ]
+    assert recorded_message.get("metadata", {}).get("persona") == "Persona-Alpha"
 
 
 def test_use_tool_consumes_async_generator_tool(monkeypatch):
