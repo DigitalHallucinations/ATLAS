@@ -11,15 +11,20 @@ from modules.logging.logger import setup_logger
 config_manager = ConfigManager()
 logger = setup_logger(__name__)
 
-SERPAPI_KEY = os.getenv("SERPAPI_KEY")
-
 DEFAULT_RESULTS_COUNT = 10
 
 
 class GoogleSearch:
-    def __init__(self, api_key=SERPAPI_KEY):
+    def __init__(self, api_key: Union[str, None] = None):
         self.timeout = 10
-        self.api_key = api_key
+        if api_key is not None:
+            resolved_key = api_key
+        else:
+            resolved_key = config_manager.get_config("SERPAPI_KEY")
+            if not resolved_key:
+                resolved_key = os.getenv("SERPAPI_KEY")
+
+        self.api_key = (resolved_key or "").strip()
 
 
     async def _search(
@@ -28,6 +33,14 @@ class GoogleSearch:
         """HTTP requests to SerpAPI."""
 
         logger.info("Starting search with term: %s", query)
+
+        if not self.api_key:
+            message = (
+                "SerpAPI key is not configured. Set SERPAPI_KEY in your environment "
+                "or configuration to enable Google search."
+            )
+            logger.error(message)
+            return -1, message
 
         if k is None:
             k = DEFAULT_RESULTS_COUNT
