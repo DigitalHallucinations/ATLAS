@@ -44,6 +44,23 @@ class ConfigManager:
         # Merge configurations, with YAML config overriding env config if there's overlap
         self.config = {**self.env_config, **self.yaml_config}
 
+        # Ensure configurable tool timeout/budget defaults are present
+        tool_defaults = self.config.get('tool_defaults')
+        if not isinstance(tool_defaults, Mapping):
+            tool_defaults = {}
+        else:
+            tool_defaults = dict(tool_defaults)
+        tool_defaults.setdefault('timeout_seconds', 30)
+        self.config['tool_defaults'] = tool_defaults
+
+        conversation_block = self.config.get('conversation')
+        if not isinstance(conversation_block, Mapping):
+            conversation_block = {}
+        else:
+            conversation_block = dict(conversation_block)
+        conversation_block.setdefault('max_tool_duration_ms', 120000)
+        self.config['conversation'] = conversation_block
+
         # Ensure any persisted OpenAI speech preferences are reflected in the active config
         self._synchronize_openai_speech_block()
 

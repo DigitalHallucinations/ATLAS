@@ -64,7 +64,32 @@ def _clear_provider_env(monkeypatch):
         monkeypatch.delenv(key, raising=False)
 
 
+def _ensure_jsonschema(monkeypatch):
+    if "jsonschema" in sys.modules:
+        return
+
+    jsonschema_stub = types.ModuleType("jsonschema")
+
+    class _DummyValidationError(Exception):
+        pass
+
+    class _DummyValidator:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def validate(self, *_args, **_kwargs):  # pragma: no cover - helper stub
+            return None
+
+        def iter_errors(self, *_args, **_kwargs):  # pragma: no cover - helper stub
+            return iter(())
+
+    jsonschema_stub.ValidationError = _DummyValidationError
+    jsonschema_stub.Draft7Validator = _DummyValidator
+    monkeypatch.setitem(sys.modules, "jsonschema", jsonschema_stub)
+
+
 def _ensure_yaml(monkeypatch):
+    _ensure_jsonschema(monkeypatch)
     if "yaml" in sys.modules:
         return
 
@@ -605,6 +630,248 @@ def test_use_tool_handles_multiple_tool_calls(monkeypatch):
 
     asyncio.run(run_test())
 
+
+def test_use_tool_enforces_timeout(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+    tool_manager._tool_activity_log.clear()
+    tool_manager._conversation_tool_runtime_ms.clear()
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.messages = []
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content, "timestamp": timestamp}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            return entry
+
+        def add_response(self, *args, **kwargs):  # pragma: no cover - safety guard
+            raise AssertionError("add_response should not be called when tool times out")
+
+    conversation_history = DummyConversationHistory()
+    provider_manager = types.SimpleNamespace(get_current_model=lambda: "dummy-model")
+
+    class DummyConfigManager:
+        def get_config(self, key, default=None):
+            if key == "tool_defaults":
+                return {"timeout_seconds": 0.05}
+            if key == "conversation":
+                return {"max_tool_duration_ms": 1000}
+            return default
+
+    async def slow_tool(delay):
+        await asyncio.sleep(delay)
+        return "finished"
+
+    message = {
+        "function_call": {
+            "id": "call-timeout",
+            "name": "slow_tool",
+            "arguments": json.dumps({"delay": 0.2}),
+        }
+    }
+
+    async def run_test():
+        with pytest.raises(tool_manager.ToolExecutionError) as excinfo:
+            await tool_manager.use_tool(
+                user="user",
+                conversation_id="conversation",
+                message=message,
+                conversation_history=conversation_history,
+                function_map={"slow_tool": slow_tool},
+                functions=None,
+                current_persona=None,
+                temperature_var=0.0,
+                top_p_var=1.0,
+                frequency_penalty_var=0.0,
+                presence_penalty_var=0.0,
+                conversation_manager=conversation_history,
+                provider_manager=provider_manager,
+                config_manager=DummyConfigManager(),
+            )
+
+        error = excinfo.value
+        assert error.error_type == "timeout"
+        assert error.tool_call_id == "call-timeout"
+        assert "timeout" in str(error).lower()
+        assert conversation_history.messages, "Timeout should be recorded in history"
+        recorded_entry = conversation_history.messages[-1]
+        metadata = recorded_entry.get("metadata", {})
+        assert metadata.get("error_type") == "timeout"
+        assert recorded_entry["tool_call_id"] == "call-timeout"
+
+        runtime = tool_manager._conversation_tool_runtime_ms.get("conversation", 0)
+        assert runtime > 0
+
+        activity_entry = tool_manager.get_tool_activity_log()[-1]
+        assert activity_entry["tool_name"] == "slow_tool"
+        assert activity_entry.get("error_type") == "timeout"
+
+    asyncio.run(run_test())
+
+
+def test_use_tool_respects_conversation_runtime_budget(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+    tool_manager._tool_activity_log.clear()
+    tool_manager._conversation_tool_runtime_ms.clear()
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.history = []
+            self.responses = []
+            self.messages = []
+
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {
+                "role": "tool",
+                "content": _normalize_tool_response_payload(response),
+            }
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content, "timestamp": timestamp}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            self.history.append(entry)
+            return entry
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+    class DummyProviderManager:
+        def __init__(self):
+            self.generate_calls = []
+
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **kwargs):
+            self.generate_calls.append(kwargs)
+            return "model-output"
+
+    provider = DummyProviderManager()
+
+    class DummyConfigManager:
+        def get_config(self, key, default=None):
+            if key == "tool_defaults":
+                return {"timeout_seconds": 1.0}
+            if key == "conversation":
+                return {"max_tool_duration_ms": 20}
+            return default
+
+    async def slow_tool(delay):
+        await asyncio.sleep(delay)
+        return f"done:{delay}"
+
+    message = {
+        "function_call": {
+            "id": "call-slow",
+            "name": "slow_tool",
+            "arguments": json.dumps({"delay": 0.05}),
+        }
+    }
+
+    conversation_history = DummyConversationHistory()
+
+    async def run_test():
+        result = await tool_manager.use_tool(
+            user="user",
+            conversation_id="conversation",
+            message=message,
+            conversation_history=conversation_history,
+            function_map={"slow_tool": slow_tool},
+            functions=None,
+            current_persona=None,
+            temperature_var=0.0,
+            top_p_var=1.0,
+            frequency_penalty_var=0.0,
+            presence_penalty_var=0.0,
+            conversation_manager=conversation_history,
+            provider_manager=provider,
+            config_manager=DummyConfigManager(),
+        )
+
+        assert result == "model-output"
+        assert conversation_history.responses, "First tool call should record a response"
+
+        with pytest.raises(tool_manager.ToolExecutionError) as excinfo:
+            await tool_manager.use_tool(
+                user="user",
+                conversation_id="conversation",
+                message=message,
+                conversation_history=conversation_history,
+                function_map={"slow_tool": slow_tool},
+                functions=None,
+                current_persona=None,
+                temperature_var=0.0,
+                top_p_var=1.0,
+                frequency_penalty_var=0.0,
+                presence_penalty_var=0.0,
+                conversation_manager=conversation_history,
+                provider_manager=provider,
+                config_manager=DummyConfigManager(),
+            )
+
+        error = excinfo.value
+        assert error.error_type == "tool_runtime_budget_exceeded"
+        assert error.tool_call_id == "call-slow"
+        assert len(conversation_history.responses) == 1
+        failure_entry = conversation_history.messages[-1]
+        assert failure_entry["metadata"]["error_type"] == "tool_runtime_budget_exceeded"
+
+        runtime = tool_manager._conversation_tool_runtime_ms.get("conversation", 0)
+        assert runtime >= 50, "Tracked runtime should accumulate across calls"
+
+    asyncio.run(run_test())
 
 def test_use_tool_replays_generation_settings(monkeypatch):
     _ensure_yaml(monkeypatch)
