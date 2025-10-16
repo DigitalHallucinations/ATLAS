@@ -26,6 +26,25 @@ if "dotenv" not in sys.modules:
 import ATLAS.ToolManager as tool_manager
 
 
+def _manifest_entry(name, description='d', **overrides):
+    entry = {
+        'name': name,
+        'description': description,
+        'parameters': {
+            'type': 'object',
+            'properties': {},
+            'required': [],
+        },
+        'version': '1.0.0',
+        'side_effects': 'none',
+        'default_timeout': 30,
+        'auth': {'required': False},
+        'allow_parallel': True,
+    }
+    entry.update(overrides)
+    return entry
+
+
 @pytest.fixture
 def _persona_workspace(monkeypatch):
     persona_name = f"CachePersona_{uuid.uuid4().hex}"
@@ -35,7 +54,7 @@ def _persona_workspace(monkeypatch):
     functions_path = base_dir / "functions.json"
     maps_path = base_dir / "maps.py"
 
-    functions_path.write_text(json.dumps([{"name": "initial", "description": "d"}]))
+    functions_path.write_text(json.dumps([_manifest_entry('initial')]))
     maps_path.write_text(
         "def _sample_tool():\n"
         "    return 'ok'\n\n"
@@ -69,9 +88,11 @@ def test_load_functions_from_json_uses_cached_payload(monkeypatch, _persona_work
 
     load_calls = []
     original_json_load = tool_manager.json.load
+    functions_path = _persona_workspace["functions_path"].resolve()
 
     def _counting_json_load(file_obj, *args, **kwargs):
-        load_calls.append(1)
+        if getattr(file_obj, "name", None) == os.fspath(functions_path):
+            load_calls.append(1)
         return original_json_load(file_obj, *args, **kwargs)
 
     monkeypatch.setattr(tool_manager.json, "load", _counting_json_load)
@@ -91,9 +112,11 @@ def test_concurrent_loads_share_cached_payload(monkeypatch, _persona_workspace):
 
     load_calls = []
     original_json_load = tool_manager.json.load
+    functions_path = _persona_workspace["functions_path"].resolve()
 
     def _counting_json_load(file_obj, *args, **kwargs):
-        load_calls.append(1)
+        if getattr(file_obj, "name", None) == os.fspath(functions_path):
+            load_calls.append(1)
         time.sleep(0.05)
         return original_json_load(file_obj, *args, **kwargs)
 
@@ -132,7 +155,7 @@ def test_load_functions_reloads_when_timestamp_changes(monkeypatch, _persona_wor
 
     first = tool_manager.load_functions_from_json(persona)
 
-    updated_payload = [{"name": "updated", "description": "changed"}]
+    updated_payload = [_manifest_entry("updated", description="changed")]
     functions_path.write_text(json.dumps(updated_payload))
     new_time = os.path.getmtime(functions_path) + 1
     os.utime(functions_path, (new_time, new_time))

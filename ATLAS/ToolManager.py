@@ -15,6 +15,9 @@ from collections.abc import AsyncIterator, Mapping
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from types import MappingProxyType
+
+from jsonschema import Draft7Validator, ValidationError
+
 from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system
 
@@ -40,6 +43,21 @@ class ToolExecutionError(RuntimeError):
         self.error_type = error_type
         self.entry = entry
 
+
+class ToolManifestValidationError(RuntimeError):
+    """Raised when a tool manifest fails schema validation."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        persona: Optional[str] = None,
+        errors: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(message)
+        self.persona = persona
+        self.errors = errors or {}
+
 _function_map_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _function_payload_cache: Dict[str, Any] = {}
 _function_payload_cache_lock = threading.Lock()
@@ -47,6 +65,8 @@ _default_function_map_cache: Optional[Tuple[float, Dict[str, Any]]] = None
 _default_function_map_lock = threading.Lock()
 _default_config_manager: Optional[ConfigManager] = None
 _DEFAULT_FUNCTIONS_CACHE_KEY = "__default__"
+_tool_manifest_validator = None
+_tool_manifest_validator_lock = threading.Lock()
 
 _KNOWN_METADATA_FIELDS = (
     "version",
@@ -120,6 +140,69 @@ def _load_default_functions_payload(*, refresh: bool = False, config_manager=Non
 
         _function_payload_cache[cache_key] = (file_mtime, payload)
         return payload
+
+
+def _get_tool_manifest_validator(config_manager=None):
+    """Return a cached JSON schema validator for tool manifests."""
+
+    global _tool_manifest_validator
+
+    with _tool_manifest_validator_lock:
+        if _tool_manifest_validator is not None:
+            return _tool_manifest_validator
+
+        try:
+            app_root = _get_config_manager(config_manager).get_app_root()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning(
+                "Unable to determine application root when loading tool manifest schema: %s",
+                exc,
+            )
+            return None
+
+        schema_path = os.path.join(
+            app_root,
+            "modules",
+            "Tools",
+            "tool_maps",
+            "schema.json",
+        )
+
+        try:
+            with open(schema_path, "r", encoding="utf-8") as schema_file:
+                schema = json.load(schema_file)
+        except FileNotFoundError:
+            logger.warning("Tool manifest schema not found at path: %s", schema_path)
+            return None
+        except json.JSONDecodeError as exc:
+            logger.error(
+                "Invalid JSON in tool manifest schema at %s: %s",
+                schema_path,
+                exc,
+                exc_info=True,
+            )
+            return None
+        except Exception as exc:  # pragma: no cover - unexpected I/O errors
+            logger.error(
+                "Unexpected error loading tool manifest schema from %s: %s",
+                schema_path,
+                exc,
+                exc_info=True,
+            )
+            return None
+
+        try:
+            _tool_manifest_validator = Draft7Validator(schema)
+        except Exception as exc:  # pragma: no cover - schema compilation errors
+            logger.error(
+                "Failed to build tool manifest validator from schema %s: %s",
+                schema_path,
+                exc,
+                exc_info=True,
+            )
+            _tool_manifest_validator = None
+
+        return _tool_manifest_validator
 
 def _freeze_generation_settings(
     settings: Optional[Mapping[str, Any]] = None,
@@ -860,17 +943,6 @@ def load_functions_from_json(
 
     try:
         file_mtime = os.path.getmtime(functions_json_path)
-        if not refresh:
-            cache_entry = _function_payload_cache.get(persona_name)
-            if cache_entry:
-                cached_mtime, cached_functions = cache_entry
-                if cached_mtime == file_mtime:
-                    logger.info(
-                        "Returning cached functions for persona '%s' (mtime %s).",
-                        persona_name,
-                        cached_mtime,
-                    )
-                    return cached_functions
 
         with _function_payload_cache_lock:
             if not refresh:
@@ -885,15 +957,40 @@ def load_functions_from_json(
                         )
                         return cached_functions
 
-            with open(functions_json_path, 'r') as file:
+            with open(functions_json_path, 'r', encoding='utf-8') as file:
                 functions = json.load(file)
-                logger.info(
-                    "Functions successfully loaded from JSON for persona '%s': %s",
-                    persona_name,
-                    functions,
-                )
-                _function_payload_cache[persona_name] = (file_mtime, functions)
-                return functions
+
+            logger.info(
+                "Functions successfully loaded from JSON for persona '%s': %s",
+                persona_name,
+                functions,
+            )
+
+            validator = _get_tool_manifest_validator(config_manager=config_manager)
+            if validator is not None:
+                try:
+                    validator.validate(functions)
+                except ValidationError as exc:
+                    error_details = {
+                        'persona': persona_name,
+                        'path': list(exc.absolute_path),
+                        'message': exc.message,
+                    }
+                    logger.error(
+                        "Tool manifest validation error for persona '%s': %s",
+                        persona_name,
+                        error_details,
+                    )
+                    _function_payload_cache.pop(persona_name, None)
+                    raise ToolManifestValidationError(
+                        f"Invalid tool manifest for persona '{persona_name}': {exc.message}",
+                        persona=persona_name,
+                        errors=error_details,
+                    ) from exc
+
+            _function_payload_cache[persona_name] = (file_mtime, functions)
+
+        return functions
     except FileNotFoundError:
         logger.error(f"functions.json file not found for persona '{persona_name}' at path: {functions_json_path}")
         with _function_payload_cache_lock:
@@ -902,6 +999,8 @@ def load_functions_from_json(
         logger.error(f"JSON decoding error in functions.json for persona '{persona_name}': {e}", exc_info=True)
         with _function_payload_cache_lock:
             _function_payload_cache.pop(persona_name, None)
+    except ToolManifestValidationError:
+        raise
     except Exception as e:
         logger.error(f"Unexpected error loading functions for persona '{persona_name}': {e}", exc_info=True)
         with _function_payload_cache_lock:

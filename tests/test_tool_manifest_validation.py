@@ -1,0 +1,95 @@
+import json
+import os
+import shutil
+import sys
+import uuid
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+if "yaml" not in sys.modules:
+    sys.modules["yaml"] = SimpleNamespace(
+        safe_load=lambda *_args, **_kwargs: {},
+        dump=lambda *_args, **_kwargs: None,
+    )
+
+if "dotenv" not in sys.modules:
+    sys.modules["dotenv"] = SimpleNamespace(
+        load_dotenv=lambda *_args, **_kwargs: None,
+        set_key=lambda *_args, **_kwargs: None,
+        find_dotenv=lambda *_args, **_kwargs: "",
+    )
+
+import ATLAS.ToolManager as tool_manager
+from ATLAS.ToolManager import ToolManifestValidationError
+
+
+def _manifest_entry(name: str, **overrides):
+    entry = {
+        "name": name,
+        "description": "sample description",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 15,
+        "auth": {"required": False},
+        "allow_parallel": True,
+    }
+    entry.update(overrides)
+    return entry
+
+
+@pytest.fixture
+def persona_workspace(monkeypatch):
+    persona_name = f"ValidationPersona_{uuid.uuid4().hex}"
+    base_dir = Path("modules") / "Personas" / persona_name / "Toolbox"
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    functions_path = base_dir / "functions.json"
+    functions_path.write_text(json.dumps([_manifest_entry("valid")]))
+
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
+
+    try:
+        yield {
+            "persona": {"name": persona_name},
+            "functions_path": functions_path,
+        }
+    finally:
+        tool_manager._function_payload_cache.pop(persona_name, None)
+        tool_manager._function_map_cache.pop(persona_name, None)
+        shutil.rmtree(base_dir.parent, ignore_errors=True)
+
+
+def test_invalid_manifest_raises_structured_error(persona_workspace):
+    tool_manager._function_payload_cache.clear()
+
+    persona = persona_workspace["persona"]
+    functions_path = persona_workspace["functions_path"]
+
+    # Sanity check: valid manifest loads without error.
+    loaded = tool_manager.load_functions_from_json(persona, refresh=True)
+    assert isinstance(loaded, list)
+    assert loaded[0]["name"] == "valid"
+
+    invalid_entry = _manifest_entry("invalid")
+    invalid_entry.pop("description")
+    functions_path.write_text(json.dumps([invalid_entry]))
+    os.utime(functions_path, None)
+
+    with pytest.raises(ToolManifestValidationError) as exc_info:
+        tool_manager.load_functions_from_json(persona, refresh=True)
+
+    error = exc_info.value.errors
+    assert error.get("persona") == persona["name"]
+    assert "description" in error.get("message", "")
+    assert exc_info.value.persona == persona["name"]

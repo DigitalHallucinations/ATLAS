@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ATLAS Tool Manifest",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "name",
+      "description",
+      "parameters",
+      "version",
+      "side_effects",
+      "default_timeout",
+      "auth",
+      "allow_parallel"
+    ],
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": {
+        "type": "string",
+        "minLength": 1
+      },
+      "parameters": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "object"
+            ]
+          },
+          "properties": {
+            "type": "object"
+          },
+          "required": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {"type": "boolean"},
+              {"type": "object"}
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "version": {
+        "type": "string",
+        "minLength": 1
+      },
+      "side_effects": {
+        "type": "string",
+        "enum": [
+          "none",
+          "write"
+        ]
+      },
+      "default_timeout": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "auth": {
+        "type": "object",
+        "required": [
+          "required"
+        ],
+        "properties": {
+          "required": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "env": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "allow_parallel": {
+        "type": "boolean"
+      },
+      "examples": {
+        "type": "array"
+      },
+      "notes": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": true
+  }
+}
