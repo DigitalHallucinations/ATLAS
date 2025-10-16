@@ -26,6 +26,7 @@ openai-whisper
 
 # for Config
 pyyaml
+jsonschema
 
 # for Audio
 pygame

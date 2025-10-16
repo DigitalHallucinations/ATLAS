@@ -20,6 +20,23 @@ following fields:
 Additional fields (such as `description` and `parameters`) continue to follow
 the OpenAI function-calling schema.
 
+## Schema validation
+
+All tool manifests are validated against the JSON Schema stored at
+`modules/Tools/tool_maps/schema.json` when they are loaded. Invalid manifests
+cause `ToolManifestValidationError` to be raised during startup, so make sure
+your persona and shared manifests pass validation before committing changes.
+
+You can validate a manifest locally by running:
+
+```bash
+python -m jsonschema -i modules/Personas/<Persona>/Toolbox/functions.json \
+    modules/Tools/tool_maps/schema.json
+```
+
+The automated test suite also checks for validation failures, so any schema
+regressions will be caught in CI.
+
 ## Example
 
 ```json
