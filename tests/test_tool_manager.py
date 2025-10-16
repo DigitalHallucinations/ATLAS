@@ -2,6 +2,7 @@ import asyncio
 import importlib
 import json
 import os
+import socket
 import sys
 import types
 import time
@@ -289,6 +290,313 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
         assert conversation_history.responses[-1]["tool_call_id"] == "call-echo"
         log_entries = tool_manager.get_tool_activity_log()
         assert log_entries[-1]["tool_call_id"] == "call-echo"
+
+    asyncio.run(run_test())
+
+
+def test_use_tool_blocks_high_risk_tool_without_consent(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+    tool_manager._tool_activity_log.clear()
+
+    class ConsentConversationHistory:
+        def __init__(self):
+            self.history = [{"role": "user", "content": "Hi"}]
+            self.responses = []
+            self.messages = []
+            self.requests = []
+
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {
+                "role": "tool",
+                "content": _normalize_tool_response_payload(response),
+            }
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content, "timestamp": timestamp}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            self.history.append(entry)
+            return entry
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+        def has_tool_consent(self, conversation_id, tool_name):
+            return False
+
+        def request_tool_consent(self, conversation_id, tool_name, metadata=None):
+            self.requests.append(
+                {
+                    "conversation_id": conversation_id,
+                    "tool_name": tool_name,
+                    "metadata": dict(metadata or {}),
+                }
+            )
+            return False
+
+    class DummyProviderManager:
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **_kwargs):
+            raise AssertionError("model should not run when policy blocks the tool")
+
+    conversation_history = ConsentConversationHistory()
+    provider = DummyProviderManager()
+
+    executions = []
+
+    async def restricted_tool():
+        executions.append(True)
+        return "blocked"
+
+    message = {
+        "function_call": {
+            "id": "call-restricted",
+            "name": "restricted_tool",
+            "arguments": json.dumps({}),
+        }
+    }
+
+    function_map = {
+        "restricted_tool": {
+            "callable": restricted_tool,
+            "metadata": {"safety_level": "high", "requires_consent": True},
+        }
+    }
+
+    async def run_test():
+        with pytest.raises(tool_manager.ToolExecutionError) as exc_info:
+            await tool_manager.use_tool(
+                user="user",
+                conversation_id="conversation",
+                message=message,
+                conversation_history=conversation_history,
+                function_map=function_map,
+                functions=None,
+                current_persona={"name": "CodeGenius"},
+                temperature_var=0.0,
+                top_p_var=1.0,
+                frequency_penalty_var=0.0,
+                presence_penalty_var=0.0,
+                conversation_manager=conversation_history,
+                provider_manager=provider,
+                config_manager=None,
+            )
+
+        error = exc_info.value
+        assert error.error_type == "tool_policy_violation"
+        assert "requires approval" in str(error)
+        assert executions == []
+        assert conversation_history.requests, "Consent should be requested"
+        recorded_entry = conversation_history.messages[-1]
+        metadata = recorded_entry.get("metadata", {})
+        assert metadata.get("error_type") == "tool_policy_violation"
+
+    asyncio.run(run_test())
+
+
+def test_use_tool_allows_high_risk_tool_with_consent_and_sandbox(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+    tool_manager._tool_activity_log.clear()
+
+    class ApprovingConversationHistory:
+        def __init__(self):
+            self.history = [{"role": "user", "content": "Hi"}]
+            self.responses = []
+            self.messages = []
+            self.requests = []
+            self._consent = False
+
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {
+                "role": "tool",
+                "content": _normalize_tool_response_payload(response),
+            }
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content, "timestamp": timestamp}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            self.history.append(entry)
+            return entry
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+        def has_tool_consent(self, conversation_id, tool_name):
+            return self._consent
+
+        def request_tool_consent(self, conversation_id, tool_name, metadata=None):
+            self.requests.append(
+                {
+                    "conversation_id": conversation_id,
+                    "tool_name": tool_name,
+                    "metadata": dict(metadata or {}),
+                }
+            )
+            self._consent = True
+            return True
+
+    class DummyProviderManager:
+        def __init__(self):
+            self.generate_calls = []
+
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **kwargs):
+            self.generate_calls.append(kwargs)
+            return "model-output"
+
+    class ToolSafetyConfig:
+        def __init__(self):
+            self.provider_manager = DummyProviderManager()
+            self._config = {
+                "tool_safety": {"network_allowlist": ["localhost"]},
+                "tool_defaults": {"timeout_seconds": 30},
+            }
+
+        def get_config(self, key, default=None):
+            return self._config.get(key, default)
+
+    config_manager = ToolSafetyConfig()
+    provider = config_manager.provider_manager
+    conversation_history = ApprovingConversationHistory()
+
+    connection_calls = []
+
+    class DummyConnection:
+        def __init__(self, address):
+            self.address = address
+
+    def fake_create_connection(address, *args, **kwargs):
+        connection_calls.append(address)
+        return DummyConnection(address)
+
+    monkeypatch.setattr(socket, "create_connection", fake_create_connection)
+    monkeypatch.setattr(tool_manager.socket, "create_connection", fake_create_connection)
+
+    async def sandboxed_tool(host):
+        flag = os.environ.get("ATLAS_SANDBOX_ACTIVE")
+        blocked_message = None
+        try:
+            socket.create_connection(("blocked.example.com", 443))
+        except Exception as exc:
+            blocked_message = str(exc)
+        allowed = socket.create_connection((host, 80))
+        return {
+            "flag": flag,
+            "blocked": blocked_message,
+            "allowed": allowed.address,
+        }
+
+    message = {
+        "function_call": {
+            "id": "call-sandbox",
+            "name": "sandboxed_tool",
+            "arguments": json.dumps({"host": "localhost"}),
+        }
+    }
+
+    function_map = {
+        "sandboxed_tool": {
+            "callable": sandboxed_tool,
+            "metadata": {"safety_level": "high", "requires_consent": True},
+        }
+    }
+
+    async def run_test():
+        result = await tool_manager.use_tool(
+            user="user",
+            conversation_id="conversation",
+            message=message,
+            conversation_history=conversation_history,
+            function_map=function_map,
+            functions=None,
+            current_persona={"name": "CodeGenius"},
+            temperature_var=0.2,
+            top_p_var=0.9,
+            frequency_penalty_var=0.0,
+            presence_penalty_var=0.0,
+            conversation_manager=conversation_history,
+            provider_manager=provider,
+            config_manager=config_manager,
+        )
+
+        assert result == "model-output"
+        assert conversation_history.requests, "Consent request should be recorded"
+        tool_entry = conversation_history.responses[-1]
+        payload = tool_entry["content"]
+        assert payload["flag"] == "1"
+        assert "blocked.example.com" in payload["blocked"]
+        assert payload["allowed"] == ["localhost", 80]
+        assert connection_calls == [("localhost", 80)]
+        assert provider.generate_calls, "Model response should be generated"
 
     asyncio.run(run_test())
 

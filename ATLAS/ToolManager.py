@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import functools
 import copy
 import io
 import json
@@ -11,12 +12,13 @@ import sys
 import os
 import random
 import re
+import socket
 import threading
 import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Mapping
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from types import MappingProxyType
 
@@ -79,6 +81,9 @@ _KNOWN_METADATA_FIELDS = (
     "auth",
     "allow_parallel",
     "idempotency_key",
+    "safety_level",
+    "requires_consent",
+    "persona_allowlist",
 )
 
 _TOOL_ACTIVITY_EVENT = "tool_activity"
@@ -106,6 +111,20 @@ _DEFAULT_CONVERSATION_TOOL_BUDGET_MS = 120000.0
 
 _conversation_tool_runtime_ms: Dict[str, float] = {}
 _conversation_runtime_lock = threading.Lock()
+
+_SANDBOX_ENV_FLAG = "ATLAS_SANDBOX_ACTIVE"
+
+
+@dataclass(frozen=True)
+class ToolPolicyDecision:
+    """Represents the outcome of a pre-execution policy evaluation."""
+
+    allowed: bool
+    reason: Optional[str] = None
+    use_sandbox: bool = False
+    metadata: Mapping[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
 
 def _load_default_functions_payload(*, refresh: bool = False, config_manager=None):
@@ -641,6 +660,278 @@ def _freeze_metadata(metadata: Optional[Dict[str, Any]]) -> Mapping[str, Any]:
         for key, value in dict(metadata).items():
             serialized[key] = value
         return MappingProxyType(serialized)
+
+
+def _extract_persona_name(current_persona: Any) -> Optional[str]:
+    """Return the persona display name when available."""
+
+    if not current_persona:
+        return None
+
+    if isinstance(current_persona, Mapping):
+        for key in ("name", "persona_name", "display_name"):
+            value = current_persona.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    for key in ("name", "persona_name", "display_name"):
+        value = getattr(current_persona, key, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    if isinstance(current_persona, str) and current_persona.strip():
+        return current_persona.strip()
+
+    return None
+
+
+def _normalize_persona_allowlist(raw_allowlist: Any) -> Optional[set[str]]:
+    """Return a normalized set of persona names from ``raw_allowlist``."""
+
+    if raw_allowlist is None:
+        return None
+
+    if isinstance(raw_allowlist, str):
+        candidate = raw_allowlist.strip()
+        return {candidate} if candidate else None
+
+    if isinstance(raw_allowlist, Mapping):
+        values = raw_allowlist.values()
+    elif isinstance(raw_allowlist, (list, tuple, set)):
+        values = raw_allowlist
+    else:
+        return None
+
+    names = {str(item).strip() for item in values if str(item).strip()}
+    return names or None
+
+
+def _has_tool_consent(
+    conversation_manager: Any,
+    conversation_id: Any,
+    function_name: str,
+) -> bool:
+    """Return ``True`` when the conversation has already approved ``function_name``."""
+
+    if conversation_manager is None:
+        return False
+
+    checker = getattr(conversation_manager, "has_tool_consent", None)
+    if not callable(checker):
+        return False
+
+    try:
+        return bool(
+            checker(conversation_id=conversation_id, tool_name=function_name)
+        )
+    except TypeError:
+        try:
+            return bool(checker(conversation_id, function_name))
+        except Exception:  # pragma: no cover - defensive logging
+            logger.exception("Consent checker failed for tool '%s'.", function_name)
+    except Exception:  # pragma: no cover - defensive logging
+        logger.exception("Consent checker failed for tool '%s'.", function_name)
+
+    return False
+
+
+def _request_tool_consent(
+    conversation_manager: Any,
+    conversation_id: Any,
+    function_name: str,
+    metadata: Mapping[str, Any],
+) -> bool:
+    """Request consent from the active conversation for ``function_name``."""
+
+    if conversation_manager is None:
+        return False
+
+    requester = getattr(conversation_manager, "request_tool_consent", None)
+    if not callable(requester):
+        return False
+
+    try:
+        return bool(
+            requester(
+                conversation_id=conversation_id,
+                tool_name=function_name,
+                metadata=dict(metadata) if metadata else {},
+            )
+        )
+    except TypeError:
+        try:
+            return bool(requester(conversation_id, function_name, metadata))
+        except TypeError:
+            try:
+                return bool(requester(conversation_id, function_name))
+            except Exception:  # pragma: no cover - defensive logging
+                logger.exception("Consent request failed for tool '%s'.", function_name)
+        except Exception:  # pragma: no cover - defensive logging
+            logger.exception("Consent request failed for tool '%s'.", function_name)
+    except Exception:  # pragma: no cover - defensive logging
+        logger.exception("Consent request failed for tool '%s'.", function_name)
+
+    return False
+
+
+def _evaluate_tool_policy(
+    *,
+    function_name: str,
+    metadata: Mapping[str, Any],
+    current_persona: Any,
+    conversation_manager: Any,
+    conversation_id: Any,
+) -> ToolPolicyDecision:
+    """Return the pre-execution policy decision for ``function_name``."""
+
+    persona_name = _extract_persona_name(current_persona)
+    allowlist = _normalize_persona_allowlist(metadata.get("persona_allowlist"))
+
+    if allowlist and (persona_name is None or persona_name not in allowlist):
+        reason = (
+            f"Tool '{function_name}' is restricted to approved personas."
+        )
+        return ToolPolicyDecision(
+            allowed=False,
+            reason=reason,
+            metadata=_freeze_metadata(dict(metadata)),
+        )
+
+    safety_level = str(metadata.get("safety_level") or "standard").lower()
+    requires_consent = bool(metadata.get("requires_consent"))
+    if safety_level == "high":
+        requires_consent = True
+
+    if requires_consent and not _has_tool_consent(
+        conversation_manager, conversation_id, function_name
+    ):
+        if not _request_tool_consent(
+            conversation_manager, conversation_id, function_name, metadata
+        ):
+            reason = (
+                f"Tool '{function_name}' requires approval before it can be used."
+            )
+            return ToolPolicyDecision(
+                allowed=False,
+                reason=reason,
+                metadata=_freeze_metadata(dict(metadata)),
+            )
+
+    use_sandbox = safety_level in {"high"}
+
+    return ToolPolicyDecision(
+        allowed=True,
+        use_sandbox=use_sandbox,
+        metadata=_freeze_metadata(dict(metadata)),
+    )
+
+
+def _get_sandbox_runner(config_manager=None):
+    """Return a sandbox runner bound to ``config_manager``."""
+
+    return SandboxedToolRunner(config_manager)
+
+
+class SandboxedToolRunner:
+    """Provides a minimal sandbox environment for high-risk tool execution."""
+
+    def __init__(self, config_manager=None):
+        self._config_manager = config_manager
+
+    def _resolve_network_allowlist(
+        self, metadata: Optional[Mapping[str, Any]]
+    ) -> Optional[set[str]]:
+        config_block = _get_config_section(self._config_manager, "tool_safety")
+        allowlist = None
+        if isinstance(config_block, Mapping):
+            allowlist = config_block.get("network_allowlist")
+        if allowlist is None and metadata is not None:
+            allowlist = metadata.get("network_allowlist")
+
+        if allowlist is None:
+            return None
+
+        if isinstance(allowlist, str):
+            allowlist = [allowlist]
+
+        if isinstance(allowlist, Mapping):
+            values = allowlist.values()
+        else:
+            values = allowlist
+
+        allowed_hosts: set[str] = set()
+        for item in values:
+            host = str(item).strip()
+            if not host:
+                continue
+            allowed_hosts.add(host)
+            allowed_hosts.add(host.lower())
+
+        return allowed_hosts or None
+
+    @staticmethod
+    def _extract_host(address: Any) -> Optional[str]:
+        if isinstance(address, (list, tuple)) and address:
+            candidate = address[0]
+        else:
+            candidate = address
+
+        if isinstance(candidate, bytes):
+            candidate = candidate.decode(errors="ignore")
+
+        if isinstance(candidate, str):
+            candidate = candidate.strip()
+            if not candidate or candidate.startswith("/"):
+                return None
+            return candidate
+
+        return None
+
+    @staticmethod
+    def _ensure_host_allowed(host: Optional[str], allowed_hosts: Optional[set[str]]):
+        if host is None or allowed_hosts is None:
+            return
+
+        if host in allowed_hosts or host.lower() in allowed_hosts:
+            return
+
+        raise PermissionError(
+            f"Network access to '{host}' is not permitted by the sandbox allowlist."
+        )
+
+    @contextlib.contextmanager
+    def activate(self, *, metadata: Optional[Mapping[str, Any]] = None):
+        """Apply sandbox constraints for the duration of the context."""
+
+        allowed_hosts = self._resolve_network_allowlist(metadata)
+        original_create_connection = socket.create_connection
+        original_connect = socket.socket.connect
+
+        def _guarded_create_connection(address, *args, **kwargs):
+            host = self._extract_host(address)
+            self._ensure_host_allowed(host, allowed_hosts)
+            return original_create_connection(address, *args, **kwargs)
+
+        def _guarded_connect(sock, address):
+            host = self._extract_host(address)
+            self._ensure_host_allowed(host, allowed_hosts)
+            return original_connect(sock, address)
+
+        previous_flag = os.environ.get(_SANDBOX_ENV_FLAG)
+        os.environ[_SANDBOX_ENV_FLAG] = "1"
+
+        socket.create_connection = _guarded_create_connection
+        socket.socket.connect = _guarded_connect
+
+        try:
+            yield
+        finally:
+            socket.create_connection = original_create_connection
+            socket.socket.connect = original_connect
+            if previous_flag is None:
+                os.environ.pop(_SANDBOX_ENV_FLAG, None)
+            else:
+                os.environ[_SANDBOX_ENV_FLAG] = previous_flag
 
 
 def _get_config_section(config_manager, key: str):
@@ -1607,6 +1898,41 @@ async def use_tool(
             )
 
         function_entry = function_map[function_name]
+        entry_metadata: Dict[str, Any] = {}
+        if isinstance(function_entry, dict):
+            metadata_candidate = function_entry.get("metadata")
+            if isinstance(metadata_candidate, Mapping):
+                entry_metadata = dict(metadata_candidate)
+
+        policy_decision = _evaluate_tool_policy(
+            function_name=function_name,
+            metadata=entry_metadata,
+            current_persona=current_persona,
+            conversation_manager=conversation_manager,
+            conversation_id=conversation_id,
+        )
+
+        if not policy_decision.allowed:
+            policy_message = policy_decision.reason or (
+                f"Tool '{function_name}' is blocked by the current policy."
+            )
+            error_entry = _record_tool_failure(
+                conversation_history,
+                user,
+                conversation_id,
+                tool_call_id=tool_call_id,
+                function_name=function_name,
+                message=policy_message,
+                error_type="tool_policy_violation",
+            )
+            raise ToolExecutionError(
+                policy_message,
+                tool_call_id=tool_call_id,
+                function_name=function_name,
+                error_type="tool_policy_violation",
+                entry=error_entry,
+            )
+
         required_args = get_required_args(function_entry)
         logger.info(f"Required arguments for function '{function_name}': {required_args}")
         provided_args = list(function_args.keys())
@@ -1643,11 +1969,7 @@ async def use_tool(
         try:
             logger.info(f"Calling function '{function_name}' with arguments: {function_args}")
             func = _resolve_function_callable(function_entry)
-            entry_metadata: Dict[str, Any] = {}
-            if isinstance(function_entry, dict):
-                metadata_candidate = function_entry.get("metadata")
-                if isinstance(metadata_candidate, Mapping):
-                    entry_metadata = dict(metadata_candidate)
+            entry_metadata = dict(entry_metadata)
 
             is_write_tool = entry_metadata.get("side_effects") == "write" if entry_metadata else False
             is_idempotent_tool = _is_tool_idempotent(entry_metadata)
@@ -1676,6 +1998,10 @@ async def use_tool(
             final_response: Any = None
             final_completed_at: Optional[datetime] = None
 
+            sandbox_runner = None
+            if policy_decision.use_sandbox:
+                sandbox_runner = _get_sandbox_runner(config_manager)
+
             while attempt < max_attempts:
                 attempt += 1
                 stdout_buffer = io.StringIO()
@@ -1700,89 +2026,96 @@ async def use_tool(
                 if entry_metadata:
                     base_log_entry["metadata"] = entry_metadata
 
+                sandbox_context = (
+                    sandbox_runner.activate(metadata=entry_metadata)
+                    if sandbox_runner is not None
+                    else contextlib.nullcontext()
+                )
+
                 try:
-                    if inspect.isasyncgenfunction(func):
+                    with sandbox_context:
+                        if inspect.isasyncgenfunction(func):
 
-                        async def _execute_async_gen():
-                            nonlocal active_log_entry
-                            with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
-                                stderr_buffer
-                            ):
-                                async_stream = func(**function_args)
-                                if tool_streaming_enabled:
-                                    if active_log_entry is None:
-                                        active_log_entry = _record_tool_activity(
-                                            {**base_log_entry, "result": []}
-                                        )
-                                    return await _stream_tool_iterator(
-                                        async_stream,
-                                        log_entry=base_log_entry,
-                                        active_entry=active_log_entry,
-                                    )
-                                return await _gather_async_iterator(async_stream)
-
-                        execution_result = await _run_with_timeout(
-                            _execute_async_gen(), timeout_seconds
-                        )
-                    elif asyncio.iscoroutinefunction(func):
-
-                        async def _execute_coroutine():
-                            nonlocal active_log_entry
-                            with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
-                                stderr_buffer
-                            ):
-                                result = await func(**function_args)
-                                if _is_async_stream(result):
-                                    if tool_streaming_enabled:
-                                        if active_log_entry is None:
-                                            active_log_entry = _record_tool_activity(
-                                                {**base_log_entry, "result": []}
-                                            )
-                                        return await _stream_tool_iterator(
-                                            result,
-                                            log_entry=base_log_entry,
-                                            active_entry=active_log_entry,
-                                        )
-                                    return await _gather_async_iterator(result)
-                                return result
-
-                        execution_result = await _run_with_timeout(
-                            _execute_coroutine(), timeout_seconds
-                        )
-                    else:
-
-                        def _run_sync_function():
-                            with contextlib.redirect_stdout(
-                                stdout_buffer
-                            ), contextlib.redirect_stderr(stderr_buffer):
-                                return func(**function_args)
-
-                        execution_result = await _run_with_timeout(
-                            asyncio.to_thread(_run_sync_function), timeout_seconds
-                        )
-
-                        if _is_async_stream(execution_result):
-
-                            async def _consume_iterator():
+                            async def _execute_async_gen():
                                 nonlocal active_log_entry
                                 with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
                                     stderr_buffer
                                 ):
+                                    async_stream = func(**function_args)
                                     if tool_streaming_enabled:
                                         if active_log_entry is None:
                                             active_log_entry = _record_tool_activity(
                                                 {**base_log_entry, "result": []}
                                             )
                                         return await _stream_tool_iterator(
-                                            execution_result,
+                                            async_stream,
                                             log_entry=base_log_entry,
                                             active_entry=active_log_entry,
                                         )
-                                    return await _gather_async_iterator(execution_result)
+                                    return await _gather_async_iterator(async_stream)
 
                             execution_result = await _run_with_timeout(
-                                _consume_iterator(), timeout_seconds
+                                _execute_async_gen(), timeout_seconds
                             )
+                        elif asyncio.iscoroutinefunction(func):
+
+                            async def _execute_coroutine():
+                                nonlocal active_log_entry
+                                with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
+                                    stderr_buffer
+                                ):
+                                    result = await func(**function_args)
+                                    if _is_async_stream(result):
+                                        if tool_streaming_enabled:
+                                            if active_log_entry is None:
+                                                active_log_entry = _record_tool_activity(
+                                                    {**base_log_entry, "result": []}
+                                                )
+                                            return await _stream_tool_iterator(
+                                                result,
+                                                log_entry=base_log_entry,
+                                                active_entry=active_log_entry,
+                                            )
+                                        return await _gather_async_iterator(result)
+                                    return result
+
+                            execution_result = await _run_with_timeout(
+                                _execute_coroutine(), timeout_seconds
+                            )
+                        else:
+
+                            def _run_sync_function():
+                                with contextlib.redirect_stdout(
+                                    stdout_buffer
+                                ), contextlib.redirect_stderr(stderr_buffer):
+                                    return func(**function_args)
+
+                            execution_result = await _run_with_timeout(
+                                asyncio.to_thread(_run_sync_function), timeout_seconds
+                            )
+
+                            if _is_async_stream(execution_result):
+
+                                async def _consume_iterator():
+                                    nonlocal active_log_entry
+                                    with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
+                                        stderr_buffer
+                                    ):
+                                        if tool_streaming_enabled:
+                                            if active_log_entry is None:
+                                                active_log_entry = _record_tool_activity(
+                                                    {**base_log_entry, "result": []}
+                                                )
+                                            return await _stream_tool_iterator(
+                                                execution_result,
+                                                log_entry=base_log_entry,
+                                                active_entry=active_log_entry,
+                                            )
+                                        return await _gather_async_iterator(execution_result)
+
+                                execution_result = await _run_with_timeout(
+                                    _consume_iterator(), timeout_seconds
+                                )
 
                     if isinstance(execution_result, _ToolStreamCapture):
                         stream_capture = execution_result

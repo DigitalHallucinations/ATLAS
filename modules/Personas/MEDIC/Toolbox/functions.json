@@ -63,6 +63,9 @@
         "name": "search_pmc",
         "version": "1.0.0",
         "side_effects": "write",
+        "safety_level": "high",
+        "requires_consent": true,
+        "persona_allowlist": ["MEDIC"],
         "default_timeout": 45,
         "auth": {
             "required": false
