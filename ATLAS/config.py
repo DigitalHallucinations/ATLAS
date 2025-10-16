@@ -51,6 +51,7 @@ class ConfigManager:
         else:
             tool_defaults = dict(tool_defaults)
         tool_defaults.setdefault('timeout_seconds', 30)
+        tool_defaults.setdefault('max_cost_per_session', None)
         self.config['tool_defaults'] = tool_defaults
 
         conversation_block = self.config.get('conversation')

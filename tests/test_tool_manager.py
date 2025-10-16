@@ -2347,6 +2347,8 @@ def test_persona_function_map_includes_metadata(monkeypatch):
     assert metadata.get("version") == "1.0.0"
     assert metadata.get("side_effects") == "none"
     assert metadata.get("allow_parallel") is True
+    assert abs(metadata.get("cost_per_call") - 0.005) < 1e-9
+    assert metadata.get("cost_unit") == "USD"
     auth_block = metadata.get("auth")
     assert isinstance(auth_block, dict)
     assert auth_block.get("env") == "GOOGLE_API_KEY"
@@ -2357,6 +2359,8 @@ def test_persona_function_map_includes_metadata(monkeypatch):
     assert isinstance(time_meta, Mapping)
     assert time_meta.get("default_timeout") == 5
     assert time_meta.get("side_effects") == "none"
+    assert time_meta.get("cost_per_call") == 0.0
+    assert time_meta.get("cost_unit") == "USD"
 
 
 def test_use_tool_resolves_google_search_with_default_map(monkeypatch):
