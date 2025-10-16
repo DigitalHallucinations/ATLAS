@@ -1,8 +1,10 @@
+import concurrent.futures
 import json
 import os
 import shutil
 import sys
 import uuid
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -81,6 +83,35 @@ def test_load_functions_from_json_uses_cached_payload(monkeypatch, _persona_work
 
     assert first == second
     assert len(load_calls) == 1
+
+
+def test_concurrent_loads_share_cached_payload(monkeypatch, _persona_workspace):
+    tool_manager._function_payload_cache.clear()
+    tool_manager._function_map_cache.clear()
+
+    load_calls = []
+    original_json_load = tool_manager.json.load
+
+    def _counting_json_load(file_obj, *args, **kwargs):
+        load_calls.append(1)
+        time.sleep(0.05)
+        return original_json_load(file_obj, *args, **kwargs)
+
+    monkeypatch.setattr(tool_manager.json, "load", _counting_json_load)
+
+    persona = _persona_workspace["persona"]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [
+            executor.submit(tool_manager.load_functions_from_json, persona)
+            for _ in range(5)
+        ]
+        results = [future.result() for future in futures]
+
+    assert len(load_calls) == 1
+    first_result = results[0]
+    for result in results:
+        assert result == first_result
 
 
 def test_load_functions_reloads_when_timestamp_changes(monkeypatch, _persona_workspace):
