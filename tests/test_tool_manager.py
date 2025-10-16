@@ -231,6 +231,7 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
             self.provider_manager = DummyProviderManager()
 
     conversation_history = DummyConversationHistory()
+
     dummy_config = DummyConfigManager()
 
     async def echo_tool(value):
@@ -408,6 +409,231 @@ def test_use_tool_records_structured_follow_up(monkeypatch):
     asyncio.run(run_test())
 
 
+def test_use_tool_retries_idempotent_tool(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.history = [{"role": "user", "content": "Hi"}]
+            self.responses = []
+            self.messages = []
+
+        def add_response(
+            self,
+            user,
+            conversation_id,
+            response,
+            timestamp,
+            *,
+            tool_call_id=None,
+            metadata=None,
+        ):
+            entry = {
+                "role": "tool",
+                "content": _normalize_tool_response_payload(response),
+            }
+            if tool_call_id is not None:
+                entry["tool_call_id"] = tool_call_id
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            self.responses.append(entry)
+            self.history.append(entry)
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            self.history.append(entry)
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+    class DummyProviderManager:
+        def __init__(self):
+            self.calls = []
+
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **kwargs):
+            self.calls.append(kwargs)
+            return "model-output"
+
+    conversation_history = DummyConversationHistory()
+    provider_manager = DummyProviderManager()
+
+    attempts = []
+    observed_keys = []
+
+    async def flaky_tool(value, context=None):
+        attempts.append(value)
+        assert context is not None
+        observed_keys.append(context.get("idempotency_key"))
+        if len(attempts) == 1:
+            raise RuntimeError("transient failure")
+        return {"value": value}
+
+    message = {
+        "function_call": {
+            "id": "call-idempotent",
+            "name": "flaky_tool",
+            "arguments": json.dumps({"value": "ping"}),
+        }
+    }
+
+    function_map = {
+        "flaky_tool": {
+            "callable": flaky_tool,
+            "metadata": {"side_effects": "write", "idempotency_key": True},
+        }
+    }
+
+    sleep_calls = []
+
+    async def fake_sleep(duration):
+        sleep_calls.append(duration)
+
+    monkeypatch.setattr(tool_manager.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(tool_manager.random, "uniform", lambda *_: 0.0)
+
+    async def run_test():
+        result = await tool_manager.use_tool(
+            user="user",
+            conversation_id="conversation",
+            message=message,
+            conversation_history=conversation_history,
+            function_map=function_map,
+            functions=None,
+            current_persona=None,
+            temperature_var=0.5,
+            top_p_var=0.9,
+            frequency_penalty_var=0.0,
+            presence_penalty_var=0.0,
+            conversation_manager=conversation_history,
+            provider_manager=provider_manager,
+            config_manager=None,
+        )
+
+        assert result == "model-output"
+
+    asyncio.run(run_test())
+
+    assert attempts == ["ping", "ping"]
+    assert len(set(observed_keys)) == 1
+    assert len(sleep_calls) == 1
+    assert sleep_calls[0] == 0.5
+    assert provider_manager.calls
+
+
+def test_use_tool_does_not_retry_non_idempotent_tool(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    class DummyConversationHistory:
+        def __init__(self):
+            self.history = [{"role": "user", "content": "Hi"}]
+            self.messages = []
+
+        def add_message(
+            self,
+            user,
+            conversation_id,
+            role,
+            content,
+            timestamp,
+            *,
+            metadata=None,
+            **kwargs,
+        ):
+            entry = {"role": role, "content": content}
+            if metadata:
+                entry["metadata"] = dict(metadata)
+            if kwargs:
+                entry.update(kwargs)
+            self.messages.append(entry)
+            self.history.append(entry)
+
+        def get_history(self, user, conversation_id):
+            return list(self.history)
+
+    conversation_history = DummyConversationHistory()
+
+    class DummyProviderManager:
+        def get_current_model(self):
+            return "dummy-model"
+
+        async def generate_response(self, **_kwargs):  # pragma: no cover - unused
+            return "unused"
+
+    provider_manager = DummyProviderManager()
+
+    attempts = []
+
+    async def failing_tool(value, context=None):
+        attempts.append(context.get("idempotency_key") if context else None)
+        raise RuntimeError("persistent failure")
+
+    message = {
+        "function_call": {
+            "id": "call-non-idempotent",
+            "name": "failing_tool",
+            "arguments": json.dumps({"value": "ping"}),
+        }
+    }
+
+    function_map = {
+        "failing_tool": {
+            "callable": failing_tool,
+            "metadata": {"side_effects": "write", "idempotency_key": False},
+        }
+    }
+
+    async def fail_sleep(_):  # pragma: no cover - defensive
+        raise AssertionError("sleep should not be invoked for non-idempotent tools")
+
+    monkeypatch.setattr(tool_manager.asyncio, "sleep", fail_sleep)
+
+    with pytest.raises(tool_manager.ToolExecutionError):
+        asyncio.run(
+            tool_manager.use_tool(
+                user="user",
+                conversation_id="conversation",
+                message=message,
+                conversation_history=conversation_history,
+                function_map=function_map,
+                functions=None,
+                current_persona=None,
+                temperature_var=0.5,
+                top_p_var=0.9,
+                frequency_penalty_var=0.0,
+                presence_penalty_var=0.0,
+                conversation_manager=conversation_history,
+                provider_manager=provider_manager,
+                config_manager=None,
+            )
+        )
+
+    assert len(attempts) == 1
 def test_use_tool_records_structured_error(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)

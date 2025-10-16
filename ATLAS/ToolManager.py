@@ -9,8 +9,10 @@ import inspect
 import importlib.util
 import sys
 import os
+import random
 import re
 import threading
+import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Mapping
 from datetime import datetime
@@ -76,6 +78,7 @@ _KNOWN_METADATA_FIELDS = (
     "default_timeout",
     "auth",
     "allow_parallel",
+    "idempotency_key",
 )
 
 _TOOL_ACTIVITY_EVENT = "tool_activity"
@@ -724,6 +727,44 @@ def _increment_conversation_runtime_ms(conversation_id: Optional[str], duration_
     with _conversation_runtime_lock:
         previous = _conversation_tool_runtime_ms.get(conversation_id, 0.0)
         _conversation_tool_runtime_ms[conversation_id] = previous + increment
+
+
+def _generate_idempotency_key() -> str:
+    """Return a unique key suitable for idempotent tool invocations."""
+
+    return uuid.uuid4().hex
+
+
+def _is_tool_idempotent(metadata: Optional[Mapping[str, Any]]) -> bool:
+    """Return ``True`` when ``metadata`` marks a tool as idempotent."""
+
+    if not metadata:
+        return False
+
+    candidate = metadata.get("idempotency_key")
+    if isinstance(candidate, Mapping):
+        return bool(candidate.get("required"))
+    if isinstance(candidate, bool):
+        return candidate
+    return bool(candidate)
+
+
+async def _apply_idempotent_retry_backoff(
+    attempt: int,
+    *,
+    idempotent: bool,
+    base_delay: float = 0.5,
+    jitter: float = 0.5,
+) -> bool:
+    """Sleep using exponential backoff with jitter when ``idempotent`` is True."""
+
+    if not idempotent:
+        return False
+
+    interval = base_delay * (2 ** max(0, attempt - 1))
+    interval += random.uniform(0.0, jitter)
+    await asyncio.sleep(interval)
+    return True
 
 
 async def _run_with_timeout(awaitable, timeout: Optional[float]):
@@ -1607,171 +1648,214 @@ async def use_tool(
                 metadata_candidate = function_entry.get("metadata")
                 if isinstance(metadata_candidate, Mapping):
                     entry_metadata = dict(metadata_candidate)
+
+            is_write_tool = entry_metadata.get("side_effects") == "write" if entry_metadata else False
+            is_idempotent_tool = _is_tool_idempotent(entry_metadata)
+
             metadata_timeout = None
             if entry_metadata:
                 metadata_timeout = entry_metadata.get("default_timeout")
+
+            if is_write_tool:
+                context_payload = function_args.get("context")
+                if isinstance(context_payload, Mapping):
+                    context_payload = dict(context_payload)
+                else:
+                    context_payload = {}
+                context_payload.setdefault("idempotency_key", _generate_idempotency_key())
+                function_args["context"] = context_payload
+
             timeout_seconds = _resolve_tool_timeout_seconds(
                 config_manager, metadata_timeout
             )
-            stdout_buffer = io.StringIO()
-            stderr_buffer = io.StringIO()
-            started_at = datetime.utcnow()
-            function_response = None
-            call_error: Optional[Exception] = None
-            stream_capture: Optional[_ToolStreamCapture] = None
-            active_log_entry: Optional[Dict[str, Any]] = None
 
-            base_log_entry = {
-                "tool_name": function_name,
-                "tool_call_id": tool_call_id,
-                "arguments": function_args,
-                "arguments_text": _stringify_tool_value(function_args),
-                "started_at": started_at.isoformat(timespec="milliseconds"),
-                "status": "running",
-                "result_text": "",
-                "stdout": "",
-                "stderr": "",
-            }
-            if entry_metadata:
-                base_log_entry["metadata"] = entry_metadata
+            max_attempts = 3 if is_idempotent_tool else 1
+            attempt = 0
+            last_exception: Optional[Exception] = None
+            final_log_entry: Optional[Dict[str, Any]] = None
+            final_response: Any = None
+            final_completed_at: Optional[datetime] = None
 
-            try:
-                if inspect.isasyncgenfunction(func):
+            while attempt < max_attempts:
+                attempt += 1
+                stdout_buffer = io.StringIO()
+                stderr_buffer = io.StringIO()
+                started_at = datetime.utcnow()
+                function_response = None
+                call_error: Optional[Exception] = None
+                stream_capture: Optional[_ToolStreamCapture] = None
+                active_log_entry: Optional[Dict[str, Any]] = None
 
-                    async def _execute_async_gen():
-                        nonlocal active_log_entry
-                        with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
-                            stderr_buffer
-                        ):
-                            async_stream = func(**function_args)
-                            if tool_streaming_enabled:
-                                if active_log_entry is None:
-                                    active_log_entry = _record_tool_activity(
-                                        {**base_log_entry, "result": []}
-                                    )
-                                return await _stream_tool_iterator(
-                                    async_stream,
-                                    log_entry=base_log_entry,
-                                    active_entry=active_log_entry,
-                                )
-                            return await _gather_async_iterator(async_stream)
+                base_log_entry = {
+                    "tool_name": function_name,
+                    "tool_call_id": tool_call_id,
+                    "arguments": function_args,
+                    "arguments_text": _stringify_tool_value(function_args),
+                    "started_at": started_at.isoformat(timespec="milliseconds"),
+                    "status": "running",
+                    "result_text": "",
+                    "stdout": "",
+                    "stderr": "",
+                }
+                if entry_metadata:
+                    base_log_entry["metadata"] = entry_metadata
 
-                    execution_result = await _run_with_timeout(
-                        _execute_async_gen(), timeout_seconds
-                    )
-                elif asyncio.iscoroutinefunction(func):
+                try:
+                    if inspect.isasyncgenfunction(func):
 
-                    async def _execute_coroutine():
-                        nonlocal active_log_entry
-                        with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
-                            stderr_buffer
-                        ):
-                            result = await func(**function_args)
-                            if _is_async_stream(result):
-                                if tool_streaming_enabled:
-                                    if active_log_entry is None:
-                                        active_log_entry = _record_tool_activity(
-                                            {**base_log_entry, "result": []}
-                                        )
-                                    return await _stream_tool_iterator(
-                                        result,
-                                        log_entry=base_log_entry,
-                                        active_entry=active_log_entry,
-                                    )
-                                return await _gather_async_iterator(result)
-                            return result
-
-                    execution_result = await _run_with_timeout(
-                        _execute_coroutine(), timeout_seconds
-                    )
-                else:
-
-                    def _run_sync_function():
-                        with contextlib.redirect_stdout(
-                            stdout_buffer
-                        ), contextlib.redirect_stderr(stderr_buffer):
-                            return func(**function_args)
-
-                    execution_result = await _run_with_timeout(
-                        asyncio.to_thread(_run_sync_function), timeout_seconds
-                    )
-
-                    if _is_async_stream(execution_result):
-
-                        async def _consume_iterator():
+                        async def _execute_async_gen():
                             nonlocal active_log_entry
                             with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
                                 stderr_buffer
                             ):
+                                async_stream = func(**function_args)
                                 if tool_streaming_enabled:
                                     if active_log_entry is None:
                                         active_log_entry = _record_tool_activity(
                                             {**base_log_entry, "result": []}
                                         )
                                     return await _stream_tool_iterator(
-                                        execution_result,
+                                        async_stream,
                                         log_entry=base_log_entry,
                                         active_entry=active_log_entry,
                                     )
-                                return await _gather_async_iterator(execution_result)
+                                return await _gather_async_iterator(async_stream)
 
                         execution_result = await _run_with_timeout(
-                            _consume_iterator(), timeout_seconds
+                            _execute_async_gen(), timeout_seconds
+                        )
+                    elif asyncio.iscoroutinefunction(func):
+
+                        async def _execute_coroutine():
+                            nonlocal active_log_entry
+                            with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
+                                stderr_buffer
+                            ):
+                                result = await func(**function_args)
+                                if _is_async_stream(result):
+                                    if tool_streaming_enabled:
+                                        if active_log_entry is None:
+                                            active_log_entry = _record_tool_activity(
+                                                {**base_log_entry, "result": []}
+                                            )
+                                        return await _stream_tool_iterator(
+                                            result,
+                                            log_entry=base_log_entry,
+                                            active_entry=active_log_entry,
+                                        )
+                                    return await _gather_async_iterator(result)
+                                return result
+
+                        execution_result = await _run_with_timeout(
+                            _execute_coroutine(), timeout_seconds
+                        )
+                    else:
+
+                        def _run_sync_function():
+                            with contextlib.redirect_stdout(
+                                stdout_buffer
+                            ), contextlib.redirect_stderr(stderr_buffer):
+                                return func(**function_args)
+
+                        execution_result = await _run_with_timeout(
+                            asyncio.to_thread(_run_sync_function), timeout_seconds
                         )
 
-                if isinstance(execution_result, _ToolStreamCapture):
-                    stream_capture = execution_result
-                    function_response = stream_capture.items
+                        if _is_async_stream(execution_result):
+
+                            async def _consume_iterator():
+                                nonlocal active_log_entry
+                                with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(
+                                    stderr_buffer
+                                ):
+                                    if tool_streaming_enabled:
+                                        if active_log_entry is None:
+                                            active_log_entry = _record_tool_activity(
+                                                {**base_log_entry, "result": []}
+                                            )
+                                        return await _stream_tool_iterator(
+                                            execution_result,
+                                            log_entry=base_log_entry,
+                                            active_entry=active_log_entry,
+                                        )
+                                    return await _gather_async_iterator(execution_result)
+
+                            execution_result = await _run_with_timeout(
+                                _consume_iterator(), timeout_seconds
+                            )
+
+                    if isinstance(execution_result, _ToolStreamCapture):
+                        stream_capture = execution_result
+                        function_response = stream_capture.items
+                    else:
+                        function_response = execution_result
+
+                except Exception as exc:
+                    call_error = exc
+
+                if function_response is None and active_log_entry is not None:
+                    candidate_result = active_log_entry.get("result")
+                    if candidate_result is not None:
+                        function_response = candidate_result
+
+                completed_at = datetime.utcnow()
+                final_completed_at = completed_at
+                duration_ms = (completed_at - started_at).total_seconds() * 1000
+                _increment_conversation_runtime_ms(conversation_id, duration_ms)
+                log_entry = {
+                    "tool_name": function_name,
+                    "tool_call_id": tool_call_id,
+                    "arguments": function_args,
+                    "arguments_text": _stringify_tool_value(function_args),
+                    "started_at": started_at.isoformat(timespec="milliseconds"),
+                    "completed_at": completed_at.isoformat(timespec="milliseconds"),
+                    "duration_ms": duration_ms,
+                    "status": "success" if call_error is None else "error",
+                    "stdout": stdout_buffer.getvalue(),
+                    "stderr": stderr_buffer.getvalue(),
+                    "result": function_response,
+                    "result_text": _stringify_tool_value(function_response),
+                    "error": str(call_error) if call_error else None,
+                }
+                if timeout_seconds is not None:
+                    log_entry["timeout_seconds"] = timeout_seconds
+                if call_error is not None:
+                    if isinstance(call_error, asyncio.TimeoutError):
+                        log_entry["error_type"] = "timeout"
+                    else:
+                        log_entry["error_type"] = "execution_error"
+                if entry_metadata:
+                    log_entry["metadata"] = entry_metadata
+                if stream_capture is not None:
+                    log_entry["result"] = stream_capture.items
+                    log_entry["result_text"] = stream_capture.text
+
+                active_entry_ref = (
+                    stream_capture.entry if stream_capture is not None else active_log_entry
+                )
+                if active_entry_ref is not None:
+                    _record_tool_activity(log_entry, replace=active_entry_ref)
                 else:
-                    function_response = execution_result
+                    _record_tool_activity(log_entry)
 
-            except Exception as exc:
-                call_error = exc
+                if call_error is None:
+                    final_log_entry = log_entry
+                    final_response = function_response
+                    last_exception = None
+                    break
 
-            if function_response is None and active_log_entry is not None:
-                candidate_result = active_log_entry.get("result")
-                if candidate_result is not None:
-                    function_response = candidate_result
+                last_exception = call_error
+                final_log_entry = log_entry
 
-            completed_at = datetime.utcnow()
-            duration_ms = (completed_at - started_at).total_seconds() * 1000
-            _increment_conversation_runtime_ms(conversation_id, duration_ms)
-            log_entry = {
-                "tool_name": function_name,
-                "tool_call_id": tool_call_id,
-                "arguments": function_args,
-                "arguments_text": _stringify_tool_value(function_args),
-                "started_at": started_at.isoformat(timespec="milliseconds"),
-                "completed_at": completed_at.isoformat(timespec="milliseconds"),
-                "duration_ms": duration_ms,
-                "status": "success" if call_error is None else "error",
-                "stdout": stdout_buffer.getvalue(),
-                "stderr": stderr_buffer.getvalue(),
-                "result": function_response,
-                "result_text": _stringify_tool_value(function_response),
-                "error": str(call_error) if call_error else None,
-            }
-            if timeout_seconds is not None:
-                log_entry["timeout_seconds"] = timeout_seconds
-            if call_error is not None:
-                if isinstance(call_error, asyncio.TimeoutError):
-                    log_entry["error_type"] = "timeout"
-                else:
-                    log_entry["error_type"] = "execution_error"
-            if entry_metadata:
-                log_entry["metadata"] = entry_metadata
-            if stream_capture is not None:
-                log_entry["result"] = stream_capture.items
-                log_entry["result_text"] = stream_capture.text
+                if attempt >= max_attempts:
+                    break
 
-            active_entry_ref = stream_capture.entry if stream_capture is not None else active_log_entry
-            if active_entry_ref is not None:
-                _record_tool_activity(log_entry, replace=active_entry_ref)
-            else:
-                _record_tool_activity(log_entry)
+                await _apply_idempotent_retry_backoff(
+                    attempt, idempotent=is_idempotent_tool
+                )
 
-            if call_error is not None:
-                if isinstance(call_error, asyncio.TimeoutError):
+            if last_exception is not None:
+                if isinstance(last_exception, asyncio.TimeoutError):
                     if timeout_seconds is not None:
                         timeout_display = f"{timeout_seconds:g}" if timeout_seconds is not None else "configured"
                         error_message = (
@@ -1784,9 +1868,10 @@ async def use_tool(
                     error_type = "timeout"
                 else:
                     error_message = (
-                        f"Exception during function '{function_name}' execution: {call_error}"
+                        f"Exception during function '{function_name}' execution: {last_exception}"
                     )
                     error_type = "execution_error"
+                failure_timestamp = final_completed_at or datetime.utcnow()
                 error_entry = _record_tool_failure(
                     conversation_history,
                     user,
@@ -1795,7 +1880,7 @@ async def use_tool(
                     function_name=function_name,
                     message=error_message,
                     error_type=error_type,
-                    timestamp=completed_at,
+                    timestamp=failure_timestamp,
                 )
                 raise ToolExecutionError(
                     error_message,
@@ -1803,7 +1888,10 @@ async def use_tool(
                     function_name=function_name,
                     error_type=error_type,
                     entry=error_entry,
-                ) from call_error
+                ) from last_exception
+
+            log_entry = final_log_entry or {}
+            function_response = final_response
 
             logger.info(
                 "Function '%s' executed successfully. Response: %s",
@@ -1832,7 +1920,7 @@ async def use_tool(
                     "name": function_name,
                     "arguments": function_args,
                     "result": function_response,
-                    "result_text": log_entry["result_text"],
+                    "result_text": log_entry.get("result_text"),
                     "metadata": entry_metadata,
                 }
             )

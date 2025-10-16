@@ -4,6 +4,7 @@ import requests
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+from typing import Mapping, Optional
 
 logger = logging.getLogger('github_client.py')
 
@@ -37,7 +38,7 @@ class GitHubClient:
         self.access_token = access_token
         self.base_url = 'https://api.github.com'
 
-    def send_request(self, endpoint, method='GET', data=None):
+    def send_request(self, endpoint, method='GET', data=None, *, context: Optional[Mapping[str, object]] = None):
         logger.info(f"Sending {method} request to endpoint: {endpoint}")
         try:
             url = f"{self.base_url}/{endpoint}"
@@ -45,6 +46,10 @@ class GitHubClient:
                 'Authorization': f"Bearer {self.access_token}",
                 'Accept': 'application/vnd.github+json'
             }
+            if context and isinstance(context, Mapping):
+                idempotency_key = context.get('idempotency_key')
+                if idempotency_key:
+                    headers['Idempotency-Key'] = str(idempotency_key)
             if method == 'GET':
                 response = requests.get(url, headers=headers)
             elif method == 'POST':
@@ -94,7 +99,7 @@ class GitHubClient:
             logger.error(f"Failed to retrieve repository data for {repo_owner}/{repo_name}")
             return None
 
-    def create_repository(self, name, description=None, private=False):
+    def create_repository(self, name, description=None, private=False, *, context: Optional[Mapping[str, object]] = None):
         logger.info(f"Creating repository: {name}")
         endpoint = 'user/repos'
         data = {
@@ -102,7 +107,7 @@ class GitHubClient:
             'description': description,
             'private': private
         }
-        response_data = self.send_request(endpoint, method='POST', data=data)
+        response_data = self.send_request(endpoint, method='POST', data=data, context=context)
         if response_data:
             logger.info(f"Repository created: {name}")
             return response_data
@@ -110,7 +115,7 @@ class GitHubClient:
             logger.error(f"Failed to create repository: {name}")
             return None
 
-    def update_repository(self, repo_owner, repo_name, description=None, private=None):
+    def update_repository(self, repo_owner, repo_name, description=None, private=None, *, context: Optional[Mapping[str, object]] = None):
         logger.info(f"Updating repository: {repo_owner}/{repo_name}")
         endpoint = f"repos/{repo_owner}/{repo_name}"
         data = {}
@@ -118,7 +123,7 @@ class GitHubClient:
             data['description'] = description
         if private is not None:
             data['private'] = private
-        response_data = self.send_request(endpoint, method='PATCH', data=data)
+        response_data = self.send_request(endpoint, method='PATCH', data=data, context=context)
         if response_data:
             logger.info(f"Repository updated: {repo_owner}/{repo_name}")
             return response_data
@@ -126,10 +131,10 @@ class GitHubClient:
             logger.error(f"Failed to update repository: {repo_owner}/{repo_name}")
             return None
 
-    def delete_repository(self, repo_owner, repo_name):
+    def delete_repository(self, repo_owner, repo_name, *, context: Optional[Mapping[str, object]] = None):
         logger.info(f"Deleting repository: {repo_owner}/{repo_name}")
         endpoint = f"repos/{repo_owner}/{repo_name}"
-        response_data = self.send_request(endpoint, method='DELETE')
+        response_data = self.send_request(endpoint, method='DELETE', context=context)
         if response_data is None:
             logger.info(f"Repository deleted: {repo_owner}/{repo_name}")
             return True
@@ -148,7 +153,7 @@ class GitHubClient:
             logger.error(f"Failed to retrieve issues for repository: {repo_owner}/{repo_name}")
             return None
 
-    def create_issue(self, repo_owner, repo_name, title, body=None, assignee=None, labels=None):
+    def create_issue(self, repo_owner, repo_name, title, body=None, assignee=None, labels=None, *, context: Optional[Mapping[str, object]] = None):
         logger.info(f"Creating issue in repository: {repo_owner}/{repo_name}")
         endpoint = f"repos/{repo_owner}/{repo_name}/issues"
         data = {
@@ -157,7 +162,7 @@ class GitHubClient:
             'assignee': assignee,
             'labels': labels
         }
-        response_data = self.send_request(endpoint, method='POST', data=data)
+        response_data = self.send_request(endpoint, method='POST', data=data, context=context)
         if response_data:
             logger.info(f"Issue created in repository: {repo_owner}/{repo_name}")
             return response_data
@@ -165,7 +170,7 @@ class GitHubClient:
             logger.error(f"Failed to create issue in repository: {repo_owner}/{repo_name}")
             return None
 
-    def update_issue(self, repo_owner, repo_name, issue_number, title=None, body=None, assignee=None, labels=None, state=None):
+    def update_issue(self, repo_owner, repo_name, issue_number, title=None, body=None, assignee=None, labels=None, state=None, *, context: Optional[Mapping[str, object]] = None):
         logger.info(f"Updating issue #{issue_number} in repository: {repo_owner}/{repo_name}")
         endpoint = f"repos/{repo_owner}/{repo_name}/issues/{issue_number}"
         data = {}
@@ -179,7 +184,7 @@ class GitHubClient:
             data['labels'] = labels
         if state is not None:
             data['state'] = state
-        response_data = self.send_request(endpoint, method='PATCH', data=data)
+        response_data = self.send_request(endpoint, method='PATCH', data=data, context=context)
         if response_data:
             logger.info(f"Issue #{issue_number} updated in repository: {repo_owner}/{repo_name}")
             return response_data
