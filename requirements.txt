@@ -48,6 +48,7 @@ python-dotenv
 # HTTP client for API integrations
 requests
 
+
 # Timezone handling utilities
 pytz
 
