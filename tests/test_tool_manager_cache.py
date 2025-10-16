@@ -151,13 +151,18 @@ def test_refresh_clears_function_payload_cache(_persona_workspace):
     persona = _persona_workspace["persona"]
 
     tool_manager.load_functions_from_json(persona)
-    assert persona["name"] in tool_manager._function_payload_cache
+    cached_before = tool_manager._function_payload_cache.get(persona["name"])
+    assert cached_before is not None
 
     function_map = tool_manager.load_function_map_from_current_persona(persona, refresh=True)
 
     assert isinstance(function_map, dict)
     assert "sample_tool" in function_map
-    assert persona["name"] not in tool_manager._function_payload_cache
+
+    cached_after = tool_manager._function_payload_cache.get(persona["name"])
+    assert cached_after is not None
+    assert cached_after is not cached_before
+    assert cached_after[1] == cached_before[1]
 
 
 def test_loader_reuses_cached_config_manager(monkeypatch, _persona_workspace):

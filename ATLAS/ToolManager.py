@@ -46,11 +46,80 @@ _function_payload_cache_lock = threading.Lock()
 _default_function_map_cache: Optional[Tuple[float, Dict[str, Any]]] = None
 _default_function_map_lock = threading.Lock()
 _default_config_manager: Optional[ConfigManager] = None
+_DEFAULT_FUNCTIONS_CACHE_KEY = "__default__"
+
+_KNOWN_METADATA_FIELDS = (
+    "version",
+    "side_effects",
+    "default_timeout",
+    "auth",
+    "allow_parallel",
+)
 
 _TOOL_ACTIVITY_EVENT = "tool_activity"
 _tool_activity_log: deque = deque(maxlen=100)
 _tool_activity_lock = threading.Lock()
 
+
+def _load_default_functions_payload(*, refresh: bool = False, config_manager=None):
+    """Load the shared functions.json payload for default tools."""
+
+    try:
+        app_root = _get_config_manager(config_manager).get_app_root()
+    except Exception as exc:
+        logger.error(
+            "Unable to determine application root when loading shared functions: %s",
+            exc,
+        )
+        return None
+
+    functions_path = os.path.join(
+        app_root, "modules", "Tools", "tool_maps", "functions.json"
+    )
+
+    cache_key = _DEFAULT_FUNCTIONS_CACHE_KEY
+
+    try:
+        file_mtime = os.path.getmtime(functions_path)
+    except FileNotFoundError:
+        logger.error("Default functions.json not found at path: %s", functions_path)
+        with _function_payload_cache_lock:
+            _function_payload_cache.pop(cache_key, None)
+        return None
+
+    if refresh:
+        with _function_payload_cache_lock:
+            _function_payload_cache.pop(cache_key, None)
+
+    with _function_payload_cache_lock:
+        cache_entry = _function_payload_cache.get(cache_key)
+        if cache_entry and not refresh:
+            cached_mtime, cached_payload = cache_entry
+            if cached_mtime == file_mtime:
+                return cached_payload
+
+        try:
+            with open(functions_path, "r") as file:
+                payload = json.load(file)
+        except json.JSONDecodeError as exc:
+            logger.error(
+                "JSON decoding error in shared functions.json: %s",
+                exc,
+                exc_info=True,
+            )
+            _function_payload_cache.pop(cache_key, None)
+            return None
+        except Exception as exc:  # pragma: no cover - unexpected I/O errors
+            logger.error(
+                "Unexpected error loading shared functions.json: %s",
+                exc,
+                exc_info=True,
+            )
+            _function_payload_cache.pop(cache_key, None)
+            return None
+
+        _function_payload_cache[cache_key] = (file_mtime, payload)
+        return payload
 
 def _freeze_generation_settings(
     settings: Optional[Mapping[str, Any]] = None,
@@ -374,7 +443,7 @@ def _resolve_provider_manager(provider_manager=None, config_manager=None):
 
 def get_required_args(function):
     logger.info("Retrieving required arguments for the function.")
-    sig = inspect.signature(function)
+    sig = inspect.signature(_resolve_function_callable(function))
     return [
         param.name for param in sig.parameters.values()
         if param.default == param.empty and param.name != 'self'
@@ -391,6 +460,78 @@ def _clone_json_compatible(value: Any) -> Any:
         return json.loads(json.dumps(value, ensure_ascii=False))
     except (TypeError, ValueError):
         return str(value)
+
+
+def _freeze_metadata(metadata: Optional[Dict[str, Any]]) -> Mapping[str, Any]:
+    """Return an immutable view of metadata for safe sharing."""
+
+    if not metadata:
+        return MappingProxyType({})
+
+    try:
+        return MappingProxyType(dict(metadata))
+    except TypeError:
+        serialized: Dict[str, Any] = {}
+        for key, value in dict(metadata).items():
+            serialized[key] = value
+        return MappingProxyType(serialized)
+
+
+def _build_metadata_lookup(functions_payload: Any) -> Dict[str, Mapping[str, Any]]:
+    """Create a lookup map of tool metadata keyed by function name."""
+
+    lookup: Dict[str, Mapping[str, Any]] = {}
+
+    if isinstance(functions_payload, list):
+        entries = functions_payload
+    elif isinstance(functions_payload, dict):
+        entries = functions_payload.values()
+    else:
+        return lookup
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        if not name:
+            continue
+        metadata: Dict[str, Any] = {}
+        for field in _KNOWN_METADATA_FIELDS:
+            if field in entry:
+                metadata[field] = copy.deepcopy(entry[field])
+        lookup[name] = _freeze_metadata(metadata)
+
+    return lookup
+
+
+def _annotate_function_map(
+    function_map: Optional[Dict[str, Any]],
+    *,
+    metadata_lookup: Optional[Dict[str, Mapping[str, Any]]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Attach metadata to each callable in the supplied function map."""
+
+    if not isinstance(function_map, dict):
+        return {}
+
+    annotated: Dict[str, Dict[str, Any]] = {}
+    for name, func in function_map.items():
+        metadata = MappingProxyType({})
+        if metadata_lookup and name in metadata_lookup:
+            metadata = metadata_lookup[name]
+        annotated[name] = {"callable": func, "metadata": metadata}
+
+    return annotated
+
+
+def _resolve_function_callable(entry: Any) -> Any:
+    """Return the executable callable from a function map entry."""
+
+    if isinstance(entry, dict):
+        candidate = entry.get("callable")
+        if candidate is not None:
+            return candidate
+    return entry
 
 
 def _stringify_tool_value(value: Any) -> str:
@@ -510,7 +651,14 @@ def load_default_function_map(*, refresh: bool = False, config_manager=None):
                 cached_mtime, cached_map = cache_entry
                 if cached_mtime == file_mtime:
                     logger.info("Returning cached shared function map without reloading module.")
-                    return cached_map
+                    metadata_lookup = _build_metadata_lookup(
+                        _load_default_functions_payload(
+                            refresh=refresh, config_manager=config_manager
+                        )
+                    )
+                    return _annotate_function_map(
+                        cached_map, metadata_lookup=metadata_lookup
+                    )
 
                 logger.info(
                     "Detected updated shared maps.py (cached mtime %s, current mtime %s); reloading.",
@@ -542,7 +690,14 @@ def load_default_function_map(*, refresh: bool = False, config_manager=None):
 
             if isinstance(function_map, dict):
                 _default_function_map_cache = (file_mtime, function_map)
-                return function_map
+                metadata_lookup = _build_metadata_lookup(
+                    _load_default_functions_payload(
+                        refresh=refresh, config_manager=config_manager
+                    )
+                )
+                return _annotate_function_map(
+                    function_map, metadata_lookup=metadata_lookup
+                )
 
             logger.warning("Shared tool map module '%s' does not define 'function_map'.", module_name)
             _default_function_map_cache = None
@@ -579,8 +734,6 @@ def load_function_map_from_current_persona(
     toolbox_root = os.path.join(app_root, "modules", "Personas", persona_name, "Toolbox")
     maps_path = os.path.join(toolbox_root, "maps.py")
     module_name = f'persona_{persona_name}_maps'
-    function_map_result = None
-
     try:
         if refresh:
             logger.info(
@@ -602,7 +755,16 @@ def load_function_map_from_current_persona(
                     "Returning cached function map for persona '%s' without reloading module.",
                     persona_name,
                 )
-                return cached_map
+                metadata_lookup = _build_metadata_lookup(
+                    load_functions_from_json(
+                        current_persona,
+                        refresh=refresh,
+                        config_manager=config_manager,
+                    )
+                )
+                return _annotate_function_map(
+                    cached_map, metadata_lookup=metadata_lookup
+                )
 
             logger.info(
                 "Detected updated maps.py for persona '%s' (cached mtime %s, current mtime %s); reloading.",
@@ -643,7 +805,16 @@ def load_function_map_from_current_persona(
                 module.function_map,
             )
             _function_map_cache[persona_name] = (file_mtime, module.function_map)
-            function_map_result = module.function_map
+            metadata_lookup = _build_metadata_lookup(
+                load_functions_from_json(
+                    current_persona,
+                    refresh=refresh,
+                    config_manager=config_manager,
+                )
+            )
+            return _annotate_function_map(
+                module.function_map, metadata_lookup=metadata_lookup
+            )
         else:
             logger.warning(
                 "No 'function_map' found in maps.py for persona '%s'.",
@@ -654,9 +825,6 @@ def load_function_map_from_current_persona(
         logger.error(f"maps.py file not found for persona '{persona_name}' at path: {maps_path}")
     except Exception as e:
         logger.error(f"Error loading function map for persona '{persona_name}': {e}", exc_info=True)
-
-    if function_map_result is not None:
-        return function_map_result
 
     logger.info(
         "Falling back to shared default function map for persona '%s'.",
@@ -895,7 +1063,8 @@ async def use_tool(
                 entry=error_entry,
             )
 
-        required_args = get_required_args(function_map[function_name])
+        function_entry = function_map[function_name]
+        required_args = get_required_args(function_entry)
         logger.info(f"Required arguments for function '{function_name}': {required_args}")
         provided_args = list(function_args.keys())
         logger.info(f"Provided arguments for function '{function_name}': {provided_args}")
@@ -930,7 +1099,12 @@ async def use_tool(
 
         try:
             logger.info(f"Calling function '{function_name}' with arguments: {function_args}")
-            func = function_map[function_name]
+            func = _resolve_function_callable(function_entry)
+            entry_metadata: Dict[str, Any] = {}
+            if isinstance(function_entry, dict):
+                metadata_candidate = function_entry.get("metadata")
+                if isinstance(metadata_candidate, Mapping):
+                    entry_metadata = dict(metadata_candidate)
             stdout_buffer = io.StringIO()
             stderr_buffer = io.StringIO()
             started_at = datetime.utcnow()
@@ -989,6 +1163,8 @@ async def use_tool(
                 "result_text": _stringify_tool_value(function_response),
                 "error": str(call_error) if call_error else None,
             }
+            if entry_metadata:
+                log_entry["metadata"] = entry_metadata
             _record_tool_activity(log_entry)
 
             if call_error is not None:
@@ -1041,6 +1217,7 @@ async def use_tool(
                     "arguments": function_args,
                     "result": function_response,
                     "result_text": log_entry["result_text"],
+                    "metadata": entry_metadata,
                 }
             )
 
