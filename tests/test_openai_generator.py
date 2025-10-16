@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Dict
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 
@@ -1111,6 +1112,73 @@ def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
     history_entry = conversation.records[0]
     assert history_entry["tool_calls"][0]["function"]["name"] == "my_tool"
     assert history_entry["tool_calls"][0]["id"] == "openai-call-1"
+
+
+def test_tool_round_trip_preserves_generation_settings(monkeypatch):
+    recorded: Dict[str, Any] = {}
+
+    async def fake_use_tool(*_args, **kwargs):
+        recorded["settings"] = kwargs.get("generation_settings")
+        return "tool-output"
+
+    monkeypatch.setattr(oa_module, "use_tool", fake_use_tool)
+
+    base_config = DummyConfig()
+    custom_settings = base_config.get_openai_llm_settings()
+    custom_settings.update(
+        {
+            "parallel_tool_calls": False,
+            "tool_choice": {"type": "function", "function": {"name": "do_it"}},
+            "json_mode": True,
+        }
+    )
+    config = DummyConfig(custom_settings)
+    conversation = RecordingConversation()
+
+    class DummyChat:
+        class _Completions:
+            async def create(self, **_kwargs):
+                message = SimpleNamespace(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        SimpleNamespace(
+                            id="call-1",
+                            type="function",
+                            function=SimpleNamespace(name="do_it", arguments="{}"),
+                        )
+                    ],
+                )
+                return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+        completions = _Completions()
+
+    class DummyClient:
+        def __init__(self, **_):
+            self.chat = DummyChat()
+            self.responses = SimpleNamespace()
+
+    monkeypatch.setattr(oa_module, "AsyncOpenAI", lambda **kwargs: DummyClient(**kwargs))
+
+    generator = _build_generator(config)
+    result = asyncio.run(
+        generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            current_persona={"provider": "OpenAI", "model": "gpt-special"},
+            conversation_manager=conversation,
+            user="user",
+            conversation_id="cid",
+            functions=[{"name": "do_it"}],
+        )
+    )
+
+    assert result == "tool-output"
+    settings = recorded.get("settings")
+    assert settings is not None, "use_tool should receive generation settings"
+    frozen = dict(settings)
+    assert frozen.get("tool_choice", {}).get("function", {}).get("name") == "do_it"
+    assert frozen.get("parallel_tool_calls") is False
+    assert frozen.get("json_mode") is True
 
 
 def test_handle_function_call_formats_code_interpreter_output(monkeypatch):

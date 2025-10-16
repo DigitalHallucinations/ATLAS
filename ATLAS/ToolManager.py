@@ -11,9 +11,10 @@ import sys
 import os
 import threading
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+from types import MappingProxyType
 from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system
 
@@ -49,6 +50,27 @@ _default_config_manager: Optional[ConfigManager] = None
 _TOOL_ACTIVITY_EVENT = "tool_activity"
 _tool_activity_log: deque = deque(maxlen=100)
 _tool_activity_lock = threading.Lock()
+
+
+def _freeze_generation_settings(
+    settings: Optional[Mapping[str, Any]] = None,
+) -> Mapping[str, Any]:
+    """Return an immutable snapshot of the supplied generation settings."""
+
+    if not settings:
+        return MappingProxyType({})
+
+    if isinstance(settings, Mapping):
+        try:
+            return MappingProxyType(dict(settings))
+        except TypeError:
+            # Fallback for mappings with uncopyable values
+            serialized: Dict[str, Any] = {}
+            for key, value in settings.items():
+                serialized[key] = value
+            return MappingProxyType(serialized)
+
+    raise TypeError("generation settings must be a mapping when provided")
 
 
 async def _collect_async_chunks(stream: AsyncIterator) -> str:
@@ -735,6 +757,7 @@ async def use_tool(
     config_manager=None,
     *,
     stream: Optional[bool] = None,
+    generation_settings: Optional[Mapping[str, Any]] = None,
 ):
     logger.info(f"use_tool called for user: {user}, conversation_id: {conversation_id}")
     logger.info(f"Message received: {message}")
@@ -749,6 +772,12 @@ async def use_tool(
     except RuntimeError as exc:
         logger.error("Unable to resolve provider manager: %s", exc)
         raise
+
+    try:
+        generation_context = _freeze_generation_settings(generation_settings)
+    except TypeError as exc:
+        logger.warning("Ignoring invalid generation settings: %s", exc)
+        generation_context = MappingProxyType({})
 
     if not isinstance(message, dict):
         normalized_message = {}
@@ -1082,6 +1111,7 @@ async def use_tool(
         conversation_id=conversation_id,
         user=user,
         stream=effective_stream,
+        generation_settings=generation_context,
     )
 
     logger.info(f"Model response after function execution: {new_text}")
@@ -1139,6 +1169,7 @@ async def call_model_with_new_prompt(
     user=None,
     prompt=None,
     stream: bool = False,
+    generation_settings: Optional[Mapping[str, Any]] = None,
 ):
     logger.info("Calling model after tool execution.")
     logger.info(f"Messages provided to model: {messages}")
@@ -1150,13 +1181,27 @@ async def call_model_with_new_prompt(
     )
 
     try:
+        generation_context = _freeze_generation_settings(generation_settings)
+    except TypeError as exc:
+        logger.warning("Ignoring invalid follow-up generation settings: %s", exc)
+        generation_context = MappingProxyType({})
+
+    try:
         messages_payload: List[Dict[str, Any]] = list(messages or [])
         if prompt:
             messages_payload.append({"role": "user", "content": prompt})
 
+        persona_overrides = generation_context.get("persona_overrides")
+        provider_override = generation_context.get("provider")
+        model_override = generation_context.get("model")
+        if isinstance(persona_overrides, Mapping):
+            provider_override = provider_override or persona_overrides.get("provider")
+            model_override = model_override or persona_overrides.get("model")
+
         response = await provider_manager.generate_response(
             messages=messages_payload,
-            model=provider_manager.get_current_model(),
+            model=model_override or provider_manager.get_current_model(),
+            provider=provider_override,
             temperature=temperature_var,
             top_p=top_p_var,
             frequency_penalty=frequency_penalty_var,
@@ -1166,7 +1211,15 @@ async def call_model_with_new_prompt(
             conversation_id=conversation_id,
             user=user,
             stream=stream,
+            tool_choice=generation_context.get("tool_choice"),
+            parallel_tool_calls=generation_context.get("parallel_tool_calls"),
+            json_mode=generation_context.get("json_mode"),
+            json_schema=generation_context.get("json_schema"),
+            audio_enabled=generation_context.get("audio_enabled"),
+            audio_voice=generation_context.get("audio_voice"),
+            audio_format=generation_context.get("audio_format"),
         )
+
         if stream:
             return response
 
