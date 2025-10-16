@@ -457,28 +457,8 @@ class ProviderManager:
         func: Callable[..., Awaitable[Any]],
         call_kwargs: Dict[str, Any],
     ) -> Any:
-        payload = {"messages": call_kwargs.get("messages")}
-        model = call_kwargs.get("model")
-        if model:
-            payload["model"] = model
-        if "max_tokens" in call_kwargs and call_kwargs["max_tokens"] is not None:
-            payload["max_tokens"] = call_kwargs["max_tokens"]
-        if "stream" in call_kwargs and call_kwargs["stream"] is not None:
-            payload["stream"] = call_kwargs["stream"]
-        for optional_key in (
-            "temperature",
-            "top_p",
-            "frequency_penalty",
-            "presence_penalty",
-            "current_persona",
-            "functions",
-            "conversation_manager",
-            "user",
-            "conversation_id",
-            "generation_settings",
-        ):
-            if optional_key in call_kwargs:
-                payload[optional_key] = call_kwargs.get(optional_key)
+        payload = dict(call_kwargs)
+        payload["messages"] = call_kwargs.get("messages")
         return await func(**payload)
 
     async def update_provider_api_key(
@@ -1970,6 +1950,9 @@ class ProviderManager:
                 "model": resolved_model,
                 "max_tokens": resolved_max_tokens,
                 "temperature": resolved_temperature,
+                "top_p": resolved_top_p,
+                "frequency_penalty": resolved_frequency_penalty,
+                "presence_penalty": resolved_presence_penalty,
                 "stream": resolved_stream,
                 "current_persona": current_persona,
                 "functions": functions,
