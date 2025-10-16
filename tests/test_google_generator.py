@@ -103,7 +103,25 @@ class DummyConfig:
         self.notifications.append(message)
 
 
-def test_google_generator_streams_function_call(monkeypatch):
+@pytest.fixture
+def use_tool_stub(monkeypatch):
+    class Stub:
+        def __init__(self):
+            self.kwargs = None
+            self.result = "tool-output"
+            self.calls = 0
+
+        async def __call__(self, *args, **kwargs):
+            self.calls += 1
+            self.kwargs = kwargs
+            return self.result
+
+    stub = Stub()
+    monkeypatch.setattr(google_module, "use_tool", stub.__call__)
+    return stub
+
+
+def test_google_generator_streams_function_call(monkeypatch, use_tool_stub):
     captured = {}
 
     monkeypatch.setattr(genai, "configure", lambda **_: None)
@@ -155,6 +173,8 @@ def test_google_generator_streams_function_call(monkeypatch):
         )
     )
 
+    use_tool_stub.result = "tool-response"
+
     async def exercise():
         stream = await generator.generate_response(
             messages=[{"role": "user", "content": "Hi"}],
@@ -181,7 +201,7 @@ def test_google_generator_streams_function_call(monkeypatch):
     chunks = asyncio.run(exercise())
 
     assert chunks[0] == "Hello"
-    assert chunks[1] == {"function_call": {"name": "tool_action", "arguments": "{\"value\": 1}"}}
+    assert chunks[1] == "tool-response"
 
     kwargs = captured["kwargs"]
     tools = kwargs["tools"]
@@ -282,6 +302,154 @@ def test_google_generator_disables_tool_config_when_functions_off(monkeypatch):
     tool_config = captured_kwargs["tool_config"]
     assert tool_config["function_calling_config"]["mode"] == "NONE"
     assert "allowed_function_names" not in tool_config["function_calling_config"]
+
+
+def test_google_generator_invokes_tool_for_function_call(monkeypatch, use_tool_stub):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = ""
+            self.candidates = [
+                SimpleNamespace(
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(
+                                function_call=SimpleNamespace(
+                                    name="run_test",
+                                    args={"value": 7},
+                                    id="gemini-call-1",
+                                )
+                            )
+                        ]
+                    )
+                )
+            ]
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+
+        def generate_content(self, contents, **_kwargs):
+            return DummyResponse()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+    tool_impl = object()
+    monkeypatch.setattr(
+        google_module,
+        "load_function_map_from_current_persona",
+        lambda *_args, **_kwargs: {"run_test": tool_impl},
+    )
+    monkeypatch.setattr(google_module, "load_functions_from_json", lambda *_args, **_kwargs: None)
+
+    use_tool_stub.result = "tool-response"
+
+    generator = google_module.GoogleGeminiGenerator(DummyConfig())
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            stream=False,
+            current_persona={"name": "TestPersona"},
+            user="tester",
+            conversation_id="conv-1",
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "tool-response"
+    recorded = use_tool_stub.kwargs
+    assert recorded is not None
+    message = recorded["message"]
+    assert message["function_call"]["name"] == "run_test"
+    assert message["function_call"]["arguments"] == '{"value": 7}'
+    assert message["function_call"]["id"] == "gemini-call-1"
+    tool_calls = message.get("tool_calls") or []
+    assert tool_calls and tool_calls[0]["id"] == "gemini-call-1"
+    assert tool_calls[0]["function"]["name"] == "run_test"
+    assert recorded.get("function_map", {}).get("run_test") is tool_impl
+    generation_settings = recorded.get("generation_settings")
+    assert generation_settings is not None
+    assert generation_settings.get("model") == "gemini-1.5-pro-latest"
+
+
+def test_google_generator_streaming_invokes_tool_for_function_call(
+    monkeypatch, use_tool_stub
+):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    class DummyResponse:
+        def __init__(self):
+            function_part = SimpleNamespace(
+                function_call=SimpleNamespace(
+                    name="run_stream",
+                    args={"flag": True},
+                    id="gemini-stream-1",
+                )
+            )
+            self._chunks = [
+                SimpleNamespace(text="intro", candidates=[]),
+                SimpleNamespace(
+                    text="",
+                    candidates=[
+                        SimpleNamespace(
+                            content=SimpleNamespace(parts=[function_part])
+                        )
+                    ],
+                ),
+            ]
+            self.candidates = []
+
+        def __iter__(self):
+            return iter(self._chunks)
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+
+        def generate_content(self, contents, **_kwargs):
+            return DummyResponse()
+
+    async def tool_stream():
+        yield "tool-chunk-1"
+        yield "tool-chunk-2"
+
+    use_tool_stub.result = tool_stream()
+
+    monkeypatch.setattr(genai, "GenerativeModel", DummyModel)
+    stream_tool_impl = object()
+    monkeypatch.setattr(
+        google_module,
+        "load_function_map_from_current_persona",
+        lambda *_args, **_kwargs: {"run_stream": stream_tool_impl},
+    )
+    monkeypatch.setattr(google_module, "load_functions_from_json", lambda *_args, **_kwargs: None)
+
+    generator = google_module.GoogleGeminiGenerator(DummyConfig())
+
+    async def exercise():
+        stream = await generator.generate_response(
+            messages=[{"role": "user", "content": "Hi"}],
+            stream=True,
+            current_persona={"name": "StreamPersona"},
+            user="streamer",
+            conversation_id="conv-stream",
+        )
+        observed = []
+        async for chunk in stream:
+            observed.append(chunk)
+        return observed
+
+    observed_chunks = asyncio.run(exercise())
+
+    assert observed_chunks == ["intro", "tool-chunk-1", "tool-chunk-2"]
+    recorded = use_tool_stub.kwargs
+    assert recorded is not None
+    message = recorded["message"]
+    assert message["function_call"]["name"] == "run_stream"
+    assert message["function_call"]["id"] == "gemini-stream-1"
+    assert recorded["stream"] is True
+    assert recorded.get("function_map", {}).get("run_stream") is stream_tool_impl
 
 
 def test_google_generator_downgrades_require_without_tools(monkeypatch):

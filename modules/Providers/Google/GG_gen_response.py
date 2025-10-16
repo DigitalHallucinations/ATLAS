@@ -3,7 +3,9 @@
 import asyncio
 import contextlib
 import copy
+import inspect
 import json
+from collections.abc import AsyncIterator as AsyncIteratorABC
 from typing import Any, AsyncIterator, Dict, Iterable, List, Mapping, Optional, Set, Union
 from weakref import WeakKeyDictionary
 
@@ -12,8 +14,10 @@ from google.generativeai import types as genai_types
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ATLAS.ToolManager import (
+    ToolExecutionError,
     load_function_map_from_current_persona,
     load_functions_from_json,
+    use_tool,
 )
 from ATLAS.config import ConfigManager
 from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
@@ -61,10 +65,21 @@ class GoogleGeminiGenerator:
             contents = self._convert_messages_to_contents(messages)
             tools = None
             declared_function_names: Set[str] = set()
-            if enable_functions:
-                tools = self._build_tools_payload(functions, current_persona)
-                declared_function_names = self._extract_declared_function_names(tools)
+            persona_function_map = None
+            if current_persona:
+                persona_function_map = load_function_map_from_current_persona(
+                    current_persona,
+                    config_manager=self.config_manager,
+                )
 
+            if enable_functions:
+                tools = self._build_tools_payload(
+                    functions,
+                    current_persona,
+                    persona_function_map=persona_function_map,
+                )
+                declared_function_names = self._extract_declared_function_names(tools)
+            
             stored_settings: Dict[str, Any] = {}
             getter = getattr(self.config_manager, "get_google_llm_settings", None)
             if callable(getter):
@@ -355,12 +370,66 @@ class GoogleGeminiGenerator:
                 **request_kwargs,
             )
 
+            generation_settings_snapshot: Dict[str, Any] = {
+                "model": effective_model,
+                "temperature": effective_temperature,
+                "top_p": effective_top_p,
+                "top_k": effective_top_k,
+                "candidate_count": effective_candidate_count,
+                "stop_sequences": list(effective_stop_sequences or []),
+                "max_output_tokens": effective_max_tokens,
+                "safety_settings": copy.deepcopy(effective_safety_settings),
+                "response_mime_type": effective_response_mime_type,
+                "system_instruction": effective_system_instruction,
+                "response_schema": copy.deepcopy(effective_response_schema)
+                if effective_response_schema is not None
+                else None,
+                "seed": effective_seed,
+                "response_logprobs": effective_response_logprobs,
+                "tool_config": copy.deepcopy(tool_config_payload),
+            }
+
             if effective_stream:
-                return self.stream_response(response)
+                return self.stream_response(
+                    response,
+                    user=user,
+                    conversation_id=conversation_id,
+                    conversation_manager=conversation_manager,
+                    current_persona=current_persona,
+                    functions=functions,
+                    function_map=persona_function_map,
+                    temperature=effective_temperature,
+                    top_p=effective_top_p,
+                    generation_settings=generation_settings_snapshot,
+                )
 
             function_calls = self._extract_function_calls(response)
             if function_calls:
-                return {"function_call": function_calls[0]}
+                tool_result = await self._handle_function_call(
+                    function_calls[0],
+                    user=user,
+                    conversation_id=conversation_id,
+                    conversation_manager=conversation_manager,
+                    current_persona=current_persona,
+                    function_map=persona_function_map,
+                    functions=functions,
+                    temperature=effective_temperature,
+                    top_p=effective_top_p,
+                    generation_settings=generation_settings_snapshot,
+                    stream=False,
+                )
+                if self._is_async_stream(tool_result):
+                    collected: List[Any] = []
+                    async for chunk in tool_result:  # pragma: no cover - safety
+                        if chunk is None:
+                            continue
+                        collected.append(chunk)
+                    if not collected:
+                        return ""
+                    if len(collected) == 1:
+                        return collected[0]
+                    return collected
+                return tool_result
 
             return response.text
 
@@ -458,7 +527,13 @@ class GoogleGeminiGenerator:
 
         return payload
 
-    def _build_tools_payload(self, functions, current_persona) -> Optional[List[genai_types.Tool]]:
+    def _build_tools_payload(
+        self,
+        functions,
+        current_persona,
+        *,
+        persona_function_map=None,
+    ) -> Optional[List[genai_types.Tool]]:
         declared_functions: List[genai_types.FunctionDeclaration] = []
         seen_names = set()
 
@@ -481,14 +556,12 @@ class GoogleGeminiGenerator:
                     declared_functions.append(declaration)
                     seen_names.add(declaration.name)
 
-        function_map = (
-            load_function_map_from_current_persona(
+        function_map = persona_function_map
+        if function_map is None and current_persona:
+            function_map = load_function_map_from_current_persona(
                 current_persona,
                 config_manager=self.config_manager,
             )
-            if current_persona
-            else None
-        )
         if isinstance(function_map, dict):
             for name in function_map.keys():
                 if name in seen_names:
@@ -583,11 +656,23 @@ class GoogleGeminiGenerator:
                 or payload.get("args")
                 or payload.get("function", {}).get("arguments")
             )
+            call_id = (
+                payload.get("id")
+                or payload.get("tool_call_id")
+                or payload.get("call_id")
+                or payload.get("function", {}).get("id")
+            )
         else:
             name = getattr(payload, "name", None)
             args = getattr(payload, "arguments", None)
             if args is None:
                 args = getattr(payload, "args", None)
+            call_id = (
+                getattr(payload, "id", None)
+                or getattr(payload, "tool_call_id", None)
+                or getattr(payload, "call_id", None)
+                or getattr(getattr(payload, "function", None), "id", None)
+            )
 
         if not name:
             return None
@@ -605,7 +690,10 @@ class GoogleGeminiGenerator:
                 except TypeError:
                     arguments_json = str(args)
 
-        return {"name": name, "arguments": arguments_json}
+        normalized: Dict[str, str] = {"name": name, "arguments": arguments_json}
+        if call_id is not None:
+            normalized["id"] = str(call_id)
+        return normalized
 
     def _extract_function_calls(self, response) -> List[Dict[str, str]]:
         calls: List[Dict[str, str]] = []
@@ -627,7 +715,7 @@ class GoogleGeminiGenerator:
 
     def _iter_stream_payloads(self, chunk):
         if getattr(chunk, "text", None):
-            yield chunk.text
+            yield ("text", chunk.text)
 
         for candidate in getattr(chunk, "candidates", []) or []:
             content = getattr(candidate, "content", None)
@@ -648,17 +736,144 @@ class GoogleGeminiGenerator:
                     function_call = getattr(part, "function_call", None)
 
                 if text_value:
-                    yield text_value
+                    yield ("text", text_value)
 
                 normalized_call = self._normalize_function_call(function_call)
                 if normalized_call:
-                    yield {"function_call": normalized_call}
+                    yield ("function_call", {"function_call": normalized_call})
+
+    def _is_async_stream(self, value: Any) -> bool:
+        return isinstance(value, AsyncIteratorABC) or inspect.isasyncgen(value)
+
+    async def _handle_function_call(
+        self,
+        function_call,
+        *,
+        user,
+        conversation_id,
+        conversation_manager,
+        current_persona,
+        function_map,
+        functions,
+        temperature,
+        top_p,
+        generation_settings,
+        stream: bool,
+    ):
+        if not function_call:
+            return None
+
+        if isinstance(function_call, Mapping) and "function_call" in function_call:
+            function_payload = function_call.get("function_call")
+        else:
+            function_payload = function_call
+
+        if not isinstance(function_payload, Mapping):
+            return None
+
+        name = function_payload.get("name")
+        if not name:
+            return None
+
+        arguments_json = function_payload.get("arguments", "{}")
+        if not isinstance(arguments_json, str):
+            try:
+                arguments_json = json.dumps(arguments_json)
+            except (TypeError, ValueError):
+                arguments_json = str(arguments_json)
+
+        tool_call_id = function_payload.get("id") or function_payload.get("tool_call_id")
+        tool_message: Dict[str, Any] = {
+            "function_call": {"name": name, "arguments": arguments_json},
+        }
+        tool_entry: Dict[str, Any] = {
+            "type": "function",
+            "function": {"name": name, "arguments": arguments_json},
+        }
+        if tool_call_id is not None:
+            tool_message["function_call"]["id"] = str(tool_call_id)
+            tool_entry["id"] = str(tool_call_id)
+        tool_message["tool_calls"] = [tool_entry]
+
+        resolved_function_map = function_map or {}
+
+        provider_manager = None
+        if conversation_manager is not None:
+            atlas = getattr(conversation_manager, "ATLAS", None)
+            if atlas is not None:
+                provider_manager = getattr(atlas, "provider_manager", None)
+        if provider_manager is None:
+            provider_manager = getattr(self.config_manager, "provider_manager", None)
+
+        try:
+            tool_response = await use_tool(
+                user=user,
+                conversation_id=conversation_id,
+                message=tool_message,
+                conversation_history=conversation_manager,
+                function_map=resolved_function_map,
+                functions=functions,
+                current_persona=current_persona,
+                temperature_var=temperature,
+                top_p_var=top_p,
+                frequency_penalty_var=None,
+                presence_penalty_var=None,
+                conversation_manager=conversation_manager,
+                provider_manager=provider_manager,
+                config_manager=self.config_manager,
+                stream=stream,
+                generation_settings=generation_settings,
+            )
+        except ToolExecutionError as exc:
+            self.logger.error(
+                "Tool execution failed for %s: %s",
+                exc.function_name or name,
+                exc,
+                exc_info=True,
+            )
+            return self._format_tool_error_payload(exc)
+
+        return tool_response
+
+    def _format_tool_error_payload(self, error: ToolExecutionError) -> Dict[str, Any]:
+        if error.entry:
+            return error.entry
+
+        payload: Dict[str, Any] = {
+            "role": "tool",
+            "content": [{"type": "output_text", "text": str(error)}],
+        }
+
+        if error.tool_call_id is not None:
+            payload["tool_call_id"] = error.tool_call_id
+
+        metadata: Dict[str, Any] = {"status": "error"}
+        if error.function_name:
+            metadata["name"] = error.function_name
+        if error.error_type:
+            metadata["error_type"] = error.error_type
+
+        if metadata:
+            payload["metadata"] = metadata
+
+        return payload
 
     async def stream_response(
-        self, response
+        self,
+        response,
+        *,
+        user=None,
+        conversation_id=None,
+        conversation_manager=None,
+        current_persona=None,
+        functions=None,
+        function_map=None,
+        temperature=None,
+        top_p=None,
+        generation_settings: Optional[Mapping[str, Any]] = None,
     ) -> AsyncIterator[Union[str, Dict[str, Dict[str, str]]]]:
         loop = asyncio.get_running_loop()
-        queue: "asyncio.Queue[tuple[str, Optional[Union[str, Dict[str, Dict[str, str]]]]]]" = (
+        queue: "asyncio.Queue[tuple[str, Optional[tuple[str, Any]]]]" = (
             asyncio.Queue()
         )
 
@@ -677,8 +892,31 @@ class GoogleGeminiGenerator:
         try:
             while True:
                 kind, payload = await queue.get()
-                if kind == "data":
-                    yield payload  # type: ignore[misc]
+                if kind == "data" and payload is not None:
+                    payload_kind, payload_value = payload
+                    if payload_kind == "text":
+                        yield payload_value  # type: ignore[misc]
+                    elif payload_kind == "function_call":
+                        tool_result = await self._handle_function_call(
+                            payload_value.get("function_call"),
+                            user=user,
+                            conversation_id=conversation_id,
+                            conversation_manager=conversation_manager,
+                            current_persona=current_persona,
+                            function_map=function_map,
+                            functions=functions,
+                            temperature=temperature,
+                            top_p=top_p,
+                            generation_settings=generation_settings,
+                            stream=True,
+                        )
+                        if self._is_async_stream(tool_result):
+                            async for item in tool_result:
+                                if item is None:
+                                    continue
+                                yield item
+                        elif tool_result is not None:
+                            yield tool_result
                 elif kind == "error":
                     raise payload  # type: ignore[misc]
                 elif kind == "done":
