@@ -9,11 +9,15 @@ under :mod:`modules.Tools`.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
+
+from jsonschema import Draft202012Validator, exceptions as jsonschema_exceptions
 
 from modules.logging.logger import setup_logger
 
@@ -27,6 +31,10 @@ logger = setup_logger(__name__)
 
 PersonaPayload = MutableMapping[str, Any]
 ToolMetadata = Mapping[str, Any]
+
+
+class PersonaValidationError(ValueError):
+    """Raised when a persona definition fails schema validation."""
 
 
 @dataclass(frozen=True)
@@ -67,7 +75,108 @@ def _resolve_app_root(config_manager=None) -> Path:
 
 def _persona_file_path(persona_name: str, *, config_manager=None) -> Path:
     base = _resolve_app_root(config_manager)
-    return base / "modules" / "Personas" / persona_name / "Persona" / f"{persona_name}.json"
+    canonical_dir = base / "modules" / "Personas" / persona_name
+    canonical_file = canonical_dir / "Persona" / f"{persona_name}.json"
+    if canonical_file.exists():
+        return canonical_file
+
+    personas_root = base / "modules" / "Personas"
+    try:
+        candidates = list(personas_root.iterdir())
+    except FileNotFoundError:
+        return canonical_file
+
+    lowered = persona_name.lower()
+    for candidate in candidates:
+        if not candidate.is_dir():
+            continue
+        if candidate.name.lower() != lowered:
+            continue
+        persona_dir = candidate / "Persona"
+        primary = persona_dir / f"{candidate.name}.json"
+        if primary.exists():
+            return primary
+        for persona_file in persona_dir.glob("*.json"):
+            if persona_file.stem.lower() == lowered:
+                return persona_file
+
+    return canonical_file
+
+
+def _persona_schema_path(*, config_manager=None) -> Path:
+    base = _resolve_app_root(config_manager)
+    return base / "modules" / "Personas" / "schema.json"
+
+
+@lru_cache(maxsize=8)
+def _cached_persona_schema(path: str) -> Mapping[str, Any]:
+    schema_path = Path(path)
+    try:
+        raw = schema_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:  # pragma: no cover - configuration error
+        raise PersonaValidationError(f"Persona schema file is missing at {schema_path}") from exc
+    except OSError as exc:  # pragma: no cover - unexpected I/O failure
+        raise PersonaValidationError(f"Failed to read persona schema at {schema_path}") from exc
+
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError as exc:
+        raise PersonaValidationError(f"Persona schema at {schema_path} is not valid JSON") from exc
+
+    if not isinstance(payload, Mapping):
+        raise PersonaValidationError(f"Persona schema at {schema_path} must be a JSON object")
+
+    return payload
+
+
+def _load_persona_schema(*, config_manager=None) -> Dict[str, Any]:
+    schema_path = _persona_schema_path(config_manager=config_manager)
+    return deepcopy(dict(_cached_persona_schema(str(schema_path))))
+
+
+def _build_persona_validator(
+    *,
+    tool_ids: Iterable[str],
+    config_manager=None,
+) -> Draft202012Validator:
+    schema = _load_persona_schema(config_manager=config_manager)
+
+    defs = schema.setdefault("$defs", {})
+    allowed_tool_def = defs.setdefault("allowedTool", {"type": "string"})
+    normalized_ids = sorted({str(name).strip() for name in tool_ids if str(name).strip()})
+    if normalized_ids:
+        allowed_tool_def["enum"] = normalized_ids
+    else:
+        allowed_tool_def.pop("enum", None)
+
+    try:
+        return Draft202012Validator(schema)
+    except jsonschema_exceptions.SchemaError as exc:  # pragma: no cover - developer error
+        raise PersonaValidationError("Persona schema is invalid and cannot be used for validation") from exc
+
+
+def _validate_persona_payload(
+    payload: Mapping[str, Any],
+    *,
+    persona_name: str,
+    tool_ids: Iterable[str],
+    config_manager=None,
+) -> None:
+    validator = _build_persona_validator(tool_ids=tool_ids, config_manager=config_manager)
+    errors = sorted(validator.iter_errors(payload), key=lambda error: error.json_path)
+    if not errors:
+        return
+
+    details = []
+    for error in errors:
+        location = error.json_path or "$"
+        details.append(f"{location}: {error.message}")
+
+    message = "Persona '{name}' failed schema validation:\n{details}".format(
+        name=persona_name,
+        details="\n".join(details),
+    )
+    raise PersonaValidationError(message)
 
 
 def load_tool_metadata(*, config_manager=None) -> Tuple[List[str], Dict[str, ToolMetadata]]:
@@ -199,6 +308,7 @@ def load_persona_definition(
     *,
     config_manager=None,
     metadata_order: Optional[Iterable[str]] = None,
+    metadata_lookup: Optional[Mapping[str, ToolMetadata]] = None,
 ) -> Optional[PersonaPayload]:
     """Load and normalize persona configuration for ``persona_name``."""
 
@@ -229,9 +339,40 @@ def load_persona_definition(
         logger.error("Persona entry for '%s' is not a mapping", persona_name)
         return None
 
+    order_list: Optional[List[str]] = list(metadata_order) if metadata_order is not None else None
+    lookup_map: Optional[Dict[str, ToolMetadata]] = dict(metadata_lookup) if metadata_lookup is not None else None
+
+    if order_list is None or lookup_map is None:
+        shared_order, shared_lookup = load_tool_metadata(config_manager=config_manager)
+        if order_list is None:
+            order_list = shared_order
+        if lookup_map is None:
+            lookup_map = shared_lookup
+
+    tool_ids: set[str] = set()
+    if lookup_map:
+        tool_ids.update(str(name) for name in lookup_map.keys())
+    if order_list:
+        tool_ids.update(str(name) for name in order_list)
+
+    overrides = _load_persona_tool_overrides(persona_name, config_manager=config_manager)
+    if overrides:
+        tool_ids.update(str(name) for name in overrides.keys())
+
+    try:
+        _validate_persona_payload(
+            payload,
+            persona_name=persona_name,
+            tool_ids=tool_ids,
+            config_manager=config_manager,
+        )
+    except PersonaValidationError:
+        logger.error("Persona '%s' failed validation", persona_name, exc_info=True)
+        raise
+
     persona_entry = dict(persona_entry)
     persona_entry["allowed_tools"] = normalize_allowed_tools(
-        persona_entry.get("allowed_tools"), metadata_order=metadata_order
+        persona_entry.get("allowed_tools"), metadata_order=order_list
     )
 
     return persona_entry
@@ -331,6 +472,7 @@ def build_tool_state(
 
 
 __all__ = [
+    "PersonaValidationError",
     "ToolStateEntry",
     "build_tool_state",
     "load_persona_definition",

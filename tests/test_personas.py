@@ -60,6 +60,11 @@ def persona_fixture(tmp_path: Path) -> tuple[_StubConfigManager, Path]:
     ]
     _write_json(root / "modules" / "Tools" / "tool_maps" / "functions.json", tools_payload)
 
+    schema_src = Path(__file__).resolve().parents[1] / "modules" / "Personas" / "schema.json"
+    schema_dest = root / "modules" / "Personas" / "schema.json"
+    schema_dest.parent.mkdir(parents=True, exist_ok=True)
+    schema_dest.write_text(schema_src.read_text(encoding="utf-8"), encoding="utf-8")
+
     return config, root
 
 

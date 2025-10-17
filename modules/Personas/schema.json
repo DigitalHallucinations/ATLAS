@@ -1,0 +1,68 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ATLAS Persona Definition",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "persona"
+    ],
+    "properties": {
+        "persona": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "$ref": "#/$defs/personaEntry"
+            }
+        }
+    },
+    "$defs": {
+        "personaEntry": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+                "name",
+                "content"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "meaning": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "required": [
+                        "start_locked",
+                        "editable_content",
+                        "end_locked"
+                    ],
+                    "properties": {
+                        "start_locked": {
+                            "type": "string"
+                        },
+                        "editable_content": {
+                            "type": "string"
+                        },
+                        "end_locked": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "allowed_tools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/allowedTool"
+                    },
+                    "uniqueItems": true
+                }
+            }
+        },
+        "allowedTool": {
+            "type": "string",
+            "enum": []
+        }
+    }
+}
