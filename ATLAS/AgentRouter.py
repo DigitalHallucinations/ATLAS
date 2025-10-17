@@ -169,12 +169,16 @@ class AgentRouter:
                     f"{persona_label} is not permitted to use tools for the "
                     f"'{capability}' capability."
                 )
+                disallowed_tools = [
+                    name for name, _ in (disallowed_candidates or matching_capability)
+                ]
                 logger.info(
-                    "Denied tool selection due to allowlist: persona=%s capability=%s session=%s disallowed=%s",
+                    "%s (persona=%s capability=%s session=%s disallowed=%s)",
+                    reason,
                     persona_name or "<unknown>",
                     requested_capability,
                     session_id or "<none>",
-                    [name for name, _ in (disallowed_candidates or matching_capability)],
+                    disallowed_tools,
                 )
                 metadata = {
                     "persona_name": persona_name,

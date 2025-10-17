@@ -838,6 +838,38 @@ def _get_sandbox_runner(config_manager=None):
     return SandboxedToolRunner(config_manager)
 
 
+def compute_tool_policy_snapshot(
+    function_map: Mapping[str, Any],
+    *,
+    current_persona: Any,
+    conversation_manager: Any = None,
+    conversation_id: Any = None,
+) -> Dict[str, ToolPolicyDecision]:
+    """Return policy decisions for each tool declared in ``function_map``."""
+
+    snapshot: Dict[str, ToolPolicyDecision] = {}
+    if not isinstance(function_map, Mapping):
+        return snapshot
+
+    for name, entry in function_map.items():
+        entry_metadata: Mapping[str, Any] = {}
+        if isinstance(entry, Mapping):
+            candidate = entry.get("metadata")
+            if isinstance(candidate, Mapping):
+                entry_metadata = candidate
+
+        decision = _evaluate_tool_policy(
+            function_name=name,
+            metadata=entry_metadata,
+            current_persona=current_persona,
+            conversation_manager=conversation_manager,
+            conversation_id=conversation_id,
+        )
+        snapshot[name] = decision
+
+    return snapshot
+
+
 class SandboxedToolRunner:
     """Provides a minimal sandbox environment for high-risk tool execution."""
 
