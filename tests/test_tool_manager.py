@@ -165,7 +165,11 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
 
     tool_manager._function_payload_cache.pop(persona_name, None)
 
-    functions = tool_manager.load_functions_from_json({"name": persona_name}, refresh=True)
+    config_manager = tool_manager.ConfigManager()
+
+    functions = tool_manager.load_functions_from_json(
+        {"name": persona_name}, refresh=True, config_manager=config_manager
+    )
 
     assert isinstance(functions, list)
     assert functions, "expected persona toolbox manifest to load"
@@ -185,6 +189,26 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
     assert info_entry["idempotency_key"] is False
     assert info_entry["capabilities"] == ["time_information", "date_information"]
     assert info_entry["cost_per_call"] == 0.0
+
+    shared_map = tool_manager.load_default_function_map(
+        refresh=True, config_manager=config_manager
+    )
+    assert "policy_reference" in shared_map
+    policy_entry = shared_map["policy_reference"]
+    assert isinstance(policy_entry, dict)
+    metadata = policy_entry.get("metadata")
+    assert metadata["idempotency_key"]["required"] is True
+    assert metadata["capabilities"] == [
+        "policy_lookup",
+        "risk_assessment_support",
+    ]
+    assert metadata["providers"] == [
+        {
+            "name": "builtin_policy",
+            "priority": 0,
+            "health_check_interval": 60,
+        }
+    ]
 
 def test_tool_manager_import_without_credentials(monkeypatch):
     """Importing ToolManager should not require configuration credentials."""
@@ -2349,6 +2373,7 @@ def test_load_function_map_falls_back_to_default(monkeypatch):
 
         assert isinstance(function_map, dict)
         assert "google_search" in function_map
+        assert "policy_reference" in function_map
         assert persona_name not in tool_manager._function_map_cache
         assert tool_manager._default_function_map_cache is not None
     finally:
@@ -2378,6 +2403,7 @@ def test_persona_function_map_includes_metadata(monkeypatch):
     )
 
     assert "google_search" in function_map
+    assert "policy_reference" in function_map
     google_entry = function_map["google_search"]
     assert isinstance(google_entry, dict)
     assert callable(_resolve_callable(google_entry))
@@ -2491,6 +2517,7 @@ def test_use_tool_resolves_google_search_with_default_map(monkeypatch):
 
     assert isinstance(shared_map, dict)
     assert "google_search" in shared_map
+    assert "policy_reference" in shared_map
 
     captured_args = {}
 
