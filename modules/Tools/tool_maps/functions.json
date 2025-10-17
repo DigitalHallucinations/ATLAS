@@ -416,5 +416,76 @@
             },
             "required": []
         }
+    },
+    {
+        "name": "deviant12_calendar",
+        "version": "1.0.0",
+        "side_effects": "read",
+        "default_timeout": 15,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-user",
+            "guidance": "Use the combination of operation type and normalized parameters to deduplicate repeated calendar reads."
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "calendar_read"
+        ],
+        "providers": [
+            {
+                "name": "devian12_local",
+                "priority": 0,
+                "health_check_interval": 300
+            }
+        ],
+        "description": "Interact with the Devian 12 on-device calendar to list, search, or inspect events.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": [
+                        "list",
+                        "detail",
+                        "search"
+                    ],
+                    "description": "Calendar operation to perform."
+                },
+                "event_id": {
+                    "type": "string",
+                    "description": "Identifier of the event to fetch when operation is 'detail'."
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Text used to search titles, descriptions, and locations when operation is 'search'."
+                },
+                "start": {
+                    "type": "string",
+                    "description": "ISO 8601 timestamp that bounds the window for list/search operations."
+                },
+                "end": {
+                    "type": "string",
+                    "description": "ISO 8601 timestamp that bounds the window for list/search operations."
+                },
+                "calendar": {
+                    "type": "string",
+                    "description": "Optional calendar identifier (e.g., ICS file stem or account id)."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Maximum number of events to return for list/search operations."
+                }
+            },
+            "required": [
+                "operation"
+            ]
+        },
+        "idempotency_guidance": "All operations are read-only. Use a stable key when polling for updates to prevent duplicate work."
     }
 ]
