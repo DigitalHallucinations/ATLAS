@@ -105,6 +105,7 @@ class PersonaManager:
             persona_name,
             config_manager=self.config_manager,
             metadata_order=order,
+            metadata_lookup=_lookup,
         )
 
         if persona_data is None:
