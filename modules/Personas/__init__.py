@@ -206,13 +206,34 @@ def _validate_persona_payload(
 ) -> None:
     validator = _build_persona_validator(tool_ids=tool_ids, config_manager=config_manager)
     errors = sorted(validator.iter_errors(payload), key=lambda error: error.json_path)
-    if not errors:
+
+    manual_errors: List[str] = []
+    known_tools = {str(name).strip() for name in tool_ids if str(name).strip()}
+    if known_tools:
+        personas = payload.get("persona") if isinstance(payload, Mapping) else None
+        if isinstance(personas, list):
+            for persona_index, persona_entry in enumerate(personas):
+                if not isinstance(persona_entry, Mapping):
+                    continue
+                normalized = normalize_allowed_tools(persona_entry.get("allowed_tools"))
+                for tool_index, tool_name in enumerate(normalized):
+                    if tool_name not in known_tools:
+                        manual_errors.append(
+                            "$.persona[{p_index}].allowed_tools[{t_index}]: Unknown tool '{tool}'".format(
+                                p_index=persona_index,
+                                t_index=tool_index,
+                                tool=tool_name,
+                            )
+                        )
+
+    if not errors and not manual_errors:
         return
 
     details = []
     for error in errors:
         location = error.json_path or "$"
         details.append(f"{location}: {error.message}")
+    details.extend(manual_errors)
 
     message = "Persona '{name}' failed schema validation:\n{details}".format(
         name=persona_name,

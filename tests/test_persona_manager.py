@@ -1,6 +1,7 @@
 import json
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -52,6 +53,9 @@ def persona_manager(tmp_path, monkeypatch):
     }
     (default_dir / 'ATLAS.json').write_text(json.dumps({'persona': [default_persona]}, indent=4), encoding='utf-8')
 
+    _copy_schema(tmp_path)
+    _write_tool_metadata(tmp_path, ['alpha_tool', 'beta_tool'])
+
     class _StubConfigManager:
         def __init__(self):
             self._app_root = str(tmp_path)
@@ -98,6 +102,26 @@ def persona_manager(tmp_path, monkeypatch):
     manager.persona_names = manager.load_persona_names(str(personas_dir))
     manager._test_user_data_manager_cls = _StubUserDataManager
     return manager, personas_dir
+
+
+def _write_tool_metadata(root: Path, tool_names: list[str]) -> None:
+    manifest = root / 'modules' / 'Tools' / 'tool_maps' / 'functions.json'
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    payload = [
+        {
+            'name': name,
+            'description': f'{name} description',
+        }
+        for name in tool_names
+    ]
+    manifest.write_text(json.dumps(payload, indent=4), encoding='utf-8')
+
+
+def _copy_schema(root: Path) -> None:
+    schema_src = Path(__file__).resolve().parents[1] / 'modules' / 'Personas' / 'schema.json'
+    schema_dst = root / 'modules' / 'Personas' / 'schema.json'
+    schema_dst.parent.mkdir(parents=True, exist_ok=True)
+    schema_dst.write_text(schema_src.read_text(encoding='utf-8'), encoding='utf-8')
 
 
 def test_update_persona_from_form_enables_optional_fields(persona_manager):
@@ -161,6 +185,28 @@ def test_update_persona_from_form_enables_optional_fields(persona_manager):
     assert educational['education_level'] == 'College'
     assert educational['teaching_style'] == 'Interactive'
     assert saved['content']['editable_content'] == 'Editable'
+
+
+def test_set_allowed_tools_validates_against_metadata(persona_manager):
+    manager, personas_dir = persona_manager
+    root = personas_dir.parent.parent
+    _copy_schema(root)
+    _write_tool_metadata(root, ['alpha_tool', 'beta_tool'])
+
+    persona_path = personas_dir / 'ATLAS' / 'Persona' / 'ATLAS.json'
+
+    result = manager.set_allowed_tools('ATLAS', ['alpha_tool'])
+    assert result['success'] is True
+    assert result['persona']['allowed_tools'] == ['alpha_tool']
+
+    failure = manager.set_allowed_tools('ATLAS', ['alpha_tool', 'invalid_tool'])
+    assert failure['success'] is False
+    error_text = ' '.join(failure.get('errors', []))
+    assert 'invalid_tool' in error_text
+    assert 'failed schema validation' in error_text
+
+    saved = json.loads(persona_path.read_text(encoding='utf-8'))['persona'][0]
+    assert saved['allowed_tools'] == ['alpha_tool']
 
 
 def test_set_user_refreshes_profile_for_same_user(persona_manager):
