@@ -11,11 +11,14 @@ from typing import Any, Dict, List, Optional
 
 from modules.Personas import (
     PersonaBundleError,
+    PersonaValidationError,
     load_persona_definition,
+    load_tool_metadata,
     normalize_allowed_tools,
     persist_persona_definition,
     export_persona_bundle_bytes,
     import_persona_bundle_bytes,
+    _validate_persona_payload,
 )
 from modules.Tools.manifest_loader import ToolManifestEntry, load_manifest_entries
 from modules.analytics.persona_metrics import get_persona_metrics
@@ -302,7 +305,38 @@ class AtlasServer:
         if persona is None:
             raise ValueError(f"Persona '{persona_name}' could not be loaded.")
 
-        normalised_tools = normalize_allowed_tools(self._normalise_tool_payload(tools))
+        metadata_order, metadata_lookup = load_tool_metadata(
+            config_manager=self._config_manager
+        )
+        normalised_tools = normalize_allowed_tools(
+            self._normalise_tool_payload(tools),
+            metadata_order=metadata_order,
+        )
+
+        persona_for_validation = dict(persona)
+        persona_for_validation["allowed_tools"] = normalised_tools
+
+        known_tools: set[str] = {str(name) for name in metadata_order}
+        known_tools.update(str(name) for name in metadata_lookup.keys())
+        existing_tools = persona.get("allowed_tools") or []
+        known_tools.update(str(name) for name in existing_tools if str(name))
+
+        try:
+            _validate_persona_payload(
+                {"persona": [persona_for_validation]},
+                persona_name=persona_name,
+                tool_ids=known_tools,
+                config_manager=self._config_manager,
+            )
+        except PersonaValidationError as exc:
+            message = str(exc)
+            logger.warning(
+                "Rejected persona tool update for '%s': %s",
+                persona_name,
+                message,
+            )
+            return {"success": False, "error": message, "errors": [message]}
+
         persona["allowed_tools"] = normalised_tools
 
         persist_persona_definition(

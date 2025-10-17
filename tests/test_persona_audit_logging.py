@@ -3,7 +3,7 @@ import sys
 import types
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 if "jsonschema" not in sys.modules:  # pragma: no cover - lightweight stub for tests
     jsonschema_stub = types.ModuleType("jsonschema")
@@ -76,7 +76,7 @@ Gtk.ListBoxRow = type(
     },
 )
 
-from modules.Personas import persist_persona_definition
+from modules.Personas import PersonaValidationError, persist_persona_definition
 from modules.logging import audit
 from modules.logging.audit import PersonaAuditLogger
 from modules.Server.routes import AtlasServer
@@ -114,6 +114,19 @@ def _copy_schema(base: Path) -> None:
     schema_dst = base / "modules" / "Personas" / "schema.json"
     schema_dst.parent.mkdir(parents=True, exist_ok=True)
     schema_dst.write_text(schema_src.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+def _write_tool_metadata(base: Path, tool_names: Iterable[str]) -> None:
+    entries = [
+        {
+            "name": name,
+            "description": f"{name} description",
+        }
+        for name in tool_names
+    ]
+    manifest = base / "modules" / "Tools" / "tool_maps" / "functions.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps(entries, indent=2), encoding="utf-8")
 
 
 @pytest.fixture
@@ -186,6 +199,7 @@ def test_server_route_logs_persona_update(
     persona_payload: Dict[str, Any],
 ) -> None:
     _copy_schema(tmp_path)
+    _write_tool_metadata(tmp_path, ["alpha_tool", "beta_tool", "gamma_tool"])
     config = _ConfigStub(tmp_path)
 
     _write_persona_file(tmp_path, dict(persona_payload))
@@ -205,6 +219,58 @@ def test_server_route_logs_persona_update(
     entry = entries[0]
     assert entry.new_tools == ["beta_tool", "gamma_tool"]
     assert entry.rationale == "Server update"
+
+
+def test_server_route_rejects_invalid_tool_update(
+    tmp_path: Path,
+    audit_logger: PersonaAuditLogger,
+    persona_payload: Dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _copy_schema(tmp_path)
+    _write_tool_metadata(tmp_path, ["alpha_tool", "beta_tool"])
+    config = _ConfigStub(tmp_path)
+
+    _write_persona_file(tmp_path, dict(persona_payload))
+
+    def _fake_validate(payload, *, persona_name: str, tool_ids, config_manager=None):
+        personas = payload.get("persona") if isinstance(payload, dict) else None
+        if not personas:
+            return
+        allowed = personas[0].get("allowed_tools") or []
+        invalid = [name for name in allowed if name not in set(tool_ids)]
+        if invalid:
+            raise PersonaValidationError(
+                "Persona '{name}' failed schema validation: invalid tools {tools}".format(
+                    name=persona_name,
+                    tools=", ".join(invalid),
+                )
+            )
+
+    monkeypatch.setattr(
+        "modules.Server.routes._validate_persona_payload",
+        _fake_validate,
+    )
+
+    server = AtlasServer(config_manager=config)
+    response = server.handle_request(
+        "/personas/Atlas/tools",
+        method="POST",
+        query={"tools": ["alpha_tool", "invalid_tool"], "rationale": "Bad update"},
+    )
+
+    assert response["success"] is False
+    error_text = response.get("error", "")
+    assert "invalid_tool" in error_text
+    assert "failed schema validation" in error_text
+    assert response.get("errors") == [error_text]
+
+    persona_path = (
+        tmp_path / "modules" / "Personas" / "Atlas" / "Persona" / "Atlas.json"
+    )
+    saved = json.loads(persona_path.read_text(encoding="utf-8"))
+    tools = saved["persona"][0].get("allowed_tools")
+    assert tools == ["alpha_tool"]
 
 
 class _AtlasStub:

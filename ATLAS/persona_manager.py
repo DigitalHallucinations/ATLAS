@@ -9,6 +9,8 @@ from modules.user_accounts.user_data_manager import UserDataManager
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from modules.Personas import (
+    PersonaValidationError,
+    _validate_persona_payload,
     build_tool_state as personas_build_tool_state,
     load_persona_definition,
     load_tool_metadata,
@@ -706,7 +708,29 @@ class PersonaManager:
         if persona is None:
             return {"success": False, "errors": [f"Persona '{persona_name}' could not be loaded."]}
 
-        normalized = normalize_allowed_tools(allowed_tools or [])
+        metadata_order, metadata_lookup = self._get_tool_metadata()
+        normalized = normalize_allowed_tools(
+            allowed_tools or [], metadata_order=metadata_order
+        )
+
+        candidate_persona = dict(persona)
+        candidate_persona['allowed_tools'] = normalized
+
+        known_tools: set[str] = {str(name) for name in metadata_order}
+        known_tools.update(str(name) for name in metadata_lookup.keys())
+        existing_tools = persona.get('allowed_tools') or []
+        known_tools.update(str(name) for name in existing_tools if str(name))
+
+        try:
+            _validate_persona_payload(
+                {'persona': [candidate_persona]},
+                persona_name=persona_name,
+                tool_ids=known_tools,
+                config_manager=self.config_manager,
+            )
+        except PersonaValidationError as exc:
+            return {"success": False, "errors": [str(exc)]}
+
         persona['allowed_tools'] = normalized
 
         self._persist_persona(
