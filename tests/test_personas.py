@@ -495,4 +495,50 @@ def test_persona_state_surfaces_calendar_write_flag() -> None:
     state = manager._build_editor_state(persona)
     personal_assistant = state['flags']['type']['personal_assistant']
     assert personal_assistant['calendar_write_enabled'] is False
-    assert personal_assistant['access_to_calendar'] is False
+
+
+def test_build_tool_state_notes_missing_calendar_write_flag() -> None:
+    persona = {
+        "name": "Atlas",
+        "allowed_tools": ["debian12_calendar"],
+        "type": {
+            "personal_assistant": {
+                "access_to_calendar": "True",
+                "calendar_write_enabled": "False",
+            }
+        },
+    }
+
+    order = ["debian12_calendar"]
+    lookup = {
+        "debian12_calendar": {
+            "name": "debian12_calendar",
+            "requires_flags": {
+                "create": [
+                    "type.personal_assistant.access_to_calendar",
+                    "type.personal_assistant.calendar_write_enabled",
+                ],
+                "update": [
+                    "type.personal_assistant.access_to_calendar",
+                    "type.personal_assistant.calendar_write_enabled",
+                ],
+                "delete": [
+                    "type.personal_assistant.access_to_calendar",
+                    "type.personal_assistant.calendar_write_enabled",
+                ],
+            },
+        }
+    }
+
+    tool_state = build_tool_state(
+        persona,
+        metadata_order=order,
+        metadata_lookup=lookup,
+    )
+
+    assert tool_state["allowed"] == ["debian12_calendar"]
+    entry = tool_state["available"][0]
+    assert entry["metadata"]["denied_operations"]["create"] == [
+        "type.personal_assistant.calendar_write_enabled",
+    ]
+    assert "calendar_write_enabled" in entry["disabled_reason"]

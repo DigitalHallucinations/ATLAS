@@ -709,6 +709,112 @@ def _normalize_persona_allowlist(raw_allowlist: Any) -> Optional[set[str]]:
     return names or None
 
 
+def _join_with_and(items: Iterable[str]) -> str:
+    sequence = [item for item in items if item]
+    if not sequence:
+        return ""
+    if len(sequence) == 1:
+        return sequence[0]
+    return ", ".join(sequence[:-1]) + f", and {sequence[-1]}"
+
+
+def _normalize_requires_flags(raw_value: Any) -> Dict[str, Tuple[str, ...]]:
+    normalized: Dict[str, Tuple[str, ...]] = {}
+    if not isinstance(raw_value, Mapping):
+        return normalized
+
+    for raw_operation, raw_flags in raw_value.items():
+        operation = str(raw_operation or "").strip().lower()
+        if not operation:
+            continue
+
+        if isinstance(raw_flags, (list, tuple, set)):
+            candidates = list(raw_flags)
+        else:
+            candidates = [raw_flags]
+
+        flags: List[str] = []
+        for candidate in candidates:
+            text = str(candidate or "").strip()
+            if text:
+                flags.append(text)
+
+        if flags:
+            deduped = list(dict.fromkeys(flags))
+            normalized[operation] = tuple(deduped)
+
+    return normalized
+
+
+def _coerce_persona_flag(value: Any) -> bool:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "on", "enabled"}:
+            return True
+        if lowered in {"false", "0", "no", "off", "disabled"}:
+            return False
+    return bool(value)
+
+
+def _persona_flag_enabled(persona: Mapping[str, Any], flag_path: str) -> bool:
+    target: Any = persona
+    for segment in str(flag_path).split("."):
+        key = segment.strip()
+        if not key:
+            return False
+        if isinstance(target, Mapping):
+            target = target.get(key)
+        else:
+            target = getattr(target, key, None)
+        if target is None:
+            return False
+    return _coerce_persona_flag(target)
+
+
+def _collect_missing_flag_requirements(
+    requires_flags: Mapping[str, Tuple[str, ...]],
+    persona: Mapping[str, Any],
+) -> Dict[str, Tuple[str, ...]]:
+    missing: Dict[str, Tuple[str, ...]] = {}
+    for operation, flags in requires_flags.items():
+        missing_flags = tuple(
+            flag for flag in flags if not _persona_flag_enabled(persona, flag)
+        )
+        if missing_flags:
+            missing[operation] = missing_flags
+    return missing
+
+
+def _format_denied_operations_summary(
+    function_name: str,
+    denied_operations: Mapping[str, Tuple[str, ...]],
+) -> Optional[str]:
+    if not denied_operations:
+        return None
+
+    operations = sorted({op for op in denied_operations.keys() if op})
+    if not operations:
+        return None
+
+    flags = sorted({flag for flags in denied_operations.values() for flag in flags})
+    if not flags:
+        return None
+
+    if set(operations) == {"create", "update", "delete"}:
+        operations_phrase = "Write operations (create, update, delete)"
+    else:
+        operations_phrase = (
+            "Operations " + _join_with_and([f"'{op}'" for op in operations])
+        )
+
+    flag_phrase = _join_with_and([f"'{flag}'" for flag in flags])
+    plural = "s" if len(flags) > 1 else ""
+    return (
+        f"{operations_phrase} for tool '{function_name}' require persona flag"
+        f"{plural} {flag_phrase} to be enabled."
+    )
+
+
 def persist_persona_definition(
     persona_name: str,
     persona: Mapping[str, Any],
@@ -814,6 +920,24 @@ def build_tool_state(
                 f"Tool '{name}' is restricted to approved personas."
             )
 
+        requires_flags = _normalize_requires_flags(merged.get("requires_flags"))
+        denied_operations = _collect_missing_flag_requirements(
+            requires_flags, persona
+        )
+        summary_reason = _format_denied_operations_summary(name, denied_operations)
+        if denied_operations:
+            merged["denied_operations"] = {
+                op: list(flags) for op, flags in denied_operations.items()
+            }
+
+        reason_parts: List[str] = []
+        if disabled_reason:
+            reason_parts.append(disabled_reason)
+        if summary_reason:
+            reason_parts.append(summary_reason)
+
+        combined_reason = " ".join(reason_parts) if reason_parts else None
+
         entries.append(
             ToolStateEntry(
                 name=name,
@@ -821,7 +945,7 @@ def build_tool_state(
                 order=index,
                 metadata=merged,
                 disabled=disabled,
-                disabled_reason=disabled_reason,
+                disabled_reason=combined_reason,
             )
         )
 

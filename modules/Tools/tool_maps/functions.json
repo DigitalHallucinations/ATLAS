@@ -443,6 +443,20 @@
                 "health_check_interval": 300
             }
         ],
+        "requires_flags": {
+            "create": [
+                "type.personal_assistant.access_to_calendar",
+                "type.personal_assistant.calendar_write_enabled"
+            ],
+            "update": [
+                "type.personal_assistant.access_to_calendar",
+                "type.personal_assistant.calendar_write_enabled"
+            ],
+            "delete": [
+                "type.personal_assistant.access_to_calendar",
+                "type.personal_assistant.calendar_write_enabled"
+            ]
+        },
         "description": "Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events.",
         "parameters": {
             "type": "object",
