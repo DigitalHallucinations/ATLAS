@@ -81,20 +81,37 @@ class SkillExecutionError(RuntimeError):
 
 def _normalize_skill_metadata(skill: Any) -> Mapping[str, Any]:
     if isinstance(skill, Mapping):
-        return skill
+        metadata: Dict[str, Any] = dict(skill)
+    else:
+        metadata = {}
+        for field_name in (
+            "name",
+            "instruction_prompt",
+            "required_tools",
+            "required_capabilities",
+            "safety_notes",
+            "version",
+        ):
+            value = getattr(skill, field_name, None)
+            if value is not None:
+                metadata[field_name] = value
 
-    attrs = {}
-    for field_name in (
-        "name",
+    metadata.setdefault("name", "")
+
+    metadata["required_tools"] = list(metadata.get("required_tools") or [])
+    metadata["required_capabilities"] = list(
+        metadata.get("required_capabilities") or []
+    )
+
+    for optional_field in (
         "instruction_prompt",
-        "required_tools",
-        "required_capabilities",
         "safety_notes",
+        "version",
     ):
-        value = getattr(skill, field_name, None)
-        if value is not None:
-            attrs[field_name] = value
-    return attrs
+        if optional_field not in metadata:
+            metadata[optional_field] = None
+
+    return metadata
 
 
 def _publish_event(event_type: str, payload: Mapping[str, Any]) -> None:

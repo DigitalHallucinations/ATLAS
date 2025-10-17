@@ -101,6 +101,45 @@ def test_use_skill_executes_required_tools_and_emits_events():
         event_system.unsubscribe(SKILL_ACTIVITY_EVENT, _subscriber)
 
 
+def test_use_skill_includes_manifest_metadata_fields():
+    async def _runner():
+        async def echo_tool(message: str) -> str:
+            return message
+
+        tool_manager = _StubToolManager({"echo": {"callable": echo_tool}})
+
+        context = SkillExecutionContext(
+            conversation_id="conv-meta",
+            conversation_history=[],
+        )
+
+        skill_metadata = {
+            "name": "EchoSkill",
+            "instruction_prompt": "Repeat the provided message verbatim.",
+            "required_tools": ["echo"],
+            "required_capabilities": ["echoing"],
+            "safety_notes": "Ensure the message is safe to repeat.",
+            "version": "2024.05",
+        }
+
+        result = await use_skill(
+            skill_metadata,
+            context=context,
+            tool_inputs={"echo": {"message": "hello"}},
+            tool_manager=tool_manager,
+        )
+
+        return result
+
+    result = asyncio.run(_runner())
+
+    assert result.metadata["instruction_prompt"] == "Repeat the provided message verbatim."
+    assert result.metadata["required_tools"] == ["echo"]
+    assert result.metadata["required_capabilities"] == ["echoing"]
+    assert result.metadata["safety_notes"] == "Ensure the message is safe to repeat."
+    assert result.metadata["version"] == "2024.05"
+
+
 def test_use_skill_missing_tool_raises():
     tool_manager = _StubToolManager({})
     context = SkillExecutionContext(

@@ -1,6 +1,7 @@
 # modules/Providers/HuggingFace/components/response_generator.py
 
 import asyncio
+import json
 from typing import List, Dict, Union, AsyncIterator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -215,7 +216,18 @@ class ResponseGenerator:
         prompt = ""
         for message in messages:
             role = message['role']
-            content = message['content']
+            content = message.get('content')
+            if not isinstance(content, str):
+                content = "" if content is None else str(content)
+
+            metadata = message.get('metadata')
+            if isinstance(metadata, dict) and metadata:
+                try:
+                    metadata_text = json.dumps(metadata, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    metadata_text = str(metadata)
+                content = f"{content}\n[metadata: {metadata_text}]".strip()
+
             if role == 'system':
                 prompt += f"System: {content}\n"
             elif role == 'user':

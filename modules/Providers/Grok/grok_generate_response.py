@@ -524,14 +524,23 @@ class GrokGenerator:
         for message in messages or []:
             role = str(message.get("role", "")).lower()
             content = self._normalize_message_content(message.get("content"))
+            metadata = message.get("metadata") if isinstance(message, Mapping) else None
+
+            def _attach_metadata(payload: Any) -> Any:
+                if isinstance(metadata, Mapping) and metadata and isinstance(payload, Mapping):
+                    enriched = dict(payload)
+                    enriched["metadata"] = dict(metadata)
+                    return enriched
+                return payload
+
             if role == "system":
-                converted.append(grok_system(content))
+                converted.append(_attach_metadata(grok_system(content)))
             elif role == "assistant":
-                converted.append(grok_assistant(content))
+                converted.append(_attach_metadata(grok_assistant(content)))
             elif role == "tool":
-                converted.append(grok_tool_result(content))
+                converted.append(_attach_metadata(grok_tool_result(content)))
             else:
-                converted.append(grok_user(content))
+                converted.append(_attach_metadata(grok_user(content)))
         return converted
 
     def _normalize_message_content(self, content: Any) -> str:
