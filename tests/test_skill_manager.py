@@ -101,6 +101,11 @@ def test_use_skill_executes_required_tools_and_emits_events():
 
         assert tool_manager.calls == [({"name": "Analyst"}, None)]
 
+        started_event = next(
+            entry for entry in events if entry["type"] == "skill_started"
+        )
+        assert started_event["persona"] == "Analyst"
+
         event_types = [entry["type"] for entry in events]
         assert "skill_started" in event_types
         assert "skill_plan_generated" in event_types
@@ -258,4 +263,62 @@ def test_use_skill_tool_failure_emits_event():
         assert events[-1]["type"] == "skill_failed"
     finally:
         event_system.unsubscribe(SKILL_ACTIVITY_EVENT, _subscriber)
+
+
+def test_skill_execution_context_dispatch_payload_sanitizes_persona():
+    state_cache = {"existing": "value"}
+    context = SkillExecutionContext(
+        conversation_id="conv-trim",
+        conversation_history=[{"role": "user", "content": "hello"}],
+        persona={"name": "Helper", "prompt_template": "should not leak"},
+        state=state_cache,
+    )
+
+    payload = context.build_dispatch_payload()
+
+    assert payload == {
+        "conversation_id": "conv-trim",
+        "conversation_history": [{"role": "user", "content": "hello"}],
+        "persona_id": "Helper",
+        "state": state_cache,
+    }
+    assert payload["state"] is state_cache
+
+
+def test_use_skill_rehydrates_persona_when_only_identifier_provided(monkeypatch):
+    async def echo_tool():
+        return "echoed"
+
+    persona_definition = {
+        "name": "SpecPersona",
+        "allowed_tools": ["echo"],
+    }
+
+    monkeypatch.setattr(
+        "ATLAS.SkillManager._PERSONA_DEFINITION_LOADER",
+        lambda name, *, config_manager=None: persona_definition,
+        raising=False,
+    )
+
+    tool_manager = _StubToolManager({"echo": {"callable": echo_tool}})
+
+    context = SkillExecutionContext(
+        conversation_id="conv-hydrate",
+        conversation_history=[],
+        persona={"id": "SpecPersona", "prompt_template": "redacted"},
+    )
+
+    async def _runner():
+        result = await use_skill(
+            {"name": "EchoSkill", "required_tools": ["echo"]},
+            context=context,
+            tool_manager=tool_manager,
+        )
+        return result
+
+    result = asyncio.run(_runner())
+
+    assert result.tool_results == {"echo": "echoed"}
+    assert tool_manager.calls == [(persona_definition, None)]
+    assert tool_manager.function_manifest_calls == [(persona_definition, None)]
 

@@ -25,6 +25,12 @@ _DEFAULT_TOOL_TIMEOUT_SECONDS = 30.0
 _DEFAULT_SKILL_RUNTIME_BUDGET_MS = 120_000.0
 
 
+try:  # Lazy import to avoid expensive persona loading during module import in tests.
+    from modules.Personas import load_persona_definition as _PERSONA_DEFINITION_LOADER
+except Exception:  # pragma: no cover - defensive import guard
+    _PERSONA_DEFINITION_LOADER = None  # type: ignore[assignment]
+
+
 @dataclass(slots=True)
 class SkillExecutionContext:
     """Snapshot of the state passed to skill executions.
@@ -52,6 +58,42 @@ class SkillExecutionContext:
     user: Optional[Mapping[str, Any]] = None
     state: Dict[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    @property
+    def persona_identifier(self) -> Optional[str]:
+        """Return the canonical identifier for the active persona."""
+
+        persona = self.persona
+        if isinstance(persona, str):
+            candidate = persona.strip()
+            return candidate or None
+
+        if isinstance(persona, Mapping):
+            for key in ("id", "identifier", "slug", "name"):
+                value = persona.get(key)
+                if isinstance(value, str):
+                    candidate = value.strip()
+                    if candidate:
+                        return candidate
+
+        identifier = self.metadata.get("persona_id") if isinstance(self.metadata, Mapping) else None
+        if isinstance(identifier, str):
+            candidate = identifier.strip()
+            return candidate or None
+
+        return None
+
+    def build_dispatch_payload(self) -> Dict[str, Any]:
+        """Return a sanitized payload for skill execution dispatch."""
+
+        history_slice = list(self.conversation_history)
+
+        return {
+            "conversation_id": self.conversation_id,
+            "conversation_history": history_slice,
+            "persona_id": self.persona_identifier,
+            "state": self.state,
+        }
 
 
 @dataclass(frozen=True)
@@ -153,6 +195,51 @@ async def _invoke_tool(
     if timeout is None:
         return await _call()
     return await asyncio.wait_for(_call(), timeout)
+
+
+def _extract_persona_identifier(persona: Any) -> Optional[str]:
+    if isinstance(persona, str):
+        candidate = persona.strip()
+        return candidate or None
+
+    if isinstance(persona, Mapping):
+        for key in ("id", "identifier", "slug", "name"):
+            value = persona.get(key)
+            if isinstance(value, str):
+                candidate = value.strip()
+                if candidate:
+                    return candidate
+
+    return None
+
+
+def _ensure_persona_payload(persona: Any) -> Optional[Mapping[str, Any]]:
+    if isinstance(persona, Mapping) and persona.get("allowed_tools") is not None:
+        if "name" not in persona:
+            identifier = _extract_persona_identifier(persona)
+            if identifier:
+                enriched = dict(persona)
+                enriched.setdefault("name", identifier)
+                return enriched
+        return persona
+
+    identifier = _extract_persona_identifier(persona)
+    if not identifier:
+        return None
+
+    loader = _PERSONA_DEFINITION_LOADER
+    if callable(loader):
+        try:
+            loaded = loader(identifier, config_manager=None)
+        except Exception:  # pragma: no cover - defensive guard around persona loading
+            logger.warning(
+                "Failed to load persona definition for '%s'", identifier, exc_info=True
+            )
+        else:
+            if loaded:
+                return copy.deepcopy(loaded)
+
+    return {"name": identifier}
 
 
 def _resolve_required_tools(
@@ -273,12 +360,17 @@ async def use_skill(
                 "Unable to import tool manager", skill_name=skill_name, cause=exc
             ) from exc
 
+    persona_identifier = context.persona_identifier
+    persona_payload = _ensure_persona_payload(
+        context.persona if context.persona is not None else persona_identifier
+    )
+
     _publish_event(
         "skill_started",
         {
             "skill": skill_name,
             "conversation_id": context.conversation_id,
-            "persona": context.persona,
+            "persona": persona_identifier,
             "user": context.user,
         },
     )
@@ -293,14 +385,13 @@ async def use_skill(
         )
 
     available_tools = dict(
-        _resolve_required_tools(persona=context.persona, tool_manager=tool_manager)
-        or {}
+        _resolve_required_tools(persona=persona_payload, tool_manager=tool_manager) or {}
     )
 
     metadata["tool_specs"] = list(
         _resolve_required_tool_specs(
             required_tools,
-            persona=context.persona,
+            persona=persona_payload,
             tool_manager=tool_manager,
         )
     )
