@@ -51,6 +51,32 @@
                         }
                     }
                 },
+                "type": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                        "personal_assistant": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "properties": {
+                                "access_to_calendar": {
+                                    "description": "Enables read access to the configured calendar tool.",
+                                    "anyOf": [
+                                        {"type": "boolean"},
+                                        {"type": "string", "enum": ["True", "False", "true", "false", ""]}
+                                    ]
+                                },
+                                "calendar_write_enabled": {
+                                    "description": "Allows the persona to create, update, or delete calendar events when calendar access is enabled.",
+                                    "anyOf": [
+                                        {"type": "boolean"},
+                                        {"type": "string", "enum": ["True", "False", "true", "false", ""]}
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
                 "allowed_tools": {
                     "type": "array",
                     "items": {

@@ -24,6 +24,14 @@ When the persona loader runs it automatically injects the set of known tool iden
 schema so the validator can confirm that `allowed_tools` only contains supported tools. Any
 additional persona fields remain opt-in and are still passed through unchanged.
 
+Personal-assistant personas expose two calendar toggles in their `type` entry:
+
+- `access_to_calendar` grants read-only access to the Debian 12 calendar tool so the persona
+  can enumerate events and inspect details.
+- `calendar_write_enabled` builds on read access and allows the persona to create, update, or
+  delete events. This flag is stored alongside the other persona settings and defaults to `False`
+  so installs must opt in explicitly to calendar writes.
+
 ## Validating personas locally
 
 Persona validation happens automatically whenever `modules.Personas.load_persona_definition` reads a

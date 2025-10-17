@@ -29,12 +29,15 @@ provider can supply a custom `CalendarBackend` that implements the same
 
 ## Persona Access
 
-Personas gain access to the calendar tool when they have
+Personas gain read-only access to the calendar tool when they have
 `personal_assistant.access_to_calendar` enabled and the persona's
-`allowed_tools` list includes `debian12_calendar`.  The default ATLAS
-persona, as well as the aggregate entry in `ALL_PERSONAS.json`, already
-exposes this capability so the tool appears in the Persona Tools tab when
-calendar access is toggled on.
+`allowed_tools` list includes `debian12_calendar`.  Enabling the companion
+`personal_assistant.calendar_write_enabled` flag elevates the permission so
+the persona may create, update, or delete events in addition to listing and
+inspecting them.  The default ATLAS persona, as well as the aggregate entry in
+`ALL_PERSONAS.json`, already exposes the read toggle so the tool appears in the
+Persona Tools tab; write access remains opt-in for installations that are
+comfortable with automated edits.
 
 ## Usage
 

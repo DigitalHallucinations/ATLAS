@@ -61,7 +61,8 @@ json
           "enabled": true,
           "time_zone": "UTC",
           "communication_style": "Professional",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -172,7 +173,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": ""
+          "access_to_calendar": "",
+          "calendar_write_enabled": "False"
         },
         "therapist": {
           "enabled": false,
@@ -275,7 +277,8 @@ json
           "enabled": true,
           "time_zone": "UTC",
           "communication_style": "Professional",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -378,7 +381,8 @@ json
           "enabled": true,
           "time_zone": "UTC",
           "communication_style": "Professional",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -480,7 +484,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -584,7 +589,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": ""
+          "access_to_calendar": "",
+          "calendar_write_enabled": "False"
         },
         "therapist": {
           "enabled": false,
@@ -687,7 +693,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": ""
+          "access_to_calendar": "",
+          "calendar_write_enabled": "False"
         },
         "therapist": {
           "enabled": false,
@@ -790,7 +797,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -893,7 +901,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -996,7 +1005,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": ""
+          "access_to_calendar": "",
+          "calendar_write_enabled": "False"
         },
         "therapist": {
           "enabled": false,
@@ -1099,7 +1109,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -1203,7 +1214,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -1305,7 +1317,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -1410,7 +1423,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -1514,7 +1528,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -1617,7 +1632,8 @@ json
           "enabled": false,
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": false
+          "access_to_calendar": false,
+          "calendar_write_enabled": false
         },
         "therapist": {
           "enabled": false,
@@ -1721,7 +1737,8 @@ json
           "enabled": "False",
           "time_zone": "",
           "communication_style": "",
-          "access_to_calendar": ""
+          "access_to_calendar": "",
+          "calendar_write_enabled": "False"
         },
         "therapist": {
           "enabled": "False",

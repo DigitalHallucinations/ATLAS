@@ -114,6 +114,11 @@ class PersonaTypeTab:
             if sw.get_active() != value:
                 sw.set_active(value)
 
+    def _bool_from_state(self, value):
+        if isinstance(value, str):
+            return value.lower() == 'true'
+        return bool(value)
+
     def _page_label_text(self, page_widget: Gtk.Widget) -> str:
         """Return the text of the tab label for a given page widget."""
         label_widget = self.sub_notebook.get_tab_label(page_widget)
@@ -420,9 +425,33 @@ class PersonaTypeTab:
     def on_personal_assistant_switch_toggled(self, switch, _gparam):
         self._process_toggle(
             switch,
-            lambda: self.general_tab.set_personal_assistant_enabled(switch.get_active()),
+            lambda: self.general_tab.set_personal_assistant_enabled(
+                switch.get_active(),
+                self.get_personal_assistant_options() if switch.get_active() else None,
+            ),
             update_tabs=True,
         )
+
+    def _persist_personal_assistant_options(self):
+        enabled = self.personal_assistant_switch.get_active()
+        extras = self.get_personal_assistant_options() if enabled else None
+        self.general_tab.set_personal_assistant_enabled(enabled, extras)
+        self.refresh_from_persona()
+
+    def on_personal_assistant_calendar_toggled(self, switch, _gparam):
+        read_active = switch.get_active()
+        if hasattr(self, 'personal_assistant_calendar_write_switch'):
+            self.personal_assistant_calendar_write_switch.set_sensitive(read_active)
+            if not read_active and self.personal_assistant_calendar_write_switch.get_active():
+                self._set_switch_active(self.personal_assistant_calendar_write_switch, False)
+        self._persist_personal_assistant_options()
+
+    def on_personal_assistant_calendar_write_toggled(self, switch, _gparam):
+        if not self.personal_assistant_calendar_switch.get_active():
+            if switch.get_active():
+                self._set_switch_active(switch, False)
+            return
+        self._persist_personal_assistant_options()
 
     def on_therapist_switch_toggled(self, switch, _gparam):
         self._process_toggle(
@@ -516,6 +545,15 @@ class PersonaTypeTab:
             self.language_entry.set_text(language.get('target_language', 'Spanish'))
         if hasattr(self, 'proficiency_combo'):
             self._set_combo_active(self.proficiency_combo, language.get('proficiency_level', 'Beginner'))
+
+        personal_assistant = self.persona_type.get('personal_assistant', {})
+        read_enabled = self._bool_from_state(personal_assistant.get('access_to_calendar'))
+        write_enabled = self._bool_from_state(personal_assistant.get('calendar_write_enabled')) and read_enabled
+        if hasattr(self, 'personal_assistant_calendar_switch'):
+            self._set_switch_active(self.personal_assistant_calendar_switch, read_enabled)
+        if hasattr(self, 'personal_assistant_calendar_write_switch'):
+            self._set_switch_active(self.personal_assistant_calendar_write_switch, write_enabled)
+            self.personal_assistant_calendar_write_switch.set_sensitive(read_enabled)
 
     def _set_combo_active(self, combo: Gtk.ComboBoxText, text: Optional[str]):
         if combo is None or text is None:
@@ -718,10 +756,49 @@ class PersonaTypeTab:
         )
 
     def create_personal_assistant_tab(self):
-        return self._simple_info_tab(
-            "No additional settings for Personal Assistant.",
-            "Helps with organization, notes, and reminders."
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+
+        description = Gtk.Label(
+            label="Control how the persona uses the Debian 12 calendar tool. "
+                  "Read access lets the assistant review events; write access "
+                  "also enables create, update, and delete operations."
         )
+        description.set_wrap(True)
+        description.set_xalign(0.0)
+        box.append(description)
+
+        persona_state = self.persona_type.get('personal_assistant', {})
+        read_enabled = self._bool_from_state(persona_state.get('access_to_calendar'))
+        write_enabled = self._bool_from_state(persona_state.get('calendar_write_enabled'))
+
+        self.personal_assistant_calendar_switch = self._switch(
+            active=read_enabled,
+            tooltip="Allow the persona to read events from configured calendars.",
+            on_toggle=self.on_personal_assistant_calendar_toggled,
+        )
+        box.append(self._row(
+            "Calendar Read Access",
+            self.personal_assistant_calendar_switch,
+            "Permit the persona to list and inspect calendar events.",
+        ))
+
+        self.personal_assistant_calendar_write_switch = self._switch(
+            active=write_enabled and read_enabled,
+            tooltip="Allow the persona to create, update, and delete calendar events.",
+            on_toggle=self.on_personal_assistant_calendar_write_toggled,
+        )
+        self.personal_assistant_calendar_write_switch.set_sensitive(read_enabled)
+        box.append(self._row(
+            "Calendar Write Access",
+            self.personal_assistant_calendar_write_switch,
+            "Enable event creation, updates, and deletions when read access is on.",
+        ))
+
+        return box
 
     def create_therapist_tab(self):
         return self._simple_info_tab(
@@ -786,6 +863,7 @@ class PersonaTypeTab:
             'educational_persona': {'enabled': self.get_educational_persona()},
             'fitness_persona': {'enabled': self.get_fitness_persona()},
             'language_instructor': {'enabled': self.get_language_instructor()},
+            'personal_assistant': {'enabled': self.get_personal_assistant_enabled()},
             # Add other persona types here if you later add options to them.
         }
 
@@ -795,6 +873,8 @@ class PersonaTypeTab:
             type_values['fitness_persona'].update(self.get_fitness_options())
         if type_values['language_instructor']['enabled']:
             type_values['language_instructor'].update(self.get_language_practice_options())
+        if type_values['personal_assistant']['enabled']:
+            type_values['personal_assistant'].update(self.get_personal_assistant_options())
 
         values['type'] = type_values
         return values
@@ -819,6 +899,9 @@ class PersonaTypeTab:
 
     def get_language_instructor(self):
         return self.language_practice_switch.get_active()
+
+    def get_personal_assistant_enabled(self):
+        return self.personal_assistant_switch.get_active()
 
     def get_educational_options(self):
         options = {}
@@ -859,3 +942,20 @@ class PersonaTypeTab:
         else:
             options['proficiency_level'] = 'Beginner'
         return options
+
+    def get_personal_assistant_options(self):
+        persona_state = self.persona_type.get('personal_assistant', {})
+        if hasattr(self, 'personal_assistant_calendar_switch'):
+            access = self.personal_assistant_calendar_switch.get_active()
+        else:
+            access = self._bool_from_state(persona_state.get('access_to_calendar'))
+        if hasattr(self, 'personal_assistant_calendar_write_switch'):
+            write = self.personal_assistant_calendar_write_switch.get_active()
+        else:
+            write = self._bool_from_state(persona_state.get('calendar_write_enabled'))
+        if not access:
+            write = False
+        return {
+            'access_to_calendar': bool(access),
+            'calendar_write_enabled': bool(write),
+        }
