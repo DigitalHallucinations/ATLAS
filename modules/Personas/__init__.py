@@ -19,6 +19,7 @@ from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional,
 
 from jsonschema import Draft202012Validator, exceptions as jsonschema_exceptions
 
+from modules.logging.audit import PersonaAuditLogger, get_persona_audit_logger
 from modules.logging.logger import setup_logger
 
 try:  # ConfigManager is heavy but required for accurate path resolution.
@@ -378,11 +379,20 @@ def load_persona_definition(
     return persona_entry
 
 
+def _extract_allowed_tools(candidate: Optional[Mapping[str, Any]]) -> List[str]:
+    if not isinstance(candidate, Mapping):
+        return []
+    raw_tools = candidate.get("allowed_tools")
+    return normalize_allowed_tools(raw_tools or [])
+
+
 def persist_persona_definition(
     persona_name: str,
     persona: Mapping[str, Any],
     *,
     config_manager=None,
+    rationale: str = "Persona update",
+    audit_logger: Optional[PersonaAuditLogger] = None,
 ) -> None:
     """Write ``persona`` back to disk preserving the schema wrapper."""
 
@@ -390,10 +400,35 @@ def persist_persona_definition(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     payload = {"persona": [persona]}
+
+    previous_tools: List[str] = []
+    audit = audit_logger or get_persona_audit_logger()
+    try:
+        existing = load_persona_definition(persona_name, config_manager=config_manager)
+    except PersonaValidationError:
+        existing = None
+    except Exception:  # pragma: no cover - defensive logging for audit lookup
+        existing = None
+        logger.warning("Failed to load existing persona for audit logging", exc_info=True)
+    else:
+        previous_tools = _extract_allowed_tools(existing)
+
+    new_tools = _extract_allowed_tools(persona)
     try:
         path.write_text(json.dumps(payload, indent=4), encoding="utf-8")
     except OSError:  # pragma: no cover - filesystem issues are logged for visibility
         logger.exception("Failed to persist persona '%s' to %s", persona_name, path)
+    else:
+        if audit is not None:
+            try:
+                audit.record_change(
+                    persona_name,
+                    previous_tools,
+                    new_tools,
+                    rationale=rationale,
+                )
+            except Exception:  # pragma: no cover - audit logging should not block persistence
+                logger.warning("Failed to record persona audit event", exc_info=True)
 
 
 def build_tool_state(

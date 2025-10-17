@@ -5,12 +5,14 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib
 
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from .General_Tab.general_tab import GeneralTab
 from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
 from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css
+from modules.logging.audit import PersonaAuditEntry, get_persona_audit_logger
 
 
 class PersonaManagement:
@@ -39,6 +41,13 @@ class PersonaManagement:
         self.tool_rows: Dict[str, Dict[str, Any]] = {}
         self._tool_order: List[str] = []
         self.tool_list_box: Optional[Gtk.ListBox] = None
+        self.history_list_box: Optional[Gtk.ListBox] = None
+        self._history_persona_name: Optional[str] = None
+        self._history_page_size: int = 20
+        self._history_offset: int = 0
+        self._history_total: int = 0
+        self._history_load_more_button: Optional[Gtk.Button] = None
+        self._history_placeholder: Optional[Gtk.Widget] = None
 
     # --------------------------- Helpers ---------------------------
 
@@ -314,6 +323,10 @@ class PersonaManagement:
         tools_box = self.create_tools_tab(persona_state)
         stack.add_titled(tools_box, "tools", "Tools")
 
+        history_box = self.create_history_tab(persona_state)
+        history_box.set_tooltip_text("Review persona change history for audit purposes.")
+        stack.add_titled(history_box, "history", "History")
+
         # Save Button at the bottom
         save_button = Gtk.Button(label="Save")
         save_button.set_tooltip_text("Save all changes to this persona.")
@@ -403,6 +416,169 @@ class PersonaManagement:
         speech_voice_box.append(voice_box)
 
         return speech_voice_box
+
+    def _format_timestamp(self, iso_timestamp: str) -> str:
+        if not iso_timestamp:
+            return "Unknown time"
+
+        text = str(iso_timestamp)
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+
+        try:
+            moment = datetime.fromisoformat(text)
+        except ValueError:
+            return iso_timestamp
+
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        else:
+            moment = moment.astimezone(timezone.utc)
+
+        return moment.strftime("%Y-%m-%d %H:%M UTC")
+
+    def _format_tool_list(self, tools: List[str]) -> str:
+        if not tools:
+            return "none"
+        return ", ".join(tools)
+
+    def _format_tool_change(self, old_tools: List[str], new_tools: List[str]) -> str:
+        return f"Tools: {self._format_tool_list(old_tools)} → {self._format_tool_list(new_tools)}"
+
+    def _format_rationale(self, rationale: str) -> str:
+        text = (rationale or "").strip()
+        if not text:
+            return "Rationale: Not provided."
+        return f"Rationale: {text}"
+
+    def _format_history_entry(self, entry: PersonaAuditEntry) -> str:
+        timestamp = self._format_timestamp(entry.timestamp)
+        username = entry.username or "unknown"
+        return f"{timestamp} — {username}"
+
+    def _build_history_row(self, entry: PersonaAuditEntry) -> Gtk.Widget:
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        summary_label = Gtk.Label(label=self._format_history_entry(entry))
+        summary_label.set_xalign(0.0)
+        container.append(summary_label)
+
+        tools_label = Gtk.Label(label=self._format_tool_change(entry.old_tools, entry.new_tools))
+        tools_label.set_xalign(0.0)
+        container.append(tools_label)
+
+        rationale_label = Gtk.Label(label=self._format_rationale(entry.rationale))
+        rationale_label.set_xalign(0.0)
+        container.append(rationale_label)
+
+        row = Gtk.ListBoxRow()
+        setter = getattr(row, "set_child", None)
+        if callable(setter):
+            setter(container)
+        else:  # pragma: no cover - GTK stubs without set_child
+            row.children = [container]
+        return row
+
+    def _load_history_page(self, *, reset: bool = False) -> None:
+        persona_name = self._history_persona_name
+        list_box = self.history_list_box
+        if not persona_name or list_box is None:
+            return
+
+        if reset:
+            existing_children = list(getattr(list_box, "children", []))
+            for child in existing_children:
+                try:
+                    list_box.remove(child)
+                except Exception:  # pragma: no cover - stub fallback
+                    continue
+            self._history_offset = 0
+            self._history_total = 0
+            self._history_placeholder = None
+
+        try:
+            logger = get_persona_audit_logger()
+            entries, total = logger.get_history(
+                persona_name=persona_name,
+                offset=self._history_offset,
+                limit=self._history_page_size,
+            )
+        except Exception:
+            self.ATLAS.show_persona_message(
+                "error",
+                "Unable to load persona change history.",
+            )
+            return
+
+        self._history_total = total
+
+        if reset and not entries:
+            placeholder = Gtk.Label(label="No persona changes recorded yet.")
+            placeholder.set_xalign(0.0)
+            list_box.append(placeholder)
+            self._history_placeholder = placeholder
+        else:
+            if self._history_placeholder is not None:
+                try:
+                    list_box.remove(self._history_placeholder)
+                except Exception:  # pragma: no cover - stub fallback
+                    pass
+                self._history_placeholder = None
+
+            for entry in entries:
+                row = self._build_history_row(entry)
+                list_box.append(row)
+
+            self._history_offset += len(entries)
+
+        has_more = self._history_offset < self._history_total
+        if self._history_load_more_button is not None:
+            self._history_load_more_button.set_visible(has_more)
+            self._history_load_more_button.set_sensitive(has_more)
+
+    def create_history_tab(self, persona_state) -> Gtk.Box:
+        persona_name = ""
+        if isinstance(persona_state, dict):
+            general = persona_state.get('general')
+            if isinstance(general, dict):
+                persona_name = str(general.get('name') or "")
+            if not persona_name:
+                persona_name = str(persona_state.get('original_name') or "")
+
+        history_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        history_container.set_margin_top(10)
+        history_container.set_margin_bottom(10)
+        history_container.set_margin_start(10)
+        history_container.set_margin_end(10)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_hexpand(True)
+        scroll.set_vexpand(True)
+        history_container.append(scroll)
+
+        self.history_list_box = Gtk.ListBox()
+        self.history_list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        scroll.set_child(self.history_list_box)
+
+        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        controls.set_valign(Gtk.Align.START)
+        load_more_btn = Gtk.Button(label="Load More")
+        load_more_btn.set_tooltip_text("Load older persona change events.")
+        load_more_btn.connect("clicked", lambda _btn: self._load_history_page())
+        controls.append(load_more_btn)
+        history_container.append(controls)
+
+        self._history_persona_name = persona_name
+        self._history_offset = 0
+        self._history_total = 0
+        self._history_page_size = 20
+        self._history_load_more_button = load_more_btn
+        self._history_placeholder = None
+
+        self._load_history_page(reset=True)
+
+        return history_container
 
     def _format_tool_hint(self, metadata: Dict[str, Any]) -> str:
         safety = str(metadata.get('safety_level') or 'unspecified').strip()
