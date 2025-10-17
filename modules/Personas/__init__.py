@@ -655,6 +655,22 @@ def load_persona_definition(
         raise
 
     persona_entry = dict(persona_entry)
+    persona_type = persona_entry.get("type")
+    if isinstance(persona_type, Mapping):
+        persona_type = dict(persona_type)
+        personal_assistant = persona_type.get("personal_assistant")
+        if isinstance(personal_assistant, Mapping):
+            personal_assistant = dict(personal_assistant)
+            if "calendar_write_enabled" not in personal_assistant:
+                access_value = personal_assistant.get("access_to_calendar")
+                if isinstance(access_value, str):
+                    personal_assistant["calendar_write_enabled"] = "False"
+                elif isinstance(access_value, bool):
+                    personal_assistant["calendar_write_enabled"] = False
+                else:
+                    personal_assistant["calendar_write_enabled"] = False
+            persona_type["personal_assistant"] = personal_assistant
+        persona_entry["type"] = persona_type
     persona_entry["allowed_tools"] = normalize_allowed_tools(
         persona_entry.get("allowed_tools"), metadata_order=order_list
     )

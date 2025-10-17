@@ -65,7 +65,25 @@ from gi.repository import Gtk
 if not hasattr(Gtk.Align, "FILL"):
     setattr(Gtk.Align, "FILL", 0)
 
+if not hasattr(Gtk, "Notebook"):
+    Gtk.Notebook = type("Notebook", (_chat_helper._DummyWidget,), {})
+if not hasattr(Gtk.Notebook, "set_tab_pos"):
+    Gtk.Notebook.set_tab_pos = lambda self, *args, **kwargs: None
+if not hasattr(Gtk.Notebook, "set_scrollable"):
+    Gtk.Notebook.set_scrollable = lambda self, *args, **kwargs: None
+if not hasattr(Gtk.Notebook, "set_tooltip_text"):
+    Gtk.Notebook.set_tooltip_text = lambda self, *args, **kwargs: None
+if not hasattr(Gtk.Notebook, "connect"):
+    Gtk.Notebook.connect = lambda self, *args, **kwargs: None
+if not hasattr(Gtk.Notebook, "show"):
+    Gtk.Notebook.show = lambda self, *args, **kwargs: None
+if not hasattr(Gtk, "PositionType"):
+    Gtk.PositionType = types.SimpleNamespace(TOP=0)
+elif not hasattr(Gtk.PositionType, "TOP"):
+    Gtk.PositionType.TOP = 0
+
 from GTKUI.Persona_manager.persona_management import PersonaManagement
+from GTKUI.Persona_manager.Persona_Type_Tab.persona_type_tab import PersonaTypeTab
 
 
 
@@ -328,3 +346,60 @@ def test_import_persona_bundle_triggers_backend(tmp_path):
     assert atlas.import_payload["bundle_bytes"] == b"bundle-bytes"
     assert atlas.import_payload["signing_key"] == "import-secret"
     assert any("Missing tools pruned" in message for _role, message in atlas.messages)
+
+
+def test_personal_assistant_calendar_write_toggle_updates_state():
+    persona_state = {
+        'flags': {
+            'sys_info_enabled': False,
+            'user_profile_enabled': False,
+            'type': {
+                'personal_assistant': {
+                    'enabled': True,
+                    'access_to_calendar': True,
+                    'calendar_write_enabled': False,
+                }
+            },
+        }
+    }
+
+    class _GeneralPersonaStub:
+        def __init__(self, state: Dict[str, Any]) -> None:
+            self.state = state
+            self.calls: list[tuple[bool, Optional[Dict[str, Any]]]] = []
+
+        def set_personal_assistant_enabled(
+            self,
+            enabled: bool,
+            extras: Optional[Dict[str, Any]] = None,
+        ) -> bool:
+            self.calls.append((enabled, extras))
+            flags = self.state.setdefault('flags', {})
+            persona_type = flags.setdefault('type', {})
+            entry = persona_type.setdefault('personal_assistant', {})
+            entry['enabled'] = enabled
+            if extras:
+                entry['access_to_calendar'] = extras.get('access_to_calendar', False)
+                entry['calendar_write_enabled'] = extras.get('calendar_write_enabled', False)
+            return True
+
+    general_stub = _GeneralPersonaStub(persona_state)
+    tab = PersonaTypeTab(persona_state, general_stub)
+
+    assert tab.personal_assistant_calendar_switch.get_active() is True
+    assert tab.personal_assistant_calendar_write_switch.get_active() is False
+
+    tab.personal_assistant_calendar_write_switch.set_active(True)
+    tab.on_personal_assistant_calendar_write_toggled(tab.personal_assistant_calendar_write_switch, None)
+
+    assert general_stub.calls[-1][0] is True
+    assert general_stub.calls[-1][1]['calendar_write_enabled'] is True
+    assert persona_state['flags']['type']['personal_assistant']['calendar_write_enabled'] is True
+
+    tab.personal_assistant_calendar_switch.set_active(False)
+    tab.on_personal_assistant_calendar_toggled(tab.personal_assistant_calendar_switch, None)
+
+    latest_extras = general_stub.calls[-1][1]
+    assert latest_extras['access_to_calendar'] is False
+    assert latest_extras['calendar_write_enabled'] is False
+    assert tab.personal_assistant_calendar_write_switch.get_active() is False

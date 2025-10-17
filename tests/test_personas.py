@@ -36,6 +36,13 @@ if "jsonschema" not in sys.modules:  # pragma: no cover - lightweight stub for v
     jsonschema_stub.exceptions = types.SimpleNamespace(SchemaError=_SchemaError)
     sys.modules["jsonschema"] = jsonschema_stub
 
+if "dotenv" not in sys.modules:  # pragma: no cover - avoid optional dependency
+    dotenv_stub = types.ModuleType("dotenv")
+    dotenv_stub.load_dotenv = lambda *args, **kwargs: None
+    dotenv_stub.set_key = lambda *args, **kwargs: None
+    dotenv_stub.find_dotenv = lambda *args, **kwargs: ""
+    sys.modules["dotenv"] = dotenv_stub
+
 from modules.Personas import (
     build_skill_state,
     build_tool_state,
@@ -44,6 +51,7 @@ from modules.Personas import (
     load_tool_metadata,
     normalize_allowed_skills,
 )
+from ATLAS.persona_manager import PersonaManager
 
 
 class _StubConfigManager:
@@ -408,3 +416,83 @@ def test_build_skill_state_enables_owned_skills(persona_fixture: tuple[_StubConf
         shared_entries[0]["metadata"]["instruction_prompt"]
         == "Shared skill instructions."
     )
+
+
+def test_load_persona_definition_adds_calendar_write_flag(
+    persona_fixture: tuple[_StubConfigManager, Path]
+) -> None:
+    config, root = persona_fixture
+    persona_payload = {
+        "persona": [
+            {
+                "name": "Helper",
+                "meaning": "",
+                "content": {
+                    "start_locked": "start",
+                    "editable_content": "body",
+                    "end_locked": "end",
+                },
+                "type": {
+                    "personal_assistant": {
+                        "enabled": "True",
+                        "access_to_calendar": "True",
+                    }
+                },
+            }
+        ]
+    }
+    persona_file = root / "modules" / "Personas" / "Helper" / "Persona" / "Helper.json"
+    _write_json(persona_file, persona_payload)
+
+    order, lookup = load_tool_metadata(config_manager=config)
+    persona = load_persona_definition(
+        "Helper",
+        config_manager=config,
+        metadata_order=order,
+        metadata_lookup=lookup,
+    )
+
+    personal_assistant = persona.get("type", {}).get("personal_assistant", {})
+    assert personal_assistant.get("calendar_write_enabled") == "False"
+
+
+def test_persona_state_surfaces_calendar_write_flag() -> None:
+    manager = PersonaManager.__new__(PersonaManager)
+    manager.PERSONA_TYPE_KEYS = PersonaManager.PERSONA_TYPE_KEYS
+    manager._build_locked_sections = lambda _persona: {
+        'start_locked': '',
+        'end_locked': '',
+    }
+    manager._get_tool_metadata = lambda: ([], {})
+    manager._get_skill_metadata = lambda: ([], {})
+    manager._normalize_string = PersonaManager._normalize_string.__get__(manager)
+    manager._as_bool = PersonaManager._as_bool.__get__(manager)
+    manager.config_manager = None
+    manager.logger = types.SimpleNamespace(error=lambda *args, **kwargs: None)
+
+    persona = {
+        'name': 'Helper',
+        'content': {
+            'start_locked': '',
+            'editable_content': '',
+            'end_locked': '',
+        },
+        'type': {
+            'personal_assistant': {
+                'enabled': 'True',
+                'access_to_calendar': 'True',
+                'calendar_write_enabled': 'True',
+            }
+        },
+    }
+
+    state = manager._build_editor_state(persona)
+    personal_assistant = state['flags']['type']['personal_assistant']
+    assert personal_assistant['calendar_write_enabled'] is True
+    assert personal_assistant['access_to_calendar'] is True
+
+    persona['type']['personal_assistant']['access_to_calendar'] = 'False'
+    state = manager._build_editor_state(persona)
+    personal_assistant = state['flags']['type']['personal_assistant']
+    assert personal_assistant['calendar_write_enabled'] is False
+    assert personal_assistant['access_to_calendar'] is False

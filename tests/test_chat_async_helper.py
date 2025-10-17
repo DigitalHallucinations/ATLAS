@@ -13,6 +13,29 @@ import tests.test_provider_manager  # noqa: F401 - ensure extended GTK stubs
 gi_repository = sys.modules.setdefault("gi.repository", types.ModuleType("gi.repository"))
 
 
+if "pytz" not in sys.modules:  # pragma: no cover - optional dependency shim
+    pytz_stub = types.ModuleType("pytz")
+    pytz_stub.utc = object()
+    pytz_stub.timezone = lambda *args, **kwargs: object()
+    sys.modules["pytz"] = pytz_stub
+
+if "aiohttp" not in sys.modules:  # pragma: no cover - optional dependency shim
+    aiohttp_stub = types.ModuleType("aiohttp")
+
+    class _ClientSession:
+        async def __aenter__(self):  # pragma: no cover - async context helper
+            return self
+
+        async def __aexit__(self, *args, **kwargs):  # pragma: no cover
+            return None
+
+        async def get(self, *args, **kwargs):  # pragma: no cover - placeholder
+            raise RuntimeError("aiohttp stub does not support network access")
+
+    aiohttp_stub.ClientSession = _ClientSession
+    sys.modules["aiohttp"] = aiohttp_stub
+
+
 class _DummyWidget:
     def __init__(self, *args, **kwargs):  # pragma: no cover - helper baseline
         self.children = []
@@ -145,6 +168,35 @@ for widget_name in [
     "CheckButton",
 ]:
     _ensure_widget(Gtk, widget_name)
+
+
+if not hasattr(Gtk, "Switch"):
+    class _Switch(_DummyWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._active = False
+            self._handlers: dict[int, object] = {}
+            self._next_handler_id = 1
+
+        def set_active(self, value: bool):  # pragma: no cover - setter helper
+            self._active = bool(value)
+
+        def get_active(self) -> bool:  # pragma: no cover - getter helper
+            return self._active
+
+        def connect(self, _signal: str, callback):  # pragma: no cover - signal helper
+            handler_id = self._next_handler_id
+            self._next_handler_id += 1
+            self._handlers[handler_id] = callback
+            return handler_id
+
+        def handler_block(self, _handler_id: int):  # pragma: no cover - signal helper
+            return None
+
+        def handler_unblock(self, _handler_id: int):  # pragma: no cover - signal helper
+            return None
+
+    Gtk.Switch = _Switch
 
 
 class _ComboBoxText(_DummyWidget):
