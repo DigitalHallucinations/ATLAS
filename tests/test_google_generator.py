@@ -70,6 +70,38 @@ if "dotenv" not in sys.modules:
     dotenv_stub.find_dotenv = lambda *_args, **_kwargs: ""
     sys.modules["dotenv"] = dotenv_stub
 
+if "jsonschema" not in sys.modules:
+    class _DummyValidationError(Exception):
+        def __init__(self, message, path=None):
+            super().__init__(message)
+            self.message = message
+            self.path = tuple(path or [])
+            self.absolute_path = self.path
+
+    class _DummyValidator:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def iter_errors(self, *_args, **_kwargs):
+            return iter(())
+
+        def validate(self, *_args, **_kwargs):
+            return True
+
+    jsonschema_stub = types.ModuleType("jsonschema")
+    jsonschema_stub.ValidationError = _DummyValidationError
+    jsonschema_stub.Draft7Validator = _DummyValidator
+    sys.modules["jsonschema"] = jsonschema_stub
+
+if "pytz" not in sys.modules:
+    import datetime
+
+    pytz_stub = types.SimpleNamespace(
+        timezone=lambda *_args, **_kwargs: datetime.timezone.utc,
+        utc=datetime.timezone.utc,
+    )
+    sys.modules["pytz"] = pytz_stub
+
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("GOOGLE_API_KEY", "test-key")
 
@@ -214,6 +246,54 @@ def test_google_generator_streams_function_call(monkeypatch, use_tool_stub):
     assert tool_config["function_calling_config"]["allowed_function_names"] == [
         "tool_action"
     ]
+
+
+def test_google_generator_respects_provided_function_subset(monkeypatch, use_tool_stub):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    class DummyResponse:
+        def __init__(self):
+            self.text = "done"
+            self.candidates = []
+
+    class DummyModel:
+        def __init__(self, model_name):
+            self.model_name = model_name
+            self.kwargs = None
+
+        def generate_content(self, contents, **kwargs):
+            self.kwargs = kwargs
+            return DummyResponse()
+
+    dummy_model = DummyModel("gemini-1.5-pro-latest")
+
+    monkeypatch.setattr(genai, "GenerativeModel", lambda model_name: dummy_model)
+
+    monkeypatch.setattr(
+        google_module,
+        "load_function_map_from_current_persona",
+        lambda *_args, **_kwargs: {"tool_action": object(), "unused": object()},
+    )
+
+    generator = google_module.GoogleGeminiGenerator(DummyConfig())
+
+    async def exercise():
+        return await generator.generate_response(
+            messages=[{"role": "user", "content": "Hello"}],
+            current_persona={"name": "SubsetPersona"},
+            functions=[{"name": "tool_action", "description": "Do it"}],
+            enable_functions=True,
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "done"
+
+    tools = dummy_model.kwargs["tools"]
+    assert tools is not None
+    declarations = list(tools[0].function_declarations)
+    assert [decl.name for decl in declarations] == ["tool_action"]
 
 
 def test_google_generator_defaults_json_mime_when_schema_present(monkeypatch):

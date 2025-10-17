@@ -8,10 +8,11 @@ skills can use to share cached state between steps.
 from __future__ import annotations
 
 import asyncio
+import copy
 import inspect
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, Mapping, Optional
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 from modules.Tools.tool_event_system import event_system
 from modules.logging.logger import setup_logger
@@ -168,6 +169,55 @@ def _resolve_required_tools(
         raise RuntimeError("Tool manager does not expose persona resolution API") from exc
 
 
+def _resolve_required_tool_specs(
+    required_tools: Sequence[str],
+    *,
+    persona: Optional[Mapping[str, Any]],
+    tool_manager: Any,
+) -> Sequence[Mapping[str, Any]]:
+    if not required_tools:
+        return []
+
+    loader = getattr(tool_manager, "load_functions_from_json", None)
+    if not callable(loader) or not persona:
+        return []
+
+    try:
+        payload = loader(persona, config_manager=None)
+    except TypeError:
+        payload = loader(persona)
+    except Exception:  # pragma: no cover - defensive guard
+        logger.exception("Failed to resolve tool specifications from manifest.")
+        return []
+
+    entries: Iterable[Any]
+    if isinstance(payload, Mapping):
+        candidates = payload.get("functions") or payload.get("items")
+        if isinstance(candidates, Iterable):
+            entries = candidates
+        else:
+            entries = payload.values()
+    elif isinstance(payload, Iterable) and not isinstance(payload, (str, bytes, bytearray)):
+        entries = payload
+    else:
+        return []
+
+    lookup: Dict[str, Mapping[str, Any]] = {}
+    for entry in entries:
+        if isinstance(entry, Mapping):
+            name = entry.get("name")
+            if isinstance(name, str) and name:
+                lookup[name] = entry
+
+    resolved: list[Mapping[str, Any]] = []
+    for tool_name in required_tools:
+        spec = lookup.get(tool_name)
+        if spec is not None:
+            resolved.append(copy.deepcopy(spec))
+
+    return resolved
+
+
 async def use_skill(
     skill: Any,
     *,
@@ -245,6 +295,14 @@ async def use_skill(
     available_tools = dict(
         _resolve_required_tools(persona=context.persona, tool_manager=tool_manager)
         or {}
+    )
+
+    metadata["tool_specs"] = list(
+        _resolve_required_tool_specs(
+            required_tools,
+            persona=context.persona,
+            tool_manager=tool_manager,
+        )
     )
 
     missing_tools = [tool for tool in required_tools if tool not in available_tools]
