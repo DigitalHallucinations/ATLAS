@@ -796,6 +796,7 @@ class ATLAS:
         provider: Optional[Dict[str, Any]] = None,
         speech: Optional[Dict[str, Any]] = None,
         tools: Optional[List[str]] = None,
+        skills: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Persist persona updates captured from the editor views."""
 
@@ -806,6 +807,7 @@ class ATLAS:
             provider,
             speech,
             tools,
+            skills,
         )
 
     def show_persona_message(self, role: str, message: str) -> None:

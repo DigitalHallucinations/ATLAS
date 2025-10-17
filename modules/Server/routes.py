@@ -15,6 +15,8 @@ from modules.Personas import (
     load_persona_definition,
     load_tool_metadata,
     normalize_allowed_tools,
+    load_skill_catalog,
+    normalize_allowed_skills,
     persist_persona_definition,
     export_persona_bundle_bytes,
     import_persona_bundle_bytes,
@@ -250,6 +252,17 @@ class AtlasServer:
                 rationale=str(payload.get("rationale") or "Server route persona update"),
             )
 
+        if path.startswith("/personas/") and path.endswith("/skills"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            persona_name = components[1]
+            return self.update_persona_skills(
+                persona_name,
+                skills=payload.get("skills"),
+                rationale=str(payload.get("rationale") or "Server route persona update"),
+            )
+
         if path.startswith("/personas/") and path.endswith("/export"):
             components = [part for part in path.strip("/").split("/") if part]
             if len(components) != 3:
@@ -321,11 +334,20 @@ class AtlasServer:
         existing_tools = persona.get("allowed_tools") or []
         known_tools.update(str(name) for name in existing_tools if str(name))
 
+        skill_order, skill_lookup = load_skill_catalog(
+            config_manager=self._config_manager
+        )
+        known_skills: set[str] = {str(name) for name in skill_order}
+        known_skills.update(str(name) for name in skill_lookup.keys())
+        existing_skills = persona.get("allowed_skills") or []
+        known_skills.update(str(name) for name in existing_skills if str(name))
+
         try:
             _validate_persona_payload(
                 {"persona": [persona_for_validation]},
                 persona_name=persona_name,
                 tool_ids=known_tools,
+                skill_ids=known_skills,
                 config_manager=self._config_manager,
             )
         except PersonaValidationError as exc:
@@ -356,6 +378,95 @@ class AtlasServer:
 
     @staticmethod
     def _normalise_tool_payload(raw: Optional[Any]) -> List[str]:
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            return [raw]
+        if isinstance(raw, Mapping):
+            return list(raw.values())
+        if isinstance(raw, Iterable) and not isinstance(raw, (bytes, bytearray)):
+            return list(raw)
+        return [str(raw)]
+
+    def update_persona_skills(
+        self,
+        persona_name: str,
+        *,
+        skills: Optional[Any],
+        rationale: str = "Server route persona update",
+    ) -> Dict[str, Any]:
+        """Update the allowed skills for a persona via server APIs."""
+
+        if not persona_name:
+            raise ValueError("Persona name is required")
+
+        persona = load_persona_definition(
+            persona_name,
+            config_manager=self._config_manager,
+        )
+        if persona is None:
+            raise ValueError(f"Persona '{persona_name}' could not be loaded.")
+
+        skill_order, skill_lookup = load_skill_catalog(
+            config_manager=self._config_manager
+        )
+        normalized_skills = normalize_allowed_skills(
+            self._normalise_skill_payload(skills),
+            metadata_order=skill_order,
+        )
+
+        persona_for_validation = dict(persona)
+        persona_for_validation["allowed_skills"] = normalized_skills
+
+        known_skills: set[str] = {str(name) for name in skill_order}
+        known_skills.update(str(name) for name in skill_lookup.keys())
+        existing_skills = persona.get('allowed_skills') or []
+        known_skills.update(str(name) for name in existing_skills if str(name))
+
+        tool_order, tool_lookup = load_tool_metadata(
+            config_manager=self._config_manager
+        )
+        known_tools: set[str] = {str(name) for name in tool_order}
+        known_tools.update(str(name) for name in tool_lookup.keys())
+        existing_tools = persona.get('allowed_tools') or []
+        known_tools.update(str(name) for name in existing_tools if str(name))
+
+        try:
+            _validate_persona_payload(
+                {"persona": [persona_for_validation]},
+                persona_name=persona_name,
+                tool_ids=known_tools,
+                skill_ids=known_skills,
+                config_manager=self._config_manager,
+            )
+        except PersonaValidationError as exc:
+            message = str(exc)
+            logger.warning(
+                "Rejected persona skill update for '%s': %s",
+                persona_name,
+                message,
+            )
+            return {"success": False, "error": message, "errors": [message]}
+
+        persona["allowed_skills"] = normalized_skills
+
+        persist_persona_definition(
+            persona_name,
+            persona,
+            config_manager=self._config_manager,
+            rationale=rationale,
+        )
+
+        return {
+            "success": True,
+            "persona": {
+                "name": persona.get("name", persona_name),
+                "allowed_skills": normalized_skills,
+            },
+        }
+
+    @staticmethod
+    def _normalise_skill_payload(raw: Optional[Any]) -> List[str]:
         if raw is None:
             return []
         if isinstance(raw, str):

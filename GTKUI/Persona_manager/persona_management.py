@@ -42,6 +42,9 @@ class PersonaManagement:
         self.tool_rows: Dict[str, Dict[str, Any]] = {}
         self._tool_order: List[str] = []
         self.tool_list_box: Optional[Gtk.ListBox] = None
+        self.skill_rows: Dict[str, Dict[str, Any]] = {}
+        self._skill_order: List[str] = []
+        self.skill_list_box: Optional[Gtk.ListBox] = None
         self.history_list_box: Optional[Gtk.ListBox] = None
         self._history_persona_name: Optional[str] = None
         self._history_page_size: int = 20
@@ -631,6 +634,9 @@ class PersonaManagement:
         self.tool_rows = {}
         self._tool_order = []
         self.tool_list_box = None
+        self.skill_rows = {}
+        self._skill_order = []
+        self.skill_list_box = None
         settings_window.set_tooltip_text("Configure the persona's details, provider/model, and speech options.")
 
         # Create a vertical box container for the settings.
@@ -718,6 +724,9 @@ class PersonaManagement:
 
         tools_box = self.create_tools_tab(persona_state)
         stack.add_titled(tools_box, "tools", "Tools")
+
+        skills_box = self.create_skills_tab(persona_state)
+        stack.add_titled(skills_box, "skills", "Skills")
 
         analytics_box = self.create_analytics_tab(persona_state)
         analytics_box.set_tooltip_text("Inspect tool usage analytics for this persona.")
@@ -1011,6 +1020,35 @@ class PersonaManagement:
             cost_display = f"{cost_text}/call"
         return f"Safety: {safety or 'Unspecified'} • Cost: {cost_display}"
 
+    def _format_skill_hint(self, metadata: Dict[str, Any]) -> str:
+        persona_owner = str(metadata.get('persona') or '').strip()
+        if persona_owner:
+            persona_display = f"Persona: {persona_owner}"
+        else:
+            persona_display = "Persona: Shared"
+
+        required_tools = metadata.get('required_tools') or []
+        if isinstance(required_tools, list):
+            tools_display = ", ".join(str(tool) for tool in required_tools if str(tool))
+        else:
+            tools_display = str(required_tools)
+        tools_hint = f"Requires tools: {tools_display}" if tools_display else "Requires tools: none"
+
+        required_capabilities = metadata.get('required_capabilities') or []
+        if isinstance(required_capabilities, list):
+            caps_display = ", ".join(str(cap) for cap in required_capabilities if str(cap))
+        else:
+            caps_display = str(required_capabilities)
+        caps_hint = f"Capabilities: {caps_display}" if caps_display else "Capabilities: none"
+
+        notes = str(metadata.get('safety_notes') or '').strip()
+        if notes:
+            hints = [persona_display, tools_hint, caps_hint, notes]
+        else:
+            hints = [persona_display, tools_hint, caps_hint]
+
+        return " • ".join(hints)
+
     def _ensure_tool_row_icons(self, icon_name: str) -> Gtk.Widget:
         try:
             image = Gtk.Image.new_from_icon_name(icon_name)
@@ -1141,6 +1179,130 @@ class PersonaManagement:
 
         return tools_box
 
+    def create_skills_tab(self, persona_state):
+        skills_state = persona_state.get('skills') or {}
+        available = skills_state.get('available') or []
+
+        sorted_entries = sorted(
+            [entry for entry in available if isinstance(entry, dict)],
+            key=lambda entry: entry.get('order', 0),
+        )
+
+        skills_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        skills_box.set_margin_top(10)
+        skills_box.set_margin_bottom(10)
+        skills_box.set_margin_start(10)
+        skills_box.set_margin_end(10)
+        skills_box.set_tooltip_text("Enable or disable skills available to this persona.")
+
+        header = Gtk.Label(label="Select which skills this persona can access.")
+        header.set_xalign(0.0)
+        header.set_wrap(True)
+        header.set_tooltip_text(
+            "Toggle skills to include them in the persona's prompt capabilities."
+        )
+        skills_box.append(header)
+
+        list_box = Gtk.ListBox()
+        list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        list_box.add_css_class("boxed-list")
+        self.skill_list_box = list_box
+
+        for entry in sorted_entries:
+            name = entry.get('name')
+            if not name:
+                continue
+            if name not in self._skill_order:
+                self._skill_order.append(name)
+            metadata = entry.get('metadata') if isinstance(entry, dict) else {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            display_name = metadata.get('name') or name
+            enabled = bool(entry.get('enabled'))
+            policy_disabled = bool(entry.get('disabled'))
+            reason_text = entry.get('disabled_reason')
+            if isinstance(reason_text, str):
+                reason_text = reason_text.strip()
+            else:
+                reason_text = str(reason_text).strip() if reason_text else ""
+
+            row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+            check = Gtk.CheckButton.new_with_label(str(display_name))
+            description = metadata.get('instruction_prompt')
+            tooltip_parts: List[str] = []
+            if isinstance(description, str) and description.strip():
+                tooltip_parts.append(description.strip())
+
+            if policy_disabled:
+                check.set_active(False)
+                check.set_sensitive(False)
+                if not reason_text:
+                    reason_text = f"{display_name} is disabled for this persona."
+                tooltip_parts.append(reason_text)
+            else:
+                check.set_active(enabled)
+                if reason_text:
+                    tooltip_parts.append(reason_text)
+
+            if tooltip_parts:
+                check.set_tooltip_text("\n\n".join(tooltip_parts))
+            controls.append(check)
+
+            badge_widget: Optional[Gtk.Widget] = None
+            if reason_text:
+                badge = Gtk.Label(label=reason_text)
+                badge.set_xalign(0.0)
+                badge.add_css_class("tag")
+                badge.add_css_class("warning")
+                badge.set_tooltip_text(reason_text)
+                controls.append(badge)
+                badge_widget = badge
+
+            button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            up_btn = Gtk.Button()
+            up_btn.set_tooltip_text("Move up")
+            up_btn.set_child(self._ensure_tool_row_icons("go-up-symbolic"))
+            up_btn.connect("clicked", lambda _btn, skill=name: self._move_skill_row(skill, -1))
+            button_box.append(up_btn)
+
+            down_btn = Gtk.Button()
+            down_btn.set_tooltip_text("Move down")
+            down_btn.set_child(self._ensure_tool_row_icons("go-down-symbolic"))
+            down_btn.connect("clicked", lambda _btn, skill=name: self._move_skill_row(skill, 1))
+            button_box.append(down_btn)
+
+            controls.append(button_box)
+            row_box.append(controls)
+
+            hint = Gtk.Label(label=self._format_skill_hint(metadata))
+            hint.set_xalign(0.0)
+            hint.get_style_context().add_class("dim-label")
+            row_box.append(hint)
+
+            list_row = Gtk.ListBoxRow()
+            list_row.set_child(row_box)
+            list_box.append(list_row)
+
+            self.skill_rows[name] = {
+                'row': list_row,
+                'check': check,
+                'up_button': up_btn,
+                'down_button': down_btn,
+                'metadata': metadata,
+                'badge': badge_widget,
+            }
+
+        self._refresh_skill_reorder_controls()
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_child(list_box)
+        skills_box.append(scroller)
+
+        return skills_box
+
     def _refresh_tool_reorder_controls(self):
         total = len(self._tool_order)
         for index, name in enumerate(self._tool_order):
@@ -1184,6 +1346,56 @@ class PersonaManagement:
         allowed: List[str] = []
         for name in self._tool_order:
             info = self.tool_rows.get(name)
+            if not info:
+                continue
+            check = info.get('check')
+            if isinstance(check, Gtk.CheckButton) and check.get_active():
+                allowed.append(name)
+        return allowed
+
+    def _refresh_skill_reorder_controls(self):
+        total = len(self._skill_order)
+        for index, name in enumerate(self._skill_order):
+            info = self.skill_rows.get(name)
+            if not info:
+                continue
+            up_button = info.get('up_button')
+            down_button = info.get('down_button')
+            if isinstance(up_button, Gtk.Button):
+                up_button.set_sensitive(index > 0)
+            if isinstance(down_button, Gtk.Button):
+                down_button.set_sensitive(index < total - 1)
+
+    def _move_skill_row(self, skill_name: str, direction: int):
+        if skill_name not in self._skill_order or not self.skill_list_box:
+            return
+
+        current_index = self._skill_order.index(skill_name)
+        new_index = current_index + direction
+        if new_index < 0 or new_index >= len(self._skill_order):
+            return
+
+        self._skill_order.pop(current_index)
+        self._skill_order.insert(new_index, skill_name)
+
+        info = self.skill_rows.get(skill_name)
+        if not info:
+            return
+
+        row = info.get('row')
+        if not isinstance(row, Gtk.ListBoxRow):
+            return
+
+        self.skill_list_box.remove(row)
+        self.skill_list_box.insert(row, new_index)
+        if hasattr(self.skill_list_box, "invalidate_sort"):
+            self.skill_list_box.invalidate_sort()
+        self._refresh_skill_reorder_controls()
+
+    def _collect_skill_payload(self) -> List[str]:
+        allowed: List[str] = []
+        for name in self._skill_order:
+            info = self.skill_rows.get(name)
             if not info:
                 continue
             check = info.get('check')
@@ -1545,6 +1757,7 @@ class PersonaManagement:
         }
 
         tools_payload = self._collect_tool_payload()
+        skills_payload = self._collect_skill_payload()
 
         result = self.ATLAS.update_persona_from_editor(
             self._current_editor_state.get('original_name'),
@@ -1553,6 +1766,7 @@ class PersonaManagement:
             provider_payload,
             speech_payload,
             tools_payload,
+            skills_payload,
         )
 
         if result.get('success'):

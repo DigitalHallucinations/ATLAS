@@ -76,7 +76,11 @@ Gtk.ListBoxRow = type(
     },
 )
 
-from modules.Personas import PersonaValidationError, persist_persona_definition
+from modules.Personas import (
+    PersonaValidationError,
+    load_persona_definition,
+    persist_persona_definition,
+)
 from modules.logging import audit
 from modules.logging.audit import PersonaAuditLogger
 from modules.Server.routes import AtlasServer
@@ -129,6 +133,12 @@ def _write_tool_metadata(base: Path, tool_names: Iterable[str]) -> None:
     manifest.write_text(json.dumps(entries, indent=2), encoding="utf-8")
 
 
+def _write_skill_metadata(base: Path, skills: Iterable[Dict[str, Any]]) -> None:
+    manifest = base / "modules" / "Skills" / "skills.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps(list(skills), indent=2), encoding="utf-8")
+
+
 @pytest.fixture
 def persona_payload() -> Dict[str, Any]:
     return {
@@ -142,6 +152,7 @@ def persona_payload() -> Dict[str, Any]:
         "provider": "openai",
         "model": "gpt-4",
         "allowed_tools": ["alpha_tool"],
+        "allowed_skills": [],
         "sys_info_enabled": "False",
         "user_profile_enabled": "False",
         "type": {},
@@ -221,6 +232,61 @@ def test_server_route_logs_persona_update(
     assert entry.rationale == "Server update"
 
 
+def test_server_route_updates_persona_skills(
+    tmp_path: Path,
+    persona_payload: Dict[str, Any],
+) -> None:
+    _copy_schema(tmp_path)
+    _write_tool_metadata(tmp_path, ["alpha_tool", "beta_tool"])
+    _write_skill_metadata(
+        tmp_path,
+        [
+            {
+                "name": "shared_skill",
+                "version": "1.0",
+                "instruction_prompt": "Shared instructions",
+                "required_tools": ["alpha_tool"],
+                "required_capabilities": ["analysis"],
+                "safety_notes": "Review output.",
+            },
+            {
+                "name": "atlas_insight",
+                "version": "1.0",
+                "instruction_prompt": "Atlas-only insight",
+                "required_tools": ["beta_tool"],
+                "required_capabilities": ["expertise"],
+                "safety_notes": "Use responsibly.",
+                "persona": "Atlas",
+            },
+        ],
+    )
+    config = _ConfigStub(tmp_path)
+
+    persona_data = dict(persona_payload)
+    persona_data["allowed_skills"] = []
+    _write_persona_file(tmp_path, persona_data)
+
+    server = AtlasServer(config_manager=config)
+    response = server.handle_request(
+        "/personas/Atlas/skills",
+        method="POST",
+        query={
+            "skills": ["shared_skill", "atlas_insight"],
+            "rationale": "Server skill update",
+        },
+    )
+
+    assert response["success"] is True
+    assert response["persona"]["allowed_skills"] == [
+        "atlas_insight",
+        "shared_skill",
+    ]
+
+    persisted = load_persona_definition("Atlas", config_manager=config)
+    assert persisted is not None
+    assert persisted.get("allowed_skills") == ["atlas_insight", "shared_skill"]
+
+
 def test_server_route_rejects_invalid_tool_update(
     tmp_path: Path,
     audit_logger: PersonaAuditLogger,
@@ -233,7 +299,7 @@ def test_server_route_rejects_invalid_tool_update(
 
     _write_persona_file(tmp_path, dict(persona_payload))
 
-    def _fake_validate(payload, *, persona_name: str, tool_ids, config_manager=None):
+    def _fake_validate(payload, *, persona_name: str, tool_ids, skill_ids=None, config_manager=None):
         personas = payload.get("persona") if isinstance(payload, dict) else None
         if not personas:
             return

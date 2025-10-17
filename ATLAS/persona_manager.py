@@ -12,9 +12,12 @@ from modules.Personas import (
     PersonaValidationError,
     _validate_persona_payload,
     build_tool_state as personas_build_tool_state,
+    build_skill_state as personas_build_skill_state,
     load_persona_definition,
     load_tool_metadata,
+    load_skill_catalog,
     normalize_allowed_tools,
+    normalize_allowed_skills,
     persist_persona_definition,
 )
 
@@ -52,6 +55,7 @@ class PersonaManager:
         self.current_persona = None
         self.current_system_prompt = None
         self._tool_metadata_cache: Optional[Tuple[List[str], Dict[str, Any]]] = None
+        self._skill_metadata_cache: Optional[Tuple[List[str], Dict[str, Any]]] = None
 
         # Load the default persona and generate the system prompt
         self.load_default_persona()
@@ -83,6 +87,14 @@ class PersonaManager:
             order, lookup = load_tool_metadata(config_manager=self.config_manager)
             self._tool_metadata_cache = (order, lookup)
         return self._tool_metadata_cache
+
+    def _get_skill_metadata(self) -> Tuple[List[str], Dict[str, Any]]:
+        """Return cached shared skill metadata (order preserved)."""
+
+        if self._skill_metadata_cache is None:
+            order, lookup = load_skill_catalog(config_manager=self.config_manager)
+            self._skill_metadata_cache = (order, lookup)
+        return self._skill_metadata_cache
 
     def load_persona(self, persona_name: str) -> Optional[dict]:
         """
@@ -223,6 +235,25 @@ class PersonaManager:
         except Exception:
             self.logger.error("Failed to build tool state for persona '%s'", persona.get('name'), exc_info=True)
             state['tools'] = {'allowed': normalize_allowed_tools(persona.get('allowed_tools')), 'available': []}
+
+        try:
+            skill_order, skill_lookup = self._get_skill_metadata()
+        except Exception:  # pragma: no cover - fallback when metadata fails
+            skill_order, skill_lookup = [], {}
+
+        try:
+            state['skills'] = personas_build_skill_state(
+                persona,
+                config_manager=self.config_manager,
+                metadata_order=skill_order,
+                metadata_lookup=skill_lookup,
+            )
+        except Exception:
+            self.logger.error("Failed to build skill state for persona '%s'", persona.get('name'), exc_info=True)
+            state['skills'] = {
+                'allowed': normalize_allowed_skills(persona.get('allowed_skills')),
+                'available': [],
+            }
 
         return state
 
@@ -722,10 +753,20 @@ class PersonaManager:
         known_tools.update(str(name) for name in existing_tools if str(name))
 
         try:
+            skill_order, skill_lookup = self._get_skill_metadata()
+        except Exception:  # pragma: no cover - defensive guard
+            skill_order, skill_lookup = [], {}
+        known_skills: set[str] = {str(name) for name in skill_order}
+        known_skills.update(str(name) for name in skill_lookup.keys())
+        existing_skills = persona.get('allowed_skills') or []
+        known_skills.update(str(name) for name in existing_skills if str(name))
+
+        try:
             _validate_persona_payload(
                 {'persona': [candidate_persona]},
                 persona_name=persona_name,
                 tool_ids=known_tools,
+                skill_ids=known_skills,
                 config_manager=self.config_manager,
             )
         except PersonaValidationError as exc:
@@ -741,6 +782,56 @@ class PersonaManager:
 
         return {"success": True, "persona": persona}
 
+    def set_allowed_skills(self, persona_name: str, allowed_skills: Optional[List[str]]) -> Dict[str, Any]:
+        """Persist persona-specific skill selections."""
+
+        persona = self.get_persona(persona_name)
+        if persona is None:
+            return {"success": False, "errors": [f"Persona '{persona_name}' could not be loaded."]}
+
+        skill_order, skill_lookup = self._get_skill_metadata()
+        normalized = normalize_allowed_skills(
+            allowed_skills or [], metadata_order=skill_order
+        )
+
+        candidate_persona = dict(persona)
+        candidate_persona['allowed_skills'] = normalized
+
+        known_skills: set[str] = {str(name) for name in skill_order}
+        known_skills.update(str(name) for name in skill_lookup.keys())
+        existing_skills = persona.get('allowed_skills') or []
+        known_skills.update(str(name) for name in existing_skills if str(name))
+
+        try:
+            tool_order, tool_lookup = self._get_tool_metadata()
+        except Exception:  # pragma: no cover - defensive guard
+            tool_order, tool_lookup = [], {}
+        known_tools: set[str] = {str(name) for name in tool_order}
+        known_tools.update(str(name) for name in tool_lookup.keys())
+        existing_tools = persona.get('allowed_tools') or []
+        known_tools.update(str(name) for name in existing_tools if str(name))
+
+        try:
+            _validate_persona_payload(
+                {'persona': [candidate_persona]},
+                persona_name=persona_name,
+                tool_ids=known_tools,
+                skill_ids=known_skills,
+                config_manager=self.config_manager,
+            )
+        except PersonaValidationError as exc:
+            return {"success": False, "errors": [str(exc)]}
+
+        persona['allowed_skills'] = normalized
+
+        self._persist_persona(
+            persona_name,
+            persona,
+            rationale="Updated allowed skills via persona manager",
+        )
+
+        return {"success": True, "persona": persona}
+
     def update_persona_from_form(
         self,
         persona_name: str,
@@ -749,6 +840,7 @@ class PersonaManager:
         provider: Optional[Dict[str, Any]] = None,
         speech: Optional[Dict[str, Any]] = None,
         tools: Optional[List[str]] = None,
+        skills: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Apply structured persona editor payloads and persist changes.
 
@@ -849,6 +941,12 @@ class PersonaManager:
             _apply_result(
                 self.set_allowed_tools(current_name, tools),
                 "Failed to update persona tools.",
+            )
+
+        if skills is not None:
+            _apply_result(
+                self.set_allowed_skills(current_name, skills),
+                "Failed to update persona skills.",
             )
 
         if errors:
