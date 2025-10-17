@@ -57,10 +57,21 @@
                         "$ref": "#/$defs/allowedTool"
                     },
                     "uniqueItems": true
+                },
+                "allowed_skills": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/allowedSkill"
+                    },
+                    "uniqueItems": true
                 }
             }
         },
         "allowedTool": {
+            "type": "string",
+            "enum": []
+        },
+        "allowedSkill": {
             "type": "string",
             "enum": []
         }

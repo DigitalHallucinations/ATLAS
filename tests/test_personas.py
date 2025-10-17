@@ -17,10 +17,32 @@ if "numpy" not in sys.modules:  # pragma: no cover - lightweight stub for pytest
     numpy_stub.isscalar = _isscalar
     sys.modules["numpy"] = numpy_stub
 
+if "jsonschema" not in sys.modules:  # pragma: no cover - lightweight stub for validators
+    jsonschema_stub = types.ModuleType("jsonschema")
+
+    class _Validator:
+        def __init__(self, _schema=None):
+            self.schema = _schema
+
+        def iter_errors(self, _payload):  # pragma: no cover - simple stub
+            return []
+
+    class _SchemaError(Exception):
+        pass
+
+    jsonschema_stub.Draft202012Validator = _Validator
+    jsonschema_stub.Draft7Validator = _Validator
+    jsonschema_stub.ValidationError = _SchemaError
+    jsonschema_stub.exceptions = types.SimpleNamespace(SchemaError=_SchemaError)
+    sys.modules["jsonschema"] = jsonschema_stub
+
 from modules.Personas import (
+    build_skill_state,
     build_tool_state,
     load_persona_definition,
+    load_skill_catalog,
     load_tool_metadata,
+    normalize_allowed_skills,
 )
 
 
@@ -60,6 +82,33 @@ def persona_fixture(tmp_path: Path) -> tuple[_StubConfigManager, Path]:
     ]
     _write_json(root / "modules" / "Tools" / "tool_maps" / "functions.json", tools_payload)
 
+    shared_skills = [
+        {
+            "name": "shared_skill",
+            "version": "1.0",
+            "instruction_prompt": "Shared skill instructions.",
+            "required_tools": ["alpha_tool"],
+            "required_capabilities": ["analysis"],
+            "safety_notes": "Review output for accuracy.",
+        }
+    ]
+    _write_json(root / "modules" / "Skills" / "skills.json", shared_skills)
+
+    specialist_skills = [
+        {
+            "name": "specialist_insight",
+            "version": "1.0",
+            "instruction_prompt": "Specialist-only insight generation.",
+            "required_tools": ["beta_tool"],
+            "required_capabilities": ["expertise"],
+            "safety_notes": "Use responsibly.",
+        }
+    ]
+    _write_json(
+        root / "modules" / "Personas" / "Specialist" / "Skills" / "skills.json",
+        specialist_skills,
+    )
+
     schema_src = Path(__file__).resolve().parents[1] / "modules" / "Personas" / "schema.json"
     schema_dest = root / "modules" / "Personas" / "schema.json"
     schema_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -91,6 +140,7 @@ def test_load_persona_definition_defaults_to_no_tools(persona_fixture: tuple[_St
 
     assert persona is not None
     assert persona["allowed_tools"] == []
+    assert persona["allowed_skills"] == []
 
 
 def test_build_tool_state_surfaces_catalog_disabled_by_default(
@@ -142,6 +192,7 @@ def test_build_tool_state_merges_overrides(persona_fixture: tuple[_StubConfigMan
                     "end_locked": "",
                 },
                 "allowed_tools": ["beta_tool", "custom_tool"],
+                "allowed_skills": ["specialist_insight"],
             }
         ]
     }
@@ -185,3 +236,84 @@ def test_build_tool_state_merges_overrides(persona_fixture: tuple[_StubConfigMan
     assert custom_metadata["description"] == "Custom override"
     assert custom_metadata["safety_level"] == "high"
     assert pytest.approx(custom_metadata["cost_per_call"], rel=0.01) == 1.25
+
+
+def test_build_skill_state_handles_persona_restrictions(persona_fixture: tuple[_StubConfigManager, Path]) -> None:
+    config, root = persona_fixture
+
+    persona_payload = {
+        "persona": [
+            {
+                "name": "Atlas",
+                "meaning": "",
+                "content": {
+                    "start_locked": "",
+                    "editable_content": "",
+                    "end_locked": "",
+                },
+            }
+        ]
+    }
+    atlas_file = root / "modules" / "Personas" / "Atlas" / "Persona" / "Atlas.json"
+    _write_json(atlas_file, persona_payload)
+
+    tool_order, tool_lookup = load_tool_metadata(config_manager=config)
+    persona = load_persona_definition(
+        "Atlas",
+        config_manager=config,
+        metadata_order=tool_order,
+        metadata_lookup=tool_lookup,
+    )
+
+    skill_order, skill_lookup = load_skill_catalog(config_manager=config)
+    skill_state = build_skill_state(
+        persona,
+        config_manager=config,
+        metadata_order=skill_order,
+        metadata_lookup=skill_lookup,
+    )
+
+    assert skill_state["allowed"] == []
+    entries = {entry["name"]: entry for entry in skill_state["available"]}
+    assert entries["shared_skill"].get("disabled") in (False, None)
+    assert entries["shared_skill"]["enabled"] is False
+    assert entries["specialist_insight"].get("disabled", False) is True
+
+
+def test_build_skill_state_enables_owned_skills(persona_fixture: tuple[_StubConfigManager, Path]) -> None:
+    config, root = persona_fixture
+
+    specialist_payload = {
+        "persona": [
+            {
+                "name": "Specialist",
+                "meaning": "",
+                "content": {
+                    "start_locked": "",
+                    "editable_content": "",
+                    "end_locked": "",
+                },
+                "allowed_skills": ["specialist_insight"],
+            }
+        ]
+    }
+    specialist_file = root / "modules" / "Personas" / "Specialist" / "Persona" / "Specialist.json"
+    _write_json(specialist_file, specialist_payload)
+
+    persona = load_persona_definition("Specialist", config_manager=config)
+    assert persona is not None
+
+    skill_order, skill_lookup = load_skill_catalog(config_manager=config)
+    skill_state = build_skill_state(
+        persona,
+        config_manager=config,
+        metadata_order=skill_order,
+        metadata_lookup=skill_lookup,
+    )
+
+    assert normalize_allowed_skills(["specialist_insight"], metadata_order=skill_order) == [
+        "specialist_insight"
+    ]
+    entries = {entry["name"]: entry for entry in skill_state["available"]}
+    assert entries["specialist_insight"]["enabled"] is True
+    assert entries["specialist_insight"].get("disabled") in (False, None)

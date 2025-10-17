@@ -1,6 +1,6 @@
 import sys
 import types
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import pytest
 
@@ -9,6 +9,25 @@ if "yaml" not in sys.modules:
     yaml_stub.safe_load = lambda *_args, **_kwargs: {}
     yaml_stub.dump = lambda *_args, **_kwargs: ""
     sys.modules["yaml"] = yaml_stub
+
+if "jsonschema" not in sys.modules:  # pragma: no cover - lightweight stub
+    jsonschema_stub = types.ModuleType("jsonschema")
+
+    class _Validator:
+        def __init__(self, _schema=None):
+            self.schema = _schema
+
+        def iter_errors(self, _payload):
+            return []
+
+    class _SchemaError(Exception):
+        pass
+
+    jsonschema_stub.Draft7Validator = _Validator
+    jsonschema_stub.Draft202012Validator = _Validator
+    jsonschema_stub.ValidationError = _SchemaError
+    jsonschema_stub.exceptions = types.SimpleNamespace(SchemaError=_SchemaError)
+    sys.modules["jsonschema"] = jsonschema_stub
 
 if "dotenv" not in sys.modules:
     dotenv_stub = types.ModuleType("dotenv")
@@ -352,8 +371,18 @@ class _StubPersonaManager:
         persona_type: Optional[Dict[str, Any]] = None,
         provider: Optional[Dict[str, Any]] = None,
         speech: Optional[Dict[str, Any]] = None,
+        tools: Optional[List[str]] = None,
+        skills: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        self.update_payload = (persona_name, general, persona_type, provider, speech)
+        self.update_payload = (
+            persona_name,
+            general,
+            persona_type,
+            provider,
+            speech,
+            tools,
+            skills,
+        )
         return {"success": True, "persona": {"name": persona_name}}
 
     def show_message(self, role: str, message: str) -> None:
@@ -420,6 +449,8 @@ def test_persona_facade_delegates_calls(atlas_with_stub_personas):
         {"sys_info_enabled": True},
         {"provider": "openai", "model": "gpt"},
         {"Speech_provider": "11labs", "voice": "jack"},
+        None,
+        None,
     )
 
     atlas.show_persona_message("system", "saved")

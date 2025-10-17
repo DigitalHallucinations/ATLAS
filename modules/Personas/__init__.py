@@ -15,7 +15,7 @@ import hmac
 import json
 import os
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -23,6 +23,7 @@ from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional,
 
 from jsonschema import Draft202012Validator, exceptions as jsonschema_exceptions
 
+from modules.Skills import SkillMetadata as SkillManifestEntry, load_skill_metadata
 from modules.logging.audit import PersonaAuditLogger, get_persona_audit_logger
 from modules.logging.logger import setup_logger
 
@@ -36,6 +37,7 @@ logger = setup_logger(__name__)
 
 PersonaPayload = MutableMapping[str, Any]
 ToolMetadata = Mapping[str, Any]
+SkillMetadata = Mapping[str, Any]
 
 
 class PersonaValidationError(ValueError):
@@ -56,6 +58,18 @@ class ToolStateEntry:
 
 class PersonaBundleError(ValueError):
     """Raised when persona bundle export/import fails."""
+
+
+@dataclass(frozen=True)
+class SkillStateEntry:
+    """Normalized skill entry for editor displays."""
+
+    name: str
+    enabled: bool
+    order: int
+    metadata: Mapping[str, Any]
+    disabled: bool = False
+    disabled_reason: Optional[str] = None
 
 
 _BUNDLE_VERSION = 1
@@ -179,6 +193,7 @@ def _load_persona_schema(*, config_manager=None) -> Dict[str, Any]:
 def _build_persona_validator(
     *,
     tool_ids: Iterable[str],
+    skill_ids: Optional[Iterable[str]] = None,
     config_manager=None,
 ) -> Draft202012Validator:
     schema = _load_persona_schema(config_manager=config_manager)
@@ -191,6 +206,14 @@ def _build_persona_validator(
     else:
         allowed_tool_def.pop("enum", None)
 
+    allowed_skill_def = defs.setdefault("allowedSkill", {"type": "string"})
+    skill_iterable = skill_ids or []
+    normalized_skill_ids = sorted({str(name).strip() for name in skill_iterable if str(name).strip()})
+    if normalized_skill_ids:
+        allowed_skill_def["enum"] = normalized_skill_ids
+    else:
+        allowed_skill_def.pop("enum", None)
+
     try:
         return Draft202012Validator(schema)
     except jsonschema_exceptions.SchemaError as exc:  # pragma: no cover - developer error
@@ -202,29 +225,51 @@ def _validate_persona_payload(
     *,
     persona_name: str,
     tool_ids: Iterable[str],
+    skill_ids: Optional[Iterable[str]] = None,
     config_manager=None,
 ) -> None:
-    validator = _build_persona_validator(tool_ids=tool_ids, config_manager=config_manager)
+    validator = _build_persona_validator(
+        tool_ids=tool_ids,
+        skill_ids=skill_ids,
+        config_manager=config_manager,
+    )
     errors = sorted(validator.iter_errors(payload), key=lambda error: error.json_path)
 
     manual_errors: List[str] = []
     known_tools = {str(name).strip() for name in tool_ids if str(name).strip()}
-    if known_tools:
+    known_skills = {
+        str(name).strip()
+        for name in (skill_ids or [])
+        if str(name).strip()
+    }
+    if known_tools or known_skills:
         personas = payload.get("persona") if isinstance(payload, Mapping) else None
         if isinstance(personas, list):
             for persona_index, persona_entry in enumerate(personas):
                 if not isinstance(persona_entry, Mapping):
                     continue
-                normalized = normalize_allowed_tools(persona_entry.get("allowed_tools"))
-                for tool_index, tool_name in enumerate(normalized):
-                    if tool_name not in known_tools:
-                        manual_errors.append(
-                            "$.persona[{p_index}].allowed_tools[{t_index}]: Unknown tool '{tool}'".format(
-                                p_index=persona_index,
-                                t_index=tool_index,
-                                tool=tool_name,
+                if known_tools:
+                    normalized_tools = normalize_allowed_tools(persona_entry.get("allowed_tools"))
+                    for tool_index, tool_name in enumerate(normalized_tools):
+                        if tool_name not in known_tools:
+                            manual_errors.append(
+                                "$.persona[{p_index}].allowed_tools[{t_index}]: Unknown tool '{tool}'".format(
+                                    p_index=persona_index,
+                                    t_index=tool_index,
+                                    tool=tool_name,
+                                )
                             )
-                        )
+                if known_skills:
+                    normalized_skills = normalize_allowed_skills(persona_entry.get("allowed_skills"))
+                    for skill_index, skill_name in enumerate(normalized_skills):
+                        if skill_name not in known_skills:
+                            manual_errors.append(
+                                "$.persona[{p_index}].allowed_skills[{s_index}]: Unknown skill '{skill}'".format(
+                                    p_index=persona_index,
+                                    s_index=skill_index,
+                                    skill=skill_name,
+                                )
+                            )
 
     if not errors and not manual_errors:
         return
@@ -284,6 +329,71 @@ def load_tool_metadata(*, config_manager=None) -> Tuple[List[str], Dict[str, Too
         if name not in lookup:
             order.append(name)
         lookup[name] = entry
+
+    return order, lookup
+
+
+def _normalize_skill_metadata(entry: SkillManifestEntry) -> Dict[str, Any]:
+    payload = asdict(entry) if isinstance(entry, SkillManifestEntry) else dict(entry)
+
+    name = str(payload.get("name") or "").strip()
+    payload["name"] = name
+
+    def _string(value: Any) -> str:
+        return str(value).strip() if value is not None else ""
+
+    payload["version"] = _string(payload.get("version"))
+    payload["instruction_prompt"] = payload.get("instruction_prompt") or ""
+    payload["safety_notes"] = payload.get("safety_notes") or ""
+
+    persona_owner = payload.get("persona")
+    if persona_owner is None:
+        payload["persona"] = None
+    else:
+        persona_text = _string(persona_owner)
+        payload["persona"] = persona_text or None
+
+    required_tools = payload.get("required_tools")
+    if isinstance(required_tools, Iterable) and not isinstance(required_tools, (str, bytes, bytearray)):
+        payload["required_tools"] = [
+            str(tool).strip()
+            for tool in required_tools
+            if str(tool).strip()
+        ]
+    else:
+        payload["required_tools"] = []
+
+    required_capabilities = payload.get("required_capabilities")
+    if isinstance(required_capabilities, Iterable) and not isinstance(required_capabilities, (str, bytes, bytearray)):
+        payload["required_capabilities"] = [
+            str(capability).strip()
+            for capability in required_capabilities
+            if str(capability).strip()
+        ]
+    else:
+        payload["required_capabilities"] = []
+
+    payload["source"] = _string(payload.get("source"))
+
+    return payload
+
+
+def load_skill_catalog(*, config_manager=None) -> Tuple[List[str], Dict[str, SkillMetadata]]:
+    """Load normalized skill metadata keyed by skill name."""
+
+    entries = load_skill_metadata(config_manager=config_manager)
+
+    order: List[str] = []
+    lookup: Dict[str, SkillMetadata] = {}
+
+    for entry in entries:
+        normalized = _normalize_skill_metadata(entry)
+        name = normalized.get("name")
+        if not name:
+            continue
+        if name not in lookup:
+            order.append(name)
+        lookup[name] = normalized
 
     return order, lookup
 
@@ -375,12 +485,24 @@ def normalize_allowed_tools(
     return names
 
 
+def normalize_allowed_skills(
+    allowed_skills: Any,
+    *,
+    metadata_order: Optional[Iterable[str]] = None,
+) -> List[str]:
+    """Normalize ``allowed_skills`` into a deduplicated list of strings."""
+
+    return normalize_allowed_tools(allowed_skills, metadata_order=metadata_order)
+
+
 def load_persona_definition(
     persona_name: str,
     *,
     config_manager=None,
     metadata_order: Optional[Iterable[str]] = None,
     metadata_lookup: Optional[Mapping[str, ToolMetadata]] = None,
+    skill_metadata_order: Optional[Iterable[str]] = None,
+    skill_metadata_lookup: Optional[Mapping[str, SkillMetadata]] = None,
 ) -> Optional[PersonaPayload]:
     """Load and normalize persona configuration for ``persona_name``."""
 
@@ -413,6 +535,12 @@ def load_persona_definition(
 
     order_list: Optional[List[str]] = list(metadata_order) if metadata_order is not None else None
     lookup_map: Optional[Dict[str, ToolMetadata]] = dict(metadata_lookup) if metadata_lookup is not None else None
+    skill_order_list: Optional[List[str]] = (
+        list(skill_metadata_order) if skill_metadata_order is not None else None
+    )
+    skill_lookup_map: Optional[Dict[str, SkillMetadata]] = (
+        dict(skill_metadata_lookup) if skill_metadata_lookup is not None else None
+    )
 
     if order_list is None or lookup_map is None:
         shared_order, shared_lookup = load_tool_metadata(config_manager=config_manager)
@@ -421,11 +549,24 @@ def load_persona_definition(
         if lookup_map is None:
             lookup_map = shared_lookup
 
+    if skill_order_list is None or skill_lookup_map is None:
+        catalog_order, catalog_lookup = load_skill_catalog(config_manager=config_manager)
+        if skill_order_list is None:
+            skill_order_list = catalog_order
+        if skill_lookup_map is None:
+            skill_lookup_map = catalog_lookup
+
     tool_ids: set[str] = set()
     if lookup_map:
         tool_ids.update(str(name) for name in lookup_map.keys())
     if order_list:
         tool_ids.update(str(name) for name in order_list)
+
+    skill_ids: set[str] = set()
+    if skill_lookup_map:
+        skill_ids.update(str(name) for name in skill_lookup_map.keys())
+    if skill_order_list:
+        skill_ids.update(str(name) for name in skill_order_list)
 
     overrides = _load_persona_tool_overrides(persona_name, config_manager=config_manager)
     if overrides:
@@ -436,6 +577,7 @@ def load_persona_definition(
             payload,
             persona_name=persona_name,
             tool_ids=tool_ids,
+            skill_ids=skill_ids,
             config_manager=config_manager,
         )
     except PersonaValidationError:
@@ -445,6 +587,9 @@ def load_persona_definition(
     persona_entry = dict(persona_entry)
     persona_entry["allowed_tools"] = normalize_allowed_tools(
         persona_entry.get("allowed_tools"), metadata_order=order_list
+    )
+    persona_entry["allowed_skills"] = normalize_allowed_skills(
+        persona_entry.get("allowed_skills"), metadata_order=skill_order_list
     )
 
     return persona_entry
@@ -614,6 +759,100 @@ def build_tool_state(
     }
 
 
+def build_skill_state(
+    persona: Mapping[str, Any],
+    *,
+    config_manager=None,
+    metadata_order: Optional[Iterable[str]] = None,
+    metadata_lookup: Optional[Mapping[str, SkillMetadata]] = None,
+) -> Dict[str, Any]:
+    """Return merged skill metadata with persona selections."""
+
+    if metadata_lookup is None or metadata_order is None:
+        order, lookup = load_skill_catalog(config_manager=config_manager)
+    else:
+        order = list(metadata_order)
+        lookup = {}
+        for key, value in metadata_lookup.items():
+            name = str(key)
+            if isinstance(value, Mapping):
+                lookup[name] = dict(value)
+            elif isinstance(value, SkillManifestEntry):
+                lookup[name] = _normalize_skill_metadata(value)
+            else:
+                try:
+                    lookup[name] = dict(value)  # type: ignore[arg-type]
+                except Exception:
+                    lookup[name] = {"name": name}
+
+    allowed = normalize_allowed_skills(persona.get("allowed_skills"), metadata_order=order)
+
+    persona_name = str(persona.get("name") or "").strip()
+
+    combined_order: List[str] = []
+    seen: set[str] = set()
+
+    for name in allowed:
+        if name not in seen:
+            combined_order.append(name)
+            seen.add(name)
+
+    for name in order:
+        if name not in seen:
+            combined_order.append(name)
+            seen.add(name)
+
+    entries: List[SkillStateEntry] = []
+    for index, name in enumerate(combined_order):
+        metadata = lookup.get(name) or {}
+        if isinstance(metadata, Mapping):
+            merged = dict(metadata)
+        else:
+            merged = dict(metadata)
+        merged.setdefault("name", name)
+
+        owner = merged.get("persona")
+        owner_normalized = str(owner).strip() if owner else ""
+        disabled = False
+        disabled_reason: Optional[str] = None
+        if owner_normalized:
+            if not persona_name or owner_normalized.lower() != persona_name.lower():
+                disabled = True
+                disabled_reason = (
+                    f"Skill '{name}' is restricted to persona '{owner_normalized}'."
+                )
+
+        entries.append(
+            SkillStateEntry(
+                name=name,
+                enabled=name in allowed and not disabled,
+                order=index,
+                metadata=merged,
+                disabled=disabled,
+                disabled_reason=disabled_reason,
+            )
+        )
+
+    serializable: List[Dict[str, Any]] = []
+    for entry in entries:
+        payload: Dict[str, Any] = {
+            "name": entry.name,
+            "enabled": entry.enabled,
+            "order": entry.order,
+            "metadata": dict(entry.metadata),
+        }
+        if entry.disabled:
+            payload["disabled"] = True
+        if entry.disabled_reason:
+            payload["disabled_reason"] = entry.disabled_reason
+        serializable.append(payload)
+
+    return {
+        "allowed": list(allowed),
+        "available": serializable,
+    }
+
+
 def export_persona_bundle_bytes(
     persona_name: str,
     *,
@@ -696,6 +935,9 @@ def import_persona_bundle_bytes(
     order, lookup = load_tool_metadata(config_manager=config_manager)
     known_tools = set(order) | {str(name) for name in lookup.keys()}
 
+    skill_order, skill_lookup = load_skill_catalog(config_manager=config_manager)
+    known_skills = set(skill_order) | {str(name) for name in skill_lookup.keys()}
+
     incoming_tools = normalize_allowed_tools(persona_entry.get("allowed_tools"))
     resolved_tools: List[str] = []
     missing_tools: List[str] = []
@@ -705,8 +947,18 @@ def import_persona_bundle_bytes(
         else:
             missing_tools.append(tool_name)
 
+    incoming_skills = normalize_allowed_skills(persona_entry.get("allowed_skills"))
+    resolved_skills: List[str] = []
+    missing_skills: List[str] = []
+    for skill_name in incoming_skills:
+        if skill_name in known_skills:
+            resolved_skills.append(skill_name)
+        else:
+            missing_skills.append(skill_name)
+
     persona_for_validation = dict(persona_entry)
     persona_for_validation["allowed_tools"] = resolved_tools
+    persona_for_validation["allowed_skills"] = resolved_skills
 
     payload_for_validation = {"persona": [persona_for_validation]}
 
@@ -714,6 +966,7 @@ def import_persona_bundle_bytes(
         payload_for_validation,
         persona_name=persona_name,
         tool_ids=known_tools,
+        skill_ids=known_skills,
         config_manager=config_manager,
     )
 
@@ -729,6 +982,10 @@ def import_persona_bundle_bytes(
         warnings.append(
             "Missing tools pruned during import: " + ", ".join(sorted(missing_tools))
         )
+    if missing_skills:
+        warnings.append(
+            "Missing skills pruned during import: " + ", ".join(sorted(missing_skills))
+        )
 
     return {
         "success": True,
@@ -742,11 +999,15 @@ __all__ = [
     "PersonaValidationError",
     "PersonaBundleError",
     "ToolStateEntry",
+    "SkillStateEntry",
     "build_tool_state",
+    "build_skill_state",
     "load_persona_definition",
     "persist_persona_definition",
     "load_tool_metadata",
+    "load_skill_catalog",
     "normalize_allowed_tools",
+    "normalize_allowed_skills",
     "export_persona_bundle_bytes",
     "import_persona_bundle_bytes",
 ]
