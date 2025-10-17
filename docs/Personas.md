@@ -93,3 +93,24 @@ most recent executions are computed on demand by the analytics helpers in
 `modules/analytics/persona_metrics.py`. The GTK persona manager exposes these
 metrics in an **Analytics** tab, including optional start/end filters for the
 captured time window.
+
+## Persona review policy
+
+Production personas must be re-attested on a recurring schedule to ensure their
+tool access remains appropriate. ATLAS tracks persona changes in the
+`logs/persona_audit.jsonl` file and records review attestations in
+`logs/persona_reviews.jsonl`. Each attestation captures the reviewer identity
+and an expiration timestamp; once expired, the persona is considered overdue for
+review.
+
+A cron-friendly helper at `scripts/persona_review.py` scans persona history and
+queues review tasks in `logs/persona_review_queue.json`. By default personas are
+due every 90 days, but the script accepts an `--interval-days` override and a
+`--dry-run` mode for reporting. The scheduler is safe to run multiple times and
+only enqueues missing tasks.
+
+The GTK persona manager surfaces the current review status at the top of the
+settings window. Overdue personas display a banner and a **Mark Review
+Complete** action that records a fresh attestation through the backend API. When
+an attestation is submitted the pending queue entry is cleared and the banner is
+updated with the next review date.

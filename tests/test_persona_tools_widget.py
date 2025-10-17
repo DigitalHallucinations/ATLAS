@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
+from typing import Any, Dict, Optional
 
 if "jsonschema" not in sys.modules:  # pragma: no cover - lightweight stub for tests
     jsonschema_stub = types.ModuleType("jsonschema")
@@ -17,6 +18,7 @@ if "jsonschema" not in sys.modules:  # pragma: no cover - lightweight stub for t
         pass
 
     jsonschema_stub.Draft7Validator = _Validator
+    jsonschema_stub.Draft202012Validator = _Validator
     jsonschema_stub.ValidationError = _ValidationError
     sys.modules["jsonschema"] = jsonschema_stub
 
@@ -56,7 +58,12 @@ if not hasattr(gtk_module, "Dialog"):
     gtk_module.Dialog = type("Dialog", (_DummyWidget,), {})
 gtk_module.SelectionMode = types.SimpleNamespace(NONE=0, SINGLE=1, MULTIPLE=2)
 gtk_module.Widget = _chat_helper._DummyWidget
+if not hasattr(gtk_module, "Align"):
+    gtk_module.Align = types.SimpleNamespace(FILL=0, START=1, END=2, CENTER=3)
 from gi.repository import Gtk
+
+if not hasattr(Gtk.Align, "FILL"):
+    setattr(Gtk.Align, "FILL", 0)
 
 from GTKUI.Persona_manager.persona_management import PersonaManagement
 
@@ -72,6 +79,20 @@ class _AtlasStub:
         self.import_payload = None
         self.import_result = {"success": True, "persona": {"name": "Imported"}, "warnings": []}
         self.persona_manager = None
+        self.review_status = {
+            "success": True,
+            "persona_name": "",
+            "last_change": None,
+            "last_review": None,
+            "reviewer": None,
+            "expires_at": None,
+            "overdue": False,
+            "pending_task": False,
+            "next_due": None,
+            "policy_days": 90,
+            "notes": None,
+        }
+        self.review_attestations: list[tuple[str, dict[str, Any]]] = []
 
     def register_message_dispatcher(self, handler) -> None:  # pragma: no cover - stored for completeness
         self.dispatcher = handler
@@ -101,6 +122,46 @@ class _AtlasStub:
             "rationale": rationale,
         }
         return dict(self.import_result)
+
+    def get_persona_names(self) -> list[str]:  # pragma: no cover - UI helper
+        return ["Specialist"]
+
+    def get_persona_review_status(self, persona_name: str) -> Dict[str, Any]:
+        status = dict(self.review_status)
+        status["persona_name"] = persona_name
+        return status
+
+    def attest_persona_review(
+        self,
+        persona_name: str,
+        *,
+        reviewer: str,
+        expires_in_days: Optional[int] = None,
+        expires_at: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        attestation = {
+            "timestamp": "2024-01-01T00:00:00Z",
+            "persona_name": persona_name,
+            "reviewer": reviewer,
+            "expires_at": expires_at or "2024-04-01T00:00:00Z",
+            "notes": notes or "",
+        }
+        self.review_attestations.append((persona_name, attestation))
+        status = dict(self.review_status)
+        status.update(
+            {
+                "persona_name": persona_name,
+                "last_review": attestation["timestamp"],
+                "reviewer": reviewer,
+                "expires_at": attestation["expires_at"],
+                "overdue": False,
+                "pending_task": False,
+                "next_due": attestation["expires_at"],
+            }
+        )
+        self.review_status = status
+        return {"success": True, "attestation": attestation, "status": status}
 
 
 class _GeneralStub:
