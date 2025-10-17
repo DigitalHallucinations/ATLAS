@@ -4,6 +4,7 @@ from modules.Tools.Base_Tools.time import get_current_info
 from modules.Tools.Medical_Tools.PubMedCentral.ENTREZ_API import search_pubmed
 from modules.Tools.Medical_Tools.PubMedCentral.PMC_API import search_pmc
 from modules.Tools.Base_Tools.Google_search import GoogleSearch
+from modules.Tools.Base_Tools.policy_reference import policy_reference
 
 
 # Create an instance of GoogleSearch

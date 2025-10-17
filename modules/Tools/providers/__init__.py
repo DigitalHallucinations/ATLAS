@@ -2,6 +2,7 @@
 
 from .base import ProviderHealth, ToolProvider, ToolProviderSpec
 from .registry import ProviderFactory, ToolProviderRegistry, tool_provider_registry
+from . import policy_reference  # noqa: F401 - ensure policy provider registration
 from . import serpapi  # noqa: F401 - ensure SerpAPI provider registration side-effect
 
 __all__ = [

@@ -60,7 +60,8 @@
             "voice": "jack",
             "allowed_tools": [
                 "google_search",
-                "get_current_info"
+                "get_current_info",
+                "policy_reference"
             ]
         }
     ]
