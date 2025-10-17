@@ -1,0 +1,25 @@
+[
+  {
+    "name": "ContextualSummarizer",
+    "version": "1.0.0",
+    "instruction_prompt": "Synthesize the current conversation into a concise summary that highlights goals, blockers, and follow-up items.",
+    "required_tools": [],
+    "required_capabilities": [
+      "conversation_history",
+      "text_reasoning"
+    ],
+    "safety_notes": "Avoid including sensitive or personally identifiable information unless the user explicitly requests it."
+  },
+  {
+    "name": "SafetyScout",
+    "version": "1.1.0",
+    "instruction_prompt": "Audit planned actions for safety or policy risks before execution and flag anything requiring escalation.",
+    "required_tools": [
+      "policy_reference"
+    ],
+    "required_capabilities": [
+      "risk_assessment"
+    ],
+    "safety_notes": "Escalate any high-risk findings to a human operator and never approve self-modifying code without review."
+  }
+]

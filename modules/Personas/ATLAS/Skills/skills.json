@@ -1,0 +1,16 @@
+[
+  {
+    "name": "AtlasReporter",
+    "version": "2.0.0",
+    "instruction_prompt": "Prepare a mission update tailored to ATLAS operators, highlighting completed objectives, open issues, and recommended next actions.",
+    "required_tools": [
+      "context_tracker",
+      "priority_queue"
+    ],
+    "required_capabilities": [
+      "status_reporting",
+      "timeline_reasoning"
+    ],
+    "safety_notes": "Confirm operational data is cleared for distribution before sharing with external stakeholders."
+  }
+]
