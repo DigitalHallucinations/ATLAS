@@ -106,10 +106,11 @@ class PersonaMetricsStore:
     def record_event(self, event: PersonaMetricEvent) -> None:
         """Append ``event`` to the persisted metrics log."""
 
-        payload = self._load_payload()
-        events = payload.setdefault("events", [])
-        events.append(event.as_dict())
-        self._write_payload(payload)
+        with self._lock:
+            payload = self._load_payload()
+            events = payload.setdefault("events", [])
+            events.append(event.as_dict())
+            self._write_payload(payload)
 
     def reset(self) -> None:
         """Remove all recorded metrics."""
@@ -130,7 +131,8 @@ class PersonaMetricsStore:
     ) -> Dict[str, Any]:
         """Return aggregated metrics for ``persona`` within an optional window."""
 
-        payload = self._load_payload()
+        with self._lock:
+            payload = self._load_payload()
         raw_events = payload.get("events") or []
         filtered: List[Tuple[Dict[str, Any], Optional[datetime]]] = []
         for item in raw_events:
@@ -204,21 +206,19 @@ class PersonaMetricsStore:
     # ------------------------ Internal helpers ------------------------
 
     def _load_payload(self) -> Dict[str, Any]:
-        with self._lock:
-            if not os.path.exists(self._storage_path):
-                return {"events": []}
-            try:
-                with open(self._storage_path, "r", encoding="utf-8") as handle:
-                    return json.load(handle)
-            except json.JSONDecodeError:
-                return {"events": []}
+        if not os.path.exists(self._storage_path):
+            return {"events": []}
+        try:
+            with open(self._storage_path, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except json.JSONDecodeError:
+            return {"events": []}
 
     def _write_payload(self, payload: Dict[str, Any]) -> None:
-        with self._lock:
-            tmp_path = f"{self._storage_path}.tmp"
-            with open(tmp_path, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2)
-            os.replace(tmp_path, self._storage_path)
+        tmp_path = f"{self._storage_path}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, self._storage_path)
 
 
 _default_store: Optional[PersonaMetricsStore] = None
