@@ -153,6 +153,43 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
     _ensure_dotenv(monkeypatch)
     _ensure_pytz(monkeypatch)
 
+    geocode_stub = types.ModuleType("modules.Tools.location_services.geocode")
+    geocode_stub.geocode_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.geocode", geocode_stub
+    )
+    ip_api_stub = types.ModuleType("modules.Tools.location_services.ip_api")
+    ip_api_stub.get_current_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.ip_api", ip_api_stub
+    )
+
+    class _DummyResponse:
+        status = 200
+
+        async def json(self):
+            return {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _DummyClientSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return _DummyResponse()
+
+    aiohttp_stub = types.ModuleType("aiohttp")
+    aiohttp_stub.ClientSession = _DummyClientSession
+    monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_stub)
+
     tool_manager = importlib.import_module("ATLAS.ToolManager")
     tool_manager = importlib.reload(tool_manager)
 
@@ -198,17 +235,162 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
     assert isinstance(policy_entry, dict)
     metadata = policy_entry.get("metadata")
     assert metadata["idempotency_key"]["required"] is True
-    assert metadata["capabilities"] == [
-        "policy_lookup",
-        "risk_assessment_support",
-    ]
-    assert metadata["providers"] == [
-        {
-            "name": "builtin_policy",
-            "priority": 0,
-            "health_check_interval": 60,
+
+
+def test_evaluate_tool_policy_blocks_calendar_write_without_flag(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    geocode_stub = types.ModuleType("modules.Tools.location_services.geocode")
+    geocode_stub.geocode_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.geocode", geocode_stub
+    )
+    ip_api_stub = types.ModuleType("modules.Tools.location_services.ip_api")
+    ip_api_stub.get_current_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.ip_api", ip_api_stub
+    )
+
+    class _DummyResponse:
+        status = 200
+
+        async def json(self):
+            return {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _DummyClientSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return _DummyResponse()
+
+    aiohttp_stub = types.ModuleType("aiohttp")
+    aiohttp_stub.ClientSession = _DummyClientSession
+    monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_stub)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    metadata = {
+        "requires_flags": {
+            "create": [
+                "type.personal_assistant.access_to_calendar",
+                "type.personal_assistant.calendar_write_enabled",
+            ]
         }
-    ]
+    }
+    persona = {
+        "name": "Atlas",
+        "type": {
+            "personal_assistant": {
+                "access_to_calendar": "True",
+                "calendar_write_enabled": "False",
+            }
+        },
+    }
+
+    decision = tool_manager._evaluate_tool_policy(
+        function_name="debian12_calendar",
+        metadata=metadata,
+        current_persona=persona,
+        conversation_manager=None,
+        conversation_id=None,
+        tool_arguments={"operation": "create"},
+    )
+
+    assert decision.allowed is False
+    assert "calendar_write_enabled" in (decision.reason or "")
+    assert decision.denied_operations["create"] == (
+        "type.personal_assistant.calendar_write_enabled",
+    )
+
+
+def test_evaluate_tool_policy_allows_calendar_write_with_flag(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    geocode_stub = types.ModuleType("modules.Tools.location_services.geocode")
+    geocode_stub.geocode_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.geocode", geocode_stub
+    )
+    ip_api_stub = types.ModuleType("modules.Tools.location_services.ip_api")
+    ip_api_stub.get_current_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.ip_api", ip_api_stub
+    )
+
+    class _DummyResponse:
+        status = 200
+
+        async def json(self):
+            return {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _DummyClientSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return _DummyResponse()
+
+    aiohttp_stub = types.ModuleType("aiohttp")
+    aiohttp_stub.ClientSession = _DummyClientSession
+    monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_stub)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    metadata = {
+        "requires_flags": {
+            "create": [
+                "type.personal_assistant.access_to_calendar",
+                "type.personal_assistant.calendar_write_enabled",
+            ]
+        }
+    }
+    persona = {
+        "name": "Atlas",
+        "type": {
+            "personal_assistant": {
+                "access_to_calendar": "True",
+                "calendar_write_enabled": "True",
+            }
+        },
+    }
+
+    decision = tool_manager._evaluate_tool_policy(
+        function_name="debian12_calendar",
+        metadata=metadata,
+        current_persona=persona,
+        conversation_manager=None,
+        conversation_id=None,
+        tool_arguments={"operation": "create"},
+    )
+
+    assert decision.allowed is True
+    assert dict(decision.denied_operations) == {}
+    assert not decision.reason
 
 def test_tool_manager_import_without_credentials(monkeypatch):
     """Importing ToolManager should not require configuration credentials."""

@@ -90,6 +90,7 @@ _KNOWN_METADATA_FIELDS = (
     "cost_per_call",
     "cost_unit",
     "providers",
+    "requires_flags",
 )
 
 _TOOL_ACTIVITY_EVENT = "tool_activity"
@@ -129,6 +130,9 @@ class ToolPolicyDecision:
     reason: Optional[str] = None
     use_sandbox: bool = False
     metadata: Mapping[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    denied_operations: Mapping[str, Tuple[str, ...]] = field(
         default_factory=lambda: MappingProxyType({})
     )
 
@@ -712,6 +716,169 @@ def _normalize_persona_allowlist(raw_allowlist: Any) -> Optional[set[str]]:
     return names or None
 
 
+def _join_with_and(items: Iterable[str]) -> str:
+    sequence = [item for item in items if item]
+    if not sequence:
+        return ""
+    if len(sequence) == 1:
+        return sequence[0]
+    return ", ".join(sequence[:-1]) + f", and {sequence[-1]}"
+
+
+def _normalize_requires_flags(raw_value: Any) -> Dict[str, Tuple[str, ...]]:
+    """Coerce metadata flag requirements into a normalized mapping."""
+
+    normalized: Dict[str, Tuple[str, ...]] = {}
+    if not isinstance(raw_value, Mapping):
+        return normalized
+
+    for raw_operation, raw_flags in raw_value.items():
+        operation = str(raw_operation or "").strip().lower()
+        if not operation:
+            continue
+
+        if isinstance(raw_flags, (list, tuple, set)):
+            candidates = list(raw_flags)
+        else:
+            candidates = [raw_flags]
+
+        flags: List[str] = []
+        for candidate in candidates:
+            text = str(candidate or "").strip()
+            if text:
+                flags.append(text)
+
+        if flags:
+            deduped = list(dict.fromkeys(flags))
+            normalized[operation] = tuple(deduped)
+
+    return normalized
+
+
+def _coerce_persona_flag_value(value: Any) -> bool:
+    """Interpret serialized persona toggles as booleans."""
+
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "on", "enabled"}:
+            return True
+        if lowered in {"false", "0", "no", "off", "disabled"}:
+            return False
+    return bool(value)
+
+
+def _persona_flag_enabled(current_persona: Any, flag_path: str) -> bool:
+    """Resolve dotted persona paths against ``current_persona``."""
+
+    if not current_persona or not flag_path:
+        return False
+
+    target = current_persona
+    for segment in str(flag_path).split("."):
+        key = segment.strip()
+        if not key:
+            return False
+        if isinstance(target, Mapping):
+            target = target.get(key)
+        else:
+            target = getattr(target, key, None)
+        if target is None:
+            return False
+
+    return _coerce_persona_flag_value(target)
+
+
+def _collect_missing_flag_requirements(
+    requires_flags: Mapping[str, Tuple[str, ...]],
+    current_persona: Any,
+) -> Dict[str, Tuple[str, ...]]:
+    """Return operations whose required persona flags are missing."""
+
+    missing: Dict[str, Tuple[str, ...]] = {}
+    for operation, flags in requires_flags.items():
+        missing_flags = tuple(
+            flag for flag in flags if not _persona_flag_enabled(current_persona, flag)
+        )
+        if missing_flags:
+            missing[operation] = missing_flags
+    return missing
+
+
+def _format_operation_flag_reason(
+    function_name: str,
+    operation: str,
+    flags: Tuple[str, ...],
+) -> str:
+    """Return a human-friendly reason for blocking an operation."""
+
+    flag_phrase = _join_with_and([f"'{flag}'" for flag in flags])
+    plural = "s" if len(flags) > 1 else ""
+    return (
+        f"Operation '{operation}' for tool '{function_name}' requires persona flag"
+        f"{plural} {flag_phrase} to be enabled."
+    )
+
+
+def _format_denied_operations_summary(
+    function_name: str,
+    denied_operations: Mapping[str, Tuple[str, ...]],
+) -> Optional[str]:
+    """Summarize the operations disabled by missing persona flags."""
+
+    if not denied_operations:
+        return None
+
+    operations = sorted({op for op in denied_operations.keys() if op})
+    if not operations:
+        return None
+
+    flags = sorted({flag for flags in denied_operations.values() for flag in flags})
+    if not flags:
+        return None
+
+    if set(operations) == {"create", "update", "delete"}:
+        operations_phrase = "Write operations (create, update, delete)"
+    else:
+        operations_phrase = (
+            "Operations " + _join_with_and([f"'{op}'" for op in operations])
+        )
+
+    flag_phrase = _join_with_and([f"'{flag}'" for flag in flags])
+    plural = "s" if len(flags) > 1 else ""
+    return (
+        f"{operations_phrase} for tool '{function_name}' require persona flag"
+        f"{plural} {flag_phrase} to be enabled."
+    )
+
+
+def _build_persona_context_snapshot(current_persona: Any) -> Optional[Dict[str, Any]]:
+    """Extract a lightweight persona snapshot for downstream tools."""
+
+    if not isinstance(current_persona, Mapping):
+        return None
+
+    snapshot: Dict[str, Any] = {}
+    type_payload = current_persona.get("type")
+    if isinstance(type_payload, Mapping):
+        try:
+            snapshot["type"] = copy.deepcopy(type_payload)
+        except Exception:
+            snapshot["type"] = dict(type_payload)
+
+    flags_payload = current_persona.get("flags")
+    if isinstance(flags_payload, Mapping):
+        try:
+            snapshot["flags"] = copy.deepcopy(flags_payload)
+        except Exception:
+            snapshot["flags"] = dict(flags_payload)
+
+    name = current_persona.get("name")
+    if isinstance(name, str) and name.strip():
+        snapshot["name"] = name.strip()
+
+    return snapshot or None
+
+
 def _has_tool_consent(
     conversation_manager: Any,
     conversation_id: Any,
@@ -787,11 +954,15 @@ def _evaluate_tool_policy(
     current_persona: Any,
     conversation_manager: Any,
     conversation_id: Any,
+    tool_arguments: Optional[Mapping[str, Any]] = None,
 ) -> ToolPolicyDecision:
     """Return the pre-execution policy decision for ``function_name``."""
 
+    metadata_dict: Dict[str, Any] = {}
+    if isinstance(metadata, Mapping):
+        metadata_dict = dict(metadata)
     persona_name = _extract_persona_name(current_persona)
-    allowlist = _normalize_persona_allowlist(metadata.get("persona_allowlist"))
+    allowlist = _normalize_persona_allowlist(metadata_dict.get("persona_allowlist"))
 
     if allowlist and (persona_name is None or persona_name not in allowlist):
         reason = (
@@ -800,11 +971,42 @@ def _evaluate_tool_policy(
         return ToolPolicyDecision(
             allowed=False,
             reason=reason,
-            metadata=_freeze_metadata(dict(metadata)),
+            metadata=_freeze_metadata(metadata_dict),
+            denied_operations=MappingProxyType({}),
         )
 
-    safety_level = str(metadata.get("safety_level") or "standard").lower()
-    requires_consent = bool(metadata.get("requires_consent"))
+    requires_flags = _normalize_requires_flags(metadata_dict.get("requires_flags"))
+    missing_flags = _collect_missing_flag_requirements(
+        requires_flags, current_persona
+    )
+    denied_operations = MappingProxyType({
+        op: tuple(flags) for op, flags in missing_flags.items()
+    })
+    summary_reason = _format_denied_operations_summary(
+        function_name, missing_flags
+    )
+
+    requested_operation: Optional[str] = None
+    if isinstance(tool_arguments, Mapping):
+        operation_candidate = tool_arguments.get("operation")
+        if isinstance(operation_candidate, str):
+            requested_operation = operation_candidate.strip().lower()
+        elif operation_candidate is not None:
+            requested_operation = str(operation_candidate).strip().lower()
+
+    if requested_operation and requested_operation in missing_flags:
+        reason = _format_operation_flag_reason(
+            function_name, requested_operation, missing_flags[requested_operation]
+        )
+        return ToolPolicyDecision(
+            allowed=False,
+            reason=reason,
+            metadata=_freeze_metadata(metadata_dict),
+            denied_operations=denied_operations,
+        )
+
+    safety_level = str(metadata_dict.get("safety_level") or "standard").lower()
+    requires_consent = bool(metadata_dict.get("requires_consent"))
     if safety_level == "high":
         requires_consent = True
 
@@ -820,15 +1022,18 @@ def _evaluate_tool_policy(
             return ToolPolicyDecision(
                 allowed=False,
                 reason=reason,
-                metadata=_freeze_metadata(dict(metadata)),
+                metadata=_freeze_metadata(metadata_dict),
+                denied_operations=denied_operations,
             )
 
     use_sandbox = safety_level in {"high"}
 
     return ToolPolicyDecision(
         allowed=True,
+        reason=summary_reason,
         use_sandbox=use_sandbox,
-        metadata=_freeze_metadata(dict(metadata)),
+        metadata=_freeze_metadata(metadata_dict),
+        denied_operations=denied_operations,
     )
 
 
@@ -2149,6 +2354,7 @@ async def use_tool(
             current_persona=current_persona,
             conversation_manager=conversation_manager,
             conversation_id=conversation_id,
+            tool_arguments=function_args,
         )
 
         if not policy_decision.allowed:
@@ -2229,13 +2435,20 @@ async def use_tool(
             if entry_metadata:
                 metadata_timeout = entry_metadata.get("default_timeout")
 
+            persona_snapshot = _build_persona_context_snapshot(current_persona)
+            context_payload = function_args.get("context")
+            if isinstance(context_payload, Mapping):
+                context_payload = dict(context_payload)
+            else:
+                context_payload = {}
+
+            if persona_snapshot:
+                context_payload.setdefault("persona", persona_snapshot)
+
             if is_write_tool:
-                context_payload = function_args.get("context")
-                if isinstance(context_payload, Mapping):
-                    context_payload = dict(context_payload)
-                else:
-                    context_payload = {}
                 context_payload.setdefault("idempotency_key", _generate_idempotency_key())
+
+            if context_payload:
                 function_args["context"] = context_payload
 
             timeout_seconds = _resolve_tool_timeout_seconds(

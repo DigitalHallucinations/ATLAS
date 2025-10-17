@@ -39,6 +39,17 @@ inspecting them.  The default ATLAS persona, as well as the aggregate entry in
 Persona Tools tab; write access remains opt-in for installations that are
 comfortable with automated edits.
 
+The tool manifest now declares a `requires_flags` map for the `create`,
+`update`, and `delete` operations.  `ToolManager` consults this metadata before
+each invocation and blocks the call when the active persona is missing either
+`type.personal_assistant.access_to_calendar` or
+`type.personal_assistant.calendar_write_enabled`, returning a clear policy
+reason.  The runtime also injects the persona snapshot into the tool context so
+`Debian12CalendarTool.run` can enforce the same guardrail, ensuring write
+attempts from read-only personas fail fast while list/detail/search remain
+available.  The Persona Tools tab surfaces these constraints via the tool state
+so operators understand why write actions are unavailable.
+
 ## Usage
 
 The tool supports six operations, each mapped to the manifest entry:

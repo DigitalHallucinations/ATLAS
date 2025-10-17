@@ -893,6 +893,7 @@ class Debian12CalendarTool:
     """Facade responsible for resolving configuration and executing operations."""
 
     DEFAULT_LOOKAHEAD_DAYS = 30
+    WRITE_OPERATIONS = {"create", "update", "delete"}
 
     def __init__(
         self,
@@ -1069,7 +1070,17 @@ class Debian12CalendarTool:
         return {"status": "deleted", "event_id": event_id}
 
     async def run(self, operation: str, **kwargs: Any) -> Any:
+        context = kwargs.pop("context", None)
         op = (operation or "").strip().lower()
+
+        if (
+            op in self.WRITE_OPERATIONS
+            and not self._persona_allows_write_operations(context)
+        ):
+            raise CalendarBackendError(
+                "Persona must enable 'personal_assistant.calendar_write_enabled' "
+                "to modify the Debian 12 calendar."
+            )
         if op == "list":
             return await self.list_events(
                 start=kwargs.get("start"),
@@ -1250,6 +1261,63 @@ class Debian12CalendarTool:
         if maybe is None:
             return default
         return maybe
+
+    @staticmethod
+    def _coerce_persona_flag(value: Any) -> bool:
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "1", "yes", "on", "enabled"}:
+                return True
+            if lowered in {"false", "0", "no", "off", "disabled"}:
+                return False
+        return bool(value)
+
+    def _persona_allows_write_operations(self, persona_context: Any) -> bool:
+        if persona_context is None:
+            return True
+
+        payload: Optional[Mapping[str, Any]] = None
+        if isinstance(persona_context, Mapping):
+            for key in ("persona", "current_persona"):
+                candidate = persona_context.get(key)
+                if isinstance(candidate, Mapping):
+                    payload = candidate
+                    break
+            else:
+                payload = persona_context
+
+        if not isinstance(payload, Mapping):
+            return True
+
+        type_payload: Optional[Mapping[str, Any]] = None
+        raw_type = payload.get("type")
+        if isinstance(raw_type, Mapping):
+            type_payload = raw_type
+        else:
+            flags_block = payload.get("flags")
+            if isinstance(flags_block, Mapping):
+                nested_type = flags_block.get("type")
+                if isinstance(nested_type, Mapping):
+                    type_payload = nested_type
+
+        if not isinstance(type_payload, Mapping):
+            return True
+
+        personal_assistant = type_payload.get("personal_assistant")
+        if not isinstance(personal_assistant, Mapping):
+            return True
+
+        write_enabled = personal_assistant.get("calendar_write_enabled")
+        if write_enabled is None:
+            return True
+        if not self._coerce_persona_flag(write_enabled):
+            return False
+
+        access_enabled = personal_assistant.get("access_to_calendar")
+        if access_enabled is not None and not self._coerce_persona_flag(access_enabled):
+            return False
+
+        return True
 
     def _maybe_bool(self, value: Any) -> Optional[bool]:
         if value is None:
