@@ -1041,11 +1041,35 @@ class PersonaManagement:
             caps_display = str(required_capabilities)
         caps_hint = f"Capabilities: {caps_display}" if caps_display else "Capabilities: none"
 
-        notes = str(metadata.get('safety_notes') or '').strip()
-        if notes:
-            hints = [persona_display, tools_hint, caps_hint, notes]
+        category = str(metadata.get('category') or '').strip()
+        if category:
+            category_hint = f"Category: {category}"
         else:
-            hints = [persona_display, tools_hint, caps_hint]
+            category_hint = ""
+
+        summary = str(metadata.get('summary') or '').strip()
+
+        capability_tags = metadata.get('capability_tags') or []
+        if isinstance(capability_tags, list):
+            tags_display = ", ".join(str(tag) for tag in capability_tags if str(tag))
+        else:
+            tags_display = str(capability_tags)
+        tags_hint = f"Tags: {tags_display}" if tags_display else ""
+
+        notes = str(metadata.get('safety_notes') or '').strip()
+
+        hints = []
+        if summary:
+            hints.append(summary)
+        hints.append(persona_display)
+        if category_hint:
+            hints.append(category_hint)
+        hints.append(tools_hint)
+        hints.append(caps_hint)
+        if tags_hint:
+            hints.append(tags_hint)
+        if notes:
+            hints.append(notes)
 
         return " • ".join(hints)
 

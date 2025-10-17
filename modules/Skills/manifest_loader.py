@@ -116,6 +116,9 @@ class SkillMetadata:
     required_tools: List[str]
     required_capabilities: List[str]
     safety_notes: str
+    summary: str
+    category: str
+    capability_tags: List[str]
     persona: Optional[str]
     source: str
 
@@ -215,6 +218,9 @@ def _normalize_entry(
     required_tools = _coerce_string_list(entry.get("required_tools"))
     required_capabilities = _coerce_string_list(entry.get("required_capabilities"))
     safety_notes = _coerce_string(entry.get("safety_notes"))
+    summary = _coerce_string(entry.get("summary"))
+    category = _coerce_string(entry.get("category"))
+    capability_tags = _coerce_string_list(entry.get("capability_tags"))
 
     return SkillMetadata(
         name=name,
@@ -223,6 +229,9 @@ def _normalize_entry(
         required_tools=required_tools,
         required_capabilities=required_capabilities,
         safety_notes=safety_notes,
+        summary=summary,
+        category=category,
+        capability_tags=capability_tags,
         persona=persona,
         source=_relative_source(source, app_root),
     )

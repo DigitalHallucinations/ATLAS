@@ -108,6 +108,9 @@ def test_get_skills_returns_serialized_entries(monkeypatch: pytest.MonkeyPatch) 
         required_tools=["web_search"],
         required_capabilities=["summaries"],
         safety_notes="",
+        summary="Quick summary",
+        category="Context",
+        capability_tags=["summaries"],
         persona=None,
         source="tests",
     )
@@ -118,6 +121,9 @@ def test_get_skills_returns_serialized_entries(monkeypatch: pytest.MonkeyPatch) 
         required_tools=[],
         required_capabilities=[],
         safety_notes="",
+        summary="Atlas details",
+        category="Atlas",
+        capability_tags=[],
         persona="Atlas",
         source="tests",
     )
@@ -131,6 +137,8 @@ def test_get_skills_returns_serialized_entries(monkeypatch: pytest.MonkeyPatch) 
 
     assert response["count"] == 1
     assert response["skills"][0]["name"] == "atlas_only"
+    assert response["skills"][0]["summary"] == "Atlas details"
 
     routed = server.handle_request("/skills", method="GET")
     assert routed["count"] == 2
+    assert {entry["category"] for entry in routed["skills"]} == {"Context", "Atlas"}
