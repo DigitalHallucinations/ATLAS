@@ -68,7 +68,7 @@ def persona_fixture(tmp_path: Path) -> tuple[_StubConfigManager, Path]:
     return config, root
 
 
-def test_load_persona_definition_populates_allowed_tools(persona_fixture: tuple[_StubConfigManager, Path]) -> None:
+def test_load_persona_definition_defaults_to_no_tools(persona_fixture: tuple[_StubConfigManager, Path]) -> None:
     config, root = persona_fixture
     persona_payload = {
         "persona": [
@@ -90,7 +90,41 @@ def test_load_persona_definition_populates_allowed_tools(persona_fixture: tuple[
     persona = load_persona_definition("Atlas", config_manager=config, metadata_order=order)
 
     assert persona is not None
-    assert persona["allowed_tools"] == order
+    assert persona["allowed_tools"] == []
+
+
+def test_build_tool_state_surfaces_catalog_disabled_by_default(
+    persona_fixture: tuple[_StubConfigManager, Path]
+) -> None:
+    config, root = persona_fixture
+    persona_payload = {
+        "persona": [
+            {
+                "name": "Atlas",
+                "meaning": "",
+                "content": {
+                    "start_locked": "start",
+                    "editable_content": "body",
+                    "end_locked": "end",
+                },
+            }
+        ]
+    }
+    persona_file = root / "modules" / "Personas" / "Atlas" / "Persona" / "Atlas.json"
+    _write_json(persona_file, persona_payload)
+
+    order, lookup = load_tool_metadata(config_manager=config)
+    persona = load_persona_definition("Atlas", config_manager=config, metadata_order=order)
+    tool_state = build_tool_state(
+        persona,
+        config_manager=config,
+        metadata_order=order,
+        metadata_lookup=lookup,
+    )
+
+    assert tool_state["allowed"] == []
+    assert {entry["name"] for entry in tool_state["available"]} == set(order)
+    assert all(entry["enabled"] is False for entry in tool_state["available"])
 
 
 def test_build_tool_state_merges_overrides(persona_fixture: tuple[_StubConfigManager, Path]) -> None:
