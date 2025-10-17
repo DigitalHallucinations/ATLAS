@@ -65,8 +65,8 @@ class ToolManifestValidationError(RuntimeError):
         self.persona = persona
         self.errors = errors or {}
 
-_function_map_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
-_function_payload_cache: Dict[str, Any] = {}
+_function_map_cache: Dict[str, Tuple[float, Optional[Tuple[str, ...]], Dict[str, Any]]] = {}
+_function_payload_cache: Dict[str, Tuple[float, Optional[Tuple[str, ...]], Any]] = {}
 _function_payload_cache_lock = threading.Lock()
 _default_function_map_cache: Optional[Tuple[float, Dict[str, Any]]] = None
 _default_function_map_lock = threading.Lock()
@@ -1160,6 +1160,107 @@ def _annotate_function_map(
     return annotated
 
 
+def _build_function_entry_lookup(functions_payload: Any) -> Dict[str, Mapping[str, Any]]:
+    lookup: Dict[str, Mapping[str, Any]] = {}
+    if isinstance(functions_payload, list):
+        entries = functions_payload
+    elif isinstance(functions_payload, Mapping):
+        entries = functions_payload.values()
+    else:
+        return lookup
+
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
+        name = entry.get("name")
+        if not name:
+            continue
+        lookup[str(name)] = entry
+    return lookup
+
+
+def _extract_allowed_tools(current_persona: Any) -> Optional[List[str]]:
+    if not isinstance(current_persona, Mapping):
+        return None
+
+    allowed = current_persona.get("allowed_tools")
+    if allowed is None:
+        return None
+
+    names: List[str] = []
+
+    if isinstance(allowed, str):
+        candidate = allowed.strip()
+        if candidate:
+            names.append(candidate)
+    elif isinstance(allowed, Iterable):
+        for item in allowed:
+            if isinstance(item, str):
+                candidate = item.strip()
+            elif isinstance(item, Mapping):
+                raw_name = item.get("name")
+                candidate = str(raw_name).strip() if raw_name is not None else ""
+            else:
+                candidate = ""
+            if candidate and candidate not in names:
+                names.append(candidate)
+
+    return names
+
+
+def _filter_function_map_by_allowlist(
+    function_map: Optional[Dict[str, Any]],
+    allowed_names: Optional[List[str]],
+) -> Dict[str, Any]:
+    if allowed_names is None:
+        return dict(function_map or {}) if isinstance(function_map, dict) else {}
+
+    if not allowed_names:
+        return {}
+
+    if not isinstance(function_map, dict):
+        return {}
+
+    filtered: Dict[str, Any] = {}
+    for name in allowed_names:
+        if name in function_map and name not in filtered:
+            filtered[name] = function_map[name]
+    return filtered
+
+
+def _select_allowed_functions(
+    functions_payload: Any,
+    allowed_names: Optional[List[str]],
+    *,
+    config_manager=None,
+    refresh: bool = False,
+) -> Any:
+    if allowed_names is None:
+        return functions_payload
+
+    if not allowed_names:
+        return []
+
+    lookup = _build_function_entry_lookup(functions_payload)
+    shared_lookup: Optional[Dict[str, Mapping[str, Any]]] = None
+    selected: List[Dict[str, Any]] = []
+
+    for name in allowed_names:
+        entry = lookup.get(name)
+        if entry is None:
+            if shared_lookup is None:
+                shared_payload = _load_default_functions_payload(
+                    refresh=refresh,
+                    config_manager=config_manager,
+                )
+                shared_lookup = _build_function_entry_lookup(shared_payload)
+            entry = (shared_lookup or {}).get(name)
+        if entry is not None:
+            selected.append(copy.deepcopy(dict(entry)))
+
+    return selected
+
+
 def _resolve_function_callable(entry: Any) -> Any:
     """Return the executable callable from a function map entry."""
 
@@ -1536,6 +1637,8 @@ def load_function_map_from_current_persona(
         return load_default_function_map(refresh=refresh, config_manager=config_manager)
 
     persona_name = current_persona["name"]
+    allowed_names = _extract_allowed_tools(current_persona)
+    allowed_signature = tuple(allowed_names) if allowed_names is not None else None
     try:
         app_root = _get_config_manager(config_manager).get_app_root()
     except Exception as exc:
@@ -1564,8 +1667,8 @@ def load_function_map_from_current_persona(
         cache_entry = _function_map_cache.get(persona_name)
 
         if not refresh and cache_entry:
-            cached_mtime, cached_map = cache_entry
-            if cached_mtime == file_mtime:
+            cached_mtime, cached_signature, cached_map = cache_entry
+            if cached_mtime == file_mtime and cached_signature == allowed_signature:
                 logger.info(
                     "Returning cached function map for persona '%s' without reloading module.",
                     persona_name,
@@ -1578,7 +1681,8 @@ def load_function_map_from_current_persona(
                     )
                 )
                 return _annotate_function_map(
-                    cached_map, metadata_lookup=metadata_lookup
+                    cached_map,
+                    metadata_lookup=metadata_lookup,
                 )
 
             logger.info(
@@ -1619,7 +1723,14 @@ def load_function_map_from_current_persona(
                 persona_name,
                 module.function_map,
             )
-            _function_map_cache[persona_name] = (file_mtime, module.function_map)
+            filtered_map = _filter_function_map_by_allowlist(
+                module.function_map, allowed_names
+            )
+            _function_map_cache[persona_name] = (
+                file_mtime,
+                allowed_signature,
+                filtered_map,
+            )
             metadata_lookup = _build_metadata_lookup(
                 load_functions_from_json(
                     current_persona,
@@ -1628,7 +1739,8 @@ def load_function_map_from_current_persona(
                 )
             )
             return _annotate_function_map(
-                module.function_map, metadata_lookup=metadata_lookup
+                filtered_map,
+                metadata_lookup=metadata_lookup,
             )
         else:
             logger.warning(
@@ -1645,7 +1757,8 @@ def load_function_map_from_current_persona(
         "Falling back to shared default function map for persona '%s'.",
         persona_name,
     )
-    return load_default_function_map(refresh=refresh, config_manager=config_manager)
+    fallback_map = load_default_function_map(refresh=refresh, config_manager=config_manager)
+    return _filter_function_map_by_allowlist(fallback_map, allowed_names)
 
 
 def load_functions_from_json(
@@ -1660,6 +1773,8 @@ def load_functions_from_json(
         return None
 
     persona_name = current_persona["name"]
+    allowed_names = _extract_allowed_tools(current_persona)
+    allowed_signature = tuple(allowed_names) if allowed_names is not None else None
     try:
         app_root = _get_config_manager(config_manager).get_app_root()
     except Exception as exc:
@@ -1674,14 +1789,19 @@ def load_functions_from_json(
     functions_json_path = os.path.join(toolbox_root, "functions.json")
 
     try:
-        file_mtime = os.path.getmtime(functions_json_path)
+        try:
+            file_mtime = os.path.getmtime(functions_json_path)
+        except FileNotFoundError:
+            file_mtime = None
+
+        cache_key_mtime = file_mtime if file_mtime is not None else -1.0
 
         with _function_payload_cache_lock:
             if not refresh:
                 cache_entry = _function_payload_cache.get(persona_name)
                 if cache_entry:
-                    cached_mtime, cached_functions = cache_entry
-                    if cached_mtime == file_mtime:
+                    cached_mtime, cached_signature, cached_functions = cache_entry
+                    if cached_mtime == cache_key_mtime and cached_signature == allowed_signature:
                         logger.info(
                             "Returning cached functions for persona '%s' (mtime %s).",
                             persona_name,
@@ -1689,6 +1809,8 @@ def load_functions_from_json(
                         )
                         return cached_functions
 
+        functions = None
+        if file_mtime is not None:
             with open(functions_json_path, 'r', encoding='utf-8') as file:
                 functions = json.load(file)
 
@@ -1713,26 +1835,40 @@ def load_functions_from_json(
                         persona_name,
                         error_details,
                     )
-                    _function_payload_cache.pop(persona_name, None)
+                    with _function_payload_cache_lock:
+                        _function_payload_cache.pop(persona_name, None)
                     raise ToolManifestValidationError(
                         f"Invalid tool manifest for persona '{persona_name}': {exc.message}",
                         persona=persona_name,
                         errors=error_details,
                     ) from exc
 
-            _function_payload_cache[persona_name] = (file_mtime, functions)
+        selected = _select_allowed_functions(
+            functions,
+            allowed_names,
+            config_manager=config_manager,
+            refresh=refresh,
+        )
 
-        return functions
-    except FileNotFoundError:
-        logger.error(f"functions.json file not found for persona '{persona_name}' at path: {functions_json_path}")
         with _function_payload_cache_lock:
-            _function_payload_cache.pop(persona_name, None)
+            _function_payload_cache[persona_name] = (
+                cache_key_mtime,
+                allowed_signature,
+                selected,
+            )
+
+        return selected
     except json.JSONDecodeError as e:
         logger.error(f"JSON decoding error in functions.json for persona '{persona_name}': {e}", exc_info=True)
         with _function_payload_cache_lock:
             _function_payload_cache.pop(persona_name, None)
     except ToolManifestValidationError:
         raise
+    except FileNotFoundError:
+        logger.error(f"functions.json file not found for persona '{persona_name}' at path: {functions_json_path}")
+        with _function_payload_cache_lock:
+            _function_payload_cache.pop(persona_name, None)
+        return _select_allowed_functions(None, allowed_names, config_manager=config_manager, refresh=refresh)
     except Exception as e:
         logger.error(f"Unexpected error loading functions for persona '{persona_name}': {e}", exc_info=True)
         with _function_payload_cache_lock:

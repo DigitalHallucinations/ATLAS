@@ -212,6 +212,10 @@ class _CheckButton(_DummyWidget):
     def get_active(self) -> bool:
         return self.active
 
+    @classmethod
+    def new_with_label(cls, label: str):  # pragma: no cover - construction helper
+        return cls(label=label)
+
 
 class _Entry(_DummyWidget):
     def __init__(self):
@@ -267,6 +271,18 @@ class _Button(_DummyWidget):
 
     def connect(self, signal: str, callback, *args):
         self._callbacks.append((signal, callback))
+
+
+class _Image(_DummyWidget):
+    @classmethod
+    def new_from_icon_name(cls, icon_name: str):  # pragma: no cover - icon helper
+        instance = cls()
+        instance.icon_name = icon_name
+        return instance
+
+    @classmethod
+    def new(cls):  # pragma: no cover - fallback helper
+        return cls()
 
 
 class _Box(_DummyWidget):
@@ -385,6 +401,7 @@ Gtk.Box = _Box
 Gtk.Grid = _Grid
 Gtk.ScrolledWindow = _ScrolledWindow
 Gtk.ListBox = _ListBox
+Gtk.Image = _Image
 Gtk.AlertDialog = _AlertDialog
 
 if not hasattr(Gio, "Future"):
