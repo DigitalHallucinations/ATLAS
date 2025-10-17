@@ -31,6 +31,21 @@ class _HealthyProvider(ToolProvider):
         return kwargs.get("value")
 
 
+class _DelayedProvider(ToolProvider):
+    def __init__(self, spec: ToolProviderSpec, *, tool_name: str, fallback_callable=None) -> None:
+        super().__init__(spec, tool_name=tool_name, fallback_callable=fallback_callable)
+        self.delay = 0.2
+
+    async def call(self, **kwargs: Any) -> Any:
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        await asyncio.sleep(self.delay)
+        end = loop.time()
+        # Store the last interval for assertions if required by future tests.
+        self.logger.debug("Call interval: %s -> %s", start, end)
+        return kwargs.get("value")
+
+
 class _HealthCheckProvider(ToolProvider):
     def __init__(self, spec: ToolProviderSpec, *, tool_name: str, fallback_callable=None) -> None:
         super().__init__(spec, tool_name=tool_name, fallback_callable=fallback_callable)
@@ -91,3 +106,43 @@ def test_provider_router_skips_unhealthy_providers():
 
     assert captured, "Health check provider should be instantiated"
     assert captured[0].called is False, "Provider failing health check should not be invoked"
+
+
+def test_provider_router_allows_concurrent_calls_and_updates_health():
+    delay = 0.2
+
+    def _factory(spec: ToolProviderSpec, tool_name: str, fallback_callable=None) -> _DelayedProvider:
+        provider = _DelayedProvider(spec, tool_name=tool_name, fallback_callable=fallback_callable)
+        provider.delay = delay
+        return provider
+
+    async def _run_concurrent_calls() -> Dict[str, Any]:
+        router = ToolProviderRouter(
+            tool_name="demo",
+            provider_specs=[{"name": "delayed", "priority": 0}],
+        )
+
+        async def _invoke() -> Dict[str, float]:
+            loop = asyncio.get_running_loop()
+            start = loop.time()
+            result = await router.call(value="ok")
+            end = loop.time()
+            return {"result": result, "start": start, "end": end}
+
+        first, second = await asyncio.gather(_invoke(), _invoke())
+        overlap = min(first["end"], second["end"]) - max(first["start"], second["start"])
+        return {
+            "first": first,
+            "second": second,
+            "overlap": overlap,
+            "health": router._states[0].health.snapshot(),
+        }
+
+    with tool_provider_registry.temporary_provider("delayed", _factory):
+        result = asyncio.run(_run_concurrent_calls())
+
+    assert result["first"]["result"] == "ok"
+    assert result["second"]["result"] == "ok"
+    assert result["overlap"] > 0, "Provider calls should overlap in time"
+    assert result["health"]["successes"] >= 2
+    assert result["health"]["failures"] == 0
