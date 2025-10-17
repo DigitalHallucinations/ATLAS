@@ -3,6 +3,16 @@
 Tool declarations in ATLAS now include structured metadata so that personas and
 shared tools can advertise execution constraints to downstream consumers.
 
+## Discovering tools via the API
+
+The `/tools` discovery endpoint returns the combined set of shared and persona
+manifests. Query parameters can scope the result set; for example,
+`/tools?persona=Atlas` limits persona-specific tools to the Atlas persona. Tools
+marked as shared are now always included in persona-scoped queries so that
+callers see the complete toolbox a persona can access. To omit shared tools from
+persona-filtered results, add `-shared` to the persona filter
+(`persona=Atlas&persona=-shared`).
+
 ## Manifest keys
 
 Each entry inside `modules/Tools/tool_maps/functions.json` and the persona-level
