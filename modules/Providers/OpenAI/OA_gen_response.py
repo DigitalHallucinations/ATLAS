@@ -499,7 +499,13 @@ class OpenAIGenerator:
             if not content_parts:
                 continue
 
-            formatted.append({"role": role, "content": content_parts})
+            formatted_message: Dict[str, Any] = {"role": role, "content": content_parts}
+
+            metadata = message.get("metadata") if isinstance(message, dict) else None
+            if isinstance(metadata, Mapping) and metadata:
+                formatted_message["metadata"] = _clone_payload(metadata)
+
+            formatted.append(formatted_message)
         return formatted
 
     def _convert_functions_to_tools(self, functions):

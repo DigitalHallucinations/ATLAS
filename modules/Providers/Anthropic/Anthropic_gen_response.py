@@ -592,10 +592,16 @@ class AnthropicGenerator:
             else:
                 formatted_content = [{"type": "text", "text": str(content)}]
 
-            formatted_messages.append({
+            formatted_entry: Dict[str, Any] = {
                 "role": role,
-                "content": formatted_content
-            })
+                "content": formatted_content,
+            }
+
+            metadata = message.get("metadata") if isinstance(message, Mapping) else None
+            if isinstance(metadata, Mapping) and metadata:
+                formatted_entry["metadata"] = dict(metadata)
+
+            formatted_messages.append(formatted_entry)
 
         system_prompt = "\n\n".join(system_messages).strip()
         return system_prompt, formatted_messages
