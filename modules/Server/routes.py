@@ -5,6 +5,11 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, Dict, List, Optional
 
+from modules.Personas import (
+    load_persona_definition,
+    normalize_allowed_tools,
+    persist_persona_definition,
+)
 from modules.Tools.manifest_loader import ToolManifestEntry, load_manifest_entries
 from modules.logging.logger import setup_logger
 
@@ -13,6 +18,9 @@ logger = setup_logger(__name__)
 
 class AtlasServer:
     """Expose read-only endpoints for tool metadata."""
+
+    def __init__(self, *, config_manager: Optional[object] = None) -> None:
+        self._config_manager = config_manager
 
     def get_tools(
         self,
@@ -43,20 +51,91 @@ class AtlasServer:
         method: str = "GET",
         query: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Simple request dispatcher supporting ``GET /tools``."""
+        """Simple request dispatcher supporting persona metadata endpoints."""
 
-        if method.upper() != "GET":
-            raise ValueError(f"Unsupported method: {method}")
-
-        if path != "/tools":
-            raise ValueError(f"Unsupported path: {path}")
-
+        method_upper = method.upper()
         query = query or {}
-        return self.get_tools(
-            capability=query.get("capability"),
-            safety_level=query.get("safety_level"),
-            persona=query.get("persona"),
+
+        if method_upper == "GET":
+            if path != "/tools":
+                raise ValueError(f"Unsupported path: {path}")
+            return self.get_tools(
+                capability=query.get("capability"),
+                safety_level=query.get("safety_level"),
+                persona=query.get("persona"),
+            )
+
+        if method_upper == "POST":
+            return self._handle_post(path, query)
+
+        raise ValueError(f"Unsupported method: {method}")
+
+    def _handle_post(
+        self,
+        path: str,
+        payload: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        if path.startswith("/personas/") and path.endswith("/tools"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            persona_name = components[1]
+            return self.update_persona_tools(
+                persona_name,
+                tools=payload.get("tools"),
+                rationale=str(payload.get("rationale") or "Server route persona update"),
+            )
+
+        raise ValueError(f"Unsupported path: {path}")
+
+    def update_persona_tools(
+        self,
+        persona_name: str,
+        *,
+        tools: Optional[Any],
+        rationale: str = "Server route persona update",
+    ) -> Dict[str, Any]:
+        """Update the allowed tools for a persona via server APIs."""
+
+        if not persona_name:
+            raise ValueError("Persona name is required")
+
+        persona = load_persona_definition(
+            persona_name,
+            config_manager=self._config_manager,
         )
+        if persona is None:
+            raise ValueError(f"Persona '{persona_name}' could not be loaded.")
+
+        normalised_tools = normalize_allowed_tools(self._normalise_tool_payload(tools))
+        persona["allowed_tools"] = normalised_tools
+
+        persist_persona_definition(
+            persona_name,
+            persona,
+            config_manager=self._config_manager,
+            rationale=rationale,
+        )
+
+        return {
+            "success": True,
+            "persona": {
+                "name": persona.get("name", persona_name),
+                "allowed_tools": normalised_tools,
+            },
+        }
+
+    @staticmethod
+    def _normalise_tool_payload(raw: Optional[Any]) -> List[str]:
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            return [raw]
+        if isinstance(raw, Mapping):
+            return list(raw.values())
+        if isinstance(raw, Iterable) and not isinstance(raw, (bytes, bytearray)):
+            return list(raw)
+        return [str(raw)]
 
 
 def _filter_entries(

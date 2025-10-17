@@ -538,7 +538,7 @@ class PersonaManager:
             "capability_tags": capability_tags,
         }
 
-    def update_persona(self, persona):
+    def update_persona(self, persona, *, rationale: str = "Persona manager update"):
         """Update the persona settings and save them to the corresponding file."""
         persona_name = persona.get("name") or ""
         if not persona_name:
@@ -550,13 +550,20 @@ class PersonaManager:
                 persona_name,
                 persona,
                 config_manager=self.config_manager,
+                rationale=rationale,
             )
         except Exception:
             self.logger.error("Error saving persona '%s'", persona_name, exc_info=True)
         else:
             self.logger.info("Persona '%s' updated successfully.", persona_name)
 
-    def _persist_persona(self, original_name: str, persona: dict) -> None:
+    def _persist_persona(
+        self,
+        original_name: str,
+        persona: dict,
+        *,
+        rationale: str = "Persona manager update",
+    ) -> None:
         """Persist persona changes and refresh cache entries."""
         if not persona:
             return
@@ -567,7 +574,7 @@ class PersonaManager:
         if current_name:
             self.personas[current_name] = persona
 
-        self.update_persona(persona)
+        self.update_persona(persona, rationale=rationale)
 
     def _normalize_bool(self, value: Any) -> str:
         """Convert a truthy value into the persona serialization format."""
@@ -605,7 +612,11 @@ class PersonaManager:
             'end_locked': self._normalize_string(content.get('end_locked')),
         }
 
-        self._persist_persona(persona_name, persona)
+        self._persist_persona(
+            persona_name,
+            persona,
+            rationale="Updated persona general information via persona manager",
+        )
         return {"success": True, "persona": persona}
 
     def set_flag(
@@ -637,7 +648,11 @@ class PersonaManager:
                         entry[key] = self._normalize_string(value)
             persona_type[flag] = entry
 
-        self._persist_persona(persona_name, persona)
+        self._persist_persona(
+            persona_name,
+            persona,
+            rationale=f"Updated persona flag '{flag}' via persona manager",
+        )
         return {"success": True, "persona": persona}
 
     def set_provider_defaults(
@@ -655,7 +670,11 @@ class PersonaManager:
         persona['provider'] = self._normalize_string(provider)
         persona['model'] = self._normalize_string(model)
 
-        self._persist_persona(persona_name, persona)
+        self._persist_persona(
+            persona_name,
+            persona,
+            rationale="Updated provider defaults via persona manager",
+        )
         return {"success": True, "persona": persona}
 
     def set_speech_defaults(
@@ -673,7 +692,11 @@ class PersonaManager:
         persona['Speech_provider'] = self._normalize_string(speech_provider)
         persona['voice'] = self._normalize_string(voice)
 
-        self._persist_persona(persona_name, persona)
+        self._persist_persona(
+            persona_name,
+            persona,
+            rationale="Updated speech defaults via persona manager",
+        )
         return {"success": True, "persona": persona}
 
     def set_allowed_tools(self, persona_name: str, allowed_tools: Optional[List[str]]) -> Dict[str, Any]:
@@ -686,7 +709,11 @@ class PersonaManager:
         normalized = normalize_allowed_tools(allowed_tools or [])
         persona['allowed_tools'] = normalized
 
-        self._persist_persona(persona_name, persona)
+        self._persist_persona(
+            persona_name,
+            persona,
+            rationale="Updated allowed tools via persona manager",
+        )
 
         return {"success": True, "persona": persona}
 
