@@ -211,7 +211,7 @@ class ICSCalendarBackend(CalendarBackend):
         calendar_paths: Sequence[Path],
         default_timezone: ZoneInfo,
     ) -> None:
-        self._paths = [path for path in calendar_paths if path.exists()]
+        self._paths = [Path(path) for path in calendar_paths]
         self._default_tz = default_timezone
 
     async def list_events(
@@ -259,14 +259,28 @@ class ICSCalendarBackend(CalendarBackend):
     # ------------------------------------------------------------------
 
     def _iter_paths(self, calendar: Optional[str]) -> Iterable[Path]:
+        def _existing(paths: Iterable[Path]) -> List[Path]:
+            return [path for path in paths if path.exists()]
+
         if calendar:
             candidates = [path for path in self._paths if path.stem == calendar]
+            existing_candidates = _existing(candidates)
+            if existing_candidates:
+                return tuple(existing_candidates)
             if candidates:
-                return candidates
-        return tuple(self._paths)
+                return tuple()
+
+        existing_paths = _existing(self._paths)
+        if existing_paths:
+            return tuple(existing_paths)
+        return tuple()
 
     async def _load_path(self, path: Path) -> Sequence[CalendarEvent]:
-        text = await asyncio.to_thread(path.read_text, encoding="utf-8")
+        try:
+            text = await asyncio.to_thread(path.read_text, encoding="utf-8")
+        except FileNotFoundError:
+            logger.debug("Calendar path '%s' not found; treating as empty", path)
+            return []
         return self._parse_ics(text, calendar_name=path.stem)
 
     def _parse_ics(self, text: str, calendar_name: str) -> Sequence[CalendarEvent]:
@@ -646,6 +660,10 @@ class ICSCalendarBackend(CalendarBackend):
             for path in self._paths:
                 if path.stem == calendar:
                     return path, path.stem
+        existing_paths = [path for path in self._paths if path.exists()]
+        if existing_paths:
+            primary = existing_paths[0]
+            return primary, primary.stem
         if self._paths:
             primary = self._paths[0]
             return primary, primary.stem
