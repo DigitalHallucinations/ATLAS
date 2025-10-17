@@ -103,6 +103,26 @@ class SkillRunResult:
     skill_name: str
     tool_results: Mapping[str, Any]
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    version: Optional[str] = None
+    required_capabilities: tuple[str, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        # ``required_capabilities`` may be provided as any iterable. Normalize to a
+        # tuple of non-empty strings to provide a stable consumer contract.
+        normalized: list[str] = []
+        for capability in self.required_capabilities:
+            if capability is None:
+                continue
+            token = str(capability).strip()
+            if token:
+                normalized.append(token)
+        object.__setattr__(self, "required_capabilities", tuple(normalized))
+
+    @property
+    def capability_tags(self) -> tuple[str, ...]:
+        """Alias for compatibility with callers expecting capability metadata."""
+
+        return self.required_capabilities
 
 
 class SkillExecutionError(RuntimeError):
@@ -338,6 +358,19 @@ async def use_skill(
     skill_name = str(metadata.get("name") or "")
     required_tools = list(metadata.get("required_tools") or [])
     instruction_prompt = metadata.get("instruction_prompt")
+    raw_capabilities = metadata.get("required_capabilities") or []
+    capability_tags: list[str] = []
+    for capability in raw_capabilities:
+        if capability is None:
+            continue
+        token = str(capability).strip()
+        if token:
+            capability_tags.append(token)
+    skill_version = metadata.get("version")
+    if isinstance(skill_version, str):
+        skill_version = skill_version.strip() or None
+    elif skill_version is not None:
+        skill_version = str(skill_version).strip() or None
 
     if not skill_name:
         raise SkillExecutionError("Skill metadata must include a name")
@@ -372,17 +405,21 @@ async def use_skill(
             "conversation_id": context.conversation_id,
             "persona": persona_identifier,
             "user": context.user,
+            "skill_version": skill_version,
+            "capability_tags": capability_tags,
         },
     )
 
     if instruction_prompt:
         _publish_event(
-            "skill_plan_generated",
-            {
-                "skill": skill_name,
-                "prompt": instruction_prompt,
-            },
-        )
+        "skill_plan_generated",
+        {
+            "skill": skill_name,
+            "prompt": instruction_prompt,
+            "skill_version": skill_version,
+            "capability_tags": capability_tags,
+        },
+    )
 
     available_tools = dict(
         _resolve_required_tools(persona=persona_payload, tool_manager=tool_manager) or {}
@@ -505,8 +542,16 @@ async def use_skill(
             "skill": skill_name,
             "elapsed_ms": total_elapsed_ms,
             "tool_results": results,
+            "skill_version": skill_version,
+            "capability_tags": capability_tags,
         },
     )
 
-    return SkillRunResult(skill_name=skill_name, tool_results=results, metadata=metadata)
+    return SkillRunResult(
+        skill_name=skill_name,
+        tool_results=results,
+        metadata=metadata,
+        version=skill_version,
+        required_capabilities=tuple(capability_tags),
+    )
 

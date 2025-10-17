@@ -47,6 +47,15 @@ def _normalize_capabilities(metadata: Mapping[str, Any]) -> Iterable[str]:
     elif not isinstance(candidates, IterableABC):
         candidates = []
 
+    required_capabilities = metadata.get("required_capabilities")
+    if required_capabilities:
+        if isinstance(required_capabilities, str):
+            candidates = list(candidates) + [required_capabilities]
+        elif isinstance(required_capabilities, IterableABC):
+            candidates = list(candidates) + list(required_capabilities)
+        else:
+            candidates = list(candidates) + [required_capabilities]
+
     normalized = []
     for candidate in candidates:
         if candidate is None:
