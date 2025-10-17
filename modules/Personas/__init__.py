@@ -50,6 +50,8 @@ class ToolStateEntry:
     enabled: bool
     order: int
     metadata: Mapping[str, Any]
+    disabled: bool = False
+    disabled_reason: Optional[str] = None
 
 
 class PersonaBundleError(ValueError):
@@ -425,6 +427,27 @@ def _extract_allowed_tools(candidate: Optional[Mapping[str, Any]]) -> List[str]:
     return normalize_allowed_tools(raw_tools or [])
 
 
+def _normalize_persona_allowlist(raw_allowlist: Any) -> Optional[set[str]]:
+    """Return a normalized set of persona names from ``raw_allowlist``."""
+
+    if raw_allowlist is None:
+        return None
+
+    if isinstance(raw_allowlist, str):
+        candidate = raw_allowlist.strip()
+        return {candidate} if candidate else None
+
+    if isinstance(raw_allowlist, Mapping):
+        values = raw_allowlist.values()
+    elif isinstance(raw_allowlist, (list, tuple, set)):
+        values = raw_allowlist
+    else:
+        return None
+
+    names = {str(item).strip() for item in values if str(item).strip()}
+    return names or None
+
+
 def persist_persona_definition(
     persona_name: str,
     persona: Mapping[str, Any],
@@ -520,24 +543,40 @@ def build_tool_state(
         if isinstance(override_metadata, Mapping):
             merged.update(override_metadata)
         merged.setdefault("name", name)
+
+        allowlist = _normalize_persona_allowlist(merged.get("persona_allowlist"))
+        disabled = False
+        disabled_reason: Optional[str] = None
+        if allowlist and (not persona_name or persona_name not in allowlist):
+            disabled = True
+            disabled_reason = (
+                f"Tool '{name}' is restricted to approved personas."
+            )
+
         entries.append(
             ToolStateEntry(
                 name=name,
                 enabled=name in allowed,
                 order=index,
                 metadata=merged,
+                disabled=disabled,
+                disabled_reason=disabled_reason,
             )
         )
 
-    serializable = [
-        {
+    serializable: List[Dict[str, Any]] = []
+    for entry in entries:
+        payload: Dict[str, Any] = {
             "name": entry.name,
             "enabled": entry.enabled,
             "order": entry.order,
             "metadata": dict(entry.metadata),
         }
-        for entry in entries
-    ]
+        if entry.disabled:
+            payload["disabled"] = True
+        if entry.disabled_reason:
+            payload["disabled_reason"] = entry.disabled_reason
+        serializable.append(payload)
 
     return {
         "allowed": list(allowed),

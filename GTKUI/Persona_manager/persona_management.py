@@ -905,16 +905,46 @@ class PersonaManagement:
                 metadata = {}
             display_name = metadata.get('display_name') or metadata.get('title') or metadata.get('name') or name
             enabled = bool(entry.get('enabled'))
+            policy_disabled = bool(entry.get('disabled'))
+            reason_text = entry.get('disabled_reason')
+            if isinstance(reason_text, str):
+                reason_text = reason_text.strip()
+            else:
+                reason_text = str(reason_text).strip() if reason_text else ""
 
             row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
             check = Gtk.CheckButton.new_with_label(str(display_name))
-            check.set_active(enabled)
             description = metadata.get('description')
+            tooltip_parts: List[str] = []
             if isinstance(description, str) and description.strip():
-                check.set_tooltip_text(description.strip())
+                tooltip_parts.append(description.strip())
+
+            if policy_disabled:
+                check.set_active(False)
+                check.set_sensitive(False)
+                if not reason_text:
+                    reason_text = f"{display_name} is disabled by policy."
+                tooltip_parts.append(reason_text)
+            else:
+                check.set_active(enabled)
+                if reason_text:
+                    tooltip_parts.append(reason_text)
+
+            if tooltip_parts:
+                check.set_tooltip_text("\n\n".join(tooltip_parts))
             controls.append(check)
+
+            badge_widget: Optional[Gtk.Widget] = None
+            if reason_text:
+                badge = Gtk.Label(label=reason_text)
+                badge.set_xalign(0.0)
+                badge.add_css_class("tag")
+                badge.add_css_class("warning")
+                badge.set_tooltip_text(reason_text)
+                controls.append(badge)
+                badge_widget = badge
 
             button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
             up_btn = Gtk.Button()
@@ -947,6 +977,7 @@ class PersonaManagement:
                 'up_button': up_btn,
                 'down_button': down_btn,
                 'metadata': metadata,
+                'badge': badge_widget,
             }
 
         self._refresh_tool_reorder_controls()

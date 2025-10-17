@@ -620,6 +620,18 @@ class ATLAS:
         if not isinstance(persona, dict):
             return {"function_map": {}, "function_payloads": None}
 
+        conversation_manager = getattr(self, "chat_session", None)
+        conversation_id = None
+        if conversation_manager is not None:
+            id_getter = getattr(conversation_manager, "get_conversation_id", None)
+            if callable(id_getter):
+                try:
+                    conversation_id = id_getter()
+                except Exception:  # pragma: no cover - defensive logging only
+                    conversation_id = getattr(conversation_manager, "conversation_id", None)
+            else:
+                conversation_id = getattr(conversation_manager, "conversation_id", None)
+
         try:
             function_map = ToolManagerModule.load_function_map_from_current_persona(
                 persona,
@@ -639,6 +651,13 @@ class ATLAS:
         except Exception as exc:
             self.logger.error("Failed to load persona function payloads: %s", exc, exc_info=True)
             functions_payload = None
+
+        policy_snapshot = ToolManagerModule.compute_tool_policy_snapshot(
+            function_map,
+            current_persona=persona,
+            conversation_manager=conversation_manager,
+            conversation_id=conversation_id,
+        )
 
         map_snapshot: Dict[str, Any] = {}
         if isinstance(function_map, dict):
@@ -667,6 +686,16 @@ class ATLAS:
                         )
                     except (TypeError, ValueError):
                         entry_snapshot["metadata"] = dict(metadata_candidate)
+                decision = policy_snapshot.get(name)
+                if decision is not None and not getattr(decision, "allowed", True):
+                    entry_snapshot["disabled"] = True
+                    reason = getattr(decision, "reason", None)
+                    if reason:
+                        entry_snapshot["disabled_reason"] = reason
+                    else:
+                        entry_snapshot["disabled_reason"] = (
+                            f"Tool '{name}' is blocked by the current policy."
+                        )
                 map_snapshot[name] = entry_snapshot
 
         if isinstance(functions_payload, (dict, list)):
