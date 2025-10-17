@@ -16,6 +16,13 @@ from .time import get_current_info
 from .priority_queue import priority_queue, PrioritizedTask, PrioritizedTaskList
 from .geocode import geocode_location
 from .current_location import get_current_location
+from .terminal_command import (
+    TerminalCommand,
+    TerminalCommandError,
+    CommandNotAllowedError,
+    WorkingDirectoryViolationError,
+    TerminalCommandTimeoutError,
+)
 from .webpage_fetch import (
     ContentTooLargeError,
     DomainNotAllowedError,
@@ -27,6 +34,11 @@ from .webpage_fetch import (
 )
 
 __all__ = [
+    "TerminalCommand",
+    "TerminalCommandError",
+    "CommandNotAllowedError",
+    "WorkingDirectoryViolationError",
+    "TerminalCommandTimeoutError",
     "GoogleSearch",
     "PolicyReference",
     "PolicyRecord",

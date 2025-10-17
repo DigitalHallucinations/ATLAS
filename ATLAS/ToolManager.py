@@ -19,6 +19,7 @@ from collections import deque
 from collections.abc import AsyncIterator, Mapping
 from datetime import datetime
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from types import MappingProxyType
 
@@ -120,6 +121,7 @@ _conversation_tool_runtime_ms: Dict[str, float] = {}
 _conversation_runtime_lock = threading.Lock()
 
 _SANDBOX_ENV_FLAG = "ATLAS_SANDBOX_ACTIVE"
+_SANDBOX_JAIL_ENV = "ATLAS_TERMINAL_JAIL"
 
 
 @dataclass(frozen=True)
@@ -1081,6 +1083,30 @@ class SandboxedToolRunner:
     def __init__(self, config_manager=None):
         self._config_manager = config_manager
 
+    def _resolve_filesystem_root(
+        self, metadata: Optional[Mapping[str, Any]]
+    ) -> Path:
+        config_block = _get_config_section(self._config_manager, "tool_safety")
+        root_candidate = None
+        if isinstance(metadata, Mapping):
+            root_candidate = metadata.get("filesystem_root")
+        if root_candidate is None and isinstance(config_block, Mapping):
+            root_candidate = config_block.get("filesystem_root")
+        if root_candidate is None:
+            return Path.cwd()
+        try:
+            resolved = Path(str(root_candidate)).expanduser().resolve()
+        except (OSError, RuntimeError):
+            logger.warning("Invalid sandbox filesystem root '%s'; defaulting to current directory.", root_candidate)
+            return Path.cwd()
+        if not resolved.exists():
+            try:
+                resolved.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                logger.warning("Unable to create sandbox filesystem root '%s'. Using current directory.", resolved)
+                return Path.cwd()
+        return resolved
+
     def _resolve_network_allowlist(
         self, metadata: Optional[Mapping[str, Any]]
     ) -> Optional[set[str]]:
@@ -1147,6 +1173,7 @@ class SandboxedToolRunner:
         """Apply sandbox constraints for the duration of the context."""
 
         allowed_hosts = self._resolve_network_allowlist(metadata)
+        filesystem_root = self._resolve_filesystem_root(metadata)
         original_create_connection = socket.create_connection
         original_connect = socket.socket.connect
 
@@ -1161,7 +1188,9 @@ class SandboxedToolRunner:
             return original_connect(sock, address)
 
         previous_flag = os.environ.get(_SANDBOX_ENV_FLAG)
+        previous_jail = os.environ.get(_SANDBOX_JAIL_ENV)
         os.environ[_SANDBOX_ENV_FLAG] = "1"
+        os.environ[_SANDBOX_JAIL_ENV] = str(filesystem_root)
 
         socket.create_connection = _guarded_create_connection
         socket.socket.connect = _guarded_connect
@@ -1175,6 +1204,10 @@ class SandboxedToolRunner:
                 os.environ.pop(_SANDBOX_ENV_FLAG, None)
             else:
                 os.environ[_SANDBOX_ENV_FLAG] = previous_flag
+            if previous_jail is None:
+                os.environ.pop(_SANDBOX_JAIL_ENV, None)
+            else:
+                os.environ[_SANDBOX_JAIL_ENV] = previous_jail
 
 
 def _get_config_section(config_manager, key: str):
