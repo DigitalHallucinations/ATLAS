@@ -1,5 +1,7 @@
 # ATLAS/ATLAS.py
 
+import base64
+import binascii
 import getpass
 import json
 from collections.abc import AsyncIterator as AbcAsyncIterator, Mapping
@@ -25,6 +27,7 @@ from modules.Chat.chat_session import ChatHistoryExportError, ChatSession
 from modules.Speech_Services.speech_manager import SpeechManager
 from modules.background_tasks import run_async_in_thread
 from modules.user_accounts.user_account_service import PasswordRequirements
+from modules.Server import AtlasServer
 
 class ATLAS:
     """
@@ -53,6 +56,7 @@ class ATLAS:
         self._message_dispatchers: List[Callable[[str, str], None]] = []
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
         self._default_status_tooltip = "Active LLM provider/model and TTS status"
+        self.server = AtlasServer(config_manager=self.config_manager)
 
     def _resolve_user_identity(self, *, prefer_generic: bool = False) -> Tuple[str, str]:
         """Return best-effort user identifier and display name."""
@@ -778,6 +782,44 @@ class ATLAS:
         """Proxy persona messages to the configured dispatcher."""
 
         self._require_persona_manager().show_message(role, message)
+
+    def export_persona_bundle(self, persona_name: str, *, signing_key: str) -> Dict[str, Any]:
+        """Export ``persona_name`` via the shared server routes."""
+
+        response = self.server.export_persona_bundle(
+            persona_name,
+            signing_key=signing_key,
+        )
+
+        if not response.get("success"):
+            return response
+
+        bundle = response.get("bundle")
+        if isinstance(bundle, str):
+            try:
+                response["bundle_bytes"] = base64.b64decode(bundle.encode("utf-8"))
+            except (binascii.Error, ValueError) as exc:
+                return {"success": False, "error": f"Failed to decode bundle payload: {exc}"}
+        else:
+            return {"success": False, "error": "Server response did not include bundle data."}
+
+        return response
+
+    def import_persona_bundle(
+        self,
+        *,
+        bundle_bytes: bytes,
+        signing_key: str,
+        rationale: str = "Imported via UI",
+    ) -> Dict[str, Any]:
+        """Import a persona bundle through the server routes."""
+
+        encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        return self.server.import_persona_bundle(
+            bundle_base64=encoded,
+            signing_key=signing_key,
+            rationale=rationale,
+        )
 
     def _require_chat_session(self) -> ChatSession:
         """Return the initialized chat session or raise an error if unavailable."""

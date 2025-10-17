@@ -68,6 +68,10 @@ class _AtlasStub:
         self.editor_state = None
         self.update_payload = None
         self.messages = []
+        self.export_requests = []
+        self.import_payload = None
+        self.import_result = {"success": True, "persona": {"name": "Imported"}, "warnings": []}
+        self.persona_manager = None
 
     def register_message_dispatcher(self, handler) -> None:  # pragma: no cover - stored for completeness
         self.dispatcher = handler
@@ -81,6 +85,22 @@ class _AtlasStub:
 
     def show_persona_message(self, role: str, message: str) -> None:
         self.messages.append((role, message))
+
+    def export_persona_bundle(self, persona_name: str, *, signing_key: str):
+        self.export_requests.append((persona_name, signing_key))
+        return {
+            "success": True,
+            "bundle_bytes": b"bundle-data",
+            "warnings": ["Export warning"],
+        }
+
+    def import_persona_bundle(self, *, bundle_bytes: bytes, signing_key: str, rationale: str = "Imported via UI"):
+        self.import_payload = {
+            "bundle_bytes": bundle_bytes,
+            "signing_key": signing_key,
+            "rationale": rationale,
+        }
+        return dict(self.import_result)
 
 
 class _GeneralStub:
@@ -205,3 +225,45 @@ def test_tools_tab_collects_selection_order():
 
     # ensure refresh pulled new state
     assert manager._current_editor_state.get("original_name") == "Specialist"
+
+
+def test_export_persona_bundle_writes_file(tmp_path):
+    atlas = _AtlasStub()
+    atlas.editor_state = _persona_state()
+    parent_window = Gtk.Window()
+    manager = PersonaManagement(atlas, parent_window)
+    manager._current_editor_state = {"original_name": "Specialist"}
+
+    export_path = tmp_path / "Specialist.atlasbundle"
+    manager._choose_file_path = lambda **_kwargs: str(export_path)
+    manager._prompt_signing_key = lambda _title: "secret"
+
+    manager._on_export_persona_clicked(None)
+
+    assert atlas.export_requests == [("Specialist", "secret")]
+    assert export_path.read_bytes() == b"bundle-data"
+    assert any("Export warning" in message for _role, message in atlas.messages)
+
+
+def test_import_persona_bundle_triggers_backend(tmp_path):
+    atlas = _AtlasStub()
+    atlas.import_result = {
+        "success": True,
+        "persona": {"name": "Imported"},
+        "warnings": ["Missing tools pruned"],
+    }
+
+    parent_window = Gtk.Window()
+    manager = PersonaManagement(atlas, parent_window)
+
+    bundle_path = tmp_path / "bundle.atlasbundle"
+    bundle_path.write_bytes(b"bundle-bytes")
+
+    manager._choose_file_path = lambda **_kwargs: str(bundle_path)
+    manager._prompt_signing_key = lambda _title: "import-secret"
+
+    manager._on_import_persona_clicked(None)
+
+    assert atlas.import_payload["bundle_bytes"] == b"bundle-bytes"
+    assert atlas.import_payload["signing_key"] == "import-secret"
+    assert any("Missing tools pruned" in message for _role, message in atlas.messages)
