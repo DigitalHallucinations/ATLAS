@@ -31,6 +31,7 @@ if "yaml" not in sys.modules:
 
 from modules.Server.routes import AtlasServer
 from modules.Tools.manifest_loader import ToolManifestEntry
+from modules.Skills.manifest_loader import SkillMetadata
 
 
 def _make_entry(name: str, *, persona: Optional[str]) -> ToolManifestEntry:
@@ -56,6 +57,10 @@ def _make_entry(name: str, *, persona: Optional[str]) -> ToolManifestEntry:
 
 
 def _mock_manifest_entries(*entries: ToolManifestEntry) -> List[ToolManifestEntry]:
+    return list(entries)
+
+
+def _mock_skill_entries(*entries: SkillMetadata) -> List[SkillMetadata]:
     return list(entries)
 
 
@@ -92,3 +97,40 @@ def test_get_tools_can_exclude_shared_persona(monkeypatch: pytest.MonkeyPatch) -
     assert response["count"] == 1
     names = {tool["name"] for tool in response["tools"]}
     assert names == {"atlas_only"}
+
+
+def test_get_skills_returns_serialized_entries(monkeypatch: pytest.MonkeyPatch) -> None:
+    server = AtlasServer()
+    shared_skill = SkillMetadata(
+        name="summarize",
+        version="1.0.0",
+        instruction_prompt="Do summary",
+        required_tools=["web_search"],
+        required_capabilities=["summaries"],
+        safety_notes="",
+        persona=None,
+        source="tests",
+    )
+    atlas_skill = SkillMetadata(
+        name="atlas_only",
+        version="2.0.0",
+        instruction_prompt="Do atlas",
+        required_tools=[],
+        required_capabilities=[],
+        safety_notes="",
+        persona="Atlas",
+        source="tests",
+    )
+
+    monkeypatch.setattr(
+        "modules.Server.routes.load_skill_metadata",
+        lambda config_manager=None: _mock_skill_entries(shared_skill, atlas_skill),
+    )
+
+    response = server.get_skills(persona=["Atlas", "-shared"])
+
+    assert response["count"] == 1
+    assert response["skills"][0]["name"] == "atlas_only"
+
+    routed = server.handle_request("/skills", method="GET")
+    assert routed["count"] == 2

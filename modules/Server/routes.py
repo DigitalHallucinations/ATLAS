@@ -23,6 +23,7 @@ from modules.Personas import (
     _validate_persona_payload,
 )
 from modules.Tools.manifest_loader import ToolManifestEntry, load_manifest_entries
+from modules.Skills.manifest_loader import SkillMetadata, load_skill_metadata
 from modules.analytics.persona_metrics import get_persona_metrics
 from modules.logging.audit import (
     get_persona_audit_logger,
@@ -91,6 +92,7 @@ class AtlasServer:
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
         limit: int = 20,
+        metric_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Return aggregated persona metrics for the requested persona."""
 
@@ -104,13 +106,59 @@ class AtlasServer:
 
         limit_value = max(1, min(limit_value, 200))
 
-        return get_persona_metrics(
+        payload = get_persona_metrics(
             persona_name,
             start=start,
             end=end,
             limit_recent=limit_value,
             config_manager=self._config_manager,
         )
+
+        category = (metric_type or "tool").strip().lower()
+        if category == "skill":
+            skill_metrics = dict(payload.get("skills") or {})
+            skill_metrics.setdefault("category", "skill")
+            skill_metrics.setdefault("totals", {"calls": 0, "success": 0, "failure": 0})
+            skill_metrics.setdefault("success_rate", 0.0)
+            skill_metrics.setdefault("average_latency_ms", 0.0)
+            skill_metrics.setdefault("totals_by_skill", [])
+            skill_metrics.setdefault("recent", [])
+            skill_metrics["persona"] = payload.get("persona", persona_name)
+            skill_metrics["window"] = payload.get("window", {"start": None, "end": None})
+            return skill_metrics
+
+        payload.setdefault("category", "tool")
+        if "skills" not in payload:
+            payload["skills"] = {
+                "category": "skill",
+                "totals": {"calls": 0, "success": 0, "failure": 0},
+                "success_rate": 0.0,
+                "average_latency_ms": 0.0,
+                "totals_by_skill": [],
+                "recent": [],
+            }
+        return payload
+
+    def get_skills(
+        self,
+        *,
+        persona: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Return serialized skill metadata using the manifest loader."""
+
+        entries = load_skill_metadata(config_manager=self._config_manager)
+        persona_tokens = _normalize_filters(persona)
+        if persona_tokens:
+            entries = [
+                entry
+                for entry in entries
+                if _persona_matches(entry, persona_tokens)
+            ]
+
+        return {
+            "count": len(entries),
+            "skills": [_serialize_skill(entry) for entry in entries],
+        }
 
     def get_persona_review_status(self, persona_name: str) -> Dict[str, Any]:
         """Return the current review status for ``persona_name``."""
@@ -211,11 +259,13 @@ class AtlasServer:
                 start = _parse_query_timestamp(query.get("start"))
                 end = _parse_query_timestamp(query.get("end"))
                 limit = query.get("limit")
+                metric_type = query.get("type")
                 return self.get_persona_metrics(
                     persona_name,
                     start=start,
                     end=end,
                     limit=limit,
+                    metric_type=metric_type,
                 )
             if path.startswith("/personas/") and path.endswith("/review"):
                 components = [part for part in path.strip("/").split("/") if part]
@@ -223,6 +273,8 @@ class AtlasServer:
                     raise ValueError(f"Unsupported path: {path}")
                 persona_name = components[1]
                 return self.get_persona_review_status(persona_name)
+            if path == "/skills":
+                return self.get_skills(persona=query.get("persona"))
             if path != "/tools":
                 raise ValueError(f"Unsupported path: {path}")
             return self.get_tools(
@@ -621,6 +673,19 @@ def _serialize_entry(entry: ToolManifestEntry) -> Dict[str, Any]:
         "cost_unit": entry.cost_unit,
         "persona_allowlist": entry.persona_allowlist,
         "providers": entry.providers,
+        "source": entry.source,
+    }
+
+
+def _serialize_skill(entry: SkillMetadata) -> Dict[str, Any]:
+    return {
+        "name": entry.name,
+        "persona": entry.persona,
+        "version": entry.version,
+        "instruction_prompt": entry.instruction_prompt,
+        "required_tools": entry.required_tools,
+        "required_capabilities": entry.required_capabilities,
+        "safety_notes": entry.safety_notes,
         "source": entry.source,
     }
 

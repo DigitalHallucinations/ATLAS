@@ -860,6 +860,7 @@ class ATLAS:
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
         limit: int = 20,
+        metric_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Return aggregated persona analytics via the shared server routes."""
 
@@ -868,6 +869,7 @@ class ATLAS:
             start=start,
             end=end,
             limit=limit,
+            metric_type=metric_type,
         )
 
     def get_persona_review_status(self, persona_name: str) -> Dict[str, Any]:
