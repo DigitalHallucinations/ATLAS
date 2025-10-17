@@ -435,5 +435,7 @@ if "numpy" not in sys.modules:
     numpy_module = types.ModuleType("numpy")
     numpy_module.concatenate = _concatenate
     numpy_module.array = lambda value: value
+    numpy_module.isscalar = lambda value: isinstance(value, (int, float, complex, bool, str))
+    numpy_module.bool_ = bool
 
     sys.modules["numpy"] = numpy_module

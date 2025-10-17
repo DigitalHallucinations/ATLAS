@@ -59,7 +59,11 @@
                 }
             },
             "Speech_provider": "11labs",
-            "voice": "jack"
+            "voice": "jack",
+            "allowed_tools": [
+                "google_search",
+                "get_current_info"
+            ]
         }
     ]
 }

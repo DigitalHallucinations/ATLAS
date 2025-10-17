@@ -5,6 +5,7 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib
 
 import os
+from typing import Any, Dict, List, Optional
 
 from .General_Tab.general_tab import GeneralTab
 from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
@@ -35,6 +36,9 @@ class PersonaManagement:
         self._persona_message_handler = self._handle_persona_message
         self.ATLAS.register_message_dispatcher(self._persona_message_handler)
         self._current_editor_state = None
+        self.tool_rows: Dict[str, Dict[str, Any]] = {}
+        self._tool_order: List[str] = []
+        self.tool_list_box: Optional[Gtk.ListBox] = None
 
     # --------------------------- Helpers ---------------------------
 
@@ -250,6 +254,9 @@ class PersonaManagement:
     def show_persona_settings(self, persona_state, settings_window):
         """Populate and display the persona settings window."""
         self._current_editor_state = persona_state
+        self.tool_rows = {}
+        self._tool_order = []
+        self.tool_list_box = None
         settings_window.set_tooltip_text("Configure the persona's details, provider/model, and speech options.")
 
         # Create a vertical box container for the settings.
@@ -303,6 +310,9 @@ class PersonaManagement:
         speech_voice_box = self.create_speech_voice_tab(persona_state)
         speech_voice_box.set_tooltip_text("Select speech provider and voice defaults for this persona.")
         stack.add_titled(speech_voice_box, "speech_voice", "Speech & Voice")
+
+        tools_box = self.create_tools_tab(persona_state)
+        stack.add_titled(tools_box, "tools", "Tools")
 
         # Save Button at the bottom
         save_button = Gtk.Button(label="Save")
@@ -394,6 +404,178 @@ class PersonaManagement:
 
         return speech_voice_box
 
+    def _format_tool_hint(self, metadata: Dict[str, Any]) -> str:
+        safety = str(metadata.get('safety_level') or 'unspecified').strip()
+        if safety:
+            safety = safety.capitalize()
+        cost_per_call = metadata.get('cost_per_call')
+        cost_unit = str(metadata.get('cost_unit') or '').strip()
+        if cost_per_call is None:
+            cost_text = "n/a"
+        else:
+            try:
+                cost_value = float(cost_per_call)
+                if cost_value.is_integer():
+                    cost_text = f"{int(cost_value)}"
+                else:
+                    cost_text = f"{cost_value:.3f}".rstrip('0').rstrip('.')
+            except (TypeError, ValueError):
+                cost_text = str(cost_per_call)
+        if cost_unit:
+            cost_display = f"{cost_text} {cost_unit}/call"
+        else:
+            cost_display = f"{cost_text}/call"
+        return f"Safety: {safety or 'Unspecified'} • Cost: {cost_display}"
+
+    def _ensure_tool_row_icons(self, icon_name: str) -> Gtk.Widget:
+        try:
+            image = Gtk.Image.new_from_icon_name(icon_name)
+            image.set_pixel_size(14)
+            return image
+        except Exception:
+            return Gtk.Image.new()
+
+    def create_tools_tab(self, persona_state):
+        tools_state = persona_state.get('tools') or {}
+        available = tools_state.get('available') or []
+
+        sorted_entries = sorted(
+            [entry for entry in available if isinstance(entry, dict)],
+            key=lambda entry: entry.get('order', 0),
+        )
+
+        tools_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        tools_box.set_margin_top(10)
+        tools_box.set_margin_bottom(10)
+        tools_box.set_margin_start(10)
+        tools_box.set_margin_end(10)
+        tools_box.set_tooltip_text("Enable, disable, and reorder tools available to this persona.")
+
+        header = Gtk.Label(label="Select which tools this persona can use.")
+        header.set_xalign(0.0)
+        header.set_wrap(True)
+        header.set_tooltip_text("Toggle tools to enable or disable them. Use the arrows to change invocation order.")
+        tools_box.append(header)
+
+        list_box = Gtk.ListBox()
+        list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        list_box.add_css_class("boxed-list")
+        self.tool_list_box = list_box
+
+        for entry in sorted_entries:
+            name = entry.get('name')
+            if not name:
+                continue
+            if name not in self._tool_order:
+                self._tool_order.append(name)
+            metadata = entry.get('metadata') if isinstance(entry, dict) else {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            display_name = metadata.get('display_name') or metadata.get('title') or metadata.get('name') or name
+            enabled = bool(entry.get('enabled'))
+
+            row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+            check = Gtk.CheckButton.new_with_label(str(display_name))
+            check.set_active(enabled)
+            description = metadata.get('description')
+            if isinstance(description, str) and description.strip():
+                check.set_tooltip_text(description.strip())
+            controls.append(check)
+
+            button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            up_btn = Gtk.Button()
+            up_btn.set_tooltip_text("Move up")
+            up_btn.set_child(self._ensure_tool_row_icons("go-up-symbolic"))
+            up_btn.connect("clicked", lambda _btn, tool=name: self._move_tool_row(tool, -1))
+            button_box.append(up_btn)
+
+            down_btn = Gtk.Button()
+            down_btn.set_tooltip_text("Move down")
+            down_btn.set_child(self._ensure_tool_row_icons("go-down-symbolic"))
+            down_btn.connect("clicked", lambda _btn, tool=name: self._move_tool_row(tool, 1))
+            button_box.append(down_btn)
+
+            controls.append(button_box)
+            row_box.append(controls)
+
+            hint = Gtk.Label(label=self._format_tool_hint(metadata))
+            hint.set_xalign(0.0)
+            hint.get_style_context().add_class("dim-label")
+            row_box.append(hint)
+
+            list_row = Gtk.ListBoxRow()
+            list_row.set_child(row_box)
+            list_box.append(list_row)
+
+            self.tool_rows[name] = {
+                'row': list_row,
+                'check': check,
+                'up_button': up_btn,
+                'down_button': down_btn,
+                'metadata': metadata,
+            }
+
+        self._refresh_tool_reorder_controls()
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_child(list_box)
+        tools_box.append(scroller)
+
+        return tools_box
+
+    def _refresh_tool_reorder_controls(self):
+        total = len(self._tool_order)
+        for index, name in enumerate(self._tool_order):
+            info = self.tool_rows.get(name)
+            if not info:
+                continue
+            up_button = info.get('up_button')
+            down_button = info.get('down_button')
+            if isinstance(up_button, Gtk.Button):
+                up_button.set_sensitive(index > 0)
+            if isinstance(down_button, Gtk.Button):
+                down_button.set_sensitive(index < total - 1)
+
+    def _move_tool_row(self, tool_name: str, direction: int):
+        if tool_name not in self._tool_order or not self.tool_list_box:
+            return
+
+        current_index = self._tool_order.index(tool_name)
+        new_index = current_index + direction
+        if new_index < 0 or new_index >= len(self._tool_order):
+            return
+
+        self._tool_order.pop(current_index)
+        self._tool_order.insert(new_index, tool_name)
+
+        info = self.tool_rows.get(tool_name)
+        if not info:
+            return
+
+        row = info.get('row')
+        if not isinstance(row, Gtk.ListBoxRow):
+            return
+
+        self.tool_list_box.remove(row)
+        self.tool_list_box.insert(row, new_index)
+        if hasattr(self.tool_list_box, "invalidate_sort"):
+            self.tool_list_box.invalidate_sort()
+        self._refresh_tool_reorder_controls()
+
+    def _collect_tool_payload(self) -> List[str]:
+        allowed: List[str] = []
+        for name in self._tool_order:
+            info = self.tool_rows.get(name)
+            if not info:
+                continue
+            check = info.get('check')
+            if isinstance(check, Gtk.CheckButton) and check.get_active():
+                allowed.append(name)
+        return allowed
+
     def save_persona_settings(self, settings_window):
         """
         Gathers settings from the General, Persona Type, Provider/Model,
@@ -430,12 +612,15 @@ class PersonaManagement:
             'voice': self.voice_entry.get_text(),
         }
 
+        tools_payload = self._collect_tool_payload()
+
         result = self.ATLAS.update_persona_from_editor(
             self._current_editor_state.get('original_name'),
             general_payload,
             persona_type_payload,
             provider_payload,
             speech_payload,
+            tools_payload,
         )
 
         if result.get('success'):

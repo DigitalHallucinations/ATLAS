@@ -3,10 +3,17 @@
 import os
 import json
 import copy
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from modules.user_accounts.user_data_manager import UserDataManager
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
+from modules.Personas import (
+    build_tool_state as personas_build_tool_state,
+    load_persona_definition,
+    load_tool_metadata,
+    normalize_allowed_tools,
+    persist_persona_definition,
+)
 
 class PersonaManager:
     """
@@ -41,6 +48,7 @@ class PersonaManager:
         self.default_persona_name = "ATLAS"
         self.current_persona = None
         self.current_system_prompt = None
+        self._tool_metadata_cache: Optional[Tuple[List[str], Dict[str, Any]]] = None
 
         # Load the default persona and generate the system prompt
         self.load_default_persona()
@@ -65,6 +73,14 @@ class PersonaManager:
             self.logger.error(f"Error loading persona names: {e}")
             return []
 
+    def _get_tool_metadata(self) -> Tuple[List[str], Dict[str, Any]]:
+        """Return cached shared tool metadata (order preserved)."""
+
+        if self._tool_metadata_cache is None:
+            order, lookup = load_tool_metadata(config_manager=self.config_manager)
+            self._tool_metadata_cache = (order, lookup)
+        return self._tool_metadata_cache
+
     def load_persona(self, persona_name: str) -> Optional[dict]:
         """
         Load a single persona from its respective folder.
@@ -79,29 +95,23 @@ class PersonaManager:
             self.logger.info(f"Persona '{persona_name}' retrieved from cache.")
             return self.personas[persona_name]
         
-        persona_folder = os.path.join(self.config_manager.get_app_root(), 'modules', 'Personas', persona_name, 'Persona')
-        json_file = os.path.join(persona_folder, f'{persona_name}.json')
+        try:
+            order, _lookup = self._get_tool_metadata()
+        except Exception:  # pragma: no cover - metadata load errors already logged
+            order, _lookup = [], {}
 
-        self.logger.debug(f"Attempting to load persona from folder: {persona_folder}")
-        self.logger.debug(f"Persona JSON file path: {json_file}")
+        persona_data = load_persona_definition(
+            persona_name,
+            config_manager=self.config_manager,
+            metadata_order=order,
+        )
 
-        if os.path.exists(json_file):
-            try:
-                with open(json_file, 'r', encoding='utf-8') as file:
-                    persona_data = json.load(file)
-                    if "persona" in persona_data and isinstance(persona_data["persona"], list) and len(persona_data["persona"]) > 0:
-                        self.personas[persona_name] = persona_data["persona"][0]  # Cache the loaded persona
-                        self.logger.info(f"Persona '{persona_name}' loaded successfully from '{json_file}'.")
-                        return self.personas[persona_name]
-                    else:
-                        self.logger.error(f"Invalid persona format in '{json_file}'. Expected a list under 'persona' key.")
-                        return None
-            except (FileNotFoundError, json.JSONDecodeError) as e:
-                self.logger.error(f"Error loading persona '{persona_name}': {e}")
-                return None
-        else:
-            self.logger.error(f"JSON file for persona '{persona_name}' not found at '{json_file}'.")
+        if persona_data is None:
             return None
+
+        self.personas[persona_name] = persona_data
+        self.logger.info("Persona '%s' loaded successfully.", persona_name)
+        return persona_data
 
     def set_user(self, user: str) -> None:
         """Update personalization state for a new active user."""
@@ -193,6 +203,22 @@ class PersonaManager:
             },
             'ui_state': dict(persona.get('ui_state') or {}),
         }
+
+        try:
+            order, lookup = self._get_tool_metadata()
+        except Exception:  # pragma: no cover - fallback when metadata fails
+            order, lookup = [], {}
+
+        try:
+            state['tools'] = personas_build_tool_state(
+                persona,
+                config_manager=self.config_manager,
+                metadata_order=order,
+                metadata_lookup=lookup,
+            )
+        except Exception:
+            self.logger.error("Failed to build tool state for persona '%s'", persona.get('name'), exc_info=True)
+            state['tools'] = {'allowed': normalize_allowed_tools(persona.get('allowed_tools')), 'available': []}
 
         return state
 
@@ -453,16 +479,21 @@ class PersonaManager:
 
     def update_persona(self, persona):
         """Update the persona settings and save them to the corresponding file."""
-        persona_name = persona.get("name")
-        persona_folder = os.path.join(self.persona_base_path, persona_name, 'Persona')
-        json_file = os.path.join(persona_folder, f'{persona_name}.json')
+        persona_name = persona.get("name") or ""
+        if not persona_name:
+            self.logger.error("Cannot persist persona without a name: %s", persona)
+            return
 
         try:
-            with open(json_file, 'w', encoding='utf-8') as file:
-                json.dump({"persona": [persona]}, file, indent=4)
-            self.logger.info(f"Persona '{persona_name}' updated successfully.")
-        except OSError as e:
-            self.logger.error(f"Error saving persona '{persona_name}': {e}")
+            persist_persona_definition(
+                persona_name,
+                persona,
+                config_manager=self.config_manager,
+            )
+        except Exception:
+            self.logger.error("Error saving persona '%s'", persona_name, exc_info=True)
+        else:
+            self.logger.info("Persona '%s' updated successfully.", persona_name)
 
     def _persist_persona(self, original_name: str, persona: dict) -> None:
         """Persist persona changes and refresh cache entries."""
@@ -584,6 +615,20 @@ class PersonaManager:
         self._persist_persona(persona_name, persona)
         return {"success": True, "persona": persona}
 
+    def set_allowed_tools(self, persona_name: str, allowed_tools: Optional[List[str]]) -> Dict[str, Any]:
+        """Persist persona-specific tool selections."""
+
+        persona = self.get_persona(persona_name)
+        if persona is None:
+            return {"success": False, "errors": [f"Persona '{persona_name}' could not be loaded."]}
+
+        normalized = normalize_allowed_tools(allowed_tools or [])
+        persona['allowed_tools'] = normalized
+
+        self._persist_persona(persona_name, persona)
+
+        return {"success": True, "persona": persona}
+
     def update_persona_from_form(
         self,
         persona_name: str,
@@ -591,6 +636,7 @@ class PersonaManager:
         persona_type: Optional[Dict[str, Any]] = None,
         provider: Optional[Dict[str, Any]] = None,
         speech: Optional[Dict[str, Any]] = None,
+        tools: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Apply structured persona editor payloads and persist changes.
 
@@ -686,6 +732,12 @@ class PersonaManager:
             ),
             "Failed to update speech defaults.",
         )
+
+        if tools is not None:
+            _apply_result(
+                self.set_allowed_tools(current_name, tools),
+                "Failed to update persona tools.",
+            )
 
         if errors:
             return {"success": False, "errors": errors}
