@@ -868,6 +868,30 @@ class ATLAS:
             limit=limit,
         )
 
+    def get_persona_review_status(self, persona_name: str) -> Dict[str, Any]:
+        """Return the review status payload for ``persona_name``."""
+
+        return self.server.get_persona_review_status(persona_name)
+
+    def attest_persona_review(
+        self,
+        persona_name: str,
+        *,
+        expires_in_days: Optional[int] = None,
+        expires_at: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Record a review attestation for ``persona_name``."""
+
+        reviewer, _display = self._ensure_user_identity()
+        return self.server.attest_persona_review(
+            persona_name,
+            reviewer=reviewer,
+            expires_in_days=expires_in_days,
+            expires_at=expires_at,
+            notes=notes,
+        )
+
     def _require_chat_session(self) -> ChatSession:
         """Return the initialized chat session or raise an error if unavailable."""
 

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import datetime, timezone
+from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 from collections.abc import Iterable, Mapping
 from typing import Any, Dict, List, Optional
 
@@ -18,7 +19,14 @@ from modules.Personas import (
 )
 from modules.Tools.manifest_loader import ToolManifestEntry, load_manifest_entries
 from modules.analytics.persona_metrics import get_persona_metrics
+from modules.logging.audit import (
+    get_persona_audit_logger,
+    get_persona_review_logger,
+    get_persona_review_queue,
+    parse_persona_timestamp,
+)
 from modules.logging.logger import setup_logger
+from modules.persona_review import REVIEW_INTERVAL_DAYS, compute_review_status
 
 logger = setup_logger(__name__)
 
@@ -99,6 +107,84 @@ class AtlasServer:
             config_manager=self._config_manager,
         )
 
+    def get_persona_review_status(self, persona_name: str) -> Dict[str, Any]:
+        """Return the current review status for ``persona_name``."""
+
+        if not persona_name:
+            raise ValueError("Persona name is required for review status")
+
+        status = compute_review_status(
+            persona_name,
+            audit_logger=get_persona_audit_logger(),
+            review_logger=get_persona_review_logger(),
+            review_queue=get_persona_review_queue(),
+        )
+
+        payload = asdict(status)
+        payload["success"] = True
+        return payload
+
+    def attest_persona_review(
+        self,
+        persona_name: str,
+        *,
+        reviewer: str,
+        expires_at: Optional[str] = None,
+        expires_in_days: Optional[int] = None,
+        notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Record a persona review attestation for ``persona_name``."""
+
+        if not persona_name:
+            raise ValueError("Persona name is required for review attestation")
+
+        reviewer_name = reviewer.strip() if reviewer else ""
+        if not reviewer_name:
+            reviewer_name = "unknown"
+
+        validity_days = (
+            int(expires_in_days)
+            if expires_in_days is not None
+            else REVIEW_INTERVAL_DAYS
+        )
+        validity_days = max(1, validity_days)
+        validity = timedelta(days=validity_days)
+
+        parsed_expires = (
+            parse_persona_timestamp(expires_at)
+            if expires_at
+            else None
+        )
+
+        review_logger = get_persona_review_logger()
+        queue = get_persona_review_queue()
+
+        attestation = review_logger.record_attestation(
+            persona_name,
+            reviewer=reviewer_name,
+            expires_at=parsed_expires,
+            notes=notes,
+            validity=validity,
+        )
+
+        now = datetime.now(timezone.utc)
+        queue.mark_completed(persona_name, timestamp=now)
+
+        status = compute_review_status(
+            persona_name,
+            audit_logger=get_persona_audit_logger(),
+            review_logger=review_logger,
+            review_queue=queue,
+            now=now,
+            interval_days=validity_days,
+        )
+
+        return {
+            "success": True,
+            "attestation": asdict(attestation),
+            "status": asdict(status),
+        }
+
     def handle_request(
         self,
         path: str,
@@ -126,6 +212,12 @@ class AtlasServer:
                     end=end,
                     limit=limit,
                 )
+            if path.startswith("/personas/") and path.endswith("/review"):
+                components = [part for part in path.strip("/").split("/") if part]
+                if len(components) != 3:
+                    raise ValueError(f"Unsupported path: {path}")
+                persona_name = components[1]
+                return self.get_persona_review_status(persona_name)
             if path != "/tools":
                 raise ValueError(f"Unsupported path: {path}")
             return self.get_tools(
@@ -170,6 +262,23 @@ class AtlasServer:
                 bundle_base64=str(payload.get("bundle") or ""),
                 signing_key=str(payload.get("signing_key") or ""),
                 rationale=str(payload.get("rationale") or "Imported via server route"),
+            )
+
+        if path.startswith("/personas/") and path.endswith("/review"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            persona_name = components[1]
+            expires_at = payload.get("expires_at")
+            expires_in = payload.get("expires_in_days")
+            reviewer = payload.get("reviewer")
+            notes = payload.get("notes")
+            return self.attest_persona_review(
+                persona_name,
+                reviewer=str(reviewer or ""),
+                expires_at=str(expires_at) if expires_at else None,
+                expires_in_days=int(expires_in) if expires_in is not None else None,
+                notes=str(notes) if notes is not None else None,
             )
 
         raise ValueError(f"Unsupported path: {path}")

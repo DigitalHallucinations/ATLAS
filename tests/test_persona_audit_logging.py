@@ -3,7 +3,7 @@ import sys
 import types
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 if "jsonschema" not in sys.modules:  # pragma: no cover - lightweight stub for tests
     jsonschema_stub = types.ModuleType("jsonschema")
@@ -66,6 +66,15 @@ if not hasattr(Gtk, "ListBoxRow"):
             self.children = [child]
 
     Gtk.ListBoxRow = _DummyListBoxRow
+
+Gtk.ListBoxRow = type(
+    "ListBoxRow",
+    (),
+    {
+        "__init__": lambda self, *args, **kwargs: setattr(self, "children", []),
+        "set_child": lambda self, child: setattr(self, "children", [child]),
+    },
+)
 
 from modules.Personas import persist_persona_definition
 from modules.logging import audit
@@ -201,6 +210,20 @@ def test_server_route_logs_persona_update(
 class _AtlasStub:
     def __init__(self) -> None:
         self.messages = []
+        self.review_status = {
+            "success": True,
+            "persona_name": "",
+            "last_change": None,
+            "last_review": None,
+            "reviewer": None,
+            "expires_at": None,
+            "overdue": False,
+            "pending_task": False,
+            "next_due": None,
+            "policy_days": 90,
+            "notes": None,
+        }
+        self.review_attestations: list[tuple[str, Dict[str, Any]]] = []
 
     def register_message_dispatcher(self, handler) -> None:  # pragma: no cover - stored for completeness
         self.dispatcher = handler
@@ -210,6 +233,43 @@ class _AtlasStub:
 
     def show_persona_message(self, role: str, message: str) -> None:
         self.messages.append((role, message))
+
+    def get_persona_review_status(self, persona_name: str) -> Dict[str, Any]:
+        status = dict(self.review_status)
+        status["persona_name"] = persona_name
+        return status
+
+    def attest_persona_review(
+        self,
+        persona_name: str,
+        *,
+        reviewer: str,
+        expires_in_days: Optional[int] = None,
+        expires_at: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        attestation = {
+            "timestamp": "2024-01-01T00:00:00Z",
+            "persona_name": persona_name,
+            "reviewer": reviewer,
+            "expires_at": expires_at or "2024-04-01T00:00:00Z",
+            "notes": notes or "",
+        }
+        self.review_attestations.append((persona_name, attestation))
+        status = dict(self.review_status)
+        status.update(
+            {
+                "persona_name": persona_name,
+                "last_review": attestation["timestamp"],
+                "reviewer": reviewer,
+                "expires_at": attestation["expires_at"],
+                "overdue": False,
+                "pending_task": False,
+                "next_due": attestation["expires_at"],
+            }
+        )
+        self.review_status = status
+        return {"success": True, "attestation": attestation, "status": status}
 
 
 def test_history_view_renders_entries(

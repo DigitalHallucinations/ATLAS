@@ -26,6 +26,8 @@ jsonschema_stub.exceptions = types.SimpleNamespace(
 
 import tests.test_chat_async_helper  # noqa: E402,F401 - ensure GTK stubs are loaded
 
+from typing import Any, Dict, Optional
+
 gtk_module = sys.modules.setdefault("gi.repository.Gtk", types.ModuleType("Gtk"))
 sys.modules.setdefault("Gtk", gtk_module)
 pango_module = sys.modules.setdefault("gi.repository.Pango", types.ModuleType("Pango"))
@@ -68,9 +70,63 @@ from GTKUI.Persona_manager.persona_management import PersonaManagement
 class _AtlasStub:
     def __init__(self) -> None:
         self.dispatcher = None
+        self.review_status = {
+            "success": True,
+            "persona_name": "",
+            "last_change": None,
+            "last_review": None,
+            "reviewer": None,
+            "expires_at": None,
+            "overdue": False,
+            "pending_task": False,
+            "next_due": None,
+            "policy_days": 90,
+            "notes": None,
+        }
+        self.review_attestations: list[tuple[str, Dict[str, Any]]] = []
 
     def register_message_dispatcher(self, handler) -> None:
         self.dispatcher = handler
+
+    def show_persona_message(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    def get_persona_review_status(self, persona_name: str) -> Dict[str, Any]:
+        status = dict(self.review_status)
+        status["persona_name"] = persona_name
+        return status
+
+    def attest_persona_review(
+        self,
+        persona_name: str,
+        *,
+        reviewer: str,
+        expires_in_days: Optional[int] = None,
+        expires_at: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        attestation = {
+            "timestamp": "2024-01-01T00:00:00Z",
+            "persona_name": persona_name,
+            "reviewer": reviewer,
+            "expires_at": expires_at or "2024-04-01T00:00:00Z",
+            "notes": notes or "",
+        }
+        self.review_attestations.append((persona_name, attestation))
+        status = dict(self.review_status)
+        status.update(
+            {
+                "persona_name": persona_name,
+                "last_review": attestation["timestamp"],
+                "reviewer": reviewer,
+                "expires_at": attestation["expires_at"],
+                "overdue": False,
+                "pending_task": False,
+                "next_due": attestation["expires_at"],
+            }
+        )
+        self.review_status = status
+        return {"success": True, "attestation": attestation, "status": status}
 
 
 def _persona_state(reason: str = "Policy restriction") -> dict:

@@ -58,6 +58,11 @@ class PersonaManagement:
         self._analytics_tool_placeholder: Optional[Gtk.Widget] = None
         self._analytics_recent_list: Optional[Gtk.ListBox] = None
         self._analytics_recent_placeholder: Optional[Gtk.Widget] = None
+        self._review_banner_box: Optional[Gtk.Box] = None
+        self._review_banner_label: Optional[Gtk.Label] = None
+        self._review_mark_complete_button: Optional[Gtk.Button] = None
+        self._review_status: Optional[Dict[str, Any]] = None
+        self._review_persona_name: Optional[str] = None
 
     # --------------------------- Helpers ---------------------------
 
@@ -104,6 +109,122 @@ class PersonaManagement:
             return False
 
         GLib.idle_add(_present_dialog)
+
+    def _set_widget_visible(self, widget: Optional[Gtk.Widget], visible: bool) -> None:
+        if widget is None:
+            return
+        setter = getattr(widget, "set_visible", None)
+        if callable(setter):
+            setter(bool(visible))
+        else:
+            setattr(widget, "_visible", bool(visible))
+
+    def _refresh_review_status(self, persona_name: str) -> None:
+        if not persona_name:
+            self._set_widget_visible(self._review_banner_box, False)
+            return
+
+        try:
+            status = self.ATLAS.get_persona_review_status(persona_name)
+        except Exception as exc:
+            self._set_widget_visible(self._review_banner_box, False)
+            self.ATLAS.show_persona_message(
+                "warning",
+                f"Failed to load review status for {persona_name}: {exc}",
+            )
+            return
+
+        self._review_status = status
+        self._update_review_banner(persona_name, status)
+
+    def _update_review_banner(self, persona_name: str, status: Optional[Dict[str, Any]]) -> None:
+        box = self._review_banner_box
+        label = self._review_banner_label
+        button = self._review_mark_complete_button
+
+        if box is None or label is None:
+            return
+
+        if not isinstance(status, dict):
+            self._set_widget_visible(box, False)
+            return
+
+        overdue = bool(status.get("overdue"))
+        pending = bool(status.get("pending_task"))
+        last_review = status.get("last_review")
+        reviewer = status.get("reviewer") or "unknown"
+        next_due = status.get("next_due") or status.get("expires_at")
+
+        message_parts: List[str] = []
+        if overdue:
+            due_text = next_due or "now"
+            message_parts.append(f"Review overdue since {due_text}.")
+            if pending:
+                message_parts.append("A review task has been queued.")
+            else:
+                message_parts.append("Please attest the review to clear this alert.")
+        else:
+            if last_review:
+                message_parts.append(
+                    f"Last reviewed on {last_review} by {reviewer}."
+                )
+            else:
+                message_parts.append("No review attestation recorded yet.")
+            if next_due:
+                message_parts.append(f"Next review due on {next_due}.")
+
+        text = " ".join(message_parts)
+        if hasattr(label, "set_text"):
+            try:
+                label.set_text(text)
+            except Exception:
+                pass
+        if hasattr(label, "set_label"):
+            try:
+                label.set_label(text)
+            except Exception:
+                pass
+        label.label = text  # type: ignore[attr-defined]
+        self._set_widget_visible(box, True)
+
+        if button is not None:
+            button.set_sensitive(not pending)
+            tooltip = "Record that this persona review has been completed."
+            if pending:
+                tooltip = "A review task is pending; complete it before attesting."
+            if hasattr(button, "set_tooltip_text"):
+                button.set_tooltip_text(tooltip)
+
+    def _on_mark_review_complete(self, *_args: Any) -> None:
+        persona_name = self._review_persona_name or ""
+        if not persona_name:
+            return
+
+        try:
+            result = self.ATLAS.attest_persona_review(persona_name)
+        except Exception as exc:
+            self.ATLAS.show_persona_message(
+                "error",
+                f"Failed to mark {persona_name} as reviewed: {exc}",
+            )
+            return
+
+        status = result.get("status") if isinstance(result, dict) else None
+        if isinstance(status, dict):
+            self._review_status = status
+            self._update_review_banner(persona_name, status)
+
+        attestation = result.get("attestation") if isinstance(result, dict) else None
+        reviewer = "unknown"
+        if isinstance(attestation, dict):
+            reviewer = attestation.get("reviewer") or reviewer
+        elif isinstance(status, dict):
+            reviewer = status.get("reviewer") or reviewer
+
+        self.ATLAS.show_persona_message(
+            "system",
+            f"Recorded review attestation for {persona_name} by {reviewer}.",
+        )
 
     def _make_icon_widget(self, rel_path: str, fallback_icon_name: str = "emblem-system-symbolic", size: int = 16) -> Gtk.Widget:
         """
@@ -519,6 +640,37 @@ class PersonaManagement:
         main_vbox.set_margin_start(10)
         main_vbox.set_margin_end(10)
         settings_window.set_child(main_vbox)
+
+        self._review_persona_name = (
+            persona_state.get('original_name')
+            or persona_state.get('general', {}).get('name')
+            or ""
+        )
+
+        review_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        review_box.set_margin_bottom(4)
+        review_box.set_tooltip_text("Persona review policy reminders and actions.")
+
+        review_label = Gtk.Label()
+        review_label.set_wrap(True)
+        review_label.set_xalign(0.0)
+        review_box.append(review_label)
+
+        review_button = Gtk.Button(label="Mark Review Complete")
+        review_button.set_tooltip_text("Record that this persona has been reviewed.")
+        review_button.connect("clicked", self._on_mark_review_complete)
+        review_box.append(review_button)
+
+        main_vbox.append(review_box)
+
+        self._review_banner_box = review_box
+        self._review_banner_label = review_label
+        self._review_mark_complete_button = review_button
+        self._review_status = None
+        self._set_widget_visible(review_box, False)
+
+        if self._review_persona_name:
+            self._refresh_review_status(self._review_persona_name)
 
         # Create a Gtk.Stack and Gtk.StackSwitcher for tabbed settings.
         stack = Gtk.Stack()
