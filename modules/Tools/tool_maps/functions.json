@@ -144,5 +144,159 @@
                 "query"
             ]
         }
+    },
+    {
+        "name": "context_tracker",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-conversation"
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "conversation_state",
+            "status_reporting"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Compile a normalized snapshot of the active conversation including recent highlights and participants.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Identifier for the conversation being summarized."
+                },
+                "conversation_history": {
+                    "type": "array",
+                    "description": "Recent ordered messages that should be normalized into the snapshot.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "role": {
+                                "type": "string"
+                            },
+                            "content": {
+                                "type": "string"
+                            },
+                            "timestamp": {
+                                "type": [
+                                    "string",
+                                    "number"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Optional summary override for the generated snapshot."
+                },
+                "highlights": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional list of pre-selected highlight strings."
+                }
+            },
+            "required": [
+                "conversation_id"
+            ]
+        }
+    },
+    {
+        "name": "priority_queue",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-task-list"
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "task_management",
+            "status_reporting"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Score and sort operational tasks to produce a prioritized execution list.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "priority": {
+                                "type": "integer"
+                            },
+                            "status": {
+                                "type": "string"
+                            },
+                            "due_at": {
+                                "type": "string",
+                                "description": "ISO 8601 timestamp"
+                            },
+                            "tags": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "description": "Tasks to be evaluated and sorted."
+                },
+                "default_priority": {
+                    "type": "integer",
+                    "default": 3,
+                    "description": "Priority level to use when a task does not specify one."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Optional maximum number of tasks to return."
+                },
+                "reference_time": {
+                    "type": [
+                        "string",
+                        "number"
+                    ],
+                    "description": "Override the timestamp used when computing urgency."
+                }
+            },
+            "required": []
+        }
     }
 ]
