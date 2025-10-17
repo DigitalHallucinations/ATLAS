@@ -9,12 +9,16 @@ under :mod:`modules.Tools`.
 
 from __future__ import annotations
 
-from copy import deepcopy
-from dataclasses import dataclass
+import base64
+import hashlib
+import hmac
 import json
 import os
-from pathlib import Path
+from copy import deepcopy
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
 
 from jsonschema import Draft202012Validator, exceptions as jsonschema_exceptions
@@ -46,6 +50,41 @@ class ToolStateEntry:
     enabled: bool
     order: int
     metadata: Mapping[str, Any]
+
+
+class PersonaBundleError(ValueError):
+    """Raised when persona bundle export/import fails."""
+
+
+_BUNDLE_VERSION = 1
+_BUNDLE_ALGORITHM = "HS256"
+
+
+def _utcnow_isoformat() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _normalize_signing_key(signing_key: str) -> bytes:
+    key = (signing_key or "").encode("utf-8")
+    if not key:
+        raise PersonaBundleError("Signing key is required for persona bundle operations.")
+    return key
+
+
+def _sign_payload(payload: Mapping[str, Any], *, signing_key: str) -> str:
+    key = _normalize_signing_key(signing_key)
+    digest = hmac.new(key, _canonical_json_bytes(payload), hashlib.sha256).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
+def _verify_signature(payload: Mapping[str, Any], *, signature: str, signing_key: str) -> None:
+    expected = _sign_payload(payload, signing_key=signing_key)
+    if not hmac.compare_digest(expected, signature):
+        raise PersonaBundleError("Persona bundle signature verification failed.")
 
 
 def _resolve_app_root(config_manager=None) -> Path:
@@ -506,12 +545,139 @@ def build_tool_state(
     }
 
 
+def export_persona_bundle_bytes(
+    persona_name: str,
+    *,
+    signing_key: str,
+    config_manager=None,
+) -> Tuple[bytes, PersonaPayload]:
+    """Return a signed bundle for ``persona_name`` as bytes."""
+
+    persona = load_persona_definition(persona_name, config_manager=config_manager)
+    if persona is None:
+        raise PersonaBundleError(f"Persona '{persona_name}' could not be loaded for export.")
+
+    metadata = {
+        "version": _BUNDLE_VERSION,
+        "exported_at": _utcnow_isoformat(),
+        "persona_name": persona.get("name", persona_name),
+    }
+
+    bundle_payload = {
+        "metadata": metadata,
+        "persona": persona,
+    }
+
+    signature = _sign_payload(bundle_payload, signing_key=signing_key)
+
+    signed_bundle = {
+        **bundle_payload,
+        "signature": {
+            "algorithm": _BUNDLE_ALGORITHM,
+            "value": signature,
+        },
+    }
+
+    return json.dumps(signed_bundle, indent=2).encode("utf-8"), persona
+
+
+def import_persona_bundle_bytes(
+    bundle_bytes: bytes,
+    *,
+    signing_key: str,
+    config_manager=None,
+    rationale: str = "Imported persona bundle",
+) -> Dict[str, Any]:
+    """Import ``bundle_bytes`` and persist the persona definition."""
+
+    try:
+        payload = json.loads(bundle_bytes.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise PersonaBundleError("Persona bundle is not valid UTF-8 data.") from exc
+    except json.JSONDecodeError as exc:
+        raise PersonaBundleError("Persona bundle payload is not valid JSON.") from exc
+
+    if not isinstance(payload, Mapping):
+        raise PersonaBundleError("Persona bundle payload must be a JSON object.")
+
+    metadata = payload.get("metadata")
+    persona_entry = payload.get("persona")
+    signature_info = payload.get("signature")
+
+    if not isinstance(metadata, Mapping):
+        raise PersonaBundleError("Persona bundle metadata is missing or invalid.")
+    if not isinstance(persona_entry, MutableMapping):
+        raise PersonaBundleError("Persona bundle does not include a persona definition.")
+    if not isinstance(signature_info, Mapping):
+        raise PersonaBundleError("Persona bundle signature block is missing or invalid.")
+
+    algorithm = signature_info.get("algorithm")
+    signature_value = signature_info.get("value")
+    if algorithm != _BUNDLE_ALGORITHM:
+        raise PersonaBundleError(f"Unsupported persona bundle algorithm: {algorithm!r}")
+    if not isinstance(signature_value, str) or not signature_value.strip():
+        raise PersonaBundleError("Persona bundle signature is missing.")
+
+    _verify_signature({"metadata": metadata, "persona": persona_entry}, signature=signature_value, signing_key=signing_key)
+
+    persona_name = str(persona_entry.get("name") or "").strip()
+    if not persona_name:
+        raise PersonaBundleError("Persona bundle is missing the persona name.")
+
+    order, lookup = load_tool_metadata(config_manager=config_manager)
+    known_tools = set(order) | {str(name) for name in lookup.keys()}
+
+    incoming_tools = normalize_allowed_tools(persona_entry.get("allowed_tools"))
+    resolved_tools: List[str] = []
+    missing_tools: List[str] = []
+    for tool_name in incoming_tools:
+        if tool_name in known_tools:
+            resolved_tools.append(tool_name)
+        else:
+            missing_tools.append(tool_name)
+
+    persona_for_validation = dict(persona_entry)
+    persona_for_validation["allowed_tools"] = resolved_tools
+
+    payload_for_validation = {"persona": [persona_for_validation]}
+
+    _validate_persona_payload(
+        payload_for_validation,
+        persona_name=persona_name,
+        tool_ids=known_tools,
+        config_manager=config_manager,
+    )
+
+    persist_persona_definition(
+        persona_name,
+        persona_for_validation,
+        config_manager=config_manager,
+        rationale=rationale,
+    )
+
+    warnings: List[str] = []
+    if missing_tools:
+        warnings.append(
+            "Missing tools pruned during import: " + ", ".join(sorted(missing_tools))
+        )
+
+    return {
+        "success": True,
+        "persona": persona_for_validation,
+        "warnings": warnings,
+        "metadata": dict(metadata),
+    }
+
+
 __all__ = [
     "PersonaValidationError",
+    "PersonaBundleError",
     "ToolStateEntry",
     "build_tool_state",
     "load_persona_definition",
     "persist_persona_definition",
     "load_tool_metadata",
     "normalize_allowed_tools",
+    "export_persona_bundle_bytes",
+    "import_persona_bundle_bytes",
 ]

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from collections.abc import Iterable, Mapping
 from typing import Any, Dict, List, Optional
 
 from modules.Personas import (
+    PersonaBundleError,
     load_persona_definition,
     normalize_allowed_tools,
     persist_persona_definition,
+    export_persona_bundle_bytes,
+    import_persona_bundle_bytes,
 )
 from modules.Tools.manifest_loader import ToolManifestEntry, load_manifest_entries
 from modules.logging.logger import setup_logger
@@ -86,6 +91,23 @@ class AtlasServer:
                 rationale=str(payload.get("rationale") or "Server route persona update"),
             )
 
+        if path.startswith("/personas/") and path.endswith("/export"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            persona_name = components[1]
+            return self.export_persona_bundle(
+                persona_name,
+                signing_key=str(payload.get("signing_key") or ""),
+            )
+
+        if path == "/personas/import":
+            return self.import_persona_bundle(
+                bundle_base64=str(payload.get("bundle") or ""),
+                signing_key=str(payload.get("signing_key") or ""),
+                rationale=str(payload.get("rationale") or "Imported via server route"),
+            )
+
         raise ValueError(f"Unsupported path: {path}")
 
     def update_persona_tools(
@@ -136,6 +158,59 @@ class AtlasServer:
         if isinstance(raw, Iterable) and not isinstance(raw, (bytes, bytearray)):
             return list(raw)
         return [str(raw)]
+
+    def export_persona_bundle(
+        self,
+        persona_name: str,
+        *,
+        signing_key: str,
+    ) -> Dict[str, Any]:
+        if not persona_name:
+            raise ValueError("Persona name is required for export")
+
+        try:
+            bundle_bytes, persona = export_persona_bundle_bytes(
+                persona_name,
+                signing_key=signing_key,
+                config_manager=self._config_manager,
+            )
+        except PersonaBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        return {
+            "success": True,
+            "persona": persona,
+            "bundle": encoded,
+        }
+
+    def import_persona_bundle(
+        self,
+        *,
+        bundle_base64: str,
+        signing_key: str,
+        rationale: str = "Imported via server route",
+    ) -> Dict[str, Any]:
+        if not bundle_base64:
+            raise ValueError("Bundle payload is required for import")
+
+        try:
+            bundle_bytes = base64.b64decode(bundle_base64)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Bundle payload is not valid base64 data") from exc
+
+        try:
+            result = import_persona_bundle_bytes(
+                bundle_bytes,
+                signing_key=signing_key,
+                config_manager=self._config_manager,
+                rationale=rationale,
+            )
+        except PersonaBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        result.setdefault("success", True)
+        return result
 
 
 def _filter_entries(

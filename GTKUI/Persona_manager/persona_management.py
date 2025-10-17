@@ -6,6 +6,7 @@ from gi.repository import Gtk, Gdk, GLib
 
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .General_Tab.general_tab import GeneralTab
@@ -48,6 +49,7 @@ class PersonaManagement:
         self._history_total: int = 0
         self._history_load_more_button: Optional[Gtk.Button] = None
         self._history_placeholder: Optional[Gtk.Widget] = None
+        self._last_bundle_directory: Optional[Path] = None
 
     # --------------------------- Helpers ---------------------------
 
@@ -111,6 +113,235 @@ class PersonaManagement:
             img = Gtk.Image.new_from_icon_name(fallback_icon_name)
             img.set_pixel_size(size)
             return img
+
+    def _choose_file_path(
+        self,
+        *,
+        title: str,
+        action: str,
+        suggested_name: Optional[str] = None,
+    ) -> Optional[str]:
+        chooser_cls = getattr(Gtk, "FileChooserNative", None)
+        action_enum = getattr(Gtk.FileChooserAction, action.upper(), None) if hasattr(Gtk, "FileChooserAction") else None
+        if chooser_cls is None or action_enum is None:
+            return None
+
+        chooser = chooser_cls(title=title, transient_for=self.parent_window, modal=True, action=action_enum)
+        if suggested_name and hasattr(chooser, "set_current_name"):
+            try:
+                chooser.set_current_name(suggested_name)
+            except Exception:
+                pass
+
+        if self._last_bundle_directory and hasattr(chooser, "set_current_folder"):
+            try:
+                chooser.set_current_folder(str(self._last_bundle_directory))
+            except Exception:
+                pass
+
+        response = None
+        if hasattr(chooser, "run"):
+            try:
+                response = chooser.run()
+            except Exception:
+                response = None
+        elif hasattr(chooser, "show"):
+            try:
+                chooser.show()
+                response = getattr(Gtk.ResponseType, "ACCEPT", 1)
+            except Exception:
+                response = None
+
+        accepted_responses = {
+            getattr(Gtk.ResponseType, "ACCEPT", None),
+            getattr(Gtk.ResponseType, "OK", None),
+            getattr(Gtk.ResponseType, "YES", None),
+        }
+
+        filename: Optional[str] = None
+        if response in accepted_responses:
+            file_obj = getattr(chooser, "get_file", lambda: None)()
+            if file_obj is not None and hasattr(file_obj, "get_path"):
+                filename = file_obj.get_path()
+            elif hasattr(chooser, "get_filename"):
+                filename = chooser.get_filename()
+
+        if hasattr(chooser, "destroy"):
+            try:
+                chooser.destroy()
+            except Exception:
+                pass
+
+        if filename:
+            path_obj = Path(filename).expanduser().resolve()
+            self._last_bundle_directory = path_obj.parent
+            return str(path_obj)
+
+        return None
+
+    def _prompt_signing_key(self, title: str) -> Optional[str]:
+        dialog_cls = getattr(Gtk, "Dialog", None)
+        entry_cls = getattr(Gtk, "Entry", None)
+        if dialog_cls is None or entry_cls is None:
+            return None
+
+        dialog = dialog_cls(title=title, transient_for=self.parent_window, modal=True)
+        self._style_dialog(dialog)
+
+        content_area = getattr(dialog, "get_content_area", lambda: None)()
+        if content_area is None and hasattr(dialog, "set_child"):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            dialog.set_child(box)
+            content_area = box
+
+        entry = entry_cls()
+        if hasattr(entry, "set_visibility"):
+            entry.set_visibility(False)
+
+        label = Gtk.Label(label="Signing key:")
+        if content_area is not None and hasattr(content_area, "append"):
+            content_area.append(label)
+            content_area.append(entry)
+
+        if hasattr(dialog, "add_button"):
+            dialog.add_button("Cancel", getattr(Gtk.ResponseType, "CANCEL", 0))
+            dialog.add_button("OK", getattr(Gtk.ResponseType, "OK", 1))
+
+        response = None
+        if hasattr(dialog, "run"):
+            try:
+                response = dialog.run()
+            except Exception:
+                response = None
+        else:
+            response = getattr(Gtk.ResponseType, "OK", 1)
+
+        key_value = entry.get_text().strip() if hasattr(entry, "get_text") else ""
+
+        if hasattr(dialog, "destroy"):
+            try:
+                dialog.destroy()
+            except Exception:
+                pass
+
+        if response == getattr(Gtk.ResponseType, "OK", 1) and key_value:
+            return key_value
+        return None
+
+    def _refresh_persona_catalog(self) -> None:
+        manager = getattr(self.ATLAS, "persona_manager", None)
+        loader = getattr(manager, "load_persona_names", None)
+        base_path = getattr(manager, "persona_base_path", None)
+
+        if callable(loader) and base_path is not None:
+            try:
+                names = loader(base_path)
+            except Exception:
+                names = None
+            else:
+                setattr(manager, "persona_names", names)
+
+        self._persona_page = None
+
+    def _on_export_persona_clicked(self, _button):
+        if not self._current_editor_state:
+            self.ATLAS.show_persona_message("error", "No persona loaded for export.")
+            return
+
+        persona_name = self._current_editor_state.get("original_name") or ""
+        persona_name = str(persona_name).strip()
+        if not persona_name:
+            self.ATLAS.show_persona_message("error", "Persona name is required for export.")
+            return
+
+        path = self._choose_file_path(
+            title=f"Export {persona_name}",
+            action="SAVE",
+            suggested_name=f"{persona_name}.atlasbundle",
+        )
+        if not path:
+            return
+
+        signing_key = self._prompt_signing_key("Enter signing key for export")
+        if not signing_key:
+            self.ATLAS.show_persona_message("warning", "Export cancelled: signing key required.")
+            return
+
+        try:
+            response = self.ATLAS.export_persona_bundle(persona_name, signing_key=signing_key)
+        except Exception:
+            self.ATLAS.show_persona_message("error", "Failed to export persona bundle.")
+            return
+
+        if not response.get("success"):
+            self.ATLAS.show_persona_message("error", response.get("error") or "Persona export failed.")
+            return
+
+        bundle_bytes = response.get("bundle_bytes")
+        if not isinstance(bundle_bytes, (bytes, bytearray)):
+            self.ATLAS.show_persona_message("error", "Persona export did not return bundle data.")
+            return
+
+        try:
+            Path(path).write_bytes(bundle_bytes)
+        except OSError:
+            self.ATLAS.show_persona_message("error", f"Failed to write bundle to {path}.")
+            return
+
+        warnings = response.get("warnings") or []
+        message = f"Exported persona '{persona_name}' to {path}."
+        if warnings:
+            message += " " + " ".join(warnings)
+        self.ATLAS.show_persona_message("system", message)
+
+    def _on_import_persona_clicked(self, _button):
+        path = self._choose_file_path(
+            title="Import Persona Bundle",
+            action="OPEN",
+        )
+        if not path:
+            return
+
+        signing_key = self._prompt_signing_key("Enter signing key for import")
+        if not signing_key:
+            self.ATLAS.show_persona_message("warning", "Import cancelled: signing key required.")
+            return
+
+        try:
+            bundle_bytes = Path(path).read_bytes()
+        except OSError:
+            self.ATLAS.show_persona_message("error", f"Failed to read bundle from {path}.")
+            return
+
+        try:
+            response = self.ATLAS.import_persona_bundle(
+                bundle_bytes=bundle_bytes,
+                signing_key=signing_key,
+                rationale="Imported via GTK UI",
+            )
+        except Exception:
+            self.ATLAS.show_persona_message("error", "Failed to import persona bundle.")
+            return
+
+        if not response.get("success"):
+            self.ATLAS.show_persona_message("error", response.get("error") or "Persona import failed.")
+            return
+
+        persona = response.get("persona") or {}
+        persona_name = persona.get("name") or "persona"
+        warnings = response.get("warnings") or []
+        message = f"Imported persona '{persona_name}' from {path}."
+        if warnings:
+            message += " " + " ".join(warnings)
+        self.ATLAS.show_persona_message("system", message)
+
+        self._refresh_persona_catalog()
+        if self.persona_window:
+            try:
+                self.persona_window.close()
+            except Exception:
+                pass
+        self.show_persona_menu()
 
     # --------------------------- Menu ---------------------------
 
@@ -181,6 +412,11 @@ class PersonaManagement:
         hint.set_tooltip_text("You can also use arrow keys to move and Enter to activate.")
         hint.set_margin_top(6)
         outer.append(hint)
+
+        import_btn = Gtk.Button(label="Import persona…")
+        import_btn.set_tooltip_text("Import a persona bundle from disk.")
+        import_btn.connect("clicked", self._on_import_persona_clicked)
+        outer.append(import_btn)
 
         def on_row_activated(_lb, lbrow):
             box = lbrow.get_child()
@@ -328,10 +564,18 @@ class PersonaManagement:
         stack.add_titled(history_box, "history", "History")
 
         # Save Button at the bottom
+        actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        export_button = Gtk.Button(label="Export…")
+        export_button.set_tooltip_text("Export this persona to a signed bundle.")
+        export_button.connect("clicked", self._on_export_persona_clicked)
+        actions_box.append(export_button)
+
         save_button = Gtk.Button(label="Save")
         save_button.set_tooltip_text("Save all changes to this persona.")
         save_button.connect("clicked", lambda _widget: self.save_persona_settings(settings_window))
-        main_vbox.append(save_button)
+        actions_box.append(save_button)
+
+        main_vbox.append(actions_box)
 
         settings_window.present()
 
