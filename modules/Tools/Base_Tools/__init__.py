@@ -2,14 +2,14 @@
 
 from .Google_search import GoogleSearch
 from .context_tracker import context_tracker, ConversationSnapshot
-from .deviant12_calendar import (
+from .debian12_calendar import (
     CalendarBackend,
     CalendarBackendError,
     CalendarEvent,
-    Devian12CalendarError,
-    Devian12CalendarTool,
+    Debian12CalendarError,
+    Debian12CalendarTool,
     EventNotFoundError,
-    devian12_calendar,
+    debian12_calendar,
 )
 from .policy_reference import PolicyReference, PolicyRecord, policy_reference
 from .time import get_current_info
@@ -33,10 +33,10 @@ __all__ = [
     "CalendarBackend",
     "CalendarBackendError",
     "CalendarEvent",
-    "Devian12CalendarError",
-    "Devian12CalendarTool",
+    "Debian12CalendarError",
+    "Debian12CalendarTool",
     "EventNotFoundError",
-    "devian12_calendar",
+    "debian12_calendar",
     "context_tracker",
     "get_current_info",
     "policy_reference",

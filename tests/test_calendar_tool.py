@@ -1,4 +1,4 @@
-"""Unit tests for the Devian 12 calendar tool."""
+"""Unit tests for the Debian 12 calendar tool."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import Any, Sequence
 import pytest
 
 
-_MODULE_PATH = Path("modules/Tools/Base_Tools/deviant12_calendar.py")
+_MODULE_PATH = Path("modules/Tools/Base_Tools/debian12_calendar.py")
 # Ensure parent packages exist so dataclasses can resolve module lookups.
 for package_name in ["modules", "modules.Tools", "modules.Tools.Base_Tools"]:
     if package_name not in sys.modules:
@@ -22,7 +22,7 @@ for package_name in ["modules", "modules.Tools", "modules.Tools.Base_Tools"]:
         sys.modules[package_name] = module
 
 _SPEC = importlib.util.spec_from_file_location(
-    "modules.Tools.Base_Tools.deviant12_calendar", _MODULE_PATH
+    "modules.Tools.Base_Tools.debian12_calendar", _MODULE_PATH
 )
 assert _SPEC and _SPEC.loader
 _calendar_module = importlib.util.module_from_spec(_SPEC)
@@ -32,7 +32,7 @@ _SPEC.loader.exec_module(_calendar_module)
 CalendarBackend = _calendar_module.CalendarBackend
 CalendarBackendError = _calendar_module.CalendarBackendError
 CalendarEvent = _calendar_module.CalendarEvent
-Devian12CalendarTool = _calendar_module.Devian12CalendarTool
+Debian12CalendarTool = _calendar_module.Debian12CalendarTool
 EventNotFoundError = _calendar_module.EventNotFoundError
 
 
@@ -51,7 +51,14 @@ class _StubConfigManager:
 class _DummyBackend(CalendarBackend):
     def __init__(self, events: Sequence[CalendarEvent]):
         self._events = list(events)
-        self.called = {"list": 0, "detail": 0, "search": 0}
+        self.called = {
+            "list": 0,
+            "detail": 0,
+            "search": 0,
+            "create": 0,
+            "update": 0,
+            "delete": 0,
+        }
 
     async def list_events(self, start: _dt.datetime, end: _dt.datetime, calendar=None):
         self.called["list"] += 1
@@ -79,6 +86,42 @@ class _DummyBackend(CalendarBackend):
             or (event.location or "").lower().find(lower) >= 0
         ]
 
+    async def create_event(self, payload: Any, calendar=None):
+        self.called["create"] += 1
+        event = CalendarEvent(
+            id=str(payload.get("id", "new")),
+            title=payload.get("title", "Untitled"),
+            start=payload.get("start", _dt.datetime.now(tz=_dt.timezone.utc)),
+            end=payload.get("end", _dt.datetime.now(tz=_dt.timezone.utc)),
+            all_day=payload.get("all_day", False),
+            description=payload.get("description"),
+            location=payload.get("location"),
+            calendar=calendar or "primary",
+            attendees=payload.get("attendees", []),
+            raw={},
+        )
+        self._events.append(event)
+        return event
+
+    async def update_event(self, event_id: str, payload: Any, calendar=None):
+        self.called["update"] += 1
+        for event in self._events:
+            if event.id == event_id:
+                if "title" in payload:
+                    event.title = payload["title"]  # type: ignore[misc]
+                if "description" in payload:
+                    event.description = payload["description"]
+                return event
+        raise EventNotFoundError(event_id)
+
+    async def delete_event(self, event_id: str, calendar=None):
+        self.called["delete"] += 1
+        for index, event in enumerate(self._events):
+            if event.id == event_id:
+                self._events.pop(index)
+                return None
+        raise EventNotFoundError(event_id)
+
 
 def _make_event(event_id: str, title: str = "Demo") -> CalendarEvent:
     start = _dt.datetime(2024, 1, 1, tzinfo=_dt.timezone.utc)
@@ -98,7 +141,7 @@ def _make_event(event_id: str, title: str = "Demo") -> CalendarEvent:
 
 def test_list_events_returns_normalized_payload() -> None:
     backend = _DummyBackend([_make_event("1", "Standup")])
-    tool = Devian12CalendarTool(config_manager=_StubConfigManager(), backend=backend)
+    tool = Debian12CalendarTool(config_manager=_StubConfigManager(), backend=backend)
 
     result = asyncio.run(tool.list_events())
 
@@ -110,7 +153,7 @@ def test_list_events_returns_normalized_payload() -> None:
 
 def test_list_events_handles_empty_backend_result() -> None:
     backend = _DummyBackend([])
-    tool = Devian12CalendarTool(config_manager=_StubConfigManager(), backend=backend)
+    tool = Debian12CalendarTool(config_manager=_StubConfigManager(), backend=backend)
 
     result = asyncio.run(tool.list_events())
 
@@ -119,7 +162,7 @@ def test_list_events_handles_empty_backend_result() -> None:
 
 def test_get_event_detail_propagates_not_found() -> None:
     backend = _DummyBackend([_make_event("1")])
-    tool = Devian12CalendarTool(config_manager=_StubConfigManager(), backend=backend)
+    tool = Debian12CalendarTool(config_manager=_StubConfigManager(), backend=backend)
 
     with pytest.raises(EventNotFoundError):
         asyncio.run(tool.get_event_detail("missing"))
@@ -131,8 +174,132 @@ def test_search_events_wraps_backend_error() -> None:
             raise RuntimeError("boom")
 
     backend = _ErrorBackend([_make_event("1")])
-    tool = Devian12CalendarTool(config_manager=_StubConfigManager(), backend=backend)
+    tool = Debian12CalendarTool(config_manager=_StubConfigManager(), backend=backend)
 
     with pytest.raises(CalendarBackendError):
         asyncio.run(tool.search_events("test"))
+
+
+def test_create_update_delete_event_round_trip(tmp_path: Path) -> None:
+    calendar_path = tmp_path / "primary.ics"
+    calendar_path.write_text(
+        "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//ATLAS//EN\nEND:VCALENDAR\n",
+        encoding="utf-8",
+    )
+
+    manager = _StubConfigManager(DEBIAN12_CALENDAR_PATHS=[str(calendar_path)])
+    tool = Debian12CalendarTool(config_manager=manager)
+
+    created = asyncio.run(
+        tool.create_event(
+            title="Planning",
+            start="2024-03-01T10:00:00+00:00",
+            end="2024-03-01T11:00:00+00:00",
+            attendees=[{"email": "alice@example.com", "name": "Alice"}],
+            location="HQ",
+            description="Quarterly planning",
+        )
+    )
+
+    assert created["title"] == "Planning"
+    assert created["attendees"][0]["email"] == "alice@example.com"
+
+    text = calendar_path.read_text(encoding="utf-8")
+    assert "SUMMARY:Planning" in text
+    assert "ATTENDEE;CN=Alice:mailto:alice@example.com" in text
+
+    updated = asyncio.run(
+        tool.update_event(
+            event_id=created["id"],
+            title="Planning (Updated)",
+            description="Updated description",
+        )
+    )
+
+    assert updated["title"] == "Planning (Updated)"
+    updated_text = calendar_path.read_text(encoding="utf-8")
+    assert "SUMMARY:Planning (Updated)" in updated_text
+    assert "Updated description" in updated_text
+
+    deleted = asyncio.run(tool.delete_event(created["id"]))
+
+    assert deleted == {"status": "deleted", "event_id": created["id"]}
+    final_text = calendar_path.read_text(encoding="utf-8")
+    assert "Planning (Updated)" not in final_text
+    assert final_text.strip().startswith("BEGIN:VCALENDAR")
+
+
+def test_update_event_missing_raises(tmp_path: Path) -> None:
+    calendar_path = tmp_path / "primary.ics"
+    calendar_path.write_text(
+        "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//ATLAS//EN\nEND:VCALENDAR\n",
+        encoding="utf-8",
+    )
+
+    manager = _StubConfigManager(DEBIAN12_CALENDAR_PATHS=[str(calendar_path)])
+    tool = Debian12CalendarTool(config_manager=manager)
+
+    with pytest.raises(EventNotFoundError):
+        asyncio.run(tool.update_event("missing", title="Nope"))
+
+
+def test_run_dispatch_supports_write_operations() -> None:
+    backend = _DummyBackend([_make_event("1", "Existing")])
+
+    async def _fake_create(payload: Any, calendar: Any = None):  # type: ignore[override]
+        return CalendarEvent(
+            id="new",
+            title=payload["title"],
+            start=payload["start"],
+            end=payload["end"],
+            all_day=False,
+            calendar="primary",
+            attendees=[],
+            raw={},
+        )
+
+    async def _fake_update(event_id: str, payload: Any, calendar: Any = None):  # type: ignore[override]
+        return CalendarEvent(
+            id=event_id,
+            title=payload.get("title", ""),
+            start=payload.get("start", _dt.datetime.now(tz=_dt.timezone.utc)),
+            end=payload.get("end", _dt.datetime.now(tz=_dt.timezone.utc)),
+            all_day=payload.get("all_day", False),
+            calendar="primary",
+            attendees=[],
+            raw={},
+        )
+
+    async def _fake_delete(event_id: str, calendar: Any = None):  # type: ignore[override]
+        return None
+
+    backend.create_event = _fake_create  # type: ignore[assignment]
+    backend.update_event = _fake_update  # type: ignore[assignment]
+    backend.delete_event = _fake_delete  # type: ignore[assignment]
+
+    tool = Debian12CalendarTool(config_manager=_StubConfigManager(), backend=backend)
+
+    created = asyncio.run(
+        tool.run(
+            "create",
+            title="Async",
+            start="2024-02-01T09:00:00+00:00",
+            end="2024-02-01T10:00:00+00:00",
+        )
+    )
+    assert created["title"] == "Async"
+
+    updated = asyncio.run(
+        tool.run(
+            "update",
+            event_id="new",
+            title="Updated",
+            start="2024-02-01T11:00:00+00:00",
+            end="2024-02-01T12:00:00+00:00",
+        )
+    )
+    assert updated["title"] == "Updated"
+
+    deleted = asyncio.run(tool.run("delete", event_id="new"))
+    assert deleted["status"] == "deleted"
 
