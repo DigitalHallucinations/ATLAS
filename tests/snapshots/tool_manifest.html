@@ -13,8 +13,10 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>priority_queue</td><td>1.0.0</td><td>task_management, status_reporting</td><td>—</td><td>No</td><td>Score and sort operational tasks to produce a prioritized execution list.</td></tr>
     </tbody>
   </table>
   <h2>Persona: Cleverbot</h2>
@@ -97,9 +99,14 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
+      <tr><td>geocode_location</td><td>1.0.0</td><td>geolocation, mapping</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Look up latitude and longitude coordinates for a user-specified location string using OpenWeather&#x27;s geocoding API.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>get_current_location</td><td>1.0.0</td><td>geolocation, context_awareness</td><td>—</td><td>No</td><td>Retrieve the caller&#x27;s approximate location using the IP-API geolocation service.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
       <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
+      <tr><td>priority_queue</td><td>1.0.0</td><td>task_management, status_reporting</td><td>—</td><td>No</td><td>Score and sort operational tasks to produce a prioritized execution list.</td></tr>
+      <tr><td>webpage_fetch</td><td>1.0.0</td><td>web_content, web_research, document_ingestion</td><td>—</td><td>No</td><td>Download an allowlisted webpage, strip scripts and ads, and return clean text with the resolved title and URL.</td></tr>
     </tbody>
   </table>
   <h2>Persona: WeatherGenius</h2>

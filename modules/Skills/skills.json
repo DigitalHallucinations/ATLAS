@@ -41,7 +41,8 @@
     "version": "1.0.0",
     "instruction_prompt": "Run focused web research on the user's topic, extract the most reliable insights, and deliver a concise brief with citations and follow-up questions.",
     "required_tools": [
-      "google_search"
+      "google_search",
+      "webpage_fetch"
     ],
     "required_capabilities": [
       "web_research",
