@@ -1478,6 +1478,7 @@ class PersonaManagement:
                 start=start_value,
                 end=end_value,
                 limit=25,
+                metric_type="tool",
             )
         except Exception:
             if show_errors:
@@ -1486,6 +1487,22 @@ class PersonaManagement:
                     "Unable to load persona analytics.",
                 )
             return
+
+        try:
+            skill_metrics = self.ATLAS.get_persona_metrics(
+                persona_name,
+                start=start_value,
+                end=end_value,
+                limit=25,
+                metric_type="skill",
+            )
+        except Exception:
+            skill_metrics = {}
+            if show_errors:
+                self.ATLAS.show_persona_message(
+                    "warning",
+                    "Unable to load persona skill analytics.",
+                )
 
         totals = metrics.get('totals') if isinstance(metrics, dict) else {}
         if not isinstance(totals, dict):
@@ -1567,6 +1584,62 @@ class PersonaManagement:
                 row.set_child(box)
                 if isinstance(self._analytics_tool_list, Gtk.ListBox):
                     self._analytics_tool_list.append(row)
+
+        if not isinstance(skill_metrics, dict):
+            skill_metrics = {}
+
+        skill_entries = skill_metrics.get('totals_by_skill') if isinstance(skill_metrics, dict) else []
+        if not isinstance(skill_entries, list):
+            skill_entries = []
+
+        self._clear_list_box(self._analytics_skill_list)
+        if self._analytics_skill_placeholder is not None:
+            placeholder_parent = getattr(
+                self._analytics_skill_placeholder, 'get_parent', lambda: None
+            )()
+            if placeholder_parent is not None:
+                try:
+                    placeholder_parent.remove(self._analytics_skill_placeholder)
+                except Exception:
+                    pass
+            self._analytics_skill_placeholder = None
+
+        if not skill_entries:
+            placeholder = Gtk.Label(label="No skill activity for this range.")
+            placeholder.set_xalign(0.0)
+            if isinstance(self._analytics_skill_list, Gtk.ListBox):
+                self._analytics_skill_list.append(placeholder)
+            self._analytics_skill_placeholder = placeholder
+        else:
+            for entry in skill_entries:
+                if not isinstance(entry, dict):
+                    continue
+                skill_name = str(entry.get('skill') or '')
+                if not skill_name:
+                    continue
+                calls = int(entry.get('calls') or 0)
+                success_count = int(entry.get('success') or 0)
+                failure_count = int(entry.get('failure') or 0)
+                rate = entry.get('success_rate') or 0.0
+                if not isinstance(rate, (int, float)):
+                    rate = 0.0
+                row = Gtk.ListBoxRow()
+                box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                name_label = Gtk.Label(label=skill_name)
+                name_label.set_xalign(0.0)
+                metrics_label = Gtk.Label(
+                    label=(
+                        f"{calls} calls • {success_count} success • "
+                        f"{failure_count} failure • {rate * 100:.1f}% success"
+                    )
+                )
+                metrics_label.set_xalign(1.0)
+                metrics_label.get_style_context().add_class('dim-label')
+                box.append(name_label)
+                box.append(metrics_label)
+                row.set_child(box)
+                if isinstance(self._analytics_skill_list, Gtk.ListBox):
+                    self._analytics_skill_list.append(row)
 
         recent_entries = metrics.get('recent') if isinstance(metrics, dict) else []
         if not isinstance(recent_entries, list):
@@ -1692,6 +1765,21 @@ class PersonaManagement:
         tool_scroll.set_child(tool_list)
         container.append(tool_scroll)
 
+        skill_label = Gtk.Label(label="Skill Breakdown")
+        skill_label.set_xalign(0.0)
+        container.append(skill_label)
+
+        skill_scroll = Gtk.ScrolledWindow()
+        skill_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        skill_scroll.set_min_content_height(140)
+        skill_scroll.set_hexpand(True)
+        skill_scroll.set_vexpand(True)
+        skill_list = Gtk.ListBox()
+        skill_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        skill_list.add_css_class('boxed-list')
+        skill_scroll.set_child(skill_list)
+        container.append(skill_scroll)
+
         recent_label = Gtk.Label(label="Recent Activity")
         recent_label.set_xalign(0.0)
         container.append(recent_label)
@@ -1712,8 +1800,10 @@ class PersonaManagement:
         self._analytics_end_entry = end_entry
         self._analytics_summary_labels = summary_labels
         self._analytics_tool_list = tool_list
+        self._analytics_skill_list = skill_list
         self._analytics_recent_list = recent_list
         self._analytics_tool_placeholder = None
+        self._analytics_skill_placeholder = None
         self._analytics_recent_placeholder = None
 
         self._refresh_persona_analytics(show_errors=False)

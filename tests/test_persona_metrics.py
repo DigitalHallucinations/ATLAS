@@ -58,6 +58,26 @@ def test_persona_metrics_aggregation(metrics_store):
     )
     metrics_store.record_event(
         PersonaMetricEvent(
+            persona="Atlas",
+            tool="summarize",
+            success=True,
+            latency_ms=180.0,
+            timestamp=base + timedelta(minutes=12),
+            category="skill",
+        )
+    )
+    metrics_store.record_event(
+        PersonaMetricEvent(
+            persona="Atlas",
+            tool="summarize",
+            success=False,
+            latency_ms=220.0,
+            timestamp=base + timedelta(minutes=14),
+            category="skill",
+        )
+    )
+    metrics_store.record_event(
+        PersonaMetricEvent(
             persona="Other",
             tool="web_search",
             success=True,
@@ -83,6 +103,18 @@ def test_persona_metrics_aggregation(metrics_store):
     recent_tools = [entry["tool"] for entry in metrics["recent"]]
     assert recent_tools[0] == "calculator"
     assert recent_tools[-1] == "web_search"
+
+    skill_metrics = metrics["skills"]
+    assert skill_metrics["totals"]["calls"] == 2
+    assert skill_metrics["totals"]["success"] == 1
+    assert skill_metrics["totals"]["failure"] == 1
+    assert skill_metrics["success_rate"] == pytest.approx(0.5)
+    skill_breakdown = {
+        entry["skill"]: entry for entry in skill_metrics["totals_by_skill"]
+    }
+    assert skill_breakdown["summarize"]["calls"] == 2
+    assert skill_metrics["recent"][0]["skill"] == "summarize"
+    assert skill_metrics["recent"][0]["success"] is False
 
     filtered = metrics_store.get_metrics(
         "Atlas",
@@ -156,6 +188,16 @@ def test_persona_metrics_server_endpoint(tmp_path):
             timestamp=timestamp,
         )
     )
+    store.record_event(
+        PersonaMetricEvent(
+            persona="Atlas",
+            tool="fact_check",
+            success=False,
+            latency_ms=140.0,
+            timestamp=timestamp + timedelta(minutes=1),
+            category="skill",
+        )
+    )
 
     config = DummyConfig(app_root)
     server = AtlasServer(config_manager=config)
@@ -163,6 +205,13 @@ def test_persona_metrics_server_endpoint(tmp_path):
     payload = server.get_persona_metrics("Atlas")
     assert payload["totals"]["calls"] == 1
     assert payload["recent"][0]["tool"] == "web_search"
+    assert payload["skills"]["totals"]["calls"] == 1
+    assert payload["skills"]["recent"][0]["skill"] == "fact_check"
+
+    skill_payload = server.get_persona_metrics("Atlas", metric_type="skill")
+    assert skill_payload["category"] == "skill"
+    assert skill_payload["totals"]["calls"] == 1
+    assert skill_payload["recent"][0]["skill"] == "fact_check"
 
     response = server.handle_request(
         "/personas/Atlas/analytics",
@@ -171,3 +220,12 @@ def test_persona_metrics_server_endpoint(tmp_path):
     )
     assert response["totals"]["calls"] == 1
     assert response["recent"][0]["tool"] == "web_search"
+
+    skill_response = server.handle_request(
+        "/personas/Atlas/analytics",
+        method="GET",
+        query={"type": "skill", "limit": "5"},
+    )
+    assert skill_response["category"] == "skill"
+    assert skill_response["totals"]["calls"] == 1
+    assert skill_response["recent"][0]["skill"] == "fact_check"

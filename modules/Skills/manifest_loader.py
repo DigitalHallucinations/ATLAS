@@ -10,7 +10,7 @@ from typing import Any, Iterable, Iterator, List, Optional
 
 try:  # Prefer the real jsonschema implementation when available
     from jsonschema import Draft7Validator, ValidationError
-except ModuleNotFoundError:  # pragma: no cover - lightweight fallback for limited envs
+except (ModuleNotFoundError, ImportError):  # pragma: no cover - lightweight fallback for limited envs
     class ValidationError(Exception):
         """Minimal substitute mirroring jsonschema.ValidationError."""
 

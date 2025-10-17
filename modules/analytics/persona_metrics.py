@@ -13,6 +13,7 @@ __all__ = [
     "PersonaMetricEvent",
     "PersonaMetricsStore",
     "record_persona_tool_event",
+    "record_persona_skill_event",
     "get_persona_metrics",
     "reset_persona_metrics",
 ]
@@ -70,15 +71,26 @@ class PersonaMetricEvent:
     success: bool
     latency_ms: float
     timestamp: datetime
+    category: str = "tool"
+
+    def __post_init__(self) -> None:
+        normalized_category = str(self.category or "tool").strip().lower()
+        if normalized_category not in {"tool", "skill"}:
+            normalized_category = "tool"
+        object.__setattr__(self, "category", normalized_category)
 
     def as_dict(self) -> Dict[str, Any]:
-        return {
+        payload = {
             "persona": self.persona,
             "tool": self.tool,
             "success": self.success,
             "latency_ms": float(self.latency_ms),
             "timestamp": _isoformat(self.timestamp),
+            "category": self.category,
         }
+        if self.category == "skill":
+            payload.setdefault("skill", self.tool)
+        return payload
 
 
 class PersonaMetricsStore:
@@ -145,22 +157,81 @@ class PersonaMetricsStore:
                 continue
             if end and (timestamp is None or timestamp > end):
                 continue
-            filtered.append((dict(item), timestamp))
+            filtered.append((self._normalize_event_dict(item), timestamp))
 
-        total_calls = len(filtered)
-        success_count = sum(1 for event, _ in filtered if bool(event.get("success")))
+        tool_metrics = self._aggregate_category(
+            filtered,
+            category="tool",
+            name_key="tool",
+            label="tool",
+            limit_recent=limit_recent,
+        )
+        skill_metrics = self._aggregate_category(
+            filtered,
+            category="skill",
+            name_key="skill",
+            label="skill",
+            limit_recent=limit_recent,
+        )
+
+        result = {
+            "persona": persona,
+            "window": {
+                "start": _isoformat(start) if start else None,
+                "end": _isoformat(end) if end else None,
+            },
+        }
+        result.update(tool_metrics)
+        result["skills"] = skill_metrics
+        return result
+
+    def _normalize_event_dict(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        event = dict(payload)
+        category = str(event.get("category") or "tool").strip().lower()
+        if category not in {"tool", "skill"}:
+            category = "tool"
+        event["category"] = category
+        event.setdefault("persona", str(payload.get("persona") or ""))
+        tool_name = str(event.get("tool") or "").strip()
+        if category == "skill":
+            skill_name = str(event.get("skill") or tool_name).strip()
+            event["skill"] = skill_name
+            event["tool"] = tool_name or skill_name
+        else:
+            event["tool"] = tool_name
+        return event
+
+    def _aggregate_category(
+        self,
+        events: List[Tuple[Dict[str, Any], Optional[datetime]]],
+        *,
+        category: str,
+        name_key: str,
+        label: str,
+        limit_recent: int,
+    ) -> Dict[str, Any]:
+        category_events = [
+            (event, timestamp)
+            for event, timestamp in events
+            if (event.get("category") or "tool") == category
+        ]
+
+        total_calls = len(category_events)
+        success_count = sum(1 for event, _ in category_events if bool(event.get("success")))
         failure_count = total_calls - success_count
-        latency_sum = sum(float(event.get("latency_ms") or 0.0) for event, _ in filtered)
+        latency_sum = sum(
+            float(event.get("latency_ms") or 0.0) for event, _ in category_events
+        )
         average_latency = latency_sum / total_calls if total_calls else 0.0
 
-        tool_totals: Dict[str, Dict[str, Any]] = {}
-        for event, _ in filtered:
-            tool_name = str(event.get("tool") or "")
-            if not tool_name:
+        totals_by_name: Dict[str, Dict[str, Any]] = {}
+        for event, _ in category_events:
+            target_name = str(event.get(name_key) or "").strip()
+            if not target_name:
                 continue
-            bucket = tool_totals.setdefault(
-                tool_name,
-                {"tool": tool_name, "calls": 0, "success": 0, "failure": 0},
+            bucket = totals_by_name.setdefault(
+                target_name,
+                {label: target_name, "calls": 0, "success": 0, "failure": 0},
             )
             bucket["calls"] += 1
             if bool(event.get("success")):
@@ -168,30 +239,27 @@ class PersonaMetricsStore:
             else:
                 bucket["failure"] += 1
 
-        for bucket in tool_totals.values():
+        for bucket in totals_by_name.values():
             calls = bucket["calls"]
             successes = bucket["success"]
             bucket["success_rate"] = successes / calls if calls else 0.0
 
-        filtered.sort(key=lambda pair: pair[1] or datetime.min)
-        recent_pairs = filtered[-limit_recent:]
+        category_events.sort(key=lambda pair: pair[1] or datetime.min)
+        recent_pairs = category_events[-limit_recent:]
         recent = [
             {
                 "persona": event.get("persona"),
-                "tool": event.get("tool"),
+                label: event.get(name_key),
                 "success": bool(event.get("success")),
                 "latency_ms": float(event.get("latency_ms") or 0.0),
                 "timestamp": event.get("timestamp"),
+                "category": category,
             }
             for event, _ in reversed(recent_pairs)
         ]
 
         return {
-            "persona": persona,
-            "window": {
-                "start": _isoformat(start) if start else None,
-                "end": _isoformat(end) if end else None,
-            },
+            "category": category,
             "totals": {
                 "calls": total_calls,
                 "success": success_count,
@@ -199,7 +267,9 @@ class PersonaMetricsStore:
             },
             "success_rate": success_count / total_calls if total_calls else 0.0,
             "average_latency_ms": average_latency,
-            "totals_by_tool": sorted(tool_totals.values(), key=lambda bucket: bucket["tool"]),
+            f"totals_by_{label}": sorted(
+                totals_by_name.values(), key=lambda bucket: bucket[label]
+            ),
             "recent": recent,
         }
 
@@ -259,6 +329,31 @@ def record_persona_tool_event(
         success=bool(success),
         latency_ms=float(latency_ms or 0.0),
         timestamp=timestamp or datetime.now(timezone.utc),
+    )
+    store = _get_store(config_manager)
+    store.record_event(event)
+
+
+def record_persona_skill_event(
+    persona: Optional[str],
+    skill: Optional[str],
+    *,
+    success: bool,
+    latency_ms: Optional[float] = None,
+    timestamp: Optional[datetime] = None,
+    config_manager: Optional[Any] = None,
+) -> None:
+    """Persist a persona/skill invocation metric."""
+
+    if not persona or not skill:
+        return
+    event = PersonaMetricEvent(
+        persona=str(persona),
+        tool=str(skill),
+        success=bool(success),
+        latency_ms=float(latency_ms or 0.0),
+        timestamp=timestamp or datetime.now(timezone.utc),
+        category="skill",
     )
     store = _get_store(config_manager)
     store.record_event(event)
