@@ -1,9 +1,10 @@
-"""Lightweight server routing helpers for tool metadata."""
+"""Lightweight server routing helpers for tool metadata and analytics."""
 
 from __future__ import annotations
 
 import base64
 import binascii
+from datetime import datetime, timezone
 from collections.abc import Iterable, Mapping
 from typing import Any, Dict, List, Optional
 
@@ -16,9 +17,30 @@ from modules.Personas import (
     import_persona_bundle_bytes,
 )
 from modules.Tools.manifest_loader import ToolManifestEntry, load_manifest_entries
+from modules.analytics.persona_metrics import get_persona_metrics
 from modules.logging.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+
+def _parse_query_timestamp(raw_value: Optional[Any]) -> Optional[datetime]:
+    """Return a normalized UTC timestamp parsed from query parameters."""
+
+    if raw_value is None:
+        return None
+    text = str(raw_value).strip()
+    if not text:
+        return None
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 class AtlasServer:
@@ -49,6 +71,34 @@ class AtlasServer:
             "tools": [_serialize_entry(entry) for entry in filtered],
         }
 
+    def get_persona_metrics(
+        self,
+        persona_name: str,
+        *,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """Return aggregated persona metrics for the requested persona."""
+
+        if not persona_name:
+            raise ValueError("Persona name is required for analytics")
+
+        try:
+            limit_value = int(limit)
+        except (TypeError, ValueError):
+            limit_value = 20
+
+        limit_value = max(1, min(limit_value, 200))
+
+        return get_persona_metrics(
+            persona_name,
+            start=start,
+            end=end,
+            limit_recent=limit_value,
+            config_manager=self._config_manager,
+        )
+
     def handle_request(
         self,
         path: str,
@@ -62,6 +112,20 @@ class AtlasServer:
         query = query or {}
 
         if method_upper == "GET":
+            if path.startswith("/personas/") and path.endswith("/analytics"):
+                components = [part for part in path.strip("/").split("/") if part]
+                if len(components) != 3:
+                    raise ValueError(f"Unsupported path: {path}")
+                persona_name = components[1]
+                start = _parse_query_timestamp(query.get("start"))
+                end = _parse_query_timestamp(query.get("end"))
+                limit = query.get("limit")
+                return self.get_persona_metrics(
+                    persona_name,
+                    start=start,
+                    end=end,
+                    limit=limit,
+                )
             if path != "/tools":
                 raise ValueError(f"Unsupported path: {path}")
             return self.get_tools(

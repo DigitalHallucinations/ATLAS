@@ -75,3 +75,21 @@ and use the same validation logic as the CLI. The import option is available on
 the persona list window and opens a file chooser dialog to select the bundle
 before verification and persistence.
 4. If the schema needs to change, edit `modules/Personas/schema.json` and keep these docs in sync.
+
+## Persona analytics metrics
+
+Persona tool usage is persisted under `modules/analytics/persona_metrics.json`. The
+file stores an `events` array where each entry records:
+
+- `persona`: the persona identifier at execution time,
+- `tool`: the invoked tool name,
+- `success`: a boolean flag indicating whether the call completed without
+  raising an error,
+- `latency_ms`: the measured execution time in milliseconds, and
+- `timestamp`: an ISO 8601 timestamp (UTC) describing when the event finished.
+
+Aggregated metrics such as totals, success rates, per-tool breakdowns, and the
+most recent executions are computed on demand by the analytics helpers in
+`modules/analytics/persona_metrics.py`. The GTK persona manager exposes these
+metrics in an **Analytics** tab, including optional start/end filters for the
+captured time window.

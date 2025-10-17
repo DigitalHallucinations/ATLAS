@@ -24,6 +24,7 @@ from types import MappingProxyType
 
 from jsonschema import Draft7Validator, ValidationError
 
+from modules.analytics.persona_metrics import record_persona_tool_event
 from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system
 from modules.Tools.providers.router import ToolProviderRouter
@@ -1928,6 +1929,32 @@ async def use_tool(
         return getattr(target, key, default)
 
     tool_streaming_enabled = bool(stream)
+    persona_name = _extract_persona_name(current_persona)
+
+    def _record_persona_metric(
+        tool_name: Optional[str],
+        *,
+        success: bool,
+        latency_ms: Optional[float] = None,
+        timestamp: Optional[datetime] = None,
+    ) -> None:
+        if not persona_name or not tool_name:
+            return
+        try:
+            record_persona_tool_event(
+                persona=persona_name,
+                tool=tool_name,
+                success=success,
+                latency_ms=latency_ms,
+                timestamp=timestamp,
+                config_manager=config_manager,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to record persona metrics for persona '%s' and tool '%s'",
+                persona_name,
+                tool_name,
+            )
 
     def _normalize_tool_call_entry(raw_entry):
         if not raw_entry:
@@ -1997,6 +2024,12 @@ async def use_tool(
                     f"'{conversation_id}': {consumed_ms:.0f}ms used of "
                     f"{conversation_budget_ms:.0f}ms allowed."
                 )
+                _record_persona_metric(
+                    function_name,
+                    success=False,
+                    latency_ms=0.0,
+                    timestamp=datetime.utcnow(),
+                )
                 error_entry = _record_tool_failure(
                     conversation_history,
                     user,
@@ -2022,6 +2055,12 @@ async def use_tool(
                 "Error decoding JSON for function arguments: %s", exc, exc_info=True
             )
             error_message = f"Invalid JSON in function arguments: {exc}"
+            _record_persona_metric(
+                function_name,
+                success=False,
+                latency_ms=0.0,
+                timestamp=datetime.utcnow(),
+            )
             error_entry = _record_tool_failure(
                 conversation_history,
                 user,
@@ -2042,6 +2081,12 @@ async def use_tool(
         if function_name not in function_map:
             logger.error(f"Function '{function_name}' not found in function map.")
             error_message = f"Function '{function_name}' not found."
+            _record_persona_metric(
+                function_name,
+                success=False,
+                latency_ms=0.0,
+                timestamp=datetime.utcnow(),
+            )
             error_entry = _record_tool_failure(
                 conversation_history,
                 user,
@@ -2078,6 +2123,12 @@ async def use_tool(
             policy_message = policy_decision.reason or (
                 f"Tool '{function_name}' is blocked by the current policy."
             )
+            _record_persona_metric(
+                function_name,
+                success=False,
+                latency_ms=0.0,
+                timestamp=datetime.utcnow(),
+            )
             error_entry = _record_tool_failure(
                 conversation_history,
                 user,
@@ -2110,6 +2161,12 @@ async def use_tool(
             error_message = (
                 "Missing required arguments for function "
                 f"'{function_name}': {', '.join(missing_args)}"
+            )
+            _record_persona_metric(
+                function_name,
+                success=False,
+                latency_ms=0.0,
+                timestamp=datetime.utcnow(),
             )
             error_entry = _record_tool_failure(
                 conversation_history,
@@ -2367,6 +2424,12 @@ async def use_tool(
                     )
                     error_type = "execution_error"
                 failure_timestamp = final_completed_at or datetime.utcnow()
+                _record_persona_metric(
+                    function_name,
+                    success=False,
+                    latency_ms=(final_log_entry or {}).get("duration_ms"),
+                    timestamp=failure_timestamp,
+                )
                 error_entry = _record_tool_failure(
                     conversation_history,
                     user,
@@ -2387,6 +2450,13 @@ async def use_tool(
 
             log_entry = final_log_entry or {}
             function_response = final_response
+
+            _record_persona_metric(
+                function_name,
+                success=True,
+                latency_ms=log_entry.get("duration_ms"),
+                timestamp=final_completed_at or datetime.utcnow(),
+            )
 
             logger.info(
                 "Function '%s' executed successfully. Response: %s",

@@ -50,6 +50,14 @@ class PersonaManagement:
         self._history_load_more_button: Optional[Gtk.Button] = None
         self._history_placeholder: Optional[Gtk.Widget] = None
         self._last_bundle_directory: Optional[Path] = None
+        self._analytics_persona_name: Optional[str] = None
+        self._analytics_start_entry: Optional[Gtk.Entry] = None
+        self._analytics_end_entry: Optional[Gtk.Entry] = None
+        self._analytics_summary_labels: Dict[str, Gtk.Label] = {}
+        self._analytics_tool_list: Optional[Gtk.ListBox] = None
+        self._analytics_tool_placeholder: Optional[Gtk.Widget] = None
+        self._analytics_recent_list: Optional[Gtk.ListBox] = None
+        self._analytics_recent_placeholder: Optional[Gtk.Widget] = None
 
     # --------------------------- Helpers ---------------------------
 
@@ -559,6 +567,10 @@ class PersonaManagement:
         tools_box = self.create_tools_tab(persona_state)
         stack.add_titled(tools_box, "tools", "Tools")
 
+        analytics_box = self.create_analytics_tab(persona_state)
+        analytics_box.set_tooltip_text("Inspect tool usage analytics for this persona.")
+        stack.add_titled(analytics_box, "analytics", "Analytics")
+
         history_box = self.create_history_tab(persona_state)
         history_box.set_tooltip_text("Review persona change history for audit purposes.")
         stack.add_titled(history_box, "history", "History")
@@ -995,6 +1007,323 @@ class PersonaManagement:
             if isinstance(check, Gtk.CheckButton) and check.get_active():
                 allowed.append(name)
         return allowed
+
+    def _clear_list_box(self, list_box: Optional[Gtk.ListBox]) -> None:
+        if not isinstance(list_box, Gtk.ListBox):
+            return
+        child = list_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            try:
+                list_box.remove(child)
+            except Exception:  # pragma: no cover - GTK runtime guard
+                pass
+            child = next_child
+
+    def _parse_analytics_date_entry(
+        self, entry: Optional[Gtk.Entry]
+    ) -> tuple[Optional[datetime], bool]:
+        if not isinstance(entry, Gtk.Entry):
+            return (None, True)
+        text = entry.get_text().strip()
+        if not text:
+            return (None, True)
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                parsed = datetime.strptime(text, "%Y-%m-%d")
+            except ValueError:
+                return (None, False)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+        return (parsed, True)
+
+    def _format_analytics_timestamp(self, value: Optional[str]) -> str:
+        if not value:
+            return "Unknown"
+        try:
+            display = value
+            if value.endswith("Z"):
+                display = value[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(display)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            else:
+                parsed = parsed.astimezone(timezone.utc)
+            return parsed.strftime("%Y-%m-%d %H:%M:%S UTC")
+        except ValueError:
+            return value
+
+    def _refresh_persona_analytics(self, *, show_errors: bool = True) -> None:
+        persona_name = self._analytics_persona_name
+        if not persona_name:
+            return
+
+        start_value, start_valid = self._parse_analytics_date_entry(
+            self._analytics_start_entry
+        )
+        end_value, end_valid = self._parse_analytics_date_entry(
+            self._analytics_end_entry
+        )
+
+        if not start_valid or not end_valid:
+            if show_errors:
+                self.ATLAS.show_persona_message(
+                    "warning",
+                    "Enter dates as YYYY-MM-DD or ISO 8601 timestamps.",
+                )
+            return
+
+        try:
+            metrics = self.ATLAS.get_persona_metrics(
+                persona_name,
+                start=start_value,
+                end=end_value,
+                limit=25,
+            )
+        except Exception:
+            if show_errors:
+                self.ATLAS.show_persona_message(
+                    "error",
+                    "Unable to load persona analytics.",
+                )
+            return
+
+        totals = metrics.get('totals') if isinstance(metrics, dict) else {}
+        if not isinstance(totals, dict):
+            totals = {}
+
+        calls_label = self._analytics_summary_labels.get('calls')
+        if isinstance(calls_label, Gtk.Label):
+            calls_label.set_text(str(int(totals.get('calls') or 0)))
+
+        success_label = self._analytics_summary_labels.get('success')
+        if isinstance(success_label, Gtk.Label):
+            success_label.set_text(str(int(totals.get('success') or 0)))
+
+        failure_label = self._analytics_summary_labels.get('failure')
+        if isinstance(failure_label, Gtk.Label):
+            failure_label.set_text(str(int(totals.get('failure') or 0)))
+
+        success_rate = metrics.get('success_rate') if isinstance(metrics, dict) else 0.0
+        if not isinstance(success_rate, (int, float)):
+            success_rate = 0.0
+        rate_label = self._analytics_summary_labels.get('success_rate')
+        if isinstance(rate_label, Gtk.Label):
+            rate_label.set_text(f"{success_rate * 100:.1f}%")
+
+        avg_latency = metrics.get('average_latency_ms') if isinstance(metrics, dict) else 0.0
+        if not isinstance(avg_latency, (int, float)):
+            avg_latency = 0.0
+        latency_label = self._analytics_summary_labels.get('average_latency_ms')
+        if isinstance(latency_label, Gtk.Label):
+            latency_label.set_text(f"{avg_latency:.1f} ms")
+
+        tool_entries = metrics.get('totals_by_tool') if isinstance(metrics, dict) else []
+        if not isinstance(tool_entries, list):
+            tool_entries = []
+
+        self._clear_list_box(self._analytics_tool_list)
+        if self._analytics_tool_placeholder is not None:
+            placeholder_parent = getattr(self._analytics_tool_placeholder, 'get_parent', lambda: None)()
+            if placeholder_parent is not None:
+                try:
+                    placeholder_parent.remove(self._analytics_tool_placeholder)
+                except Exception:
+                    pass
+            self._analytics_tool_placeholder = None
+
+        if not tool_entries:
+            placeholder = Gtk.Label(label="No tool activity for this range.")
+            placeholder.set_xalign(0.0)
+            if isinstance(self._analytics_tool_list, Gtk.ListBox):
+                self._analytics_tool_list.append(placeholder)
+            self._analytics_tool_placeholder = placeholder
+        else:
+            for entry in tool_entries:
+                if not isinstance(entry, dict):
+                    continue
+                tool_name = str(entry.get('tool') or '')
+                if not tool_name:
+                    continue
+                calls = int(entry.get('calls') or 0)
+                success_count = int(entry.get('success') or 0)
+                failure_count = int(entry.get('failure') or 0)
+                rate = entry.get('success_rate') or 0.0
+                if not isinstance(rate, (int, float)):
+                    rate = 0.0
+                row = Gtk.ListBoxRow()
+                box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                name_label = Gtk.Label(label=tool_name)
+                name_label.set_xalign(0.0)
+                metrics_label = Gtk.Label(
+                    label=(
+                        f"{calls} calls • {success_count} success • "
+                        f"{failure_count} failure • {rate * 100:.1f}% success"
+                    )
+                )
+                metrics_label.set_xalign(1.0)
+                metrics_label.get_style_context().add_class('dim-label')
+                box.append(name_label)
+                box.append(metrics_label)
+                row.set_child(box)
+                if isinstance(self._analytics_tool_list, Gtk.ListBox):
+                    self._analytics_tool_list.append(row)
+
+        recent_entries = metrics.get('recent') if isinstance(metrics, dict) else []
+        if not isinstance(recent_entries, list):
+            recent_entries = []
+
+        self._clear_list_box(self._analytics_recent_list)
+        if self._analytics_recent_placeholder is not None:
+            placeholder_parent = getattr(
+                self._analytics_recent_placeholder, 'get_parent', lambda: None
+            )()
+            if placeholder_parent is not None:
+                try:
+                    placeholder_parent.remove(self._analytics_recent_placeholder)
+                except Exception:
+                    pass
+            self._analytics_recent_placeholder = None
+
+        if not recent_entries:
+            placeholder = Gtk.Label(label="No recent executions.")
+            placeholder.set_xalign(0.0)
+            if isinstance(self._analytics_recent_list, Gtk.ListBox):
+                self._analytics_recent_list.append(placeholder)
+            self._analytics_recent_placeholder = placeholder
+        else:
+            for entry in recent_entries:
+                if not isinstance(entry, dict):
+                    continue
+                tool_name = str(entry.get('tool') or '')
+                status = "Success" if entry.get('success') else "Failure"
+                latency = entry.get('latency_ms') or 0.0
+                if not isinstance(latency, (int, float)):
+                    latency = 0.0
+                timestamp = self._format_analytics_timestamp(entry.get('timestamp'))
+                row = Gtk.ListBoxRow()
+                box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                time_label = Gtk.Label(label=timestamp)
+                time_label.set_xalign(0.0)
+                status_label = Gtk.Label(label=f"{status} • {latency:.1f} ms")
+                status_label.set_xalign(1.0)
+                status_label.get_style_context().add_class('dim-label')
+                header.append(time_label)
+                header.append(status_label)
+                detail = Gtk.Label(label=tool_name or "(unknown tool)")
+                detail.set_xalign(0.0)
+                box.append(header)
+                box.append(detail)
+                row.set_child(box)
+                if isinstance(self._analytics_recent_list, Gtk.ListBox):
+                    self._analytics_recent_list.append(row)
+
+    def create_analytics_tab(self, persona_state) -> Gtk.Box:
+        persona_name = ""
+        if isinstance(persona_state, dict):
+            general = persona_state.get('general')
+            if isinstance(general, dict):
+                persona_name = str(general.get('name') or "")
+            if not persona_name:
+                persona_name = str(persona_state.get('original_name') or "")
+
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        container.set_margin_top(10)
+        container.set_margin_bottom(10)
+        container.set_margin_start(10)
+        container.set_margin_end(10)
+
+        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        controls.set_valign(Gtk.Align.START)
+        start_entry = Gtk.Entry()
+        start_entry.set_placeholder_text("Start (YYYY-MM-DD)")
+        start_entry.set_tooltip_text("Filter analytics to timestamps on or after this value.")
+        controls.append(start_entry)
+
+        end_entry = Gtk.Entry()
+        end_entry.set_placeholder_text("End (YYYY-MM-DD)")
+        end_entry.set_tooltip_text("Filter analytics to timestamps on or before this value.")
+        controls.append(end_entry)
+
+        refresh_button = Gtk.Button(label="Refresh")
+        refresh_button.set_tooltip_text("Reload analytics for the selected date range.")
+        refresh_button.connect("clicked", lambda _btn: self._refresh_persona_analytics())
+        controls.append(refresh_button)
+
+        container.append(controls)
+
+        summary_grid = Gtk.Grid()
+        summary_grid.set_column_spacing(12)
+        summary_grid.set_row_spacing(6)
+        summary_labels: Dict[str, Gtk.Label] = {}
+
+        summary_items = [
+            ("Total Calls", 'calls'),
+            ("Success", 'success'),
+            ("Failure", 'failure'),
+            ("Success Rate", 'success_rate'),
+            ("Average Latency", 'average_latency_ms'),
+        ]
+
+        for row_index, (label_text, key) in enumerate(summary_items):
+            label_widget = Gtk.Label(label=label_text)
+            label_widget.set_xalign(0.0)
+            value_widget = Gtk.Label(label="0")
+            value_widget.set_xalign(1.0)
+            value_widget.get_style_context().add_class('dim-label')
+            summary_grid.attach(label_widget, 0, row_index, 1, 1)
+            summary_grid.attach(value_widget, 1, row_index, 1, 1)
+            summary_labels[key] = value_widget
+
+        container.append(summary_grid)
+
+        tool_label = Gtk.Label(label="Tool Breakdown")
+        tool_label.set_xalign(0.0)
+        container.append(tool_label)
+
+        tool_scroll = Gtk.ScrolledWindow()
+        tool_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        tool_scroll.set_min_content_height(140)
+        tool_scroll.set_hexpand(True)
+        tool_scroll.set_vexpand(True)
+        tool_list = Gtk.ListBox()
+        tool_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        tool_list.add_css_class('boxed-list')
+        tool_scroll.set_child(tool_list)
+        container.append(tool_scroll)
+
+        recent_label = Gtk.Label(label="Recent Activity")
+        recent_label.set_xalign(0.0)
+        container.append(recent_label)
+
+        recent_scroll = Gtk.ScrolledWindow()
+        recent_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        recent_scroll.set_min_content_height(140)
+        recent_scroll.set_hexpand(True)
+        recent_scroll.set_vexpand(True)
+        recent_list = Gtk.ListBox()
+        recent_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        recent_list.add_css_class('boxed-list')
+        recent_scroll.set_child(recent_list)
+        container.append(recent_scroll)
+
+        self._analytics_persona_name = persona_name
+        self._analytics_start_entry = start_entry
+        self._analytics_end_entry = end_entry
+        self._analytics_summary_labels = summary_labels
+        self._analytics_tool_list = tool_list
+        self._analytics_recent_list = recent_list
+        self._analytics_tool_placeholder = None
+        self._analytics_recent_placeholder = None
+
+        self._refresh_persona_analytics(show_errors=False)
+
+        return container
 
     def save_persona_settings(self, settings_window):
         """
