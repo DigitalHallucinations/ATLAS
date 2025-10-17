@@ -94,22 +94,26 @@ class ToolProviderRouter:
         errors: List[Exception] = []
         attempted: set[str] = set()
 
-        async with self._lock:
-            while True:
+        while True:
+            async with self._lock:
                 state = await self._select_provider(exclude=attempted)
                 if state is None:
                     break
                 attempted.add(state.name)
 
-                try:
-                    result = await self._invoke_provider(state, kwargs)
-                except Exception as exc:
-                    errors.append(exc)
-                    continue
-                else:
-                    self._record_success(state)
+            try:
+                result = await self._invoke_provider(state, kwargs)
+            except Exception as exc:
+                errors.append(exc)
+                async with self._lock:
+                    await self._record_failure(state, exc)
+                    self._emit_metrics(selected=state.name, success=False)
+                continue
+            else:
+                async with self._lock:
+                    await self._record_success(state)
                     self._emit_metrics(selected=state.name, success=True)
-                    return result
+                return result
 
         if self._fallback_callable is not None:
             try:
@@ -121,10 +125,12 @@ class ToolProviderRouter:
                     "Executed fallback callable for tool '%s' after exhausting providers.",
                     self._tool_name,
                 )
-                self._emit_metrics(selected="fallback", success=True)
+                async with self._lock:
+                    self._emit_metrics(selected="fallback", success=True)
                 return result
 
-        self._emit_metrics(selected=None, success=False)
+        async with self._lock:
+            self._emit_metrics(selected=None, success=False)
         if errors:
             raise errors[-1]
         raise RuntimeError(f"No providers available for tool '{self._tool_name}'")
@@ -186,32 +192,30 @@ class ToolProviderRouter:
                     state.health.record_failure(timestamp)
 
     async def _invoke_provider(self, state: _ProviderState, kwargs: Mapping[str, Any]) -> Any:
-        try:
-            result = await _invoke_callable(state.provider.call, kwargs)
-        except Exception as exc:
-            self._record_failure(state, exc)
-            raise
-        return result
+        return await _invoke_callable(state.provider.call, kwargs)
 
-    def _record_failure(self, state: _ProviderState, error: Exception) -> None:
-        delay = state.health.record_failure()
+    async def _record_failure(self, state: _ProviderState, error: Exception) -> None:
+        async with state.lock:
+            delay = state.health.record_failure()
+            failure_rate = state.health.failure_rate
         self._logger.warning(
             "Provider '%s' for tool '%s' failed (failure_rate=%.2f, backoff=%ss): %s",
             state.name,
             self._tool_name,
-            state.health.failure_rate,
+            failure_rate,
             f"{delay:.2f}",
             error,
         )
-        self._emit_metrics(selected=state.name, success=False)
 
-    def _record_success(self, state: _ProviderState) -> None:
-        state.health.record_success()
+    async def _record_success(self, state: _ProviderState) -> None:
+        async with state.lock:
+            state.health.record_success()
+            failure_rate = state.health.failure_rate
         self._logger.info(
             "Provider '%s' for tool '%s' succeeded (failure_rate=%.2f)",
             state.name,
             self._tool_name,
-            state.health.failure_rate,
+            failure_rate,
         )
 
     def _emit_metrics(self, *, selected: Optional[str], success: bool) -> None:
