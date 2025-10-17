@@ -49,6 +49,25 @@ When you add or modify a persona:
    the shared tool manifest so the metadata stays consistent across personas.
 4. Run `pytest tests/test_persona_schema.py` (or the full `pytest` suite) before opening a PR.
 
+### Skill catalog overrides
+
+Skill manifests (`modules/Skills/skills.json` and the optional persona-local
+`modules/Personas/<Persona Name>/Skills/skills.json`) are merged into a shared
+catalog. Skill names must remain unique within a single manifest file, but a
+persona-specific manifest may intentionally reuse the name of a shared skill to
+provide custom metadata or prompts for that persona. When a duplicate name is
+present:
+
+- The persona-specific entry is only enabled for that persona and is surfaced
+  as a distinct catalog entry in the editor.
+- The shared skill continues to be exposed to other personas so they can opt in
+  without losing access to the default behavior.
+- Personas that own an override still see the shared variant in the catalog, but
+  it is marked read-only to indicate the override applies.
+
+This separation lets authors layer persona-specific behavior on top of shared
+skills without removing the shared version from the catalog.
+
 ## Exporting and importing personas
 
 Persona definitions can be exchanged as signed bundles so that the `allowed_tools`

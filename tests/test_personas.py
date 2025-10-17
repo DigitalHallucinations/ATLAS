@@ -102,7 +102,15 @@ def persona_fixture(tmp_path: Path) -> tuple[_StubConfigManager, Path]:
             "required_tools": ["beta_tool"],
             "required_capabilities": ["expertise"],
             "safety_notes": "Use responsibly.",
-        }
+        },
+        {
+            "name": "shared_skill",
+            "version": "2.0",
+            "instruction_prompt": "Specialist-tuned shared skill.",
+            "required_tools": ["beta_tool"],
+            "required_capabilities": ["analysis"],
+            "safety_notes": "Override for Specialist persona.",
+        },
     ]
     _write_json(
         root / "modules" / "Personas" / "Specialist" / "Skills" / "skills.json",
@@ -238,6 +246,28 @@ def test_build_tool_state_merges_overrides(persona_fixture: tuple[_StubConfigMan
     assert pytest.approx(custom_metadata["cost_per_call"], rel=0.01) == 1.25
 
 
+def test_load_skill_catalog_includes_persona_variants(
+    persona_fixture: tuple[_StubConfigManager, Path]
+) -> None:
+    config, _root = persona_fixture
+
+    order, lookup = load_skill_catalog(config_manager=config)
+
+    assert "shared_skill" in order
+    catalog_entry = lookup["shared_skill"]
+
+    shared_metadata = catalog_entry.get("shared")
+    assert shared_metadata is not None
+    assert shared_metadata["instruction_prompt"] == "Shared skill instructions."
+
+    persona_variants = catalog_entry.get("persona_variants") or {}
+    assert "specialist" in persona_variants
+    assert (
+        persona_variants["specialist"]["instruction_prompt"]
+        == "Specialist-tuned shared skill."
+    )
+
+
 def test_build_skill_state_handles_persona_restrictions(persona_fixture: tuple[_StubConfigManager, Path]) -> None:
     config, root = persona_fixture
 
@@ -274,10 +304,38 @@ def test_build_skill_state_handles_persona_restrictions(persona_fixture: tuple[_
     )
 
     assert skill_state["allowed"] == []
-    entries = {entry["name"]: entry for entry in skill_state["available"]}
-    assert entries["shared_skill"].get("disabled") in (False, None)
-    assert entries["shared_skill"]["enabled"] is False
-    assert entries["specialist_insight"].get("disabled", False) is True
+    available = skill_state["available"]
+
+    shared_entries = [
+        entry
+        for entry in available
+        if entry["name"] == "shared_skill" and entry["metadata"].get("persona") in (None, "")
+    ]
+    assert shared_entries
+    assert shared_entries[0].get("disabled") in (False, None)
+    assert shared_entries[0]["enabled"] is False
+    assert (
+        shared_entries[0]["metadata"]["instruction_prompt"]
+        == "Shared skill instructions."
+    )
+
+    specialist_override_entries = [
+        entry
+        for entry in available
+        if entry["name"] == "shared_skill" and entry["metadata"].get("persona") == "Specialist"
+    ]
+    assert specialist_override_entries
+    assert specialist_override_entries[0].get("disabled", False) is True
+    assert (
+        specialist_override_entries[0]["metadata"]["instruction_prompt"]
+        == "Specialist-tuned shared skill."
+    )
+
+    specialist_entries = [
+        entry for entry in available if entry["name"] == "specialist_insight"
+    ]
+    assert specialist_entries
+    assert specialist_entries[0].get("disabled", False) is True
 
 
 def test_build_skill_state_enables_owned_skills(persona_fixture: tuple[_StubConfigManager, Path]) -> None:
@@ -314,6 +372,39 @@ def test_build_skill_state_enables_owned_skills(persona_fixture: tuple[_StubConf
     assert normalize_allowed_skills(["specialist_insight"], metadata_order=skill_order) == [
         "specialist_insight"
     ]
-    entries = {entry["name"]: entry for entry in skill_state["available"]}
-    assert entries["specialist_insight"]["enabled"] is True
-    assert entries["specialist_insight"].get("disabled") in (False, None)
+    available = skill_state["available"]
+
+    specialist_entries = [
+        entry
+        for entry in available
+        if entry["name"] == "specialist_insight"
+    ]
+    assert specialist_entries
+    assert specialist_entries[0]["enabled"] is True
+    assert specialist_entries[0].get("disabled") in (False, None)
+
+    override_entries = [
+        entry
+        for entry in available
+        if entry["name"] == "shared_skill" and entry["metadata"].get("persona") == "Specialist"
+    ]
+    assert override_entries
+    assert override_entries[0]["enabled"] is False  # not explicitly allowed
+    assert override_entries[0].get("disabled") in (False, None)
+    assert (
+        override_entries[0]["metadata"]["instruction_prompt"]
+        == "Specialist-tuned shared skill."
+    )
+
+    shared_entries = [
+        entry
+        for entry in available
+        if entry["name"] == "shared_skill" and entry["metadata"].get("persona") in (None, "")
+    ]
+    assert shared_entries
+    assert shared_entries[0].get("disabled") is True
+    assert "override" in shared_entries[0].get("disabled_reason", "").lower()
+    assert (
+        shared_entries[0]["metadata"]["instruction_prompt"]
+        == "Shared skill instructions."
+    )
