@@ -549,5 +549,71 @@
             ]
         },
         "idempotency_guidance": "Reads are idempotent and may use a stable key when polling. Create, update, and delete operations mutate the calendar and should not be retried automatically."
+    },
+    {
+        "name": "terminal_command",
+        "version": "1.0.0",
+        "side_effects": "system",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-command",
+            "guidance": "Combine the normalized command tokens and working directory to deduplicate retried executions."
+        },
+        "safety_level": "high",
+        "requires_consent": true,
+        "requires_flags": {
+            "execute": [
+                "type.developer.terminal_access"
+            ]
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "terminal_execution",
+            "system_inspection"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": [
+                        "string",
+                        "array"
+                    ],
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1,
+                    "description": "Command to execute. Supply either a shell-free string or a tokenized list of arguments."
+                },
+                "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 30,
+                    "default": 5,
+                    "description": "Maximum number of seconds to allow the command to run before timing out."
+                },
+                "working_directory": {
+                    "type": "string",
+                    "description": "Optional working directory relative to the sandbox root."
+                }
+            },
+            "required": [
+                "command"
+            ]
+        }
     }
 ]

@@ -188,6 +188,9 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
 
     aiohttp_stub = types.ModuleType("aiohttp")
     aiohttp_stub.ClientSession = _DummyClientSession
+    aiohttp_stub.ClientTimeout = lambda *args, **kwargs: types.SimpleNamespace(
+        total=kwargs.get("total")
+    )
     monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_stub)
 
     tool_manager = importlib.import_module("ATLAS.ToolManager")
@@ -236,6 +239,101 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
     metadata = policy_entry.get("metadata")
     assert metadata["idempotency_key"]["required"] is True
 
+    assert "terminal_command" in shared_map
+    terminal_entry = shared_map["terminal_command"]
+    assert isinstance(terminal_entry, dict)
+    terminal_metadata = terminal_entry.get("metadata")
+    assert terminal_metadata["safety_level"] == "high"
+    assert terminal_metadata["requires_consent"] is True
+    assert terminal_metadata["requires_flags"] == {
+        "execute": ["type.developer.terminal_access"]
+    }
+
+
+def test_shared_terminal_command_manifest_entry(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    geocode_stub = types.ModuleType("modules.Tools.location_services.geocode")
+    geocode_stub.geocode_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.geocode", geocode_stub
+    )
+    ip_api_stub = types.ModuleType("modules.Tools.location_services.ip_api")
+    ip_api_stub.get_current_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.ip_api", ip_api_stub
+    )
+
+    class _DummyResponse:
+        status = 200
+
+        async def json(self):
+            return {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _DummyClientSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return _DummyResponse()
+
+    aiohttp_stub = types.ModuleType("aiohttp")
+    aiohttp_stub.ClientSession = _DummyClientSession
+    aiohttp_stub.ClientTimeout = lambda *args, **kwargs: types.SimpleNamespace(
+        total=kwargs.get("total")
+    )
+    monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_stub)
+
+    persona_name = "TerminalTester"
+    toolbox_root = Path("modules") / "Personas" / persona_name / "Toolbox"
+    toolbox_root.mkdir(parents=True, exist_ok=True)
+    functions_path = toolbox_root / "functions.json"
+    functions_path.write_text("[]", encoding="utf-8")
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
+
+    try:
+        tool_manager._function_payload_cache.pop(persona_name, None)
+        tool_manager._function_map_cache.pop(persona_name, None)
+
+        functions = tool_manager.load_functions_from_json(
+            {"name": persona_name, "allowed_tools": ["terminal_command"]},
+            refresh=True,
+        )
+
+        assert isinstance(functions, list)
+        assert len(functions) == 1
+        terminal_entry = functions[0]
+        assert terminal_entry["name"] == "terminal_command"
+        assert terminal_entry["safety_level"] == "high"
+        assert terminal_entry["requires_consent"] is True
+        assert terminal_entry["requires_flags"] == {
+            "execute": ["type.developer.terminal_access"]
+        }
+        assert terminal_entry["parameters"]["required"] == ["command"]
+    finally:
+        tool_manager._function_payload_cache.pop(persona_name, None)
+        tool_manager._function_map_cache.pop(persona_name, None)
+        shutil.rmtree(toolbox_root.parent, ignore_errors=True)
+
 
 def test_evaluate_tool_policy_blocks_calendar_write_without_flag(monkeypatch):
     _ensure_yaml(monkeypatch)
@@ -277,6 +375,9 @@ def test_evaluate_tool_policy_blocks_calendar_write_without_flag(monkeypatch):
 
     aiohttp_stub = types.ModuleType("aiohttp")
     aiohttp_stub.ClientSession = _DummyClientSession
+    aiohttp_stub.ClientTimeout = lambda *args, **kwargs: types.SimpleNamespace(
+        total=kwargs.get("total")
+    )
     monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_stub)
 
     tool_manager = importlib.import_module("ATLAS.ToolManager")
@@ -356,6 +457,9 @@ def test_evaluate_tool_policy_allows_calendar_write_with_flag(monkeypatch):
 
     aiohttp_stub = types.ModuleType("aiohttp")
     aiohttp_stub.ClientSession = _DummyClientSession
+    aiohttp_stub.ClientTimeout = lambda *args, **kwargs: types.SimpleNamespace(
+        total=kwargs.get("total")
+    )
     monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_stub)
 
     tool_manager = importlib.import_module("ATLAS.ToolManager")
@@ -481,7 +585,7 @@ def test_use_tool_prefers_supplied_config_manager(monkeypatch):
 
     dummy_config = DummyConfigManager()
 
-    async def echo_tool(value):
+    async def echo_tool(value, context=None):
         return value
 
     message = {
@@ -787,7 +891,7 @@ def test_use_tool_allows_high_risk_tool_with_consent_and_sandbox(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", fake_create_connection)
     monkeypatch.setattr(tool_manager.socket, "create_connection", fake_create_connection)
 
-    async def sandboxed_tool(host):
+    async def sandboxed_tool(host, context=None):
         flag = os.environ.get("ATLAS_SANDBOX_ACTIVE")
         blocked_message = None
         try:
@@ -922,7 +1026,7 @@ def test_use_tool_records_structured_follow_up(monkeypatch):
     conversation_history = DummyConversationHistory()
     provider = DummyProviderManager()
 
-    async def echo_tool(value):
+    async def echo_tool(value, context=None):
         return value
 
     message = {
@@ -1237,7 +1341,7 @@ def test_use_tool_records_structured_error(monkeypatch):
                     }
                 },
                 conversation_history=conversation_history,
-                function_map={"echo_tool": lambda value: value},
+                function_map={"echo_tool": lambda value, context=None: value},
                 functions=None,
                 current_persona=None,
                 temperature_var=0.0,
@@ -1735,7 +1839,7 @@ def test_use_tool_replays_generation_settings(monkeypatch):
     conversation_history = DummyConversationHistory()
     provider = RecordingProviderManager()
 
-    async def echo_tool(value: str):
+    async def echo_tool(value: str, context=None):
         return f"echo:{value}"
 
     async def run_test():
@@ -2703,7 +2807,7 @@ def test_use_tool_resolves_google_search_with_default_map(monkeypatch):
 
     captured_args = {}
 
-    async def fake_google_search(query, k=None):
+    async def fake_google_search(query, k=None, context=None):
         captured_args["query"] = query
         captured_args["k"] = k
         return {"query": query, "k": k}

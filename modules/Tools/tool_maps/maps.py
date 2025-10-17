@@ -5,6 +5,7 @@ from modules.Tools.Base_Tools.policy_reference import policy_reference
 from modules.Tools.Base_Tools.time import get_current_info
 from modules.Tools.Base_Tools.context_tracker import context_tracker
 from modules.Tools.Base_Tools.priority_queue import priority_queue
+from modules.Tools.Base_Tools.terminal_command import TerminalCommand
 from modules.Tools.Base_Tools.webpage_fetch import WebpageFetcher
 
 # Create an instance of GoogleSearch
@@ -19,4 +20,5 @@ function_map = {
     "context_tracker": context_tracker,
     "priority_queue": priority_queue,
     "webpage_fetch": webpage_fetcher.fetch,
+    "terminal_command": TerminalCommand,
 }
