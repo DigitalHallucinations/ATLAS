@@ -38,6 +38,8 @@ logger = setup_logger(__name__)
 PersonaPayload = MutableMapping[str, Any]
 ToolMetadata = Mapping[str, Any]
 SkillMetadata = Mapping[str, Any]
+SkillCatalogEntry = Dict[str, Any]
+SkillCatalogLookup = Dict[str, SkillCatalogEntry]
 
 
 class PersonaValidationError(ValueError):
@@ -378,24 +380,80 @@ def _normalize_skill_metadata(entry: SkillManifestEntry) -> Dict[str, Any]:
     return payload
 
 
-def load_skill_catalog(*, config_manager=None) -> Tuple[List[str], Dict[str, SkillMetadata]]:
-    """Load normalized skill metadata keyed by skill name."""
+def load_skill_catalog(*, config_manager=None) -> Tuple[List[str], SkillCatalogLookup]:
+    """Load normalized skill metadata grouped by shared/persona variants."""
 
     entries = load_skill_metadata(config_manager=config_manager)
 
     order: List[str] = []
-    lookup: Dict[str, SkillMetadata] = {}
+    lookup: SkillCatalogLookup = {}
 
     for entry in entries:
         normalized = _normalize_skill_metadata(entry)
         name = normalized.get("name")
         if not name:
             continue
-        if name not in lookup:
+
+        bucket = lookup.get(name)
+        if bucket is None:
+            bucket = {"name": name, "shared": None, "persona_variants": {}}
+            lookup[name] = bucket
             order.append(name)
-        lookup[name] = normalized
+
+        persona_owner = normalized.get("persona")
+        owner_key = str(persona_owner).strip().lower() if persona_owner else ""
+
+        if owner_key:
+            variants = bucket.setdefault("persona_variants", {})
+            variants[owner_key] = normalized
+        else:
+            bucket["shared"] = normalized
 
     return order, lookup
+
+
+def _coerce_skill_catalog_entry(name: str, value: Any) -> SkillCatalogEntry:
+    """Normalize cache-friendly skill catalog entries."""
+
+    entry: SkillCatalogEntry = {"name": name, "shared": None, "persona_variants": {}}
+
+    if isinstance(value, Mapping) and ("shared" in value or "persona_variants" in value):
+        shared_candidate = value.get("shared")
+        if isinstance(shared_candidate, (Mapping, SkillManifestEntry)):
+            entry["shared"] = dict(_normalize_skill_metadata(shared_candidate))
+
+        persona_variants: Dict[str, Dict[str, Any]] = {}
+        raw_variants = value.get("persona_variants") or {}
+        if isinstance(raw_variants, Mapping):
+            for persona_key, metadata in raw_variants.items():
+                if not isinstance(metadata, (Mapping, SkillManifestEntry)):
+                    continue
+                normalized = dict(_normalize_skill_metadata(metadata))
+                owner = normalized.get("persona")
+                owner_key = str(owner).strip().lower() if owner else str(persona_key).strip().lower()
+                if owner_key:
+                    persona_variants[owner_key] = normalized
+        entry["persona_variants"] = persona_variants
+
+        if entry["shared"] is None and not entry["persona_variants"]:
+            entry["shared"] = {"name": name}
+
+        return entry
+
+    if isinstance(value, (Mapping, SkillManifestEntry)):
+        normalized = dict(_normalize_skill_metadata(value))
+    else:
+        normalized = dict(_normalize_skill_metadata({"name": name}))
+
+    owner = normalized.get("persona")
+    owner_key = str(owner).strip().lower() if owner else ""
+
+    if owner_key:
+        entry["persona_variants"][owner_key] = normalized
+    else:
+        entry["shared"] = normalized
+
+    return entry
 
 
 def _load_persona_tool_overrides(
@@ -502,7 +560,7 @@ def load_persona_definition(
     metadata_order: Optional[Iterable[str]] = None,
     metadata_lookup: Optional[Mapping[str, ToolMetadata]] = None,
     skill_metadata_order: Optional[Iterable[str]] = None,
-    skill_metadata_lookup: Optional[Mapping[str, SkillMetadata]] = None,
+    skill_metadata_lookup: Optional[Mapping[str, SkillCatalogEntry]] = None,
 ) -> Optional[PersonaPayload]:
     """Load and normalize persona configuration for ``persona_name``."""
 
@@ -538,7 +596,7 @@ def load_persona_definition(
     skill_order_list: Optional[List[str]] = (
         list(skill_metadata_order) if skill_metadata_order is not None else None
     )
-    skill_lookup_map: Optional[Dict[str, SkillMetadata]] = (
+    skill_lookup_map: Optional[SkillCatalogLookup] = (
         dict(skill_metadata_lookup) if skill_metadata_lookup is not None else None
     )
 
@@ -764,30 +822,23 @@ def build_skill_state(
     *,
     config_manager=None,
     metadata_order: Optional[Iterable[str]] = None,
-    metadata_lookup: Optional[Mapping[str, SkillMetadata]] = None,
+    metadata_lookup: Optional[Mapping[str, SkillCatalogEntry]] = None,
 ) -> Dict[str, Any]:
     """Return merged skill metadata with persona selections."""
 
     if metadata_lookup is None or metadata_order is None:
         order, lookup = load_skill_catalog(config_manager=config_manager)
     else:
-        order = list(metadata_order)
-        lookup = {}
+        order = [str(name) for name in metadata_order]
+        lookup: SkillCatalogLookup = {}
         for key, value in metadata_lookup.items():
             name = str(key)
-            if isinstance(value, Mapping):
-                lookup[name] = dict(value)
-            elif isinstance(value, SkillManifestEntry):
-                lookup[name] = _normalize_skill_metadata(value)
-            else:
-                try:
-                    lookup[name] = dict(value)  # type: ignore[arg-type]
-                except Exception:
-                    lookup[name] = {"name": name}
+            lookup[name] = _coerce_skill_catalog_entry(name, value)
 
     allowed = normalize_allowed_skills(persona.get("allowed_skills"), metadata_order=order)
 
     persona_name = str(persona.get("name") or "").strip()
+    persona_key = persona_name.lower()
 
     combined_order: List[str] = []
     seen: set[str] = set()
@@ -803,35 +854,90 @@ def build_skill_state(
             seen.add(name)
 
     entries: List[SkillStateEntry] = []
-    for index, name in enumerate(combined_order):
-        metadata = lookup.get(name) or {}
-        if isinstance(metadata, Mapping):
-            merged = dict(metadata)
-        else:
-            merged = dict(metadata)
-        merged.setdefault("name", name)
+    entry_index = 0
 
-        owner = merged.get("persona")
-        owner_normalized = str(owner).strip() if owner else ""
-        disabled = False
-        disabled_reason: Optional[str] = None
-        if owner_normalized:
-            if not persona_name or owner_normalized.lower() != persona_name.lower():
+    for name in combined_order:
+        catalog_entry = lookup.get(name) or {"name": name, "shared": None, "persona_variants": {}}
+
+        shared_metadata: Optional[Mapping[str, Any]] = None
+        persona_variants_raw: Mapping[str, Any] = {}
+
+        if isinstance(catalog_entry, Mapping):
+            shared_candidate = catalog_entry.get("shared")
+            if isinstance(shared_candidate, Mapping):
+                shared_metadata = dict(shared_candidate)
+            elif isinstance(shared_candidate, SkillManifestEntry):
+                shared_metadata = dict(_normalize_skill_metadata(shared_candidate))
+
+            raw_variants = catalog_entry.get("persona_variants")
+            if isinstance(raw_variants, Mapping):
+                persona_variants: Dict[str, Dict[str, Any]] = {}
+                for variant_key, metadata in raw_variants.items():
+                    if isinstance(metadata, Mapping):
+                        persona_variants[str(variant_key)] = dict(metadata)
+                    elif isinstance(metadata, SkillManifestEntry):
+                        persona_variants[str(variant_key)] = dict(_normalize_skill_metadata(metadata))
+                persona_variants_raw = persona_variants
+        else:
+            shared_metadata = {"name": name}
+
+        persona_variants_normalized: Dict[str, Dict[str, Any]] = {}
+        for variant_key, metadata in persona_variants_raw.items():
+            key_normalized = str(variant_key).strip().lower()
+            owner = metadata.get("persona")
+            if owner:
+                owner_key = str(owner).strip().lower()
+                key_normalized = owner_key or key_normalized
+            persona_variants_normalized[key_normalized] = dict(metadata)
+
+        candidate_entries: List[Tuple[Optional[str], Dict[str, Any]]] = []
+
+        if persona_key and persona_key in persona_variants_normalized:
+            candidate_entries.append((persona_key, dict(persona_variants_normalized[persona_key])))
+
+        if shared_metadata is not None:
+            candidate_entries.append((None, dict(shared_metadata)))
+
+        for variant_key, metadata in sorted(persona_variants_normalized.items()):
+            if persona_key and variant_key == persona_key:
+                continue
+            candidate_entries.append((variant_key, dict(metadata)))
+
+        if not candidate_entries:
+            candidate_entries.append((None, {"name": name}))
+
+        for variant_key, metadata in candidate_entries:
+            merged = dict(metadata)
+            merged.setdefault("name", name)
+
+            owner = merged.get("persona")
+            owner_normalized = str(owner).strip().lower() if owner else ""
+            disabled = False
+            disabled_reason: Optional[str] = None
+
+            if owner_normalized:
+                if not persona_key or owner_normalized != persona_key:
+                    disabled = True
+                    disabled_reason = (
+                        f"Skill '{name}' is restricted to persona '{owner or owner_normalized}'."
+                    )
+            elif persona_key and persona_key in persona_variants_normalized:
                 disabled = True
                 disabled_reason = (
-                    f"Skill '{name}' is restricted to persona '{owner_normalized}'."
+                    f"Skill '{name}' uses a persona-specific override for persona '{persona_name}'."
                 )
 
-        entries.append(
-            SkillStateEntry(
-                name=name,
-                enabled=name in allowed and not disabled,
-                order=index,
-                metadata=merged,
-                disabled=disabled,
-                disabled_reason=disabled_reason,
+            entries.append(
+                SkillStateEntry(
+                    name=name,
+                    enabled=name in allowed and not disabled,
+                    order=entry_index,
+                    metadata=merged,
+                    disabled=disabled,
+                    disabled_reason=disabled_reason,
+                )
             )
-        )
+            entry_index += 1
 
     serializable: List[Dict[str, Any]] = []
     for entry in entries:
