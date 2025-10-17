@@ -342,10 +342,12 @@ def normalize_allowed_tools(
     """Normalize ``allowed_tools`` into a deduplicated list of strings."""
 
     names: List[str] = []
+    insertion_order: Dict[str, int] = {}
 
     if isinstance(allowed_tools, str):
         candidate = allowed_tools.strip()
         if candidate:
+            insertion_order[candidate] = len(insertion_order)
             names.append(candidate)
     elif isinstance(allowed_tools, Iterable):
         for item in allowed_tools:
@@ -357,11 +359,18 @@ def normalize_allowed_tools(
             else:
                 candidate = ""
 
-            if candidate and candidate not in names:
+            if candidate and candidate not in insertion_order:
+                insertion_order[candidate] = len(insertion_order)
                 names.append(candidate)
 
-    if allowed_tools is None and metadata_order is not None:
-        names.extend(name for name in metadata_order if name not in names)
+    if metadata_order is not None and names:
+        order_lookup = {str(name): index for index, name in enumerate(metadata_order)}
+        fallback_base = len(order_lookup)
+        names.sort(
+            key=lambda name: (
+                order_lookup.get(name, fallback_base + insertion_order.get(name, 0))
+            )
+        )
 
     return names
 

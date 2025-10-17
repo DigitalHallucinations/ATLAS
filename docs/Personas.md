@@ -15,6 +15,11 @@ The schema enforces that each persona document:
 - lists any `allowed_tools` as canonical tool identifiers that exist in
   `modules/Tools/tool_maps/functions.json`.
 
+Personas must explicitly enumerate their allowed tools. When `allowed_tools`
+is missing or `null`, the loader treats the persona as having no enabled tools
+even though the UI continues to display the global catalog for awareness. Add
+the identifiers you want to enable to the list to opt-in.
+
 When the persona loader runs it automatically injects the set of known tool identifiers into the
 schema so the validator can confirm that `allowed_tools` only contains supported tools. Any
 additional persona fields remain opt-in and are still passed through unchanged.
