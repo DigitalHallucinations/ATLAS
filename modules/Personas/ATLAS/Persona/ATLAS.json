@@ -97,7 +97,8 @@
                 "get_current_info",
                 "policy_reference",
                 "context_tracker",
-                "priority_queue"
+                "priority_queue",
+                "deviant12_calendar"
             ]
         }
     ]
