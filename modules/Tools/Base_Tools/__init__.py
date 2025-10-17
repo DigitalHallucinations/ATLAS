@@ -7,6 +7,15 @@ from .context_tracker import context_tracker, ConversationSnapshot
 from .priority_queue import priority_queue, PrioritizedTask, PrioritizedTaskList
 from .geocode import geocode_location
 from .current_location import get_current_location
+from .webpage_fetch import (
+    ContentTooLargeError,
+    DomainNotAllowedError,
+    FetchTimeoutError,
+    WebpageFetchError,
+    WebpageFetchResult,
+    WebpageFetcher,
+    fetch_webpage,
+)
 
 __all__ = [
     "GoogleSearch",
@@ -21,4 +30,11 @@ __all__ = [
     "PrioritizedTaskList",
     "geocode_location",
     "get_current_location",
+    "WebpageFetcher",
+    "WebpageFetchResult",
+    "WebpageFetchError",
+    "DomainNotAllowedError",
+    "ContentTooLargeError",
+    "FetchTimeoutError",
+    "fetch_webpage",
 ]

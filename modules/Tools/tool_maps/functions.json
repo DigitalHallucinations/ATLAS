@@ -45,6 +45,49 @@
         }
     },
     {
+        "name": "webpage_fetch",
+        "version": "1.0.0",
+        "side_effects": "network",
+        "default_timeout": 15,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-url",
+            "guidance": "Use the normalized target URL as the idempotency key to avoid duplicate fetches."
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "web_content",
+            "web_research",
+            "document_ingestion"
+        ],
+        "providers": [
+            {
+                "name": "internal_http_client",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Download an allowlisted webpage, strip scripts and ads, and return clean text with the resolved title and URL.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "HTTP or HTTPS URL to fetch. Must belong to an allowlisted domain."
+                }
+            },
+            "required": [
+                "url"
+            ]
+        }
+    },
+    {
         "name": "get_current_info",
         "version": "1.0.0",
         "side_effects": "none",
