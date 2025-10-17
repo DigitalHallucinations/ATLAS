@@ -686,6 +686,9 @@ def _serialize_skill(entry: SkillMetadata) -> Dict[str, Any]:
         "required_tools": entry.required_tools,
         "required_capabilities": entry.required_capabilities,
         "safety_notes": entry.safety_notes,
+        "summary": entry.summary,
+        "category": entry.category,
+        "capability_tags": entry.capability_tags,
         "source": entry.source,
     }
 

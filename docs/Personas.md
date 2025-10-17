@@ -65,6 +65,17 @@ present:
 - Personas that own an override still see the shared variant in the catalog, but
   it is marked read-only to indicate the override applies.
 
+Each manifest entry may also provide descriptive metadata beyond the required
+prompt and capability lists:
+
+- `summary` &mdash; one-sentence description shown in the UI hover text.
+- `category` &mdash; high-level grouping used for catalog filtering.
+- `capability_tags` &mdash; free-form keywords that surface dependencies or
+  downstream effects.
+
+These fields remain optional, but shared skills in `modules/Skills/skills.json`
+should supply them so personas inherit a consistent UX out of the box.
+
 This separation lets authors layer persona-specific behavior on top of shared
 skills without removing the shared version from the catalog.
 

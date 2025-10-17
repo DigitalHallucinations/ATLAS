@@ -347,6 +347,8 @@ def _normalize_skill_metadata(entry: SkillManifestEntry) -> Dict[str, Any]:
     payload["version"] = _string(payload.get("version"))
     payload["instruction_prompt"] = payload.get("instruction_prompt") or ""
     payload["safety_notes"] = payload.get("safety_notes") or ""
+    payload["summary"] = payload.get("summary") or ""
+    payload["category"] = _string(payload.get("category"))
 
     persona_owner = payload.get("persona")
     if persona_owner is None:
@@ -374,6 +376,16 @@ def _normalize_skill_metadata(entry: SkillManifestEntry) -> Dict[str, Any]:
         ]
     else:
         payload["required_capabilities"] = []
+
+    capability_tags = payload.get("capability_tags")
+    if isinstance(capability_tags, Iterable) and not isinstance(capability_tags, (str, bytes, bytearray)):
+        payload["capability_tags"] = [
+            str(tag).strip()
+            for tag in capability_tags
+            if str(tag).strip()
+        ]
+    else:
+        payload["capability_tags"] = []
 
     payload["source"] = _string(payload.get("source"))
 

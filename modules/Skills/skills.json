@@ -8,7 +8,14 @@
       "conversation_history",
       "text_reasoning"
     ],
-    "safety_notes": "Avoid including sensitive or personally identifiable information unless the user explicitly requests it."
+    "safety_notes": "Avoid including sensitive or personally identifiable information unless the user explicitly requests it.",
+    "summary": "Snapshot recap of the conversation's goals, blockers, and commitments.",
+    "category": "Context",
+    "capability_tags": [
+      "summaries",
+      "context",
+      "reasoning"
+    ]
   },
   {
     "name": "SafetyScout",
@@ -20,6 +27,75 @@
     "required_capabilities": [
       "risk_assessment"
     ],
-    "safety_notes": "Escalate any high-risk findings to a human operator and never approve self-modifying code without review."
+    "safety_notes": "Escalate any high-risk findings to a human operator and never approve self-modifying code without review.",
+    "summary": "Policy-aware safety review that double-checks risky plans before action.",
+    "category": "Governance",
+    "capability_tags": [
+      "policy",
+      "risk_management",
+      "compliance"
+    ]
+  },
+  {
+    "name": "ResearchBrief",
+    "version": "1.0.0",
+    "instruction_prompt": "Run focused web research on the user's topic, extract the most reliable insights, and deliver a concise brief with citations and follow-up questions.",
+    "required_tools": [
+      "google_search"
+    ],
+    "required_capabilities": [
+      "web_research",
+      "critical_thinking"
+    ],
+    "safety_notes": "Only cite reputable sources, flag uncertainty, and never fabricate supporting material.",
+    "summary": "Rapid web-research digest highlighting trusted findings and open questions.",
+    "category": "Knowledge Synthesis",
+    "capability_tags": [
+      "web_research",
+      "analysis",
+      "synthesis"
+    ]
+  },
+  {
+    "name": "DailyDigest",
+    "version": "1.0.0",
+    "instruction_prompt": "Blend the latest time-sensitive updates with the persona's ongoing objectives to produce a morning-style digest that calls out relevant developments and next actions.",
+    "required_tools": [
+      "get_current_info",
+      "context_tracker"
+    ],
+    "required_capabilities": [
+      "news_monitoring",
+      "contextual_reasoning"
+    ],
+    "safety_notes": "Highlight when information is uncertain or rapidly changing and avoid speculative recommendations.",
+    "summary": "Morning briefing that fuses fresh signals with in-flight work context.",
+    "category": "Monitoring",
+    "capability_tags": [
+      "news",
+      "context",
+      "summaries"
+    ]
+  },
+  {
+    "name": "RiskPulse",
+    "version": "0.9.0",
+    "instruction_prompt": "Scan recent discussions and trusted sources for operational, compliance, or reputational risks, summarize the severity, and propose mitigations where possible.",
+    "required_tools": [
+      "context_tracker",
+      "google_search"
+    ],
+    "required_capabilities": [
+      "risk_detection",
+      "synthesis"
+    ],
+    "safety_notes": "Call out data freshness limits, involve human reviewers for high-impact risks, and never minimize critical alerts.",
+    "summary": "Early-warning risk assessment that pairs live context with external signals.",
+    "category": "Risk Intelligence",
+    "capability_tags": [
+      "risk",
+      "monitoring",
+      "analysis"
+    ]
   }
 ]
