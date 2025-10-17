@@ -61,9 +61,16 @@ class HuggingFaceGenerator:
         self,
         messages: List[Dict[str, str]],
         model: str,
-        stream: bool = True
+        stream: bool = True,
+        *,
+        skill_signature: Optional[Any] = None,
     ) -> Union[str, AsyncIterator[str]]:
-        return await self.response_generator.generate_response(messages, model, stream)
+        return await self.response_generator.generate_response(
+            messages,
+            model,
+            stream,
+            skill_signature=skill_signature,
+        )
 
     async def process_streaming_response(self, response: AsyncIterator[str]) -> str:
         """
@@ -263,11 +270,18 @@ async def generate_response(
     config_manager,
     messages: List[Dict[str, str]],
     model: str,
-    stream: bool = True
+    stream: bool = True,
+    *,
+    skill_signature: Optional[Any] = None,
 ) -> Union[str, AsyncIterator[str]]:
     generator = setup_huggingface_generator(config_manager)
     await generator.load_model(model)
-    return await generator.generate_response(messages, model, stream)
+    return await generator.generate_response(
+        messages,
+        model,
+        stream,
+        skill_signature=skill_signature,
+    )
 
 
 async def process_response(response: Union[str, AsyncIterator[str]]) -> str:
@@ -280,13 +294,23 @@ def generate_response_sync(
     config_manager,
     messages: List[Dict[str, str]],
     model: str,
-    stream: bool = False
+    stream: bool = False,
+    *,
+    skill_signature: Optional[Any] = None,
 ) -> str:
     """
     Synchronous version of generate_response for compatibility with non-async code.
     """
     loop = asyncio.get_event_loop()
-    response = loop.run_until_complete(generate_response(config_manager, messages, model, stream))
+    response = loop.run_until_complete(
+        generate_response(
+            config_manager,
+            messages,
+            model,
+            stream,
+            skill_signature=skill_signature,
+        )
+    )
     if stream:
         return loop.run_until_complete(process_response(response))
     return response

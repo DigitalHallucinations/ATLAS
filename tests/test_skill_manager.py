@@ -105,6 +105,8 @@ def test_use_skill_executes_required_tools_and_emits_events():
             entry for entry in events if entry["type"] == "skill_started"
         )
         assert started_event["persona"] == "Analyst"
+        assert started_event["skill_version"] is None
+        assert started_event["capability_tags"] == []
 
         event_types = [entry["type"] for entry in events]
         assert "skill_started" in event_types
@@ -113,6 +115,8 @@ def test_use_skill_executes_required_tools_and_emits_events():
         assert event_types.count("tool_completed") == 2
         assert events[-1]["type"] == "skill_completed"
         assert events[-1]["tool_results"] == result.tool_results
+        assert events[-1]["skill_version"] is None
+        assert events[-1]["capability_tags"] == []
     finally:
         event_system.unsubscribe(SKILL_ACTIVITY_EVENT, _subscriber)
 
@@ -154,6 +158,53 @@ def test_use_skill_includes_manifest_metadata_fields():
     assert result.metadata["required_capabilities"] == ["echoing"]
     assert result.metadata["safety_notes"] == "Ensure the message is safe to repeat."
     assert result.metadata["version"] == "2024.05"
+    assert result.version == "2024.05"
+    assert result.required_capabilities == ("echoing",)
+    assert result.capability_tags == ("echoing",)
+
+
+def test_use_skill_emits_version_and_capability_tags():
+    events: List[Dict[str, Any]] = []
+
+    def _subscriber(payload):
+        events.append(payload)
+
+    event_system.subscribe(SKILL_ACTIVITY_EVENT, _subscriber)
+    try:
+        async def _runner():
+            async def echo_tool(message: str) -> str:
+                return message.upper()
+
+            tool_manager = _StubToolManager({"echo": {"callable": echo_tool}})
+
+            context = SkillExecutionContext(
+                conversation_id="conv-tags",
+                conversation_history=[],
+            )
+
+            skill_metadata = {
+                "name": "TagSkill",
+                "required_tools": ["echo"],
+                "required_capabilities": ["alpha", "beta"],
+                "version": "1.2.3",
+            }
+
+            return await use_skill(
+                skill_metadata,
+                context=context,
+                tool_inputs={"echo": {"message": "payload"}},
+                tool_manager=tool_manager,
+            )
+
+        result = asyncio.run(_runner())
+        assert result.version == "1.2.3"
+        assert result.required_capabilities == ("alpha", "beta")
+
+        completed_event = next(entry for entry in events if entry["type"] == "skill_completed")
+        assert completed_event["skill_version"] == "1.2.3"
+        assert completed_event["capability_tags"] == ["alpha", "beta"]
+    finally:
+        event_system.unsubscribe(SKILL_ACTIVITY_EVENT, _subscriber)
 
 
 def test_use_skill_collects_required_tool_specs():

@@ -49,9 +49,32 @@ class CacheManager:
             return [self._sanitize_for_cache(item) for item in data]
         return str(data)
 
-    def generate_cache_key(self, messages: List[Dict[str, Any]], model: str, settings: Dict) -> str:
+    def generate_cache_key(
+        self,
+        messages: List[Dict[str, Any]],
+        model: str,
+        settings: Dict,
+        *,
+        skill_version: str | None = None,
+        capability_tags: Iterable[Any] | None = None,
+    ) -> str:
         sanitized_messages = self._sanitize_for_cache(messages)
         sanitized_settings = self._sanitize_for_cache(settings)
         cache_payload = {"messages": sanitized_messages, "model": model, "settings": sanitized_settings}
+
+        if skill_version:
+            cache_payload["skill_version"] = str(skill_version)
+
+        if capability_tags:
+            normalized_tags: List[str] = []
+            for tag in capability_tags:
+                if tag is None:
+                    continue
+                token = str(tag).strip()
+                if token:
+                    normalized_tags.append(token)
+            if normalized_tags:
+                cache_payload["capability_tags"] = sorted(normalized_tags)
+
         cache_data = json.dumps(cache_payload, sort_keys=True, separators=(",", ":"))
         return hashlib.md5(cache_data.encode()).hexdigest()

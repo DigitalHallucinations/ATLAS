@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from typing import List, Dict, Union, AsyncIterator
+from typing import Any, AsyncIterator, Dict, List, Mapping, Optional, Union
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .huggingface_model_manager import HuggingFaceModelManager
@@ -34,7 +34,9 @@ class ResponseGenerator:
         self,
         messages: List[Dict[str, str]],
         model: str,
-        stream: bool = True
+        stream: bool = True,
+        *,
+        skill_signature: Optional[Any] = None,
     ) -> Union[str, AsyncIterator[str]]:
         """
         Generates a response based on the provided messages using the specified model.
@@ -48,8 +50,31 @@ class ResponseGenerator:
             Union[str, AsyncIterator[str]]: The generated response as a string or an asynchronous iterator for streaming.
         """
         try:
+            skill_version: Optional[str] = None
+            capability_tags: Optional[Any] = None
+            if skill_signature is not None:
+                if isinstance(skill_signature, Mapping):
+                    skill_version = skill_signature.get("version") or skill_signature.get("skill_version")
+                    capability_tags = (
+                        skill_signature.get("required_capabilities")
+                        or skill_signature.get("capability_tags")
+                    )
+                else:
+                    skill_version = getattr(skill_signature, "version", None)
+                    if not skill_version:
+                        skill_version = getattr(skill_signature, "skill_version", None)
+                    capability_tags = getattr(skill_signature, "required_capabilities", None)
+                    if not capability_tags:
+                        capability_tags = getattr(skill_signature, "capability_tags", None)
+
             # Generate a unique cache key based on the input messages, model, and settings
-            cache_key = self.cache_manager.generate_cache_key(messages, model, self.model_settings)
+            cache_key = self.cache_manager.generate_cache_key(
+                messages,
+                model,
+                self.model_settings,
+                skill_version=skill_version,
+                capability_tags=capability_tags,
+            )
             cached_response = self.cache_manager.get(cache_key)
             if cached_response:
                 self.logger.info("Returning cached response")
