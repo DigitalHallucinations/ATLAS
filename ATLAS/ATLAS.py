@@ -4,6 +4,7 @@ import base64
 import binascii
 import getpass
 import json
+from datetime import datetime
 from collections.abc import AsyncIterator as AbcAsyncIterator, Mapping
 from concurrent.futures import Future
 from pathlib import Path
@@ -819,6 +820,23 @@ class ATLAS:
             bundle_base64=encoded,
             signing_key=signing_key,
             rationale=rationale,
+        )
+
+    def get_persona_metrics(
+        self,
+        persona_name: str,
+        *,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """Return aggregated persona analytics via the shared server routes."""
+
+        return self.server.get_persona_metrics(
+            persona_name,
+            start=start,
+            end=end,
+            limit=limit,
         )
 
     def _require_chat_session(self) -> ChatSession:
