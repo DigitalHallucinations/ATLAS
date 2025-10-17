@@ -1,7 +1,7 @@
 # modules/OpenAI/maps.py
 
-from modules.Tools.location_services.ip_api import get_current_location
-from modules.Tools.location_services.geocode import geocode_location
+from modules.Tools.Base_Tools.current_location import get_current_location
+from modules.Tools.Base_Tools.geocode import geocode_location
 
 function_map = {      
         "get_current_location": get_current_location,  
