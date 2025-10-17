@@ -1,6 +1,7 @@
 """Tests for persona analytics storage and aggregation."""
 
 from datetime import datetime, timedelta, timezone
+import threading
 
 import pytest
 
@@ -89,6 +90,50 @@ def test_persona_metrics_aggregation(metrics_store):
     )
     assert filtered["totals"]["calls"] == 1
     assert filtered["recent"][0]["tool"] == "calculator"
+
+
+def test_record_event_concurrent_persistence(metrics_store):
+    base = datetime(2024, 2, 1, tzinfo=timezone.utc)
+    events = [
+        PersonaMetricEvent(
+            persona="Atlas",
+            tool="alpha",
+            success=True,
+            latency_ms=50.0,
+            timestamp=base,
+        ),
+        PersonaMetricEvent(
+            persona="Atlas",
+            tool="beta",
+            success=False,
+            latency_ms=75.0,
+            timestamp=base + timedelta(seconds=1),
+        ),
+    ]
+
+    barrier = threading.Barrier(len(events) + 1)
+
+    threads = []
+
+    def worker(event):
+        barrier.wait()
+        metrics_store.record_event(event)
+
+    for event in events:
+        thread = threading.Thread(target=worker, args=(event,))
+        threads.append(thread)
+        thread.start()
+
+    barrier.wait()
+
+    for thread in threads:
+        thread.join()
+
+    metrics = metrics_store.get_metrics("Atlas")
+    assert metrics["totals"]["calls"] == 2
+    assert metrics["totals"]["success"] == 1
+    tools = {entry["tool"] for entry in metrics["recent"]}
+    assert tools == {"alpha", "beta"}
 
 
 def test_persona_metrics_server_endpoint(tmp_path):
