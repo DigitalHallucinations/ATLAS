@@ -566,7 +566,13 @@ class ATLAS:
 
         manager = getattr(self, "persona_manager", None)
         if manager is None:
-            return {"system_prompt": "", "substitutions": {}, "persona_name": None}
+            return {
+                "system_prompt": "",
+                "substitutions": {},
+                "persona_name": None,
+                "allowed_tools": [],
+                "capability_tags": [],
+            }
 
         getter = getattr(manager, "get_current_persona_context", None)
         if callable(getter):
@@ -590,7 +596,13 @@ class ATLAS:
             if raw_name:
                 persona_name = str(raw_name)
 
-        return {"system_prompt": prompt or "", "substitutions": {}, "persona_name": persona_name}
+        return {
+            "system_prompt": prompt or "",
+            "substitutions": {},
+            "persona_name": persona_name,
+            "allowed_tools": [],
+            "capability_tags": [],
+        }
 
     def get_current_persona_tools(self, *, refresh: bool = False) -> Dict[str, Any]:
         """Return a snapshot of the tools declared for the active persona."""

@@ -3,6 +3,7 @@
 import os
 import json
 import copy
+from collections.abc import Iterable as IterableABC, Mapping as MappingABC
 from typing import Any, Dict, List, Optional, Tuple
 from modules.user_accounts.user_data_manager import UserDataManager
 from ATLAS.config import ConfigManager
@@ -454,6 +455,40 @@ class PersonaManager:
 
         persona = self.current_persona or {}
         substitutions: Dict[str, str] = {}
+        allowed_tools: List[str] = []
+        capability_tags: List[str] = []
+
+        def _normalize_strings(values: Any) -> List[str]:
+            normalized: List[str] = []
+            seen: set[str] = set()
+
+            if isinstance(values, str):
+                candidates = [values]
+            elif isinstance(values, IterableABC):
+                candidates = list(values)
+            else:
+                candidates = []
+
+            for item in candidates:
+                if isinstance(item, MappingABC):
+                    candidate_value = item.get("name")
+                else:
+                    candidate_value = item
+
+                if candidate_value is None:
+                    continue
+
+                text = str(candidate_value).strip()
+                if text and text not in seen:
+                    normalized.append(text)
+                    seen.add(text)
+
+            return normalized
+
+        def _is_enabled_flag(value: Any) -> bool:
+            if isinstance(value, str):
+                return value.strip().lower() == "true"
+            return bool(value)
 
         if persona:
             try:
@@ -461,6 +496,29 @@ class PersonaManager:
             except Exception as exc:  # pragma: no cover - defensive logging only
                 self.logger.error("Failed to compute substitution data: %s", exc, exc_info=True)
                 substitutions = {}
+
+            allowed_tools = _normalize_strings(persona.get("allowed_tools"))
+
+            raw_capability_tags: List[str] = _normalize_strings(persona.get("capability_tags"))
+            capability_tags = list(raw_capability_tags)
+
+            persona_types = persona.get("type")
+            if isinstance(persona_types, MappingABC):
+                seen = set(capability_tags)
+                for key, value in persona_types.items():
+                    token = str(key).strip() if key is not None else ""
+                    if not token or token in seen:
+                        continue
+
+                    enabled_flag = False
+                    if isinstance(value, MappingABC):
+                        enabled_flag = _is_enabled_flag(value.get("enabled"))
+                    else:
+                        enabled_flag = _is_enabled_flag(value)
+
+                    if enabled_flag:
+                        capability_tags.append(token)
+                        seen.add(token)
 
         prompt = self.current_system_prompt
         if persona and not prompt:
@@ -475,6 +533,8 @@ class PersonaManager:
             "system_prompt": prompt or "",
             "substitutions": substitutions,
             "persona_name": persona.get("name") if isinstance(persona, dict) else None,
+            "allowed_tools": allowed_tools,
+            "capability_tags": capability_tags,
         }
 
     def update_persona(self, persona):

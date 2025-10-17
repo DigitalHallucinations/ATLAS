@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable as IterableABC, Mapping as MappingABC
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Dict, Iterable, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from modules.logging.logger import setup_logger
 
@@ -57,6 +57,36 @@ def _normalize_capabilities(metadata: Mapping[str, Any]) -> Iterable[str]:
     return normalized
 
 
+def _normalize_allowlist(allowed_tools: Any) -> Optional[Iterable[str]]:
+    """Return a deduplicated iterable of tool names from ``allowed_tools``."""
+
+    if allowed_tools is None:
+        return None
+
+    names: List[str] = []
+
+    if isinstance(allowed_tools, str):
+        candidate = allowed_tools.strip()
+        if candidate:
+            names.append(candidate)
+    elif isinstance(allowed_tools, IterableABC):
+        for item in allowed_tools:
+            if isinstance(item, MappingABC):
+                raw_name = item.get("name")
+                candidate = str(raw_name).strip() if raw_name is not None else ""
+            else:
+                candidate = str(item).strip() if item is not None else ""
+
+            if candidate and candidate not in names:
+                names.append(candidate)
+    else:
+        candidate = str(allowed_tools).strip()
+        if candidate:
+            names.append(candidate)
+
+    return names
+
+
 @dataclass(frozen=True)
 class RouterDecision:
     """Represents the outcome of a routing decision."""
@@ -83,6 +113,8 @@ class AgentRouter:
         function_map: Optional[Mapping[str, Any]],
         *,
         session_id: Optional[str] = None,
+        persona_context: Optional[Mapping[str, Any]] = None,
+        allowed_tools: Optional[Iterable[str]] = None,
     ) -> RouterDecision:
         """Select the cheapest tool that satisfies ``capability``."""
 
@@ -96,7 +128,24 @@ class AgentRouter:
         if not requested_capability:
             return RouterDecision(False, reason="No capability provided.")
 
+        persona_name: Optional[str] = None
+        allowlist_source: Any = allowed_tools
+        if isinstance(persona_context, MappingABC):
+            persona_name_candidate = persona_context.get("persona_name")
+            if persona_name_candidate is not None:
+                persona_name = str(persona_name_candidate)
+            if allowlist_source is None and "allowed_tools" in persona_context:
+                allowlist_source = persona_context.get("allowed_tools")
+
+        normalized_allowlist = _normalize_allowlist(allowlist_source)
+        allowlist_defined = allowlist_source is not None
+        allowlist_set = None
+        if normalized_allowlist is not None:
+            allowlist_set = {name for name in normalized_allowlist}
+
         candidates = []
+        matching_capability = []
+        disallowed_candidates = []
         for name, entry in function_map.items():
             metadata = {}
             if isinstance(entry, MappingABC):
@@ -106,10 +155,38 @@ class AgentRouter:
             capabilities = set(_normalize_capabilities(metadata))
             if requested_capability not in capabilities:
                 continue
+            matching_capability.append((name, metadata))
+            if allowlist_set is not None and name not in allowlist_set:
+                disallowed_candidates.append((name, metadata))
+                continue
             cost = _normalize_cost(metadata.get("cost_per_call"))
             candidates.append((name, metadata, cost))
 
         if not candidates:
+            if allowlist_defined and matching_capability:
+                persona_label = f"Persona '{persona_name}'" if persona_name else "The current persona"
+                reason = (
+                    f"{persona_label} is not permitted to use tools for the "
+                    f"'{capability}' capability."
+                )
+                logger.info(
+                    "Denied tool selection due to allowlist: persona=%s capability=%s session=%s disallowed=%s",
+                    persona_name or "<unknown>",
+                    requested_capability,
+                    session_id or "<none>",
+                    [name for name, _ in (disallowed_candidates or matching_capability)],
+                )
+                metadata = {
+                    "persona_name": persona_name,
+                    "disallowed_tools": tuple(
+                        name for name, _ in (disallowed_candidates or matching_capability)
+                    ),
+                }
+                return RouterDecision(
+                    False,
+                    reason=reason,
+                    metadata=MappingProxyType(metadata),
+                )
             return RouterDecision(
                 False,
                 reason=f"No registered tool exposes the '{capability}' capability.",
