@@ -544,13 +544,24 @@ class GoogleGeminiGenerator:
                 config_manager=self.config_manager,
             )
 
+        normalized_functions: Optional[List[Any]] = None
         if isinstance(provided_functions, dict):
-            provided_functions = provided_functions.get("functions") or provided_functions.get(
-                "items"
-            )
+            for key in ("functions", "items"):
+                candidate = provided_functions.get(key)
+                if isinstance(candidate, Iterable) and not isinstance(
+                    candidate, (str, bytes, bytearray)
+                ):
+                    normalized_functions = list(candidate)
+                    break
+            if normalized_functions is None:
+                normalized_functions = [value for value in provided_functions.values() if isinstance(value, dict)]
+        elif isinstance(provided_functions, Iterable) and not isinstance(
+            provided_functions, (str, bytes, bytearray)
+        ):
+            normalized_functions = list(provided_functions)
 
-        if isinstance(provided_functions, Iterable):
-            for function_payload in provided_functions:
+        if normalized_functions:
+            for function_payload in normalized_functions:
                 declaration = self._to_function_declaration(function_payload)
                 if declaration and declaration.name not in seen_names:
                     declared_functions.append(declaration)
@@ -562,7 +573,7 @@ class GoogleGeminiGenerator:
                 current_persona,
                 config_manager=self.config_manager,
             )
-        if isinstance(function_map, dict):
+        if not declared_functions and isinstance(function_map, dict):
             for name in function_map.keys():
                 if name in seen_names:
                     continue

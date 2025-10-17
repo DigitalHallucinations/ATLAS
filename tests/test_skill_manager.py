@@ -1,7 +1,7 @@
 import asyncio
 import sys
 import types
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 if "yaml" not in sys.modules:
     yaml_stub = types.ModuleType("yaml")
@@ -22,13 +22,24 @@ from modules.Tools.tool_event_system import event_system
 
 
 class _StubToolManager:
-    def __init__(self, tool_entries: Dict[str, Any]):
+    def __init__(
+        self,
+        tool_entries: Dict[str, Any],
+        *,
+        function_payloads: Optional[List[Dict[str, Any]]] = None,
+    ):
         self._tool_entries = tool_entries
+        self._function_payloads = function_payloads or []
         self.calls: List[Any] = []
+        self.function_manifest_calls: List[Any] = []
 
     def load_function_map_from_current_persona(self, persona, *, config_manager=None):
         self.calls.append((persona, config_manager))
         return dict(self._tool_entries)
+
+    def load_functions_from_json(self, persona, *, config_manager=None):
+        self.function_manifest_calls.append((persona, config_manager))
+        return list(self._function_payloads)
 
 
 def test_use_skill_executes_required_tools_and_emits_events():
@@ -138,6 +149,50 @@ def test_use_skill_includes_manifest_metadata_fields():
     assert result.metadata["required_capabilities"] == ["echoing"]
     assert result.metadata["safety_notes"] == "Ensure the message is safe to repeat."
     assert result.metadata["version"] == "2024.05"
+
+
+def test_use_skill_collects_required_tool_specs():
+    async def _runner():
+        async def alpha_tool():
+            return "alpha"
+
+        async def beta_tool():
+            return "beta"
+
+        tool_manager = _StubToolManager(
+            {
+                "alpha": {"callable": alpha_tool},
+                "beta": {"callable": beta_tool},
+            },
+            function_payloads=[
+                {"name": "alpha", "description": "Alpha tool"},
+                {"name": "beta", "description": "Beta tool"},
+            ],
+        )
+
+        context = SkillExecutionContext(
+            conversation_id="conv-specs",
+            conversation_history=[],
+            persona={"name": "SpecPersona"},
+        )
+
+        skill_metadata = {
+            "name": "SpecSkill",
+            "required_tools": ["beta"],
+        }
+
+        result = await use_skill(
+            skill_metadata,
+            context=context,
+            tool_manager=tool_manager,
+        )
+
+        return result, tool_manager
+
+    result, manager = asyncio.run(_runner())
+
+    assert result.metadata["tool_specs"] == [{"name": "beta", "description": "Beta tool"}]
+    assert manager.function_manifest_calls == [({"name": "SpecPersona"}, None)]
 
 
 def test_use_skill_missing_tool_raises():
