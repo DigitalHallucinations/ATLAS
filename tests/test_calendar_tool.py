@@ -229,6 +229,50 @@ def test_create_update_delete_event_round_trip(tmp_path: Path) -> None:
     assert final_text.strip().startswith("BEGIN:VCALENDAR")
 
 
+def test_missing_calendar_path_is_materialized_on_write(tmp_path: Path) -> None:
+    calendar_path = tmp_path / "primary.ics"
+    manager = _StubConfigManager(DEBIAN12_CALENDAR_PATHS=[str(calendar_path)])
+    tool = Debian12CalendarTool(config_manager=manager)
+
+    assert not calendar_path.exists()
+
+    listed = asyncio.run(tool.list_events())
+    assert listed == []
+
+    searched = asyncio.run(tool.search_events("anything"))
+    assert searched == []
+
+    created = asyncio.run(
+        tool.create_event(
+            title="Bootstrap",
+            start="2024-04-01T09:00:00+00:00",
+            end="2024-04-01T10:00:00+00:00",
+        )
+    )
+
+    assert calendar_path.exists()
+    text = calendar_path.read_text(encoding="utf-8")
+    assert "SUMMARY:Bootstrap" in text
+
+    updated = asyncio.run(
+        tool.update_event(
+            event_id=created["id"],
+            title="Bootstrap (Updated)",
+        )
+    )
+
+    assert updated["title"] == "Bootstrap (Updated)"
+    updated_text = calendar_path.read_text(encoding="utf-8")
+    assert "SUMMARY:Bootstrap (Updated)" in updated_text
+
+    deleted = asyncio.run(tool.delete_event(created["id"]))
+
+    assert deleted == {"status": "deleted", "event_id": created["id"]}
+    final_text = calendar_path.read_text(encoding="utf-8")
+    assert "Bootstrap (Updated)" not in final_text
+    assert final_text.strip().startswith("BEGIN:VCALENDAR")
+
+
 def test_update_event_missing_raises(tmp_path: Path) -> None:
     calendar_path = tmp_path / "primary.ics"
     calendar_path.write_text(
