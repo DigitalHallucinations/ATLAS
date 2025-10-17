@@ -29,7 +29,20 @@
             "required": [
                 "query"
             ]
-        }
+        },
+        "cost_per_call": 0.005,
+        "cost_unit": "USD",
+        "capabilities": [
+            "web_search",
+            "knowledge_lookup"
+        ],
+        "providers": [
+            {
+                "name": "serpapi",
+                "priority": 0,
+                "health_check_interval": 300
+            }
+        ]
     },
     {
         "name": "get_current_info",
@@ -58,7 +71,13 @@
                 }
             },
             "required": []
-        }
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "time_information",
+            "date_information"
+        ]
     },
     {
         "name": "terminal_command",
@@ -66,7 +85,9 @@
         "side_effects": "write",
         "safety_level": "high",
         "requires_consent": true,
-        "persona_allowlist": ["WebDev"],
+        "persona_allowlist": [
+            "WebDev"
+        ],
         "default_timeout": 60,
         "auth": {
             "required": false

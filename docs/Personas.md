@@ -38,7 +38,11 @@ When you add or modify a persona:
 
 1. Update the JSON definition under `modules/Personas/<Persona Name>/Persona/`.
 2. Ensure any referenced tools exist in `modules/Tools/tool_maps/functions.json` (or add them there).
-3. Run `pytest tests/test_persona_schema.py` (or the full `pytest` suite) before opening a PR.
+3. When updating a persona toolbox (`modules/Personas/<Persona Name>/Toolbox/functions.json`), include the
+   extended tool metadata required by `modules/Tools/tool_maps/schema.json`. All entries must specify an
+   `idempotency_key`, and read-only tools should copy the capability tags, provider list, and cost hints from
+   the shared tool manifest so the metadata stays consistent across personas.
+4. Run `pytest tests/test_persona_schema.py` (or the full `pytest` suite) before opening a PR.
 
 ## Exporting and importing personas
 

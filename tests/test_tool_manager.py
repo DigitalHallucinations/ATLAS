@@ -146,6 +146,46 @@ def _ensure_pytz(monkeypatch):
     monkeypatch.setitem(sys.modules, "pytz", pytz_stub)
 
 
+def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
+    """Persona toolbox manifests should include the extended metadata fields."""
+
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    persona_name = "DocGenius"
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
+
+    tool_manager._function_payload_cache.pop(persona_name, None)
+
+    functions = tool_manager.load_functions_from_json({"name": persona_name}, refresh=True)
+
+    assert isinstance(functions, list)
+    assert functions, "expected persona toolbox manifest to load"
+
+    google_entry = next(entry for entry in functions if entry["name"] == "google_search")
+    assert google_entry["idempotency_key"] is False
+    assert google_entry["capabilities"] == ["web_search", "knowledge_lookup"]
+    assert google_entry["providers"] == [
+        {
+            "name": "serpapi",
+            "priority": 0,
+            "health_check_interval": 300,
+        }
+    ]
+
+    info_entry = next(entry for entry in functions if entry["name"] == "get_current_info")
+    assert info_entry["idempotency_key"] is False
+    assert info_entry["capabilities"] == ["time_information", "date_information"]
+    assert info_entry["cost_per_call"] == 0.0
+
 def test_tool_manager_import_without_credentials(monkeypatch):
     """Importing ToolManager should not require configuration credentials."""
 

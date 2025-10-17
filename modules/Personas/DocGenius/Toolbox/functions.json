@@ -28,7 +28,21 @@
             "required": [
                 "query"
             ]
-        }
+        },
+        "idempotency_key": false,
+        "cost_per_call": 0.005,
+        "cost_unit": "USD",
+        "capabilities": [
+            "web_search",
+            "knowledge_lookup"
+        ],
+        "providers": [
+            {
+                "name": "serpapi",
+                "priority": 0,
+                "health_check_interval": 300
+            }
+        ]
     },
     {
         "name": "get_current_info",
@@ -56,6 +70,13 @@
                 }
             },
             "required": []
-        }
+        },
+        "idempotency_key": false,
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "time_information",
+            "date_information"
+        ]
     }
 ]
