@@ -124,3 +124,86 @@ def test_safety_scout_skill_executes_policy_reference(persona_name, monkeypatch)
     top_result = payload["results"][0]
     assert "policy_id" in top_result
     assert top_result.get("guidance")
+
+
+
+def test_atlas_reporter_skill_executes_with_context_tools(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+    _ensure_jsonschema(monkeypatch)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
+
+    config_manager = tool_manager.ConfigManager()
+    skills = load_skill_metadata(config_manager=config_manager)
+    atlas_reporter = next(entry for entry in skills if entry.name == "AtlasReporter")
+
+    from ATLAS.SkillManager import SkillExecutionContext, SkillRunResult, use_skill
+
+    conversation_history = [
+        {"role": "user", "content": "Need a mission update on Project Atlas."},
+        {"role": "assistant", "content": "Collecting telemetry from overnight ops."},
+        {"role": "user", "content": "Highlight blockers for the leadership brief."},
+    ]
+
+    context = SkillExecutionContext(
+        conversation_id="conv-atlas",
+        conversation_history=conversation_history,
+        persona={"name": "ATLAS"},
+    )
+
+    tool_inputs = {
+        "context_tracker": {
+            "conversation_id": context.conversation_id,
+            "conversation_history": conversation_history,
+        },
+        "priority_queue": {
+            "tasks": [
+                {
+                    "id": "task-1",
+                    "description": "Compile AtlasReporter executive summary.",
+                    "priority": 4,
+                    "status": "in_progress",
+                    "due_at": "2030-01-01T09:00:00Z",
+                },
+                {
+                    "id": "task-2",
+                    "description": "Aggregate overnight incident metrics.",
+                    "priority": 3,
+                    "status": "pending",
+                    "due_at": "2030-01-01T12:00:00Z",
+                },
+            ]
+        },
+    }
+
+    async def _run():
+        return await use_skill(
+            atlas_reporter,
+            context=context,
+            tool_inputs=tool_inputs,
+            tool_manager=tool_manager,
+            timeout_seconds=5,
+        )
+
+    result = asyncio.run(_run())
+
+    assert isinstance(result, SkillRunResult)
+    assert set(result.required_capabilities) >= {"status_reporting", "timeline_reasoning"}
+    context_payload = result.tool_results.get("context_tracker")
+    assert isinstance(context_payload, dict)
+    assert context_payload.get("conversation_id") == context.conversation_id
+    assert context_payload.get("message_count") == len(conversation_history)
+    queue_payload = result.tool_results.get("priority_queue")
+    assert isinstance(queue_payload, dict)
+    tasks = queue_payload.get("tasks")
+    assert isinstance(tasks, list) and tasks
+    assert tasks[0]["priority"] >= tasks[-1]["priority"]
