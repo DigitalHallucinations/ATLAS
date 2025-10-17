@@ -417,10 +417,21 @@ def _safety_matches(entry: ToolManifestEntry, tokens: List[str]) -> bool:
 
 def _persona_matches(entry: ToolManifestEntry, tokens: List[str]) -> bool:
     persona_token = (entry.persona or "shared").lower()
+    shared_exclusions = {
+        "-shared",
+        "!shared",
+        "no-shared",
+        "without-shared",
+        "shared=false",
+        "shared:false",
+    }
+    exclude_shared = any(token in shared_exclusions for token in tokens)
+    positive_tokens = [token for token in tokens if token not in shared_exclusions]
     if persona_token == "shared":
-        persona_aliases = {"shared", "default", "global", ""}
-        return any(token in persona_aliases for token in tokens)
-    return persona_token in tokens
+        return not exclude_shared
+    if not positive_tokens:
+        return True
+    return persona_token in positive_tokens
 
 
 def _normalize_filters(values: Optional[Any]) -> List[str]:
