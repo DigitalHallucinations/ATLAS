@@ -14,6 +14,7 @@ from modules.Tools.Base_Tools.debian12_calendar import (
     debian12_calendar,
 )
 from modules.Tools.Base_Tools.filesystem_io import read_file, write_file, list_dir
+from modules.Tools.Base_Tools.structured_parser import StructuredParser
 from ATLAS.config import ConfigManager
 from modules.Tools.Code_Execution import JavaScriptExecutor, PythonInterpreter
 from modules.Tools.Medical_Tools import search_pmc, search_pubmed
@@ -22,6 +23,7 @@ from modules.Tools.Medical_Tools import search_pmc, search_pubmed
 google_search_instance = GoogleSearch()
 webpage_fetcher = WebpageFetcher()
 python_interpreter = PythonInterpreter()
+structured_parser = StructuredParser()
 
 _config_manager = ConfigManager()
 javascript_executor = JavaScriptExecutor.from_config(
@@ -58,4 +60,5 @@ function_map = {
     "filesystem_read": read_file,
     "filesystem_write": write_file,
     "filesystem_list": list_dir,
+    "structured_parse": structured_parser.parse,
 }
