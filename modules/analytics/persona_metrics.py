@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+from modules.Tools.tool_event_system import publish_bus_event
+from modules.orchestration.message_bus import MessagePriority
+
 __all__ = [
     "PersonaMetricEvent",
     "PersonaMetricsStore",
@@ -332,6 +335,19 @@ def record_persona_tool_event(
     )
     store = _get_store(config_manager)
     store.record_event(event)
+    publish_bus_event(
+        "persona_metrics.tool",
+        event.as_dict(),
+        priority=MessagePriority.LOW,
+        correlation_id=f"{event.persona}:{event.tool}",
+        tracing={
+            "persona": event.persona,
+            "category": event.category,
+            "success": event.success,
+        },
+        metadata={"component": "analytics"},
+        emit_legacy=False,
+    )
 
 
 def record_persona_skill_event(
@@ -357,6 +373,19 @@ def record_persona_skill_event(
     )
     store = _get_store(config_manager)
     store.record_event(event)
+    publish_bus_event(
+        "persona_metrics.skill",
+        event.as_dict(),
+        priority=MessagePriority.LOW,
+        correlation_id=f"{event.persona}:{event.tool}",
+        tracing={
+            "persona": event.persona,
+            "category": event.category,
+            "success": event.success,
+        },
+        metadata={"component": "analytics"},
+        emit_legacy=False,
+    )
 
 
 def get_persona_metrics(

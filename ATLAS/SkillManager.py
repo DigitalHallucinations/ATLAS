@@ -14,7 +14,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
-from modules.Tools.tool_event_system import event_system
+from modules.Tools.tool_event_system import publish_bus_event
+from modules.orchestration.message_bus import MessagePriority
 from modules.logging.logger import setup_logger
 
 
@@ -177,9 +178,42 @@ def _normalize_skill_metadata(skill: Any) -> Mapping[str, Any]:
     return metadata
 
 
-def _publish_event(event_type: str, payload: Mapping[str, Any]) -> None:
+def _derive_correlation_id(event: Mapping[str, Any]) -> str:
+    skill = event.get("skill")
+    conversation_id = event.get("conversation_id")
+    if conversation_id and skill:
+        return f"{conversation_id}:{skill}"
+    if skill:
+        return str(skill)
+    return event.get("type", "skill_event")
+
+
+def _publish_event(
+    event_type: str,
+    payload: Mapping[str, Any],
+    *,
+    correlation_id: Optional[str] = None,
+    tracing: Optional[Mapping[str, Any]] = None,
+) -> None:
     event = {"type": event_type, **payload}
-    event_system.publish(SKILL_ACTIVITY_EVENT, event)
+    base_trace = {
+        "event_type": event_type,
+        "skill": event.get("skill"),
+        "conversation_id": event.get("conversation_id"),
+        "persona": event.get("persona"),
+    }
+    trace_payload = dict(base_trace)
+    if tracing:
+        trace_payload.update({k: v for k, v in tracing.items() if v is not None})
+    sanitized_trace = {k: v for k, v in trace_payload.items() if v is not None}
+    publish_bus_event(
+        SKILL_ACTIVITY_EVENT,
+        dict(event),
+        priority=MessagePriority.NORMAL,
+        correlation_id=correlation_id or _derive_correlation_id(event),
+        tracing=sanitized_trace or None,
+        metadata={"component": "SkillManager"},
+    )
 
 
 def _resolve_callable(entry: Any) -> Callable[..., Any]:
