@@ -44,6 +44,12 @@ torch
 # For data manipulation
 numpy
 
+# =====================================
+# Visualization tools
+# =====================================
+
+matplotlib
+
 # For environment variables
 python-dotenv
 
