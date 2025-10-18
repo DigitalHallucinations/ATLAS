@@ -48,6 +48,16 @@ torch
 # For data manipulation
 numpy
 
+# ======================================
+# Document parsing dependencies
+# ======================================
+
+pdfminer.six
+python-docx
+beautifulsoup4
+Pillow
+pytesseract
+
 # =====================================
 # Visualization tools
 # =====================================
