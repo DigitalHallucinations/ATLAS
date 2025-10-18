@@ -25,6 +25,12 @@ from modules.Tools.Base_Tools.vector_store import (
     query_vectors as _vector_query_vectors,
     upsert_vectors as _vector_upsert_vectors,
 )
+from modules.Tools.Base_Tools.task_queue import (
+    cancel_task as _task_queue_cancel,
+    enqueue_task as _task_queue_enqueue,
+    get_task_status as _task_queue_status,
+    schedule_cron_task as _task_queue_schedule,
+)
 from ATLAS.config import ConfigManager
 from modules.Tools.Code_Execution import JavaScriptExecutor, PythonInterpreter
 from modules.Tools.Medical_Tools import search_pmc, search_pubmed
@@ -57,6 +63,10 @@ calculator_tool = Calculator.from_config(calculator_settings)
 vector_upsert = partial(_vector_upsert_vectors, config_manager=_config_manager)
 vector_query = partial(_vector_query_vectors, config_manager=_config_manager)
 vector_delete = partial(_vector_delete_namespace, config_manager=_config_manager)
+task_queue_enqueue = partial(_task_queue_enqueue, config_manager=_config_manager)
+task_queue_schedule = partial(_task_queue_schedule, config_manager=_config_manager)
+task_queue_cancel = partial(_task_queue_cancel, config_manager=_config_manager)
+task_queue_status = partial(_task_queue_status, config_manager=_config_manager)
 
 try:
     debian12_calendar_tool = Debian12CalendarTool()
@@ -98,4 +108,8 @@ function_map = {
     "upsert_vectors": vector_upsert,
     "query_vectors": vector_query,
     "delete_namespace": vector_delete,
+    "task_queue_enqueue": task_queue_enqueue,
+    "task_queue_schedule": task_queue_schedule,
+    "task_queue_cancel": task_queue_cancel,
+    "task_queue_status": task_queue_status,
 }
