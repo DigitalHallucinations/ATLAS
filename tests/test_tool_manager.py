@@ -190,6 +190,87 @@ def _ensure_pytz(monkeypatch):
     monkeypatch.setitem(sys.modules, "pytz", pytz_stub)
 
 
+def test_default_function_map_vector_store_entries_dispatch(monkeypatch):
+    import asyncio
+    import importlib
+
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    from modules.Tools.Base_Tools import vector_store as vector_store_module
+    import modules.Tools.tool_maps.maps as maps_module
+
+    call_log = []
+
+    async def fake_upsert(*, namespace, vectors, **kwargs):
+        call_log.append(("upsert", namespace, kwargs.get("config_manager"), vectors))
+        return {"namespace": namespace, "ids": ["v-1"], "upserted_count": len(vectors)}
+
+    async def fake_query(
+        *,
+        namespace,
+        query,
+        top_k=5,
+        filter=None,
+        include_values=False,
+        **kwargs,
+    ):
+        call_log.append(("query", namespace, kwargs.get("config_manager"), top_k, include_values))
+        return {
+            "namespace": namespace,
+            "top_k": int(top_k),
+            "matches": [],
+        }
+
+    async def fake_delete(*, namespace, **kwargs):
+        call_log.append(("delete", namespace, kwargs.get("config_manager")))
+        return {"namespace": namespace, "deleted": True, "removed_ids": []}
+
+    monkeypatch.setattr(vector_store_module, "upsert_vectors", fake_upsert)
+    monkeypatch.setattr(vector_store_module, "query_vectors", fake_query)
+    monkeypatch.setattr(vector_store_module, "delete_namespace", fake_delete)
+
+    reloaded_maps = importlib.reload(maps_module)
+
+    async def _exercise():
+        function_map = reloaded_maps.function_map
+
+        upsert_result = await function_map["upsert_vectors"](
+            namespace="example",
+            vectors=[{"id": "vec-1", "values": [0.1, 0.2]}],
+        )
+        assert upsert_result["namespace"] == "example"
+        assert call_log[0][0] == "upsert"
+        assert call_log[0][1] == "example"
+        assert call_log[0][2] is reloaded_maps._config_manager
+
+        query_result = await function_map["query_vectors"](
+            namespace="example",
+            query=[0.1, 0.2],
+            top_k=2,
+            include_values=True,
+        )
+        assert query_result == {"namespace": "example", "top_k": 2, "matches": []}
+        assert call_log[1][0] == "query"
+        assert call_log[1][1] == "example"
+        assert call_log[1][2] is reloaded_maps._config_manager
+        assert call_log[1][3] == 2
+        assert call_log[1][4] is True
+
+        delete_result = await function_map["delete_namespace"](namespace="example")
+        assert delete_result == {"namespace": "example", "deleted": True, "removed_ids": []}
+        assert call_log[2][0] == "delete"
+        assert call_log[2][1] == "example"
+        assert call_log[2][2] is reloaded_maps._config_manager
+
+    try:
+        asyncio.run(_exercise())
+    finally:
+        monkeypatch.undo()
+        importlib.reload(maps_module)
+
+
 def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
     """Persona toolbox manifests should include the extended metadata fields."""
 
