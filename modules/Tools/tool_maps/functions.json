@@ -1819,5 +1819,161 @@
                 "job_id"
             ]
         }
+    },
+    {
+        "name": "browser_lite",
+        "version": "1.0.0",
+        "side_effects": "network",
+        "default_timeout": 45,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-session",
+            "guidance": "Combine the normalized start URL and persona identifier to deduplicate retries."
+        },
+        "safety_level": "high",
+        "requires_consent": true,
+        "capabilities": [
+            "browser_automation"
+        ],
+        "policy_flags": {
+            "requires_network_allowlist": true,
+            "honors_robots_txt": true
+        },
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Navigate a limited number of allowlisted pages with robots.txt enforcement, throttling, and optional screenshots.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "Starting URL to visit. Must belong to an allowlisted domain."
+                },
+                "actions": {
+                    "type": "array",
+                    "description": "Optional sequence of follow-up actions such as navigation or form submission.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "description": "Action type (navigate or submit_form)."
+                            },
+                            "url": {
+                                "type": "string",
+                                "description": "Target URL for the action. Relative paths resolve against the previous page."
+                            },
+                            "method": {
+                                "type": "string",
+                                "enum": [
+                                    "GET",
+                                    "POST"
+                                ],
+                                "description": "HTTP method to use for the action."
+                            },
+                            "data": {
+                                "type": "object",
+                                "description": "Form payload submitted when using submit_form.",
+                                "additionalProperties": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "required": [
+                            "type"
+                        ]
+                    }
+                },
+                "allow_forms": {
+                    "type": "boolean",
+                    "description": "Enable high-risk form submissions. Persona policy must also permit the action."
+                },
+                "take_screenshot": {
+                    "type": "boolean",
+                    "description": "Capture a PNG screenshot for each visited page when supported."
+                },
+                "extract_text": {
+                    "type": "boolean",
+                    "description": "Return sanitized page text for each visit."
+                },
+                "max_pages": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "description": "Override the per-session navigation cap when below the configured ceiling."
+                }
+            },
+            "required": [
+                "url"
+            ]
+        }
+    },
+    {
+        "name": "calculator",
+        "version": "1.0.0",
+        "side_effects": "compute",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "calculator"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Evaluate sanitized mathematical expressions with Decimal precision and optional unit conversions.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "expression": {
+                    "type": "string",
+                    "description": "Mathematical expression to evaluate."
+                },
+                "precision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Optional precision override for Decimal evaluation."
+                },
+                "variables": {
+                    "type": "object",
+                    "description": "Optional mapping of variable names to numeric values.",
+                    "additionalProperties": {
+                        "type": [
+                            "number",
+                            "string"
+                        ]
+                    }
+                },
+                "input_unit": {
+                    "type": "string",
+                    "description": "Source unit to associate with the computed value before conversion."
+                },
+                "output_unit": {
+                    "type": "string",
+                    "description": "Target unit when performing a conversion."
+                }
+            },
+            "required": [
+                "expression"
+            ]
+        }
     }
 ]

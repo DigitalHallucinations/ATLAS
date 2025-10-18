@@ -9,6 +9,8 @@ from modules.Tools.Base_Tools.terminal_command import TerminalCommand
 from modules.Tools.Base_Tools.webpage_fetch import WebpageFetcher
 from modules.Tools.Base_Tools.geocode import geocode_location
 from modules.Tools.Base_Tools.current_location import get_current_location
+from modules.Tools.Base_Tools.browser_lite import BrowserLite
+from modules.Tools.Base_Tools.calculator import Calculator
 from modules.Tools.Base_Tools.debian12_calendar import (
     Debian12CalendarTool,
     debian12_calendar,
@@ -30,6 +32,20 @@ _config_manager = ConfigManager()
 javascript_executor = JavaScriptExecutor.from_config(
     _config_manager.get_javascript_executor_settings()
 )
+
+_tools_config = _config_manager.get_config("tools", {})
+browser_lite_settings = (
+    _tools_config.get("browser_lite") if isinstance(_tools_config, dict) else None
+)
+calculator_settings = (
+    _tools_config.get("calculator") if isinstance(_tools_config, dict) else None
+)
+
+browser_lite = BrowserLite.from_config(
+    browser_lite_settings,
+    config_manager=_config_manager,
+)
+calculator_tool = Calculator.from_config(calculator_settings)
 
 try:
     debian12_calendar_tool = Debian12CalendarTool()
@@ -66,4 +82,6 @@ function_map = {
     "kv_set": kv_set,
     "kv_delete": kv_delete,
     "kv_increment": kv_increment,
+    "browser_lite": browser_lite.run,
+    "calculator": calculator_tool.evaluate,
 }
