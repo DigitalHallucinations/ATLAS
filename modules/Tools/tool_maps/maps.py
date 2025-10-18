@@ -14,13 +14,19 @@ from modules.Tools.Base_Tools.debian12_calendar import (
     debian12_calendar,
 )
 from modules.Tools.Base_Tools.filesystem_io import read_file, write_file, list_dir
-from modules.Tools.Code_Execution import PythonInterpreter
+from ATLAS.config import ConfigManager
+from modules.Tools.Code_Execution import JavaScriptExecutor, PythonInterpreter
 from modules.Tools.Medical_Tools import search_pmc, search_pubmed
 
 # Create an instance of GoogleSearch
 google_search_instance = GoogleSearch()
 webpage_fetcher = WebpageFetcher()
 python_interpreter = PythonInterpreter()
+
+_config_manager = ConfigManager()
+javascript_executor = JavaScriptExecutor.from_config(
+    _config_manager.get_javascript_executor_settings()
+)
 
 try:
     debian12_calendar_tool = Debian12CalendarTool()
@@ -43,6 +49,7 @@ function_map = {
     "webpage_fetch": webpage_fetcher.fetch,
     "terminal_command": TerminalCommand,
     "execute_python": python_interpreter.run,
+    "execute_javascript": javascript_executor.run,
     "search_pubmed": search_pubmed,
     "search_pmc": search_pmc,
     "geocode_location": geocode_location,

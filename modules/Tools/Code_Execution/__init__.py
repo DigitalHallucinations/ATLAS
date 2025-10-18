@@ -1,5 +1,11 @@
-"""Sandboxed Python execution tools."""
+"""Sandboxed code execution helpers."""
 
+from .javascript_executor import (
+    JavaScriptExecutionTimeoutError,
+    JavaScriptExecutor,
+    JavaScriptExecutorError,
+    JavaScriptSandboxError,
+)
 from .python_interpreter import (
     PythonInterpreter,
     PythonInterpreterError,
@@ -8,6 +14,10 @@ from .python_interpreter import (
 )
 
 __all__ = [
+    "JavaScriptExecutionTimeoutError",
+    "JavaScriptExecutor",
+    "JavaScriptExecutorError",
+    "JavaScriptSandboxError",
     "PythonInterpreter",
     "PythonInterpreterError",
     "PythonInterpreterTimeoutError",

@@ -20,6 +20,7 @@
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
+| execute_javascript | 1.0.0 | javascript_exec, code_execution | high | No | Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files. |
 | execute_python | 1.0.0 | code_execution, analysis | high | No | Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
@@ -68,6 +69,7 @@
 | --- | --- | --- | --- | --- | --- |
 | context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
 | debian12_calendar | 1.1.0 | calendar_read, calendar_write | — | No | Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events. |
+| execute_javascript | 1.0.0 | javascript_exec, code_execution | high | No | Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files. |
 | execute_python | 1.0.0 | code_execution, analysis | high | No | Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement. |
 | geocode_location | 1.0.0 | geolocation, mapping | — | Yes (env: OPENWEATHERMAP_API_KEY, type: api_key) | Look up latitude and longitude coordinates for a user-specified location string using OpenWeather's geocoding API. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
