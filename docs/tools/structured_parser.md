@@ -19,7 +19,8 @@ workflows without juggling format-specific libraries.
 
 All dependencies are optional and validated at runtime. If a required package is
 missing, the tool raises a clear `StructuredParserDependencyError` so personas
-can communicate the requirement. Install the libraries you need:
+can communicate the requirement. Install the libraries you need with pip or by
+including the "Document parsing dependencies" block in `requirements.txt`:
 
 ```bash
 pip install pdfminer.six python-docx beautifulsoup4 pillow pytesseract
