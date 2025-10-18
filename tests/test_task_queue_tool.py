@@ -213,3 +213,110 @@ def test_cancel_updates_status(tmp_path: Path) -> None:
         assert not blocked.wait(timeout=1)
     finally:
         service.shutdown(wait=True)
+
+
+def test_task_queue_functions_exposed_in_function_map(monkeypatch) -> None:
+    """The function map should expose the task queue helpers."""
+
+    from modules.Tools.Base_Tools import task_queue as task_queue_module
+    aiohttp_module = sys.modules.get("aiohttp")
+    if aiohttp_module is None:
+        aiohttp_module = types.ModuleType("aiohttp")
+        monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_module)
+
+    if not hasattr(aiohttp_module, "ClientSession"):
+        class _DummySession:
+            async def __aenter__(self):  # pragma: no cover - stub
+                return self
+
+            async def __aexit__(self, *exc_info):  # pragma: no cover - stub
+                return False
+
+        monkeypatch.setattr(
+            aiohttp_module, "ClientSession", _DummySession, raising=False
+        )
+
+    if not hasattr(aiohttp_module, "ClientTimeout"):
+        class _DummyTimeout:
+            def __init__(self, *args, **kwargs) -> None:  # pragma: no cover - stub
+                self.total = kwargs.get("total")
+
+        monkeypatch.setattr(
+            aiohttp_module, "ClientTimeout", _DummyTimeout, raising=False
+        )
+
+    from modules.Tools.tool_maps import maps as maps_module
+
+    # Ensure the function map references the task queue helpers.
+    assert maps_module.function_map["enqueue_task"] is task_queue_module.enqueue_task
+    assert (
+        maps_module.function_map["schedule_cron_task"]
+        is task_queue_module.schedule_cron_task
+    )
+    assert maps_module.function_map["cancel_task"] is task_queue_module.cancel_task
+    assert (
+        maps_module.function_map["get_task_status"] is task_queue_module.get_task_status
+    )
+
+    call_log: dict[str, tuple[tuple[Any, ...], Mapping[str, Any]]] = {}
+
+    def _make_stub(name: str):
+        def _stub(*args: Any, **kwargs: Any) -> str:
+            call_log[name] = (args, kwargs)
+            return f"{name}-result"
+
+        return _stub
+
+    monkeypatch.setattr(task_queue_module, "enqueue_task", _make_stub("enqueue_task"))
+    monkeypatch.setitem(
+        maps_module.function_map, "enqueue_task", task_queue_module.enqueue_task
+    )
+
+    monkeypatch.setattr(
+        task_queue_module, "schedule_cron_task", _make_stub("schedule_cron_task")
+    )
+    monkeypatch.setitem(
+        maps_module.function_map,
+        "schedule_cron_task",
+        task_queue_module.schedule_cron_task,
+    )
+
+    monkeypatch.setattr(task_queue_module, "cancel_task", _make_stub("cancel_task"))
+    monkeypatch.setitem(
+        maps_module.function_map, "cancel_task", task_queue_module.cancel_task
+    )
+
+    monkeypatch.setattr(
+        task_queue_module, "get_task_status", _make_stub("get_task_status")
+    )
+    monkeypatch.setitem(
+        maps_module.function_map,
+        "get_task_status",
+        task_queue_module.get_task_status,
+    )
+
+    assert (
+        maps_module.function_map["enqueue_task"](name="job", payload={"value": 1})
+        == "enqueue_task-result"
+    )
+    assert call_log["enqueue_task"] == ((), {"name": "job", "payload": {"value": 1}})
+
+    assert (
+        maps_module.function_map["schedule_cron_task"](
+            name="cron-job", cron_fields={"minute": "*"}, payload={}
+        )
+        == "schedule_cron_task-result"
+    )
+    assert call_log["schedule_cron_task"] == (
+        (),
+        {"name": "cron-job", "cron_fields": {"minute": "*"}, "payload": {}},
+    )
+
+    assert maps_module.function_map["cancel_task"]("job-id") == "cancel_task-result"
+    assert call_log["cancel_task"] == (("job-id",), {})
+
+    assert (
+        maps_module.function_map["get_task_status"]("status-id")
+        == "get_task_status-result"
+    )
+    assert call_log["get_task_status"] == (("status-id",), {})

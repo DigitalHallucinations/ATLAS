@@ -18,6 +18,12 @@ from modules.Tools.Base_Tools.debian12_calendar import (
 from modules.Tools.Base_Tools.filesystem_io import read_file, write_file, list_dir
 from modules.Tools.Base_Tools.structured_parser import StructuredParser
 from modules.Tools.Base_Tools.kv_store import kv_delete, kv_get, kv_increment, kv_set
+from modules.Tools.Base_Tools.task_queue import (
+    cancel_task,
+    enqueue_task,
+    get_task_status,
+    schedule_cron_task,
+)
 from ATLAS.config import ConfigManager
 from modules.Tools.Code_Execution import JavaScriptExecutor, PythonInterpreter
 from modules.Tools.Medical_Tools import search_pmc, search_pubmed
@@ -82,6 +88,10 @@ function_map = {
     "kv_set": kv_set,
     "kv_delete": kv_delete,
     "kv_increment": kv_increment,
+    "enqueue_task": enqueue_task,
+    "schedule_cron_task": schedule_cron_task,
+    "cancel_task": cancel_task,
+    "get_task_status": get_task_status,
     "browser_lite": browser_lite.run,
     "calculator": calculator_tool.evaluate,
 }
