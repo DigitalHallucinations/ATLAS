@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 from modules.Tools.tool_event_system import publish_bus_event
+from modules.orchestration.blackboard import BlackboardClient, get_blackboard
 from modules.orchestration.message_bus import MessagePriority
 from modules.logging.logger import setup_logger
 
@@ -59,6 +60,24 @@ class SkillExecutionContext:
     user: Optional[Mapping[str, Any]] = None
     state: Dict[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    blackboard_client: Optional[BlackboardClient] = field(
+        default=None, repr=False, compare=False
+    )
+
+    def __post_init__(self) -> None:
+        project_id: Optional[str] = None
+        if isinstance(self.metadata, Mapping):
+            raw_project = self.metadata.get("project_id")
+            if isinstance(raw_project, str) and raw_project.strip():
+                project_id = raw_project.strip()
+
+        if self.blackboard_client is None:
+            scope_type = "project" if project_id else "conversation"
+            scope_id = project_id or self.conversation_id
+            self.blackboard_client = get_blackboard().client_for(
+                scope_id,
+                scope_type=scope_type,
+            )
 
     @property
     def persona_identifier(self) -> Optional[str]:
@@ -95,6 +114,23 @@ class SkillExecutionContext:
             "persona_id": self.persona_identifier,
             "state": self.state,
         }
+
+    @property
+    def blackboard(self) -> BlackboardClient:
+        """Convenience accessor returning the scoped blackboard client."""
+
+        client = self.blackboard_client
+        if client is None:
+            scope_type = "conversation"
+            scope_id = self.conversation_id
+            if isinstance(self.metadata, Mapping):
+                project_id = self.metadata.get("project_id")
+                if isinstance(project_id, str) and project_id.strip():
+                    scope_type = "project"
+                    scope_id = project_id.strip()
+            client = get_blackboard().client_for(scope_id, scope_type=scope_type)
+            self.blackboard_client = client
+        return client
 
 
 @dataclass(frozen=True)

@@ -18,7 +18,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple
 from concurrent.futures import Future
 from datetime import datetime
 import gi
@@ -28,7 +28,8 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 from GTKUI.Utils.logging import GTKUILogHandler, read_recent_log_lines
-from modules.Tools.tool_event_system import event_system
+from modules.Tools.tool_event_system import event_system, subscribe_bus_event
+from modules.orchestration.blackboard import get_blackboard
 
 # Configure logging for the chat page.
 logger = logging.getLogger(__name__)
@@ -86,6 +87,8 @@ class ChatPage(Gtk.Box):
         """
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.ATLAS = atlas
+        self._blackboard_subscription = None
+        self.connect("destroy", self._on_destroy)
 
         # --- Header bar with persona title & quick actions ---
         self.header_bar = Gtk.HeaderBar()
@@ -157,6 +160,25 @@ class ChatPage(Gtk.Box):
         self.chat_history_scrolled.set_vexpand(True)
         self.chat_tab_box.append(self.chat_history_scrolled)
 
+        # --- Blackboard tab ---
+        self.blackboard_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.blackboard_tab_box.set_margin_start(10)
+        self.blackboard_tab_box.set_margin_end(10)
+        self.blackboard_tab_box.set_margin_top(8)
+        self.blackboard_tab_box.set_margin_bottom(8)
+        self.blackboard_tab_box.set_hexpand(True)
+        self.blackboard_tab_box.set_vexpand(True)
+
+        self.blackboard_summary_label = Gtk.Label(xalign=0)
+        self.blackboard_summary_label.set_wrap(True)
+        self.blackboard_summary_label.add_css_class("body")
+        self.blackboard_tab_box.append(self.blackboard_summary_label)
+
+        self.blackboard_list = Gtk.ListBox()
+        self.blackboard_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.blackboard_list.add_css_class("boxed-list")
+        self.blackboard_tab_box.append(self.blackboard_list)
+
         # Create the input area with a multiline entry, a microphone button, and a send button.
         input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         input_box.set_margin_top(8)
@@ -221,6 +243,10 @@ class ChatPage(Gtk.Box):
         chat_label = Gtk.Label(label="Chat")
         chat_label.add_css_class("caption")
         self.notebook.append_page(self.chat_tab_box, chat_label)
+
+        blackboard_label = Gtk.Label(label="Blackboard")
+        blackboard_label.add_css_class("caption")
+        self.notebook.append_page(self.blackboard_tab_box, blackboard_label)
 
         # --- Terminal tab with persona context ---
         self.terminal_tab_container = Gtk.Box(
@@ -340,6 +366,12 @@ class ChatPage(Gtk.Box):
         self._debug_log_config = self._resolve_debug_log_config()
         self._debug_level_filter: Optional[_HandlerLevelFilter] = None
         self._build_debug_tab()
+
+        self._blackboard_subscription = subscribe_bus_event(
+            "blackboard.events",
+            self._handle_blackboard_event,
+        )
+        self._refresh_blackboard_tab()
 
         self.vbox.append(self.notebook)
         self._persona_change_handler = None
@@ -729,6 +761,134 @@ class ChatPage(Gtk.Box):
         else:
             tool_logs_text = "No tool logs available."
         self._set_terminal_section_text("tool_logs", tool_logs_text)
+
+    # --------------------------- Blackboard helpers ---------------------------
+
+    def _handle_blackboard_event(self, payload, _message=None) -> None:
+        if not isinstance(payload, Mapping):
+            return
+        entry = payload.get("entry") if isinstance(payload, Mapping) else None
+        if not isinstance(entry, Mapping):
+            return
+        active_scope = self._get_active_conversation_id()
+        if active_scope and entry.get("scope_id") == active_scope:
+            GLib.idle_add(self._refresh_blackboard_tab)
+
+    def _refresh_blackboard_tab(self) -> None:
+        scope_id = self._get_active_conversation_id()
+        if not scope_id:
+            self.blackboard_summary_label.set_text("No active conversation.")
+            self._clear_blackboard_list()
+            placeholder = Gtk.Label(xalign=0)
+            placeholder.set_wrap(True)
+            placeholder.set_text(
+                "Blackboard entries will appear once a conversation is active."
+            )
+            self.blackboard_list.append(placeholder)
+            return
+
+        store = get_blackboard()
+        summary = store.client_for(scope_id).summary()
+        counts = summary.get("counts") if isinstance(summary, Mapping) else {}
+        hypothesis_count = counts.get("hypothesis", 0) if isinstance(counts, Mapping) else 0
+        claim_count = counts.get("claim", 0) if isinstance(counts, Mapping) else 0
+        artifact_count = counts.get("artifact", 0) if isinstance(counts, Mapping) else 0
+        self.blackboard_summary_label.set_text(
+            f"Hypotheses: {hypothesis_count} • Claims: {claim_count} • Artifacts: {artifact_count}"
+        )
+
+        entries = summary.get("entries") if isinstance(summary, Mapping) else []
+        if not isinstance(entries, list):
+            entries = []
+
+        self._clear_blackboard_list()
+        if not entries:
+            empty_label = Gtk.Label(xalign=0)
+            empty_label.set_wrap(True)
+            empty_label.set_text("No shared posts yet.")
+            self.blackboard_list.append(empty_label)
+            return
+
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                continue
+            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            row.set_margin_bottom(6)
+            heading = Gtk.Label(xalign=0)
+            heading.set_wrap(True)
+            heading.add_css_class("heading")
+            heading.set_text(
+                f"[{str(entry.get('category') or '').title()}] {entry.get('title') or ''}"
+            )
+            row.append(heading)
+
+            content_label = Gtk.Label(xalign=0)
+            content_label.set_wrap(True)
+            content_label.set_text(str(entry.get("content") or ""))
+            row.append(content_label)
+
+            meta_bits: list[str] = []
+            author = entry.get("author")
+            if author:
+                meta_bits.append(f"Author: {author}")
+            created_at = entry.get("created_at")
+            if isinstance(created_at, (int, float)):
+                try:
+                    created_dt = datetime.fromtimestamp(created_at)
+                except Exception:
+                    created_dt = None
+                if created_dt is not None:
+                    meta_bits.append(created_dt.strftime("%Y-%m-%d %H:%M"))
+            tags = entry.get("tags")
+            if isinstance(tags, list) and tags:
+                meta_bits.append("Tags: " + ", ".join(str(tag) for tag in tags))
+
+            meta_label = Gtk.Label(xalign=0)
+            meta_label.add_css_class("caption")
+            meta_label.set_wrap(True)
+            if meta_bits:
+                meta_label.set_text(" • ".join(meta_bits))
+            else:
+                meta_label.set_text("Shared item")
+            row.append(meta_label)
+
+            self.blackboard_list.append(row)
+
+    def _clear_blackboard_list(self) -> None:
+        child = self.blackboard_list.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.blackboard_list.remove(child)
+            child = next_child
+
+    def _get_active_conversation_id(self) -> Optional[str]:
+        session = getattr(self.ATLAS, "chat_session", None)
+        conversation_id: Optional[str] = None
+        if session is not None:
+            getter = getattr(session, "get_conversation_id", None)
+            if callable(getter):
+                try:
+                    conversation_id = getter()
+                except Exception as exc:
+                    logger.error("Failed to obtain conversation ID: %s", exc, exc_info=True)
+            elif hasattr(session, "conversation_id"):
+                conversation_id = getattr(session, "conversation_id")
+
+        if not conversation_id:
+            return None
+        text = str(conversation_id).strip()
+        return text or None
+
+    def _on_destroy(self, *_args) -> None:
+        subscription = self._blackboard_subscription
+        if subscription is not None:
+            try:
+                subscription.cancel()
+            except Exception as exc:  # pragma: no cover - defensive cleanup
+                logger.debug(
+                    "Failed to cancel blackboard subscription: %s", exc, exc_info=True
+                )
+            self._blackboard_subscription = None
 
     def _format_declared_tools(self, snapshot: Dict[str, object]) -> str:
         if not snapshot:
@@ -1637,6 +1797,8 @@ class ChatPage(Gtk.Box):
         user_display = getattr(self, "_current_user_display_name", None)
         if hasattr(self, "user_title_label") and user_display:
             self.user_title_label.set_text(f"Active user: {user_display}")
+
+        self._refresh_blackboard_tab()
 
         # Update the title on the containing window when available. ``ChatPage``
         # is a ``Gtk.Box`` embedded inside the main notebook, so it no longer
