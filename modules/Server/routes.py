@@ -32,6 +32,7 @@ from modules.logging.audit import (
     parse_persona_timestamp,
 )
 from modules.logging.logger import setup_logger
+from modules.orchestration.blackboard import get_blackboard, stream_blackboard
 from modules.persona_review import REVIEW_INTERVAL_DAYS, compute_review_status
 
 logger = setup_logger(__name__)
@@ -55,6 +56,19 @@ def _parse_query_timestamp(raw_value: Optional[Any]) -> Optional[datetime]:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _as_bool(raw_value: Optional[Any]) -> bool:
+    """Return ``True`` when *raw_value* is truthy according to query semantics."""
+
+    if isinstance(raw_value, bool):
+        return raw_value
+    if raw_value is None:
+        return False
+    text = str(raw_value).strip().lower()
+    if not text:
+        return False
+    return text in {"1", "true", "yes", "on"}
 
 
 class AtlasServer:
@@ -159,6 +173,100 @@ class AtlasServer:
             "count": len(entries),
             "skills": [_serialize_skill(entry) for entry in entries],
         }
+
+    # ------------------------------------------------------------------
+    # Blackboard endpoints
+    # ------------------------------------------------------------------
+    def get_blackboard_entries(
+        self,
+        scope_type: str,
+        scope_id: str,
+        *,
+        summary: bool = False,
+        category: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Return entries or a summary for the requested blackboard scope."""
+
+        client = get_blackboard().client_for(scope_id, scope_type=scope_type)
+        if summary:
+            return client.summary()
+
+        category_value = None
+        if category is not None:
+            category_value = str(category).strip() or None
+        entries = client.list_entries(category=category_value)
+        return {
+            "scope_id": client.scope_id,
+            "scope_type": client.scope_type,
+            "entries": entries,
+            "count": len(entries),
+        }
+
+    def create_blackboard_entry(
+        self,
+        scope_type: str,
+        scope_id: str,
+        payload: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        """Persist a new blackboard entry and return the serialized record."""
+
+        category = payload.get("category")
+        title = payload.get("title")
+        content = payload.get("content")
+        if not category:
+            raise ValueError("category is required")
+        if not title or not content:
+            raise ValueError("title and content are required")
+
+        client = get_blackboard().client_for(scope_id, scope_type=scope_type)
+        entry = client.publish(
+            category,
+            str(title),
+            str(content),
+            author=payload.get("author"),
+            tags=payload.get("tags"),
+            metadata=payload.get("metadata"),
+        )
+
+        return {"success": True, "entry": entry}
+
+    def update_blackboard_entry(
+        self,
+        scope_type: str,
+        scope_id: str,
+        entry_id: str,
+        payload: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        """Update an existing blackboard entry."""
+
+        client = get_blackboard().client_for(scope_id, scope_type=scope_type)
+        entry = client.update_entry(
+            entry_id,
+            title=payload.get("title"),
+            content=payload.get("content"),
+            tags=payload.get("tags"),
+            metadata=payload.get("metadata"),
+        )
+        if entry is None:
+            raise KeyError(f"Unknown blackboard entry: {entry_id}")
+        return {"success": True, "entry": entry}
+
+    def delete_blackboard_entry(
+        self,
+        scope_type: str,
+        scope_id: str,
+        entry_id: str,
+    ) -> Dict[str, Any]:
+        """Delete the requested blackboard entry."""
+
+        client = get_blackboard().client_for(scope_id, scope_type=scope_type)
+        success = client.delete_entry(entry_id)
+        return {"success": bool(success)}
+
+    def stream_blackboard_events(self, scope_type: str, scope_id: str):
+        """Return an asynchronous iterator of blackboard events."""
+
+        return stream_blackboard(scope_id, scope_type=scope_type)
 
     def get_persona_review_status(self, persona_name: str) -> Dict[str, Any]:
         """Return the current review status for ``persona_name``."""
@@ -275,6 +383,20 @@ class AtlasServer:
                 return self.get_persona_review_status(persona_name)
             if path == "/skills":
                 return self.get_skills(persona=query.get("persona"))
+            if path.startswith("/blackboard/"):
+                scope_type, scope_id, entry_id = self._parse_blackboard_path(path)
+                if entry_id:
+                    client = get_blackboard().client_for(scope_id, scope_type=scope_type)
+                    entry = client.get_entry(entry_id)
+                    if entry is None:
+                        raise KeyError(f"Unknown blackboard entry: {entry_id}")
+                    return {"entry": entry}
+                return self.get_blackboard_entries(
+                    scope_type,
+                    scope_id,
+                    summary=_as_bool(query.get("summary")),
+                    category=query.get("category"),
+                )
             if path != "/tools":
                 raise ValueError(f"Unsupported path: {path}")
             return self.get_tools(
@@ -286,6 +408,12 @@ class AtlasServer:
         if method_upper == "POST":
             return self._handle_post(path, query)
 
+        if method_upper == "PATCH":
+            return self._handle_patch(path, query)
+
+        if method_upper == "DELETE":
+            return self._handle_delete(path, query)
+
         raise ValueError(f"Unsupported method: {method}")
 
     def _handle_post(
@@ -293,6 +421,12 @@ class AtlasServer:
         path: str,
         payload: Mapping[str, Any],
     ) -> Dict[str, Any]:
+        if path.startswith("/blackboard/"):
+            scope_type, scope_id, entry_id = self._parse_blackboard_path(path)
+            if entry_id:
+                raise ValueError("POST requests should not target a specific entry")
+            return self.create_blackboard_entry(scope_type, scope_id, payload)
+
         if path.startswith("/personas/") and path.endswith("/tools"):
             components = [part for part in path.strip("/").split("/") if part]
             if len(components) != 3:
@@ -350,6 +484,40 @@ class AtlasServer:
             )
 
         raise ValueError(f"Unsupported path: {path}")
+
+    def _handle_patch(
+        self,
+        path: str,
+        payload: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        if path.startswith("/blackboard/"):
+            scope_type, scope_id, entry_id = self._parse_blackboard_path(path)
+            if not entry_id:
+                raise ValueError("PATCH requests must target a specific entry")
+            return self.update_blackboard_entry(scope_type, scope_id, entry_id, payload)
+        raise ValueError(f"Unsupported path: {path}")
+
+    def _handle_delete(
+        self,
+        path: str,
+        payload: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        if path.startswith("/blackboard/"):
+            scope_type, scope_id, entry_id = self._parse_blackboard_path(path)
+            if not entry_id:
+                raise ValueError("DELETE requests must target a specific entry")
+            return self.delete_blackboard_entry(scope_type, scope_id, entry_id)
+        raise ValueError(f"Unsupported path: {path}")
+
+    @staticmethod
+    def _parse_blackboard_path(path: str) -> tuple[str, str, Optional[str]]:
+        components = [part for part in path.strip("/").split("/") if part]
+        if len(components) < 3 or components[0] != "blackboard":
+            raise ValueError(f"Unsupported path: {path}")
+        scope_type = components[1]
+        scope_id = components[2]
+        entry_id = components[3] if len(components) > 3 else None
+        return scope_type, scope_id, entry_id
 
     def update_persona_tools(
         self,
