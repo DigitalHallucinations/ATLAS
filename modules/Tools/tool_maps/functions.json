@@ -1144,5 +1144,195 @@
         "quota_hints": {
             "max_bytes": 5242880
         }
+    },
+    {
+        "name": "upsert_vectors",
+        "version": "1.0.0",
+        "side_effects": "database",
+        "default_timeout": 10,
+        "auth": {
+            "required": true,
+            "type": "api_key",
+            "docs": "Configure credentials for the selected vector store provider via ConfigManager."
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "namespace+ids",
+            "guidance": "Combine the target namespace and sorted vector IDs to deduplicate retries."
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "vector_store"
+        ],
+        "providers": [
+            {
+                "name": "vector_store_in_memory",
+                "priority": 0,
+                "health_check_interval": 0,
+                "config": {
+                    "adapter": "in_memory"
+                }
+            }
+        ],
+        "description": "Insert or update vector embeddings within the configured namespace of the active vector store backend.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "Logical collection in which vectors are stored."
+                },
+                "vectors": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "description": "Stable identifier for the vector embedding."
+                            },
+                            "values": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                    "type": "number"
+                                },
+                                "description": "Embedding components ordered to match the provider index dimensionality."
+                            },
+                            "metadata": {
+                                "type": "object",
+                                "description": "Optional metadata stored alongside the vector.",
+                                "additionalProperties": true
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "values"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "namespace",
+                "vectors"
+            ]
+        }
+    },
+    {
+        "name": "query_vectors",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 10,
+        "auth": {
+            "required": true,
+            "type": "api_key",
+            "docs": "Configure credentials for the selected vector store provider via ConfigManager."
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": false,
+            "guidance": "Use the namespace and a hash of the query vector when deduplicating identical lookups."
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "vector_store"
+        ],
+        "providers": [
+            {
+                "name": "vector_store_in_memory",
+                "priority": 0,
+                "health_check_interval": 0,
+                "config": {
+                    "adapter": "in_memory"
+                }
+            }
+        ],
+        "description": "Return the most similar vectors for the supplied query embedding from the configured namespace.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "Namespace to search within."
+                },
+                "query": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "number"
+                    },
+                    "description": "Embedding vector to compare against stored items."
+                },
+                "top_k": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 5,
+                    "description": "Maximum number of matches to return."
+                },
+                "filter": {
+                    "type": "object",
+                    "description": "Optional metadata filter applied prior to similarity scoring.",
+                    "additionalProperties": true
+                },
+                "include_values": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, include stored vector values alongside metadata."
+                }
+            },
+            "required": [
+                "namespace",
+                "query"
+            ]
+        }
+    },
+    {
+        "name": "delete_namespace",
+        "version": "1.0.0",
+        "side_effects": "database",
+        "default_timeout": 10,
+        "auth": {
+            "required": true,
+            "type": "api_key",
+            "docs": "Configure credentials for the selected vector store provider via ConfigManager."
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "namespace",
+            "guidance": "Use the namespace identifier to guarantee idempotent delete requests."
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "vector_store"
+        ],
+        "providers": [
+            {
+                "name": "vector_store_in_memory",
+                "priority": 0,
+                "health_check_interval": 0,
+                "config": {
+                    "adapter": "in_memory"
+                }
+            }
+        ],
+        "description": "Remove all stored embeddings associated with the specified namespace.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "Namespace to delete."
+                }
+            },
+            "required": [
+                "namespace"
+            ]
+        }
     }
 ]
