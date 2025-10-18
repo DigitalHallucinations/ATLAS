@@ -15,4 +15,7 @@
 - Core HTTP client dependencies now include `aiohttp`. Make sure local
   environments install it alongside the other runtime requirements listed in
   `requirements.txt`.
+- Configuration helpers now depend on `platformdirs` (with `appdirs` remaining
+  an optional fallback). Ensure local environments install it with the other
+  runtime requirements in `requirements.txt`.
 

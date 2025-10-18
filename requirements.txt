@@ -27,6 +27,8 @@ openai-whisper
 # for Config
 pyyaml
 jsonschema
+platformdirs
+# appdirs can be installed as an optional fallback if needed
 
 # for Audio
 pygame
