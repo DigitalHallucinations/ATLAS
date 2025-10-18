@@ -68,7 +68,8 @@
           "read_external_service",
           "filesystem",
           "compute",
-          "system"
+          "system",
+          "database"
         ]
       },
       "default_timeout": {
