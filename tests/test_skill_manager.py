@@ -111,12 +111,19 @@ def test_use_skill_executes_required_tools_and_emits_events():
         event_types = [entry["type"] for entry in events]
         assert "skill_started" in event_types
         assert "skill_plan_generated" in event_types
+        assert "skill_plan_ready" in event_types
         assert event_types.count("tool_started") == 2
         assert event_types.count("tool_completed") == 2
         assert events[-1]["type"] == "skill_completed"
         assert events[-1]["tool_results"] == result.tool_results
         assert events[-1]["skill_version"] is None
         assert events[-1]["capability_tags"] == []
+
+        plan_started_events = [
+            entry for entry in events if entry["type"] == "skill_plan_step_started"
+        ]
+        assert len(plan_started_events) == 2
+        assert all("plan" in entry for entry in plan_started_events)
     finally:
         event_system.unsubscribe(SKILL_ACTIVITY_EVENT, _subscriber)
 
@@ -311,7 +318,9 @@ def test_use_skill_tool_failure_emits_event():
 
         event_types = [entry["type"] for entry in events]
         assert "tool_failed" in event_types
-        assert events[-1]["type"] == "skill_failed"
+        assert "skill_failed" in event_types
+        assert event_types.count("skill_failed") == 1
+        assert any(entry["type"] == "skill_plan_step_failed" for entry in events)
     finally:
         event_system.unsubscribe(SKILL_ACTIVITY_EVENT, _subscriber)
 

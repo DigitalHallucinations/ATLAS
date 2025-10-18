@@ -16,11 +16,16 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 from modules.Tools.tool_event_system import publish_bus_event
 from modules.orchestration.blackboard import BlackboardClient, get_blackboard
-from modules.orchestration.message_bus import MessagePriority
+from modules.orchestration.message_bus import MessagePriority, get_message_bus
+from modules.orchestration.planner import Planner, PlanStep, PlanStepStatus
 from modules.logging.logger import setup_logger
 
 
 logger = setup_logger(__name__)
+
+# Ensure the message bus is initialized outside of any running event loop to avoid
+# nested ``asyncio.run`` calls during skill execution in tests.
+get_message_bus()
 
 SKILL_ACTIVITY_EVENT = "skill_activity"
 _DEFAULT_TOOL_TIMEOUT_SECONDS = 30.0
@@ -516,40 +521,73 @@ async def use_skill(
         )
         raise SkillExecutionError(message, skill_name=skill_name)
 
+    planner = Planner()
+    plan = planner.build_plan(
+        metadata,
+        available_tools=available_tools,
+        provided_inputs=tool_inputs,
+    )
+
     start_time = time.monotonic()
     results: Dict[str, Any] = {}
 
-    for tool_name in required_tools:
-        elapsed_ms = (time.monotonic() - start_time) * 1000.0
-        if budget_ms is not None and elapsed_ms >= budget_ms:
-            message = (
-                f"Skill '{skill_name}' exceeded runtime budget after "
-                f"{elapsed_ms:.0f}ms"
-            )
-            _publish_event(
-                "skill_failed",
-                {
-                    "skill": skill_name,
-                    "error": message,
-                    "tool": tool_name,
-                },
-            )
-            raise SkillExecutionError(message, skill_name=skill_name, tool_name=tool_name)
+    def _remaining_budget_ms() -> Optional[float]:
+        if budget_ms is None:
+            return None
+        elapsed = (time.monotonic() - start_time) * 1000.0
+        return max(budget_ms - elapsed, 0.0)
 
+    def _emit_plan_event(
+        event_type: str,
+        *,
+        step_id: Optional[str] = None,
+        extra: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        payload: Dict[str, Any] = {
+            "skill": skill_name,
+            "plan": plan.snapshot(),
+            "remaining_budget_ms": _remaining_budget_ms(),
+        }
+        if step_id is not None:
+            step = plan.steps[step_id]
+            payload.update({"step": step_id, "tool": step.tool_name})
+            reason = plan.cancellation_reason(step_id)
+            if reason:
+                payload["cancellation_reason"] = reason
+        if extra:
+            payload.update({k: v for k, v in extra.items() if v is not None})
+        _publish_event(event_type, payload)
+
+    _emit_plan_event("skill_plan_ready")
+
+    running: Dict[str, asyncio.Task] = {}
+    task_lookup: Dict[asyncio.Task, str] = {}
+    pending_failure: Optional[SkillExecutionError] = None
+
+    async def _run_step(step: PlanStep) -> Any:
+        tool_name = step.tool_name
         entry = available_tools[tool_name]
         tool_callable = _resolve_callable(entry)
-        tool_kwargs = tool_inputs.get(tool_name, {})
+        base_inputs = tool_inputs.get(tool_name, {})
+        kwargs: Dict[str, Any] = dict(base_inputs)
+        if step.inputs:
+            kwargs.update(step.inputs)
 
         _publish_event(
             "tool_started",
-            {"skill": skill_name, "tool": tool_name, "arguments": tool_kwargs},
+            {
+                "skill": skill_name,
+                "tool": tool_name,
+                "arguments": kwargs,
+                "remaining_budget_ms": _remaining_budget_ms(),
+            },
         )
 
         try:
             result = await _invoke_tool(
                 tool_callable,
                 timeout=timeout_seconds,
-                kwargs=tool_kwargs,
+                kwargs=kwargs,
             )
         except asyncio.TimeoutError as exc:
             message = f"Tool '{tool_name}' timed out while executing skill '{skill_name}'"
@@ -561,6 +599,7 @@ async def use_skill(
                     "tool": tool_name,
                     "error": message,
                     "timeout_seconds": timeout_seconds,
+                    "remaining_budget_ms": _remaining_budget_ms(),
                 },
             )
             _publish_event(
@@ -569,6 +608,7 @@ async def use_skill(
                     "skill": skill_name,
                     "error": message,
                     "tool": tool_name,
+                    "remaining_budget_ms": _remaining_budget_ms(),
                 },
             )
             raise SkillExecutionError(
@@ -583,6 +623,7 @@ async def use_skill(
                     "skill": skill_name,
                     "tool": tool_name,
                     "error": str(exc),
+                    "remaining_budget_ms": _remaining_budget_ms(),
                 },
             )
             _publish_event(
@@ -591,19 +632,121 @@ async def use_skill(
                     "skill": skill_name,
                     "error": str(exc),
                     "tool": tool_name,
+                    "remaining_budget_ms": _remaining_budget_ms(),
                 },
             )
             raise SkillExecutionError(
                 message, skill_name=skill_name, tool_name=tool_name, cause=exc
             ) from exc
 
-        results[tool_name] = result
-        context.state.setdefault("tool_results", {})[tool_name] = result
-
         _publish_event(
             "tool_completed",
-            {"skill": skill_name, "tool": tool_name, "result": result},
+            {
+                "skill": skill_name,
+                "tool": tool_name,
+                "result": result,
+                "remaining_budget_ms": _remaining_budget_ms(),
+            },
         )
+
+        return result
+
+    while plan.unfinished() or running:
+        ready_steps = [
+            step
+            for step in plan.ready_steps()
+            if step.identifier not in running and plan.status(step.identifier) is PlanStepStatus.PENDING
+        ]
+
+        if ready_steps:
+            remaining = _remaining_budget_ms()
+            if remaining is not None and remaining <= 0:
+                message = (
+                    f"Skill '{skill_name}' exceeded runtime budget after "
+                    f"{(time.monotonic() - start_time) * 1000.0:.0f}ms"
+                )
+                _publish_event(
+                    "skill_failed",
+                    {
+                        "skill": skill_name,
+                        "error": message,
+                        "remaining_budget_ms": remaining,
+                    },
+                )
+                for step_identifier in plan.steps:
+                    if plan.status(step_identifier) is PlanStepStatus.PENDING:
+                        plan.mark_cancelled(step_identifier, "Skill budget exceeded")
+                        _emit_plan_event(
+                            "skill_plan_step_cancelled",
+                            step_id=step_identifier,
+                            extra={"cancellation_reason": "Skill budget exceeded"},
+                        )
+                pending_failure = SkillExecutionError(message, skill_name=skill_name)
+                break
+
+        for step in ready_steps:
+            plan.mark_running(step.identifier)
+            _emit_plan_event("skill_plan_step_started", step_id=step.identifier)
+            task = asyncio.create_task(_run_step(step))
+            running[step.identifier] = task
+            task_lookup[task] = step.identifier
+
+        if not running:
+            break
+
+        done, _pending = await asyncio.wait(
+            list(running.values()), return_when=asyncio.FIRST_COMPLETED
+        )
+
+        for task in done:
+            step_id = task_lookup.pop(task)
+            running.pop(step_id, None)
+            try:
+                result = await task
+            except asyncio.CancelledError:
+                if plan.status(step_id) is not PlanStepStatus.CANCELLED:
+                    plan.mark_cancelled(step_id, "Cancelled due to upstream failure")
+                _emit_plan_event(
+                    "skill_plan_step_cancelled",
+                    step_id=step_id,
+                )
+                continue
+            except SkillExecutionError as exc:
+                cancelled = plan.mark_failed(step_id, str(exc))
+                _emit_plan_event(
+                    "skill_plan_step_failed",
+                    step_id=step_id,
+                    extra={"error": str(exc)},
+                )
+                for cancelled_step, reason in cancelled:
+                    _emit_plan_event(
+                        "skill_plan_step_cancelled",
+                        step_id=cancelled_step,
+                        extra={"cancellation_reason": reason},
+                    )
+                for other_task in list(running.values()):
+                    other_task.cancel()
+                pending_failure = exc
+                break
+            else:
+                plan.mark_succeeded(step_id)
+                step = plan.steps[step_id]
+                results[step.tool_name] = result
+                context.state.setdefault("tool_results", {})[step.tool_name] = result
+                _emit_plan_event(
+                    "skill_plan_step_succeeded",
+                    step_id=step_id,
+                    extra={"result": result},
+                )
+
+        if pending_failure is not None:
+            break
+
+    if running:
+        await asyncio.gather(*running.values(), return_exceptions=True)
+
+    if pending_failure is not None:
+        raise pending_failure
 
     total_elapsed_ms = (time.monotonic() - start_time) * 1000.0
     _publish_event(
