@@ -82,7 +82,7 @@
     {
         "name": "execute_python",
         "version": "1.0.0",
-        "side_effects": "write",
+        "side_effects": "compute",
         "safety_level": "high",
         "requires_consent": true,
         "requires_flags": {
@@ -97,19 +97,30 @@
         "persona_allowlist": [
             "CodeGenius"
         ],
-        "default_timeout": 45,
+        "default_timeout": 5,
         "auth": {
             "required": false
         },
         "allow_parallel": false,
         "idempotency_key": false,
-        "description": "Execute Python code and return the result",
+        "description": "Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement.",
+        "capabilities": [
+            "code_execution",
+            "analysis"
+        ],
         "parameters": {
             "type": "object",
             "properties": {
                 "command": {
                     "type": "string",
                     "description": "The Python code to execute"
+                },
+                "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 30,
+                    "default": 5,
+                    "description": "Optional timeout override in seconds."
                 }
             },
             "required": [
