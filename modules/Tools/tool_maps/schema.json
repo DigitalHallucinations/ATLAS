@@ -63,7 +63,12 @@
         "type": "string",
         "enum": [
           "none",
-          "write"
+          "write",
+          "network",
+          "read_external_service",
+          "filesystem",
+          "compute",
+          "system"
         ]
       },
       "default_timeout": {

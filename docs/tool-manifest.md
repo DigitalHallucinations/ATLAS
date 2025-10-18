@@ -22,7 +22,7 @@ following fields:
 | Field | Type | Description |
 | --- | --- | --- |
 | `version` | string | Human readable semantic version for the tool. |
-| `side_effects` | string | Either `"none"` or `"write"`, signalling whether a tool mutates external state. |
+| `side_effects` | string | One of `"none"`, `"write"`, `"network"`, `"read_external_service"`, `"filesystem"`, `"compute"`, or `"system"`, signalling the type of external interaction the tool performs. |
 | `default_timeout` | integer | Preferred execution timeout in seconds for the tool. |
 | `auth` | object | Authentication requirements, e.g. `{ "required": true, "type": "api_key", "env": "GOOGLE_API_KEY" }`. |
 | `allow_parallel` | boolean | Indicates whether the tool is safe to invoke in parallel with itself. |
