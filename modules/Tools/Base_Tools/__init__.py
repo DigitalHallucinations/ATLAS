@@ -57,6 +57,20 @@ from .kv_store import (
     kv_set,
     register_kv_store_adapter,
 )
+from .task_queue import (
+    TaskQueueError,
+    JobNotFoundError,
+    DuplicateTaskError,
+    RetryPolicy,
+    TaskEvent,
+    TaskQueueService,
+    build_task_queue_service,
+    get_default_task_queue_service,
+    enqueue_task,
+    schedule_cron_task,
+    cancel_task,
+    get_task_status,
+)
 from .structured_parser import (
     StructuredParser,
     StructuredParserDependencyError,
@@ -125,4 +139,16 @@ __all__ = [
     "kv_set",
     "kv_delete",
     "kv_increment",
+    "TaskQueueError",
+    "JobNotFoundError",
+    "DuplicateTaskError",
+    "RetryPolicy",
+    "TaskEvent",
+    "TaskQueueService",
+    "build_task_queue_service",
+    "get_default_task_queue_service",
+    "enqueue_task",
+    "schedule_cron_task",
+    "cancel_task",
+    "get_task_status",
 ]
