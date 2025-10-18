@@ -454,6 +454,8 @@ def test_load_persona_definition_adds_calendar_write_flag(
 
     personal_assistant = persona.get("type", {}).get("personal_assistant", {})
     assert personal_assistant.get("calendar_write_enabled") == "False"
+    assert personal_assistant.get("terminal_read_enabled") == "False"
+    assert personal_assistant.get("terminal_write_enabled") == "False"
 
 
 def test_persona_state_surfaces_calendar_write_flag() -> None:
@@ -482,6 +484,8 @@ def test_persona_state_surfaces_calendar_write_flag() -> None:
                 'enabled': 'True',
                 'access_to_calendar': 'True',
                 'calendar_write_enabled': 'True',
+                'terminal_read_enabled': 'True',
+                'terminal_write_enabled': 'True',
             }
         },
     }
@@ -490,11 +494,14 @@ def test_persona_state_surfaces_calendar_write_flag() -> None:
     personal_assistant = state['flags']['type']['personal_assistant']
     assert personal_assistant['calendar_write_enabled'] is True
     assert personal_assistant['access_to_calendar'] is True
+    assert personal_assistant['terminal_read_enabled'] is True
+    assert personal_assistant['terminal_write_enabled'] is True
 
     persona['type']['personal_assistant']['access_to_calendar'] = 'False'
     state = manager._build_editor_state(persona)
     personal_assistant = state['flags']['type']['personal_assistant']
     assert personal_assistant['calendar_write_enabled'] is False
+    assert personal_assistant['terminal_write_enabled'] is True
 
 
 def test_build_tool_state_notes_missing_calendar_write_flag() -> None:
@@ -542,3 +549,43 @@ def test_build_tool_state_notes_missing_calendar_write_flag() -> None:
         "type.personal_assistant.calendar_write_enabled",
     ]
     assert "calendar_write_enabled" in entry["disabled_reason"]
+
+
+def test_build_tool_state_blocks_terminal_without_read_flag() -> None:
+    persona = {
+        "name": "Atlas",
+        "allowed_tools": ["terminal_command"],
+        "type": {
+            "personal_assistant": {
+                "terminal_read_enabled": "False",
+                "terminal_write_enabled": "False",
+            }
+        },
+    }
+
+    order = ["terminal_command"]
+    lookup = {
+        "terminal_command": {
+            "name": "terminal_command",
+            "requires_flags": {
+                "read": ["type.personal_assistant.terminal_read_enabled"],
+                "write": [
+                    "type.personal_assistant.terminal_read_enabled",
+                    "type.personal_assistant.terminal_write_enabled",
+                ],
+            },
+        }
+    }
+
+    tool_state = build_tool_state(
+        persona,
+        metadata_order=order,
+        metadata_lookup=lookup,
+    )
+
+    entry = tool_state["available"][0]
+    assert entry["disabled"] is True
+    assert entry["metadata"]["denied_operations"]["read"] == [
+        "type.personal_assistant.terminal_read_enabled",
+    ]
+    assert "terminal_read_enabled" in entry["disabled_reason"]

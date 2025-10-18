@@ -182,7 +182,12 @@ class PersonaManager:
         type_state: Dict[str, Dict[str, Any]] = {}
         keys = set(self.PERSONA_TYPE_KEYS) | set(persona_type_raw.keys())
         bool_extras = {
-            'personal_assistant': {'access_to_calendar', 'calendar_write_enabled'},
+            'personal_assistant': {
+                'access_to_calendar',
+                'calendar_write_enabled',
+                'terminal_read_enabled',
+                'terminal_write_enabled',
+            },
             'tech_support': {'access_to_logs'},
         }
 
@@ -201,6 +206,12 @@ class PersonaManager:
                 access_enabled = extras.get('access_to_calendar', False)
                 extras.setdefault('access_to_calendar', bool(access_enabled))
                 extras['calendar_write_enabled'] = bool(extras.get('calendar_write_enabled', False)) and bool(extras['access_to_calendar'])
+                terminal_read = extras.get('terminal_read_enabled', False)
+                extras.setdefault('terminal_read_enabled', bool(terminal_read))
+                extras['terminal_write_enabled'] = (
+                    bool(extras.get('terminal_write_enabled', False))
+                    and bool(extras['terminal_read_enabled'])
+                )
             type_state[key] = {'enabled': self._as_bool(entry.get('enabled')), **extras}
 
         state = {

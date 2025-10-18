@@ -93,6 +93,18 @@ def _normalize_signing_key(signing_key: str) -> bytes:
     return key
 
 
+def _coerce_flag_bool(value: Any) -> bool:
+    """Interpret persona flag values serialized as strings or booleans."""
+
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "on", "enabled"}:
+            return True
+        if lowered in {"false", "0", "no", "off", "disabled", ""}:
+            return False
+    return bool(value)
+
+
 def _sign_payload(payload: Mapping[str, Any], *, signing_key: str) -> str:
     key = _normalize_signing_key(signing_key)
     digest = hmac.new(key, _canonical_json_bytes(payload), hashlib.sha256).digest()
@@ -669,6 +681,25 @@ def load_persona_definition(
                     personal_assistant["calendar_write_enabled"] = False
                 else:
                     personal_assistant["calendar_write_enabled"] = False
+            calendar_template = personal_assistant.get("calendar_write_enabled")
+            default_false = "False" if isinstance(calendar_template, str) else False
+            read_value = personal_assistant.get("terminal_read_enabled")
+            read_enabled = _coerce_flag_bool(read_value)
+            if read_value is None:
+                personal_assistant["terminal_read_enabled"] = default_false
+            elif isinstance(read_value, str):
+                personal_assistant["terminal_read_enabled"] = "True" if read_enabled else "False"
+            else:
+                personal_assistant["terminal_read_enabled"] = read_enabled
+
+            write_value = personal_assistant.get("terminal_write_enabled")
+            write_enabled = _coerce_flag_bool(write_value) and read_enabled
+            if write_value is None:
+                personal_assistant["terminal_write_enabled"] = default_false
+            elif isinstance(write_value, str):
+                personal_assistant["terminal_write_enabled"] = "True" if write_enabled else "False"
+            else:
+                personal_assistant["terminal_write_enabled"] = write_enabled
             persona_type["personal_assistant"] = personal_assistant
         persona_entry["type"] = persona_type
     persona_entry["allowed_tools"] = normalize_allowed_tools(
@@ -925,6 +956,8 @@ def build_tool_state(
             requires_flags, persona
         )
         summary_reason = _format_denied_operations_summary(name, denied_operations)
+        if denied_operations.get("read") or denied_operations.get("execute"):
+            disabled = True
         if denied_operations:
             merged["denied_operations"] = {
                 op: list(flags) for op, flags in denied_operations.items()

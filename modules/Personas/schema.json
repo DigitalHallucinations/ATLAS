@@ -72,6 +72,20 @@
                                         {"type": "boolean"},
                                         {"type": "string", "enum": ["True", "False", "true", "false", ""]}
                                     ]
+                                },
+                                "terminal_read_enabled": {
+                                    "description": "Permit the persona to execute read-only terminal commands inside the sandbox.",
+                                    "anyOf": [
+                                        {"type": "boolean"},
+                                        {"type": "string", "enum": ["True", "False", "true", "false", ""]}
+                                    ]
+                                },
+                                "terminal_write_enabled": {
+                                    "description": "Allow the persona to run terminal commands that can modify the filesystem or environment.",
+                                    "anyOf": [
+                                        {"type": "boolean"},
+                                        {"type": "string", "enum": ["True", "False", "true", "false", ""]}
+                                    ]
                                 }
                             }
                         }

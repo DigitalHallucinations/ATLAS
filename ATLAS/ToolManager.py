@@ -1007,6 +1007,19 @@ def _evaluate_tool_policy(
             denied_operations=denied_operations,
         )
 
+    if requested_operation is None:
+        for blocking_op in ("read", "execute"):
+            if blocking_op in missing_flags:
+                reason = _format_operation_flag_reason(
+                    function_name, blocking_op, missing_flags[blocking_op]
+                )
+                return ToolPolicyDecision(
+                    allowed=False,
+                    reason=reason,
+                    metadata=_freeze_metadata(metadata_dict),
+                    denied_operations=denied_operations,
+                )
+
     safety_level = str(metadata_dict.get("safety_level") or "standard").lower()
     requires_consent = bool(metadata_dict.get("requires_consent"))
     if safety_level == "high":
@@ -2092,7 +2105,7 @@ def load_functions_from_json(
             )
 
             validator = _get_tool_manifest_validator(config_manager=config_manager)
-            if validator is not None:
+            if validator is not None and hasattr(validator, "validate"):
                 try:
                     validator.validate(functions)
                 except ValidationError as exc:

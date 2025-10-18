@@ -567,8 +567,12 @@
         "safety_level": "high",
         "requires_consent": true,
         "requires_flags": {
-            "execute": [
-                "type.developer.terminal_access"
+            "read": [
+                "type.personal_assistant.terminal_read_enabled"
+            ],
+            "write": [
+                "type.personal_assistant.terminal_read_enabled",
+                "type.personal_assistant.terminal_write_enabled"
             ]
         },
         "cost_per_call": 0.0,

@@ -102,8 +102,52 @@ def _ensure_jsonschema(monkeypatch):
     monkeypatch.setitem(sys.modules, "jsonschema", jsonschema_stub)
 
 
+def _ensure_aiohttp(monkeypatch):
+    existing = sys.modules.get("aiohttp")
+
+    class _DummyResponse:
+        status = 200
+
+        async def json(self):  # pragma: no cover - helper stub
+            return {}
+
+        async def __aenter__(self):  # pragma: no cover - helper stub
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):  # pragma: no cover - helper stub
+            return False
+
+    class _DummyClientSession:
+        async def __aenter__(self):  # pragma: no cover - helper stub
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):  # pragma: no cover - helper stub
+            return False
+
+        async def get(self, *_args, **_kwargs):  # pragma: no cover - helper stub
+            return _DummyResponse()
+
+    class _DummyClientTimeout:
+        def __init__(self, *args, **kwargs):  # pragma: no cover - helper stub
+            self.total = kwargs.get("total")
+
+    if existing is not None:
+        if not hasattr(existing, "ClientSession"):
+            existing.ClientSession = _DummyClientSession
+        if not hasattr(existing, "ClientTimeout"):
+            existing.ClientTimeout = _DummyClientTimeout
+        return
+
+    aiohttp_stub = types.ModuleType("aiohttp")
+
+    aiohttp_stub.ClientSession = _DummyClientSession
+    aiohttp_stub.ClientTimeout = _DummyClientTimeout
+    monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_stub)
+
+
 def _ensure_yaml(monkeypatch):
     _ensure_jsonschema(monkeypatch)
+    _ensure_aiohttp(monkeypatch)
     if "yaml" in sys.modules:
         return
 
@@ -246,7 +290,11 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
     assert terminal_metadata["safety_level"] == "high"
     assert terminal_metadata["requires_consent"] is True
     assert terminal_metadata["requires_flags"] == {
-        "execute": ["type.developer.terminal_access"]
+        "read": ["type.personal_assistant.terminal_read_enabled"],
+        "write": [
+            "type.personal_assistant.terminal_read_enabled",
+            "type.personal_assistant.terminal_write_enabled",
+        ],
     }
 
 
@@ -326,7 +374,11 @@ def test_shared_terminal_command_manifest_entry(monkeypatch):
         assert terminal_entry["safety_level"] == "high"
         assert terminal_entry["requires_consent"] is True
         assert terminal_entry["requires_flags"] == {
-            "execute": ["type.developer.terminal_access"]
+            "read": ["type.personal_assistant.terminal_read_enabled"],
+            "write": [
+                "type.personal_assistant.terminal_read_enabled",
+                "type.personal_assistant.terminal_write_enabled",
+            ],
         }
         assert terminal_entry["parameters"]["required"] == ["command"]
     finally:
@@ -495,6 +547,257 @@ def test_evaluate_tool_policy_allows_calendar_write_with_flag(monkeypatch):
     assert decision.allowed is True
     assert dict(decision.denied_operations) == {}
     assert not decision.reason
+
+
+def test_evaluate_tool_policy_blocks_terminal_without_read_flag(monkeypatch):
+    _ensure_jsonschema(monkeypatch)
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    geocode_stub = types.ModuleType("modules.Tools.location_services.geocode")
+    geocode_stub.geocode_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.geocode", geocode_stub
+    )
+    ip_api_stub = types.ModuleType("modules.Tools.location_services.ip_api")
+    ip_api_stub.get_current_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.ip_api", ip_api_stub
+    )
+
+    class _DummyResponse:
+        status = 200
+
+        async def json(self):
+            return {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _DummyClientSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return _DummyResponse()
+
+    aiohttp_stub = types.ModuleType("aiohttp")
+    aiohttp_stub.ClientSession = _DummyClientSession
+    aiohttp_stub.ClientTimeout = lambda *args, **kwargs: types.SimpleNamespace(
+        total=kwargs.get("total")
+    )
+    monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_stub)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    metadata = {
+        "requires_flags": {
+            "read": ["type.personal_assistant.terminal_read_enabled"],
+            "write": [
+                "type.personal_assistant.terminal_read_enabled",
+                "type.personal_assistant.terminal_write_enabled",
+            ],
+        }
+    }
+    persona = {
+        "name": "Atlas",
+        "type": {
+            "personal_assistant": {
+                "terminal_read_enabled": "False",
+                "terminal_write_enabled": "False",
+            }
+        },
+    }
+
+    decision = tool_manager._evaluate_tool_policy(
+        function_name="terminal_command",
+        metadata=metadata,
+        current_persona=persona,
+        conversation_manager=None,
+        conversation_id=None,
+    )
+
+    assert decision.allowed is False
+    assert "terminal_read_enabled" in (decision.reason or "")
+    assert decision.denied_operations["read"] == (
+        "type.personal_assistant.terminal_read_enabled",
+    )
+
+
+def test_evaluate_tool_policy_allows_terminal_read_only(monkeypatch):
+    _ensure_jsonschema(monkeypatch)
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    geocode_stub = types.ModuleType("modules.Tools.location_services.geocode")
+    geocode_stub.geocode_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.geocode", geocode_stub
+    )
+    ip_api_stub = types.ModuleType("modules.Tools.location_services.ip_api")
+    ip_api_stub.get_current_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.ip_api", ip_api_stub
+    )
+
+    class _DummyResponse:
+        status = 200
+
+        async def json(self):
+            return {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _DummyClientSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return _DummyResponse()
+
+    aiohttp_stub = types.ModuleType("aiohttp")
+    aiohttp_stub.ClientSession = _DummyClientSession
+    aiohttp_stub.ClientTimeout = lambda *args, **kwargs: types.SimpleNamespace(
+        total=kwargs.get("total")
+    )
+    monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_stub)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    metadata = {
+        "requires_flags": {
+            "read": ["type.personal_assistant.terminal_read_enabled"],
+            "write": [
+                "type.personal_assistant.terminal_read_enabled",
+                "type.personal_assistant.terminal_write_enabled",
+            ],
+        }
+    }
+    persona = {
+        "name": "Atlas",
+        "type": {
+            "personal_assistant": {
+                "terminal_read_enabled": "True",
+                "terminal_write_enabled": "False",
+            }
+        },
+    }
+
+    decision = tool_manager._evaluate_tool_policy(
+        function_name="terminal_command",
+        metadata=metadata,
+        current_persona=persona,
+        conversation_manager=None,
+        conversation_id=None,
+    )
+
+    assert decision.allowed is True
+    assert decision.denied_operations["write"] == (
+        "type.personal_assistant.terminal_write_enabled",
+    )
+    assert "terminal_write_enabled" in (decision.reason or "")
+
+
+def test_compute_snapshot_disables_terminal_without_read(monkeypatch):
+    _ensure_jsonschema(monkeypatch)
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    geocode_stub = types.ModuleType("modules.Tools.location_services.geocode")
+    geocode_stub.geocode_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.geocode", geocode_stub
+    )
+    ip_api_stub = types.ModuleType("modules.Tools.location_services.ip_api")
+    ip_api_stub.get_current_location = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.location_services.ip_api", ip_api_stub
+    )
+
+    class _DummyResponse:
+        status = 200
+
+        async def json(self):
+            return {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _DummyClientSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return _DummyResponse()
+
+    aiohttp_stub = types.ModuleType("aiohttp")
+    aiohttp_stub.ClientSession = _DummyClientSession
+    aiohttp_stub.ClientTimeout = lambda *args, **kwargs: types.SimpleNamespace(
+        total=kwargs.get("total")
+    )
+    monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_stub)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    function_map = {
+        "terminal_command": {
+            "metadata": {
+                "requires_flags": {
+                    "read": ["type.personal_assistant.terminal_read_enabled"],
+                    "write": [
+                        "type.personal_assistant.terminal_read_enabled",
+                        "type.personal_assistant.terminal_write_enabled",
+                    ],
+                }
+            }
+        }
+    }
+    persona = {
+        "name": "Atlas",
+        "type": {
+            "personal_assistant": {
+                "terminal_read_enabled": "False",
+                "terminal_write_enabled": "False",
+            }
+        },
+    }
+
+    snapshot = tool_manager.compute_tool_policy_snapshot(
+        function_map,
+        current_persona=persona,
+    )
+
+    decision = snapshot["terminal_command"]
+    assert decision.allowed is False
+    assert decision.denied_operations["read"] == (
+        "type.personal_assistant.terminal_read_enabled",
+    )
+    assert "terminal_read_enabled" in (decision.reason or "")
 
 def test_tool_manager_import_without_credentials(monkeypatch):
     """Importing ToolManager should not require configuration credentials."""

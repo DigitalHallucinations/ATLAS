@@ -85,6 +85,15 @@
         "side_effects": "write",
         "safety_level": "high",
         "requires_consent": true,
+        "requires_flags": {
+            "read": [
+                "type.personal_assistant.terminal_read_enabled"
+            ],
+            "write": [
+                "type.personal_assistant.terminal_read_enabled",
+                "type.personal_assistant.terminal_write_enabled"
+            ]
+        },
         "persona_allowlist": [
             "WebDev"
         ],
