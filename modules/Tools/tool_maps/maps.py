@@ -13,6 +13,7 @@ from modules.Tools.Base_Tools.debian12_calendar import (
     Debian12CalendarTool,
     debian12_calendar,
 )
+from modules.Tools.Base_Tools.filesystem_io import read_file, write_file, list_dir
 from modules.Tools.Code_Execution import PythonInterpreter
 from modules.Tools.Medical_Tools import search_pmc, search_pubmed
 
@@ -47,4 +48,7 @@ function_map = {
     "geocode_location": geocode_location,
     "get_current_location": get_current_location,
     "debian12_calendar": _debian12_calendar_dispatch,
+    "filesystem_read": read_file,
+    "filesystem_write": write_file,
+    "filesystem_list": list_dir,
 }

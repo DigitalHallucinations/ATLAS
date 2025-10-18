@@ -32,6 +32,15 @@ from .webpage_fetch import (
     WebpageFetcher,
     fetch_webpage,
 )
+from .filesystem_io import (
+    FilesystemError,
+    FilesystemTimeoutError,
+    QuotaExceededError,
+    SandboxViolationError,
+    list_dir,
+    read_file,
+    write_file,
+)
 
 __all__ = [
     "TerminalCommand",
@@ -65,4 +74,11 @@ __all__ = [
     "ContentTooLargeError",
     "FetchTimeoutError",
     "fetch_webpage",
+    "FilesystemError",
+    "FilesystemTimeoutError",
+    "QuotaExceededError",
+    "SandboxViolationError",
+    "read_file",
+    "write_file",
+    "list_dir",
 ]
