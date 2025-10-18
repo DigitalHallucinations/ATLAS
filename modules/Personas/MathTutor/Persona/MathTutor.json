@@ -41,7 +41,9 @@
                     "enabled": "False"
                 },
                 "personal_assistant": {
-                    "enabled": "False"
+                    "enabled": "False",
+                    "terminal_read_enabled": false,
+                    "terminal_write_enabled": false
                 },
                 "therapist": {
                     "enabled": "False"

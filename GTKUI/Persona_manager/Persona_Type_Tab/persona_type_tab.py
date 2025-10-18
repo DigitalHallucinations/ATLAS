@@ -453,6 +453,21 @@ class PersonaTypeTab:
             return
         self._persist_personal_assistant_options()
 
+    def on_personal_assistant_terminal_read_toggled(self, switch, _gparam):
+        read_active = switch.get_active()
+        if hasattr(self, 'personal_assistant_terminal_write_switch'):
+            self.personal_assistant_terminal_write_switch.set_sensitive(read_active)
+            if not read_active and self.personal_assistant_terminal_write_switch.get_active():
+                self._set_switch_active(self.personal_assistant_terminal_write_switch, False)
+        self._persist_personal_assistant_options()
+
+    def on_personal_assistant_terminal_write_toggled(self, switch, _gparam):
+        if not self.personal_assistant_terminal_read_switch.get_active():
+            if switch.get_active():
+                self._set_switch_active(switch, False)
+            return
+        self._persist_personal_assistant_options()
+
     def on_therapist_switch_toggled(self, switch, _gparam):
         self._process_toggle(
             switch,
@@ -554,6 +569,16 @@ class PersonaTypeTab:
         if hasattr(self, 'personal_assistant_calendar_write_switch'):
             self._set_switch_active(self.personal_assistant_calendar_write_switch, write_enabled)
             self.personal_assistant_calendar_write_switch.set_sensitive(read_enabled)
+        terminal_read_enabled = self._bool_from_state(personal_assistant.get('terminal_read_enabled'))
+        if hasattr(self, 'personal_assistant_terminal_read_switch'):
+            self._set_switch_active(self.personal_assistant_terminal_read_switch, terminal_read_enabled)
+        if hasattr(self, 'personal_assistant_terminal_write_switch'):
+            terminal_write_enabled = (
+                self._bool_from_state(personal_assistant.get('terminal_write_enabled'))
+                and terminal_read_enabled
+            )
+            self._set_switch_active(self.personal_assistant_terminal_write_switch, terminal_write_enabled)
+            self.personal_assistant_terminal_write_switch.set_sensitive(terminal_read_enabled)
 
     def _set_combo_active(self, combo: Gtk.ComboBoxText, text: Optional[str]):
         if combo is None or text is None:
@@ -774,6 +799,8 @@ class PersonaTypeTab:
         persona_state = self.persona_type.get('personal_assistant', {})
         read_enabled = self._bool_from_state(persona_state.get('access_to_calendar'))
         write_enabled = self._bool_from_state(persona_state.get('calendar_write_enabled'))
+        terminal_read_enabled = self._bool_from_state(persona_state.get('terminal_read_enabled'))
+        terminal_write_enabled = self._bool_from_state(persona_state.get('terminal_write_enabled'))
 
         self.personal_assistant_calendar_switch = self._switch(
             active=read_enabled,
@@ -796,6 +823,40 @@ class PersonaTypeTab:
             "Calendar Write Access",
             self.personal_assistant_calendar_write_switch,
             "Enable event creation, updates, and deletions when read access is on.",
+        ))
+
+        terminal_warning = Gtk.Label(
+            label=(
+                "Terminal access is high risk. Only enable these toggles if you fully "
+                "trust the persona and understand the sandbox limitations."
+            )
+        )
+        terminal_warning.set_wrap(True)
+        terminal_warning.set_xalign(0.0)
+        terminal_warning.add_css_class('dim-label')
+        box.append(terminal_warning)
+
+        self.personal_assistant_terminal_read_switch = self._switch(
+            active=terminal_read_enabled,
+            tooltip="Allow read-only terminal commands (e.g., listing files, inspecting logs).",
+            on_toggle=self.on_personal_assistant_terminal_read_toggled,
+        )
+        box.append(self._row(
+            "Terminal Read Access",
+            self.personal_assistant_terminal_read_switch,
+            "Permit commands that observe the environment without mutating it.",
+        ))
+
+        self.personal_assistant_terminal_write_switch = self._switch(
+            active=terminal_write_enabled and terminal_read_enabled,
+            tooltip="Allow commands that can modify files or system state.",
+            on_toggle=self.on_personal_assistant_terminal_write_toggled,
+        )
+        self.personal_assistant_terminal_write_switch.set_sensitive(terminal_read_enabled)
+        box.append(self._row(
+            "Terminal Write Access",
+            self.personal_assistant_terminal_write_switch,
+            "Enable mutating commands once read access is granted.",
         ))
 
         return box
@@ -955,7 +1016,19 @@ class PersonaTypeTab:
             write = self._bool_from_state(persona_state.get('calendar_write_enabled'))
         if not access:
             write = False
+        if hasattr(self, 'personal_assistant_terminal_read_switch'):
+            terminal_read = self.personal_assistant_terminal_read_switch.get_active()
+        else:
+            terminal_read = self._bool_from_state(persona_state.get('terminal_read_enabled'))
+        if hasattr(self, 'personal_assistant_terminal_write_switch'):
+            terminal_write = self.personal_assistant_terminal_write_switch.get_active()
+        else:
+            terminal_write = self._bool_from_state(persona_state.get('terminal_write_enabled'))
+        if not terminal_read:
+            terminal_write = False
         return {
             'access_to_calendar': bool(access),
             'calendar_write_enabled': bool(write),
+            'terminal_read_enabled': bool(terminal_read),
+            'terminal_write_enabled': bool(terminal_write),
         }

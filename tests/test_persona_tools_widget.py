@@ -358,6 +358,8 @@ def test_personal_assistant_calendar_write_toggle_updates_state():
                     'enabled': True,
                     'access_to_calendar': True,
                     'calendar_write_enabled': False,
+                    'terminal_read_enabled': False,
+                    'terminal_write_enabled': False,
                 }
             },
         }
@@ -381,6 +383,8 @@ def test_personal_assistant_calendar_write_toggle_updates_state():
             if extras:
                 entry['access_to_calendar'] = extras.get('access_to_calendar', False)
                 entry['calendar_write_enabled'] = extras.get('calendar_write_enabled', False)
+                entry['terminal_read_enabled'] = extras.get('terminal_read_enabled', False)
+                entry['terminal_write_enabled'] = extras.get('terminal_write_enabled', False)
             return True
 
     general_stub = _GeneralPersonaStub(persona_state)
@@ -388,6 +392,8 @@ def test_personal_assistant_calendar_write_toggle_updates_state():
 
     assert tab.personal_assistant_calendar_switch.get_active() is True
     assert tab.personal_assistant_calendar_write_switch.get_active() is False
+    assert tab.personal_assistant_terminal_read_switch.get_active() is False
+    assert tab.personal_assistant_terminal_write_switch.get_active() is False
 
     tab.personal_assistant_calendar_write_switch.set_active(True)
     tab.on_personal_assistant_calendar_write_toggled(tab.personal_assistant_calendar_write_switch, None)
@@ -403,3 +409,29 @@ def test_personal_assistant_calendar_write_toggle_updates_state():
     assert latest_extras['access_to_calendar'] is False
     assert latest_extras['calendar_write_enabled'] is False
     assert tab.personal_assistant_calendar_write_switch.get_active() is False
+    assert latest_extras['terminal_read_enabled'] is False
+    assert latest_extras['terminal_write_enabled'] is False
+
+    tab.personal_assistant_terminal_read_switch.set_active(True)
+    tab.on_personal_assistant_terminal_read_toggled(tab.personal_assistant_terminal_read_switch, None)
+
+    latest_extras = general_stub.calls[-1][1]
+    assert latest_extras['terminal_read_enabled'] is True
+    assert latest_extras['terminal_write_enabled'] is False
+    assert getattr(tab.personal_assistant_terminal_write_switch, '_sensitive', None) is True
+
+    tab.personal_assistant_terminal_write_switch.set_active(True)
+    tab.on_personal_assistant_terminal_write_toggled(tab.personal_assistant_terminal_write_switch, None)
+
+    latest_extras = general_stub.calls[-1][1]
+    assert latest_extras['terminal_write_enabled'] is True
+    assert persona_state['flags']['type']['personal_assistant']['terminal_write_enabled'] is True
+
+    tab.personal_assistant_terminal_read_switch.set_active(False)
+    tab.on_personal_assistant_terminal_read_toggled(tab.personal_assistant_terminal_read_switch, None)
+
+    latest_extras = general_stub.calls[-1][1]
+    assert latest_extras['terminal_read_enabled'] is False
+    assert latest_extras['terminal_write_enabled'] is False
+    assert tab.personal_assistant_terminal_write_switch.get_active() is False
+    assert getattr(tab.personal_assistant_terminal_write_switch, '_sensitive', None) is False

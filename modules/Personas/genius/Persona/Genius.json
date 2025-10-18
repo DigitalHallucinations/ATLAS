@@ -58,7 +58,9 @@
                     "time_zone": "",
                     "communication_style": "",
                     "access_to_calendar": "",
-                    "calendar_write_enabled": "False"
+                    "calendar_write_enabled": "False",
+                    "terminal_read_enabled": "False",
+                    "terminal_write_enabled": "False"
                 },
                 "therapist": {
                     "enabled": "True",
