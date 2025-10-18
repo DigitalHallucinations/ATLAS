@@ -35,7 +35,6 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
-      <tr><td>execute_javascript</td><td>1.0.0</td><td>javascript_exec, code_execution</td><td>high</td><td>No</td><td>Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files.</td></tr>
       <tr><td>execute_python</td><td>1.0.0</td><td>code_execution, analysis</td><td>high</td><td>No</td><td>Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
@@ -70,8 +69,8 @@
     <tbody>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
-      <tr><td>search_pmc</td><td>1.0.0</td><td>—</td><td>high</td><td>No</td><td>Searches PMC for a specific article using its PMCID, and downloads the article package to the Workspace directory.</td></tr>
-      <tr><td>search_pubmed</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Searches PubMed for articles related to the given query.</td></tr>
+      <tr><td>search_pmc</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY)</td><td>Search PubMed Central (PMC) for open access articles using the Entrez API.</td></tr>
+      <tr><td>search_pubmed</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY)</td><td>Search PubMed for biomedical literature using the NCBI Entrez API.</td></tr>
     </tbody>
   </table>
   <h2>Persona: Nikola Tesla</h2>
@@ -100,17 +99,36 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>browser_lite</td><td>1.0.0</td><td>browser_automation</td><td>high</td><td>No</td><td>Navigate a limited number of allowlisted pages with robots.txt enforcement, throttling, and optional screenshots.</td></tr>
+      <tr><td>calculator</td><td>1.0.0</td><td>calculator</td><td>low</td><td>No</td><td>Evaluate sanitized mathematical expressions with Decimal precision and optional unit conversions.</td></tr>
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
       <tr><td>debian12_calendar</td><td>1.1.0</td><td>calendar_read, calendar_write</td><td>—</td><td>No</td><td>Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events.</td></tr>
+      <tr><td>delete_namespace</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Remove all stored embeddings associated with the specified namespace.</td></tr>
       <tr><td>execute_javascript</td><td>1.0.0</td><td>javascript_exec, code_execution</td><td>high</td><td>No</td><td>Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files.</td></tr>
       <tr><td>execute_python</td><td>1.0.0</td><td>code_execution, analysis</td><td>high</td><td>No</td><td>Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement.</td></tr>
+      <tr><td>filesystem_list</td><td>1.0.0</td><td>—</td><td>low</td><td>No</td><td>List directory contents within the sandbox, returning metadata for each entry.</td></tr>
+      <tr><td>filesystem_read</td><td>1.0.0</td><td>—</td><td>medium</td><td>No</td><td>Read a file from the sandboxed filesystem, returning MIME metadata and optionally truncated contents.</td></tr>
+      <tr><td>filesystem_write</td><td>1.0.0</td><td>—</td><td>high</td><td>No</td><td>Write or overwrite a file within the sandboxed filesystem while enforcing byte and total storage quotas.</td></tr>
       <tr><td>geocode_location</td><td>1.0.0</td><td>geolocation, mapping</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Look up latitude and longitude coordinates for a user-specified location string using OpenWeather&#x27;s geocoding API.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>get_current_location</td><td>1.0.0</td><td>geolocation, context_awareness</td><td>—</td><td>No</td><td>Retrieve the caller&#x27;s approximate location using the IP-API geolocation service.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>kv_delete</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Remove a key from the namespaced state store if present.</td></tr>
+      <tr><td>kv_get</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Retrieve a JSON-serializable value from the namespaced state store, honoring key TTL.</td></tr>
+      <tr><td>kv_increment</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Atomically increment an integer counter within the namespaced state store, creating it when missing.</td></tr>
+      <tr><td>kv_set</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Persist a JSON-serializable value within the namespaced state store with optional TTL enforcement.</td></tr>
       <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
       <tr><td>priority_queue</td><td>1.0.0</td><td>task_management, status_reporting</td><td>—</td><td>No</td><td>Score and sort operational tasks to produce a prioritized execution list.</td></tr>
+      <tr><td>query_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Return the most similar vectors for the supplied query embedding from the configured namespace.</td></tr>
+      <tr><td>search_pmc</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY, type: api_key)</td><td>Search PubMed Central for open access biomedical literature and return PMC IDs.</td></tr>
+      <tr><td>search_pubmed</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY, type: api_key)</td><td>Search PubMed for biomedical literature and return a list of PubMed IDs.</td></tr>
+      <tr><td>structured_parse</td><td>1.0.0</td><td>document_parsing, ocr</td><td>low</td><td>No</td><td>Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents.</td></tr>
+      <tr><td>task_queue_cancel</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Cancel a queued or scheduled task.</td></tr>
+      <tr><td>task_queue_enqueue</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Enqueue a one-off task into the durable task queue with optional execution delay.</td></tr>
+      <tr><td>task_queue_schedule</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Register or replace a cron-style recurring task in the durable queue.</td></tr>
+      <tr><td>task_queue_status</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Retrieve the current state and retry metadata for a queued task.</td></tr>
       <tr><td>terminal_command</td><td>1.0.0</td><td>terminal_execution, system_inspection</td><td>high</td><td>No</td><td>Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status.</td></tr>
+      <tr><td>upsert_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Insert or update vector embeddings within the configured namespace of the active vector store backend.</td></tr>
       <tr><td>webpage_fetch</td><td>1.0.0</td><td>web_content, web_research, document_ingestion</td><td>—</td><td>No</td><td>Download an allowlisted webpage, strip scripts and ads, and return clean text with the resolved title and URL.</td></tr>
     </tbody>
   </table>

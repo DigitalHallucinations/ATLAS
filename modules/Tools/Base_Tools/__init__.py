@@ -1,6 +1,25 @@
 """Base tools package initializer."""
 
 from .Google_search import GoogleSearch
+from .browser_lite import (
+    BrowserLite,
+    BrowserLiteError,
+    DomainNotAllowlistedError,
+    FormSubmissionNotAllowedError,
+    NavigationFailedError,
+    NavigationLimitError,
+    PersonaPolicyViolationError,
+    RobotsBlockedError,
+)
+from .calculator import (
+    Calculator,
+    CalculatorError,
+    CalculatorResult,
+    EvaluationError,
+    ExpressionSyntaxError,
+    ExpressionValidationError,
+    UnitConversionError,
+)
 from .context_tracker import context_tracker, ConversationSnapshot
 from .debian12_calendar import (
     CalendarBackend,
@@ -86,6 +105,21 @@ __all__ = [
     "CommandNotAllowedError",
     "WorkingDirectoryViolationError",
     "TerminalCommandTimeoutError",
+    "BrowserLite",
+    "BrowserLiteError",
+    "DomainNotAllowlistedError",
+    "RobotsBlockedError",
+    "NavigationLimitError",
+    "FormSubmissionNotAllowedError",
+    "PersonaPolicyViolationError",
+    "NavigationFailedError",
+    "Calculator",
+    "CalculatorError",
+    "CalculatorResult",
+    "ExpressionSyntaxError",
+    "ExpressionValidationError",
+    "UnitConversionError",
+    "EvaluationError",
     "GoogleSearch",
     "PolicyReference",
     "PolicyRecord",
