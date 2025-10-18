@@ -84,6 +84,130 @@ if "requests" not in sys.modules:
     sys.modules["requests.exceptions"] = exceptions_module
     sys.modules["requests.adapters"] = adapters_module
 
+if "jsonschema" not in sys.modules:
+    jsonschema_module = types.ModuleType("jsonschema")
+
+    class _DummyValidator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def validate(self, *args, **kwargs):
+            return None
+
+        def iter_errors(self, *args, **kwargs):  # pragma: no cover - stub
+            return []
+
+    class _DummyValidationError(Exception):
+        def __init__(self, message: str = "", path=None):
+            super().__init__(message)
+            self.message = message
+            self.absolute_path = list(path or [])
+
+    jsonschema_module.Draft7Validator = _DummyValidator
+    jsonschema_module.Draft202012Validator = _DummyValidator
+    jsonschema_module.ValidationError = _DummyValidationError
+    jsonschema_module.exceptions = types.SimpleNamespace(ValidationError=_DummyValidationError)
+    sys.modules["jsonschema"] = jsonschema_module
+
+if "pytz" not in sys.modules:
+    sys.modules["pytz"] = types.SimpleNamespace(timezone=lambda *_args, **_kwargs: None, utc=None)
+
+if "aiohttp" not in sys.modules:
+    aiohttp_module = types.ModuleType("aiohttp")
+
+    class _DummySession:
+        async def __aenter__(self):  # pragma: no cover - stub
+            return self
+
+        async def __aexit__(self, *exc_info):  # pragma: no cover - stub
+            return False
+
+        async def get(self, *args, **kwargs):  # pragma: no cover - stub
+            raise RuntimeError("aiohttp stub is not implemented")
+
+    aiohttp_module.ClientSession = _DummySession
+    sys.modules["aiohttp"] = aiohttp_module
+
+if "apscheduler" not in sys.modules:
+    apscheduler_module = types.ModuleType("apscheduler")
+    events_module = types.ModuleType("apscheduler.events")
+
+    events_module.EVENT_JOB_ERROR = 1
+    events_module.EVENT_JOB_EXECUTED = 2
+    events_module.EVENT_JOB_MISSED = 3
+
+    class JobEvent:  # pragma: no cover - stub container
+        def __init__(self, *args, **kwargs):
+            self.job_id = kwargs.get("job_id")
+
+    events_module.JobEvent = JobEvent
+
+    sys.modules["apscheduler"] = apscheduler_module
+    sys.modules["apscheduler.events"] = events_module
+    executors_module = types.ModuleType("apscheduler.executors")
+    pool_module = types.ModuleType("apscheduler.executors.pool")
+
+    class ThreadPoolExecutor:  # pragma: no cover - stub
+        def __init__(self, *args, **kwargs):
+            pass
+
+    pool_module.ThreadPoolExecutor = ThreadPoolExecutor
+
+    sys.modules["apscheduler.executors"] = executors_module
+    sys.modules["apscheduler.executors.pool"] = pool_module
+    jobstores_module = types.ModuleType("apscheduler.jobstores.base")
+
+    class _StubJobstoreError(Exception):
+        pass
+
+    class ConflictingIdError(_StubJobstoreError):
+        pass
+
+    class JobLookupError(_StubJobstoreError):
+        pass
+
+    jobstores_module.ConflictingIdError = ConflictingIdError
+    jobstores_module.JobLookupError = JobLookupError
+
+    sys.modules["apscheduler.jobstores.base"] = jobstores_module
+    sql_module = types.ModuleType("apscheduler.jobstores.sqlalchemy")
+
+    class SQLAlchemyJobStore:  # pragma: no cover - stub
+        def __init__(self, *args, **kwargs):
+            pass
+
+    sql_module.SQLAlchemyJobStore = SQLAlchemyJobStore
+    sys.modules["apscheduler.jobstores.sqlalchemy"] = sql_module
+    schedulers_module = types.ModuleType("apscheduler.schedulers")
+    background_module = types.ModuleType("apscheduler.schedulers.background")
+
+    class BackgroundScheduler:  # pragma: no cover - stub
+        def __init__(self, *args, **kwargs):
+            pass
+
+    background_module.BackgroundScheduler = BackgroundScheduler
+
+    sys.modules["apscheduler.schedulers"] = schedulers_module
+    sys.modules["apscheduler.schedulers.background"] = background_module
+    triggers_module = types.ModuleType("apscheduler.triggers")
+    cron_module = types.ModuleType("apscheduler.triggers.cron")
+    date_module = types.ModuleType("apscheduler.triggers.date")
+
+    class CronTrigger:  # pragma: no cover - stub
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class DateTrigger:  # pragma: no cover - stub
+        def __init__(self, *args, **kwargs):
+            pass
+
+    cron_module.CronTrigger = CronTrigger
+    date_module.DateTrigger = DateTrigger
+
+    sys.modules["apscheduler.triggers"] = triggers_module
+    sys.modules["apscheduler.triggers.cron"] = cron_module
+    sys.modules["apscheduler.triggers.date"] = date_module
+
 if "huggingface_hub" not in sys.modules:
     hf_module = types.ModuleType("huggingface_hub")
 

@@ -28,6 +28,7 @@ from jsonschema import Draft7Validator, ValidationError
 from modules.analytics.persona_metrics import record_persona_tool_event
 from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system, publish_bus_event
+from modules.orchestration.capability_registry import get_capability_registry
 from modules.orchestration.message_bus import MessagePriority
 from modules.Tools.providers.router import ToolProviderRouter
 
@@ -69,7 +70,7 @@ class ToolManifestValidationError(RuntimeError):
         self.errors = errors or {}
 
 _function_map_cache: Dict[str, Tuple[float, Optional[Tuple[str, ...]], Dict[str, Any]]] = {}
-_function_payload_cache: Dict[str, Tuple[float, Optional[Tuple[str, ...]], Any]] = {}
+_function_payload_cache: Dict[str, Tuple[int, Optional[Tuple[str, ...]], Any]] = {}
 _function_payload_cache_lock = threading.Lock()
 _default_function_map_cache: Optional[Tuple[float, Dict[str, Any]]] = None
 _default_function_map_lock = threading.Lock()
@@ -93,6 +94,9 @@ _KNOWN_METADATA_FIELDS = (
     "cost_unit",
     "providers",
     "requires_flags",
+    "persona",
+    "source",
+    "auth_scopes",
 )
 
 _TOOL_ACTIVITY_EVENT = "tool_activity"
@@ -143,62 +147,35 @@ class ToolPolicyDecision:
 def _load_default_functions_payload(*, refresh: bool = False, config_manager=None):
     """Load the shared functions.json payload for default tools."""
 
-    try:
-        app_root = _get_config_manager(config_manager).get_app_root()
-    except Exception as exc:
-        logger.error(
-            "Unable to determine application root when loading shared functions: %s",
-            exc,
-        )
-        return None
-
-    functions_path = os.path.join(
-        app_root, "modules", "Tools", "tool_maps", "functions.json"
-    )
-
     cache_key = _DEFAULT_FUNCTIONS_CACHE_KEY
-
-    try:
-        file_mtime = os.path.getmtime(functions_path)
-    except FileNotFoundError:
-        logger.error("Default functions.json not found at path: %s", functions_path)
-        with _function_payload_cache_lock:
-            _function_payload_cache.pop(cache_key, None)
-        return None
-
     if refresh:
         with _function_payload_cache_lock:
             _function_payload_cache.pop(cache_key, None)
 
+    registry = get_capability_registry(config_manager=config_manager)
+    if refresh:
+        registry.refresh(force=True)
+    else:
+        registry.refresh_if_stale()
+
+    revision = registry.revision
+
     with _function_payload_cache_lock:
         cache_entry = _function_payload_cache.get(cache_key)
         if cache_entry and not refresh:
-            cached_mtime, cached_payload = cache_entry
-            if cached_mtime == file_mtime:
+            cached_revision, _cached_signature, cached_payload = cache_entry
+            if cached_revision == revision:
                 return cached_payload
 
-        try:
-            with open(functions_path, "r") as file:
-                payload = json.load(file)
-        except json.JSONDecodeError as exc:
-            logger.error(
-                "JSON decoding error in shared functions.json: %s",
-                exc,
-                exc_info=True,
-            )
+    payload = registry.get_tool_manifest_payload(persona=None)
+    if payload is None:
+        with _function_payload_cache_lock:
             _function_payload_cache.pop(cache_key, None)
-            return None
-        except Exception as exc:  # pragma: no cover - unexpected I/O errors
-            logger.error(
-                "Unexpected error loading shared functions.json: %s",
-                exc,
-                exc_info=True,
-            )
-            _function_payload_cache.pop(cache_key, None)
-            return None
+        return None
 
-        _function_payload_cache[cache_key] = (file_mtime, payload)
-        return payload
+    with _function_payload_cache_lock:
+        _function_payload_cache[cache_key] = (revision, None, payload)
+    return payload
 
 
 def _get_tool_manifest_validator(config_manager=None):
@@ -1377,30 +1354,46 @@ async def _run_with_timeout(awaitable, timeout: Optional[float]):
                 task.result()
 
 
-def _build_metadata_lookup(functions_payload: Any) -> Dict[str, Mapping[str, Any]]:
+def _build_metadata_lookup(
+    functions_payload: Any,
+    *,
+    persona: Optional[str] = None,
+    config_manager=None,
+) -> Dict[str, Mapping[str, Any]]:
     """Create a lookup map of tool metadata keyed by function name."""
 
-    lookup: Dict[str, Mapping[str, Any]] = {}
-
-    if isinstance(functions_payload, list):
-        entries = functions_payload
-    elif isinstance(functions_payload, dict):
+    if isinstance(functions_payload, Mapping):
         entries = functions_payload.values()
+    elif isinstance(functions_payload, Iterable):
+        entries = functions_payload
     else:
-        return lookup
+        return {}
 
+    names: List[str] = []
     for entry in entries:
-        if not isinstance(entry, dict):
+        if not isinstance(entry, Mapping):
             continue
         name = entry.get("name")
-        if not name:
-            continue
-        metadata: Dict[str, Any] = {}
-        for field in _KNOWN_METADATA_FIELDS:
-            if field in entry:
-                metadata[field] = copy.deepcopy(entry[field])
-        lookup[name] = _freeze_metadata(metadata)
+        if isinstance(name, str) and name:
+            names.append(name)
 
+    if not names:
+        return {}
+
+    registry = get_capability_registry(config_manager=config_manager)
+    metadata_lookup = registry.get_tool_metadata_lookup(persona=persona, names=names)
+
+    lookup: Dict[str, Mapping[str, Any]] = {}
+    for name in names:
+        metadata = metadata_lookup.get(name)
+        if metadata is None:
+            lookup[name] = MappingProxyType({})
+            continue
+        payload: Dict[str, Any] = {}
+        for field in _KNOWN_METADATA_FIELDS:
+            if field in metadata:
+                payload[field] = metadata[field]
+        lookup[name] = _freeze_metadata(payload)
     return lookup
 
 
@@ -1435,6 +1428,22 @@ def _annotate_function_map(
                 provider_specs=providers,
                 fallback_callable=func,
             )
+            persona_owner = metadata.get("persona") if isinstance(metadata, Mapping) else None
+            registry = get_capability_registry()
+
+            def _publish_provider_metrics(summary, *, _persona=persona_owner, _tool=name, _registry=registry):
+                try:
+                    _registry.record_provider_metrics(
+                        persona=_persona,
+                        tool_name=_tool,
+                        summary=summary,
+                    )
+                except Exception:  # pragma: no cover - defensive guard
+                    logger.debug(
+                        "Failed to record provider metrics for tool '%s'", _tool, exc_info=True
+                    )
+
+            router.register_metrics_callback(_publish_provider_metrics)
             entry["callable"] = router.call
             entry["provider_router"] = router
         else:
@@ -1870,7 +1879,9 @@ def load_default_function_map(*, refresh: bool = False, config_manager=None):
                     metadata_lookup = _build_metadata_lookup(
                         _load_default_functions_payload(
                             refresh=refresh, config_manager=config_manager
-                        )
+                        ),
+                        persona=None,
+                        config_manager=config_manager,
                     )
                     return _annotate_function_map(
                         cached_map, metadata_lookup=metadata_lookup
@@ -1909,7 +1920,9 @@ def load_default_function_map(*, refresh: bool = False, config_manager=None):
                 metadata_lookup = _build_metadata_lookup(
                     _load_default_functions_payload(
                         refresh=refresh, config_manager=config_manager
-                    )
+                    ),
+                    persona=None,
+                    config_manager=config_manager,
                 )
                 return _annotate_function_map(
                     function_map, metadata_lookup=metadata_lookup
@@ -1978,7 +1991,9 @@ def load_function_map_from_current_persona(
                         current_persona,
                         refresh=refresh,
                         config_manager=config_manager,
-                    )
+                    ),
+                    persona=persona_name,
+                    config_manager=config_manager,
                 )
                 return _annotate_function_map(
                     cached_map,
@@ -2036,7 +2051,9 @@ def load_function_map_from_current_persona(
                     current_persona,
                     refresh=refresh,
                     config_manager=config_manager,
-                )
+                ),
+                persona=persona_name,
+                config_manager=config_manager,
             )
             return _annotate_function_map(
                 filtered_map,
@@ -2075,60 +2092,42 @@ def load_functions_from_json(
     persona_name = current_persona["name"]
     allowed_names = _extract_allowed_tools(current_persona)
     allowed_signature = tuple(allowed_names) if allowed_names is not None else None
+    registry = get_capability_registry(config_manager=config_manager)
+    if refresh:
+        registry.refresh(force=True)
+    else:
+        registry.refresh_if_stale()
+
+    revision = registry.revision
+
+    with _function_payload_cache_lock:
+        if not refresh:
+            cache_entry = _function_payload_cache.get(persona_name)
+            if cache_entry:
+                cached_revision, cached_signature, cached_functions = cache_entry
+                if cached_revision == revision and cached_signature == allowed_signature:
+                    logger.info(
+                        "Returning cached functions for persona '%s' (revision %s).",
+                        persona_name,
+                        cached_revision,
+                    )
+                    return cached_functions
+
     try:
-        app_root = _get_config_manager(config_manager).get_app_root()
-    except Exception as exc:
-        logger.error(
-            "Unable to determine application root when loading persona '%s': %s",
-            persona_name,
-            exc,
-        )
-        return None
-
-    toolbox_root = os.path.join(app_root, "modules", "Personas", persona_name, "Toolbox")
-    functions_json_path = os.path.join(toolbox_root, "functions.json")
-
-    try:
-        try:
-            file_mtime = os.path.getmtime(functions_json_path)
-        except FileNotFoundError:
-            file_mtime = None
-
-        cache_key_mtime = file_mtime if file_mtime is not None else -1.0
-
-        with _function_payload_cache_lock:
-            if not refresh:
-                cache_entry = _function_payload_cache.get(persona_name)
-                if cache_entry:
-                    cached_mtime, cached_signature, cached_functions = cache_entry
-                    if cached_mtime == cache_key_mtime and cached_signature == allowed_signature:
-                        logger.info(
-                            "Returning cached functions for persona '%s' (mtime %s).",
-                            persona_name,
-                            cached_mtime,
-                        )
-                        return cached_functions
-
-        functions = None
-        if file_mtime is not None:
-            with open(functions_json_path, 'r', encoding='utf-8') as file:
-                functions = json.load(file)
-
-            logger.info(
-                "Functions successfully loaded from JSON for persona '%s': %s",
-                persona_name,
-                functions,
-            )
-
+        if registry.persona_has_tool_manifest(persona_name):
             validator = _get_tool_manifest_validator(config_manager=config_manager)
             if validator is not None and hasattr(validator, "validate"):
                 try:
-                    validator.validate(functions)
+                    manifest_payload = registry.get_tool_manifest_payload(
+                        persona=persona_name,
+                        allowed_names=None,
+                    ) or []
+                    validator.validate(manifest_payload)
                 except ValidationError as exc:
                     error_details = {
-                        'persona': persona_name,
-                        'path': list(exc.absolute_path),
-                        'message': exc.message,
+                        "persona": persona_name,
+                        "path": list(exc.absolute_path),
+                        "message": exc.message,
                     }
                     logger.error(
                         "Tool manifest validation error for persona '%s': %s",
@@ -2143,34 +2142,28 @@ def load_functions_from_json(
                         errors=error_details,
                     ) from exc
 
-        selected = _select_allowed_functions(
-            functions,
-            allowed_names,
-            config_manager=config_manager,
-            refresh=refresh,
-        )
+        selected = registry.get_tool_manifest_payload(
+            persona=persona_name,
+            allowed_names=allowed_names,
+        ) or []
 
         with _function_payload_cache_lock:
             _function_payload_cache[persona_name] = (
-                cache_key_mtime,
+                revision,
                 allowed_signature,
                 selected,
             )
 
         return selected
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decoding error in functions.json for persona '{persona_name}': {e}", exc_info=True)
-        with _function_payload_cache_lock:
-            _function_payload_cache.pop(persona_name, None)
     except ToolManifestValidationError:
         raise
-    except FileNotFoundError:
-        logger.error(f"functions.json file not found for persona '{persona_name}' at path: {functions_json_path}")
-        with _function_payload_cache_lock:
-            _function_payload_cache.pop(persona_name, None)
-        return _select_allowed_functions(None, allowed_names, config_manager=config_manager, refresh=refresh)
-    except Exception as e:
-        logger.error(f"Unexpected error loading functions for persona '{persona_name}': {e}", exc_info=True)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error(
+            "Unexpected error loading functions for persona '%s': %s",
+            persona_name,
+            exc,
+            exc_info=True,
+        )
         with _function_payload_cache_lock:
             _function_payload_cache.pop(persona_name, None)
     return None
@@ -2229,6 +2222,7 @@ async def use_tool(
 
     tool_streaming_enabled = bool(stream)
     persona_name = _extract_persona_name(current_persona)
+    capability_registry = get_capability_registry(config_manager=config_manager)
 
     def _record_persona_metric(
         tool_name: Optional[str],
@@ -2237,6 +2231,23 @@ async def use_tool(
         latency_ms: Optional[float] = None,
         timestamp: Optional[datetime] = None,
     ) -> None:
+        metric_timestamp: Optional[float] = None
+        if isinstance(timestamp, datetime):
+            metric_timestamp = timestamp.timestamp()
+        if tool_name:
+            try:
+                capability_registry.record_tool_execution(
+                    persona=persona_name,
+                    tool_name=tool_name,
+                    success=success,
+                    latency_ms=latency_ms,
+                    timestamp=metric_timestamp,
+                )
+            except Exception:  # pragma: no cover - defensive guard
+                logger.debug(
+                    "Failed to record capability metrics for tool '%s'", tool_name, exc_info=True
+                )
+
         if not persona_name or not tool_name:
             return
         try:

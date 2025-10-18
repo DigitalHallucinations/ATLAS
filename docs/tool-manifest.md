@@ -11,7 +11,11 @@ manifests. Query parameters can scope the result set; for example,
 marked as shared are now always included in persona-scoped queries so that
 callers see the complete toolbox a persona can access. To omit shared tools from
 persona-filtered results, add `-shared` to the persona filter
-(`persona=Atlas&persona=-shared`).
+(`persona=Atlas&persona=-shared`). Additional filters allow callers to narrow the
+result set by provider name (`provider=openai`), semantic version constraints
+(`version=>=1.2`), and observed reliability (`min_success_rate=0.8`). Every tool
+response now includes normalized capability tags, declared authentication scopes,
+and a rolling health summary derived from recent executions.
 
 ## Manifest keys
 
@@ -98,3 +102,15 @@ regressions will be caught in CI.
 
 The callable can still be executed directly, while the immutable `metadata`
 mapping provides the manifest hints described above.
+
+## Capability registry
+
+Tool and skill metadata is cached by the `CapabilityRegistry`, which ingests the
+shared manifests and persona overrides and exposes the merged view to
+`ToolManager`, `SkillManager`, and the `/tools` and `/skills` APIs. The registry
+automatically detects manifest changes, so registering a new tool only requires
+adding it to the appropriate manifest file. Health metrics—success rate, latency
+averages, and provider backoff state—are continuously recorded by
+`ToolManager` and surfaced through the registry. If you need to eagerly reload
+metadata after editing a manifest, call
+`CapabilityRegistry.refresh(force=True)` or restart the service.
