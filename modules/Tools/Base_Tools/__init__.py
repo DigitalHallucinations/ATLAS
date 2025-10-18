@@ -41,6 +41,14 @@ from .filesystem_io import (
     read_file,
     write_file,
 )
+from .structured_parser import (
+    StructuredParser,
+    StructuredParserDependencyError,
+    StructuredParserError,
+    DocumentTooLargeError,
+    UnsupportedFormatError,
+    InvalidInputError,
+)
 
 __all__ = [
     "TerminalCommand",
@@ -81,4 +89,10 @@ __all__ = [
     "read_file",
     "write_file",
     "list_dir",
+    "StructuredParser",
+    "StructuredParserError",
+    "StructuredParserDependencyError",
+    "DocumentTooLargeError",
+    "UnsupportedFormatError",
+    "InvalidInputError",
 ]
