@@ -5,6 +5,7 @@
 # Task scheduling
 APScheduler>=3.10.4
 SQLAlchemy>=1.4,<3
+tzlocal>=5.0
 
 # =====================================
 # GUI
