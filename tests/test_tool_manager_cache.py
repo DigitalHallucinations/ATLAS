@@ -4,7 +4,6 @@ import os
 import shutil
 import sys
 import uuid
-import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -43,6 +42,51 @@ def _manifest_entry(name, description='d', **overrides):
     }
     entry.update(overrides)
     return entry
+
+
+class _StubCapabilityRegistry:
+    def __init__(self, payload):
+        self.payload = payload
+        self.revision = 1
+        self.manifest_calls = []
+        self.refresh_calls = 0
+
+    def refresh_if_stale(self):
+        self.refresh_calls += 1
+
+    def refresh(self, *, force: bool = False) -> None:
+        self.refresh_calls += 1
+
+    def get_tool_manifest_payload(self, *, persona, allowed_names=None):
+        signature = None if allowed_names is None else tuple(allowed_names)
+        self.manifest_calls.append((persona, signature))
+        if allowed_names is None:
+            return [json.loads(json.dumps(entry)) for entry in self.payload]
+        if not allowed_names:
+            return []
+        selected = []
+        for name in allowed_names:
+            for entry in self.payload:
+                if entry["name"] == name:
+                    selected.append(json.loads(json.dumps(entry)))
+                    break
+        return selected
+
+    def persona_has_tool_manifest(self, persona):
+        return persona is not None
+
+    def get_tool_metadata_lookup(self, *, persona, names=None):
+        return {name: {} for name in (names or [])}
+
+
+def _install_registry_stub(monkeypatch, payload):
+    stub = _StubCapabilityRegistry(payload)
+
+    def _resolver(*, config_manager=None):
+        return stub
+
+    monkeypatch.setattr(tool_manager, "get_capability_registry", _resolver)
+    return stub
 
 
 @pytest.fixture
@@ -86,16 +130,9 @@ def test_load_functions_from_json_uses_cached_payload(monkeypatch, _persona_work
     tool_manager._function_payload_cache.clear()
     tool_manager._function_map_cache.clear()
 
-    load_calls = []
-    original_json_load = tool_manager.json.load
     functions_path = _persona_workspace["functions_path"].resolve()
-
-    def _counting_json_load(file_obj, *args, **kwargs):
-        if getattr(file_obj, "name", None) == os.fspath(functions_path):
-            load_calls.append(1)
-        return original_json_load(file_obj, *args, **kwargs)
-
-    monkeypatch.setattr(tool_manager.json, "load", _counting_json_load)
+    payload = json.loads(functions_path.read_text())
+    registry = _install_registry_stub(monkeypatch, payload)
 
     persona = _persona_workspace["persona"]
 
@@ -103,24 +140,17 @@ def test_load_functions_from_json_uses_cached_payload(monkeypatch, _persona_work
     second = tool_manager.load_functions_from_json(persona)
 
     assert first == second
-    assert len(load_calls) == 1
+    # Two manifest lookups occur during the first call (validation + selection).
+    assert len(registry.manifest_calls) == 2
 
 
 def test_concurrent_loads_share_cached_payload(monkeypatch, _persona_workspace):
     tool_manager._function_payload_cache.clear()
     tool_manager._function_map_cache.clear()
 
-    load_calls = []
-    original_json_load = tool_manager.json.load
     functions_path = _persona_workspace["functions_path"].resolve()
-
-    def _counting_json_load(file_obj, *args, **kwargs):
-        if getattr(file_obj, "name", None) == os.fspath(functions_path):
-            load_calls.append(1)
-        time.sleep(0.05)
-        return original_json_load(file_obj, *args, **kwargs)
-
-    monkeypatch.setattr(tool_manager.json, "load", _counting_json_load)
+    payload = json.loads(functions_path.read_text())
+    registry = _install_registry_stub(monkeypatch, payload)
 
     persona = _persona_workspace["persona"]
 
@@ -131,7 +161,7 @@ def test_concurrent_loads_share_cached_payload(monkeypatch, _persona_workspace):
         ]
         results = [future.result() for future in futures]
 
-    assert len(load_calls) == 1
+    assert len(registry.manifest_calls) == 2
     first_result = results[0]
     for result in results:
         assert result == first_result
@@ -141,37 +171,32 @@ def test_load_functions_reloads_when_timestamp_changes(monkeypatch, _persona_wor
     tool_manager._function_payload_cache.clear()
     tool_manager._function_map_cache.clear()
 
-    load_calls = []
-    original_json_load = tool_manager.json.load
-
-    def _counting_json_load(file_obj, *args, **kwargs):
-        load_calls.append(1)
-        return original_json_load(file_obj, *args, **kwargs)
-
-    monkeypatch.setattr(tool_manager.json, "load", _counting_json_load)
-
     persona = _persona_workspace["persona"]
     functions_path = _persona_workspace["functions_path"]
+    payload = json.loads(functions_path.read_text())
+    registry = _install_registry_stub(monkeypatch, payload)
 
     first = tool_manager.load_functions_from_json(persona)
 
     updated_payload = [_manifest_entry("updated", description="changed")]
     functions_path.write_text(json.dumps(updated_payload))
-    new_time = os.path.getmtime(functions_path) + 1
-    os.utime(functions_path, (new_time, new_time))
+    registry.payload = updated_payload
+    registry.revision += 1
 
     second = tool_manager.load_functions_from_json(persona)
 
-    assert len(load_calls) == 2
     assert second == updated_payload
     assert first != second
 
 
-def test_refresh_clears_function_payload_cache(_persona_workspace):
+def test_refresh_clears_function_payload_cache(monkeypatch, _persona_workspace):
     tool_manager._function_payload_cache.clear()
     tool_manager._function_map_cache.clear()
 
     persona = _persona_workspace["persona"]
+
+    payload = json.loads(_persona_workspace["functions_path"].read_text())
+    registry = _install_registry_stub(monkeypatch, payload)
 
     tool_manager.load_functions_from_json(persona)
     cached_before = tool_manager._function_payload_cache.get(persona["name"])
@@ -206,6 +231,9 @@ def test_loader_reuses_cached_config_manager(monkeypatch, _persona_workspace):
             return os.fspath(Path.cwd())
 
     monkeypatch.setattr(tool_manager, "ConfigManager", _TrackingConfig)
+
+    payload = json.loads(_persona_workspace["functions_path"].read_text())
+    _install_registry_stub(monkeypatch, payload)
 
     tool_manager.load_functions_from_json(persona)
     tool_manager.load_functions_from_json(persona)

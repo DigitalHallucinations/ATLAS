@@ -22,8 +22,6 @@ from modules.Personas import (
     import_persona_bundle_bytes,
     _validate_persona_payload,
 )
-from modules.Tools.manifest_loader import ToolManifestEntry, load_manifest_entries
-from modules.Skills.manifest_loader import SkillMetadata, load_skill_metadata
 from modules.analytics.persona_metrics import get_persona_metrics
 from modules.logging.audit import (
     get_persona_audit_logger,
@@ -33,6 +31,11 @@ from modules.logging.audit import (
 )
 from modules.logging.logger import setup_logger
 from modules.orchestration.blackboard import get_blackboard, stream_blackboard
+from modules.orchestration.capability_registry import (
+    ToolCapabilityView,
+    SkillCapabilityView,
+    get_capability_registry,
+)
 from modules.persona_review import REVIEW_INTERVAL_DAYS, compute_review_status
 
 logger = setup_logger(__name__)
@@ -83,17 +86,36 @@ class AtlasServer:
         capability: Optional[Any] = None,
         safety_level: Optional[Any] = None,
         persona: Optional[Any] = None,
+        provider: Optional[Any] = None,
+        version: Optional[Any] = None,
+        min_success_rate: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Return merged tool metadata, optionally filtered."""
 
-        entries = load_manifest_entries()
-        filtered = _filter_entries(
-            entries,
-            capability_tokens=_normalize_filters(capability),
-            safety_tokens=_normalize_filters(safety_level),
-            persona_tokens=_normalize_filters(persona),
-        )
+        registry = get_capability_registry(config_manager=self._config_manager)
+        capability_tokens = _normalize_filters(capability)
+        persona_tokens = _normalize_filters(persona)
+        provider_tokens = _normalize_filters(provider)
+        safety_tokens = _normalize_filters(safety_level)
+        version_constraint = None
+        if version is not None:
+            version_text = str(version).strip()
+            version_constraint = version_text or None
+        success_threshold = _parse_success_rate(min_success_rate)
 
+        views = registry.query_tools(
+            persona_filters=persona_tokens,
+            capability_filters=capability_tokens,
+            provider_filters=provider_tokens,
+            version_constraint=version_constraint,
+            min_success_rate=success_threshold,
+        )
+        filtered = _filter_entries(
+            views,
+            capability_tokens=capability_tokens,
+            safety_tokens=safety_tokens,
+            persona_tokens=persona_tokens,
+        )
         return {
             "count": len(filtered),
             "tools": [_serialize_entry(entry) for entry in filtered],
@@ -160,14 +182,9 @@ class AtlasServer:
     ) -> Dict[str, Any]:
         """Return serialized skill metadata using the manifest loader."""
 
-        entries = load_skill_metadata(config_manager=self._config_manager)
+        registry = get_capability_registry(config_manager=self._config_manager)
         persona_tokens = _normalize_filters(persona)
-        if persona_tokens:
-            entries = [
-                entry
-                for entry in entries
-                if _persona_matches(entry, persona_tokens)
-            ]
+        entries = registry.query_skills(persona_filters=persona_tokens)
 
         return {
             "count": len(entries),
@@ -752,36 +769,38 @@ class AtlasServer:
 
 
 def _filter_entries(
-    entries: Iterable[ToolManifestEntry],
+    entries: Iterable[ToolCapabilityView],
     *,
     capability_tokens: List[str],
     safety_tokens: List[str],
     persona_tokens: List[str],
-) -> List[ToolManifestEntry]:
-    filtered: List[ToolManifestEntry] = []
-    for entry in entries:
-        if capability_tokens and not _capabilities_match(entry, capability_tokens):
+) -> List[ToolCapabilityView]:
+    filtered: List[ToolCapabilityView] = []
+    for view in entries:
+        manifest = view.manifest
+        if capability_tokens and not _capabilities_match(manifest, capability_tokens):
             continue
-        if safety_tokens and not _safety_matches(entry, safety_tokens):
+        if safety_tokens and not _safety_matches(manifest, safety_tokens):
             continue
-        if persona_tokens and not _persona_matches(entry, persona_tokens):
+        if persona_tokens and not _persona_matches(manifest, persona_tokens):
             continue
-        filtered.append(entry)
+        filtered.append(view)
     return filtered
 
 
-def _capabilities_match(entry: ToolManifestEntry, tokens: List[str]) -> bool:
-    capabilities = {cap.lower() for cap in entry.capabilities}
+def _capabilities_match(entry: Any, tokens: List[str]) -> bool:
+    capabilities = {cap.lower() for cap in getattr(entry, "capabilities", [])}
     return all(token in capabilities for token in tokens)
 
 
-def _safety_matches(entry: ToolManifestEntry, tokens: List[str]) -> bool:
-    safety = (entry.safety_level or "").lower()
+def _safety_matches(entry: Any, tokens: List[str]) -> bool:
+    safety = str(getattr(entry, "safety_level", "") or "").lower()
     return bool(safety) and safety in tokens
 
 
-def _persona_matches(entry: ToolManifestEntry, tokens: List[str]) -> bool:
-    persona_token = (entry.persona or "shared").lower()
+def _persona_matches(entry: Any, tokens: List[str]) -> bool:
+    persona_value = getattr(entry, "persona", None)
+    persona_token = (persona_value or "shared").lower()
     shared_exclusions = {
         "-shared",
         "!shared",
@@ -822,8 +841,46 @@ def _normalize_filters(values: Optional[Any]) -> List[str]:
     return tokens
 
 
-def _serialize_entry(entry: ToolManifestEntry) -> Dict[str, Any]:
+def _parse_success_rate(raw_value: Optional[Any]) -> Optional[float]:
+    if raw_value is None:
+        return None
+    try:
+        value = float(str(raw_value).strip())
+    except (TypeError, ValueError):
+        return None
+    if value > 1.0:
+        if value <= 100.0:
+            value /= 100.0
+        else:
+            value = 1.0
+    return max(0.0, min(value, 1.0))
+
+
+def _serialize_health(health: Mapping[str, Any]) -> Dict[str, Any]:
+    tool_metrics = health.get("tool") if isinstance(health, Mapping) else None
+    providers = health.get("providers") if isinstance(health, Mapping) else None
+
+    serialized_providers: Dict[str, Any] = {}
+    if isinstance(providers, Mapping):
+        for name, payload in providers.items():
+            if not isinstance(payload, Mapping):
+                continue
+            metrics = payload.get("metrics")
+            router = payload.get("router")
+            serialized_providers[str(name)] = {
+                "metrics": dict(metrics) if isinstance(metrics, Mapping) else {},
+                "router": dict(router) if isinstance(router, Mapping) else {},
+            }
+
     return {
+        "tool": dict(tool_metrics) if isinstance(tool_metrics, Mapping) else {},
+        "providers": serialized_providers,
+    }
+
+
+def _serialize_entry(view: ToolCapabilityView) -> Dict[str, Any]:
+    entry = view.manifest
+    payload = {
         "name": entry.name,
         "persona": entry.persona,
         "description": entry.description,
@@ -842,21 +899,26 @@ def _serialize_entry(entry: ToolManifestEntry) -> Dict[str, Any]:
         "persona_allowlist": entry.persona_allowlist,
         "providers": entry.providers,
         "source": entry.source,
+        "capability_tags": list(view.capability_tags),
+        "auth_scopes": list(view.auth_scopes),
+        "health": _serialize_health(view.health),
     }
+    return payload
 
 
-def _serialize_skill(entry: SkillMetadata) -> Dict[str, Any]:
+def _serialize_skill(view: SkillCapabilityView) -> Dict[str, Any]:
+    entry = view.manifest
     return {
         "name": entry.name,
         "persona": entry.persona,
         "version": entry.version,
         "instruction_prompt": entry.instruction_prompt,
         "required_tools": entry.required_tools,
-        "required_capabilities": entry.required_capabilities,
+        "required_capabilities": list(view.required_capabilities),
         "safety_notes": entry.safety_notes,
         "summary": entry.summary,
         "category": entry.category,
-        "capability_tags": entry.capability_tags,
+        "capability_tags": list(view.capability_tags),
         "source": entry.source,
     }
 

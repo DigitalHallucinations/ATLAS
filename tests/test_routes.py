@@ -29,9 +29,12 @@ if "yaml" not in sys.modules:
         dump=lambda *_args, **_kwargs: None,
     )
 
+from types import MappingProxyType
+
 from modules.Server.routes import AtlasServer
 from modules.Tools.manifest_loader import ToolManifestEntry
 from modules.Skills.manifest_loader import SkillMetadata
+from modules.orchestration.capability_registry import ToolCapabilityView, SkillCapabilityView
 
 
 def _make_entry(name: str, *, persona: Optional[str]) -> ToolManifestEntry:
@@ -56,12 +59,65 @@ def _make_entry(name: str, *, persona: Optional[str]) -> ToolManifestEntry:
     )
 
 
-def _mock_manifest_entries(*entries: ToolManifestEntry) -> List[ToolManifestEntry]:
-    return list(entries)
+def _make_tool_view(entry: ToolManifestEntry) -> ToolCapabilityView:
+    empty_health = MappingProxyType(
+        {
+            "tool": MappingProxyType(
+                {
+                    "total": 0,
+                    "success": 0,
+                    "failure": 0,
+                    "success_rate": 0.0,
+                    "average_latency_ms": None,
+                    "p95_latency_ms": None,
+                    "last_sample_at": None,
+                }
+            ),
+            "providers": MappingProxyType({}),
+        }
+    )
+    return ToolCapabilityView(
+        manifest=entry,
+        capability_tags=tuple(entry.capabilities),
+        auth_scopes=tuple(),
+        health=empty_health,
+    )
 
 
-def _mock_skill_entries(*entries: SkillMetadata) -> List[SkillMetadata]:
-    return list(entries)
+def _make_skill_view(entry: SkillMetadata) -> SkillCapabilityView:
+    return SkillCapabilityView(
+        manifest=entry,
+        capability_tags=tuple(entry.capability_tags),
+        required_capabilities=tuple(entry.required_capabilities),
+    )
+
+
+class _RegistryStub:
+    def __init__(self, tools: List[ToolCapabilityView], skills: List[SkillCapabilityView]):
+        self.tools = tools
+        self.skills = skills
+
+    def query_tools(self, **_filters):
+        return list(self.tools)
+
+    def query_skills(self, **filters):
+        persona_filters = [token.lower() for token in filters.get("persona_filters") or []]
+        if not persona_filters:
+            return list(self.skills)
+
+        exclude_shared = any(token == "-shared" for token in persona_filters)
+        positive = [token for token in persona_filters if not token.startswith("-")]
+
+        results: List[SkillCapabilityView] = []
+        for view in self.skills:
+            persona = view.manifest.persona or "shared"
+            persona_token = persona.lower()
+            if exclude_shared and persona_token == "shared":
+                continue
+            if positive and persona_token not in positive:
+                continue
+            results.append(view)
+        return results
 
 
 def test_get_tools_includes_shared_persona(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,9 +126,13 @@ def test_get_tools_includes_shared_persona(monkeypatch: pytest.MonkeyPatch) -> N
     atlas_entry = _make_entry("atlas_only", persona="Atlas")
     other_entry = _make_entry("other_tool", persona="Other")
 
+    registry = _RegistryStub(
+        [_make_tool_view(shared_entry), _make_tool_view(atlas_entry), _make_tool_view(other_entry)],
+        [],
+    )
     monkeypatch.setattr(
-        "modules.Server.routes.load_manifest_entries",
-        lambda: _mock_manifest_entries(shared_entry, atlas_entry, other_entry),
+        "modules.Server.routes.get_capability_registry",
+        lambda config_manager=None: registry,
     )
 
     response = server.get_tools(persona="Atlas")
@@ -87,9 +147,13 @@ def test_get_tools_can_exclude_shared_persona(monkeypatch: pytest.MonkeyPatch) -
     shared_entry = _make_entry("shared_tool", persona=None)
     atlas_entry = _make_entry("atlas_only", persona="Atlas")
 
+    registry = _RegistryStub(
+        [_make_tool_view(shared_entry), _make_tool_view(atlas_entry)],
+        [],
+    )
     monkeypatch.setattr(
-        "modules.Server.routes.load_manifest_entries",
-        lambda: _mock_manifest_entries(shared_entry, atlas_entry),
+        "modules.Server.routes.get_capability_registry",
+        lambda config_manager=None: registry,
     )
 
     response = server.get_tools(persona=["Atlas", "-shared"])
@@ -128,9 +192,13 @@ def test_get_skills_returns_serialized_entries(monkeypatch: pytest.MonkeyPatch) 
         source="tests",
     )
 
+    registry = _RegistryStub(
+        [_make_tool_view(_make_entry("shared_tool", persona=None))],
+        [_make_skill_view(shared_skill), _make_skill_view(atlas_skill)],
+    )
     monkeypatch.setattr(
-        "modules.Server.routes.load_skill_metadata",
-        lambda config_manager=None: _mock_skill_entries(shared_skill, atlas_skill),
+        "modules.Server.routes.get_capability_registry",
+        lambda config_manager=None: registry,
     )
 
     response = server.get_skills(persona=["Atlas", "-shared"])
