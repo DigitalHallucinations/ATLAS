@@ -55,6 +55,21 @@ def persona_manager(tmp_path, monkeypatch):
 
     _copy_schema(tmp_path)
     _write_tool_metadata(tmp_path, ['alpha_tool', 'beta_tool'])
+    _write_skill_metadata(
+        tmp_path,
+        [
+            {
+                'name': 'analysis_skill',
+                'instruction_prompt': 'Analyze with tool',
+                'required_tools': ['beta_tool'],
+            },
+            {
+                'name': 'shared_skill',
+                'instruction_prompt': 'Optional skill',
+                'required_tools': [],
+            },
+        ],
+    )
 
     class _StubConfigManager:
         def __init__(self):
@@ -115,6 +130,12 @@ def _write_tool_metadata(root: Path, tool_names: list[str]) -> None:
         for name in tool_names
     ]
     manifest.write_text(json.dumps(payload, indent=4), encoding='utf-8')
+
+
+def _write_skill_metadata(root: Path, entries: list[dict]) -> None:
+    manifest = root / 'modules' / 'Skills' / 'skills.json'
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps(entries, indent=4), encoding='utf-8')
 
 
 def _copy_schema(root: Path) -> None:
@@ -207,6 +228,36 @@ def test_set_allowed_tools_validates_against_metadata(persona_manager):
 
     saved = json.loads(persona_path.read_text(encoding='utf-8'))['persona'][0]
     assert saved['allowed_tools'] == ['alpha_tool']
+
+
+def test_set_allowed_skills_rejects_missing_required_tools(persona_manager):
+    manager, personas_dir = persona_manager
+    persona_path = personas_dir / 'ATLAS' / 'Persona' / 'ATLAS.json'
+
+    assert manager.set_allowed_tools('ATLAS', ['alpha_tool'])['success'] is True
+
+    failure = manager.set_allowed_skills('ATLAS', ['analysis_skill'])
+    assert failure['success'] is False
+    error_text = ' '.join(failure.get('errors', []))
+    assert 'analysis_skill' in error_text
+    assert 'beta_tool' in error_text
+    assert 'requires missing tools' in error_text
+
+    saved = json.loads(persona_path.read_text(encoding='utf-8'))['persona'][0]
+    assert saved.get('allowed_skills') in ([], None)
+
+
+def test_set_allowed_skills_accepts_when_required_tools_present(persona_manager):
+    manager, personas_dir = persona_manager
+    persona_path = personas_dir / 'ATLAS' / 'Persona' / 'ATLAS.json'
+
+    assert manager.set_allowed_tools('ATLAS', ['beta_tool'])['success'] is True
+
+    success = manager.set_allowed_skills('ATLAS', ['analysis_skill'])
+    assert success['success'] is True
+
+    saved = json.loads(persona_path.read_text(encoding='utf-8'))['persona'][0]
+    assert saved['allowed_skills'] == ['analysis_skill']
 
 
 def test_set_user_refreshes_profile_for_same_user(persona_manager):

@@ -585,6 +585,7 @@ class AtlasServer:
                 persona_name=persona_name,
                 tool_ids=known_tools,
                 skill_ids=known_skills,
+                skill_catalog=skill_lookup,
                 config_manager=self._config_manager,
             )
         except PersonaValidationError as exc:
@@ -674,6 +675,7 @@ class AtlasServer:
                 persona_name=persona_name,
                 tool_ids=known_tools,
                 skill_ids=known_skills,
+                skill_catalog=skill_lookup,
                 config_manager=self._config_manager,
             )
         except PersonaValidationError as exc:

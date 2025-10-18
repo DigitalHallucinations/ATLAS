@@ -843,6 +843,7 @@ class PersonaManager:
                 persona_name=persona_name,
                 tool_ids=known_tools,
                 skill_ids=known_skills,
+                skill_catalog=skill_lookup,
                 config_manager=self.config_manager,
             )
         except PersonaValidationError as exc:
@@ -893,6 +894,7 @@ class PersonaManager:
                 persona_name=persona_name,
                 tool_ids=known_tools,
                 skill_ids=known_skills,
+                skill_catalog=skill_lookup,
                 config_manager=self.config_manager,
             )
         except PersonaValidationError as exc:

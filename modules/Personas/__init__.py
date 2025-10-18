@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import os
+from collections.abc import Iterable as IterableABC, Mapping as MappingABC
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -240,6 +241,7 @@ def _validate_persona_payload(
     persona_name: str,
     tool_ids: Iterable[str],
     skill_ids: Optional[Iterable[str]] = None,
+    skill_catalog: Optional[Mapping[str, SkillCatalogEntry]] = None,
     config_manager=None,
 ) -> None:
     validator = _build_persona_validator(
@@ -256,14 +258,15 @@ def _validate_persona_payload(
         for name in (skill_ids or [])
         if str(name).strip()
     }
-    if known_tools or known_skills:
+    if known_tools or known_skills or skill_catalog:
         personas = payload.get("persona") if isinstance(payload, Mapping) else None
         if isinstance(personas, list):
             for persona_index, persona_entry in enumerate(personas):
                 if not isinstance(persona_entry, Mapping):
                     continue
+                normalized_tools = normalize_allowed_tools(persona_entry.get("allowed_tools"))
+                allowed_tool_set = {tool for tool in normalized_tools if tool}
                 if known_tools:
-                    normalized_tools = normalize_allowed_tools(persona_entry.get("allowed_tools"))
                     for tool_index, tool_name in enumerate(normalized_tools):
                         if tool_name not in known_tools:
                             manual_errors.append(
@@ -284,6 +287,39 @@ def _validate_persona_payload(
                                     skill=skill_name,
                                 )
                             )
+                        elif skill_catalog:
+                            catalog_entry = skill_catalog.get(skill_name) if isinstance(skill_catalog, Mapping) else None
+                            metadata: Optional[Mapping[str, Any]] = None
+                            if isinstance(catalog_entry, Mapping):
+                                persona_key = str(persona_entry.get("name") or persona_name).strip().lower()
+                                variants = catalog_entry.get("persona_variants")
+                                if isinstance(variants, Mapping) and persona_key:
+                                    variant_metadata = variants.get(persona_key)
+                                    if isinstance(variant_metadata, Mapping):
+                                        metadata = variant_metadata
+                                if metadata is None:
+                                    shared_metadata = catalog_entry.get("shared")
+                                    if isinstance(shared_metadata, Mapping):
+                                        metadata = shared_metadata
+                            if metadata:
+                                raw_required = metadata.get("required_tools")
+                                if isinstance(raw_required, Iterable) and not isinstance(raw_required, (str, bytes, bytearray)):
+                                    missing_tools: List[str] = []
+                                    for tool_name in raw_required:
+                                        normalized_name = str(tool_name).strip()
+                                        if not normalized_name:
+                                            continue
+                                        if normalized_name not in allowed_tool_set and normalized_name not in missing_tools:
+                                            missing_tools.append(normalized_name)
+                                    if missing_tools:
+                                        manual_errors.append(
+                                            "$.persona[{p_index}].allowed_skills[{s_index}]: Skill '{skill}' requires missing tools: {tools}".format(
+                                                p_index=persona_index,
+                                                s_index=skill_index,
+                                                skill=skill_name,
+                                                tools=", ".join(missing_tools),
+                                            )
+                                        )
 
     if not errors and not manual_errors:
         return
@@ -660,6 +696,7 @@ def load_persona_definition(
             persona_name=persona_name,
             tool_ids=tool_ids,
             skill_ids=skill_ids,
+            skill_catalog=skill_lookup_map,
             config_manager=config_manager,
         )
     except PersonaValidationError:
@@ -1335,6 +1372,7 @@ def import_persona_bundle_bytes(
         persona_name=persona_name,
         tool_ids=known_tools,
         skill_ids=known_skills,
+        skill_catalog=skill_lookup,
         config_manager=config_manager,
     )
 

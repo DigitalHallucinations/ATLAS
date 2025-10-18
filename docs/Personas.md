@@ -51,11 +51,15 @@ When you add or modify a persona:
 
 1. Update the JSON definition under `modules/Personas/<Persona Name>/Persona/`.
 2. Ensure any referenced tools exist in `modules/Tools/tool_maps/functions.json` (or add them there).
-3. When updating a persona toolbox (`modules/Personas/<Persona Name>/Toolbox/functions.json`), include the
+3. Confirm that every skill listed in `allowed_skills` has its `required_tools` also present in `allowed_tools`.
+   Validation now fails fast with an error such as `Skill 'ResearchBrief' requires missing tools: google_search`
+   whenever a dependency is omitted. The GTK editor mirrors this by highlighting the affected skills and
+   prompting you to enable the missing tools before retrying the save.
+4. When updating a persona toolbox (`modules/Personas/<Persona Name>/Toolbox/functions.json`), include the
    extended tool metadata required by `modules/Tools/tool_maps/schema.json`. All entries must specify an
    `idempotency_key`, and read-only tools should copy the capability tags, provider list, and cost hints from
    the shared tool manifest so the metadata stays consistent across personas.
-4. Run `pytest tests/test_persona_schema.py` (or the full `pytest` suite) before opening a PR.
+5. Run `pytest tests/test_persona_schema.py` (or the full `pytest` suite) before opening a PR.
 
 ### Skill catalog overrides
 
