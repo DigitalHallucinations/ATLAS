@@ -307,7 +307,7 @@ async def _drain_stream(stream: asyncio.StreamReader | None) -> tuple[str, bool]
 
 async def TerminalCommand(
     *,
-    command: str,
+    command: str | Sequence[object],
     arguments: Sequence[object] | None = None,
     timeout: float | None = None,
     working_directory: str | None = None,
@@ -315,8 +315,21 @@ async def TerminalCommand(
 ) -> Mapping[str, object]:
     """Execute a whitelisted terminal command inside the sandbox."""
 
-    normalized_command = _normalize_command(command)
-    normalized_args = _normalize_arguments(arguments)
+    if isinstance(command, str):
+        normalized_command = _normalize_command(command)
+        command_tokens: tuple[str, ...] = ()
+    elif isinstance(command, Sequence):
+        if not command:
+            raise CommandNotAllowedError("Command list cannot be empty.")
+
+        command_items = list(command)
+        normalized_command = _normalize_command(command_items[0])
+        command_tokens = _normalize_arguments(command_items[1:])
+    else:
+        raise CommandNotAllowedError("Command must be a string or sequence of arguments.")
+
+    explicit_args = _normalize_arguments(arguments)
+    normalized_args = (*command_tokens, *explicit_args)
     resolved_cwd = _enforce_working_directory(working_directory)
     timeout_seconds = _sanitize_timeout(timeout)
     env = _build_environment(environment)

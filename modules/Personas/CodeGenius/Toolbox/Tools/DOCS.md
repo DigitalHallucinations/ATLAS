@@ -25,7 +25,7 @@ To integrate the TerminalCommand tool into an AI agent, follow these steps:
    ```python
    result = await TerminalCommand(command, timeout=60, encoding='utf-8', verbose=False, output_limit=1024*1024, max_retries=3)
    ```
-   - `command`: The terminal command to execute (required).
+   - `command`: The terminal command to execute (required). Provide either a shell-free string or a list where the first item is the command and the remaining items become positional arguments automatically.
    - `timeout`: The maximum time (in seconds) to wait for the command to complete (default: 60).
    - `encoding`: The encoding to use for decoding the command output (default: 'utf-8').
    - `verbose`: Enable verbose logging mode (default: False).

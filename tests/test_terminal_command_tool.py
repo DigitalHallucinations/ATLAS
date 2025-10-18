@@ -194,3 +194,33 @@ def test_terminal_command_event_redaction(terminal_command_module, capture_termi
     assert event["command"][1] == "--password=[REDACTED]"
     assert event["command"][2] == "token=[REDACTED]"
     assert event["stdout"] == "[REDACTED]"
+
+
+def test_terminal_command_sequence_arguments(terminal_command_module):
+    result = asyncio.run(
+        terminal_command_module.TerminalCommand(
+            command=["echo", "repeat", "repeat"],
+            arguments=["repeat"],
+        )
+    )
+
+    # echo collapses whitespace but preserves duplicated tokens
+    assert result["stdout"].strip() == "repeat repeat repeat"
+
+
+def test_terminal_command_sequence_allowlist(terminal_command_module):
+    with pytest.raises(terminal_command_module.CommandNotAllowedError):
+        asyncio.run(
+            terminal_command_module.TerminalCommand(
+                command=["python", "-V"],
+            )
+        )
+
+
+def test_terminal_command_sequence_empty(terminal_command_module):
+    with pytest.raises(terminal_command_module.CommandNotAllowedError):
+        asyncio.run(
+            terminal_command_module.TerminalCommand(
+                command=[],
+            )
+        )
