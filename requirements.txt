@@ -47,6 +47,7 @@ python-dotenv
 
 # HTTP client for API integrations
 requests
+aiohttp
 
 
 # Timezone handling utilities

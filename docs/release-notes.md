@@ -12,4 +12,7 @@
 - User account password policies can now be customised via configuration keys
   for minimum length and character requirements. See `docs/password-policy.md`
   for the full list of options.
+- Core HTTP client dependencies now include `aiohttp`. Make sure local
+  environments install it alongside the other runtime requirements listed in
+  `requirements.txt`.
 
