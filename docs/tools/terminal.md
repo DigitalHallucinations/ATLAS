@@ -71,3 +71,12 @@ When invoked through the tool manager, the metadata above ensures the call is on
 persona has the `type.developer.terminal_access` flag and the user has granted consent. The idempotency
 instructions allow higher-level orchestration layers to safely retry read-only commands without
 replaying stateful operations.
+
+## Log redaction behavior
+
+The tool emits structured audit logs before and after each invocation. Sensitive arguments such as
+`--password=...`, bearer tokens, API keys, and similarly named fields are automatically redacted with
+`[REDACTED]` in both the execution and completion log lines. The raw `stdout`/`stderr` text is also
+sanitized when it contains those markers. Non-sensitive context—including the normalized command name,
+safe arguments, working directory, status, and timing metadata—remains fully visible so operators can
+audit activity without leaking credentials.

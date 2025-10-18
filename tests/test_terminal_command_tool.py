@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest import mock
 import importlib
 import sys
 import types
@@ -194,6 +195,25 @@ def test_terminal_command_event_redaction(terminal_command_module, capture_termi
     assert event["command"][1] == "--password=[REDACTED]"
     assert event["command"][2] == "token=[REDACTED]"
     assert event["stdout"] == "[REDACTED]"
+
+
+def test_terminal_command_logs_are_redacted(terminal_command_module):
+    with mock.patch.object(terminal_command_module.logger, "info") as mock_info:
+        result = asyncio.run(
+            terminal_command_module.TerminalCommand(
+                command="echo",
+                arguments=["--password=super-secret", "token=abc123"],
+            )
+        )
+
+    assert result["exit_code"] == 0
+    log_output = "\n".join(
+        call.args[0] % call.args[1:] if call.args else str(call.kwargs)
+        for call in mock_info.call_args_list
+    )
+    assert "super-secret" not in log_output
+    assert "abc123" not in log_output
+    assert "[REDACTED]" in log_output
 
 
 def test_terminal_command_sequence_arguments(terminal_command_module):

@@ -335,7 +335,9 @@ async def TerminalCommand(
     env = _build_environment(environment)
 
     command_line = (normalized_command, *normalized_args)
-    logger.info("Executing terminal command: %s", " ".join(command_line))
+    redacted_command_tokens = _redact_command_tokens(command_line)
+    sanitized_command = " ".join(redacted_command_tokens)
+    logger.info("Executing terminal command: %s", sanitized_command)
 
     loop = asyncio.get_running_loop()
     start_time = loop.time()
@@ -375,14 +377,19 @@ async def TerminalCommand(
         exit_code = process.returncode
         status = "success" if exit_code == 0 else "error"
 
+    stdout_payload_text = stdout_text if not stdout_truncated else stdout_text[: _MAX_OUTPUT_BYTES]
+    stderr_payload_text = stderr_text if not stderr_truncated else stderr_text[: _MAX_OUTPUT_BYTES]
+    redacted_stdout = _redact_text(stdout_payload_text)
+    redacted_stderr = _redact_text(stderr_payload_text)
+
     event_payload = {
         "tool": "terminal_command",
         "status": status,
-        "command": _redact_command_tokens(command_line),
+        "command": redacted_command_tokens,
         "working_directory": str(resolved_cwd),
         "exit_code": exit_code,
-        "stdout": _redact_text(stdout_text if not stdout_truncated else stdout_text[: _MAX_OUTPUT_BYTES]),
-        "stderr": _redact_text(stderr_text if not stderr_truncated else stderr_text[: _MAX_OUTPUT_BYTES]),
+        "stdout": redacted_stdout,
+        "stderr": redacted_stderr,
         "stdout_truncated": stdout_truncated,
         "stderr_truncated": stderr_truncated,
         "duration_ms": duration_ms,
@@ -408,7 +415,13 @@ async def TerminalCommand(
     )
 
     payload = result.as_dict()
+    exit_repr = exit_code if exit_code is not None else "[timeout]"
     logger.info(
-        "Terminal command completed with exit code %s (duration %.2f ms).", exit_code, duration_ms
+        "Terminal command completed: %s -> exit code %s (duration %.2f ms). stdout=%s stderr=%s",
+        sanitized_command,
+        exit_repr,
+        duration_ms,
+        redacted_stdout,
+        redacted_stderr,
     )
     return payload
