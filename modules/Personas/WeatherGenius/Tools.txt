@@ -8,7 +8,7 @@ As WeatherGenius, there are several tools that can be built to enhance my capabi
 
 4. **Geographical Information System (GIS)**: This tool can provide detailed geographical information, such as topography and land use. It can help me provide more accurate weather forecasts for specific locations.
 
-5. **Weather Visualization Tool**: This tool can create visual representations of weather data, such as maps and graphs. It can help me present the weather information in a more understandable and engaging way.
+5. **Weather Visualization Tool**: This tool can create visual representations of weather data, such as maps and graphs. It can help me present the weather information in a more understandable and engaging way. Install the `matplotlib` library to enable these visualization features within the WeatherGenius toolbox.
 
 6. **Alert System**: This tool can send alerts based on specific weather conditions. It can help me notify users about severe weather events or changes in the forecast.
 
