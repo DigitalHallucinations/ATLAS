@@ -96,3 +96,31 @@ def test_invalid_manifest_raises_structured_error(persona_workspace):
     assert error.get("persona") == persona["name"]
     assert "description" in error.get("message", "")
     assert exc_info.value.persona == persona["name"]
+
+
+@pytest.mark.parametrize(
+    "side_effect",
+    [
+        "none",
+        "write",
+        "network",
+        "read_external_service",
+        "filesystem",
+        "compute",
+        "system",
+    ],
+)
+def test_manifest_accepts_known_side_effect_categories(persona_workspace, side_effect):
+    tool_manager._function_payload_cache.clear()
+
+    persona = persona_workspace["persona"]
+    functions_path = persona_workspace["functions_path"]
+
+    entry = _manifest_entry("valid", side_effects=side_effect)
+    functions_path.write_text(json.dumps([entry]))
+    os.utime(functions_path, None)
+
+    loaded = tool_manager.load_functions_from_json(persona, refresh=True)
+
+    assert isinstance(loaded, list)
+    assert loaded[0]["side_effects"] == side_effect
