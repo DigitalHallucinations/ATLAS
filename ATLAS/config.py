@@ -6,6 +6,13 @@ import os
 import shlex
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional, Tuple
+
+from modules.orchestration.message_bus import (
+    InMemoryQueueBackend,
+    MessageBus,
+    RedisStreamBackend,
+    configure_message_bus,
+)
 from urllib.parse import urlparse
 
 _UNSET = object()
@@ -119,6 +126,19 @@ class ConfigManager:
         # Ensure any persisted OpenAI speech preferences are reflected in the active config
         self._synchronize_openai_speech_block()
 
+        messaging_block = self.config.get('messaging')
+        if not isinstance(messaging_block, Mapping):
+            messaging_block = {}
+        else:
+            messaging_block = dict(messaging_block)
+        backend_name = str(messaging_block.get('backend') or 'in_memory').lower()
+        messaging_block['backend'] = backend_name
+        if backend_name == 'redis':
+            default_url = self.env_config.get('REDIS_URL', 'redis://localhost:6379/0')
+            messaging_block.setdefault('redis_url', default_url)
+            messaging_block.setdefault('stream_prefix', 'atlas_bus')
+        self.config['messaging'] = messaging_block
+
         # Track provider/environment key relationships for faster lookups
         self._provider_env_lookup = {
             env_key: provider
@@ -153,6 +173,8 @@ class ConfigManager:
             )
             self.logger.warning(warning_message)
             self._pending_provider_warnings[default_provider] = warning_message
+
+        self._message_bus: Optional[MessageBus] = None
 
     def _normalize_network_allowlist(self, value):
         """Return a sanitized allowlist for sandboxed tool networking."""
@@ -223,6 +245,40 @@ class ConfigManager:
             merged['max_tokens'] = provider_defaults.get('max_tokens')
 
         return merged
+
+    def get_messaging_settings(self) -> Dict[str, Any]:
+        """Return the configured messaging backend settings."""
+
+        configured = self.config.get('messaging')
+        if isinstance(configured, Mapping):
+            return dict(configured)
+        return {'backend': 'in_memory'}
+
+    def configure_message_bus(self) -> MessageBus:
+        """Instantiate and configure the global message bus."""
+
+        if self._message_bus is not None:
+            return self._message_bus
+
+        settings = self.get_messaging_settings()
+        backend_name = str(settings.get('backend', 'in_memory')).lower()
+        backend: Optional[Any]
+        if backend_name == 'redis':
+            redis_url = settings.get('redis_url')
+            stream_prefix = settings.get('stream_prefix', 'atlas_bus')
+            try:
+                backend = RedisStreamBackend(str(redis_url), stream_prefix=str(stream_prefix))
+            except Exception as exc:  # pragma: no cover - redis optional dependency
+                self.logger.warning(
+                    "Falling back to in-memory message bus backend due to Redis configuration error: %s",
+                    exc,
+                )
+                backend = InMemoryQueueBackend()
+        else:
+            backend = InMemoryQueueBackend()
+
+        self._message_bus = configure_message_bus(backend)
+        return self._message_bus
 
     def _get_provider_env_keys(self) -> Dict[str, str]:
         """Return the mapping between provider display names and environment keys."""

@@ -27,7 +27,8 @@ from jsonschema import Draft7Validator, ValidationError
 
 from modules.analytics.persona_metrics import record_persona_tool_event
 from modules.logging.logger import setup_logger
-from modules.Tools.tool_event_system import event_system
+from modules.Tools.tool_event_system import event_system, publish_bus_event
+from modules.orchestration.message_bus import MessagePriority
 from modules.Tools.providers.router import ToolProviderRouter
 
 from ATLAS.config import ConfigManager
@@ -1761,7 +1762,22 @@ def _record_tool_activity(
             _tool_activity_log.append(stored_entry)
 
     public_entry = _build_public_tool_entry(stored_entry)
-    event_system.publish(_TOOL_ACTIVITY_EVENT, public_entry)
+    correlation_id = stored_entry.get("tool_call_id") or stored_entry.get("id")
+    tracing_metadata = {
+        "conversation_id": stored_entry.get("conversation_id"),
+        "persona": stored_entry.get("persona"),
+        "tool_name": stored_entry.get("tool_name"),
+        "status": stored_entry.get("status"),
+    }
+    tracing = {key: value for key, value in tracing_metadata.items() if value is not None}
+    publish_bus_event(
+        _TOOL_ACTIVITY_EVENT,
+        public_entry,
+        priority=MessagePriority.NORMAL,
+        correlation_id=correlation_id,
+        tracing=tracing or None,
+        metadata={"component": "ToolManager"},
+    )
     return stored_entry
 
 
@@ -2757,7 +2773,18 @@ async def use_tool(
 
             if function_name == "execute_python":
                 command = function_args.get('command')
-                event_system.publish("code_executed", command, function_response)
+                publish_bus_event(
+                    "code_executed",
+                    {"command": command, "result": function_response},
+                    priority=MessagePriority.NORMAL,
+                    correlation_id=tool_call_id,
+                    tracing={
+                        "conversation_id": conversation_id,
+                        "tool_name": function_name,
+                        "persona": persona_name,
+                    },
+                    metadata={"component": "ToolManager"},
+                )
                 logger.info("Published 'code_executed' event.")
 
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
