@@ -271,6 +271,98 @@ def test_default_function_map_vector_store_entries_dispatch(monkeypatch):
         importlib.reload(maps_module)
 
 
+def test_default_function_map_task_queue_entries_dispatch(monkeypatch):
+    import importlib
+
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    from modules.Tools.Base_Tools import task_queue as task_queue_module
+    import modules.Tools.tool_maps.maps as maps_module
+
+    call_log = []
+
+    def _make_stub(name, result):
+        def _stub(*args, **kwargs):
+            call_log.append((name, args, kwargs))
+            return result
+
+        return _stub
+
+    monkeypatch.setattr(
+        task_queue_module,
+        "enqueue_task",
+        _make_stub("enqueue", {"status": "queued", "job_id": "enqueue-1"}),
+    )
+    monkeypatch.setattr(
+        task_queue_module,
+        "schedule_cron_task",
+        _make_stub("schedule", {"status": "scheduled", "job_id": "schedule-1"}),
+    )
+    monkeypatch.setattr(
+        task_queue_module,
+        "cancel_task",
+        _make_stub("cancel", {"status": "cancelled", "job_id": "cancel-1"}),
+    )
+    monkeypatch.setattr(
+        task_queue_module,
+        "get_task_status",
+        _make_stub("status", {"status": "succeeded", "job_id": "status-1"}),
+    )
+
+    try:
+        reloaded_maps = importlib.reload(maps_module)
+        function_map = reloaded_maps.function_map
+
+        enqueue_payload = {"value": 1}
+        enqueue_result = function_map["task_queue_enqueue"](
+            name="example", payload=enqueue_payload, delay_seconds=5
+        )
+        assert enqueue_result == {"status": "queued", "job_id": "enqueue-1"}
+        enqueue_entry = call_log[0]
+        assert enqueue_entry[0] == "enqueue"
+        assert enqueue_entry[1] == ()
+        enqueue_kwargs = enqueue_entry[2]
+        assert enqueue_kwargs["name"] == "example"
+        assert enqueue_kwargs["payload"] is enqueue_payload
+        assert enqueue_kwargs["delay_seconds"] == 5
+        assert enqueue_kwargs["config_manager"] is reloaded_maps._config_manager
+
+        cron_payload = {"value": 2}
+        schedule_result = function_map["task_queue_schedule"](
+            name="cron", cron_schedule="* * * * *", payload=cron_payload
+        )
+        assert schedule_result == {"status": "scheduled", "job_id": "schedule-1"}
+        schedule_entry = call_log[1]
+        assert schedule_entry[0] == "schedule"
+        assert schedule_entry[1] == ()
+        schedule_kwargs = schedule_entry[2]
+        assert schedule_kwargs["name"] == "cron"
+        assert schedule_kwargs["cron_schedule"] == "* * * * *"
+        assert schedule_kwargs["payload"] is cron_payload
+        assert schedule_kwargs["config_manager"] is reloaded_maps._config_manager
+
+        cancel_result = function_map["task_queue_cancel"]("job-123")
+        assert cancel_result == {"status": "cancelled", "job_id": "cancel-1"}
+        cancel_entry = call_log[2]
+        assert cancel_entry[0] == "cancel"
+        assert cancel_entry[1] == ("job-123",)
+        cancel_kwargs = cancel_entry[2]
+        assert cancel_kwargs["config_manager"] is reloaded_maps._config_manager
+
+        status_result = function_map["task_queue_status"]("job-123")
+        assert status_result == {"status": "succeeded", "job_id": "status-1"}
+        status_entry = call_log[3]
+        assert status_entry[0] == "status"
+        assert status_entry[1] == ("job-123",)
+        status_kwargs = status_entry[2]
+        assert status_kwargs["config_manager"] is reloaded_maps._config_manager
+    finally:
+        monkeypatch.undo()
+        importlib.reload(maps_module)
+
+
 def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
     """Persona toolbox manifests should include the extended metadata fields."""
 
