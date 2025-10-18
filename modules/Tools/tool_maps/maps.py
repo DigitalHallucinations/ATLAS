@@ -8,6 +8,7 @@ from modules.Tools.Base_Tools.priority_queue import priority_queue
 from modules.Tools.Base_Tools.terminal_command import TerminalCommand
 from modules.Tools.Base_Tools.webpage_fetch import WebpageFetcher
 from modules.Tools.Code_Execution import PythonInterpreter
+from modules.Tools.Medical_Tools import search_pmc, search_pubmed
 
 # Create an instance of GoogleSearch
 google_search_instance = GoogleSearch()
@@ -24,4 +25,6 @@ function_map = {
     "webpage_fetch": webpage_fetcher.fetch,
     "terminal_command": TerminalCommand,
     "execute_python": python_interpreter.run,
+    "search_pubmed": search_pubmed,
+    "search_pmc": search_pmc,
 }
