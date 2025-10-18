@@ -297,6 +297,33 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
         ],
     }
 
+    assert "geocode_location" in shared_map
+    geocode_entry = shared_map["geocode_location"]
+    assert isinstance(geocode_entry, dict)
+    geocode_metadata = geocode_entry.get("metadata")
+    assert geocode_metadata["capabilities"] == ["geolocation", "mapping"]
+    assert geocode_metadata["auth"]["required"] is True
+
+    assert "get_current_location" in shared_map
+    current_location_entry = shared_map["get_current_location"]
+    assert isinstance(current_location_entry, dict)
+    current_location_metadata = current_location_entry.get("metadata")
+    assert current_location_metadata["capabilities"] == [
+        "geolocation",
+        "context_awareness",
+    ]
+    assert current_location_metadata["auth"]["required"] is False
+
+    assert "debian12_calendar" in shared_map
+    debian_calendar_entry = shared_map["debian12_calendar"]
+    assert isinstance(debian_calendar_entry, dict)
+    debian_calendar_metadata = debian_calendar_entry.get("metadata")
+    assert debian_calendar_metadata["capabilities"] == [
+        "calendar_read",
+        "calendar_write",
+    ]
+    assert debian_calendar_metadata["providers"][0]["name"] == "debian12_local"
+
 
 def test_shared_terminal_command_manifest_entry(monkeypatch):
     _ensure_yaml(monkeypatch)
