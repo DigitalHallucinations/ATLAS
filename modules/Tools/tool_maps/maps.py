@@ -15,6 +15,7 @@ from modules.Tools.Base_Tools.debian12_calendar import (
 )
 from modules.Tools.Base_Tools.filesystem_io import read_file, write_file, list_dir
 from modules.Tools.Base_Tools.structured_parser import StructuredParser
+from modules.Tools.Base_Tools.kv_store import kv_delete, kv_get, kv_increment, kv_set
 from ATLAS.config import ConfigManager
 from modules.Tools.Code_Execution import JavaScriptExecutor, PythonInterpreter
 from modules.Tools.Medical_Tools import search_pmc, search_pubmed
@@ -61,4 +62,8 @@ function_map = {
     "filesystem_write": write_file,
     "filesystem_list": list_dir,
     "structured_parse": structured_parser.parse,
+    "kv_get": kv_get,
+    "kv_set": kv_set,
+    "kv_delete": kv_delete,
+    "kv_increment": kv_increment,
 }

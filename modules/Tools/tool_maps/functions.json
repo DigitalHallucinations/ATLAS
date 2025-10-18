@@ -1146,6 +1146,264 @@
         }
     },
     {
+        "name": "kv_get",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 2,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "namespace+key",
+            "guidance": "Combine the namespace and key when deduplicating cacheable reads."
+        },
+        "capabilities": [
+            "state_store"
+        ],
+        "policy_flags": {
+            "reads_state_store": true,
+            "writes_state_store": false
+        },
+        "requires_flags": {
+            "read": [
+                "type.system.kv_store_access"
+            ]
+        },
+        "providers": [
+            {
+                "name": "kv_store_sqlite",
+                "priority": 0,
+                "health_check_interval": 0,
+                "config": {
+                    "adapter": "sqlite"
+                }
+            }
+        ],
+        "description": "Retrieve a JSON-serializable value from the namespaced state store, honoring key TTL.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "Logical namespace containing the key."
+                },
+                "key": {
+                    "type": "string",
+                    "description": "Key to retrieve within the namespace."
+                }
+            },
+            "required": [
+                "namespace",
+                "key"
+            ]
+        }
+    },
+    {
+        "name": "kv_set",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 2,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "namespace+key",
+            "guidance": "Use the namespace and key plus a deterministic value hash when retrying writes."
+        },
+        "idempotency_guidance": "Writes mutate the key's value. Provide a stable idempotency token derived from the namespace, key, and value hash when retrying.",
+        "capabilities": [
+            "state_store"
+        ],
+        "policy_flags": {
+            "reads_state_store": false,
+            "writes_state_store": true
+        },
+        "requires_flags": {
+            "write": [
+                "type.system.kv_store_access",
+                "type.system.kv_store_write"
+            ]
+        },
+        "providers": [
+            {
+                "name": "kv_store_sqlite",
+                "priority": 0,
+                "health_check_interval": 0,
+                "config": {
+                    "adapter": "sqlite"
+                }
+            }
+        ],
+        "description": "Persist a JSON-serializable value within the namespaced state store with optional TTL enforcement.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "Logical namespace that owns the key."
+                },
+                "key": {
+                    "type": "string",
+                    "description": "Identifier for the stored value."
+                },
+                "value": {
+                    "description": "JSON-serializable payload to persist.",
+                    "type": [
+                        "object",
+                        "array",
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                    ]
+                },
+                "ttl_seconds": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Optional expiration in seconds. Values must be greater than zero when provided."
+                }
+            },
+            "required": [
+                "namespace",
+                "key",
+                "value"
+            ]
+        }
+    },
+    {
+        "name": "kv_delete",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 2,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "namespace+key",
+            "guidance": "Combine namespace and key to safely retry deletions."
+        },
+        "idempotency_guidance": "Deletes remove the key entirely. Retry requests should reuse the namespace/key-based idempotency token.",
+        "capabilities": [
+            "state_store"
+        ],
+        "policy_flags": {
+            "reads_state_store": false,
+            "writes_state_store": true
+        },
+        "requires_flags": {
+            "write": [
+                "type.system.kv_store_access",
+                "type.system.kv_store_write"
+            ]
+        },
+        "providers": [
+            {
+                "name": "kv_store_sqlite",
+                "priority": 0,
+                "health_check_interval": 0,
+                "config": {
+                    "adapter": "sqlite"
+                }
+            }
+        ],
+        "description": "Remove a key from the namespaced state store if present.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "Namespace containing the key to delete."
+                },
+                "key": {
+                    "type": "string",
+                    "description": "Key to remove."
+                }
+            },
+            "required": [
+                "namespace",
+                "key"
+            ]
+        }
+    },
+    {
+        "name": "kv_increment",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 2,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "namespace+key",
+            "guidance": "Combine the namespace, key, and deterministic increment batch identifier when retrying."
+        },
+        "idempotency_guidance": "Increment operations mutate counters. Supply a stable idempotency key for batched increments to prevent double-application.",
+        "capabilities": [
+            "state_store"
+        ],
+        "policy_flags": {
+            "reads_state_store": true,
+            "writes_state_store": true
+        },
+        "requires_flags": {
+            "write": [
+                "type.system.kv_store_access",
+                "type.system.kv_store_write"
+            ]
+        },
+        "providers": [
+            {
+                "name": "kv_store_sqlite",
+                "priority": 0,
+                "health_check_interval": 0,
+                "config": {
+                    "adapter": "sqlite"
+                }
+            }
+        ],
+        "description": "Atomically increment an integer counter within the namespaced state store, creating it when missing.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "Namespace that contains the counter."
+                },
+                "key": {
+                    "type": "string",
+                    "description": "Counter key to mutate."
+                },
+                "delta": {
+                    "type": "integer",
+                    "default": 1,
+                    "description": "Amount to add to the existing counter value."
+                },
+                "initial_value": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Starting value used when the key does not yet exist."
+                },
+                "ttl_seconds": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Optional TTL override applied to the resulting counter."
+                }
+            },
+            "required": [
+                "namespace",
+                "key"
+            ]
+        }
+    },
+    {
         "name": "upsert_vectors",
         "version": "1.0.0",
         "side_effects": "database",
