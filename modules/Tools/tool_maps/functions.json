@@ -551,6 +551,54 @@
         "idempotency_guidance": "Reads are idempotent and may use a stable key when polling. Create, update, and delete operations mutate the calendar and should not be retried automatically."
     },
     {
+        "name": "execute_python",
+        "version": "1.0.0",
+        "side_effects": "compute",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": false,
+        "safety_level": "high",
+        "requires_consent": true,
+        "requires_flags": {
+            "read": [
+                "type.personal_assistant.terminal_read_enabled"
+            ],
+            "write": [
+                "type.personal_assistant.terminal_read_enabled",
+                "type.personal_assistant.terminal_write_enabled"
+            ]
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "code_execution",
+            "analysis"
+        ],
+        "description": "Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The Python code to execute"
+                },
+                "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 30,
+                    "default": 5,
+                    "description": "Optional timeout override in seconds."
+                }
+            },
+            "required": [
+                "command"
+            ]
+        }
+    },
+    {
         "name": "terminal_command",
         "version": "1.0.0",
         "side_effects": "system",
