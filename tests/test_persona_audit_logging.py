@@ -264,6 +264,7 @@ def test_server_route_updates_persona_skills(
 
     persona_data = dict(persona_payload)
     persona_data["allowed_skills"] = []
+    persona_data["allowed_tools"] = ["alpha_tool", "beta_tool"]
     _write_persona_file(tmp_path, persona_data)
 
     server = AtlasServer(config_manager=config)
@@ -299,7 +300,15 @@ def test_server_route_rejects_invalid_tool_update(
 
     _write_persona_file(tmp_path, dict(persona_payload))
 
-    def _fake_validate(payload, *, persona_name: str, tool_ids, skill_ids=None, config_manager=None):
+    def _fake_validate(
+        payload,
+        *,
+        persona_name: str,
+        tool_ids,
+        skill_ids=None,
+        skill_catalog=None,
+        config_manager=None,
+    ):
         personas = payload.get("persona") if isinstance(payload, dict) else None
         if not personas:
             return

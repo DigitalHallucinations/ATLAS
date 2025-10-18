@@ -5,6 +5,7 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib
 
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -45,6 +46,7 @@ class PersonaManagement:
         self.skill_rows: Dict[str, Dict[str, Any]] = {}
         self._skill_order: List[str] = []
         self.skill_list_box: Optional[Gtk.ListBox] = None
+        self._skill_dependency_conflicts: Dict[str, List[str]] = {}
         self.history_list_box: Optional[Gtk.ListBox] = None
         self._history_persona_name: Optional[str] = None
         self._history_page_size: int = 20
@@ -121,6 +123,98 @@ class PersonaManagement:
             setter(bool(visible))
         else:
             setattr(widget, "_visible", bool(visible))
+
+    def _set_widget_error_state(self, widget: Optional[Gtk.Widget], enabled: bool) -> None:
+        if not isinstance(widget, Gtk.Widget):
+            return
+        try:
+            if enabled:
+                widget.add_css_class("error")
+            else:
+                widget.remove_css_class("error")
+        except Exception:
+            return
+
+    def _clear_skill_dependency_highlights(self) -> None:
+        self._skill_dependency_conflicts.clear()
+        for info in self.skill_rows.values():
+            check = info.get('check')
+            row = info.get('row')
+            hint = info.get('hint')
+            default_hint = info.get('default_hint')
+            default_tooltip = info.get('default_tooltip')
+
+            self._set_widget_error_state(check, False)
+            self._set_widget_error_state(row, False)
+
+            if isinstance(check, Gtk.CheckButton):
+                if default_tooltip:
+                    check.set_tooltip_text(default_tooltip)
+                else:
+                    check.set_tooltip_text(None)
+
+            if isinstance(hint, Gtk.Label) and default_hint is not None:
+                hint.set_text(default_hint)
+
+    def _apply_skill_dependency_highlights(self, conflicts: Dict[str, List[str]]) -> None:
+        if not conflicts:
+            self._clear_skill_dependency_highlights()
+            return
+
+        self._skill_dependency_conflicts = {key: list(value) for key, value in conflicts.items()}
+
+        for skill_name, missing_tools in conflicts.items():
+            info = self.skill_rows.get(skill_name)
+            if not info:
+                continue
+
+            check = info.get('check')
+            row = info.get('row')
+            hint = info.get('hint')
+            default_hint = info.get('default_hint') or ""
+            default_tooltip = info.get('default_tooltip') or ""
+
+            message = f"Enable required tools: {', '.join(missing_tools)}"
+
+            self._set_widget_error_state(check, True)
+            self._set_widget_error_state(row, True)
+
+            if isinstance(check, Gtk.CheckButton):
+                tooltip_text = default_tooltip
+                if tooltip_text:
+                    tooltip_text = f"{tooltip_text}\n\n{message}"
+                else:
+                    tooltip_text = message
+                check.set_tooltip_text(tooltip_text)
+
+            if isinstance(hint, Gtk.Label):
+                if default_hint:
+                    hint.set_text(f"{default_hint}\n⚠ Missing tools: {', '.join(missing_tools)}")
+                else:
+                    hint.set_text(f"⚠ Missing tools: {', '.join(missing_tools)}")
+
+    def _handle_skill_dependency_errors(self, error_messages: List[str]) -> tuple[bool, str]:
+        pattern = re.compile(r"Skill '([^']+)' requires missing tools: ([^\n]+)")
+        conflicts: Dict[str, List[str]] = {}
+
+        for message in error_messages:
+            if not isinstance(message, str):
+                continue
+            for match in pattern.finditer(message):
+                skill_name = match.group(1).strip()
+                tools_blob = match.group(2)
+                missing_tools = [tool.strip() for tool in tools_blob.split(',') if tool.strip()]
+                if not skill_name or not missing_tools:
+                    continue
+                conflicts[skill_name] = missing_tools
+
+        if not conflicts:
+            return (False, "")
+
+        self._apply_skill_dependency_highlights(conflicts)
+        guidance_parts = [f"{skill}: {', '.join(tools)}" for skill, tools in conflicts.items()]
+        guidance = "Enable the required tools for the highlighted skills (" + "; ".join(guidance_parts) + ")."
+        return (True, guidance)
 
     def _refresh_review_status(self, persona_name: str) -> None:
         if not persona_name:
@@ -1270,8 +1364,10 @@ class PersonaManagement:
                 if reason_text:
                     tooltip_parts.append(reason_text)
 
+            tooltip_text = ""
             if tooltip_parts:
-                check.set_tooltip_text("\n\n".join(tooltip_parts))
+                tooltip_text = "\n\n".join(tooltip_parts)
+                check.set_tooltip_text(tooltip_text)
             controls.append(check)
 
             badge_widget: Optional[Gtk.Widget] = None
@@ -1316,6 +1412,9 @@ class PersonaManagement:
                 'down_button': down_btn,
                 'metadata': metadata,
                 'badge': badge_widget,
+                'hint': hint,
+                'default_hint': hint.get_text(),
+                'default_tooltip': tooltip_text,
             }
 
         self._refresh_skill_reorder_controls()
@@ -1842,6 +1941,8 @@ class PersonaManagement:
         Args:
             settings_window (Gtk.Window): The settings window to close after saving.
         """
+        self._clear_skill_dependency_highlights()
+
         if not self._current_editor_state:
             self.ATLAS.show_persona_message(
                 "system",
@@ -1895,5 +1996,9 @@ class PersonaManagement:
             print(f"Settings for {general_payload['name']} saved!")
             settings_window.destroy()
         else:
-            error_text = "; ".join(result.get('errors', [])) or "Unable to save persona settings."
+            error_list = [str(entry) for entry in result.get('errors', []) if str(entry)]
+            handled, guidance = self._handle_skill_dependency_errors(error_list)
+            error_text = "; ".join(error_list) or "Unable to save persona settings."
             self.ATLAS.show_persona_message("system", f"Failed to save persona: {error_text}")
+            if handled and guidance:
+                self.ATLAS.show_persona_message("warning", guidance)
