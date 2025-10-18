@@ -1051,4 +1051,98 @@
             }
         }
     }
+    ,
+    {
+        "name": "structured_parse",
+        "version": "1.0.0",
+        "side_effects": "filesystem",
+        "default_timeout": 30,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": false,
+            "guidance": "Use a content hash of the parsed document when deduplicating calls."
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "document_parsing",
+            "ocr"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "format": "byte",
+                    "description": "Base64-encoded document bytes to parse."
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Filesystem path to the document relative to the sandbox root."
+                },
+                "source_format": {
+                    "type": "string",
+                    "description": "Explicit document format hint when supplying raw bytes.",
+                    "enum": [
+                        "pdf",
+                        "docx",
+                        "html",
+                        "csv",
+                        "png",
+                        "jpg",
+                        "jpeg",
+                        "tiff",
+                        "bmp",
+                        "gif",
+                        "image"
+                    ]
+                },
+                "target_formats": {
+                    "type": "array",
+                    "description": "Subset of output blocks to include in the response.",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "text",
+                            "tables",
+                            "metadata"
+                        ]
+                    }
+                }
+            },
+            "anyOf": [
+                {
+                    "required": [
+                        "content",
+                        "source_format"
+                    ]
+                },
+                {
+                    "required": [
+                        "path"
+                    ]
+                }
+            ]
+        },
+        "safety_level": "low",
+        "policy_flags": {
+            "sandbox_enforced": true,
+            "reads_user_files": true,
+            "writes_user_files": false
+        },
+        "quota_hints": {
+            "max_bytes": 5242880
+        }
+    }
 ]
