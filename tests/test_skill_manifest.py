@@ -67,5 +67,6 @@ def test_invalid_skill_entries_are_skipped(tmp_path: Path, monkeypatch, invalid_
             capability_tags=[],
             persona=None,
             source="modules/Skills/skills.json",
+            collaboration=None,
         )
     ]

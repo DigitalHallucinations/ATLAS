@@ -448,6 +448,7 @@ class ChatPage(Gtk.Box):
             ("System Prompt", "system_prompt", True),
             ("Persona Data", "persona_data", False),
             ("Conversation Messages", "conversation", True),
+            ("Negotiation Trace", "negotiation", False),
             ("Metadata", "metadata", False),
             ("Declared Tools", "declared_tools", False),
             ("Tool Calls", "tool_calls", False),
@@ -664,6 +665,20 @@ class ChatPage(Gtk.Box):
 
         conversation_text = self._format_conversation_history(history)
         self._set_terminal_section_text("conversation", conversation_text)
+
+        negotiation_history: List[Dict[str, object]] = []
+        negotiation_getter = getattr(self.ATLAS, "get_negotiation_log", None)
+        if callable(negotiation_getter):
+            try:
+                candidate = negotiation_getter() or []
+            except Exception as exc:
+                logger.error("Failed to obtain negotiation history: %s", exc, exc_info=True)
+            else:
+                if isinstance(candidate, list):
+                    negotiation_history = candidate
+
+        negotiation_text = self._format_negotiation_history(negotiation_history)
+        self._set_terminal_section_text("negotiation", negotiation_text)
 
         metadata_lines = []
         persona_name = context_data.get("persona_name") if isinstance(context_data, dict) else None
@@ -1771,6 +1786,70 @@ class ChatPage(Gtk.Box):
 
         formatted = "\n".join(lines).strip()
         return formatted or "No conversation messages recorded yet."
+
+    def _format_negotiation_history(self, history: List[Dict[str, object]]) -> str:
+        if not history:
+            return "No negotiation activity recorded."
+
+        lines: list[str] = []
+        for entry in history:
+            if not isinstance(entry, Mapping):
+                continue
+
+            protocol = str(entry.get("protocol") or "").upper() or "UNKNOWN"
+            status = str(entry.get("status") or "").upper() or "PENDING"
+            started = entry.get("started_at")
+            timestamp: Optional[str] = None
+            if isinstance(started, (int, float)):
+                try:
+                    timestamp = datetime.fromtimestamp(started).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:  # pragma: no cover - defensive formatting
+                    timestamp = None
+
+            header_bits = [protocol, status]
+            if timestamp:
+                header_bits.append(timestamp)
+            lines.append(" • ".join(bit for bit in header_bits if bit))
+
+            selected = entry.get("selected")
+            if isinstance(selected, Mapping) and selected:
+                participant = selected.get("participant") or "unknown"
+                score = selected.get("score")
+                selection_summary = f"Selected: {participant}"
+                if score is not None:
+                    selection_summary += f" (score={score})"
+                lines.append(f"  {selection_summary}")
+                selected_text = selected.get("content")
+                if selected_text:
+                    excerpt = str(selected_text).strip()
+                    if len(excerpt) > 160:
+                        excerpt = excerpt[:157] + "..."
+                    if excerpt:
+                        lines.append(f"    {excerpt}")
+
+            participants = entry.get("participants")
+            if isinstance(participants, list):
+                for participant_entry in participants:
+                    if not isinstance(participant_entry, Mapping):
+                        continue
+                    participant_name = participant_entry.get("participant") or "agent"
+                    participant_status = participant_entry.get("status") or ""
+                    participant_score = participant_entry.get("score")
+                    summary = f"  - {participant_name}: {participant_status}"
+                    if participant_score is not None:
+                        summary += f" (score={participant_score})"
+                    lines.append(summary)
+                    rationale = participant_entry.get("rationale")
+                    if rationale:
+                        lines.append(f"      rationale: {rationale}")
+
+            notes = entry.get("notes")
+            if notes:
+                lines.append(f"  Notes: {notes}")
+
+            lines.append("")
+
+        return "\n".join(lines).strip() or "No negotiation activity recorded."
 
     def _stringify_terminal_value(self, value: object) -> str:
         if value is None:

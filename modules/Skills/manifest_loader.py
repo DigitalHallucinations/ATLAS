@@ -6,7 +6,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Iterator, List, Optional
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional
 
 try:  # Prefer the real jsonschema implementation when available
     from jsonschema import Draft7Validator, ValidationError
@@ -121,6 +121,7 @@ class SkillMetadata:
     capability_tags: List[str]
     persona: Optional[str]
     source: str
+    collaboration: Optional[Mapping[str, Any]]
 
 
 def load_skill_metadata(*, config_manager=None) -> List[SkillMetadata]:
@@ -221,6 +222,7 @@ def _normalize_entry(
     summary = _coerce_string(entry.get("summary"))
     category = _coerce_string(entry.get("category"))
     capability_tags = _coerce_string_list(entry.get("capability_tags"))
+    collaboration = _normalize_collaboration(entry.get("collaboration"))
 
     return SkillMetadata(
         name=name,
@@ -234,6 +236,7 @@ def _normalize_entry(
         capability_tags=capability_tags,
         persona=persona,
         source=_relative_source(source, app_root),
+        collaboration=collaboration,
     )
 
 
@@ -254,6 +257,79 @@ def _coerce_string_list(value: Any) -> List[str]:
         if text:
             result.append(text)
     return result
+
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "on", "enabled"}:
+            return True
+        if lowered in {"false", "0", "no", "off", "disabled"}:
+            return False
+    return bool(value)
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        if value is None:
+            return float(default)
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _normalize_collaboration(value: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(value, Mapping):
+        return None
+
+    enabled = _coerce_bool(value.get("enabled"))
+    protocol = str(value.get("protocol") or "vote").strip().lower() or "vote"
+    quorum = max(0.0, min(1.0, _coerce_float(value.get("quorum"), 0.5)))
+    timeout = max(0.0, _coerce_float(value.get("timeout"), 10.0))
+
+    config: Dict[str, Any] = {
+        "enabled": enabled,
+        "protocol": protocol,
+        "quorum": quorum,
+        "timeout": timeout,
+    }
+
+    participants: List[Dict[str, Any]] = []
+    raw_participants = value.get("participants")
+    if isinstance(raw_participants, Iterable) and not isinstance(raw_participants, (str, bytes, bytearray)):
+        for index, entry in enumerate(raw_participants):
+            data: Dict[str, Any]
+            if isinstance(entry, Mapping):
+                data = dict(entry)
+            else:
+                data = {}
+
+            identifier = str(data.get("id") or data.get("name") or "").strip()
+            if not identifier:
+                identifier = f"agent_{index + 1}"
+
+            participant: Dict[str, Any] = {"id": identifier}
+            provider = data.get("provider")
+            if provider is not None:
+                participant["provider"] = str(provider).strip()
+            model = data.get("model")
+            if model is not None:
+                participant["model"] = str(model).strip()
+            system_prompt = data.get("system_prompt")
+            if system_prompt is not None:
+                participant["system_prompt"] = str(system_prompt)
+            weight = data.get("weight")
+            if weight is not None:
+                participant["weight"] = _coerce_float(weight, 1.0)
+            metadata = data.get("metadata")
+            if isinstance(metadata, Mapping):
+                participant["metadata"] = dict(metadata)
+            participants.append(participant)
+
+    if participants:
+        config["participants"] = participants
+
+    return config
 
 
 def _relative_source(path: Path, app_root: Path) -> str:

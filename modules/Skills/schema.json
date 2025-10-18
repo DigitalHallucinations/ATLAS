@@ -65,6 +65,66 @@
             "minLength": 1
           },
           "default": []
+        },
+        "collaboration": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "anyOf": [
+                {"type": "boolean"},
+                {"type": "string"}
+              ]
+            },
+            "protocol": {
+              "type": "string",
+              "enum": ["vote", "critique", "contract_net"],
+              "default": "vote"
+            },
+            "quorum": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.5
+            },
+            "timeout": {
+              "type": "number",
+              "minimum": 0,
+              "default": 10
+            },
+            "participants": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/collaborationParticipant"
+              }
+            }
+          }
+        }
+      }
+    },
+    "collaborationParticipant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "system_prompt": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number"
+        },
+        "metadata": {
+          "type": "object"
         }
       }
     }
