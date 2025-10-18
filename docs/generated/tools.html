@@ -69,8 +69,8 @@
     <tbody>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
-      <tr><td>search_pmc</td><td>1.0.0</td><td>—</td><td>high</td><td>No</td><td>Searches PMC for a specific article using its PMCID, and downloads the article package to the Workspace directory.</td></tr>
-      <tr><td>search_pubmed</td><td>1.0.0</td><td>—</td><td>—</td><td>No</td><td>Searches PubMed for articles related to the given query.</td></tr>
+      <tr><td>search_pmc</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY)</td><td>Search PubMed Central (PMC) for open access articles using the Entrez API.</td></tr>
+      <tr><td>search_pubmed</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY)</td><td>Search PubMed for biomedical literature using the NCBI Entrez API.</td></tr>
     </tbody>
   </table>
   <h2>Persona: Nikola Tesla</h2>
@@ -108,6 +108,8 @@
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
       <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
       <tr><td>priority_queue</td><td>1.0.0</td><td>task_management, status_reporting</td><td>—</td><td>No</td><td>Score and sort operational tasks to produce a prioritized execution list.</td></tr>
+      <tr><td>search_pmc</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY, type: api_key)</td><td>Search PubMed Central for open access biomedical literature and return PMC IDs.</td></tr>
+      <tr><td>search_pubmed</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY, type: api_key)</td><td>Search PubMed for biomedical literature and return a list of PubMed IDs.</td></tr>
       <tr><td>terminal_command</td><td>1.0.0</td><td>terminal_execution, system_inspection</td><td>high</td><td>No</td><td>Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status.</td></tr>
       <tr><td>webpage_fetch</td><td>1.0.0</td><td>web_content, web_research, document_ingestion</td><td>—</td><td>No</td><td>Download an allowlisted webpage, strip scripts and ads, and return clean text with the resolved title and URL.</td></tr>
     </tbody>

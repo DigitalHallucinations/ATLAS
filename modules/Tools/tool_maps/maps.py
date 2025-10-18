@@ -7,6 +7,12 @@ from modules.Tools.Base_Tools.context_tracker import context_tracker
 from modules.Tools.Base_Tools.priority_queue import priority_queue
 from modules.Tools.Base_Tools.terminal_command import TerminalCommand
 from modules.Tools.Base_Tools.webpage_fetch import WebpageFetcher
+from modules.Tools.Base_Tools.geocode import geocode_location
+from modules.Tools.Base_Tools.current_location import get_current_location
+from modules.Tools.Base_Tools.debian12_calendar import (
+    Debian12CalendarTool,
+    debian12_calendar,
+)
 from modules.Tools.Code_Execution import PythonInterpreter
 from modules.Tools.Medical_Tools import search_pmc, search_pubmed
 
@@ -14,6 +20,17 @@ from modules.Tools.Medical_Tools import search_pmc, search_pubmed
 google_search_instance = GoogleSearch()
 webpage_fetcher = WebpageFetcher()
 python_interpreter = PythonInterpreter()
+
+try:
+    debian12_calendar_tool = Debian12CalendarTool()
+except Exception:
+    debian12_calendar_tool = None
+
+
+async def _debian12_calendar_dispatch(*args, **kwargs):
+    if debian12_calendar_tool is not None:
+        return await debian12_calendar_tool.run(*args, **kwargs)
+    return await debian12_calendar(*args, **kwargs)
 
 # A dictionary to map function names to actual function objects
 function_map = {
@@ -27,4 +44,7 @@ function_map = {
     "execute_python": python_interpreter.run,
     "search_pubmed": search_pubmed,
     "search_pmc": search_pmc,
+    "geocode_location": geocode_location,
+    "get_current_location": get_current_location,
+    "debian12_calendar": _debian12_calendar_dispatch,
 }
