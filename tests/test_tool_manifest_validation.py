@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import shutil
@@ -21,7 +22,16 @@ if "dotenv" not in sys.modules:
         find_dotenv=lambda *_args, **_kwargs: "",
     )
 
+if "jsonschema" in sys.modules and getattr(sys.modules["jsonschema"], "__file__", None) is None:
+    sys.modules.pop("jsonschema", None)
+
+jsonschema = importlib.import_module("jsonschema")
+
 import ATLAS.ToolManager as tool_manager
+
+importlib.reload(tool_manager)
+
+tool_manager._tool_manifest_validator = None
 
 
 def _manifest_entry(name: str, **overrides):
@@ -108,6 +118,7 @@ def test_invalid_manifest_raises_structured_error(persona_workspace):
         "filesystem",
         "compute",
         "system",
+        "database",
     ],
 )
 def test_manifest_accepts_known_side_effect_categories(persona_workspace, side_effect):

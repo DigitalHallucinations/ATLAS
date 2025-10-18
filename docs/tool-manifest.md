@@ -26,13 +26,37 @@ following fields:
 | Field | Type | Description |
 | --- | --- | --- |
 | `version` | string | Human readable semantic version for the tool. |
-| `side_effects` | string | One of `"none"`, `"write"`, `"network"`, `"read_external_service"`, `"filesystem"`, `"compute"`, or `"system"`, signalling the type of external interaction the tool performs. |
+| `side_effects` | string | One of `"none"`, `"write"`, `"network"`, `"read_external_service"`, `"filesystem"`, `"compute"`, `"system"`, or `"database"`, signalling the type of external interaction the tool performs. |
 | `default_timeout` | integer | Preferred execution timeout in seconds for the tool. |
 | `auth` | object | Authentication requirements, e.g. `{ "required": true, "type": "api_key", "env": "GOOGLE_API_KEY" }`. |
 | `allow_parallel` | boolean | Indicates whether the tool is safe to invoke in parallel with itself. |
 
 Additional fields (such as `description` and `parameters`) continue to follow
 the OpenAI function-calling schema.
+
+### Side-effect categories
+
+Use the `side_effects` field to describe the strongest external interaction a
+tool performs. The allowed values are:
+
+* `none` – Purely computational helpers that do not observe or mutate external
+  state.
+* `read_external_service` – Makes outbound requests to APIs or services without
+  modifying data.
+* `network` – Performs generalized network I/O beyond a single API call (for
+  example, long-lived sockets or streaming transfers).
+* `filesystem` – Reads or writes the local filesystem.
+* `write` – Mutates remote state (HTTP `POST`, `PUT`, etc.) or otherwise
+  persists data outside the agent process.
+* `database` – Interacts with a database or durable data store through query or
+  mutation operations.
+* `compute` – Triggers heavyweight computational workloads (e.g., job runners or
+  ML pipelines).
+* `system` – Performs privileged or system-level operations such as process
+  control or shell execution.
+
+When in doubt, choose the most restrictive label that applies so downstream
+callers can reason about the potential impact of invoking the tool.
 
 ## Schema validation
 
