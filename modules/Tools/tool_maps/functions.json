@@ -729,6 +729,87 @@
         }
     },
     {
+        "name": "execute_javascript",
+        "version": "1.0.0",
+        "side_effects": "compute",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": false,
+        "safety_level": "high",
+        "requires_consent": true,
+        "requires_flags": {
+            "execute": [
+                "type.developer.javascript_execution_enabled"
+            ]
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "javascript_exec",
+            "code_execution"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "JavaScript source code to execute."
+                },
+                "timeout": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 30,
+                    "default": 5,
+                    "description": "Optional timeout override in seconds."
+                },
+                "files": {
+                    "type": "array",
+                    "description": "Optional files to seed into the sandboxed working directory.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Relative file path inside the sandbox."
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "File contents as UTF-8 text or base64 encoded data."
+                            },
+                            "encoding": {
+                                "type": "string",
+                                "enum": [
+                                    "utf-8",
+                                    "base64"
+                                ],
+                                "default": "utf-8",
+                                "description": "Encoding used to interpret the provided content."
+                            }
+                        },
+                        "required": [
+                            "path",
+                            "content"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "command"
+            ]
+        }
+    },
+    {
         "name": "terminal_command",
         "version": "1.0.0",
         "side_effects": "system",

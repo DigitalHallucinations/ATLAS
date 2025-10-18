@@ -3,6 +3,7 @@
 import copy
 import json
 import os
+import shlex
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -70,6 +71,39 @@ class ConfigManager:
         tool_logging_block.setdefault('log_full_payloads', False)
         tool_logging_block.setdefault('payload_summary_length', 256)
         self.config['tool_logging'] = tool_logging_block
+
+        tools_block = self.config.get('tools')
+        if not isinstance(tools_block, Mapping):
+            tools_block = {}
+        else:
+            tools_block = dict(tools_block)
+
+        js_block = tools_block.get('javascript_executor')
+        if not isinstance(js_block, Mapping):
+            js_block = {}
+        else:
+            js_block = dict(js_block)
+
+        env_executable = self.env_config.get('JAVASCRIPT_EXECUTOR_BIN')
+        if env_executable and not js_block.get('executable'):
+            js_block['executable'] = env_executable
+
+        env_args = self.env_config.get('JAVASCRIPT_EXECUTOR_ARGS')
+        if env_args and not js_block.get('args'):
+            try:
+                js_block['args'] = shlex.split(env_args)
+            except ValueError:
+                js_block['args'] = env_args
+
+        js_block.setdefault('default_timeout', 5.0)
+        js_block.setdefault('cpu_time_limit', 2.0)
+        js_block.setdefault('memory_limit_bytes', 256 * 1024 * 1024)
+        js_block.setdefault('max_output_bytes', 64 * 1024)
+        js_block.setdefault('max_file_bytes', 128 * 1024)
+        js_block.setdefault('max_files', 32)
+
+        tools_block['javascript_executor'] = js_block
+        self.config['tools'] = tools_block
 
         tool_safety_block = self.config.get('tool_safety')
         if not isinstance(tool_safety_block, Mapping):
@@ -233,6 +267,8 @@ class ConfigManager:
             'XI_API_KEY': os.getenv('XI_API_KEY'),
             'OPENAI_BASE_URL': os.getenv('OPENAI_BASE_URL'),
             'OPENAI_ORGANIZATION': os.getenv('OPENAI_ORGANIZATION'),
+            'JAVASCRIPT_EXECUTOR_BIN': os.getenv('JAVASCRIPT_EXECUTOR_BIN'),
+            'JAVASCRIPT_EXECUTOR_ARGS': os.getenv('JAVASCRIPT_EXECUTOR_ARGS'),
             'APP_ROOT': os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         }
         self.logger.info(f"APP_ROOT is set to: {config['APP_ROOT']}")
@@ -1241,6 +1277,27 @@ class ConfigManager:
             Any: The value associated with the key, or the default value if key is absent.
         """
         return self.config.get(key, default)
+
+    def get_javascript_executor_settings(self) -> Dict[str, Any]:
+        """Return a sanitized settings block for the JavaScript executor."""
+
+        tools_block = self.get_config('tools', {})
+        settings: Dict[str, Any] = {}
+        if isinstance(tools_block, Mapping):
+            candidate = tools_block.get('javascript_executor')
+            if isinstance(candidate, Mapping):
+                settings.update(candidate)
+
+        args_value = settings.get('args')
+        if isinstance(args_value, str):
+            try:
+                settings['args'] = shlex.split(args_value)
+            except ValueError:
+                settings['args'] = [args_value]
+        elif isinstance(args_value, Sequence) and not isinstance(args_value, (str, bytes)):
+            settings['args'] = list(args_value)
+
+        return settings
 
     def get_model_cache_dir(self) -> str:
         """

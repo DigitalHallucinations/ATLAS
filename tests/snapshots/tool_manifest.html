@@ -35,6 +35,7 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>execute_javascript</td><td>1.0.0</td><td>javascript_exec, code_execution</td><td>high</td><td>No</td><td>Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files.</td></tr>
       <tr><td>execute_python</td><td>1.0.0</td><td>code_execution, analysis</td><td>high</td><td>No</td><td>Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
@@ -101,6 +102,7 @@
     <tbody>
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
       <tr><td>debian12_calendar</td><td>1.1.0</td><td>calendar_read, calendar_write</td><td>—</td><td>No</td><td>Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events.</td></tr>
+      <tr><td>execute_javascript</td><td>1.0.0</td><td>javascript_exec, code_execution</td><td>high</td><td>No</td><td>Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files.</td></tr>
       <tr><td>execute_python</td><td>1.0.0</td><td>code_execution, analysis</td><td>high</td><td>No</td><td>Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement.</td></tr>
       <tr><td>geocode_location</td><td>1.0.0</td><td>geolocation, mapping</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Look up latitude and longitude coordinates for a user-specified location string using OpenWeather&#x27;s geocoding API.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
