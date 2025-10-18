@@ -601,7 +601,7 @@
                         "type": "string"
                     },
                     "minItems": 1,
-                    "description": "Command to execute. Supply either a shell-free string or a tokenized list of arguments."
+                    "description": "Command to execute. Supply a shell-free string or a tokenized list where the first item is the command and remaining items populate positional arguments without using the optional arguments field."
                 },
                 "timeout": {
                     "type": "number",
