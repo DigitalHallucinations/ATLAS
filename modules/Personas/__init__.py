@@ -708,6 +708,9 @@ def load_persona_definition(
     persona_entry["allowed_skills"] = normalize_allowed_skills(
         persona_entry.get("allowed_skills"), metadata_order=skill_order_list
     )
+    persona_entry["collaboration"] = _normalize_collaboration_config(
+        persona_entry.get("collaboration")
+    )
 
     return persona_entry
 
@@ -785,6 +788,80 @@ def _coerce_persona_flag(value: Any) -> bool:
         if lowered in {"false", "0", "no", "off", "disabled"}:
             return False
     return bool(value)
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        if value is None:
+            return float(default)
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _normalize_collaboration_participants(raw_value: Any) -> List[Dict[str, Any]]:
+    participants: List[Dict[str, Any]] = []
+    if not isinstance(raw_value, IterableABC) or isinstance(raw_value, (str, bytes, bytearray)):
+        return participants
+
+    for index, entry in enumerate(raw_value):
+        if isinstance(entry, MappingABC):
+            candidate = dict(entry)
+        else:
+            candidate = {}
+
+        identifier = str(candidate.get("id") or candidate.get("name") or "").strip()
+        if not identifier:
+            identifier = f"agent_{index + 1}"
+
+        participant: Dict[str, Any] = {"id": identifier}
+
+        provider = candidate.get("provider")
+        if provider is not None:
+            participant["provider"] = str(provider).strip()
+
+        model = candidate.get("model")
+        if model is not None:
+            participant["model"] = str(model).strip()
+
+        system_prompt = candidate.get("system_prompt")
+        if system_prompt is not None:
+            participant["system_prompt"] = str(system_prompt)
+
+        weight = candidate.get("weight")
+        if weight is not None:
+            participant["weight"] = _coerce_float(weight, 1.0)
+
+        metadata = candidate.get("metadata")
+        if isinstance(metadata, MappingABC):
+            participant["metadata"] = dict(metadata)
+
+        participants.append(participant)
+
+    return participants
+
+
+def _normalize_collaboration_config(raw_value: Any) -> Dict[str, Any]:
+    if not isinstance(raw_value, MappingABC):
+        return {}
+
+    enabled = _coerce_persona_flag(raw_value.get("enabled"))
+    protocol = str(raw_value.get("protocol") or "vote").strip().lower() or "vote"
+    quorum = _coerce_float(raw_value.get("quorum"), 0.5)
+    timeout = _coerce_float(raw_value.get("timeout"), 10.0)
+
+    config: Dict[str, Any] = {
+        "enabled": enabled,
+        "protocol": protocol,
+        "quorum": max(0.0, min(1.0, quorum)),
+        "timeout": max(0.0, timeout),
+    }
+
+    participants = _normalize_collaboration_participants(raw_value.get("participants"))
+    if participants:
+        config["participants"] = participants
+
+    return config
 
 
 def _persona_flag_enabled(persona: Mapping[str, Any], flag_path: str) -> bool:

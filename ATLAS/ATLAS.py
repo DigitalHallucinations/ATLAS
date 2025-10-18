@@ -758,6 +758,33 @@ class ATLAS:
 
         return []
 
+    def get_negotiation_log(self) -> List[Dict[str, Any]]:
+        """Expose recorded negotiation traces to the UI layer."""
+
+        try:
+            session = self._require_chat_session()
+        except RuntimeError:
+            return []
+
+        getter = getattr(session, "get_negotiation_history", None)
+        if not callable(getter):
+            return []
+
+        try:
+            history = getter()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.error(
+                "Failed to retrieve negotiation history: %s",
+                exc,
+                exc_info=True,
+            )
+            return []
+
+        if isinstance(history, list):
+            return [dict(entry) for entry in history]
+
+        return []
+
     def compute_persona_locked_content(
         self,
         persona_name: Optional[str] = None,

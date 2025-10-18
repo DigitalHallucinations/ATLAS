@@ -104,6 +104,41 @@
                         "$ref": "#/$defs/allowedSkill"
                     },
                     "uniqueItems": true
+                },
+                "collaboration": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "description": "Enable collaborative response generation for this persona.",
+                            "anyOf": [
+                                {"type": "boolean"},
+                                {"type": "string"}
+                            ]
+                        },
+                        "protocol": {
+                            "type": "string",
+                            "enum": ["vote", "critique", "contract_net"],
+                            "default": "vote"
+                        },
+                        "quorum": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1,
+                            "default": 0.5
+                        },
+                        "timeout": {
+                            "type": "number",
+                            "minimum": 0,
+                            "default": 10
+                        },
+                        "participants": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/$defs/collaborationParticipant"
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -114,6 +149,32 @@
         "allowedSkill": {
             "type": "string",
             "enum": []
+        },
+        "collaborationParticipant": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "system_prompt": {
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                },
+                "metadata": {
+                    "type": "object"
+                }
+            }
         }
     }
 }

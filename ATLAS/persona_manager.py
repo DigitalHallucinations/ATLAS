@@ -594,6 +594,59 @@ class PersonaManager:
             "capability_tags": capability_tags,
         }
 
+    def get_active_collaboration_profile(self) -> Dict[str, Any]:
+        """Expose persona-level collaboration directives."""
+
+        persona = self.current_persona or {}
+        config = persona.get("collaboration") if isinstance(persona, MappingABC) else None
+        if isinstance(config, MappingABC):
+            return dict(config)
+        return {}
+
+    def get_skill_collaboration_overrides(self) -> List[Dict[str, Any]]:
+        """Return collaboration directives contributed by enabled skills."""
+
+        persona = self.current_persona or {}
+        persona_name = ""
+        if isinstance(persona, MappingABC):
+            persona_name = str(persona.get("name") or "").strip().lower()
+
+        try:
+            skill_order, skill_lookup = self._get_skill_metadata()
+        except Exception:  # pragma: no cover - defensive fallback
+            return []
+
+        allowed = normalize_allowed_skills(persona.get("allowed_skills"), metadata_order=skill_order)
+        overrides: List[Dict[str, Any]] = []
+
+        for skill_name in allowed:
+            entry = skill_lookup.get(skill_name)
+            if not isinstance(entry, MappingABC):
+                continue
+
+            metadata: Optional[Mapping[str, Any]] = None
+
+            if persona_name:
+                variants = entry.get("persona_variants") if isinstance(entry, MappingABC) else None
+                if isinstance(variants, MappingABC):
+                    candidate = variants.get(persona_name)
+                    if isinstance(candidate, MappingABC):
+                        metadata = candidate
+
+            if metadata is None:
+                shared = entry.get("shared") if isinstance(entry, MappingABC) else None
+                if isinstance(shared, MappingABC):
+                    metadata = shared
+
+            if metadata is None:
+                continue
+
+            collab = metadata.get("collaboration")
+            if isinstance(collab, MappingABC) and collab:
+                overrides.append(dict(collab))
+
+        return overrides
+
     def update_persona(self, persona, *, rationale: str = "Persona manager update"):
         """Update the persona settings and save them to the corresponding file."""
         persona_name = persona.get("name") or ""

@@ -87,6 +87,45 @@ should supply them so personas inherit a consistent UX out of the box.
 This separation lets authors layer persona-specific behavior on top of shared
 skills without removing the shared version from the catalog.
 
+### Collaborative response orchestration
+
+Personas can opt into the multi-agent negotiation layer by adding a
+`collaboration` block to their JSON definition. When enabled, ATLAS will gather
+proposals from the listed participants and run one of the supported protocols
+(`vote`, `critique`, or `contract_net`) before returning the final answer.
+
+```json
+{
+  "persona": [
+    {
+      "name": "Planner",
+      "content": { "start_locked": "", "editable_content": "", "end_locked": "" },
+      "collaboration": {
+        "enabled": true,
+        "protocol": "vote",
+        "quorum": 0.75,
+        "timeout": 0.5,
+        "participants": [
+          { "id": "planner", "provider": "OpenAI", "model": "gpt-4o" },
+          { "id": "reviewer", "provider": "Anthropic", "model": "claude-3" }
+        ]
+      }
+    }
+  ]
+}
+```
+
+The quorum value represents the fraction of participants that must respond
+before a proposal can be selected. Timeouts are expressed in seconds and guard
+the per-participant call; when a participant exceeds the timeout they are marked
+as timed out and the protocol either fails (when quorum cannot be met) or
+continues with the available responses.
+
+Skill manifests support the same structure. If a skill definition includes a
+`collaboration` block the session will merge its settings with the persona's
+defaults whenever that skill is active. Skill overrides can append additional
+participants or tweak the protocol without modifying the persona document.
+
 ## Exporting and importing personas
 
 Persona definitions can be exchanged as signed bundles so that the `allowed_tools`

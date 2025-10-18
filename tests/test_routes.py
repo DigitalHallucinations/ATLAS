@@ -177,6 +177,7 @@ def test_get_skills_returns_serialized_entries(monkeypatch: pytest.MonkeyPatch) 
         capability_tags=["summaries"],
         persona=None,
         source="tests",
+        collaboration=None,
     )
     atlas_skill = SkillMetadata(
         name="atlas_only",
@@ -190,6 +191,7 @@ def test_get_skills_returns_serialized_entries(monkeypatch: pytest.MonkeyPatch) 
         capability_tags=[],
         persona="Atlas",
         source="tests",
+        collaboration=None,
     )
 
     registry = _RegistryStub(

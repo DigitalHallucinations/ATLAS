@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -9,9 +10,16 @@ from concurrent.futures import Future
 from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Iterator, Mapping, Optional, TypeVar, Union
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Mapping, Optional, TypeVar, Union
 
 from modules.background_tasks import run_async_in_thread
+from modules.orchestration.consensus import (
+    NegotiationError,
+    NegotiationOutcome,
+    NegotiationParticipant,
+    Proposal,
+    run_protocol,
+)
 
 
 PathLike = Union[str, os.PathLike, Path]
@@ -34,6 +42,7 @@ class ChatSession:
     def __init__(self, atlas):
         self.ATLAS = atlas
         self.conversation_history = []
+        self.negotiation_history: list[Dict[str, Any]] = []
         self.current_model = None
         self.current_provider = None
         self.current_persona_prompt = None
@@ -90,26 +99,65 @@ class ChatSession:
         if not self.current_model or not self.current_provider:
             self.set_default_provider_and_model()
 
+        provider_manager = self.ATLAS.provider_manager
         try:
-            provider_manager = self.ATLAS.provider_manager
-            try:
-                provider_manager.set_current_conversation_id(self._conversation_id)
-            except AttributeError:  # pragma: no cover - defensive
-                self.ATLAS.logger.debug(
-                    "Provider manager does not support conversation ID updates during send_message."
-                )
-
-            response = await provider_manager.generate_response(
-                messages=self.conversation_history,
-                model=self.current_model,
-                stream=False,
-                conversation_id=self._conversation_id,
-                conversation_manager=self,
-                user=active_user,
+            provider_manager.set_current_conversation_id(self._conversation_id)
+        except AttributeError:  # pragma: no cover - defensive
+            self.ATLAS.logger.debug(
+                "Provider manager does not support conversation ID updates during send_message."
             )
-        except Exception as e:
-            self.ATLAS.logger.error(f"Error generating response: {e}", exc_info=True)
-            raise
+
+        negotiation_metadata: Dict[str, Any] | None = None
+        response: Any = None
+        negotiation_outcome: NegotiationOutcome | None = None
+
+        collaboration_config = self._resolve_collaboration_config()
+        if collaboration_config.get("enabled"):
+            try:
+                negotiation_outcome = await self._run_collaborative_exchange(
+                    collaboration_config,
+                    active_user=active_user,
+                )
+            except NegotiationError as exc:
+                self.ATLAS.logger.error("Negotiation failed: %s", exc, exc_info=True)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.ATLAS.logger.error("Unexpected negotiation error: %s", exc, exc_info=True)
+
+        if negotiation_outcome is not None and getattr(negotiation_outcome, "trace", None) is not None:
+            trace_dict = negotiation_outcome.trace.to_dict()
+            self.record_negotiation_trace(trace_dict)
+            negotiation_metadata = {
+                "trace_id": trace_dict.get("id"),
+                "status": trace_dict.get("status"),
+                "protocol": trace_dict.get("protocol"),
+            }
+            notes = trace_dict.get("notes")
+            if notes:
+                negotiation_metadata["notes"] = notes
+
+            if negotiation_outcome.success and negotiation_outcome.selected_proposal is not None:
+                selected = negotiation_outcome.selected_proposal
+                response = (
+                    selected.payload if selected.payload is not None else selected.content
+                )
+                negotiation_metadata["selected"] = {
+                    "participant": selected.participant_id,
+                    "score": selected.score,
+                }
+
+        if response is None:
+            try:
+                response = await provider_manager.generate_response(
+                    messages=self.conversation_history,
+                    model=self.current_model,
+                    stream=False,
+                    conversation_id=self._conversation_id,
+                    conversation_manager=self,
+                    user=active_user,
+                )
+            except Exception as e:
+                self.ATLAS.logger.error(f"Error generating response: {e}", exc_info=True)
+                raise
 
         response_text: str
         thinking_text: Optional[str] = None
@@ -132,9 +180,11 @@ class ChatSession:
 
         await self.ATLAS.maybe_text_to_speech(response)
 
-        metadata = {"source": "model"}
+        metadata: Dict[str, Any] = {"source": "model"}
         if thinking_text:
             metadata["thinking"] = thinking_text
+        if negotiation_metadata:
+            metadata["negotiation"] = negotiation_metadata
 
         self.add_message(
             user=str(active_user) if active_user is not None else None,
@@ -230,6 +280,7 @@ class ChatSession:
         self.messages_since_last_reminder = 0
         self._conversation_id = self._generate_conversation_id()
         self._last_persona_reminder_index = None
+        self.negotiation_history = []
         self.set_default_provider_and_model()
         provider_manager = getattr(self.ATLAS, "provider_manager", None)
         if provider_manager is not None:
@@ -268,6 +319,281 @@ class ChatSession:
         for message in self.conversation_history:
             # Return a copy to prevent callers from mutating internal state.
             yield dict(message)
+
+    def record_negotiation_trace(self, trace: Mapping[str, Any]) -> None:
+        """Persist ``trace`` for later inspection via the UI."""
+
+        try:
+            payload = dict(trace)
+        except Exception:  # pragma: no cover - defensive fallback
+            payload = {"data": trace}
+        self.negotiation_history.append(payload)
+
+    def get_negotiation_history(self) -> list[Dict[str, Any]]:
+        """Return copies of recorded negotiation traces."""
+
+        return [dict(entry) for entry in self.negotiation_history]
+
+    def _resolve_collaboration_config(self) -> Dict[str, Any]:
+        persona_manager = getattr(self.ATLAS, "persona_manager", None)
+        base_config: Dict[str, Any] = {}
+        overrides: List[Mapping[str, Any]] = []
+
+        if persona_manager is not None:
+            persona_getter = getattr(persona_manager, "get_active_collaboration_profile", None)
+            if callable(persona_getter):
+                try:
+                    candidate = persona_getter() or {}
+                except Exception:  # pragma: no cover - defensive logging upstream
+                    candidate = {}
+                if isinstance(candidate, Mapping):
+                    base_config = dict(candidate)
+
+            override_getter = getattr(persona_manager, "get_skill_collaboration_overrides", None)
+            if callable(override_getter):
+                try:
+                    skill_overrides = override_getter() or []
+                except Exception:  # pragma: no cover - defensive logging upstream
+                    skill_overrides = []
+                for override in skill_overrides:
+                    if isinstance(override, Mapping):
+                        overrides.append(override)
+
+        history_requests = self._extract_history_collaboration_requests()
+        overrides.extend(history_requests)
+
+        config = dict(base_config) if base_config else {}
+        for override in overrides:
+            config = self._merge_collaboration_configs(config, override)
+
+        return config
+
+    def _extract_history_collaboration_requests(self) -> List[Mapping[str, Any]]:
+        requests: List[Mapping[str, Any]] = []
+        for message in reversed(self.conversation_history):
+            metadata = message.get("metadata") if isinstance(message, Mapping) else None
+            if not isinstance(metadata, Mapping):
+                continue
+            collab = metadata.get("collaboration")
+            if isinstance(collab, Mapping):
+                requests.append(collab)
+                break
+        return requests
+
+    def _merge_collaboration_configs(
+        self, base: Mapping[str, Any], override: Mapping[str, Any]
+    ) -> Dict[str, Any]:
+        merged = dict(base) if isinstance(base, Mapping) else {}
+        if not isinstance(override, Mapping):
+            return merged
+
+        if "enabled" in override:
+            merged["enabled"] = self._coerce_bool(override.get("enabled"))
+        if override.get("protocol"):
+            merged["protocol"] = str(override.get("protocol")).strip().lower()
+        if "quorum" in override:
+            merged["quorum"] = self._clamp_float(
+                override.get("quorum"),
+                default=float(merged.get("quorum", 0.5)),
+                minimum=0.0,
+                maximum=1.0,
+            )
+        if "timeout" in override:
+            merged["timeout"] = self._clamp_float(
+                override.get("timeout"),
+                default=float(merged.get("timeout", 10.0)),
+                minimum=0.0,
+                maximum=None,
+            )
+
+        participants = list(merged.get("participants") or [])
+        incoming = override.get("participants")
+        if isinstance(incoming, list):
+            for participant in incoming:
+                if isinstance(participant, Mapping):
+                    participants.append(dict(participant))
+        if participants:
+            merged["participants"] = participants
+
+        return merged
+
+    async def _run_collaborative_exchange(
+        self, config: Mapping[str, Any], *, active_user: Optional[str]
+    ) -> Optional[NegotiationOutcome]:
+        provider_manager = getattr(self.ATLAS, "provider_manager", None)
+        if provider_manager is None:
+            return None
+
+        participants = self._build_negotiation_participants(config)
+        if len(participants) < 2:
+            return None
+
+        context = {
+            "conversation_id": self._conversation_id,
+            "user": active_user,
+            "persona_prompt": self.current_persona_prompt,
+        }
+
+        desired_provider = self.current_provider
+        try:
+            outcome = await run_protocol(
+                config.get("protocol", "vote"),
+                participants,
+                context=context,
+                quorum_threshold=float(config.get("quorum", 0.5) or 0.0),
+                timeout=float(config.get("timeout", 10.0) or 0.0),
+            )
+        finally:
+            try:
+                current_provider = getattr(provider_manager, "current_llm_provider", None)
+            except Exception:  # pragma: no cover - defensive access
+                current_provider = None
+
+            if (
+                desired_provider
+                and current_provider
+                and desired_provider != current_provider
+            ):
+                restorer = getattr(provider_manager, "switch_llm_provider", None)
+                if callable(restorer):
+                    try:
+                        await restorer(desired_provider)
+                    except Exception:  # pragma: no cover - defensive logging
+                        self.ATLAS.logger.debug(
+                            "Failed to restore provider after negotiation.",
+                            exc_info=True,
+                        )
+
+        return outcome
+
+    def _build_negotiation_participants(
+        self, config: Mapping[str, Any]
+    ) -> List[NegotiationParticipant]:
+        provider_manager = getattr(self.ATLAS, "provider_manager", None)
+        if provider_manager is None:
+            return []
+
+        participant_configs = config.get("participants")
+        if not isinstance(participant_configs, list) or not participant_configs:
+            participant_configs = [
+                {
+                    "id": "primary",
+                    "provider": self.current_provider,
+                    "model": self.current_model,
+                }
+            ]
+
+        participants: List[NegotiationParticipant] = []
+
+        for index, entry in enumerate(participant_configs):
+            if not isinstance(entry, Mapping):
+                continue
+
+            agent_id = str(entry.get("id") or f"agent_{index + 1}").strip() or f"agent_{index + 1}"
+            config_copy = dict(entry)
+
+            async def _propose(
+                context: Mapping[str, Any],
+                *,
+                agent_id: str = agent_id,
+                config_copy: Mapping[str, Any] = config_copy,
+            ) -> Proposal:
+                messages = self._prepare_negotiation_messages(config_copy.get("system_prompt"))
+                provider = config_copy.get("provider") or self.current_provider
+                model = config_copy.get("model") or self.current_model
+                payload = await provider_manager.generate_response(
+                    messages=messages,
+                    model=model,
+                    provider=provider,
+                    stream=False,
+                    conversation_id=self._conversation_id,
+                    conversation_manager=self,
+                    user=context.get("user"),
+                )
+                return self._build_proposal(agent_id, payload, config_copy)
+
+            participants.append(
+                NegotiationParticipant(
+                    participant_id=agent_id,
+                    propose=_propose,
+                )
+            )
+
+        return participants
+
+    def _prepare_negotiation_messages(self, system_prompt: Any) -> List[Dict[str, Any]]:
+        history = [dict(message) for message in self.conversation_history]
+        if system_prompt:
+            history.insert(0, {"role": "system", "content": str(system_prompt)})
+        return history
+
+    def _build_proposal(
+        self,
+        agent_id: str,
+        payload: Any,
+        config: Mapping[str, Any],
+    ) -> Proposal:
+        extra_metadata = config.get("metadata")
+        metadata: Dict[str, Any] = dict(extra_metadata) if isinstance(extra_metadata, Mapping) else {}
+        default_weight = config.get("weight")
+
+        if isinstance(payload, Mapping):
+            text = str(payload.get("text") or payload.get("content") or "")
+            score = payload.get("score")
+            rationale = payload.get("rationale")
+            payload_metadata = payload.get("metadata")
+            if isinstance(payload_metadata, Mapping):
+                metadata.update(payload_metadata)
+        else:
+            text = str(payload or "")
+            score = None
+            rationale = None
+
+        normalized_score = self._clamp_float(
+            score,
+            default=self._clamp_float(default_weight, default=1.0, minimum=None, maximum=None),
+            minimum=None,
+            maximum=None,
+        )
+
+        return Proposal(
+            participant_id=agent_id,
+            content=text,
+            score=normalized_score,
+            rationale=rationale,
+            payload=payload,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool:
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "1", "yes", "on", "enabled"}:
+                return True
+            if lowered in {"false", "0", "no", "off", "disabled"}:
+                return False
+        return bool(value)
+
+    @staticmethod
+    def _clamp_float(
+        value: Any,
+        *,
+        default: float,
+        minimum: Optional[float],
+        maximum: Optional[float],
+    ) -> float:
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            result = float(default)
+
+        if minimum is not None and result < minimum:
+            result = minimum
+        if maximum is not None and result > maximum:
+            result = maximum
+
+        return result
 
     @staticmethod
     def _current_timestamp() -> str:
