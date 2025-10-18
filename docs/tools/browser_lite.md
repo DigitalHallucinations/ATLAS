@@ -28,6 +28,19 @@ assistant unrestricted access to the open web.
 }
 ```
 
+## Setup
+
+Browser Lite will automatically enable screenshot capture when Playwright is installed and its
+browser binaries are provisioned. After installing the project dependencies, run:
+
+```bash
+pip install -r requirements.txt
+playwright install
+```
+
+The `playwright install` command downloads the Chromium runtime that Browser Lite relies on when a
+page screenshot is requested.
+
 ### Form submissions
 
 Form submissions are categorised as high risk. To enable them you must:

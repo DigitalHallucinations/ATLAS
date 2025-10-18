@@ -12,6 +12,9 @@ SQLAlchemy>=1.4,<3
 
 PyGObject
 
+# Browser automation
+playwright
+
 # LLM Providers
 # These are required for accessing various language model APIs.
 # You can install only the ones you need.
