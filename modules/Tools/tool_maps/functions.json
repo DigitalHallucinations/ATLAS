@@ -1593,4 +1593,231 @@
             ]
         }
     }
+    ,
+    {
+        "name": "task_queue_enqueue",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "task",
+            "guidance": "Derive a deterministic token from the task payload and logical identifier when retrying enqueue requests."
+        },
+        "capabilities": [
+            "task_queue"
+        ],
+        "policy_flags": {
+            "writes_task_queue": true
+        },
+        "providers": [
+            {
+                "name": "task_queue_default",
+                "priority": 0,
+                "health_check_interval": 0,
+                "config": {}
+            }
+        ],
+        "description": "Enqueue a one-off task into the durable task queue with optional execution delay.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable name for the task."
+                },
+                "payload": {
+                    "type": "object",
+                    "description": "JSON-serialisable payload forwarded to the task executor.",
+                    "additionalProperties": true
+                },
+                "delay_seconds": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Optional delay in seconds before the task is executed."
+                },
+                "run_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Absolute timestamp (ISO 8601) when the task should run. Overrides delay_seconds when provided."
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "description": "Deterministic key used to deduplicate enqueue requests."
+                }
+            },
+            "required": [
+                "name",
+                "payload",
+                "idempotency_key"
+            ]
+        }
+    },
+    {
+        "name": "task_queue_schedule",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "schedule",
+            "guidance": "Reuse the same idempotency key when recreating a cron schedule to avoid duplicate jobs."
+        },
+        "capabilities": [
+            "task_queue"
+        ],
+        "policy_flags": {
+            "writes_task_queue": true
+        },
+        "providers": [
+            {
+                "name": "task_queue_default",
+                "priority": 0,
+                "health_check_interval": 0,
+                "config": {}
+            }
+        ],
+        "description": "Register or replace a cron-style recurring task in the durable queue.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable name for the schedule."
+                },
+                "cron_schedule": {
+                    "type": "string",
+                    "description": "Standard cron expression describing when the task should execute."
+                },
+                "cron_fields": {
+                    "type": "object",
+                    "description": "Optional structured cron field mapping passed directly to the scheduler.",
+                    "additionalProperties": true
+                },
+                "payload": {
+                    "type": "object",
+                    "description": "JSON-serialisable payload forwarded to the executor each run.",
+                    "additionalProperties": true
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "description": "Deterministic key used to deduplicate cron registrations."
+                }
+            },
+            "required": [
+                "name",
+                "payload",
+                "idempotency_key"
+            ],
+            "anyOf": [
+                {
+                    "required": [
+                        "cron_schedule"
+                    ]
+                },
+                {
+                    "required": [
+                        "cron_fields"
+                    ]
+                }
+            ]
+        }
+    },
+    {
+        "name": "task_queue_cancel",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "job_id",
+            "guidance": "Reuse the job identifier as the idempotency token when retrying cancel requests."
+        },
+        "capabilities": [
+            "task_queue"
+        ],
+        "policy_flags": {
+            "writes_task_queue": true
+        },
+        "providers": [
+            {
+                "name": "task_queue_default",
+                "priority": 0,
+                "health_check_interval": 0,
+                "config": {}
+            }
+        ],
+        "description": "Cancel a queued or scheduled task.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "string",
+                    "description": "Identifier returned when the task or schedule was created."
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "description": "Token used to deduplicate cancel attempts, typically the job_id."
+                }
+            },
+            "required": [
+                "job_id",
+                "idempotency_key"
+            ]
+        }
+    },
+    {
+        "name": "task_queue_status",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 3,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": false,
+            "scope": "job_id",
+            "guidance": "Optional token mirroring the job_id to aid with caching status requests."
+        },
+        "capabilities": [
+            "task_queue"
+        ],
+        "policy_flags": {
+            "reads_task_queue": true
+        },
+        "providers": [
+            {
+                "name": "task_queue_default",
+                "priority": 0,
+                "health_check_interval": 0,
+                "config": {}
+            }
+        ],
+        "description": "Retrieve the current state and retry metadata for a queued task.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "string",
+                    "description": "Identifier of the task or schedule to inspect."
+                }
+            },
+            "required": [
+                "job_id"
+            ]
+        }
+    }
 ]
