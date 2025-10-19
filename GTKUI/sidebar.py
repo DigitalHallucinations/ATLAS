@@ -48,6 +48,7 @@ class MainWindow(AtlasWindow):
         layout.set_hexpand(True)
         layout.set_vexpand(True)
         self.set_child(layout)
+        self.connect("close-request", self.close_application)
 
         self.sidebar = _NavigationSidebar(self)
         layout.append(self.sidebar)
@@ -169,11 +170,12 @@ class MainWindow(AtlasWindow):
 
         self._open_or_focus_page("accounts", "Accounts", factory)
 
-    def close_application(self) -> None:
+    def close_application(self, *_args) -> bool:
         logger.info("Closing application")
         app = self.get_application()
         if app:
             app.quit()
+        return False
 
     # ------------------------------------------------------------------
     # Page management helpers
@@ -422,13 +424,6 @@ class _NavigationSidebar(Gtk.Box):
             "Settings",
             container=bottom_box,
         )
-        self._create_icon(
-            "Icons/power_button.png",
-            self.main_window.close_application,
-            "Quit",
-            container=bottom_box,
-        )
-
         content_box.append(bottom_box)
 
     # ------------------------------------------------------------------
