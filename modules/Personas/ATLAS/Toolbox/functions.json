@@ -79,6 +79,10 @@
                         "timestamp"
                     ],
                     "default": "timestamp"
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "Optional IANA timezone identifier (e.g., \"America/New_York\"). Defaults to the configured timezone or UTC."
                 }
             },
             "required": []
