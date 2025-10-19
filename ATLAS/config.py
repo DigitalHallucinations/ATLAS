@@ -3081,6 +3081,159 @@ class ConfigManager:
 
         return self._collect_credential_status(sorted(env_keys))
 
+    def get_skill_config_snapshot(
+        self,
+        *,
+        manifest_lookup: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        skill_names: Optional[Iterable[str]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return sanitized skill configuration data for UI consumption."""
+
+        config_skills = self.config.get("skills", {})
+        yaml_skills = self.yaml_config.get("skills", {})
+
+        candidates: List[str] = []
+        if isinstance(skill_names, Iterable):
+            for name in skill_names:
+                if isinstance(name, str):
+                    token = name.strip()
+                    if token and token not in candidates:
+                        candidates.append(token)
+
+        if isinstance(config_skills, Mapping):
+            for name in config_skills.keys():
+                token = str(name)
+                if token and token not in candidates:
+                    candidates.append(token)
+
+        if isinstance(yaml_skills, Mapping):
+            for name in yaml_skills.keys():
+                token = str(name)
+                if token and token not in candidates:
+                    candidates.append(token)
+
+        if isinstance(manifest_lookup, Mapping):
+            for name in manifest_lookup.keys():
+                token = str(name)
+                if token and token not in candidates:
+                    candidates.append(token)
+
+        snapshot: Dict[str, Dict[str, Any]] = {}
+
+        for name in candidates:
+            settings_block: Dict[str, Any] = {}
+
+            if isinstance(config_skills, Mapping) and name in config_skills:
+                settings_block = self._sanitize_tool_settings_block(config_skills[name])
+            elif isinstance(yaml_skills, Mapping) and name in yaml_skills:
+                settings_block = self._sanitize_tool_settings_block(yaml_skills[name])
+
+            auth_block: Optional[Mapping[str, Any]] = None
+            if isinstance(manifest_lookup, Mapping):
+                manifest_entry = manifest_lookup.get(name)
+                if isinstance(manifest_entry, Mapping):
+                    auth_candidate = manifest_entry.get("auth")
+                    if isinstance(auth_candidate, Mapping):
+                        auth_block = auth_candidate
+
+            env_keys = self._extract_auth_env_keys(auth_block)
+            credentials = self._collect_credential_status(env_keys)
+
+            snapshot[name] = {
+                "settings": copy.deepcopy(settings_block),
+                "credentials": credentials,
+            }
+
+        return snapshot
+
+    def set_skill_settings(self, skill_name: str, settings: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+        """Persist sanitized skill settings to the YAML configuration."""
+
+        normalized_name = str(skill_name or "").strip()
+        if not normalized_name:
+            raise ValueError("Skill name is required when updating settings.")
+
+        sanitized_settings: Dict[str, Any] = {}
+        if settings is not None:
+            if not isinstance(settings, Mapping):
+                raise TypeError("Skill settings must be a mapping when provided.")
+            sanitized_settings = self._sanitize_tool_settings_block(settings)
+
+        yaml_skills_block: Dict[str, Any] = {}
+        existing_yaml_skills = self.yaml_config.get("skills")
+        if isinstance(existing_yaml_skills, Mapping):
+            yaml_skills_block = copy.deepcopy(existing_yaml_skills)
+
+        config_skills_block: Dict[str, Any] = {}
+        existing_config_skills = self.config.get("skills")
+        if isinstance(existing_config_skills, Mapping):
+            config_skills_block = copy.deepcopy(existing_config_skills)
+
+        if sanitized_settings:
+            yaml_skills_block[normalized_name] = copy.deepcopy(sanitized_settings)
+            config_skills_block[normalized_name] = copy.deepcopy(sanitized_settings)
+        else:
+            yaml_skills_block.pop(normalized_name, None)
+            config_skills_block.pop(normalized_name, None)
+
+        if yaml_skills_block:
+            self.yaml_config["skills"] = yaml_skills_block
+        else:
+            self.yaml_config.pop("skills", None)
+
+        self.config["skills"] = config_skills_block
+
+        self._write_yaml_config()
+        return copy.deepcopy(sanitized_settings)
+
+    def set_skill_credentials(
+        self,
+        skill_name: str,
+        credentials: Mapping[str, Any],
+        *,
+        manifest_auth: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Persist skill credentials according to manifest-defined environment keys."""
+
+        if not isinstance(credentials, Mapping):
+            raise TypeError("Skill credentials payload must be a mapping.")
+
+        normalized_name = str(skill_name or "").strip()
+        if not normalized_name:
+            raise ValueError("Skill name is required when updating credentials.")
+
+        env_keys = set(self._extract_auth_env_keys(manifest_auth))
+        if not env_keys:
+            for candidate in credentials.keys():
+                if isinstance(candidate, str) and candidate.strip():
+                    env_keys.add(candidate.strip())
+
+        for raw_key in credentials.keys():
+            if not isinstance(raw_key, str):
+                continue
+            token = raw_key.strip()
+            if not token:
+                continue
+            if token not in env_keys:
+                env_keys.add(token)
+
+        for env_key in sorted(env_keys):
+            value = credentials.get(env_key, ConfigManager.UNSET)
+            if value is ConfigManager.UNSET:
+                continue
+
+            if value is None:
+                sanitized = None
+            else:
+                text = str(value)
+                sanitized = text.strip()
+                if not sanitized:
+                    sanitized = None
+
+            self._persist_env_value(env_key, sanitized)
+
+        return self._collect_credential_status(sorted(env_keys))
+
     # Additional methods to handle TTS_ENABLED from config.yaml
     def get_tts_enabled(self) -> bool:
         """

@@ -6,7 +6,7 @@ import copy
 import getpass
 import json
 from datetime import datetime
-from collections.abc import AsyncIterator as AbcAsyncIterator, Mapping
+from collections.abc import AsyncIterator as AbcAsyncIterator, Mapping, Sequence as AbcSequence
 from concurrent.futures import Future
 from pathlib import Path
 from typing import (
@@ -31,6 +31,7 @@ from modules.background_tasks import run_async_in_thread
 from modules.user_accounts.user_account_service import PasswordRequirements
 from modules.Server import AtlasServer
 from modules.orchestration.capability_registry import get_capability_registry
+from modules.Skills import load_skill_metadata
 
 class ATLAS:
     """
@@ -247,6 +248,54 @@ class ATLAS:
             "health": self._serialize_tool_health(view.health),
         }
 
+    def _serialize_skill_entry(self, manifest: Any) -> Dict[str, Any]:
+        """Return manifest metadata for a skill entry."""
+
+        def _read(field: str, default: Any = None) -> Any:
+            if isinstance(manifest, Mapping):
+                return manifest.get(field, default)
+            return getattr(manifest, field, default)
+
+        def _normalize_sequence(value: Any) -> List[Any]:
+            if value is None:
+                return []
+            if isinstance(value, (str, bytes, bytearray)):
+                return [value]
+            if isinstance(value, AbcSequence):
+                return [copy.deepcopy(item) for item in value]
+            try:
+                return [copy.deepcopy(item) for item in list(value)]
+            except TypeError:
+                return [value] if value is not None else []
+
+        raw_collaboration = _read("collaboration")
+        collaboration_block = (
+            copy.deepcopy(raw_collaboration)
+            if isinstance(raw_collaboration, Mapping)
+            else None
+        )
+
+        raw_auth = _read("auth")
+        auth_block = copy.deepcopy(raw_auth) if isinstance(raw_auth, Mapping) else None
+
+        payload: Dict[str, Any] = {
+            "name": _read("name", ""),
+            "persona": _read("persona"),
+            "version": _read("version"),
+            "instruction_prompt": _read("instruction_prompt"),
+            "required_tools": _normalize_sequence(_read("required_tools")),
+            "required_capabilities": _normalize_sequence(_read("required_capabilities")),
+            "safety_notes": _read("safety_notes"),
+            "summary": _read("summary"),
+            "category": _read("category"),
+            "capability_tags": _normalize_sequence(_read("capability_tags")),
+            "source": _read("source"),
+            "collaboration": collaboration_block,
+            "auth": auth_block,
+        }
+
+        return payload
+
     def _refresh_tool_caches(self) -> None:
         """Refresh cached tool metadata after configuration changes."""
 
@@ -263,6 +312,23 @@ class ATLAS:
             )
         except Exception as exc:  # pragma: no cover - defensive guard
             self.logger.debug("Failed to refresh tool manager cache: %s", exc)
+
+    def _refresh_skill_caches(self) -> None:
+        """Refresh cached skill metadata after configuration changes."""
+
+        registry = get_capability_registry(config_manager=self.config_manager)
+        try:
+            registry.refresh(force=True)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            self.logger.debug("Failed to refresh capability registry for skills: %s", exc)
+
+        manager = getattr(self, "persona_manager", None)
+        if manager is not None:
+            try:
+                if hasattr(manager, "_skill_metadata_cache"):
+                    manager._skill_metadata_cache = None
+            except Exception as exc:  # pragma: no cover - defensive guard
+                self.logger.debug("Failed to reset persona skill metadata cache: %s", exc)
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """Return merged tool metadata with persisted configuration state."""
@@ -322,6 +388,81 @@ class ATLAS:
             manifest_auth=auth_block,
         )
         self._refresh_tool_caches()
+        return status
+
+    def list_skills(self) -> List[Dict[str, Any]]:
+        """Return merged skill metadata with persisted configuration state."""
+
+        entries = load_skill_metadata(config_manager=self.config_manager)
+
+        manifest_lookup: Dict[str, Dict[str, Any]] = {}
+        serialized_entries: List[Dict[str, Any]] = []
+
+        for manifest in entries:
+            payload = self._serialize_skill_entry(manifest)
+            name = payload.get("name")
+            if not name:
+                continue
+
+            serialized_entries.append(payload)
+
+            auth_block: Optional[Mapping[str, Any]]
+            if isinstance(manifest, Mapping):
+                candidate = manifest.get("auth")
+            else:
+                candidate = getattr(manifest, "auth", None)
+            auth_block = candidate if isinstance(candidate, Mapping) else None
+
+            manifest_entry = manifest_lookup.setdefault(name, {})
+            if auth_block:
+                manifest_entry["auth"] = auth_block
+
+        snapshot = self.config_manager.get_skill_config_snapshot(
+            manifest_lookup=manifest_lookup if manifest_lookup else None,
+            skill_names=[entry.get("name", "") for entry in serialized_entries],
+        )
+
+        for entry in serialized_entries:
+            name = entry.get("name")
+            config_record = snapshot.get(name, {})
+            entry["settings"] = copy.deepcopy(config_record.get("settings", {}))
+            entry["credentials"] = copy.deepcopy(config_record.get("credentials", {}))
+
+        return serialized_entries
+
+    def update_skill_settings(self, skill_name: str, settings: Mapping[str, Any]) -> Dict[str, Any]:
+        """Persist skill settings and refresh dependent caches."""
+
+        updated = self.config_manager.set_skill_settings(skill_name, settings)
+        self._refresh_skill_caches()
+        return updated
+
+    def update_skill_credentials(
+        self,
+        skill_name: str,
+        credentials: Mapping[str, Any],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Persist skill credentials according to manifest metadata."""
+
+        manifest_auth: Optional[Mapping[str, Any]] = None
+        for manifest in load_skill_metadata(config_manager=self.config_manager):
+            name = None
+            if isinstance(manifest, Mapping):
+                name = manifest.get("name")
+                candidate = manifest.get("auth")
+            else:
+                name = getattr(manifest, "name", None)
+                candidate = getattr(manifest, "auth", None)
+            if name == skill_name and isinstance(candidate, Mapping):
+                manifest_auth = candidate
+                break
+
+        status = self.config_manager.set_skill_credentials(
+            skill_name,
+            credentials,
+            manifest_auth=manifest_auth,
+        )
+        self._refresh_skill_caches()
         return status
 
     def _get_user_account_service(self):
