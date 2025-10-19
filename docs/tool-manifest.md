@@ -28,7 +28,7 @@ following fields:
 | `version` | string | Human readable semantic version for the tool. |
 | `side_effects` | string | One of `"none"`, `"write"`, `"network"`, `"read_external_service"`, `"filesystem"`, `"compute"`, `"system"`, or `"database"`, signalling the type of external interaction the tool performs. |
 | `default_timeout` | integer | Preferred execution timeout in seconds for the tool. |
-| `auth` | object | Authentication requirements, e.g. `{ "required": true, "type": "api_key", "env": "GOOGLE_API_KEY", "docs": "Set GOOGLE_API_KEY (preferred) or SERPAPI_KEY in your environment or configuration to authenticate with SerpAPI." }`. |
+| `auth` | object | Authentication requirements, e.g. `{ "required": true, "type": "api_key", "env": "GOOGLE_API_KEY", "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback." }`. |
 | `allow_parallel` | boolean | Indicates whether the tool is safe to invoke in parallel with itself. |
 
 Additional fields (such as `description` and `parameters`) continue to follow
@@ -87,7 +87,7 @@ regressions will be caught in CI.
     "required": true,
     "type": "api_key",
     "env": "GOOGLE_API_KEY",
-    "docs": "Set GOOGLE_API_KEY (preferred) or SERPAPI_KEY in your environment or configuration to authenticate with SerpAPI."
+    "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback."
   },
   "allow_parallel": true,
   "description": "A Google search result API...",
@@ -117,7 +117,7 @@ regressions will be caught in CI.
             "version": "1.0.0",
             "side_effects": "none",
             "default_timeout": 30,
-            "auth": {"required": True, "type": "api_key", "env": "GOOGLE_API_KEY", "docs": "Set GOOGLE_API_KEY (preferred) or SERPAPI_KEY in your environment or configuration to authenticate with SerpAPI."},
+            "auth": {"required": True, "type": "api_key", "env": "GOOGLE_API_KEY", "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback."},
             "allow_parallel": True,
         },
     },
@@ -127,6 +127,18 @@ regressions will be caught in CI.
 
 The callable can still be executed directly, while the immutable `metadata`
 mapping provides the manifest hints described above.
+
+### Provider selection rules
+
+When a manifest entry lists multiple providers, the dispatcher evaluates them in
+ascending `priority` order and skips any option that fails its health check or
+is currently backing off after previous errors. The Google search tool now
+declares an official Google Programmable Search provider (`google_cse`) ahead of
+the legacy SerpAPI integration. The CSE provider only reports healthy when both
+`GOOGLE_API_KEY` and `GOOGLE_CSE_ID` are configured (either in the application
+config or environment). If either credential is missing, the router
+automatically falls back to the SerpAPI provider, which still honours
+`GOOGLE_API_KEY`/`SERPAPI_KEY` for compatibility.
 
 ## Capability registry
 

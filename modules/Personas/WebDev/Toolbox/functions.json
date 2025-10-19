@@ -8,7 +8,7 @@
             "required": true,
             "type": "api_key",
             "env": "GOOGLE_API_KEY",
-            "docs": "Set GOOGLE_API_KEY (preferred) or SERPAPI_KEY in your environment or configuration to authenticate with SerpAPI."
+            "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback."
         },
         "allow_parallel": true,
         "idempotency_key": false,
@@ -39,8 +39,19 @@
         ],
         "providers": [
             {
-                "name": "serpapi",
+                "name": "google_cse",
                 "priority": 0,
+                "health_check_interval": 300,
+                "config": {
+                    "api_key_env": "GOOGLE_API_KEY",
+                    "api_key_config": "GOOGLE_API_KEY",
+                    "cse_id_env": "GOOGLE_CSE_ID",
+                    "cse_id_config": "GOOGLE_CSE_ID"
+                }
+            },
+            {
+                "name": "serpapi",
+                "priority": 10,
                 "health_check_interval": 300
             }
         ]

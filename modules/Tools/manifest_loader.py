@@ -45,6 +45,7 @@ class ToolManifestEntry:
     cost_per_call: Optional[float]
     cost_unit: Optional[str]
     persona_allowlist: List[str]
+    requires_flags: Dict[str, List[str]]
     providers: List[Mapping[str, Any]]
     source: str
 
@@ -159,6 +160,7 @@ def _normalize_entry(
         "cost_per_call": _coerce_optional_float(entry.get("cost_per_call")),
         "cost_unit": _coerce_optional_string(entry.get("cost_unit")),
         "persona_allowlist": _coerce_string_list(entry.get("persona_allowlist")),
+        "requires_flags": _normalize_requires_flags(entry.get("requires_flags")),
         "providers": _coerce_provider_list(entry.get("providers")),
     }
 
@@ -178,6 +180,7 @@ def _normalize_entry(
         cost_per_call=metadata["cost_per_call"],
         cost_unit=metadata["cost_unit"],
         persona_allowlist=metadata["persona_allowlist"],
+        requires_flags=metadata["requires_flags"],
         providers=metadata["providers"],
         source=_relative_source(source, app_root),
     )
@@ -312,6 +315,18 @@ def _normalize_auth(value: Any) -> Dict[str, Any]:
     if value is None:
         return {"required": False}
     return {"required": bool(value)}
+
+
+def _normalize_requires_flags(value: Any) -> Dict[str, List[str]]:
+    if not isinstance(value, Mapping):
+        return {}
+    normalized: Dict[str, List[str]] = {}
+    for key, entries in value.items():
+        flag_name = _coerce_string(key)
+        if not flag_name:
+            continue
+        normalized[flag_name] = _coerce_string_list(entries)
+    return normalized
 
 
 def _relative_source(path: Path, app_root: Path) -> str:
