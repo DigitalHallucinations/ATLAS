@@ -21,33 +21,75 @@ if "dotenv" not in sys.modules:
 from modules.Tools.Base_Tools.Google_search import GoogleSearch, config_manager
 
 
+SEARCH_KEYS = ("GOOGLE_API_KEY", "SERPAPI_KEY")
+
+
 @pytest.fixture
-def reset_serpapi_config():
+def reset_search_config():
     original_config = dict(config_manager.config)
-    original_env = os.getenv("SERPAPI_KEY")
+    original_env = {key: os.getenv(key) for key in SEARCH_KEYS}
     try:
         yield
     finally:
         config_manager.config.clear()
         config_manager.config.update(original_config)
-        if original_env is None:
-            os.environ.pop("SERPAPI_KEY", None)
-        else:
-            os.environ["SERPAPI_KEY"] = original_env
+        for key, value in original_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
-def test_google_search_prefers_configured_key_over_environment(monkeypatch, reset_serpapi_config):
-    monkeypatch.setenv("SERPAPI_KEY", "from-env")
-    config_manager.config["SERPAPI_KEY"] = "from-config"
+def test_google_search_prefers_configured_google_key_over_other_sources(monkeypatch, reset_search_config):
+    monkeypatch.setenv("GOOGLE_API_KEY", "from-env")
+    monkeypatch.setenv("SERPAPI_KEY", "legacy-env")
+    config_manager.config["GOOGLE_API_KEY"] = "from-config"
+    config_manager.config["SERPAPI_KEY"] = "legacy-config"
 
     search = GoogleSearch()
 
     assert search.api_key == "from-config"
 
 
-def test_google_search_returns_error_when_key_missing(monkeypatch, reset_serpapi_config):
-    monkeypatch.delenv("SERPAPI_KEY", raising=False)
+def test_google_search_uses_google_env_before_legacy_sources(monkeypatch, reset_search_config):
+    config_manager.config.pop("GOOGLE_API_KEY", None)
     config_manager.config.pop("SERPAPI_KEY", None)
+    monkeypatch.setenv("GOOGLE_API_KEY", "from-env")
+    monkeypatch.setenv("SERPAPI_KEY", "legacy-env")
+
+    search = GoogleSearch()
+
+    assert search.api_key == "from-env"
+
+
+def test_google_search_falls_back_to_legacy_config(monkeypatch, reset_search_config):
+    for key in SEARCH_KEYS:
+        config_manager.config.pop(key, None)
+        monkeypatch.delenv(key, raising=False)
+
+    config_manager.config["SERPAPI_KEY"] = "legacy-config"
+
+    search = GoogleSearch()
+
+    assert search.api_key == "legacy-config"
+
+
+def test_google_search_falls_back_to_legacy_environment(monkeypatch, reset_search_config):
+    for key in SEARCH_KEYS:
+        config_manager.config.pop(key, None)
+        monkeypatch.delenv(key, raising=False)
+
+    monkeypatch.setenv("SERPAPI_KEY", "legacy-env")
+
+    search = GoogleSearch()
+
+    assert search.api_key == "legacy-env"
+
+
+def test_google_search_returns_error_when_key_missing(monkeypatch, reset_search_config):
+    for key in SEARCH_KEYS:
+        monkeypatch.delenv(key, raising=False)
+        config_manager.config.pop(key, None)
 
     called = False
 
@@ -65,5 +107,6 @@ def test_google_search_returns_error_when_key_missing(monkeypatch, reset_serpapi
     status, message = asyncio.run(search._search("test query"))
 
     assert status == -1
-    assert "SerpAPI key is not configured" in message
+    assert "GOOGLE_API_KEY" in message
+    assert "SERPAPI_KEY" in message
     assert called is False

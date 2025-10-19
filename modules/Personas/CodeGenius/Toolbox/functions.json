@@ -7,7 +7,8 @@
         "auth": {
             "required": true,
             "type": "api_key",
-            "env": "GOOGLE_API_KEY"
+            "env": "GOOGLE_API_KEY",
+            "docs": "Set GOOGLE_API_KEY (preferred) or SERPAPI_KEY in your environment or configuration to authenticate with SerpAPI."
         },
         "allow_parallel": true,
         "idempotency_key": false,

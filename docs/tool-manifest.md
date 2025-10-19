@@ -28,7 +28,7 @@ following fields:
 | `version` | string | Human readable semantic version for the tool. |
 | `side_effects` | string | One of `"none"`, `"write"`, `"network"`, `"read_external_service"`, `"filesystem"`, `"compute"`, `"system"`, or `"database"`, signalling the type of external interaction the tool performs. |
 | `default_timeout` | integer | Preferred execution timeout in seconds for the tool. |
-| `auth` | object | Authentication requirements, e.g. `{ "required": true, "type": "api_key", "env": "GOOGLE_API_KEY" }`. |
+| `auth` | object | Authentication requirements, e.g. `{ "required": true, "type": "api_key", "env": "GOOGLE_API_KEY", "docs": "Set GOOGLE_API_KEY (preferred) or SERPAPI_KEY in your environment or configuration to authenticate with SerpAPI." }`. |
 | `allow_parallel` | boolean | Indicates whether the tool is safe to invoke in parallel with itself. |
 
 Additional fields (such as `description` and `parameters`) continue to follow
@@ -86,7 +86,8 @@ regressions will be caught in CI.
   "auth": {
     "required": true,
     "type": "api_key",
-    "env": "GOOGLE_API_KEY"
+    "env": "GOOGLE_API_KEY",
+    "docs": "Set GOOGLE_API_KEY (preferred) or SERPAPI_KEY in your environment or configuration to authenticate with SerpAPI."
   },
   "allow_parallel": true,
   "description": "A Google search result API...",
@@ -116,7 +117,7 @@ regressions will be caught in CI.
             "version": "1.0.0",
             "side_effects": "none",
             "default_timeout": 30,
-            "auth": {"required": True, "type": "api_key", "env": "GOOGLE_API_KEY"},
+            "auth": {"required": True, "type": "api_key", "env": "GOOGLE_API_KEY", "docs": "Set GOOGLE_API_KEY (preferred) or SERPAPI_KEY in your environment or configuration to authenticate with SerpAPI."},
             "allow_parallel": True,
         },
     },
