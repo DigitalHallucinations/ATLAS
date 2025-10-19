@@ -17,6 +17,7 @@ from GTKUI.Chat.chat_page import ChatPage
 from GTKUI.Persona_manager.persona_management import PersonaManagement
 from GTKUI.Provider_manager.provider_management import ProviderManagement
 from GTKUI.Settings.Speech.speech_settings import SpeechSettings
+from GTKUI.Tool_manager import ToolManagement
 from GTKUI.UserAccounts.account_dialog import AccountDialog
 from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css
@@ -39,6 +40,7 @@ class MainWindow(AtlasWindow):
 
         self.persona_management = PersonaManagement(self.ATLAS, self)
         self.provider_management = ProviderManagement(self.ATLAS, self)
+        self.tool_management = ToolManagement(self.ATLAS, self)
 
         layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         layout.set_hexpand(True)
@@ -86,6 +88,15 @@ class MainWindow(AtlasWindow):
             return self.persona_management.get_embeddable_widget()
 
         self._open_or_focus_page("personas", "Personas", factory)
+
+    def show_tools_menu(self) -> None:
+        if not self._ensure_initialized():
+            return
+
+        def factory() -> Gtk.Widget:
+            return self.tool_management.get_embeddable_widget()
+
+        self._open_or_focus_page("tools", "Tools", factory)
 
     def show_speech_settings(self) -> None:
         if not self._ensure_initialized():
@@ -311,6 +322,7 @@ class _NavigationSidebar(Gtk.Box):
         self.ATLAS = main_window.ATLAS
         self.persona_management = main_window.persona_management
         self.provider_management = main_window.provider_management
+        self.tool_management = main_window.tool_management
 
         self.set_margin_top(10)
         self.set_margin_bottom(10)
@@ -346,6 +358,12 @@ class _NavigationSidebar(Gtk.Box):
             "Icons/chat.png",
             self.main_window.show_chat_page,
             "Chat",
+            container=content_box,
+        )
+        self._create_icon(
+            "Icons/tools.png",
+            self.main_window.show_tools_menu,
+            "Tools",
             container=content_box,
         )
         self._create_icon(
