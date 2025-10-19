@@ -188,23 +188,31 @@ window.chat-page {
     color: #ffffff;
 }
 
-/* Icon Styling */
-.icon {
-    margin: 5px;
-    padding: 6px;
-    border-radius: 6px;
+/* Sidebar button styling */
+button.sidebar-button {
+    background-color: transparent;
+    border: none;
+    color: #f0f0f0;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    text-align: left;
     transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
-/* Hover Effect for Icons */
-.icon:hover {
-    background-color: #444444;
-    transform: scale(1.05);
-    border-radius: 8px;
+button.sidebar-button:hover {
+    background-color: #3a3a3a;
+    transform: translateX(2px);
 }
 
-.icon:active {
+button.sidebar-button:active {
     background-color: #357ABD;
+    color: #ffffff;
+}
+
+button.sidebar-button:focus {
+    border: 1px solid #888888;
 }
 
 /* Error Dialog Styling */
