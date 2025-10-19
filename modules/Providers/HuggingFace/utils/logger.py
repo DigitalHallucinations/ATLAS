@@ -1,10 +1,19 @@
 # modules/Providers/HuggingFace/utils/logger.py
 
 import logging
+import os
+
 
 def setup_logger(name: str = __name__, log_file: str = 'debug.log', level=logging.INFO) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(level)
+
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        # During tests we let logs propagate to the root logger so fixtures such as
+        # ``caplog`` can capture them reliably without interacting with file handles.
+        logger.handlers = []
+        logger.propagate = True
+        return logger
 
     # Avoid adding multiple handlers if logger already has handlers
     if not logger.handlers:

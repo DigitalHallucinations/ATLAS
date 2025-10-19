@@ -4,6 +4,7 @@ import sys
 import types
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Dict
 
 
 if "torch" not in sys.modules:
@@ -168,12 +169,20 @@ class _DummyConfigManager:
     def __init__(self, token, cache_dir):
         self._token = token
         self._cache_dir = cache_dir
+        self._generation_settings: Dict[str, Any] = {}
 
     def get_huggingface_api_key(self):
         return self._token
 
     def get_model_cache_dir(self):
         return self._cache_dir
+
+    def get_huggingface_generation_settings(self):
+        return dict(self._generation_settings)
+
+    def set_huggingface_generation_settings(self, settings):
+        self._generation_settings = dict(settings)
+        return dict(self._generation_settings)
 
 
 class _DummyTokenizer:
@@ -183,6 +192,33 @@ class _DummyTokenizer:
 
 class _DummyModel:
     transformer = SimpleNamespace(h=[])
+
+
+def test_base_config_uses_persisted_generation_settings(tmp_path):
+    config_manager = _DummyConfigManager(token=None, cache_dir=str(tmp_path))
+    config_manager.set_huggingface_generation_settings({"temperature": 0.9, "top_k": 5})
+
+    base_config = BaseConfig(config_manager)
+
+    assert base_config.model_settings["temperature"] == 0.9
+    assert base_config.model_settings["top_k"] == 5
+
+    base_config.update_model_settings({"do_sample": True, "max_tokens": 256})
+
+    persisted = config_manager.get_huggingface_generation_settings()
+    assert persisted["do_sample"] is True
+    assert persisted["max_tokens"] == 256
+
+
+def test_base_config_rejects_invalid_generation_settings(tmp_path):
+    config_manager = _DummyConfigManager(token=None, cache_dir=str(tmp_path))
+    base_config = BaseConfig(config_manager)
+
+    with pytest.raises(ValueError):
+        base_config.update_model_settings({"top_k": -1})
+
+    with pytest.raises(ValueError):
+        base_config.update_model_settings({"temperature": 3})
 
 
 @pytest.fixture(autouse=True)

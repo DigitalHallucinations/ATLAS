@@ -30,6 +30,19 @@ class ConfigManager:
     environment variables and handling API keys for various providers.
     """
 
+    _DEFAULT_HUGGINGFACE_GENERATION_SETTINGS: Dict[str, Any] = {
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "top_k": 50,
+        "max_tokens": 100,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "repetition_penalty": 1.0,
+        "length_penalty": 1.0,
+        "early_stopping": False,
+        "do_sample": False,
+    }
+
     def __init__(self):
         """
         Initializes the ConfigManager by loading environment variables and loading configuration settings.
@@ -125,6 +138,10 @@ class ConfigManager:
 
         # Ensure any persisted OpenAI speech preferences are reflected in the active config
         self._synchronize_openai_speech_block()
+
+        huggingface_block = self.yaml_config.get("HUGGINGFACE")
+        if isinstance(huggingface_block, Mapping):
+            self.config["HUGGINGFACE"] = dict(huggingface_block)
 
         messaging_block = self.config.get('messaging')
         if not isinstance(messaging_block, Mapping):
@@ -2052,6 +2069,109 @@ class ConfigManager:
         self._write_yaml_config()
 
         return copy.deepcopy(settings)
+
+
+    def get_huggingface_generation_settings(self) -> Dict[str, Any]:
+        """Return persisted Hugging Face generation defaults."""
+
+        defaults = copy.deepcopy(self._DEFAULT_HUGGINGFACE_GENERATION_SETTINGS)
+        block = self.config.get("HUGGINGFACE")
+        stored: Optional[Mapping[str, Any]]
+        if isinstance(block, Mapping):
+            stored = block.get("generation_settings")  # type: ignore[assignment]
+        else:
+            stored = None
+
+        if isinstance(stored, Mapping):
+            for key, value in stored.items():
+                if key in defaults:
+                    defaults[key] = value
+
+        return defaults
+
+    def set_huggingface_generation_settings(self, settings: Mapping[str, Any]) -> Dict[str, Any]:
+        """Persist Hugging Face generation defaults with validation."""
+
+        if not isinstance(settings, Mapping):
+            raise ValueError("Settings must be provided as a mapping")
+
+        normalized = copy.deepcopy(self.get_huggingface_generation_settings())
+
+        def _coerce_bool(value: Any) -> bool:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                normalized_str = value.strip().lower()
+                if normalized_str in {"1", "true", "yes", "on"}:
+                    return True
+                if normalized_str in {"0", "false", "no", "off"}:
+                    return False
+            return bool(value)
+
+        def _normalize_value(key: str, value: Any) -> Any:
+            if value is None:
+                raise ValueError(f"{key.replace('_', ' ').title()} cannot be None")
+
+            if key == "temperature":
+                numeric = float(value)
+                if not 0.0 <= numeric <= 2.0:
+                    raise ValueError("Temperature must be between 0.0 and 2.0")
+                return numeric
+            if key == "top_p":
+                numeric = float(value)
+                if not 0.0 <= numeric <= 1.0:
+                    raise ValueError("Top-p must be between 0.0 and 1.0")
+                return numeric
+            if key == "top_k":
+                integer = int(value)
+                if integer < 0:
+                    raise ValueError("Top-k must be greater than or equal to 0")
+                return integer
+            if key == "max_tokens":
+                integer = int(value)
+                if integer <= 0:
+                    raise ValueError("Max tokens must be a positive integer")
+                return integer
+            if key in {"presence_penalty", "frequency_penalty"}:
+                numeric = float(value)
+                if not -2.0 <= numeric <= 2.0:
+                    raise ValueError(
+                        f"{key.replace('_', ' ').title()} must be between -2.0 and 2.0"
+                    )
+                return numeric
+            if key == "repetition_penalty":
+                numeric = float(value)
+                if numeric <= 0:
+                    raise ValueError("Repetition penalty must be greater than 0")
+                return numeric
+            if key == "length_penalty":
+                numeric = float(value)
+                if numeric < 0:
+                    raise ValueError("Length penalty must be non-negative")
+                return numeric
+            if key in {"early_stopping", "do_sample"}:
+                return _coerce_bool(value)
+
+            raise ValueError(f"Unsupported Hugging Face setting '{key}'")
+
+        for key in self._DEFAULT_HUGGINGFACE_GENERATION_SETTINGS:
+            if key not in settings:
+                continue
+            normalized[key] = _normalize_value(key, settings[key])
+
+        block = self.yaml_config.get("HUGGINGFACE")
+        if isinstance(block, Mapping):
+            block_dict: Dict[str, Any] = dict(block)
+        else:
+            block_dict = {}
+
+        block_dict["generation_settings"] = copy.deepcopy(normalized)
+        self.yaml_config["HUGGINGFACE"] = copy.deepcopy(block_dict)
+        self.config["HUGGINGFACE"] = copy.deepcopy(block_dict)
+
+        self._write_yaml_config()
+
+        return copy.deepcopy(normalized)
 
 
     def set_anthropic_settings(

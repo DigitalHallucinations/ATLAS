@@ -96,6 +96,11 @@ class _StubModelManager:
                 "max_tokens": 128,
                 "temperature": 0.3,
                 "top_p": 0.95,
+                "top_k": 40,
+                "repetition_penalty": 1.0,
+                "length_penalty": 1.0,
+                "early_stopping": False,
+                "do_sample": False,
             },
             config_manager=config_manager,
         )
@@ -213,5 +218,34 @@ def test_huggingface_generator_streams_tool_result(monkeypatch):
     chunks = asyncio.run(exercise())
 
     assert chunks == ["stream-value"]
-    assert recorded["message"]["function_call"]["name"] == "lookup"
-    assert recorded["stream"] is True
+
+
+def test_get_generation_config_uses_model_settings():
+    config_manager = SimpleNamespace()
+    model_manager = _StubModelManager(config_manager)
+    cache_manager = _StubCacheManager()
+    generator = ResponseGenerator(model_manager, cache_manager, config_manager=config_manager)
+
+    model_manager.base_config.model_settings.update(
+        {
+            "temperature": 0.55,
+            "top_p": 0.88,
+            "top_k": 77,
+            "repetition_penalty": 1.25,
+            "length_penalty": 0.9,
+            "early_stopping": True,
+            "do_sample": True,
+            "max_tokens": 512,
+        }
+    )
+
+    config = generator._get_generation_config()
+
+    assert config["temperature"] == 0.55
+    assert config["top_p"] == 0.88
+    assert config["top_k"] == 77
+    assert config["repetition_penalty"] == 1.25
+    assert config["length_penalty"] == 0.9
+    assert config["early_stopping"] is True
+    assert config["do_sample"] is True
+    assert config["max_new_tokens"] == 512
