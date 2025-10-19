@@ -335,10 +335,10 @@ class _NavigationSidebar(Gtk.Box):
         self.tool_management = main_window.tool_management
         self.skill_management = main_window.skill_management
 
-        self.set_margin_top(10)
-        self.set_margin_bottom(10)
-        self.set_margin_start(10)
-        self.set_margin_end(10)
+        self.set_margin_top(4)
+        self.set_margin_bottom(4)
+        self.set_margin_start(4)
+        self.set_margin_end(4)
         self.set_valign(Gtk.Align.FILL)
         self.set_size_request(96, -1)
 
@@ -443,7 +443,7 @@ class _NavigationSidebar(Gtk.Box):
         if isinstance(child, Gtk.Widget):
             child.set_halign(Gtk.Align.START)
             child.set_hexpand(True)
-            child.set_margin_start(6)
+            child.set_margin_start(0)
         target = container if container is not None else self._content_box
         target.append(button)
 
