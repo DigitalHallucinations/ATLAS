@@ -5,7 +5,7 @@ import json
 import os
 import shlex
 from collections.abc import Mapping, Sequence
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from modules.orchestration.message_bus import (
     InMemoryQueueBackend,
@@ -2843,6 +2843,243 @@ class ConfigManager:
 
         visible_count = min(len(secret), 8)
         return "•" * visible_count
+
+    @staticmethod
+    def _sanitize_tool_value(value: Any) -> Any:
+        """Return a JSON-serializable representation for persisted tool settings."""
+
+        if isinstance(value, Mapping):
+            return {
+                str(key): ConfigManager._sanitize_tool_value(subvalue)
+                for key, subvalue in value.items()
+            }
+
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            return [ConfigManager._sanitize_tool_value(item) for item in value]
+
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+
+        return str(value)
+
+    @staticmethod
+    def _sanitize_tool_settings_block(value: Any) -> Dict[str, Any]:
+        """Normalize persisted tool settings into a dictionary."""
+
+        if not isinstance(value, Mapping):
+            return {}
+
+        return {
+            str(key): ConfigManager._sanitize_tool_value(subvalue)
+            for key, subvalue in value.items()
+        }
+
+    @staticmethod
+    def _extract_auth_env_keys(auth_block: Optional[Mapping[str, Any]]) -> List[str]:
+        """Return normalized environment variable keys declared in a manifest auth block."""
+
+        candidates: List[str] = []
+        if isinstance(auth_block, Mapping):
+            env_value = auth_block.get("env")
+            if isinstance(env_value, str):
+                candidates.append(env_value)
+            elif isinstance(env_value, Sequence) and not isinstance(env_value, (str, bytes, bytearray)):
+                for entry in env_value:
+                    if isinstance(entry, str):
+                        candidates.append(entry)
+
+            envs_value = auth_block.get("envs")
+            if isinstance(envs_value, Mapping):
+                for entry in envs_value.values():
+                    if isinstance(entry, str):
+                        candidates.append(entry)
+            elif isinstance(envs_value, Sequence) and not isinstance(envs_value, (str, bytes, bytearray)):
+                for entry in envs_value:
+                    if isinstance(entry, str):
+                        candidates.append(entry)
+
+        normalized: List[str] = []
+        for candidate in candidates:
+            token = candidate.strip()
+            if token and token not in normalized:
+                normalized.append(token)
+        return normalized
+
+    def _collect_credential_status(self, env_keys: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        """Return masked credential metadata for the provided environment keys."""
+
+        status: Dict[str, Dict[str, Any]] = {}
+
+        for env_key in env_keys:
+            value = self.get_config(env_key)
+            if value is None:
+                secret = ""
+            elif isinstance(value, str):
+                secret = value
+            else:
+                secret = str(value)
+
+            configured = bool(secret)
+            status[env_key] = {
+                "configured": configured,
+                "hint": self._mask_secret_preview(secret) if configured else "",
+                "source": "env",
+            }
+
+        return status
+
+    def get_tool_config_snapshot(
+        self,
+        *,
+        manifest_lookup: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        tool_names: Optional[Iterable[str]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return sanitized tool configuration data for UI consumption."""
+
+        config_tools = self.config.get("tools", {})
+        yaml_tools = self.yaml_config.get("tools", {})
+
+        candidates: List[str] = []
+        if isinstance(tool_names, Iterable):
+            for name in tool_names:
+                if isinstance(name, str):
+                    token = name.strip()
+                    if token and token not in candidates:
+                        candidates.append(token)
+
+        if isinstance(config_tools, Mapping):
+            for name in config_tools.keys():
+                token = str(name)
+                if token and token not in candidates:
+                    candidates.append(token)
+
+        if isinstance(yaml_tools, Mapping):
+            for name in yaml_tools.keys():
+                token = str(name)
+                if token and token not in candidates:
+                    candidates.append(token)
+
+        if isinstance(manifest_lookup, Mapping):
+            for name in manifest_lookup.keys():
+                token = str(name)
+                if token and token not in candidates:
+                    candidates.append(token)
+
+        snapshot: Dict[str, Dict[str, Any]] = {}
+
+        for name in candidates:
+            settings_block: Dict[str, Any] = {}
+
+            if isinstance(config_tools, Mapping) and name in config_tools:
+                settings_block = self._sanitize_tool_settings_block(config_tools[name])
+            elif isinstance(yaml_tools, Mapping) and name in yaml_tools:
+                settings_block = self._sanitize_tool_settings_block(yaml_tools[name])
+
+            auth_block: Optional[Mapping[str, Any]] = None
+            if isinstance(manifest_lookup, Mapping):
+                manifest_entry = manifest_lookup.get(name)
+                if isinstance(manifest_entry, Mapping):
+                    auth_block = manifest_entry.get("auth")
+                    if not isinstance(auth_block, Mapping):
+                        auth_block = None
+
+            env_keys = self._extract_auth_env_keys(auth_block)
+            credentials = self._collect_credential_status(env_keys)
+
+            snapshot[name] = {
+                "settings": copy.deepcopy(settings_block),
+                "credentials": credentials,
+            }
+
+        return snapshot
+
+    def set_tool_settings(self, tool_name: str, settings: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+        """Persist sanitized tool settings to the YAML configuration."""
+
+        normalized_name = str(tool_name or "").strip()
+        if not normalized_name:
+            raise ValueError("Tool name is required when updating settings.")
+
+        sanitized_settings: Dict[str, Any] = {}
+        if settings is not None:
+            if not isinstance(settings, Mapping):
+                raise TypeError("Tool settings must be a mapping when provided.")
+            sanitized_settings = self._sanitize_tool_settings_block(settings)
+
+        yaml_tools_block: Dict[str, Any] = {}
+        existing_yaml_tools = self.yaml_config.get("tools")
+        if isinstance(existing_yaml_tools, Mapping):
+            yaml_tools_block = copy.deepcopy(existing_yaml_tools)
+
+        config_tools_block: Dict[str, Any] = {}
+        existing_config_tools = self.config.get("tools")
+        if isinstance(existing_config_tools, Mapping):
+            config_tools_block = copy.deepcopy(existing_config_tools)
+
+        if sanitized_settings:
+            yaml_tools_block[normalized_name] = copy.deepcopy(sanitized_settings)
+            config_tools_block[normalized_name] = copy.deepcopy(sanitized_settings)
+        else:
+            yaml_tools_block.pop(normalized_name, None)
+            config_tools_block.pop(normalized_name, None)
+
+        if yaml_tools_block:
+            self.yaml_config["tools"] = yaml_tools_block
+        else:
+            self.yaml_config.pop("tools", None)
+
+        self.config["tools"] = config_tools_block
+
+        self._write_yaml_config()
+        return copy.deepcopy(sanitized_settings)
+
+    def set_tool_credentials(
+        self,
+        tool_name: str,
+        credentials: Mapping[str, Any],
+        *,
+        manifest_auth: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Persist tool credentials according to manifest-defined environment keys."""
+
+        if not isinstance(credentials, Mapping):
+            raise TypeError("Tool credentials payload must be a mapping.")
+
+        normalized_name = str(tool_name or "").strip()
+        if not normalized_name:
+            raise ValueError("Tool name is required when updating credentials.")
+
+        env_keys = set(self._extract_auth_env_keys(manifest_auth))
+        if not env_keys:
+            for candidate in credentials.keys():
+                if isinstance(candidate, str) and candidate.strip():
+                    env_keys.add(candidate.strip())
+
+        for raw_key in credentials.keys():
+            if not isinstance(raw_key, str):
+                continue
+            token = raw_key.strip()
+            if not token:
+                continue
+            if token not in env_keys:
+                env_keys.add(token)
+
+        for env_key in sorted(env_keys):
+            value = credentials.get(env_key, ConfigManager.UNSET)
+            if value is ConfigManager.UNSET:
+                continue
+
+            if value is None:
+                sanitized = None
+            else:
+                text = str(value)
+                sanitized = text.strip()
+                if not sanitized:
+                    sanitized = None
+
+            self._persist_env_value(env_key, sanitized)
+
+        return self._collect_credential_status(sorted(env_keys))
 
     # Additional methods to handle TTS_ENABLED from config.yaml
     def get_tts_enabled(self) -> bool:
