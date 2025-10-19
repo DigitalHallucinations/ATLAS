@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import copy
 import getpass
 import json
 from datetime import datetime
@@ -29,6 +30,7 @@ from modules.Speech_Services.speech_manager import SpeechManager
 from modules.background_tasks import run_async_in_thread
 from modules.user_accounts.user_account_service import PasswordRequirements
 from modules.Server import AtlasServer
+from modules.orchestration.capability_registry import get_capability_registry
 
 class ATLAS:
     """
@@ -192,6 +194,135 @@ class ATLAS:
             sanitized = "User"
         self._user_identifier = sanitized
         self._user_display_name = sanitized
+
+    @staticmethod
+    def _serialize_tool_health(health: Mapping[str, Any]) -> Dict[str, Any]:
+        """Return a JSON-safe view of tool health metrics."""
+
+        tool_metrics = health.get("tool") if isinstance(health, Mapping) else None
+        providers = health.get("providers") if isinstance(health, Mapping) else None
+
+        serialized_providers: Dict[str, Any] = {}
+        if isinstance(providers, Mapping):
+            for name, payload in providers.items():
+                if not isinstance(payload, Mapping):
+                    continue
+                metrics = payload.get("metrics")
+                router = payload.get("router")
+                serialized_providers[str(name)] = {
+                    "metrics": dict(metrics) if isinstance(metrics, Mapping) else {},
+                    "router": dict(router) if isinstance(router, Mapping) else {},
+                }
+
+        return {
+            "tool": dict(tool_metrics) if isinstance(tool_metrics, Mapping) else {},
+            "providers": serialized_providers,
+        }
+
+    def _serialize_tool_entry(self, view) -> Dict[str, Any]:
+        """Return manifest metadata for a tool capability registry view."""
+
+        entry = view.manifest
+        return {
+            "name": entry.name,
+            "persona": entry.persona,
+            "description": entry.description,
+            "version": entry.version,
+            "capabilities": list(entry.capabilities) if isinstance(entry.capabilities, list) else entry.capabilities,
+            "auth": entry.auth,
+            "auth_required": entry.auth_required,
+            "safety_level": entry.safety_level,
+            "requires_consent": entry.requires_consent,
+            "allow_parallel": entry.allow_parallel,
+            "idempotency_key": entry.idempotency_key,
+            "default_timeout": entry.default_timeout,
+            "side_effects": entry.side_effects,
+            "cost_per_call": entry.cost_per_call,
+            "cost_unit": entry.cost_unit,
+            "persona_allowlist": entry.persona_allowlist,
+            "providers": entry.providers,
+            "source": entry.source,
+            "capability_tags": list(view.capability_tags),
+            "auth_scopes": list(view.auth_scopes),
+            "health": self._serialize_tool_health(view.health),
+        }
+
+    def _refresh_tool_caches(self) -> None:
+        """Refresh cached tool metadata after configuration changes."""
+
+        registry = get_capability_registry(config_manager=self.config_manager)
+        try:
+            registry.refresh(force=True)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            self.logger.debug("Failed to refresh capability registry: %s", exc)
+
+        try:
+            ToolManagerModule.load_default_function_map(
+                refresh=True,
+                config_manager=self.config_manager,
+            )
+        except Exception as exc:  # pragma: no cover - defensive guard
+            self.logger.debug("Failed to refresh tool manager cache: %s", exc)
+
+    def list_tools(self) -> List[Dict[str, Any]]:
+        """Return merged tool metadata with persisted configuration state."""
+
+        registry = get_capability_registry(config_manager=self.config_manager)
+        views = registry.query_tools()
+
+        manifest_lookup: Dict[str, Dict[str, Any]] = {}
+        serialized_entries: List[Dict[str, Any]] = []
+
+        for view in views:
+            payload = self._serialize_tool_entry(view)
+            serialized_entries.append(payload)
+            manifest_lookup[payload["name"]] = {"auth": payload.get("auth")}
+
+        snapshot = self.config_manager.get_tool_config_snapshot(
+            manifest_lookup=manifest_lookup,
+        )
+
+        for entry in serialized_entries:
+            tool_name = entry["name"]
+            config_record = snapshot.get(tool_name, {})
+            entry["settings"] = copy.deepcopy(config_record.get("settings", {}))
+            entry["credentials"] = copy.deepcopy(config_record.get("credentials", {}))
+
+        return serialized_entries
+
+    def update_tool_settings(self, tool_name: str, settings: Mapping[str, Any]) -> Dict[str, Any]:
+        """Persist tool settings and refresh dependent caches."""
+
+        updated = self.config_manager.set_tool_settings(tool_name, settings)
+        self._refresh_tool_caches()
+        return updated
+
+    def update_tool_credentials(
+        self,
+        tool_name: str,
+        credentials: Mapping[str, Any],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Persist tool credentials according to manifest metadata."""
+
+        registry = get_capability_registry(config_manager=self.config_manager)
+        manifest_lookup = registry.get_tool_metadata_lookup(
+            persona=None,
+            names=[tool_name],
+        )
+        manifest_payload = manifest_lookup.get(tool_name) if isinstance(manifest_lookup, Mapping) else None
+        auth_block = None
+        if isinstance(manifest_payload, Mapping):
+            auth_candidate = manifest_payload.get("auth")
+            if isinstance(auth_candidate, Mapping):
+                auth_block = auth_candidate
+
+        status = self.config_manager.set_tool_credentials(
+            tool_name,
+            credentials,
+            manifest_auth=auth_block,
+        )
+        self._refresh_tool_caches()
+        return status
 
     def _get_user_account_service(self):
         """Return the lazily-initialized user account service."""
