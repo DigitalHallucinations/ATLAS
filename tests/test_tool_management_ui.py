@@ -82,8 +82,9 @@ class _PersonaManagerStub:
 class _AtlasStub:
     def __init__(self) -> None:
         self.tool_fetches = 0
+        self.skill_fetches = 0
         self.persona_manager = _PersonaManagerStub()
-        self.server = types.SimpleNamespace(get_tools=self._get_tools)
+        self.server = types.SimpleNamespace(get_tools=self._get_tools, get_skills=self._get_skills)
 
     def is_initialized(self) -> bool:
         return True
@@ -109,6 +110,38 @@ class _AtlasStub:
                     "summary": "Execute safe shell commands.",
                     "capabilities": ["system"],
                     "auth": {"required": False, "status": "Optional"},
+                },
+            ],
+        }
+
+    def _get_skills(self, **_: Any) -> Dict[str, Any]:
+        self.skill_fetches += 1
+        return {
+            "count": 2,
+            "skills": [
+                {
+                    "name": "ResearchBrief",
+                    "summary": "Compose a short research summary using trusted sources.",
+                    "version": "1.2.0",
+                    "persona": None,
+                    "category": "Research",
+                    "required_tools": ["google_search"],
+                    "required_capabilities": ["web_search"],
+                    "capability_tags": ["analysis", "writing"],
+                    "safety_notes": "Review generated content for accuracy.",
+                    "source": "modules/Skills/skills.json",
+                },
+                {
+                    "name": "FollowUpPlanner",
+                    "summary": "Suggest follow-up questions based on the current chat context.",
+                    "version": "0.4.1",
+                    "persona": "Atlas",
+                    "category": "Conversation",
+                    "required_tools": [],
+                    "required_capabilities": ["conversation"],
+                    "capability_tags": ["conversation", "planning"],
+                    "safety_notes": "No elevated permissions required.",
+                    "source": "modules/Personas/Atlas/Skills/skills.json",
                 },
             ],
         }
@@ -151,6 +184,36 @@ def test_sidebar_adds_tools_button_and_workspace(monkeypatch):
     assert window._pages["tools"] is tools_widget
 
 
+def test_sidebar_adds_skills_button_and_workspace(monkeypatch):
+    persona_stub = types.ModuleType("GTKUI.Persona_manager.persona_management")
+    persona_stub.PersonaManagement = _DummyPersonaManagement
+    provider_stub = types.ModuleType("GTKUI.Provider_manager.provider_management")
+    provider_stub.ProviderManagement = _DummyProviderManagement
+
+    monkeypatch.setitem(sys.modules, "GTKUI.Persona_manager.persona_management", persona_stub)
+    monkeypatch.setitem(sys.modules, "GTKUI.Provider_manager.provider_management", provider_stub)
+
+    from GTKUI import sidebar
+
+    monkeypatch.setattr(sidebar, "apply_css", lambda: None)
+
+    atlas = _AtlasStub()
+    window = sidebar.MainWindow(atlas)
+
+    buttons = [
+        widget
+        for widget in _walk(window.sidebar)
+        if getattr(widget, "_tooltip", "") == "Skills"
+    ]
+    assert buttons, "Sidebar should include a Skills navigation button"
+
+    window.show_skills_menu()
+    assert "skills" in window._pages, "Skills page should be registered after opening"
+    assert atlas.skill_fetches >= 1, "Opening skills workspace should query the backend"
+    skills_widget = window.skill_management.get_embeddable_widget()
+    assert window._pages["skills"] is skills_widget
+
+
 def test_tool_management_save_and_reset():
     from GTKUI.Tool_manager.tool_management import ToolManagement
 
@@ -178,3 +241,18 @@ def test_tool_management_save_and_reset():
     assert atlas.tool_fetches >= 2, "Reset should trigger a fresh backend fetch"
     assert manager._enabled_tools == {"google_search"}
     assert not parent.errors, "Successful actions should not surface errors"
+
+
+def test_skill_management_renders_payloads():
+    from GTKUI.Skill_manager.skill_management import SkillManagement
+
+    parent = _ParentWindowStub()
+    atlas = _AtlasStub()
+    manager = SkillManagement(atlas, parent)
+
+    widget = manager.get_embeddable_widget()
+    assert widget is not None
+    assert atlas.skill_fetches == 1
+    assert manager._entries, "Skill entries should be populated from backend payload"
+    assert manager._active_skill is not None
+    assert not parent.errors
