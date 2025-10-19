@@ -15,16 +15,26 @@ DEFAULT_RESULTS_COUNT = 10
 
 
 class GoogleSearch:
+    _KEY_PREFERENCE = ("GOOGLE_API_KEY", "SERPAPI_KEY")
+
     def __init__(self, api_key: Union[str, None] = None):
         self.timeout = 10
         if api_key is not None:
             resolved_key = api_key
         else:
-            resolved_key = config_manager.get_config("SERPAPI_KEY")
-            if not resolved_key:
-                resolved_key = os.getenv("SERPAPI_KEY")
+            resolved_key = self._resolve_configured_key()
 
         self.api_key = (resolved_key or "").strip()
+
+    def _resolve_configured_key(self) -> Union[str, None]:
+        for key_name in self._KEY_PREFERENCE:
+            candidate = config_manager.get_config(key_name)
+            if not candidate:
+                candidate = os.getenv(key_name)
+            if candidate:
+                logger.debug("Resolved Google Search key from %s", key_name)
+                return candidate
+        return None
 
 
     async def _search(
@@ -36,8 +46,8 @@ class GoogleSearch:
 
         if not self.api_key:
             message = (
-                "SerpAPI key is not configured. Set SERPAPI_KEY in your environment "
-                "or configuration to enable Google search."
+                "Google Search API key is not configured. Set GOOGLE_API_KEY (preferred) "
+                "or SERPAPI_KEY in your environment or configuration to enable Google search."
             )
             logger.error(message)
             return -1, message
