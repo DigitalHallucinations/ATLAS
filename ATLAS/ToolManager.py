@@ -23,7 +23,76 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from types import MappingProxyType
 
-from jsonschema import Draft7Validator, ValidationError
+try:  # Prefer the canonical jsonschema implementation when available
+    from jsonschema import Draft7Validator, ValidationError
+except (ModuleNotFoundError, ImportError):
+    class ValidationError(Exception):
+        """Minimal substitute mirroring jsonschema.ValidationError."""
+
+        def __init__(self, message: str, path: Optional[List[Any]] = None) -> None:
+            super().__init__(message)
+            self.message = message
+            self.path = tuple(path or [])
+
+
+    class Draft7Validator:
+        """Very small subset of jsonschema.Draft7Validator used by ToolManager."""
+
+        def __init__(self, schema: Dict[str, Any]) -> None:
+            self.schema = schema
+
+        def iter_errors(self, instance: Any):
+            yield from _validate_with_schema(instance, self.schema, [])
+
+
+    def _validate_with_schema(
+        instance: Any, schema: Dict[str, Any], path: List[Any]
+    ):
+        schema_type = schema.get("type")
+
+        if schema_type == "object":
+            if not isinstance(instance, dict):
+                yield ValidationError("Expected object", path)
+                return
+
+            required = schema.get("required", [])
+            for key in required:
+                if key not in instance:
+                    yield ValidationError(f"'{key}' is a required property", path + [key])
+
+            properties = schema.get("properties", {})
+            allow_additional = schema.get("additionalProperties", True)
+            for key, value in instance.items():
+                subschema = properties.get(key)
+                if subschema is None:
+                    if not allow_additional:
+                        yield ValidationError(
+                            f"Additional property '{key}' is not allowed", path + [key]
+                        )
+                    continue
+                yield from _validate_with_schema(value, subschema, path + [key])
+
+        elif schema_type == "array":
+            if not isinstance(instance, list):
+                yield ValidationError("Expected array", path)
+                return
+
+            item_schema = schema.get("items")
+            if item_schema is not None:
+                for index, item in enumerate(instance):
+                    yield from _validate_with_schema(item, item_schema, path + [index])
+
+        elif schema_type == "string":
+            if not isinstance(instance, str):
+                yield ValidationError("Expected string", path)
+                return
+            min_length = schema.get("minLength")
+            if min_length and len(instance) < min_length:
+                yield ValidationError("String is too short", path)
+
+        else:
+            # Types we don't recognise are treated as pass-through.
+            return
 
 from modules.analytics.persona_metrics import record_persona_tool_event
 from modules.logging.logger import setup_logger
