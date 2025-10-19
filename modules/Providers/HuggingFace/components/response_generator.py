@@ -3,7 +3,7 @@
 import asyncio
 import copy
 import json
-from typing import Any, AsyncIterator, Dict, List, Mapping, Optional, Union
+from typing import Any, AsyncIterator, Dict, List, Mapping, Optional, Set, Tuple, Union
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .huggingface_model_manager import HuggingFaceModelManager
@@ -212,13 +212,13 @@ class ResponseGenerator:
             # Determine whether to use ONNX Runtime or the local pipeline
             if model in self.model_manager.ort_sessions:
                 self.logger.info("Using ONNX Runtime for inference")
-                response_text = await self._generate_with_onnx(messages, model)
+                response_payload = await self._generate_with_onnx(messages, model)
             else:
                 self.logger.info("Using local pipeline for inference")
-                response_text = await self._generate_local_response(messages, model)
+                response_payload = await self._generate_local_response(messages, model)
 
-            tool_result = await self._maybe_execute_tool(
-                response_text,
+            tool_result, normalized_response = await self._process_tool_response(
+                response_payload,
                 stream=stream,
                 user=user,
                 conversation_id=conversation_id,
@@ -238,6 +238,8 @@ class ResponseGenerator:
                     return self._ensure_async_stream(tool_result)
                 return tool_result
 
+            response_text = normalized_response
+
             # Cache the response if streaming is not enabled and the response is a string
             if not stream and isinstance(response_text, str):
                 self.cache_manager.set(cache_key, response_text)
@@ -249,6 +251,106 @@ class ResponseGenerator:
         except Exception as e:
             self.logger.error(f"Error in HuggingFace API call: {str(e)}")
             raise
+
+    async def _process_tool_response(
+        self,
+        response_payload: Any,
+        *,
+        stream: bool,
+        user: Optional[str],
+        conversation_id: Optional[str],
+        conversation_manager: Optional[Any],
+        function_map: Optional[Mapping[str, Any]],
+        functions: Optional[Any],
+        current_persona: Optional[Dict[str, Any]],
+        temperature: Optional[float],
+        top_p: Optional[float],
+        frequency_penalty: Optional[float],
+        presence_penalty: Optional[float],
+        generation_settings: Mapping[str, Any],
+    ) -> Tuple[Optional[Any], str]:
+        tool_payload: Optional[Dict[str, Any]] = None
+
+        if hasattr(response_payload, "__aiter__"):
+            collected_chunks: List[str] = []
+            async for chunk in response_payload:  # type: ignore[attr-defined]
+                if tool_payload is None:
+                    tool_payload = self._extract_tool_payload_from_object(chunk)
+                collected_chunks.append(self._normalize_response_text(chunk))
+
+            normalized_response = "".join(collected_chunks)
+            if tool_payload is None and normalized_response:
+                tool_payload = self._extract_tool_payload(normalized_response)
+
+            if tool_payload:
+                tool_result = await self._dispatch_tool_payload(
+                    tool_payload,
+                    stream=stream,
+                    user=user,
+                    conversation_id=conversation_id,
+                    conversation_manager=conversation_manager,
+                    function_map=function_map,
+                    functions=functions,
+                    current_persona=current_persona,
+                    temperature=temperature,
+                    top_p=top_p,
+                    frequency_penalty=frequency_penalty,
+                    presence_penalty=presence_penalty,
+                    generation_settings=generation_settings,
+                )
+                return tool_result, ""
+
+            return None, normalized_response
+
+        tool_payload = self._extract_tool_payload_from_object(response_payload)
+        if tool_payload is None and isinstance(response_payload, str):
+            tool_payload = self._extract_tool_payload(response_payload)
+
+        if tool_payload:
+            tool_result = await self._dispatch_tool_payload(
+                tool_payload,
+                stream=stream,
+                user=user,
+                conversation_id=conversation_id,
+                conversation_manager=conversation_manager,
+                function_map=function_map,
+                functions=functions,
+                current_persona=current_persona,
+                temperature=temperature,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
+                generation_settings=generation_settings,
+            )
+            return tool_result, ""
+
+        normalized_response = self._normalize_response_text(response_payload)
+        if not normalized_response and isinstance(response_payload, str):
+            normalized_response = response_payload
+
+        fallback_payload = None
+        if normalized_response:
+            fallback_payload = self._extract_tool_payload(normalized_response)
+
+        if fallback_payload:
+            tool_result = await self._dispatch_tool_payload(
+                fallback_payload,
+                stream=stream,
+                user=user,
+                conversation_id=conversation_id,
+                conversation_manager=conversation_manager,
+                function_map=function_map,
+                functions=functions,
+                current_persona=current_persona,
+                temperature=temperature,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
+                generation_settings=generation_settings,
+            )
+            return tool_result, ""
+
+        return None, normalized_response
 
     async def _generate_local_response(
         self,
@@ -430,9 +532,9 @@ class ResponseGenerator:
         self.logger.debug(f"Using generation config: {config}")
         return config
 
-    async def _maybe_execute_tool(
+    async def _dispatch_tool_payload(
         self,
-        text: str,
+        payload: Mapping[str, Any],
         *,
         stream: bool,
         user: Optional[str],
@@ -447,8 +549,7 @@ class ResponseGenerator:
         presence_penalty: Optional[float],
         generation_settings: Mapping[str, Any],
     ) -> Optional[Any]:
-        payload = self._extract_tool_payload(text)
-        if not payload:
+        if not isinstance(payload, Mapping):
             return None
 
         tool_messages = self._prepare_tool_messages(payload)
@@ -496,6 +597,143 @@ class ResponseGenerator:
                 return tool_response
 
         return None
+
+    def _extract_tool_payload_from_object(
+        self, payload: Any, *, _visited: Optional[Set[int]] = None
+    ) -> Optional[Dict[str, Any]]:
+        if payload is None:
+            return None
+        if isinstance(payload, Mapping):
+            return self._extract_tool_payload_from_mapping(payload, _visited=_visited)
+        if isinstance(payload, (list, tuple)):
+            for item in payload:
+                candidate = self._extract_tool_payload_from_object(
+                    item, _visited=_visited
+                )
+                if candidate:
+                    return candidate
+        if isinstance(payload, str):
+            return self._extract_tool_payload(payload)
+        return None
+
+    def _extract_tool_payload_from_mapping(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        _visited: Optional[Set[int]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if _visited is None:
+            _visited = set()
+        payload_id = id(payload)
+        if payload_id in _visited:
+            return None
+        _visited.add(payload_id)
+
+        captured: Dict[str, Any] = {}
+        for key in ("function_call", "tool_call", "tool_calls", "id", "tool_call_id"):
+            if key in payload and payload[key]:
+                captured[key] = payload[key]
+
+        if "tool_call" in captured and "tool_calls" not in captured:
+            tool_call_entry = captured.pop("tool_call")
+            if tool_call_entry:
+                captured["tool_calls"] = [tool_call_entry]
+
+        if captured:
+            try:
+                return json.loads(json.dumps(captured))
+            except (TypeError, ValueError):
+                return dict(captured)
+
+        for key in (
+            "message",
+            "delta",
+            "response",
+            "content",
+            "data",
+            "choices",
+            "messages",
+            "outputs",
+        ):
+            nested = payload.get(key)
+            candidate = self._search_for_tool_payload(nested, _visited=_visited)
+            if candidate:
+                return candidate
+
+        return None
+
+    def _search_for_tool_payload(
+        self, value: Any, *, _visited: Optional[Set[int]] = None
+    ) -> Optional[Dict[str, Any]]:
+        if value is None:
+            return None
+        if isinstance(value, Mapping):
+            return self._extract_tool_payload_from_mapping(value, _visited=_visited)
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                candidate = self._search_for_tool_payload(item, _visited=_visited)
+                if candidate:
+                    return candidate
+        if isinstance(value, str):
+            return self._extract_tool_payload(value)
+        return None
+
+    def _normalize_response_text(
+        self, payload: Any, *, _visited: Optional[Set[int]] = None
+    ) -> str:
+        text = self._coerce_content_to_text(payload, _visited=_visited)
+        return text if text is not None else ""
+
+    def _coerce_content_to_text(
+        self, value: Any, *, _visited: Optional[Set[int]] = None
+    ) -> Optional[str]:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if _visited is None:
+            _visited = set()
+        value_id = id(value)
+        if value_id in _visited:
+            return ""
+        _visited.add(value_id)
+
+        if isinstance(value, Mapping):
+            for key in ("generated_text", "text", "content"):
+                if key in value:
+                    candidate = self._coerce_content_to_text(
+                        value[key], _visited=_visited
+                    )
+                    if candidate:
+                        return candidate
+            token = value.get("token")
+            if isinstance(token, Mapping):
+                candidate = self._coerce_content_to_text(
+                    token.get("text"), _visited=_visited
+                )
+                if candidate:
+                    return candidate
+            delta = value.get("delta")
+            if isinstance(delta, Mapping):
+                candidate = self._coerce_content_to_text(
+                    delta.get("content"), _visited=_visited
+                )
+                if candidate:
+                    return candidate
+            try:
+                return json.dumps(value, ensure_ascii=False)
+            except TypeError:
+                return str(value)
+
+        if isinstance(value, (list, tuple, set)):
+            fragments: List[str] = []
+            for item in value:
+                fragment = self._coerce_content_to_text(item, _visited=_visited)
+                if fragment:
+                    fragments.append(fragment)
+            return "".join(fragments)
+
+        return str(value)
 
     def _extract_tool_payload(self, text: str) -> Optional[Dict[str, Any]]:
         if not text:
