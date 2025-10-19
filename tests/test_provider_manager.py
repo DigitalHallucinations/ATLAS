@@ -407,6 +407,136 @@ if needs_stub:
     sys.modules["gi.repository.GLib"] = glib_module
     sys.modules["gi.repository.Gdk"] = gdk_module
 
+if "torch" not in sys.modules:
+    torch_stub = types.ModuleType("torch")
+
+    class _CudaStub:
+        @staticmethod
+        def is_available():
+            return False
+
+        @staticmethod
+        def device_count():
+            return 0
+
+        @staticmethod
+        def get_device_properties(_index):
+            return types.SimpleNamespace(total_memory=0)
+
+        @staticmethod
+        def memory_allocated(_index):
+            return 0
+
+        @staticmethod
+        def empty_cache():
+            return None
+
+    torch_stub.cuda = _CudaStub()
+    torch_stub.float16 = object()
+    torch_stub.bfloat16 = object()
+
+    def _torch_compile(model, *args, **kwargs):  # pragma: no cover - simple stub
+        return model
+
+    torch_stub.compile = _torch_compile
+    torch_stub.device = lambda *_args, **_kwargs: "cpu"
+
+    torch_nn_module = types.ModuleType("torch.nn")
+    torch_nn_module.Linear = type("Linear", (), {})
+
+    torch_nn_utils_module = types.ModuleType("torch.nn.utils")
+    torch_nn_utils_prune_module = types.ModuleType("torch.nn.utils.prune")
+    torch_nn_utils_prune_module.L1Unstructured = type("L1Unstructured", (), {})
+    torch_nn_utils_prune_module.random_unstructured = (
+        lambda *_args, **_kwargs: None
+    )
+    torch_nn_utils_prune_module.remove = lambda *_args, **_kwargs: None
+
+    torch_nn_utils_module.prune = torch_nn_utils_prune_module
+
+    torch_stub.nn = torch_nn_module
+
+    sys.modules["torch"] = torch_stub
+    sys.modules["torch.nn"] = torch_nn_module
+    sys.modules["torch.nn.utils"] = torch_nn_utils_module
+    sys.modules["torch.nn.utils.prune"] = torch_nn_utils_prune_module
+
+if "psutil" not in sys.modules:
+    psutil_stub = types.ModuleType("psutil")
+    psutil_stub.virtual_memory = lambda: types.SimpleNamespace(available=0)
+    sys.modules["psutil"] = psutil_stub
+
+if "transformers" not in sys.modules:
+    transformers_stub = types.ModuleType("transformers")
+
+    class _AutoTokenizerStub:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return cls()
+
+        def __call__(self, *args, **kwargs):
+            return {"input_ids": [], "attention_mask": []}
+
+        def decode(self, *_args, **_kwargs):
+            return ""
+
+    class _AutoModelStub:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return cls()
+
+    class _AutoConfigStub:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return cls()
+
+    class _BitsAndBytesConfigStub:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _TrainerStub:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _TrainingArgumentsStub:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _DataCollatorStub:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _PipelineStub:
+        def __call__(self, *_args, **_kwargs):  # pragma: no cover - simple stub
+            return [{"generated_text": ""}]
+
+    def _pipeline(*_args, **_kwargs):
+        return _PipelineStub()
+
+    transformers_stub.AutoTokenizer = _AutoTokenizerStub
+    transformers_stub.AutoModelForCausalLM = _AutoModelStub
+    transformers_stub.AutoConfig = _AutoConfigStub
+    transformers_stub.pipeline = _pipeline
+    transformers_stub.BitsAndBytesConfig = _BitsAndBytesConfigStub
+    transformers_stub.Trainer = _TrainerStub
+    transformers_stub.TrainingArguments = _TrainingArgumentsStub
+    transformers_stub.DataCollatorForLanguageModeling = _DataCollatorStub
+
+    integrations_module = types.ModuleType("transformers.integrations")
+    deepspeed_module = types.ModuleType("transformers.integrations.deepspeed")
+    deepspeed_module.HfDeepSpeedConfig = type("HfDeepSpeedConfig", (), {})
+    integrations_module.deepspeed = deepspeed_module
+
+    sys.modules["transformers"] = transformers_stub
+    sys.modules["transformers.integrations"] = integrations_module
+    sys.modules["transformers.integrations.deepspeed"] = deepspeed_module
+
 from gi.repository import Gtk
 
 if "anthropic" not in sys.modules:
@@ -497,19 +627,42 @@ if "dotenv" not in sys.modules:
     dotenv_stub.find_dotenv = lambda *_args, **_kwargs: ""
     sys.modules["dotenv"] = dotenv_stub
 
-if "huggingface_hub" not in sys.modules:
-    hf_hub_stub = types.ModuleType("huggingface_hub")
+hf_hub_stub = types.ModuleType("huggingface_hub")
 
-    class _PlaceholderHfApi:
-        def __init__(self, *_args, **_kwargs):  # pragma: no cover - placeholder
-            self.token = None
 
-        def whoami(self, token=None):  # pragma: no cover - placeholder
-            self.token = token
-            return {}
+class _PlaceholderHfApi:
+    def __init__(self, *_args, **_kwargs):  # pragma: no cover - placeholder
+        self.token = None
 
-    hf_hub_stub.HfApi = _PlaceholderHfApi
-    sys.modules["huggingface_hub"] = hf_hub_stub
+    def whoami(self, token=None):  # pragma: no cover - placeholder
+        self.token = token
+        return {}
+
+
+hf_hub_stub.HfApi = _PlaceholderHfApi
+
+
+class _InferenceClientStub:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def text_generation(self, *args, **kwargs):  # pragma: no cover
+        return ""
+
+
+hf_hub_stub.InferenceClient = _InferenceClientStub
+hf_hub_stub.snapshot_download = lambda *_args, **_kwargs: ""
+sys.modules["huggingface_hub"] = hf_hub_stub
+
+if "datasets" not in sys.modules:
+    datasets_stub = types.ModuleType("datasets")
+
+    class _DatasetStub:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    datasets_stub.Dataset = _DatasetStub
+    sys.modules["datasets"] = datasets_stub
 
 hf_module_name = "modules.Providers.HuggingFace.HF_gen_response"
 if hf_module_name not in sys.modules:
@@ -701,6 +854,9 @@ import pytest
 
 import ATLAS.provider_manager as provider_manager_module
 from ATLAS.provider_manager import ProviderManager
+from modules.Providers.HuggingFace.components import (
+    response_generator as hf_response_module,
+)
 from GTKUI.Provider_manager.Settings.OA_settings import OpenAISettingsWindow
 from GTKUI.Provider_manager.Settings.Anthropic_settings import AnthropicSettingsWindow
 from GTKUI.Provider_manager.Settings import Anthropic_settings
@@ -1309,6 +1465,85 @@ class FakeHFGenerator:
         async for chunk in response:
             collected.append(chunk)
         return "".join(collected)
+
+
+class _StubHFCacheManager:
+    def __init__(self):
+        self._cache: Dict[str, Any] = {}
+
+    def generate_cache_key(self, *_args, **_kwargs) -> str:
+        return "hf-tool-test"
+
+    def get(self, key: str):
+        return self._cache.get(key)
+
+    def set(self, key: str, value: Any) -> None:
+        self._cache[key] = value
+
+
+class _StubHFModelManager:
+    def __init__(self, config_manager):
+        self.base_config = types.SimpleNamespace(
+            model_settings={
+                "max_tokens": 128,
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "frequency_penalty": 0.0,
+                "presence_penalty": 0.0,
+            },
+            config_manager=config_manager,
+        )
+        self.ort_sessions: Dict[str, Any] = {}
+        self.current_model: Optional[str] = None
+
+    async def load_model(self, model_name: str, force_download: bool = False):
+        await asyncio.sleep(0)
+        self.current_model = model_name
+
+
+class ToolAwareHFGenerator:
+    def __init__(self, config_manager, payloads):
+        self.model_manager = _StubHFModelManager(config_manager)
+        self.cache_manager = _StubHFCacheManager()
+        self.response_generator = hf_response_module.ResponseGenerator(
+            self.model_manager,
+            self.cache_manager,
+            config_manager=config_manager,
+        )
+        self._payloads = list(payloads)
+        self._install_payload_hooks()
+
+    def _install_payload_hooks(self) -> None:
+        async def _fake_generate_text(response_self, _prompt, _model):
+            return getattr(response_self, "_test_payload", "")
+
+        async def _fake_generate_with_onnx(response_self, _messages, _model):
+            return getattr(response_self, "_test_payload", "")
+
+        responder = self.response_generator
+        responder._generate_text = types.MethodType(_fake_generate_text, responder)
+        responder._generate_with_onnx = types.MethodType(
+            _fake_generate_with_onnx, responder
+        )
+
+    async def load_model(self, model_name: str, force_download: bool = False):
+        await self.model_manager.load_model(model_name, force_download=force_download)
+
+    def unload_model(self):  # pragma: no cover - not required for tests
+        self.model_manager.current_model = None
+
+    def get_installed_models(self):  # pragma: no cover - helper parity
+        return ["alpha", "beta"]
+
+    async def generate_response(self, *args, **kwargs):
+        if not self._payloads:
+            raise AssertionError("No payload configured for ToolAwareHFGenerator test")
+        payload = self._payloads.pop(0)
+        self.response_generator._test_payload = payload
+        return await self.response_generator.generate_response(*args, **kwargs)
+
+    async def process_streaming_response(self, response):
+        return await self.response_generator.process_streaming_response(response)
 
 
 @pytest.fixture
@@ -2665,10 +2900,11 @@ def test_generate_response_respects_function_calling_disabled(provider_manager):
 def test_generate_response_huggingface_uses_adapter(provider_manager):
     captured = {}
 
-    async def fake_generate_response(self, messages, model, stream=True):
+    async def fake_generate_response(self, messages, model, stream=True, **kwargs):
         captured["messages"] = messages
         captured["model"] = model
         captured["stream"] = stream
+        captured["kwargs"] = kwargs
         return "hf-ok"
 
     async def exercise():
@@ -2692,6 +2928,136 @@ def test_generate_response_huggingface_uses_adapter(provider_manager):
     assert captured["messages"] == [{"role": "user", "content": "ping"}]
     assert captured["model"] == "alpha"
     assert captured["stream"] is False
+    assert captured["kwargs"]["functions"] == [{"name": "tool"}]
+    assert captured["kwargs"].get("temperature") == 0.75
+
+
+def test_huggingface_tool_call_invokes_use_tool(provider_manager, monkeypatch):
+    payload = {
+        "tool_calls": [
+            {
+                "id": "call_1",
+                "function": {"name": "tool", "arguments": "{\"value\": 1}"},
+            }
+        ]
+    }
+
+    generator = ToolAwareHFGenerator(provider_manager.config_manager, [payload])
+    provider_manager.huggingface_generator = None
+    provider_manager.providers.pop("HuggingFace", None)
+
+    call_state: Dict[str, Any] = {}
+
+    async def fake_use_tool(*args, **kwargs):
+        call_state["called"] = True
+        call_state["stream"] = kwargs.get("stream")
+        if len(args) >= 3:
+            call_state["message"] = args[2]
+        else:
+            call_state["message"] = kwargs.get("message")
+        return "tool-output"
+
+    monkeypatch.setattr(hf_response_module, "use_tool", fake_use_tool)
+
+    def ensure_ready():
+        provider_manager.huggingface_generator = generator
+        return {"success": True}
+
+    monkeypatch.setattr(
+        provider_manager, "ensure_huggingface_ready", ensure_ready, raising=False
+    )
+
+    async def exercise():
+        return await provider_manager.generate_response(
+            messages=[{"role": "user", "content": "ping"}],
+            provider="HuggingFace",
+            model="alpha",
+            functions=[{"name": "tool"}],
+            user="tester",
+            conversation_id="conversation-1",
+            stream=False,
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result == "tool-output"
+    assert call_state.get("called") is True
+    assert call_state.get("stream") is False
+    message_payload = call_state.get("message") or {}
+    function_entry = message_payload.get("function_call", {})
+    assert function_entry.get("name") == "tool"
+
+
+def test_huggingface_streaming_tool_call_returns_tool_stream(
+    provider_manager, monkeypatch
+):
+    payload = {
+        "tool_calls": [
+            {
+                "id": "call-stream",
+                "function": {"name": "tool", "arguments": "{}"},
+            }
+        ]
+    }
+
+    async def payload_stream():
+        yield json.dumps(payload)
+
+    generator = ToolAwareHFGenerator(
+        provider_manager.config_manager, [payload_stream()]
+    )
+    provider_manager.huggingface_generator = None
+    provider_manager.providers.pop("HuggingFace", None)
+
+    call_state: Dict[str, Any] = {}
+
+    async def fake_use_tool(*args, **kwargs):
+        call_state["called"] = True
+        call_state["stream"] = kwargs.get("stream")
+        if len(args) >= 3:
+            call_state["message"] = args[2]
+        else:
+            call_state["message"] = kwargs.get("message")
+
+        async def tool_stream():
+            yield "tool-chunk"
+
+        return tool_stream()
+
+    monkeypatch.setattr(hf_response_module, "use_tool", fake_use_tool)
+
+    def ensure_ready():
+        provider_manager.huggingface_generator = generator
+        return {"success": True}
+
+    monkeypatch.setattr(
+        provider_manager, "ensure_huggingface_ready", ensure_ready, raising=False
+    )
+
+    async def exercise():
+        stream = await provider_manager.generate_response(
+            messages=[{"role": "user", "content": "ping"}],
+            provider="HuggingFace",
+            model="alpha",
+            functions=[{"name": "tool"}],
+            user="tester",
+            conversation_id="conversation-2",
+            stream=True,
+        )
+        chunks = []
+        async for chunk in stream:
+            chunks.append(chunk)
+        return chunks
+
+    chunks = asyncio.run(exercise())
+
+    assert chunks == ["tool-chunk"]
+    assert call_state.get("called") is True
+    assert call_state.get("stream") is True
+    message_payload = call_state.get("message") or {}
+    function_entry = message_payload.get("function_call", {})
+    assert function_entry.get("name") == "tool"
+
 
 
 def test_generate_response_switches_provider_uses_default_models(provider_manager, monkeypatch):
@@ -2704,7 +3070,7 @@ def test_generate_response_switches_provider_uses_default_models(provider_manage
     async def fake_openai_generate(_config_manager, **kwargs):
         return {"provider": "OpenAI", "model": kwargs.get("model")}
 
-    async def fake_hf_generate(messages, model, stream=True):
+    async def fake_hf_generate(messages, model, stream=True, **_kwargs):
         return {"provider": "HuggingFace", "model": model, "stream": stream}
 
     async def fake_switch(provider):

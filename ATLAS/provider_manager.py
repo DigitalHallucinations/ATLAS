@@ -444,12 +444,27 @@ class ProviderManager:
         func: Callable[..., Awaitable[Any]],
         call_kwargs: Dict[str, Any],
     ) -> Any:
+        keys = (
+            "messages",
+            "model",
+            "stream",
+            "skill_signature",
+            "current_persona",
+            "functions",
+            "conversation_manager",
+            "user",
+            "conversation_id",
+            "generation_settings",
+            "temperature",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+        )
         payload = {
-            "messages": call_kwargs.get("messages"),
-            "model": call_kwargs.get("model"),
+            key: call_kwargs.get(key)
+            for key in keys
+            if key in call_kwargs
         }
-        if "stream" in call_kwargs:
-            payload["stream"] = call_kwargs["stream"]
         return await func(**payload)
 
     async def _invoke_grok_generator(
