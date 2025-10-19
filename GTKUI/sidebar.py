@@ -4,14 +4,13 @@
 
 from __future__ import annotations
 
-import os
 import logging
 from typing import Any, Callable, Dict, Tuple
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, Gdk
+from gi.repository import Gtk
 
 from GTKUI.Chat.chat_page import ChatPage
 from GTKUI.Persona_manager.persona_management import PersonaManagement
@@ -327,8 +326,6 @@ class MainWindow(AtlasWindow):
 class _NavigationSidebar(Gtk.Box):
     """Vertical navigation used along the left edge of the main window."""
 
-    ICON_SIZE = 42
-
     def __init__(self, main_window: MainWindow) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         self.main_window = main_window
@@ -356,52 +353,52 @@ class _NavigationSidebar(Gtk.Box):
         scroller.set_child(content_box)
         self.append(scroller)
 
-        self._create_icon(
-            "Icons/providers.png",
-            self.main_window.show_provider_menu,
+        self._create_button(
             "Providers",
+            self.main_window.show_provider_menu,
+            tooltip="Providers",
             container=content_box,
         )
-        self._create_icon(
-            "Icons/history.png",
-            self.main_window.handle_history_button,
+        self._create_button(
             "History",
+            self.main_window.handle_history_button,
+            tooltip="History",
             container=content_box,
         )
-        self._create_icon(
-            "Icons/chat.png",
-            self.main_window.show_chat_page,
+        self._create_button(
             "Chat",
+            self.main_window.show_chat_page,
+            tooltip="Chat",
             container=content_box,
         )
-        self._create_icon(
-            "Icons/tools.png",
-            self.main_window.show_tools_menu,
+        self._create_button(
             "Tools",
+            self.main_window.show_tools_menu,
+            tooltip="Tools",
             container=content_box,
         )
-        self._create_icon(
-            "Icons/skills.png",
-            self.main_window.show_skills_menu,
+        self._create_button(
             "Skills",
+            self.main_window.show_skills_menu,
+            tooltip="Skills",
             container=content_box,
         )
-        self._create_icon(
-            "Icons/user.png",
-            self.main_window.show_accounts_page,
+        self._create_button(
             "Accounts",
+            self.main_window.show_accounts_page,
+            tooltip="Accounts",
             container=content_box,
         )
-        self._create_icon(
-            "Icons/speech.png",
-            self.main_window.show_speech_settings,
+        self._create_button(
             "Speech Settings",
+            self.main_window.show_speech_settings,
+            tooltip="Speech Settings",
             container=content_box,
         )
-        self._create_icon(
-            "Icons/agent.png",
-            self.main_window.show_persona_menu,
+        self._create_button(
             "Personas",
+            self.main_window.show_persona_menu,
+            tooltip="Personas",
             container=content_box,
         )
 
@@ -418,51 +415,37 @@ class _NavigationSidebar(Gtk.Box):
         separator.set_margin_bottom(10)
         bottom_box.append(separator)
 
-        self._create_icon(
-            "Icons/settings.png",
-            self.main_window.show_settings_page,
+        self._create_button(
             "Settings",
+            self.main_window.show_settings_page,
+            tooltip="Settings",
             container=bottom_box,
         )
         content_box.append(bottom_box)
 
     # ------------------------------------------------------------------
-    def _create_icon(
+    def _create_button(
         self,
-        icon_path: str,
+        label: str,
         callback: Callable[[], None],
         tooltip: str | None = None,
         container: Gtk.Box | None = None,
     ) -> None:
-        button = Gtk.Button()
-        button.add_css_class("icon")
+        button = Gtk.Button.new_with_label(label)
+        button.add_css_class("sidebar-button")
         button.add_css_class("flat")
+        button.set_hexpand(True)
+        button.set_halign(Gtk.Align.FILL)
         button.set_can_focus(True)
         button.set_tooltip_text(tooltip)
-
-        picture = self._load_icon_texture(icon_path)
-        button.set_child(picture)
         button.connect("clicked", lambda _btn: callback())
+        child = button.get_child()
+        if isinstance(child, Gtk.Widget):
+            child.set_halign(Gtk.Align.START)
+            child.set_hexpand(True)
+            child.set_margin_start(6)
         target = container if container is not None else self._content_box
         target.append(button)
-
-    def _load_icon_texture(self, relative_path: str) -> Gtk.Widget:
-        def _resolve_path(path: str) -> str:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            return os.path.abspath(os.path.join(current_dir, "..", path))
-
-        try:
-            full_path = _resolve_path(relative_path)
-            texture = Gdk.Texture.new_from_filename(full_path)
-            picture = Gtk.Picture.new_for_paintable(texture)
-            picture.set_content_fit(Gtk.ContentFit.CONTAIN)
-            picture.set_size_request(self.ICON_SIZE, self.ICON_SIZE)
-            return picture
-        except Exception as exc:
-            logger.error("Error loading icon '%s': %s", relative_path, exc)
-            fallback = Gtk.Image.new_from_icon_name("image-missing")
-            fallback.set_size_request(self.ICON_SIZE, self.ICON_SIZE)
-            return fallback
 
 
 # Backwards compatibility for imports expecting ``Sidebar``
