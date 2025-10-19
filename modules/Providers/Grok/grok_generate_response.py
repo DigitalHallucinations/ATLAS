@@ -4,12 +4,19 @@ import json
 import threading
 from typing import Any, AsyncIterator, Dict, List, Mapping, Optional, Union
 
-from xai_sdk import Client
-from xai_sdk.chat import assistant as grok_assistant
-from xai_sdk.chat import system as grok_system
-from xai_sdk.chat import tool as grok_tool
-from xai_sdk.chat import tool_result as grok_tool_result
-from xai_sdk.chat import user as grok_user
+try:  # pragma: no cover - import guarded for optional dependency
+    from xai_sdk import Client
+    from xai_sdk.chat import assistant as grok_assistant
+    from xai_sdk.chat import system as grok_system
+    from xai_sdk.chat import tool as grok_tool
+    from xai_sdk.chat import tool_result as grok_tool_result
+    from xai_sdk.chat import user as grok_user
+except ModuleNotFoundError as exc:  # pragma: no cover - handled at runtime
+    if exc.name and exc.name.startswith("xai_sdk"):
+        Client = None  # type: ignore[assignment]
+        grok_assistant = grok_system = grok_tool = grok_tool_result = grok_user = None  # type: ignore[assignment]
+    else:
+        raise
 
 from ATLAS.ToolManager import (
     ToolExecutionError,
@@ -42,6 +49,14 @@ class GrokGenerator:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
         self.logger = setup_logger(__name__)
+        if Client is None:
+            message = (
+                "The optional dependency 'xai_sdk' is not installed. "
+                "Install it to enable the Grok provider."
+            )
+            self.logger.error(message)
+            raise ModuleNotFoundError(message)
+
         self.api_key = self.config_manager.get_grok_api_key()
         if not self.api_key:
             self.logger.error("Grok API key not found in configuration")
