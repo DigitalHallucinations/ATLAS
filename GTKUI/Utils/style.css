@@ -193,7 +193,7 @@ button.sidebar-button {
     background-color: transparent;
     border: none;
     color: #f0f0f0;
-    padding: 10px 14px;
+    padding: 8px 10px;
     border-radius: 10px;
     font-size: 15px;
     font-weight: 600;
@@ -232,6 +232,12 @@ scrolledwindow > viewport > * {
     color: white;
     padding: 8px;
     border-radius: 8px;
+}
+
+.sidebar scrolledwindow,
+.sidebar scrolledwindow > viewport,
+.sidebar scrolledwindow > viewport > * {
+    padding: 0;
 }
 
 /* TextView Styling */
