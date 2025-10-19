@@ -3,7 +3,7 @@
 import asyncio
 import os
 import shutil
-from typing import List, Dict, Union, AsyncIterator, Optional, Any
+from typing import List, Dict, Union, AsyncIterator, Optional, Any, Mapping
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from huggingface_hub import HfApi, hf_hub_download
@@ -19,6 +19,7 @@ from .utils.logger import setup_logger
 class HuggingFaceGenerator:
     def __init__(self, config_manager):
         self.logger = setup_logger()
+        self.config_manager = config_manager
         self.base_config = BaseConfig(config_manager)
         self.nvme_config = NVMeConfig()
         cache_file = os.path.join(self.base_config.model_cache_dir, "response_cache.json")
@@ -30,7 +31,8 @@ class HuggingFaceGenerator:
         )
         self.response_generator = ResponseGenerator(
             self.model_manager,
-            self.cache_manager
+            self.cache_manager,
+            config_manager=config_manager,
         )
         self.installed_models_file = os.path.join(self.base_config.model_cache_dir, "installed_models.json")
 
@@ -64,12 +66,34 @@ class HuggingFaceGenerator:
         stream: bool = True,
         *,
         skill_signature: Optional[Any] = None,
+        current_persona: Optional[Dict[str, Any]] = None,
+        functions: Optional[Any] = None,
+        conversation_manager: Optional[Any] = None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        generation_settings: Optional[Mapping[str, Any]] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
+        **kwargs: Any,
     ) -> Union[str, AsyncIterator[str]]:
         return await self.response_generator.generate_response(
             messages,
             model,
             stream,
             skill_signature=skill_signature,
+            current_persona=current_persona,
+            functions=functions,
+            conversation_manager=conversation_manager,
+            user=user,
+            conversation_id=conversation_id,
+            generation_settings=generation_settings,
+            temperature=temperature,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            **kwargs,
         )
 
     async def process_streaming_response(self, response: AsyncIterator[str]) -> str:

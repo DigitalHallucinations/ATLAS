@@ -16,6 +16,26 @@ if "tenacity" not in sys.modules:
     tenacity_stub.wait_exponential = lambda *_args, **_kwargs: None
     sys.modules["tenacity"] = tenacity_stub
 
+tool_manager_module = "ATLAS.ToolManager"
+if tool_manager_module not in sys.modules:
+    tool_manager_stub = ModuleType(tool_manager_module)
+
+    class _ToolExecutionError(Exception):
+        def __init__(self, message: str = "", function_name: str | None = None):
+            super().__init__(message)
+            self.function_name = function_name
+
+    async def _noop_use_tool(**_kwargs):  # pragma: no cover - default stub
+        return None
+
+    tool_manager_stub.ToolExecutionError = _ToolExecutionError
+    tool_manager_stub.load_function_map_from_current_persona = (
+        lambda *_args, **_kwargs: {}
+    )
+    tool_manager_stub.load_functions_from_json = lambda *_args, **_kwargs: []
+    tool_manager_stub.use_tool = _noop_use_tool
+    sys.modules[tool_manager_module] = tool_manager_stub
+
 hf_manager_module = "modules.Providers.HuggingFace.components.huggingface_model_manager"
 if hf_manager_module not in sys.modules:
     manager_stub = ModuleType(hf_manager_module)
