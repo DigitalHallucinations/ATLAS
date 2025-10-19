@@ -519,15 +519,27 @@ class ResponseGenerator:
         Returns:
             Dict: The generation configuration.
         """
+        defaults = {}
+        base_config = getattr(self.model_manager, "base_config", None)
+        if base_config is not None:
+            defaults = getattr(base_config, "DEFAULT_MODEL_SETTINGS", {})
+
+        def _resolve(key: str, fallback: Any) -> Any:
+            if key in self.model_settings:
+                return self.model_settings[key]
+            if isinstance(defaults, Mapping) and key in defaults:
+                return defaults[key]
+            return fallback
+
         config = {
-            "max_new_tokens": self.model_settings.get('max_tokens', 100),
-            "temperature": self.model_settings.get('temperature', 0.7),
-            "top_p": self.model_settings.get('top_p', 1.0),
-            "top_k": self.model_settings.get('top_k', 50),
-            "repetition_penalty": self.model_settings.get('repetition_penalty', 1.0),
-            "length_penalty": self.model_settings.get('length_penalty', 1.0),
-            "early_stopping": self.model_settings.get('early_stopping', False),
-            "do_sample": self.model_settings.get('do_sample', False),
+            "max_new_tokens": _resolve("max_tokens", 100),
+            "temperature": _resolve("temperature", 0.7),
+            "top_p": _resolve("top_p", 1.0),
+            "top_k": _resolve("top_k", 50),
+            "repetition_penalty": _resolve("repetition_penalty", 1.0),
+            "length_penalty": _resolve("length_penalty", 1.0),
+            "early_stopping": _resolve("early_stopping", False),
+            "do_sample": _resolve("do_sample", False),
         }
         self.logger.debug(f"Using generation config: {config}")
         return config

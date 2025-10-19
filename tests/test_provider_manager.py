@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import URLError
 from weakref import WeakKeyDictionary
 
+# Ensure the HuggingFace base configuration defaults are available for tests
+from modules.Providers.HuggingFace.config.base_config import BaseConfig
 needs_stub = True
 existing_gi = sys.modules.get("gi")
 if existing_gi is not None and getattr(existing_gi, "_provider_manager_stub", False):
@@ -950,6 +952,7 @@ class DummyConfig:
             "response_schema": {},
         }
         self._fallback_config: Dict[str, Any] = {}
+        self._huggingface_settings = dict(BaseConfig.DEFAULT_MODEL_SETTINGS)
 
     def get_default_provider(self):
         return "OpenAI"
@@ -959,6 +962,13 @@ class DummyConfig:
 
     def set_default_model(self, model):
         self._default_model = model
+
+    def get_huggingface_generation_settings(self):
+        return dict(self._huggingface_settings)
+
+    def set_huggingface_generation_settings(self, settings):
+        self._huggingface_settings = dict(settings)
+        return dict(self._huggingface_settings)
 
     def get_openai_llm_settings(self):
         return dict(self._openai_settings)
@@ -1490,6 +1500,11 @@ class _StubHFModelManager:
                 "top_p": 1.0,
                 "frequency_penalty": 0.0,
                 "presence_penalty": 0.0,
+                "top_k": 50,
+                "repetition_penalty": 1.0,
+                "length_penalty": 1.0,
+                "early_stopping": False,
+                "do_sample": False,
             },
             config_manager=config_manager,
         )
@@ -1874,8 +1889,10 @@ def test_huggingface_backend_helpers(provider_manager, monkeypatch):
     updated_settings = {}
 
     def fake_update(generator, settings):
-        updated_settings["settings"] = settings
-        return settings
+        updated_settings["settings"] = dict(settings)
+        payload = dict(BaseConfig.DEFAULT_MODEL_SETTINGS)
+        payload.update(settings)
+        return payload
 
     clear_calls = []
 
@@ -1901,9 +1918,13 @@ def test_huggingface_backend_helpers(provider_manager, monkeypatch):
 
     asyncio.run(exercise())
 
-    update_result = provider_manager.update_huggingface_settings({"temperature": 0.5})
+    payload = {"temperature": 0.5, "top_k": 25, "do_sample": True}
+    update_result = provider_manager.update_huggingface_settings(payload)
     assert update_result["success"] is True
     assert updated_settings["settings"]["temperature"] == 0.5
+    expected = dict(BaseConfig.DEFAULT_MODEL_SETTINGS)
+    expected.update(payload)
+    assert update_result["data"] == expected
 
     clear_result = provider_manager.clear_huggingface_cache()
     assert clear_result["success"] is True
