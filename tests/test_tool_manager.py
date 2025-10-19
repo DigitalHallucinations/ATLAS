@@ -14,6 +14,23 @@ import textwrap
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _stub_tool_event_bus(monkeypatch):
+    from modules.Tools import tool_event_system
+
+    def _fake_publish(event_name, payload, *, emit_legacy=True, **kwargs):
+        if emit_legacy:
+            tool_event_system.event_system.publish(event_name, payload)
+        return "test-correlation"
+
+    monkeypatch.setattr(
+        tool_event_system,
+        "publish_bus_event",
+        _fake_publish,
+        raising=False,
+    )
+
+
 def _normalize_tool_response_payload(response):
     def _clone(value):
         if isinstance(value, dict):
@@ -436,10 +453,21 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
     assert google_entry["capabilities"] == ["web_search", "knowledge_lookup"]
     assert google_entry["providers"] == [
         {
-            "name": "serpapi",
+            "name": "google_cse",
             "priority": 0,
             "health_check_interval": 300,
-        }
+            "config": {
+                "api_key_env": "GOOGLE_API_KEY",
+                "api_key_config": "GOOGLE_API_KEY",
+                "cse_id_env": "GOOGLE_CSE_ID",
+                "cse_id_config": "GOOGLE_CSE_ID",
+            },
+        },
+        {
+            "name": "serpapi",
+            "priority": 10,
+            "health_check_interval": 300,
+        },
     ]
 
     info_entry = next(entry for entry in functions if entry["name"] == "get_current_info")
