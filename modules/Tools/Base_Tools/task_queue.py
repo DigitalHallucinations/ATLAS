@@ -25,13 +25,56 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional
 
-from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MISSED, JobEvent
-from apscheduler.executors.pool import ThreadPoolExecutor
-from apscheduler.jobstores.base import ConflictingIdError, JobLookupError
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.date import DateTrigger
+try:  # pragma: no cover - exercised implicitly via import side effects
+    from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MISSED, JobEvent
+    from apscheduler.executors.pool import ThreadPoolExecutor
+    from apscheduler.jobstores.base import ConflictingIdError, JobLookupError
+    from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.date import DateTrigger
+except (ModuleNotFoundError, ImportError) as exc:  # pragma: no cover - exercised when dependency missing
+    _APSCHEDULER_IMPORT_ERROR = exc
+
+    def _raise_missing_apscheduler(symbol: str | None = None) -> None:
+        """Raise a consistent error when APScheduler is unavailable."""
+
+        detail = (
+            "APScheduler is required for the task queue tool. Install it with `pip install APScheduler` "
+            "or disable the `task_queue_default` tool provider in your configuration."
+        )
+        if symbol:
+            detail = f"{detail} (Attempted to access `{symbol}`.)"
+        if _APSCHEDULER_IMPORT_ERROR is not None:
+            detail = f"{detail} Original error: {_APSCHEDULER_IMPORT_ERROR}."
+        raise ModuleNotFoundError(detail) from _APSCHEDULER_IMPORT_ERROR
+
+    class _MissingAPSchedulerProxy:
+        """Proxy that raises a clear error when APScheduler objects are accessed."""
+
+        def __init__(self, symbol: str) -> None:
+            self._symbol = symbol
+
+        def __call__(self, *args: Any, **kwargs: Any) -> Any:
+            _raise_missing_apscheduler(self._symbol)
+
+        def __getattr__(self, attr: str) -> Any:
+            _raise_missing_apscheduler(f"{self._symbol}.{attr}")
+
+    EVENT_JOB_ERROR = EVENT_JOB_EXECUTED = EVENT_JOB_MISSED = 0
+    JobEvent = Any  # type: ignore
+
+    class ConflictingIdError(RuntimeError):
+        """Fallback error used when APScheduler is not installed."""
+
+    class JobLookupError(RuntimeError):
+        """Fallback error used when APScheduler is not installed."""
+
+    ThreadPoolExecutor = _MissingAPSchedulerProxy("ThreadPoolExecutor")  # type: ignore
+    SQLAlchemyJobStore = _MissingAPSchedulerProxy("SQLAlchemyJobStore")  # type: ignore
+    BackgroundScheduler = _MissingAPSchedulerProxy("BackgroundScheduler")  # type: ignore
+    CronTrigger = _MissingAPSchedulerProxy("CronTrigger")  # type: ignore
+    DateTrigger = _MissingAPSchedulerProxy("DateTrigger")  # type: ignore
 
 from modules.logging.logger import setup_logger
 
@@ -173,10 +216,15 @@ class TaskQueueService:
             job_defaults=job_defaults,
             timezone=self._timezone,
         )
-        self._scheduler.add_listener(
-            self._handle_event,
-            EVENT_JOB_ERROR | EVENT_JOB_EXECUTED | EVENT_JOB_MISSED,
-        )
+        if hasattr(self._scheduler, "add_listener"):
+            self._scheduler.add_listener(
+                self._handle_event,
+                EVENT_JOB_ERROR | EVENT_JOB_EXECUTED | EVENT_JOB_MISSED,
+            )
+        else:  # pragma: no cover - exercised only with test doubles
+            logger.debug(
+                "BackgroundScheduler stub missing 'add_listener'; task queue events will not be emitted."
+            )
 
         if start_paused:
             self._scheduler.start(paused=True)
