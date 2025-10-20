@@ -51,11 +51,15 @@ class SkillManagement:
         self._capability_tags_label: Optional[Gtk.Label] = None
         self._safety_notes_label: Optional[Gtk.Label] = None
         self._source_label: Optional[Gtk.Label] = None
+        self._scope_selector: Optional[Gtk.ComboBoxText] = None
 
         self._entries: List[_SkillEntry] = []
         self._entry_lookup: Dict[str, _SkillEntry] = {}
         self._row_lookup: Dict[str, Gtk.Widget] = {}
         self._active_skill: Optional[str] = None
+        self._skill_scope = "persona"
+        self._persona_name: Optional[str] = None
+        self._suppress_scope_signal = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -85,6 +89,24 @@ class SkillManagement:
         heading = Gtk.Label(label="Available Skills")
         heading.set_xalign(0.0)
         left_panel.append(heading)
+
+        scope_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        scope_row.set_hexpand(True)
+
+        scope_label = Gtk.Label(label="Skill scope")
+        scope_label.set_xalign(0.0)
+        scope_label.set_hexpand(True)
+        scope_row.append(scope_label)
+
+        scope_selector = Gtk.ComboBoxText()
+        scope_selector.append_text("Persona skills")
+        scope_selector.append_text("All skills")
+        scope_selector.set_active(0)
+        scope_selector.connect("changed", self._on_scope_changed)
+        scope_row.append(scope_selector)
+        self._scope_selector = scope_selector
+
+        left_panel.append(scope_row)
 
         skill_list = Gtk.ListBox()
         skill_list.connect("row-selected", self._on_row_selected)
@@ -172,7 +194,11 @@ class SkillManagement:
     # ------------------------------------------------------------------
     def _refresh_state(self) -> None:
         persona = self._resolve_persona_name()
-        entries = self._load_skill_entries(persona)
+        self._persona_name = persona
+        self._sync_scope_widget(bool(persona))
+
+        persona_filter = persona if self._skill_scope == "persona" and persona else None
+        entries = self._load_skill_entries(persona_filter)
 
         self._entries = entries
         self._entry_lookup = {entry.name: entry for entry in entries}
@@ -391,6 +417,48 @@ class SkillManagement:
             if candidate is row:
                 self._select_skill(name)
                 break
+
+    def _on_scope_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_scope_signal:
+            return
+
+        getter = getattr(combo, "get_active_text", None)
+        label = getter() if callable(getter) else None
+        new_scope = "persona" if label == "Persona skills" else "all"
+
+        if new_scope == "persona" and not self._persona_name:
+            self._skill_scope = "all"
+            self._sync_scope_widget(False)
+            return
+
+        if new_scope == self._skill_scope:
+            return
+
+        self._skill_scope = new_scope
+        self._refresh_state()
+
+    def _sync_scope_widget(self, persona_available: bool) -> None:
+        widget = self._scope_selector
+        if widget is None:
+            return
+
+        desired_scope = self._skill_scope
+        if desired_scope == "persona" and not persona_available:
+            desired_scope = "all"
+            self._skill_scope = "all"
+
+        index = 0 if desired_scope == "persona" else 1
+        setter = getattr(widget, "set_active", None)
+        self._suppress_scope_signal = True
+        try:
+            if callable(setter):
+                setter(index)
+        finally:
+            self._suppress_scope_signal = False
+
+        set_sensitive = getattr(widget, "set_sensitive", None)
+        if callable(set_sensitive):
+            set_sensitive(bool(persona_available))
 
     # ------------------------------------------------------------------
     # Utility helpers
