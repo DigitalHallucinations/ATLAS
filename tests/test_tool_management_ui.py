@@ -71,9 +71,13 @@ class _DummyProviderManagement:
 class _ParentWindowStub:
     def __init__(self) -> None:
         self.errors: list[str] = []
+        self.toasts: list[str] = []
 
     def show_error_dialog(self, message: str) -> None:
         self.errors.append(message)
+
+    def show_success_toast(self, message: str) -> None:
+        self.toasts.append(message)
 
 
 class _PersonaManagerStub:
@@ -99,6 +103,8 @@ class _AtlasStub:
         self.skill_fetches = 0
         self.tool_requests: list[Dict[str, Any]] = []
         self.skill_requests: list[Dict[str, Any]] = []
+        self.settings_updates: list[Dict[str, Any]] = []
+        self.credential_updates: list[Dict[str, Any]] = []
         self.persona_manager = _PersonaManagerStub()
         self.server = types.SimpleNamespace(get_tools=self._get_tools, get_skills=self._get_skills)
         self._tool_catalog: list[Dict[str, Any]] = [
@@ -111,7 +117,7 @@ class _AtlasStub:
                 "auth": {"required": True, "provider": "Google", "status": "Linked"},
                 "settings": {"enabled": True, "providers": ["primary"]},
                 "credentials": {
-                    "GOOGLE_API_KEY": {"configured": False, "hint": ""}
+                    "GOOGLE_API_KEY": {"configured": False, "hint": "MASKED", "required": True}
                 },
             },
             {
@@ -157,6 +163,29 @@ class _AtlasStub:
     def list_tools(self) -> list[Dict[str, Any]]:
         self.tool_fetches += 1
         return [copy.deepcopy(entry) for entry in self._tool_catalog]
+
+    def update_tool_settings(self, tool_name: str, settings: Dict[str, Any]) -> Dict[str, Any]:
+        payload = {"tool": tool_name, "settings": copy.deepcopy(settings)}
+        self.settings_updates.append(payload)
+        for entry in self._tool_catalog:
+            if entry.get("name") == tool_name:
+                entry_settings = entry.setdefault("settings", {})
+                entry_settings.update(copy.deepcopy(settings))
+                break
+        return {"success": True, "settings": copy.deepcopy(settings)}
+
+    def update_tool_credentials(self, tool_name: str, credentials: Dict[str, Any]) -> Dict[str, Any]:
+        payload = {"tool": tool_name, "credentials": copy.deepcopy(credentials)}
+        self.credential_updates.append(payload)
+        for entry in self._tool_catalog:
+            if entry.get("name") == tool_name:
+                entry_credentials = entry.setdefault("credentials", {})
+                for key, value in credentials.items():
+                    block = entry_credentials.setdefault(key, {})
+                    block["configured"] = True
+                    block["hint"] = "MASKED"
+                break
+        return {"success": True}
 
     def _get_tools(self, **kwargs: Any) -> Dict[str, Any]:
         self.tool_requests.append(dict(kwargs))
@@ -312,6 +341,68 @@ def test_tool_management_save_and_reset():
     assert not parent.errors, "Successful actions should not surface errors"
 
 
+def test_tool_management_settings_editor_updates_backend():
+    from GTKUI.Tool_manager.tool_management import ToolManagement
+
+    parent = _ParentWindowStub()
+    atlas = _AtlasStub()
+    manager = ToolManagement(atlas, parent)
+
+    manager.get_embeddable_widget()
+    manager._select_tool("google_search")
+
+    field = manager._settings_inputs.get("enabled")
+    assert field is not None
+    field.set_text("false")
+
+    apply_button = manager._settings_apply_button
+    assert apply_button is not None
+    manager._on_settings_apply_clicked(apply_button)
+
+    assert atlas.settings_updates, "Settings updates should be sent to the backend stub"
+    record = atlas.settings_updates[-1]
+    assert record["tool"] == "google_search"
+    assert record["settings"]["enabled"] is False
+    assert atlas.tool_fetches >= 2, "Applying settings should refresh tool metadata"
+    assert parent.toasts and parent.toasts[-1] == "Settings saved."
+
+
+def test_tool_management_credentials_validation_and_refresh():
+    from GTKUI.Tool_manager.tool_management import ToolManagement
+
+    parent = _ParentWindowStub()
+    atlas = _AtlasStub()
+    manager = ToolManagement(atlas, parent)
+
+    manager.get_embeddable_widget()
+    manager._select_tool("google_search")
+
+    field = manager._credential_inputs.get("GOOGLE_API_KEY")
+    assert field is not None
+    placeholder = getattr(field, "placeholder", getattr(field, "_placeholder_text", ""))
+    assert placeholder
+    assert "MASKED" not in placeholder
+    assert all(char == "•" for char in placeholder.strip()), "Credentials placeholder should be masked"
+
+    apply_button = manager._credentials_apply_button
+    assert apply_button is not None
+    manager._on_credentials_apply_clicked(apply_button)
+
+    assert not atlas.credential_updates, "Empty credentials should not be submitted when required"
+    assert "error" in getattr(field, "_css_classes", set()), "Missing required credential should be highlighted"
+
+    field.set_text("secret-token")
+    manager._on_credentials_apply_clicked(apply_button)
+
+    assert atlas.credential_updates, "Credential updates should reach the backend stub"
+    cred_record = atlas.credential_updates[-1]
+    assert cred_record["tool"] == "google_search"
+    assert cred_record["credentials"]["GOOGLE_API_KEY"] == "secret-token"
+    assert atlas.tool_fetches >= 2
+    assert parent.toasts and parent.toasts[-1] == "Credentials saved."
+    assert "error" not in getattr(field, "_css_classes", set())
+
+
 def test_tool_management_filter_modes():
     from GTKUI.Tool_manager.tool_management import ToolManagement
 
@@ -338,6 +429,8 @@ def test_tool_management_filter_modes():
     assert scope_widget.get_active_text() == "All tools"
     assert manager._entries, "Entries should remain populated when showing all tools"
     assert not getattr(manager._switch, "_sensitive", True)
+    assert not getattr(manager._settings_apply_button, "_sensitive", True)
+    assert not getattr(manager._credentials_apply_button, "_sensitive", True)
 
     all_entries = {entry.name for entry in manager._entries}
     assert "restricted_calculator" in all_entries
@@ -348,7 +441,10 @@ def test_tool_management_filter_modes():
     assert manager._tool_scope == "persona"
     assert atlas.tool_fetches >= 3
     assert scope_widget.get_active_text() == "Persona tools"
+    manager._select_tool("google_search")
     assert getattr(manager._switch, "_sensitive", False)
+    assert getattr(manager._settings_apply_button, "_sensitive", False)
+    assert getattr(manager._credentials_apply_button, "_sensitive", False)
     persona_entries_after = {entry.name for entry in manager._entries}
     assert persona_entries_after == {"google_search", "terminal_command", "atlas_curated_search"}
 

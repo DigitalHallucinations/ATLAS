@@ -74,6 +74,16 @@ class ToolManagement:
         self._export_json_button: Optional[Gtk.Button] = None
         self._history_box: Optional[Gtk.Widget] = None
         self._history_list_box: Optional[Gtk.Widget] = None
+        self._settings_section: Optional[Gtk.Widget] = None
+        self._settings_editor_box: Optional[Gtk.Widget] = None
+        self._settings_apply_button: Optional[Gtk.Button] = None
+        self._settings_inputs: Dict[str, Gtk.Widget] = {}
+        self._settings_templates: Dict[str, Any] = {}
+        self._credentials_section: Optional[Gtk.Widget] = None
+        self._credentials_editor_box: Optional[Gtk.Widget] = None
+        self._credentials_apply_button: Optional[Gtk.Button] = None
+        self._credential_inputs: Dict[str, Gtk.Widget] = {}
+        self._credential_requirements: Dict[str, bool] = {}
         self._history_records: List[Dict[str, Any]] = []
         self._tool_history_supported = False
         self._scope_selector: Optional[Gtk.ComboBoxText] = None
@@ -328,6 +338,22 @@ class ToolManagement:
             pass
         right_panel.append(telemetry_label)
         self._telemetry_label = telemetry_label
+
+        settings_section, settings_box, settings_button = self._create_editor_section(
+            "Tool Settings", self._on_settings_apply_clicked
+        )
+        right_panel.append(settings_section)
+        self._settings_section = settings_section
+        self._settings_editor_box = settings_box
+        self._settings_apply_button = settings_button
+
+        credentials_section, credentials_box, credentials_button = self._create_editor_section(
+            "Credentials", self._on_credentials_apply_clicked
+        )
+        right_panel.append(credentials_section)
+        self._credentials_section = credentials_section
+        self._credentials_editor_box = credentials_box
+        self._credentials_apply_button = credentials_button
 
         cta_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         cta_box.set_halign(Gtk.Align.START)
@@ -853,6 +879,8 @@ class ToolManagement:
         self._set_label(self._auth_label, self._format_auth(entry))
         self._set_label(self._telemetry_label, self._format_detail_telemetry(entry))
         self._sync_cta_box(entry)
+        self._populate_settings_editor(entry)
+        self._populate_credentials_editor(entry)
 
         if self._tool_list is not None:
             try:
@@ -885,6 +913,8 @@ class ToolManagement:
         if self._cta_box is not None:
             self._cta_box.set_visible(False)
             self._clear_container(self._cta_box)
+        self._populate_settings_editor(None)
+        self._populate_credentials_editor(None)
         self._set_switch_sensitive(self._current_scope_allows_editing())
         self._set_switch_active(False)
         self._update_action_state()
@@ -999,6 +1029,164 @@ class ToolManagement:
         self._sync_active_tool_switch()
         self._update_action_state()
 
+    def _create_editor_section(
+        self,
+        title: str,
+        callback: Callable[[Gtk.Button], None],
+    ) -> Tuple[Gtk.Widget, Gtk.Widget, Gtk.Button]:
+        ExpanderClass = getattr(Gtk, "Expander", None)
+        if ExpanderClass is not None:
+            container = ExpanderClass(label=title)
+            container.set_hexpand(True)
+            container.set_vexpand(False)
+            content_holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            container.set_child(content_holder)
+        else:
+            FrameClass = getattr(Gtk, "Frame", Gtk.Box)
+            container = FrameClass()
+            setter = getattr(container, "set_label", None)
+            if callable(setter):
+                setter(title)
+            content_holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            if hasattr(container, "set_child"):
+                container.set_child(content_holder)
+            else:
+                container.append(content_holder)
+
+        editor_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        content_holder.append(editor_box)
+
+        button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        button_row.set_halign(Gtk.Align.END)
+        content_holder.append(button_row)
+
+        button = Gtk.Button(label=f"Save {title}")
+        try:
+            button.add_css_class("suggested-action")
+        except Exception:  # pragma: no cover - GTK style variations
+            pass
+        button.connect("clicked", callback)
+        button_row.append(button)
+
+        return container, editor_box, button
+
+    def _populate_settings_editor(self, entry: Optional[_ToolEntry]) -> None:
+        container = self._settings_editor_box
+        if container is None:
+            return
+
+        self._clear_container(container)
+        self._settings_inputs = {}
+        self._settings_templates = {}
+
+        if entry is None:
+            self._render_editor_message(container, "Select a tool to edit settings.")
+            self._sync_editor_permissions()
+            return
+
+        metadata = entry.raw_metadata or {}
+        settings = metadata.get("settings")
+        if not isinstance(settings, Mapping) or not settings:
+            self._render_editor_message(container, "This tool does not expose configurable settings.")
+            self._sync_editor_permissions()
+            return
+
+        for key in sorted(settings):
+            value = settings[key]
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            row.set_hexpand(True)
+
+            label = Gtk.Label(label=str(key))
+            label.set_xalign(0.0)
+            label.set_hexpand(False)
+            row.append(label)
+
+            field = Gtk.Entry()
+            field.set_hexpand(True)
+            self._set_entry_text(field, self._format_setting_value(value))
+            tooltip = f"Value for {key}"
+            try:
+                field.set_tooltip_text(tooltip)
+            except Exception:  # pragma: no cover - GTK compatibility fallback
+                setattr(field, "_tooltip", tooltip)
+            setattr(field, "_default_tooltip", tooltip)
+            row.append(field)
+
+            container.append(row)
+            self._settings_inputs[str(key)] = field
+            self._settings_templates[str(key)] = value
+
+        self._sync_editor_permissions()
+
+    def _populate_credentials_editor(self, entry: Optional[_ToolEntry]) -> None:
+        container = self._credentials_editor_box
+        if container is None:
+            return
+
+        self._clear_container(container)
+        self._credential_inputs = {}
+        self._credential_requirements = {}
+
+        if entry is None:
+            self._render_editor_message(container, "Select a tool to edit credentials.")
+            self._sync_editor_permissions()
+            return
+
+        metadata = entry.raw_metadata or {}
+        credentials = metadata.get("credentials")
+        if not isinstance(credentials, Mapping) or not credentials:
+            self._render_editor_message(container, "No credentials are required for this tool.")
+            self._sync_editor_permissions()
+            return
+
+        auth_required = False
+        if isinstance(entry.auth, Mapping):
+            auth_required = bool(entry.auth.get("required"))
+
+        for key in sorted(credentials):
+            value = credentials[key]
+            if isinstance(value, Mapping):
+                configured = bool(value.get("configured"))
+                required_flag = value.get("required")
+                if required_flag is None:
+                    required_flag = auth_required
+                required = bool(required_flag) and not configured
+                hint = value.get("hint")
+            else:
+                configured = bool(value)
+                required = auth_required and not configured
+                hint = None
+
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            row.set_hexpand(True)
+
+            label = Gtk.Label(label=str(key))
+            label.set_xalign(0.0)
+            label.set_hexpand(False)
+            row.append(label)
+
+            field = Gtk.Entry()
+            field.set_hexpand(True)
+            visibility_setter = getattr(field, "set_visibility", None)
+            if callable(visibility_setter):
+                visibility_setter(False)
+            placeholder = self._mask_hint(hint, configured)
+            if placeholder:
+                try:
+                    field.set_placeholder_text(placeholder)
+                except Exception:  # pragma: no cover - GTK compatibility fallback
+                    setattr(field, "placeholder_text", placeholder)
+            default_tooltip = "Leave blank to keep the current credential value."
+            field.set_tooltip_text(default_tooltip)
+            setattr(field, "_default_tooltip", default_tooltip)
+            row.append(field)
+
+            container.append(row)
+            self._credential_inputs[str(key)] = field
+            self._credential_requirements[str(key)] = bool(required)
+
+        self._sync_editor_permissions()
+
     def _on_switch_state_set(self, _switch: Gtk.Switch, state: bool) -> bool:
         if self._suppress_toggle or self._active_tool is None:
             return False
@@ -1046,9 +1234,265 @@ class ToolManagement:
         self._refresh_state()
         self._sync_bulk_checkbox_state()
 
+    def _on_settings_apply_clicked(self, _button: Gtk.Button) -> None:
+        if not self._current_scope_allows_editing():
+            return
+        if not self._active_tool:
+            return
+
+        entry = self._entry_lookup.get(self._active_tool)
+        if entry is None:
+            return
+
+        updates: Dict[str, Any] = {}
+        errors: list[str] = []
+
+        for key, widget in self._settings_inputs.items():
+            self._clear_validation_state(widget)
+            raw_value = self._get_entry_text(widget)
+            try:
+                updates[key] = self._coerce_setting_value(key, raw_value)
+            except ValueError:
+                self._mark_widget_invalid(widget)
+                errors.append(key)
+
+        if errors:
+            return
+
+        updater = getattr(self.ATLAS, "update_tool_settings", None)
+        if not callable(updater):
+            self._handle_backend_error("Tool settings service is unavailable.")
+            return
+
+        try:
+            updater(entry.name, updates)
+        except Exception as exc:  # pragma: no cover - backend failure logging
+            logger.error("Failed to save settings for tool '%s': %s", entry.name, exc, exc_info=True)
+            self._handle_backend_error(str(exc) or "Unable to save tool settings.")
+            return
+
+        self._show_success_toast("Settings saved.")
+        self._refresh_state()
+
+    def _on_credentials_apply_clicked(self, _button: Gtk.Button) -> None:
+        if not self._current_scope_allows_editing():
+            return
+        if not self._active_tool:
+            return
+
+        entry = self._entry_lookup.get(self._active_tool)
+        if entry is None:
+            return
+
+        payload: Dict[str, str] = {}
+        missing: list[str] = []
+
+        for key, widget in self._credential_inputs.items():
+            self._clear_validation_state(widget)
+            text = self._get_entry_text(widget).strip()
+            required = self._credential_requirements.get(key, False)
+
+            if not text:
+                if required:
+                    self._mark_widget_invalid(widget)
+                    missing.append(key)
+                continue
+
+            payload[key] = text
+
+        if missing:
+            return
+
+        updater = getattr(self.ATLAS, "update_tool_credentials", None)
+        if not callable(updater):
+            self._handle_backend_error("Tool credential service is unavailable.")
+            return
+
+        try:
+            updater(entry.name, payload)
+        except Exception as exc:  # pragma: no cover - backend failure logging
+            logger.error("Failed to save credentials for tool '%s': %s", entry.name, exc, exc_info=True)
+            self._handle_backend_error(str(exc) or "Unable to save tool credentials.")
+            return
+
+        self._show_success_toast("Credentials saved.")
+        self._refresh_state()
+
     # ------------------------------------------------------------------
     # Utility helpers
     # ------------------------------------------------------------------
+    def _render_editor_message(self, container: Gtk.Widget, message: str) -> None:
+        label = Gtk.Label(label=message)
+        label.set_wrap(True)
+        label.set_xalign(0.0)
+        container.append(label)
+
+    def _set_entry_text(self, widget: Gtk.Widget, value: Any) -> None:
+        text = "" if value is None else str(value)
+        setter = getattr(widget, "set_text", None)
+        if callable(setter):
+            setter(text)
+        else:  # pragma: no cover - GTK compatibility fallback
+            setattr(widget, "text", text)
+        setattr(widget, "_entry_text", text)
+
+    def _get_entry_text(self, widget: Gtk.Widget) -> str:
+        getter = getattr(widget, "get_text", None)
+        value: Any
+        if callable(getter):
+            try:
+                value = getter()
+            except Exception:  # pragma: no cover - GTK fallback
+                value = None
+        else:
+            value = getattr(widget, "text", getattr(widget, "_entry_text", ""))
+        if value is None:
+            return ""
+        return str(value)
+
+    def _format_setting_value(self, value: Any) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+        if isinstance(value, (list, tuple, set, Mapping)):
+            try:
+                return json.dumps(value)
+            except (TypeError, ValueError):  # pragma: no cover - fallback serialization
+                return str(value)
+        if value is None:
+            return ""
+        return str(value)
+
+    def _coerce_setting_value(self, key: str, raw_value: str) -> Any:
+        template = self._settings_templates.get(key)
+        if template is None:
+            return raw_value
+
+        text = raw_value
+        normalized = text.strip()
+
+        if isinstance(template, bool):
+            lowered = normalized.casefold()
+            if lowered in {"true", "1", "yes", "on"}:
+                return True
+            if lowered in {"false", "0", "no", "off"}:
+                return False
+            raise ValueError(f"Invalid boolean value for {key}")
+
+        if isinstance(template, int) and not isinstance(template, bool):
+            if not normalized:
+                raise ValueError(f"Value for {key} cannot be empty")
+            return int(normalized)
+
+        if isinstance(template, float):
+            if not normalized:
+                raise ValueError(f"Value for {key} cannot be empty")
+            return float(normalized)
+
+        if isinstance(template, Mapping):
+            if not normalized:
+                return {}
+            try:
+                value = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid mapping for {key}") from exc
+            if not isinstance(value, Mapping):
+                raise ValueError(f"Invalid mapping for {key}")
+            return value
+
+        if isinstance(template, (list, tuple, set)):
+            if not normalized:
+                if isinstance(template, tuple):
+                    return ()
+                if isinstance(template, set):
+                    return set()
+                return []
+            try:
+                value = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid sequence for {key}") from exc
+            if not isinstance(value, list):
+                raise ValueError(f"Invalid sequence for {key}")
+            if isinstance(template, tuple):
+                return tuple(value)
+            if isinstance(template, set):
+                return set(value)
+            return value
+
+        return raw_value
+
+    def _mask_hint(self, hint: Any, configured: bool) -> str:
+        if isinstance(hint, str) and hint.strip():
+            length = max(len(hint.strip()), 4)
+            return "•" * length
+        if configured:
+            return "••••"
+        return ""
+
+    def _sync_editor_permissions(self) -> None:
+        allow_edit = self._current_scope_allows_editing()
+        for widget in self._settings_inputs.values():
+            self._set_widget_sensitive(widget, allow_edit)
+        for widget in self._credential_inputs.values():
+            self._set_widget_sensitive(widget, allow_edit)
+
+        self._set_button_sensitive(
+            self._settings_apply_button,
+            allow_edit and bool(self._settings_inputs),
+        )
+        self._set_button_sensitive(
+            self._credentials_apply_button,
+            allow_edit and bool(self._credential_inputs),
+        )
+
+    def _set_widget_sensitive(self, widget: Optional[Gtk.Widget], enabled: bool) -> None:
+        if widget is None:
+            return
+        setter = getattr(widget, "set_sensitive", None)
+        if callable(setter):
+            setter(bool(enabled))
+
+    def _clear_validation_state(self, widget: Gtk.Widget) -> None:
+        remover = getattr(widget, "remove_css_class", None)
+        if callable(remover):
+            try:
+                remover("error")
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+        attrs = getattr(widget, "__dict__", {})
+        default_tooltip = attrs.get("_default_tooltip")
+        setter = getattr(widget, "set_tooltip_text", None)
+        if callable(setter):
+            setter(default_tooltip)
+        if "_validation_active" in attrs:
+            delattr(widget, "_validation_active")
+
+    def _mark_widget_invalid(self, widget: Gtk.Widget, message: str = "Invalid value") -> None:
+        adder = getattr(widget, "add_css_class", None)
+        if callable(adder):
+            try:
+                adder("error")
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+        setter = getattr(widget, "set_tooltip_text", None)
+        if callable(setter):
+            setter(message)
+        setattr(widget, "_validation_active", True)
+
+    def _show_success_toast(self, message: str) -> None:
+        for attribute in ("show_success_toast", "show_toast", "show_notification"):
+            callback = getattr(self.parent_window, attribute, None)
+            if callable(callback):
+                try:
+                    callback(message)
+                except Exception:  # pragma: no cover - best-effort notification
+                    logger.debug("Failed to display toast via %s", attribute, exc_info=True)
+                finally:
+                    return
+
     def _format_auth(self, entry: _ToolEntry) -> str:
         auth = entry.auth
         base = entry.account_status or "Authentication: "
@@ -1657,6 +2101,7 @@ class ToolManagement:
             self._set_button_sensitive(self._reset_button, False)
             self._sync_bulk_checkbox_state()
             self._sync_recent_changes_panel()
+            self._sync_editor_permissions()
             return
 
         dirty = self._enabled_tools != self._baseline_enabled
@@ -1671,6 +2116,7 @@ class ToolManagement:
 
         self._sync_bulk_checkbox_state()
         self._sync_recent_changes_panel()
+        self._sync_editor_permissions()
 
     def _set_button_sensitive(self, button: Optional[Gtk.Button], enabled: bool) -> None:
         if button is None:
