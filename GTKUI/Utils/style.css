@@ -194,12 +194,10 @@ window.chat-page {
 }
 
 .sidebar-nav-item {
-    background-color: transparent;
     color: #f0f0f0;
-    border-radius: 10px;
     font-size: 15px;
     font-weight: 600;
-    transition: background-color 0.2s ease, transform 0.2s ease, color 0.2s ease;
+    transition: color 0.2s ease;
 }
 
 .sidebar-nav-item label {
@@ -208,23 +206,24 @@ window.chat-page {
 
 .sidebar-nav-item:hover,
 .sidebar-nav-item:focus-visible {
-    background-color: #3a3a3a;
-    transform: translateX(2px);
+    color: #ffffff;
+    text-decoration: underline;
     outline: none;
 }
 
 .sidebar-nav-item:focus-visible {
-    box-shadow: 0 0 0 1px #888888;
+    text-decoration-thickness: 2px;
 }
 
 .sidebar-nav-item.active {
-    background-color: #357ABD;
-    color: #ffffff;
-    transform: none;
+    color: #4da3ff;
+    font-weight: 700;
+    text-decoration: underline;
 }
 
 .sidebar-nav-item.active label {
     color: inherit;
+    font-weight: inherit;
 }
 
 /* Error Dialog Styling */
