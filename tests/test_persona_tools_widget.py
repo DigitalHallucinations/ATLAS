@@ -267,6 +267,28 @@ def _persona_state() -> dict:
                 },
             ],
         },
+        "skills": {
+            "available": [
+                {
+                    "name": "beta_skill",
+                    "enabled": True,
+                    "order": 0,
+                    "metadata": {
+                        "name": "Beta Skill",
+                        "instruction_prompt": "Use beta skill wisely.",
+                    },
+                },
+                {
+                    "name": "gamma_skill",
+                    "enabled": False,
+                    "order": 1,
+                    "metadata": {
+                        "name": "Gamma Skill",
+                        "instruction_prompt": "Gamma skill adds depth.",
+                    },
+                },
+            ]
+        },
     }
 
 
@@ -291,8 +313,7 @@ def test_tools_tab_collects_selection_order():
     # Simulate user edits: enable alpha, disable custom, move alpha to front
     manager.tool_rows["alpha_tool"]["check"].set_active(True)
     manager.tool_rows["custom_tool"]["check"].set_active(False)
-    manager._move_tool_row("alpha_tool", -1)
-    manager._move_tool_row("alpha_tool", -1)
+    manager._move_tool_row("alpha_tool", 0)
 
     fake_window = _FakeWindow()
     manager.save_persona_settings(fake_window)
@@ -304,6 +325,37 @@ def test_tools_tab_collects_selection_order():
 
     # ensure refresh pulled new state
     assert manager._current_editor_state.get("original_name") == "Specialist"
+
+
+def test_skills_tab_collects_selection_order():
+    atlas = _AtlasStub()
+    persona_state = _persona_state()
+    atlas.editor_state = persona_state
+
+    parent_window = Gtk.Window()
+    manager = PersonaManagement(atlas, parent_window)
+    manager.general_tab = _GeneralStub()
+    manager.persona_type_tab = _PersonaTypeStub()
+    manager.provider_entry = _EntryStub("openai")
+    manager.model_entry = _EntryStub("gpt-4o")
+    manager.speech_provider_entry = _EntryStub("11labs")
+    manager.voice_entry = _EntryStub("jack")
+    manager._current_editor_state = {"original_name": "Specialist"}
+
+    skills_widget = manager.create_skills_tab(persona_state)
+    assert isinstance(skills_widget, Gtk.Widget)
+
+    # Enable gamma skill and move it to the top of the list
+    manager.skill_rows["gamma_skill"]["check"].set_active(True)
+    manager._move_skill_row("gamma_skill", 0)
+
+    fake_window = _FakeWindow()
+    manager.save_persona_settings(fake_window)
+
+    assert fake_window.destroyed is True
+    assert atlas.update_payload is not None
+    skills_arg = atlas.update_payload[6]
+    assert skills_arg == ["gamma_skill", "beta_skill"]
 
 
 def test_export_persona_bundle_writes_file(tmp_path):
