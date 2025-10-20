@@ -278,6 +278,10 @@ scrolledwindow > viewport > * {
 .sidebar scrolledwindow > viewport,
 .sidebar scrolledwindow > viewport > * {
     padding: 0;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    background-color: transparent;
 }
 
 /* TextView Styling */
