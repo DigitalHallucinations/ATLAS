@@ -133,9 +133,6 @@ class ChatPage(Gtk.Box):
         self.vbox.set_vexpand(True)
         self.append(self.vbox)
 
-        # Update window title with the current persona's name.
-        self.update_persona_label()
-
         # Notebook container for chat/terminal/debug tabs
         self.notebook = Gtk.Notebook()
         self.notebook.set_hexpand(True)
@@ -178,6 +175,10 @@ class ChatPage(Gtk.Box):
         self.blackboard_list.set_selection_mode(Gtk.SelectionMode.NONE)
         self.blackboard_list.add_css_class("boxed-list")
         self.blackboard_tab_box.append(self.blackboard_list)
+
+        # Update window title with the current persona's name. This also
+        # triggers a blackboard refresh, so ensure the widgets exist first.
+        self.update_persona_label()
 
         # Create the input area with a multiline entry, a microphone button, and a send button.
         input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -790,16 +791,21 @@ class ChatPage(Gtk.Box):
             GLib.idle_add(self._refresh_blackboard_tab)
 
     def _refresh_blackboard_tab(self) -> None:
+        summary_label = getattr(self, "blackboard_summary_label", None)
+        list_widget = getattr(self, "blackboard_list", None)
+        if summary_label is None or list_widget is None:
+            return
+
         scope_id = self._get_active_conversation_id()
         if not scope_id:
-            self.blackboard_summary_label.set_text("No active conversation.")
-            self._clear_blackboard_list()
+            summary_label.set_text("No active conversation.")
+            self._clear_blackboard_list(list_widget)
             placeholder = Gtk.Label(xalign=0)
             placeholder.set_wrap(True)
             placeholder.set_text(
                 "Blackboard entries will appear once a conversation is active."
             )
-            self.blackboard_list.append(placeholder)
+            list_widget.append(placeholder)
             return
 
         store = get_blackboard()
@@ -808,7 +814,7 @@ class ChatPage(Gtk.Box):
         hypothesis_count = counts.get("hypothesis", 0) if isinstance(counts, Mapping) else 0
         claim_count = counts.get("claim", 0) if isinstance(counts, Mapping) else 0
         artifact_count = counts.get("artifact", 0) if isinstance(counts, Mapping) else 0
-        self.blackboard_summary_label.set_text(
+        summary_label.set_text(
             f"Hypotheses: {hypothesis_count} • Claims: {claim_count} • Artifacts: {artifact_count}"
         )
 
@@ -816,12 +822,12 @@ class ChatPage(Gtk.Box):
         if not isinstance(entries, list):
             entries = []
 
-        self._clear_blackboard_list()
+        self._clear_blackboard_list(list_widget)
         if not entries:
             empty_label = Gtk.Label(xalign=0)
             empty_label.set_wrap(True)
             empty_label.set_text("No shared posts yet.")
-            self.blackboard_list.append(empty_label)
+            list_widget.append(empty_label)
             return
 
         for entry in entries:
@@ -867,13 +873,18 @@ class ChatPage(Gtk.Box):
                 meta_label.set_text("Shared item")
             row.append(meta_label)
 
-            self.blackboard_list.append(row)
+            list_widget.append(row)
 
-    def _clear_blackboard_list(self) -> None:
-        child = self.blackboard_list.get_first_child()
+    def _clear_blackboard_list(self, list_widget: Optional[Gtk.ListBox] = None) -> None:
+        if list_widget is None:
+            list_widget = getattr(self, "blackboard_list", None)
+        if list_widget is None:
+            return
+
+        child = list_widget.get_first_child()
         while child is not None:
             next_child = child.get_next_sibling()
-            self.blackboard_list.remove(child)
+            list_widget.remove(child)
             child = next_child
 
     def _get_active_conversation_id(self) -> Optional[str]:
