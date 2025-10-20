@@ -8,7 +8,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .General_Tab.general_tab import GeneralTab
 from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
@@ -1175,6 +1175,225 @@ class PersonaManagement:
         except Exception:
             return Gtk.Image.new()
 
+    def _safe_add_controller(self, widget: Optional[Gtk.Widget], controller: Any) -> None:
+        if not isinstance(widget, Gtk.Widget) or controller is None:
+            return
+        adder = getattr(widget, "add_controller", None)
+        if callable(adder):
+            try:
+                adder(controller)
+            except Exception:
+                return
+
+    def _create_drag_content_provider(self, item_name: str):
+        content_provider = getattr(Gdk, "ContentProvider", None)
+        if content_provider is None:
+            return None
+
+        factory = getattr(content_provider, "new_for_value", None)
+        if callable(factory):
+            try:
+                return factory(item_name)
+            except Exception:
+                return None
+        return None
+
+    def _init_reorder_row_interactions(
+        self,
+        *,
+        name: str,
+        row: Optional[Gtk.Widget],
+        focus_widget: Optional[Gtk.Widget],
+        order: List[str],
+        move_callback: Callable[[str, int], None],
+        info: Dict[str, Any],
+    ) -> None:
+        drag_source_cls = getattr(Gtk, "DragSource", None)
+        drop_target_cls = getattr(Gtk, "DropTarget", None)
+        drag_action_enum = getattr(Gdk, "DragAction", None)
+        drag_action_move = getattr(drag_action_enum, "MOVE", None) if drag_action_enum else None
+
+        if (
+            isinstance(row, Gtk.Widget)
+            and drag_source_cls is not None
+            and drop_target_cls is not None
+            and drag_action_move is not None
+        ):
+            try:
+                drag_source = drag_source_cls()
+            except Exception:
+                drag_source = None
+            if drag_source is not None:
+                setter = getattr(drag_source, "set_actions", None)
+                if callable(setter):
+                    try:
+                        setter(drag_action_move)
+                    except Exception:
+                        pass
+                try:
+                    drag_source.connect(
+                        "prepare",
+                        lambda _source, _x, _y, item=name: self._create_drag_content_provider(item),
+                    )
+                except Exception:
+                    pass
+                self._safe_add_controller(row, drag_source)
+
+            drop_target = None
+            try:
+                drop_target = drop_target_cls.new(str, drag_action_move)
+            except Exception:
+                try:
+                    drop_target = drop_target_cls()
+                except Exception:
+                    drop_target = None
+                else:
+                    action_setter = getattr(drop_target, "set_actions", None)
+                    if callable(action_setter):
+                        try:
+                            action_setter(drag_action_move)
+                        except Exception:
+                            pass
+                    gtype_setter = getattr(drop_target, "set_gtypes", None)
+                    if callable(gtype_setter):
+                        try:
+                            gtype_setter([str])
+                        except Exception:
+                            pass
+
+            if drop_target is not None:
+                try:
+                    drop_target.connect(
+                        "drop",
+                        lambda _target, value, _x, y, item=name, item_row=row: self._handle_reorder_drop(
+                            value,
+                            item,
+                            y,
+                            order,
+                            move_callback,
+                            item_row,
+                        ),
+                    )
+                except Exception:
+                    pass
+                self._safe_add_controller(row, drop_target)
+
+        key_controller_cls = getattr(Gtk, "EventControllerKey", None)
+        if isinstance(focus_widget, Gtk.Widget) and key_controller_cls is not None:
+            try:
+                key_controller = key_controller_cls()
+            except Exception:
+                key_controller = None
+            if key_controller is not None:
+                try:
+                    key_controller.connect(
+                        "key-pressed",
+                        lambda _controller, keyval, _keycode, state, item=name: self._handle_reorder_key_event(
+                            item_name=item,
+                            order=order,
+                            move_callback=move_callback,
+                            keyval=keyval,
+                            state=state,
+                        ),
+                    )
+                except Exception:
+                    pass
+                self._safe_add_controller(focus_widget, key_controller)
+                info['keyboard_controller'] = key_controller
+
+    def _handle_reorder_drop(
+        self,
+        value: Any,
+        target_name: str,
+        y_pos: float,
+        order: List[str],
+        move_callback: Callable[[str, int], None],
+        row: Optional[Gtk.Widget],
+    ) -> bool:
+        source_name: Any = value
+        if hasattr(value, "get_string"):
+            try:
+                source_name = value.get_string()
+            except Exception:
+                source_name = value
+        elif hasattr(value, "get_value"):
+            try:
+                source_name = value.get_value()
+            except Exception:
+                source_name = value
+
+        if not isinstance(source_name, str):
+            return False
+
+        if source_name not in order or target_name not in order:
+            return False
+
+        try:
+            target_index = order.index(target_name)
+        except ValueError:
+            return False
+
+        height = 1.0
+        if isinstance(row, Gtk.Widget):
+            height_getter = getattr(row, "get_allocated_height", None)
+            if callable(height_getter):
+                try:
+                    measured_height = float(height_getter())
+                except Exception:
+                    measured_height = 0.0
+                if measured_height > 0.0:
+                    height = measured_height
+
+        try:
+            relative_y = float(y_pos)
+        except (TypeError, ValueError):
+            relative_y = 0.0
+
+        if relative_y > height / 2.0:
+            target_index += 1
+
+        move_callback(source_name, target_index)
+        return True
+
+    def _handle_reorder_key_event(
+        self,
+        *,
+        item_name: str,
+        order: List[str],
+        move_callback: Callable[[str, int], None],
+        keyval: int,
+        state: int,
+    ) -> bool:
+        try:
+            current_index = order.index(item_name)
+        except ValueError:
+            return False
+
+        modifier_enum = getattr(Gdk, "ModifierType", None)
+        ctrl_mask = getattr(modifier_enum, "CONTROL_MASK", None) if modifier_enum else None
+
+        try:
+            state_value = int(state)
+        except (TypeError, ValueError):
+            state_value = 0
+
+        ctrl_active = ctrl_mask in (None, 0) or bool(state_value & ctrl_mask)
+        if not ctrl_active:
+            return False
+
+        key_up = getattr(Gdk, "KEY_Up", 65362)
+        key_down = getattr(Gdk, "KEY_Down", 65364)
+        key_kp_up = getattr(Gdk, "KEY_KP_Up", key_up)
+        key_kp_down = getattr(Gdk, "KEY_KP_Down", key_down)
+
+        if keyval in (key_up, key_kp_up):
+            move_callback(item_name, current_index - 1)
+            return True
+        if keyval in (key_down, key_kp_down):
+            move_callback(item_name, current_index + 1)
+            return True
+        return False
+
     def create_tools_tab(self, persona_state):
         tools_state = persona_state.get('tools') or {}
         available = tools_state.get('available') or []
@@ -1194,7 +1413,9 @@ class PersonaManagement:
         header = Gtk.Label(label="Select which tools this persona can use.")
         header.set_xalign(0.0)
         header.set_wrap(True)
-        header.set_tooltip_text("Toggle tools to enable or disable them. Use the arrows to change invocation order.")
+        header.set_tooltip_text(
+            "Toggle tools to enable or disable them. Drag rows or use Ctrl+↑/↓ to change invocation order."
+        )
         tools_box.append(header)
 
         list_box = Gtk.ListBox()
@@ -1240,6 +1461,9 @@ class PersonaManagement:
                 if reason_text:
                     tooltip_parts.append(reason_text)
 
+            tooltip_parts.append(
+                "Drag to reorder. Use Ctrl+↑ or Ctrl+↓ for keyboard reordering."
+            )
             if tooltip_parts:
                 check.set_tooltip_text("\n\n".join(tooltip_parts))
             controls.append(check)
@@ -1254,20 +1478,6 @@ class PersonaManagement:
                 controls.append(badge)
                 badge_widget = badge
 
-            button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-            up_btn = Gtk.Button()
-            up_btn.set_tooltip_text("Move up")
-            up_btn.set_child(self._ensure_tool_row_icons("go-up-symbolic"))
-            up_btn.connect("clicked", lambda _btn, tool=name: self._move_tool_row(tool, -1))
-            button_box.append(up_btn)
-
-            down_btn = Gtk.Button()
-            down_btn.set_tooltip_text("Move down")
-            down_btn.set_child(self._ensure_tool_row_icons("go-down-symbolic"))
-            down_btn.connect("clicked", lambda _btn, tool=name: self._move_tool_row(tool, 1))
-            button_box.append(down_btn)
-
-            controls.append(button_box)
             row_box.append(controls)
 
             hint = Gtk.Label(label=self._format_tool_hint(metadata))
@@ -1282,11 +1492,18 @@ class PersonaManagement:
             self.tool_rows[name] = {
                 'row': list_row,
                 'check': check,
-                'up_button': up_btn,
-                'down_button': down_btn,
                 'metadata': metadata,
                 'badge': badge_widget,
             }
+
+            self._init_reorder_row_interactions(
+                name=name,
+                row=list_row,
+                focus_widget=check,
+                order=self._tool_order,
+                move_callback=self._move_tool_row,
+                info=self.tool_rows[name],
+            )
 
         self._refresh_tool_reorder_controls()
 
@@ -1317,7 +1534,7 @@ class PersonaManagement:
         header.set_xalign(0.0)
         header.set_wrap(True)
         header.set_tooltip_text(
-            "Toggle skills to include them in the persona's prompt capabilities."
+            "Toggle skills to include them in the persona's prompt capabilities. Drag rows or use Ctrl+↑/↓ to change order."
         )
         skills_box.append(header)
 
@@ -1365,6 +1582,9 @@ class PersonaManagement:
                     tooltip_parts.append(reason_text)
 
             tooltip_text = ""
+            tooltip_parts.append(
+                "Drag to reorder. Use Ctrl+↑ or Ctrl+↓ for keyboard reordering."
+            )
             if tooltip_parts:
                 tooltip_text = "\n\n".join(tooltip_parts)
                 check.set_tooltip_text(tooltip_text)
@@ -1380,20 +1600,6 @@ class PersonaManagement:
                 controls.append(badge)
                 badge_widget = badge
 
-            button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-            up_btn = Gtk.Button()
-            up_btn.set_tooltip_text("Move up")
-            up_btn.set_child(self._ensure_tool_row_icons("go-up-symbolic"))
-            up_btn.connect("clicked", lambda _btn, skill=name: self._move_skill_row(skill, -1))
-            button_box.append(up_btn)
-
-            down_btn = Gtk.Button()
-            down_btn.set_tooltip_text("Move down")
-            down_btn.set_child(self._ensure_tool_row_icons("go-down-symbolic"))
-            down_btn.connect("clicked", lambda _btn, skill=name: self._move_skill_row(skill, 1))
-            button_box.append(down_btn)
-
-            controls.append(button_box)
             row_box.append(controls)
 
             hint = Gtk.Label(label=self._format_skill_hint(metadata))
@@ -1408,14 +1614,21 @@ class PersonaManagement:
             self.skill_rows[name] = {
                 'row': list_row,
                 'check': check,
-                'up_button': up_btn,
-                'down_button': down_btn,
                 'metadata': metadata,
                 'badge': badge_widget,
                 'hint': hint,
                 'default_hint': hint.get_text(),
                 'default_tooltip': tooltip_text,
             }
+
+            self._init_reorder_row_interactions(
+                name=name,
+                row=list_row,
+                focus_widget=check,
+                order=self._skill_order,
+                move_callback=self._move_skill_row,
+                info=self.skill_rows[name],
+            )
 
         self._refresh_skill_reorder_controls()
 
@@ -1432,24 +1645,28 @@ class PersonaManagement:
             info = self.tool_rows.get(name)
             if not info:
                 continue
-            up_button = info.get('up_button')
-            down_button = info.get('down_button')
-            if isinstance(up_button, Gtk.Button):
-                up_button.set_sensitive(index > 0)
-            if isinstance(down_button, Gtk.Button):
-                down_button.set_sensitive(index < total - 1)
+            info['can_move_up'] = index > 0
+            info['can_move_down'] = index < total - 1
 
-    def _move_tool_row(self, tool_name: str, direction: int):
+    def _move_tool_row(self, tool_name: str, target_index: int):
         if tool_name not in self._tool_order or not self.tool_list_box:
             return
 
         current_index = self._tool_order.index(tool_name)
-        new_index = current_index + direction
-        if new_index < 0 or new_index >= len(self._tool_order):
+        try:
+            target_index = int(target_index)
+        except (TypeError, ValueError):
+            return
+
+        target_index = max(0, min(target_index, len(self._tool_order)))
+        if target_index == current_index:
             return
 
         self._tool_order.pop(current_index)
-        self._tool_order.insert(new_index, tool_name)
+        if target_index > current_index:
+            target_index -= 1
+        target_index = max(0, min(target_index, len(self._tool_order)))
+        self._tool_order.insert(target_index, tool_name)
 
         info = self.tool_rows.get(tool_name)
         if not info:
@@ -1460,7 +1677,7 @@ class PersonaManagement:
             return
 
         self.tool_list_box.remove(row)
-        self.tool_list_box.insert(row, new_index)
+        self.tool_list_box.insert(row, target_index)
         if hasattr(self.tool_list_box, "invalidate_sort"):
             self.tool_list_box.invalidate_sort()
         self._refresh_tool_reorder_controls()
@@ -1482,24 +1699,28 @@ class PersonaManagement:
             info = self.skill_rows.get(name)
             if not info:
                 continue
-            up_button = info.get('up_button')
-            down_button = info.get('down_button')
-            if isinstance(up_button, Gtk.Button):
-                up_button.set_sensitive(index > 0)
-            if isinstance(down_button, Gtk.Button):
-                down_button.set_sensitive(index < total - 1)
+            info['can_move_up'] = index > 0
+            info['can_move_down'] = index < total - 1
 
-    def _move_skill_row(self, skill_name: str, direction: int):
+    def _move_skill_row(self, skill_name: str, target_index: int):
         if skill_name not in self._skill_order or not self.skill_list_box:
             return
 
         current_index = self._skill_order.index(skill_name)
-        new_index = current_index + direction
-        if new_index < 0 or new_index >= len(self._skill_order):
+        try:
+            target_index = int(target_index)
+        except (TypeError, ValueError):
+            return
+
+        target_index = max(0, min(target_index, len(self._skill_order)))
+        if target_index == current_index:
             return
 
         self._skill_order.pop(current_index)
-        self._skill_order.insert(new_index, skill_name)
+        if target_index > current_index:
+            target_index -= 1
+        target_index = max(0, min(target_index, len(self._skill_order)))
+        self._skill_order.insert(target_index, skill_name)
 
         info = self.skill_rows.get(skill_name)
         if not info:
@@ -1510,7 +1731,7 @@ class PersonaManagement:
             return
 
         self.skill_list_box.remove(row)
-        self.skill_list_box.insert(row, new_index)
+        self.skill_list_box.insert(row, target_index)
         if hasattr(self.skill_list_box, "invalidate_sort"):
             self.skill_list_box.invalidate_sort()
         self._refresh_skill_reorder_controls()
