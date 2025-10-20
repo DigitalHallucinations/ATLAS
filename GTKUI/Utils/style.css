@@ -153,7 +153,9 @@ window.chat-page {
 .sidebar notebook notebook notebook,
 .sidebar notebook .sidebar-notebook {
     background-color: #1f1f1f;
-    border-radius: 10px;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
 }
 
 .sidebar notebook > header,
