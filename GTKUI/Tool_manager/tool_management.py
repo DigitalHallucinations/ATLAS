@@ -59,6 +59,8 @@ class ToolManagement:
         self._cta_box: Optional[Gtk.Box] = None
         self._switch: Optional[Gtk.Switch] = None
         self._save_button: Optional[Gtk.Button] = None
+        self._bulk_enable_button: Optional[Gtk.Button] = None
+        self._bulk_apply_button: Optional[Gtk.Button] = None
         self._reset_button: Optional[Gtk.Button] = None
         self._scope_selector: Optional[Gtk.ComboBoxText] = None
         self._search_entry: Optional[Gtk.SearchEntry] = None
@@ -68,13 +70,16 @@ class ToolManagement:
         self._entries: List[_ToolEntry] = []
         self._entry_lookup: Dict[str, _ToolEntry] = {}
         self._row_lookup: Dict[str, Gtk.Widget] = {}
+        self._bulk_checkbox_lookup: Dict[str, Gtk.CheckButton] = {}
         self._visible_entries: List[_ToolEntry] = []
 
         self._persona_name: Optional[str] = None
         self._enabled_tools: set[str] = set()
         self._baseline_enabled: set[str] = set()
+        self._bulk_selection: set[str] = set()
         self._active_tool: Optional[str] = None
         self._suppress_toggle = False
+        self._suppress_bulk_signals = False
         self._tool_scope = "persona"
         self._suppress_scope_signal = False
         self._suppress_filter_signals = False
@@ -258,6 +263,20 @@ class ToolManagement:
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         actions.set_halign(Gtk.Align.END)
 
+        bulk_enable_button = Gtk.Button(label="Enable selected for persona")
+        bulk_enable_button.set_tooltip_text("Enable every checked tool for the active persona.")
+        bulk_enable_button.connect("clicked", self._on_bulk_enable_clicked)
+        actions.append(bulk_enable_button)
+        self._bulk_enable_button = bulk_enable_button
+
+        bulk_apply_button = Gtk.Button(label="Apply recommended set")
+        bulk_apply_button.set_tooltip_text(
+            "Enable a recommended set of tools based on persona templates and dependencies."
+        )
+        bulk_apply_button.connect("clicked", self._on_bulk_apply_clicked)
+        actions.append(bulk_apply_button)
+        self._bulk_apply_button = bulk_apply_button
+
         save_button = Gtk.Button(label="Save Changes")
         try:
             save_button.add_css_class("suggested-action")
@@ -311,6 +330,7 @@ class ToolManagement:
 
         self._entries = entries
         self._entry_lookup = {entry.name: entry for entry in entries}
+        self._bulk_selection.intersection_update(self._entry_lookup.keys())
         self._populate_capability_selector()
         self._populate_sort_selector()
         self._sync_filter_widgets()
@@ -444,6 +464,7 @@ class ToolManagement:
                 continue
 
         self._row_lookup.clear()
+        self._bulk_checkbox_lookup.clear()
         visible_entries = self._derive_visible_entries()
         self._visible_entries = visible_entries
 
@@ -451,6 +472,8 @@ class ToolManagement:
             row = self._create_row(entry)
             self._tool_list.append(row)
             self._row_lookup[entry.name] = row
+
+        self._sync_bulk_checkbox_state()
 
         if visible_entries:
             desired = self._active_tool
@@ -469,6 +492,27 @@ class ToolManagement:
 
         header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         header_row.set_hexpand(True)
+
+        allow_bulk = self._current_scope_allows_editing()
+        checkbox: Optional[Gtk.CheckButton] = None
+        if allow_bulk:
+            checkbox = Gtk.CheckButton()
+            checkbox.set_halign(Gtk.Align.CENTER)
+            checkbox.set_valign(Gtk.Align.CENTER)
+            checkbox.set_tooltip_text("Select this tool for bulk actions.")
+            self._suppress_bulk_signals = True
+            try:
+                setter = getattr(checkbox, "set_active", None)
+                if callable(setter):
+                    setter(entry.name in self._bulk_selection)
+                else:  # pragma: no cover - GTK compatibility fallback
+                    checkbox.props.active = entry.name in self._bulk_selection
+            finally:
+                self._suppress_bulk_signals = False
+            checkbox.connect("toggled", self._on_bulk_checkbox_toggled, entry.name)
+            header_row.append(checkbox)
+            self._bulk_checkbox_lookup[entry.name] = checkbox
+
         title = Gtk.Label(label=entry.title or entry.name)
         title.set_xalign(0.0)
         title.set_hexpand(True)
@@ -657,6 +701,52 @@ class ToolManagement:
                 self._select_tool(name)
                 break
 
+    def _on_bulk_checkbox_toggled(self, checkbox: Gtk.CheckButton, tool_name: str) -> None:
+        if self._suppress_bulk_signals:
+            return
+
+        active = False
+        getter = getattr(checkbox, "get_active", None)
+        if callable(getter):
+            try:
+                active = bool(getter())
+            except Exception:  # pragma: no cover - GTK fallback
+                active = False
+        if not callable(getter):
+            props = getattr(checkbox, "props", None)
+            active = bool(getattr(props, "active", False)) if props is not None else bool(getattr(checkbox, "active", False))
+
+        if active:
+            self._bulk_selection.add(tool_name)
+        else:
+            self._bulk_selection.discard(tool_name)
+
+        self._update_action_state()
+
+    def _on_bulk_enable_clicked(self, _button: Gtk.Button) -> None:
+        if not self._current_scope_allows_editing():
+            return
+
+        if not self._bulk_selection:
+            return
+
+        valid_names = set(self._entry_lookup.keys())
+        self._enabled_tools.update(name for name in self._bulk_selection if name in valid_names)
+        self._sync_active_tool_switch()
+        self._update_action_state()
+
+    def _on_bulk_apply_clicked(self, _button: Gtk.Button) -> None:
+        if not self._current_scope_allows_editing():
+            return
+
+        recommended = self._compute_recommended_bulk_tools()
+        if not recommended:
+            return
+
+        self._enabled_tools.update(recommended)
+        self._sync_active_tool_switch()
+        self._update_action_state()
+
     def _on_switch_state_set(self, _switch: Gtk.Switch, state: bool) -> bool:
         if self._suppress_toggle or self._active_tool is None:
             return False
@@ -700,7 +790,9 @@ class ToolManagement:
         self._refresh_state()
 
     def _on_reset_clicked(self, _button: Gtk.Button) -> None:
+        self._bulk_selection.clear()
         self._refresh_state()
+        self._sync_bulk_checkbox_state()
 
     # ------------------------------------------------------------------
     # Utility helpers
@@ -851,6 +943,172 @@ class ToolManagement:
             box.append(button)
 
         box.set_visible(True)
+
+    def _sync_bulk_checkbox_state(self) -> None:
+        allow_bulk = self._current_scope_allows_editing()
+        valid_names = set(self._entry_lookup.keys())
+        self._bulk_selection.intersection_update(valid_names)
+
+        for name, checkbox in list(self._bulk_checkbox_lookup.items()):
+            if not isinstance(checkbox, Gtk.CheckButton):
+                continue
+
+            set_visible = getattr(checkbox, "set_visible", None)
+            if callable(set_visible):
+                set_visible(bool(allow_bulk))
+
+            set_sensitive = getattr(checkbox, "set_sensitive", None)
+            if callable(set_sensitive):
+                set_sensitive(bool(allow_bulk))
+
+            desired = allow_bulk and name in self._bulk_selection
+            self._suppress_bulk_signals = True
+            try:
+                setter = getattr(checkbox, "set_active", None)
+                if callable(setter):
+                    setter(desired)
+                else:  # pragma: no cover - GTK compatibility fallback
+                    checkbox.props.active = desired
+            finally:
+                self._suppress_bulk_signals = False
+
+    def _sync_active_tool_switch(self) -> None:
+        allow_edit = self._current_scope_allows_editing()
+        if not allow_edit or not self._active_tool:
+            self._set_switch_active(False)
+            return
+
+        self._set_switch_active(self._active_tool in self._enabled_tools)
+
+    def _compute_recommended_bulk_tools(self) -> set[str]:
+        recommended = set(self._derive_persona_template_tools())
+
+        if self._bulk_selection:
+            selection = {name for name in self._bulk_selection if name in self._entry_lookup}
+            recommended.update(selection)
+            recommended.update(self._derive_dependency_tool_set(selection))
+
+        if recommended:
+            recommended.update(self._derive_dependency_tool_set(recommended))
+
+        return {name for name in recommended if name in self._entry_lookup}
+
+    def _derive_persona_template_tools(self) -> set[str]:
+        persona_name = self._persona_name
+        if not persona_name:
+            return set()
+
+        manager = getattr(self.ATLAS, "persona_manager", None)
+        if manager is None:
+            return set()
+
+        persona_data: Optional[Mapping[str, Any]] = None
+        editor_getter = getattr(manager, "get_editor_state", None)
+        if callable(editor_getter):
+            try:
+                snapshot = editor_getter(persona_name)
+            except Exception:  # pragma: no cover - defensive logging only
+                logger.debug("Failed to load editor state for persona '%s'", persona_name, exc_info=True)
+            else:
+                if isinstance(snapshot, Mapping):
+                    persona_data = snapshot
+
+        if persona_data is None:
+            persona_getter = getattr(manager, "get_persona", None)
+            if callable(persona_getter):
+                try:
+                    persona_raw = persona_getter(persona_name)
+                except Exception:  # pragma: no cover - defensive logging only
+                    logger.debug("Failed to load persona '%s' for recommendations", persona_name, exc_info=True)
+                    persona_raw = None
+                if isinstance(persona_raw, Mapping):
+                    persona_data = persona_raw
+
+        if persona_data is None:
+            return set()
+
+        candidates: set[str] = set()
+        candidates.update(self._normalize_tool_collection(persona_data.get("allowed_tools")))
+
+        tools_state = persona_data.get("tools") if isinstance(persona_data, Mapping) else None
+        if isinstance(tools_state, Mapping):
+            for key in ("allowed", "recommended", "template", "defaults"):
+                candidates.update(self._normalize_tool_collection(tools_state.get(key)))
+            available = tools_state.get("available")
+            if isinstance(available, Iterable) and not isinstance(available, (str, bytes)):
+                for item in available:
+                    if isinstance(item, Mapping) and item.get("enabled"):
+                        candidates.update(self._normalize_tool_collection(item.get("name")))
+
+        valid_names = set(self._entry_lookup.keys())
+        return {name for name in candidates if name in valid_names}
+
+    def _derive_dependency_tool_set(self, seeds: Iterable[str]) -> set[str]:
+        dependencies: set[str] = set()
+        queue = [name for name in seeds if name in self._entry_lookup]
+        seen: set[str] = set()
+        valid_names = set(self._entry_lookup.keys())
+
+        metadata_keys = (
+            "depends_on",
+            "dependencies",
+            "requires",
+            "required_tools",
+            "after",
+            "prerequisites",
+            "recommended_tools",
+            "bundled_tools",
+        )
+
+        while queue:
+            current = queue.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+
+            entry = self._entry_lookup.get(current)
+            metadata = entry.raw_metadata if entry is not None else None
+            if not isinstance(metadata, Mapping):
+                continue
+
+            for key in metadata_keys:
+                related = metadata.get(key)
+                if related is None:
+                    continue
+                for dependency in self._normalize_tool_collection(related):
+                    if dependency in valid_names and dependency not in dependencies:
+                        dependencies.add(dependency)
+                        queue.append(dependency)
+
+        return dependencies
+
+    def _normalize_tool_collection(self, value: Any) -> set[str]:
+        names: set[str] = set()
+        if value is None:
+            return names
+
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                names.add(normalized)
+            return names
+
+        if isinstance(value, Mapping):
+            for key in ("name", "tool", "id"):
+                candidate = value.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    names.add(candidate.strip())
+            nested = value.get("items") or value.get("tools")
+            if nested is not None:
+                names.update(self._normalize_tool_collection(nested))
+            return names
+
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+            for item in value:
+                names.update(self._normalize_tool_collection(item))
+            return names
+
+        return names
 
     def _iter_cta_actions(
         self, entry: _ToolEntry
@@ -1131,12 +1389,23 @@ class ToolManagement:
         has_tools = bool(self._entries)
         if not has_tools:
             self._set_button_sensitive(self._save_button, False)
+            self._set_button_sensitive(self._bulk_enable_button, False)
+            self._set_button_sensitive(self._bulk_apply_button, False)
             self._set_button_sensitive(self._reset_button, False)
+            self._sync_bulk_checkbox_state()
             return
 
         dirty = self._enabled_tools != self._baseline_enabled
         self._set_button_sensitive(self._save_button, dirty and bool(self._persona_name))
         self._set_button_sensitive(self._reset_button, True)
+
+        allow_bulk = self._current_scope_allows_editing()
+        selection_available = bool(self._bulk_selection)
+        recommended = self._compute_recommended_bulk_tools() if allow_bulk else set()
+        self._set_button_sensitive(self._bulk_enable_button, allow_bulk and selection_available)
+        self._set_button_sensitive(self._bulk_apply_button, allow_bulk and bool(recommended))
+
+        self._sync_bulk_checkbox_state()
 
     def _set_button_sensitive(self, button: Optional[Gtk.Button], enabled: bool) -> None:
         if button is None:
