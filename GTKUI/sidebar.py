@@ -71,7 +71,9 @@ class MainWindow(AtlasWindow):
         def factory() -> Gtk.Widget:
             return ChatPage(self.ATLAS)
 
-        self._open_or_focus_page("chat", "Chat", factory)
+        page = self._open_or_focus_page("chat", "Chat", factory)
+        if page is not None:
+            self.sidebar.set_active_item("chat")
 
     def show_provider_menu(self) -> None:
         if not self._ensure_initialized():
@@ -80,7 +82,9 @@ class MainWindow(AtlasWindow):
         def factory() -> Gtk.Widget:
             return self.provider_management.get_embeddable_widget()
 
-        self._open_or_focus_page("providers", "Providers", factory)
+        page = self._open_or_focus_page("providers", "Providers", factory)
+        if page is not None:
+            self.sidebar.set_active_item("providers")
 
     def show_persona_menu(self) -> None:
         if not self._ensure_initialized():
@@ -89,7 +93,9 @@ class MainWindow(AtlasWindow):
         def factory() -> Gtk.Widget:
             return self.persona_management.get_embeddable_widget()
 
-        self._open_or_focus_page("personas", "Personas", factory)
+        page = self._open_or_focus_page("personas", "Personas", factory)
+        if page is not None:
+            self.sidebar.set_active_item("personas")
 
     def show_tools_menu(self) -> None:
         if not self._ensure_initialized():
@@ -98,7 +104,9 @@ class MainWindow(AtlasWindow):
         def factory() -> Gtk.Widget:
             return self.tool_management.get_embeddable_widget()
 
-        self._open_or_focus_page("tools", "Tools", factory)
+        page = self._open_or_focus_page("tools", "Tools", factory)
+        if page is not None:
+            self.sidebar.set_active_item("tools")
 
     def show_skills_menu(self) -> None:
         if not self._ensure_initialized():
@@ -107,7 +115,9 @@ class MainWindow(AtlasWindow):
         def factory() -> Gtk.Widget:
             return self.skill_management.get_embeddable_widget()
 
-        self._open_or_focus_page("skills", "Skills", factory)
+        page = self._open_or_focus_page("skills", "Skills", factory)
+        if page is not None:
+            self.sidebar.set_active_item("skills")
 
     def show_speech_settings(self) -> None:
         if not self._ensure_initialized():
@@ -116,7 +126,9 @@ class MainWindow(AtlasWindow):
         def factory() -> Gtk.Widget:
             return SpeechSettings(self.ATLAS)
 
-        self._open_or_focus_page("speech", "Speech", factory)
+        page = self._open_or_focus_page("speech", "Speech", factory)
+        if page is not None:
+            self.sidebar.set_active_item("speech")
 
     def show_settings_page(self) -> None:
         def factory() -> Gtk.Widget:
@@ -131,7 +143,9 @@ class MainWindow(AtlasWindow):
             box.append(label)
             return box
 
-        self._open_or_focus_page("settings", "Settings", factory)
+        page = self._open_or_focus_page("settings", "Settings", factory)
+        if page is not None:
+            self.sidebar.set_active_item("settings")
 
     def handle_history_button(self) -> None:
         if not self._ensure_initialized():
@@ -167,7 +181,9 @@ class MainWindow(AtlasWindow):
 
             return scroller, dialog
 
-        self._open_or_focus_page("accounts", "Accounts", factory)
+        result = self._open_or_focus_page("accounts", "Accounts", factory)
+        if result is not None:
+            self.sidebar.set_active_item("accounts")
 
     def close_application(self, *_args) -> bool:
         logger.info("Closing application")
@@ -345,7 +361,6 @@ class _NavigationSidebar(Gtk.Box):
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         content_box.set_hexpand(True)
         content_box.set_vexpand(True)
-        self._content_box = content_box
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -353,99 +368,167 @@ class _NavigationSidebar(Gtk.Box):
         scroller.set_child(content_box)
         self.append(scroller)
 
-        self._create_button(
+        self._nav_items: Dict[str, Gtk.ListBoxRow] = {}
+        self._row_actions: Dict[Gtk.ListBoxRow, Callable[[], None]] = {}
+        self._active_nav_id: str | None = None
+
+        primary_listbox = Gtk.ListBox()
+        primary_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        primary_listbox.set_accessible_role(Gtk.AccessibleRole.LIST)
+        primary_listbox.add_css_class("sidebar-nav")
+        self._primary_listbox = primary_listbox
+        primary_listbox.connect("row-activated", self._on_row_activated)
+        content_box.append(primary_listbox)
+
+        self._create_nav_item(
+            "providers",
             "Providers",
             self.main_window.show_provider_menu,
             tooltip="Providers",
-            container=content_box,
         )
-        self._create_button(
+        self._create_nav_item(
+            None,
             "History",
             self.main_window.handle_history_button,
             tooltip="History",
-            container=content_box,
         )
-        self._create_button(
+        self._create_nav_item(
+            "chat",
             "Chat",
             self.main_window.show_chat_page,
             tooltip="Chat",
-            container=content_box,
         )
-        self._create_button(
+        self._create_nav_item(
+            "tools",
             "Tools",
             self.main_window.show_tools_menu,
             tooltip="Tools",
-            container=content_box,
         )
-        self._create_button(
+        self._create_nav_item(
+            "skills",
             "Skills",
             self.main_window.show_skills_menu,
             tooltip="Skills",
-            container=content_box,
         )
-        self._create_button(
+        self._create_nav_item(
+            "accounts",
             "Accounts",
             self.main_window.show_accounts_page,
             tooltip="Accounts",
-            container=content_box,
         )
-        self._create_button(
+        self._create_nav_item(
+            "speech",
             "Speech Settings",
             self.main_window.show_speech_settings,
             tooltip="Speech Settings",
-            container=content_box,
         )
-        self._create_button(
+        self._create_nav_item(
+            "personas",
             "Personas",
             self.main_window.show_persona_menu,
             tooltip="Personas",
-            container=content_box,
         )
 
         spacer = Gtk.Box()
         spacer.set_vexpand(True)
         content_box.append(spacer)
 
-        bottom_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        bottom_box.set_valign(Gtk.Align.END)
-        bottom_box.set_hexpand(True)
-
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         separator.set_margin_top(10)
         separator.set_margin_bottom(10)
-        bottom_box.append(separator)
+        content_box.append(separator)
 
-        self._create_button(
+        footer_listbox = Gtk.ListBox()
+        footer_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        footer_listbox.set_accessible_role(Gtk.AccessibleRole.LIST)
+        footer_listbox.add_css_class("sidebar-nav")
+        footer_listbox.connect("row-activated", self._on_row_activated)
+        self._footer_listbox = footer_listbox
+        content_box.append(footer_listbox)
+
+        self._create_nav_item(
+            "settings",
             "Settings",
             self.main_window.show_settings_page,
             tooltip="Settings",
-            container=bottom_box,
+            container=footer_listbox,
         )
-        content_box.append(bottom_box)
 
     # ------------------------------------------------------------------
-    def _create_button(
+    def _create_nav_item(
         self,
+        nav_id: str | None,
         label: str,
         callback: Callable[[], None],
         tooltip: str | None = None,
-        container: Gtk.Box | None = None,
+        container: Gtk.ListBox | None = None,
     ) -> None:
-        button = Gtk.Button.new_with_label(label)
-        button.add_css_class("sidebar-button")
-        button.add_css_class("flat")
-        button.set_hexpand(True)
-        button.set_halign(Gtk.Align.FILL)
-        button.set_can_focus(True)
-        button.set_tooltip_text(tooltip)
-        button.connect("clicked", lambda _btn: callback())
-        child = button.get_child()
-        if isinstance(child, Gtk.Widget):
-            child.set_halign(Gtk.Align.START)
-            child.set_hexpand(True)
-            child.set_margin_start(0)
-        target = container if container is not None else self._content_box
-        target.append(button)
+        row = Gtk.ListBoxRow()
+        row.set_accessible_role(Gtk.AccessibleRole.LIST_ITEM)
+        row.set_focusable(True)
+        row.add_css_class("sidebar-nav-item")
+        row.set_tooltip_text(tooltip)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+
+        text = Gtk.Label(label=label)
+        text.set_xalign(0.0)
+        text.set_halign(Gtk.Align.START)
+        text.set_hexpand(True)
+        box.append(text)
+
+        row.set_child(box)
+
+        # Provide an accessible name for assistive technologies without relying on
+        # ``Gtk.ListBoxRow.set_accessible_name``, which is unavailable in some GTK
+        # versions. Prefer the accessible context API and fall back to labelling
+        # the row's container when necessary.
+        context = row.get_accessible_context()
+        if context is not None:
+            context.set_name(label)
+            if tooltip:
+                context.set_description(tooltip)
+        else:
+            if hasattr(box, "set_accessible_name"):
+                box.set_accessible_name(label)
+            elif hasattr(text, "set_accessible_name"):
+                text.set_accessible_name(label)
+
+        row.set_activatable(True)
+
+        gesture = Gtk.GestureClick()
+        gesture.connect("released", lambda _gesture, _n_press, _x, _y: callback())
+        row.add_controller(gesture)
+
+        self._row_actions[row] = callback
+        target = container if container is not None else self._primary_listbox
+        target.append(row)
+
+        if nav_id:
+            self._nav_items[nav_id] = row
+
+    def _on_row_activated(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
+        callback = self._row_actions.get(row)
+        if callable(callback):
+            callback()
+
+    def set_active_item(self, nav_id: str | None) -> None:
+        if nav_id == self._active_nav_id:
+            return
+
+        if self._active_nav_id and self._active_nav_id in self._nav_items:
+            previous = self._nav_items[self._active_nav_id]
+            previous.remove_css_class("active")
+
+        self._active_nav_id = nav_id if nav_id in self._nav_items else None
+
+        if self._active_nav_id:
+            current = self._nav_items[self._active_nav_id]
+            current.add_css_class("active")
 
 
 # Backwards compatibility for imports expecting ``Sidebar``
