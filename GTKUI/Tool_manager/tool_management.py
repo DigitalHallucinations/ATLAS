@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import csv
 import json
 import logging
@@ -495,33 +496,115 @@ class ToolManagement:
         return None
 
     def _load_tool_entries(self, persona: Optional[str]) -> List[_ToolEntry]:
-        server = getattr(self.ATLAS, "server", None)
-        getter = getattr(server, "get_tools", None)
-        if not callable(getter):
-            logger.warning("ATLAS server does not expose get_tools; returning empty workspace")
-            return []
+        tools_payload: Optional[List[Any]] = None
 
-        kwargs: Dict[str, Any] = {}
+        list_getter = getattr(self.ATLAS, "list_tools", None)
+        if callable(list_getter):
+            try:
+                response = list_getter()
+            except Exception as exc:  # pragma: no cover - backend failure logging
+                logger.error("Failed to load tool metadata via list_tools: %s", exc, exc_info=True)
+            else:
+                tools_candidate: Any
+                if isinstance(response, Mapping):
+                    tools_candidate = response.get("tools")
+                else:
+                    tools_candidate = response
+
+                if isinstance(tools_candidate, Iterable) and not isinstance(
+                    tools_candidate, (str, bytes, bytearray)
+                ):
+                    tools_payload = list(tools_candidate)
+                else:
+                    logger.warning(
+                        "ATLAS.list_tools returned unexpected payload; falling back to server.get_tools"
+                    )
+
+        if tools_payload is None:
+            server = getattr(self.ATLAS, "server", None)
+            getter = getattr(server, "get_tools", None)
+            if not callable(getter):
+                logger.warning(
+                    "ATLAS server does not expose get_tools; returning empty workspace"
+                )
+                return []
+
+            kwargs: Dict[str, Any] = {}
+            if persona:
+                kwargs["persona"] = persona
+
+            try:
+                response = getter(**kwargs)
+            except Exception as exc:
+                logger.error("Failed to load tool metadata: %s", exc, exc_info=True)
+                self._handle_backend_error("Unable to load tool metadata from ATLAS.")
+                return []
+
+            tools_candidate = response.get("tools") if isinstance(response, Mapping) else None
+            if not isinstance(tools_candidate, Iterable):
+                return []
+            tools_payload = list(tools_candidate)
+
+        filtered_payload: List[Any]
         if persona:
-            kwargs["persona"] = persona
-
-        try:
-            response = getter(**kwargs)
-        except Exception as exc:
-            logger.error("Failed to load tool metadata: %s", exc, exc_info=True)
-            self._handle_backend_error("Unable to load tool metadata from ATLAS.")
-            return []
-
-        tools = response.get("tools") if isinstance(response, Mapping) else None
-        if not isinstance(tools, Iterable):
-            return []
+            filtered_payload = [
+                entry
+                for entry in tools_payload
+                if self._tool_matches_persona_scope(entry, persona)
+            ]
+        else:
+            filtered_payload = list(tools_payload)
 
         entries: List[_ToolEntry] = []
-        for raw_entry in tools:
+        for raw_entry in filtered_payload:
             entry = self._normalize_entry(raw_entry)
             if entry is not None:
                 entries.append(entry)
         return entries
+
+    def _tool_matches_persona_scope(self, entry: Any, persona: str) -> bool:
+        if not isinstance(entry, Mapping):
+            return False
+
+        persona_name = entry.get("persona")
+        if persona_name:
+            return str(persona_name).strip() == persona
+
+        allowlist_raw = entry.get("persona_allowlist")
+        if isinstance(allowlist_raw, Iterable) and not isinstance(
+            allowlist_raw, (str, bytes, bytearray)
+        ):
+            normalized_allowlist = {
+                str(item).strip()
+                for item in allowlist_raw
+                if str(item).strip()
+            }
+            if normalized_allowlist:
+                return persona in normalized_allowlist
+
+        scope_candidate = entry.get("persona_scope") or entry.get("scope")
+        if isinstance(scope_candidate, str):
+            normalized_scope = scope_candidate.strip()
+            lower_scope = normalized_scope.lower()
+            if lower_scope in {"global", "shared", "all"}:
+                return True
+            if normalized_scope:
+                return normalized_scope == persona
+        elif isinstance(scope_candidate, Iterable) and not isinstance(
+            scope_candidate, (str, bytes, bytearray)
+        ):
+            normalized_scopes = {
+                str(item).strip()
+                for item in scope_candidate
+                if str(item).strip()
+            }
+            if normalized_scopes:
+                return persona in normalized_scopes or any(
+                    scope.lower() in {"global", "shared", "all"}
+                    for scope in normalized_scopes
+                )
+
+        return True
 
     def _load_enabled_tools(self, persona: Optional[str]) -> List[str]:
         if not persona:
@@ -577,6 +660,12 @@ class ToolManagement:
         account_status = entry.get("account_status")
 
         normalized_metadata = dict(entry)
+        settings_block = entry.get("settings")
+        if isinstance(settings_block, Mapping):
+            normalized_metadata["settings"] = copy.deepcopy(settings_block)
+        credentials_block = entry.get("credentials")
+        if isinstance(credentials_block, Mapping):
+            normalized_metadata["credentials"] = copy.deepcopy(credentials_block)
         normalized_metadata.setdefault("name", name)
 
         return _ToolEntry(

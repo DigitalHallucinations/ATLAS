@@ -1,3 +1,4 @@
+import copy
 import sys
 import types
 from typing import Any, Dict
@@ -100,6 +101,52 @@ class _AtlasStub:
         self.skill_requests: list[Dict[str, Any]] = []
         self.persona_manager = _PersonaManagerStub()
         self.server = types.SimpleNamespace(get_tools=self._get_tools, get_skills=self._get_skills)
+        self._tool_catalog: list[Dict[str, Any]] = [
+            {
+                "name": "google_search",
+                "title": "Google Search",
+                "summary": "Search the web for up-to-date information.",
+                "capabilities": ["web_search", "news"],
+                "persona": None,
+                "auth": {"required": True, "provider": "Google", "status": "Linked"},
+                "settings": {"enabled": True, "providers": ["primary"]},
+                "credentials": {
+                    "GOOGLE_API_KEY": {"configured": False, "hint": ""}
+                },
+            },
+            {
+                "name": "terminal_command",
+                "title": "Terminal",
+                "summary": "Execute safe shell commands.",
+                "capabilities": ["system"],
+                "persona": "Atlas",
+                "auth": {"required": False, "status": "Optional"},
+                "settings": {"enabled": True, "shell": "bash"},
+                "credentials": {},
+            },
+            {
+                "name": "atlas_curated_search",
+                "title": "Atlas Curated Search",
+                "summary": "Search curated internal resources.",
+                "capabilities": ["curated_search"],
+                "persona": None,
+                "persona_allowlist": ["Atlas", "Researcher"],
+                "auth": {"required": True, "provider": "Atlas", "status": "Linked"},
+                "settings": {"enabled": False},
+                "credentials": {},
+            },
+            {
+                "name": "restricted_calculator",
+                "title": "Restricted Calculator",
+                "summary": "Persona restricted tool.",
+                "capabilities": ["math"],
+                "persona": None,
+                "persona_allowlist": ["Researcher"],
+                "auth": {"required": False},
+                "settings": {"enabled": False},
+                "credentials": {"TOKEN": {"configured": True}},
+            },
+        ]
 
     def is_initialized(self) -> bool:
         return True
@@ -107,28 +154,28 @@ class _AtlasStub:
     def get_active_persona_name(self) -> str:
         return "Atlas"
 
-    def _get_tools(self, **kwargs: Any) -> Dict[str, Any]:
+    def list_tools(self) -> list[Dict[str, Any]]:
         self.tool_fetches += 1
+        return [copy.deepcopy(entry) for entry in self._tool_catalog]
+
+    def _get_tools(self, **kwargs: Any) -> Dict[str, Any]:
         self.tool_requests.append(dict(kwargs))
-        return {
-            "count": 2,
-            "tools": [
-                {
-                    "name": "google_search",
-                    "title": "Google Search",
-                    "summary": "Search the web for up-to-date information.",
-                    "capabilities": ["web_search", "news"],
-                    "auth": {"required": True, "provider": "Google", "status": "Linked"},
-                },
-                {
-                    "name": "terminal_command",
-                    "title": "Terminal",
-                    "summary": "Execute safe shell commands.",
-                    "capabilities": ["system"],
-                    "auth": {"required": False, "status": "Optional"},
-                },
-            ],
-        }
+        self.tool_fetches += 1
+        persona = kwargs.get("persona")
+
+        def _matches(entry: Dict[str, Any]) -> bool:
+            if not persona:
+                return True
+            scope = entry.get("persona")
+            if scope:
+                return scope == persona
+            allowlist = entry.get("persona_allowlist") or []
+            if allowlist:
+                return persona in allowlist
+            return True
+
+        tools = [copy.deepcopy(entry) for entry in self._tool_catalog if _matches(entry)]
+        return {"count": len(tools), "tools": tools}
 
     def _get_skills(self, **kwargs: Any) -> Dict[str, Any]:
         self.skill_fetches += 1
@@ -242,6 +289,11 @@ def test_tool_management_save_and_reset():
     assert widget is not None
     assert atlas.tool_fetches == 1
 
+    google_entry = manager._entry_lookup.get("google_search")
+    assert google_entry is not None
+    assert google_entry.raw_metadata["settings"] == {"enabled": True, "providers": ["primary"]}
+    assert google_entry.raw_metadata["credentials"]["GOOGLE_API_KEY"]["configured"] is False
+
     manager._select_tool("terminal_command")
     manager._on_switch_state_set(manager._switch, True)
     manager._on_save_clicked(manager._save_button)
@@ -269,8 +321,10 @@ def test_tool_management_filter_modes():
 
     widget = manager.get_embeddable_widget()
     assert widget is not None
-    assert atlas.tool_requests
-    assert atlas.tool_requests[-1] == {"persona": "Atlas"}
+    assert atlas.tool_fetches == 1
+
+    persona_entries = {entry.name for entry in manager._entries}
+    assert persona_entries == {"google_search", "terminal_command", "atlas_curated_search"}
 
     scope_widget = manager._scope_selector
     assert scope_widget is not None
@@ -280,18 +334,23 @@ def test_tool_management_filter_modes():
     manager._on_scope_changed(scope_widget)
 
     assert manager._tool_scope == "all"
-    assert atlas.tool_requests[-1] == {}
+    assert atlas.tool_fetches >= 2
     assert scope_widget.get_active_text() == "All tools"
     assert manager._entries, "Entries should remain populated when showing all tools"
     assert not getattr(manager._switch, "_sensitive", True)
+
+    all_entries = {entry.name for entry in manager._entries}
+    assert "restricted_calculator" in all_entries
 
     scope_widget.set_active(0)
     manager._on_scope_changed(scope_widget)
 
     assert manager._tool_scope == "persona"
-    assert atlas.tool_requests[-1] == {"persona": "Atlas"}
+    assert atlas.tool_fetches >= 3
     assert scope_widget.get_active_text() == "Persona tools"
     assert getattr(manager._switch, "_sensitive", False)
+    persona_entries_after = {entry.name for entry in manager._entries}
+    assert persona_entries_after == {"google_search", "terminal_command", "atlas_curated_search"}
 
 
 def test_skill_management_renders_payloads():
