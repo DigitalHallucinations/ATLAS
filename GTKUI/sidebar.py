@@ -357,13 +357,15 @@ class _NavigationSidebar(Gtk.Box):
         self.set_margin_end(4)
         self.set_valign(Gtk.Align.FILL)
         self.set_size_request(96, -1)
+        self.set_hexpand(False)
+        self.set_halign(Gtk.Align.START)
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        content_box.set_hexpand(True)
         content_box.set_vexpand(True)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_hexpand(False)
         scroller.set_vexpand(True)
         scroller.set_child(content_box)
         self.append(scroller)
@@ -376,6 +378,8 @@ class _NavigationSidebar(Gtk.Box):
         primary_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         primary_listbox.set_accessible_role(Gtk.AccessibleRole.LIST)
         primary_listbox.add_css_class("sidebar-nav")
+        primary_listbox.set_hexpand(False)
+        primary_listbox.set_halign(Gtk.Align.START)
         self._primary_listbox = primary_listbox
         primary_listbox.connect("row-activated", self._on_row_activated)
         content_box.append(primary_listbox)
@@ -442,6 +446,8 @@ class _NavigationSidebar(Gtk.Box):
         footer_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         footer_listbox.set_accessible_role(Gtk.AccessibleRole.LIST)
         footer_listbox.add_css_class("sidebar-nav")
+        footer_listbox.set_hexpand(False)
+        footer_listbox.set_halign(Gtk.Align.START)
         footer_listbox.connect("row-activated", self._on_row_activated)
         self._footer_listbox = footer_listbox
         content_box.append(footer_listbox)
@@ -490,11 +496,12 @@ class _NavigationSidebar(Gtk.Box):
         box.set_margin_bottom(6)
         box.set_margin_start(10)
         box.set_margin_end(10)
+        box.set_hexpand(False)
 
         text = Gtk.Label(label=label)
         text.set_xalign(0.0)
         text.set_halign(Gtk.Align.START)
-        text.set_hexpand(True)
+        text.set_hexpand(False)
         box.append(text)
 
         row.set_child(box)
