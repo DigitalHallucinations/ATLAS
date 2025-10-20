@@ -45,6 +45,7 @@ class ToolManagement:
         self._switch: Optional[Gtk.Switch] = None
         self._save_button: Optional[Gtk.Button] = None
         self._reset_button: Optional[Gtk.Button] = None
+        self._scope_selector: Optional[Gtk.ComboBoxText] = None
 
         self._entries: List[_ToolEntry] = []
         self._entry_lookup: Dict[str, _ToolEntry] = {}
@@ -55,6 +56,8 @@ class ToolManagement:
         self._baseline_enabled: set[str] = set()
         self._active_tool: Optional[str] = None
         self._suppress_toggle = False
+        self._tool_scope = "persona"
+        self._suppress_scope_signal = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -99,11 +102,25 @@ class ToolManagement:
         right_panel.set_hexpand(True)
         right_panel.set_vexpand(True)
 
+        persona_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        persona_row.set_hexpand(True)
+
         persona_label = Gtk.Label()
         persona_label.set_xalign(0.0)
         persona_label.set_wrap(True)
-        right_panel.append(persona_label)
+        persona_label.set_hexpand(True)
+        persona_row.append(persona_label)
         self._persona_label = persona_label
+
+        scope_selector = Gtk.ComboBoxText()
+        scope_selector.append_text("Persona tools")
+        scope_selector.append_text("All tools")
+        scope_selector.set_active(0)
+        scope_selector.connect("changed", self._on_scope_changed)
+        persona_row.append(scope_selector)
+        self._scope_selector = scope_selector
+
+        right_panel.append(persona_row)
 
         title_label = Gtk.Label()
         title_label.set_xalign(0.0)
@@ -178,18 +195,27 @@ class ToolManagement:
     def _refresh_state(self) -> None:
         persona = self._resolve_persona_name()
         self._persona_name = persona
+        self._sync_scope_widget(bool(persona))
+
+        persona_filter = persona if self._tool_scope == "persona" and persona else None
+
         if persona:
             self._set_label(self._persona_label, f"Persona: {persona}")
         else:
             self._set_label(self._persona_label, "Persona: (unavailable)")
 
-        entries = self._load_tool_entries(persona)
-        enabled = self._load_enabled_tools(persona)
+        entries = self._load_tool_entries(persona_filter)
+
+        if persona_filter is not None:
+            enabled = self._load_enabled_tools(persona_filter)
+            self._enabled_tools = set(enabled)
+            self._baseline_enabled = set(enabled)
+        else:
+            self._enabled_tools = set()
+            self._baseline_enabled = set()
 
         self._entries = entries
         self._entry_lookup = {entry.name: entry for entry in entries}
-        self._enabled_tools = set(enabled)
-        self._baseline_enabled = set(enabled)
         self._rebuild_tool_list()
         self._update_action_state()
 
@@ -386,8 +412,12 @@ class ToolManagement:
             except Exception:  # pragma: no cover - GTK stub variations
                 pass
 
-        self._set_switch_sensitive(True)
-        self._set_switch_active(tool_name in self._enabled_tools)
+        allow_edit = self._current_scope_allows_editing()
+        self._set_switch_sensitive(allow_edit)
+        if allow_edit:
+            self._set_switch_active(tool_name in self._enabled_tools)
+        else:
+            self._set_switch_active(False)
         self._update_action_state()
 
     def _show_empty_state(self) -> None:
@@ -396,7 +426,7 @@ class ToolManagement:
         self._set_label(self._summary_label, "Select a tool to view configuration details.")
         self._set_label(self._capabilities_label, "Capabilities: (n/a)")
         self._set_label(self._auth_label, "Authentication status: unavailable")
-        self._set_switch_sensitive(False)
+        self._set_switch_sensitive(self._current_scope_allows_editing())
         self._set_switch_active(False)
         self._update_action_state()
 
@@ -411,6 +441,9 @@ class ToolManagement:
 
     def _on_switch_state_set(self, _switch: Gtk.Switch, state: bool) -> bool:
         if self._suppress_toggle or self._active_tool is None:
+            return False
+
+        if not self._current_scope_allows_editing():
             return False
 
         if state:
@@ -531,6 +564,51 @@ class ToolManagement:
         setter = getattr(button, "set_sensitive", None)
         if callable(setter):
             setter(bool(enabled))
+
+    def _on_scope_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_scope_signal:
+            return
+
+        getter = getattr(combo, "get_active_text", None)
+        label = getter() if callable(getter) else None
+        new_scope = "persona" if label == "Persona tools" else "all"
+
+        if new_scope == "persona" and not self._persona_name:
+            self._tool_scope = "all"
+            self._sync_scope_widget(False)
+            return
+
+        if new_scope == self._tool_scope:
+            return
+
+        self._tool_scope = new_scope
+        self._refresh_state()
+
+    def _sync_scope_widget(self, persona_available: bool) -> None:
+        widget = self._scope_selector
+        if widget is None:
+            return
+
+        desired_scope = self._tool_scope
+        if desired_scope == "persona" and not persona_available:
+            desired_scope = "all"
+            self._tool_scope = "all"
+
+        index = 0 if desired_scope == "persona" else 1
+        setter = getattr(widget, "set_active", None)
+        self._suppress_scope_signal = True
+        try:
+            if callable(setter):
+                setter(index)
+        finally:
+            self._suppress_scope_signal = False
+
+        set_sensitive = getattr(widget, "set_sensitive", None)
+        if callable(set_sensitive):
+            set_sensitive(bool(persona_available))
+
+    def _current_scope_allows_editing(self) -> bool:
+        return self._tool_scope == "persona" and bool(self._persona_name)
 
     def _handle_backend_error(self, message: str) -> None:
         logger.error("Tool management error: %s", message)

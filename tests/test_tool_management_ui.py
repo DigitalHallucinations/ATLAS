@@ -37,6 +37,19 @@ if notebook_cls is not None and not hasattr(notebook_cls, "set_current_page"):
 if notebook_cls is not None and not hasattr(notebook_cls, "append_page"):
     notebook_cls.append_page = lambda self, child, label: 0
 
+if not hasattr(Gtk, "SelectionMode"):
+    Gtk.SelectionMode = types.SimpleNamespace(NONE=0, SINGLE=1, MULTIPLE=2)
+
+accessible_role = getattr(Gtk, "AccessibleRole", None)
+if accessible_role is None:
+    Gtk.AccessibleRole = types.SimpleNamespace(LIST=0, LIST_ITEM=1)
+else:
+    setattr(accessible_role, "LIST", getattr(accessible_role, "LIST", 0))
+    setattr(accessible_role, "LIST_ITEM", getattr(accessible_role, "LIST_ITEM", 1))
+
+if not hasattr(Gtk, "ListBoxRow"):
+    Gtk.ListBoxRow = type("ListBoxRow", (dummy_base,), {})
+
 
 class _DummyPersonaManagement:
     def __init__(self, atlas, parent):
@@ -83,6 +96,7 @@ class _AtlasStub:
     def __init__(self) -> None:
         self.tool_fetches = 0
         self.skill_fetches = 0
+        self.tool_requests: list[Dict[str, Any]] = []
         self.persona_manager = _PersonaManagerStub()
         self.server = types.SimpleNamespace(get_tools=self._get_tools, get_skills=self._get_skills)
 
@@ -92,8 +106,9 @@ class _AtlasStub:
     def get_active_persona_name(self) -> str:
         return "Atlas"
 
-    def _get_tools(self, **_: Any) -> Dict[str, Any]:
+    def _get_tools(self, **kwargs: Any) -> Dict[str, Any]:
         self.tool_fetches += 1
+        self.tool_requests.append(dict(kwargs))
         return {
             "count": 2,
             "tools": [
@@ -241,6 +256,40 @@ def test_tool_management_save_and_reset():
     assert atlas.tool_fetches >= 2, "Reset should trigger a fresh backend fetch"
     assert manager._enabled_tools == {"google_search"}
     assert not parent.errors, "Successful actions should not surface errors"
+
+
+def test_tool_management_filter_modes():
+    from GTKUI.Tool_manager.tool_management import ToolManagement
+
+    parent = _ParentWindowStub()
+    atlas = _AtlasStub()
+    manager = ToolManagement(atlas, parent)
+
+    widget = manager.get_embeddable_widget()
+    assert widget is not None
+    assert atlas.tool_requests
+    assert atlas.tool_requests[-1] == {"persona": "Atlas"}
+
+    scope_widget = manager._scope_selector
+    assert scope_widget is not None
+    assert scope_widget.get_active_text() == "Persona tools"
+
+    scope_widget.set_active(1)
+    manager._on_scope_changed(scope_widget)
+
+    assert manager._tool_scope == "all"
+    assert atlas.tool_requests[-1] == {}
+    assert scope_widget.get_active_text() == "All tools"
+    assert manager._entries, "Entries should remain populated when showing all tools"
+    assert not getattr(manager._switch, "_sensitive", True)
+
+    scope_widget.set_active(0)
+    manager._on_scope_changed(scope_widget)
+
+    assert manager._tool_scope == "persona"
+    assert atlas.tool_requests[-1] == {"persona": "Atlas"}
+    assert scope_widget.get_active_text() == "Persona tools"
+    assert getattr(manager._switch, "_sensitive", False)
 
 
 def test_skill_management_renders_payloads():
