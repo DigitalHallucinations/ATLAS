@@ -47,6 +47,9 @@ class _DummyWidget:
         self._sensitive = True
         self.visible = True
         self._css_classes: set[str] = set()
+        self._text: str = ""
+        self._placeholder_text: str = ""
+        self._visibility: bool = True
 
     def __call__(self, *args, **kwargs):  # pragma: no cover - convenience hook
         return self
@@ -110,6 +113,21 @@ class _DummyWidget:
 
     def set_valign(self, value):  # pragma: no cover - widget helper
         self._valign = value
+
+    def set_text(self, value):  # pragma: no cover - entry helper
+        self._text = str(value)
+
+    def get_text(self):  # pragma: no cover - entry helper
+        return self._text
+
+    def set_placeholder_text(self, value):  # pragma: no cover - entry helper
+        self._placeholder_text = str(value)
+
+    def get_placeholder_text(self):  # pragma: no cover - entry helper
+        return self._placeholder_text
+
+    def set_visibility(self, value):  # pragma: no cover - entry helper
+        self._visibility = bool(value)
 
 
 Gtk = sys.modules.get("gi.repository.Gtk")
@@ -285,6 +303,7 @@ class _Entry(_DummyWidget):
 
     def set_placeholder_text(self, text: str):
         self.placeholder = text
+        self._placeholder_text = text
 
     def set_visibility(self, visible: bool):
         self.visible = bool(visible)
