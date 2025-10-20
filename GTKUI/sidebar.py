@@ -465,7 +465,14 @@ class _NavigationSidebar(Gtk.Box):
     ) -> None:
         row = Gtk.ListBoxRow()
         row.set_accessible_role(Gtk.AccessibleRole.LIST_ITEM)
-        row.set_accessible_name(label)
+        if hasattr(row, "set_accessible_name"):
+            row.set_accessible_name(label)
+        elif hasattr(row, "update_property"):
+            row.update_property(Gtk.AccessibleProperty.LABEL, label)
+        else:
+            logger.debug(
+                "Gtk.ListBoxRow does not support accessible names; skipping label assignment"
+            )
         row.set_focusable(True)
         row.add_css_class("sidebar-nav-item")
         row.set_tooltip_text(tooltip)
