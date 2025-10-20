@@ -392,12 +392,6 @@ class _NavigationSidebar(Gtk.Box):
             tooltip="Providers",
         )
         self._create_nav_item(
-            None,
-            "History",
-            self.main_window.handle_history_button,
-            tooltip="History",
-        )
-        self._create_nav_item(
             "chat",
             "Chat",
             self.main_window.show_chat_page,
@@ -426,6 +420,29 @@ class _NavigationSidebar(Gtk.Box):
             "Personas",
             self.main_window.show_persona_menu,
             tooltip="Personas",
+        )
+
+        personas_history_divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        personas_history_divider.set_margin_top(10)
+        personas_history_divider.set_margin_bottom(10)
+        content_box.append(personas_history_divider)
+
+        history_listbox = Gtk.ListBox()
+        history_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        history_listbox.set_accessible_role(Gtk.AccessibleRole.LIST)
+        history_listbox.add_css_class("sidebar-nav")
+        history_listbox.set_hexpand(False)
+        history_listbox.set_halign(Gtk.Align.START)
+        history_listbox.connect("row-activated", self._on_row_activated)
+        self._history_listbox = history_listbox
+        content_box.append(history_listbox)
+
+        self._create_nav_item(
+            None,
+            "History",
+            self.main_window.handle_history_button,
+            tooltip="History",
+            container=history_listbox,
         )
 
         spacer = Gtk.Box()
