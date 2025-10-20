@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import csv
+import json
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, Iterable as TypingIterable, List, Optional, Sequence, Tuple
 
 import gi
@@ -64,6 +67,14 @@ class ToolManagement:
         self._bulk_enable_button: Optional[Gtk.Button] = None
         self._bulk_apply_button: Optional[Gtk.Button] = None
         self._reset_button: Optional[Gtk.Button] = None
+        self._recent_changes_box: Optional[Gtk.Widget] = None
+        self._recent_changes_label: Optional[Gtk.Label] = None
+        self._export_csv_button: Optional[Gtk.Button] = None
+        self._export_json_button: Optional[Gtk.Button] = None
+        self._history_box: Optional[Gtk.Widget] = None
+        self._history_list_box: Optional[Gtk.Widget] = None
+        self._history_records: List[Dict[str, Any]] = []
+        self._tool_history_supported = False
         self._scope_selector: Optional[Gtk.ComboBoxText] = None
         self._search_entry: Optional[Gtk.SearchEntry] = None
         self._capability_selector: Optional[Gtk.ComboBoxText] = None
@@ -85,6 +96,8 @@ class ToolManagement:
         self._tool_scope = "persona"
         self._suppress_scope_signal = False
         self._suppress_filter_signals = False
+        self._last_diff_snapshot: Optional[Tuple[frozenset[str], frozenset[str]]] = None
+        self._last_export_directory: Optional[Path] = None
 
         self._filter_text = ""
         self._capability_filter: Optional[str] = None
@@ -336,6 +349,59 @@ class ToolManagement:
 
         right_panel.append(toggle_row)
 
+        recent_changes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        recent_changes_box.set_visible(False)
+        recent_heading = Gtk.Label(label="Recent changes")
+        recent_heading.set_xalign(0.0)
+        try:
+            recent_heading.add_css_class("title-5")
+        except Exception:  # pragma: no cover - GTK theme variations
+            pass
+        recent_changes_box.append(recent_heading)
+
+        recent_label = Gtk.Label()
+        recent_label.set_wrap(True)
+        recent_label.set_xalign(0.0)
+        recent_changes_box.append(recent_label)
+
+        right_panel.append(recent_changes_box)
+        self._recent_changes_box = recent_changes_box
+        self._recent_changes_label = recent_label
+
+        export_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        export_row.set_halign(Gtk.Align.END)
+
+        export_csv_button = Gtk.Button(label="Export to CSV")
+        export_csv_button.set_tooltip_text("Save the visible tool list to a CSV file.")
+        export_csv_button.connect("clicked", self._on_export_tools_csv_clicked)
+        export_row.append(export_csv_button)
+        self._export_csv_button = export_csv_button
+
+        export_json_button = Gtk.Button(label="Export to JSON")
+        export_json_button.set_tooltip_text("Save the visible tool list to a JSON file.")
+        export_json_button.connect("clicked", self._on_export_tools_json_clicked)
+        export_row.append(export_json_button)
+        self._export_json_button = export_json_button
+
+        right_panel.append(export_row)
+
+        history_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        history_box.set_visible(False)
+        history_heading = Gtk.Label(label="Recent backend activity")
+        history_heading.set_xalign(0.0)
+        try:
+            history_heading.add_css_class("title-5")
+        except Exception:  # pragma: no cover - GTK theme variations
+            pass
+        history_box.append(history_heading)
+
+        history_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        history_list.set_hexpand(True)
+        history_box.append(history_list)
+
+        self._history_box = history_box
+        self._history_list_box = history_list
+
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         actions.set_halign(Gtk.Align.END)
 
@@ -370,6 +436,7 @@ class ToolManagement:
         self._reset_button = reset_button
 
         right_panel.append(actions)
+        right_panel.append(history_box)
 
         root.append(left_panel)
         root.append(right_panel)
@@ -411,6 +478,8 @@ class ToolManagement:
         self._populate_sort_selector()
         self._sync_filter_widgets()
         self._rebuild_tool_list()
+        self._history_records = self._load_tool_history(persona_filter)
+        self._sync_history_feed()
         self._update_action_state()
 
     def _resolve_persona_name(self) -> Optional[str]:
@@ -1488,12 +1557,17 @@ class ToolManagement:
 
     def _update_action_state(self) -> None:
         has_tools = bool(self._entries)
+        has_visible = bool(self._visible_entries)
+        self._set_button_sensitive(self._export_csv_button, has_visible)
+        self._set_button_sensitive(self._export_json_button, has_visible)
+
         if not has_tools:
             self._set_button_sensitive(self._save_button, False)
             self._set_button_sensitive(self._bulk_enable_button, False)
             self._set_button_sensitive(self._bulk_apply_button, False)
             self._set_button_sensitive(self._reset_button, False)
             self._sync_bulk_checkbox_state()
+            self._sync_recent_changes_panel()
             return
 
         dirty = self._enabled_tools != self._baseline_enabled
@@ -1507,6 +1581,7 @@ class ToolManagement:
         self._set_button_sensitive(self._bulk_apply_button, allow_bulk and bool(recommended))
 
         self._sync_bulk_checkbox_state()
+        self._sync_recent_changes_panel()
 
     def _set_button_sensitive(self, button: Optional[Gtk.Button], enabled: bool) -> None:
         if button is None:
@@ -1514,6 +1589,350 @@ class ToolManagement:
         setter = getattr(button, "set_sensitive", None)
         if callable(setter):
             setter(bool(enabled))
+
+    def _sync_recent_changes_panel(self) -> None:
+        box = self._recent_changes_box
+        label = self._recent_changes_label
+        if box is None or label is None:
+            return
+
+        if not self._current_scope_allows_editing():
+            box.set_visible(False)
+            if self._last_diff_snapshot:
+                logger.info(
+                    "Pending tool changes for persona '%s' cleared.",
+                    self._persona_name or "(unknown persona)",
+                )
+            self._last_diff_snapshot = None
+            return
+
+        added, removed = self._compute_pending_tool_changes()
+        diff_snapshot = (frozenset(added), frozenset(removed))
+
+        if not added and not removed:
+            if box.get_visible():
+                box.set_visible(False)
+            if self._last_diff_snapshot not in (None, (frozenset(), frozenset())):
+                logger.info(
+                    "Pending tool changes for persona '%s' cleared.",
+                    self._persona_name or "(unknown persona)",
+                )
+            self._last_diff_snapshot = (frozenset(), frozenset())
+            return
+
+        changes: List[str] = []
+        if added:
+            changes.append("Enabling: " + ", ".join(sorted(added)))
+        if removed:
+            changes.append("Disabling: " + ", ".join(sorted(removed)))
+
+        label.set_label("\n".join(changes))
+        label.set_wrap(True)
+        box.set_visible(True)
+
+        if diff_snapshot != self._last_diff_snapshot:
+            logger.info(
+                "Pending tool changes for persona '%s': enabling=%s; disabling=%s",
+                self._persona_name or "(unknown persona)",
+                sorted(added),
+                sorted(removed),
+            )
+        self._last_diff_snapshot = diff_snapshot
+
+    def _compute_pending_tool_changes(self) -> Tuple[set[str], set[str]]:
+        if not self._persona_name:
+            return set(), set()
+        added = set(self._enabled_tools) - set(self._baseline_enabled)
+        removed = set(self._baseline_enabled) - set(self._enabled_tools)
+        return added, removed
+
+    def _get_filtered_tool_entries(self) -> List[_ToolEntry]:
+        if self._visible_entries:
+            return list(self._visible_entries)
+        return list(self._entries)
+
+    def _load_tool_history(self, persona: Optional[str]) -> List[Dict[str, Any]]:
+        server = getattr(self.ATLAS, "server", None)
+        method = getattr(server, "list_tool_changes", None)
+        self._tool_history_supported = callable(method)
+        if not self._tool_history_supported:
+            return []
+
+        kwargs: Dict[str, Any] = {}
+        if persona:
+            kwargs["persona"] = persona
+
+        try:
+            response = method(**kwargs) if callable(method) else None
+        except Exception as exc:  # pragma: no cover - backend failure logging
+            logger.error("Failed to load tool history: %s", exc, exc_info=True)
+            self._handle_backend_error("Unable to load tool change history from ATLAS.")
+            return []
+
+        records = response
+        if isinstance(response, Mapping):
+            records = response.get("changes")
+
+        normalized: List[Dict[str, Any]] = []
+        if isinstance(records, Iterable):
+            for raw in records:
+                entry = self._normalize_history_record(raw)
+                if entry is not None:
+                    normalized.append(entry)
+        return normalized[:10]
+
+    def _normalize_history_record(self, record: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(record, Mapping):
+            return None
+
+        summary = record.get("summary") or record.get("description")
+        action = record.get("action") or record.get("change")
+        tool_name = record.get("tool") or record.get("name")
+        persona_name = record.get("persona") or record.get("persona_name")
+        author = record.get("author") or record.get("user") or record.get("actor")
+
+        added = record.get("added") or record.get("enabled")
+        removed = record.get("removed") or record.get("disabled")
+
+        change_parts: List[str] = []
+        if isinstance(added, Iterable) and not isinstance(added, (str, bytes)):
+            additions = [str(item).strip() for item in added if str(item).strip()]
+            if additions:
+                change_parts.append("Enabled: " + ", ".join(additions))
+        if isinstance(removed, Iterable) and not isinstance(removed, (str, bytes)):
+            removals = [str(item).strip() for item in removed if str(item).strip()]
+            if removals:
+                change_parts.append("Disabled: " + ", ".join(removals))
+
+        if not summary:
+            summary_parts: List[str] = []
+            if action:
+                summary_parts.append(str(action).strip().capitalize())
+            if tool_name:
+                summary_parts.append(f"tool '{tool_name}'")
+            if persona_name:
+                summary_parts.append(f"for persona '{persona_name}'")
+            if change_parts:
+                summary_parts.append("; ".join(change_parts))
+            summary = " ".join(part for part in summary_parts if part) or "Tool configuration updated."
+        elif change_parts:
+            summary = f"{summary} ({'; '.join(change_parts)})"
+
+        timestamp = record.get("timestamp") or record.get("updated_at") or record.get("created_at")
+        parsed_timestamp = self._parse_timestamp(timestamp)
+
+        return {
+            "summary": str(summary).strip(),
+            "author": str(author).strip() if author else "Unknown",
+            "timestamp": parsed_timestamp,
+            "persona": str(persona_name).strip() if persona_name else None,
+        }
+
+    def _sync_history_feed(self) -> None:
+        box = self._history_box
+        container = self._history_list_box
+        if box is None or container is None:
+            return
+
+        self._clear_container(container)
+
+        if not self._tool_history_supported:
+            message = Gtk.Label(label="History feed is unavailable for this backend.")
+            message.set_xalign(0.0)
+            message.set_wrap(True)
+            container.append(message)
+            box.set_visible(True)
+            return
+
+        if not self._history_records:
+            empty_label = Gtk.Label(label="No recent changes recorded.")
+            empty_label.set_xalign(0.0)
+            try:
+                empty_label.add_css_class("dim-label")
+            except Exception:  # pragma: no cover - GTK theme variations
+                pass
+            container.append(empty_label)
+            box.set_visible(True)
+            return
+
+        for record in self._history_records:
+            timestamp = record.get("timestamp")
+            timestamp_text = self._format_history_timestamp(timestamp)
+            author = record.get("author") or "Unknown"
+            summary = record.get("summary") or "Tool configuration updated."
+            if record.get("persona") and self._persona_name and record["persona"] != self._persona_name:
+                summary = f"{summary} (persona: {record['persona']})"
+
+            entry_label = Gtk.Label()
+            entry_label.set_xalign(0.0)
+            entry_label.set_wrap(True)
+            try:
+                entry_label.add_css_class("dim-label")
+            except Exception:  # pragma: no cover - GTK theme variations
+                pass
+            entry_label.set_label(f"{timestamp_text} – {author}: {summary}")
+            container.append(entry_label)
+
+        box.set_visible(True)
+
+    def _format_history_timestamp(self, timestamp: Optional[datetime]) -> str:
+        if timestamp is None:
+            return "Unknown time"
+        relative = self._format_relative_time(timestamp)
+        iso_text = timestamp.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        return f"{relative} ({iso_text})"
+
+    def _choose_export_path(self, *, title: str, suggested_name: str, pattern: str) -> Optional[str]:
+        chooser_cls = getattr(Gtk, "FileChooserNative", None)
+        action_enum = getattr(Gtk.FileChooserAction, "SAVE", None) if hasattr(Gtk, "FileChooserAction") else None
+        if chooser_cls is None or action_enum is None:
+            return None
+
+        chooser = chooser_cls(title=title, transient_for=self.parent_window, modal=True, action=action_enum)
+        if hasattr(chooser, "set_current_name"):
+            try:
+                chooser.set_current_name(suggested_name)
+            except Exception:
+                pass
+
+        if self._last_export_directory and hasattr(chooser, "set_current_folder"):
+            try:
+                chooser.set_current_folder(str(self._last_export_directory))
+            except Exception:
+                pass
+
+        file_filter_cls = getattr(Gtk, "FileFilter", None)
+        if callable(file_filter_cls):
+            try:
+                file_filter = file_filter_cls()
+                if hasattr(file_filter, "set_name"):
+                    file_filter.set_name(pattern.upper())
+                if hasattr(file_filter, "add_pattern"):
+                    file_filter.add_pattern(pattern)
+                adder = getattr(chooser, "add_filter", None)
+                if callable(adder):
+                    adder(file_filter)
+            except Exception:  # pragma: no cover - GTK compatibility fallback
+                pass
+
+        response = None
+        if hasattr(chooser, "run"):
+            try:
+                response = chooser.run()
+            except Exception:
+                response = None
+        elif hasattr(chooser, "show"):
+            try:
+                chooser.show()
+                response = getattr(Gtk.ResponseType, "ACCEPT", 1)
+            except Exception:
+                response = None
+
+        accepted = {
+            getattr(Gtk.ResponseType, "ACCEPT", None),
+            getattr(Gtk.ResponseType, "OK", None),
+            getattr(Gtk.ResponseType, "YES", None),
+        }
+
+        filename: Optional[str] = None
+        if response in accepted:
+            file_obj = getattr(chooser, "get_file", None)
+            if callable(file_obj):
+                file_handle = file_obj()
+            else:
+                file_handle = None
+            if file_handle is not None and hasattr(file_handle, "get_path"):
+                filename = file_handle.get_path()
+            else:
+                getter = getattr(chooser, "get_filename", None)
+                if callable(getter):
+                    filename = getter()
+
+        if hasattr(chooser, "destroy"):
+            try:
+                chooser.destroy()
+            except Exception:
+                pass
+
+        if filename:
+            path_obj = Path(filename).expanduser().resolve()
+            self._last_export_directory = path_obj.parent
+            return str(path_obj)
+        return None
+
+    def _serialize_tool_entry(self, entry: _ToolEntry) -> Dict[str, Any]:
+        return {
+            "name": entry.name,
+            "title": entry.title,
+            "summary": entry.summary,
+            "capabilities": list(entry.capabilities),
+            "account_status": entry.account_status,
+            "auth": dict(entry.auth),
+            "enabled": entry.name in self._enabled_tools,
+        }
+
+    def _export_tools_to_csv(self, path: str, entries: List[_ToolEntry]) -> None:
+        try:
+            with open(path, "w", encoding="utf-8", newline="") as handle:
+                fieldnames = [
+                    "name",
+                    "title",
+                    "summary",
+                    "capabilities",
+                    "account_status",
+                    "auth_provider",
+                    "enabled",
+                ]
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                for entry in entries:
+                    metadata = self._serialize_tool_entry(entry)
+                    auth_provider = entry.auth.get("provider") if isinstance(entry.auth, Mapping) else None
+                    writer.writerow(
+                        {
+                            "name": metadata["name"],
+                            "title": metadata["title"],
+                            "summary": metadata["summary"],
+                            "capabilities": ", ".join(entry.capabilities),
+                            "account_status": metadata["account_status"] or "",
+                            "auth_provider": str(auth_provider or ""),
+                            "enabled": "yes" if metadata["enabled"] else "no",
+                        }
+                    )
+        except Exception as exc:  # pragma: no cover - filesystem issues
+            logger.error("Failed to export tool list to CSV: %s", exc, exc_info=True)
+            self._handle_backend_error("Unable to export tool list to CSV.")
+
+    def _export_tools_to_json(self, path: str, entries: List[_ToolEntry]) -> None:
+        payload = [self._serialize_tool_entry(entry) for entry in entries]
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, ensure_ascii=False)
+        except Exception as exc:  # pragma: no cover - filesystem issues
+            logger.error("Failed to export tool list to JSON: %s", exc, exc_info=True)
+            self._handle_backend_error("Unable to export tool list to JSON.")
+
+    def _on_export_tools_csv_clicked(self, _button: Gtk.Button) -> None:
+        entries = self._get_filtered_tool_entries()
+        if not entries:
+            self._handle_backend_error("No tool data is available to export.")
+            return
+
+        path = self._choose_export_path(title="Export tools to CSV", suggested_name="tools.csv", pattern="*.csv")
+        if not path:
+            return
+        self._export_tools_to_csv(path, entries)
+
+    def _on_export_tools_json_clicked(self, _button: Gtk.Button) -> None:
+        entries = self._get_filtered_tool_entries()
+        if not entries:
+            self._handle_backend_error("No tool data is available to export.")
+            return
+
+        path = self._choose_export_path(title="Export tools to JSON", suggested_name="tools.json", pattern="*.json")
+        if not path:
+            return
+        self._export_tools_to_json(path, entries)
 
     def _populate_capability_selector(self) -> None:
         capabilities = sorted({cap for entry in self._entries for cap in entry.capabilities})
