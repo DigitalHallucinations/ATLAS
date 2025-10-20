@@ -503,6 +503,7 @@ class _NavigationSidebar(Gtk.Box):
         )
 
         personas_history_divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        personas_history_divider.add_css_class("sidebar-divider")
         personas_history_divider.set_margin_top(10)
         personas_history_divider.set_margin_bottom(10)
         content_box.append(personas_history_divider)
@@ -530,6 +531,7 @@ class _NavigationSidebar(Gtk.Box):
         content_box.append(spacer)
 
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        separator.add_css_class("sidebar-divider")
         separator.set_margin_top(10)
         separator.set_margin_bottom(10)
         content_box.append(separator)
