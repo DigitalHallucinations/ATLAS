@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import threading
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Set
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import gi
 
@@ -98,6 +101,14 @@ class SkillManagement:
         self._category_combo: Optional[Gtk.ComboBoxText] = None
         self._persona_combo: Optional[Gtk.ComboBoxText] = None
         self._sort_combo: Optional[Gtk.ComboBoxText] = None
+        self._recent_changes_box: Optional[Gtk.Widget] = None
+        self._recent_changes_label: Optional[Gtk.Label] = None
+        self._export_csv_button: Optional[Gtk.Button] = None
+        self._export_json_button: Optional[Gtk.Button] = None
+        self._history_box: Optional[Gtk.Widget] = None
+        self._history_list_box: Optional[Gtk.Widget] = None
+        self._history_records: List[Dict[str, Any]] = []
+        self._skill_history_supported = False
 
         self._entries: List[_SkillEntry] = []
         self._entry_lookup: Dict[str, _SkillEntry] = {}
@@ -126,6 +137,11 @@ class SkillManagement:
         self._persona_error_reported = False
         self._preview_in_progress = False
         self._test_in_progress = False
+        self._baseline_notes: str = ""
+        self._baseline_status: str = ""
+        self._recent_changes_snapshot: Optional[Tuple[str, ...]] = None
+        self._last_export_directory: Optional[Path] = None
+        self._suppress_notes_signal = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -415,6 +431,42 @@ class SkillManagement:
         right_panel.append(review_status_label)
         self._review_status_label = review_status_label
 
+        recent_changes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        recent_changes_box.set_visible(False)
+        recent_heading = Gtk.Label(label="Recent changes")
+        recent_heading.set_xalign(0.0)
+        try:
+            recent_heading.add_css_class("title-5")
+        except Exception:  # pragma: no cover - GTK theme variations
+            pass
+        recent_changes_box.append(recent_heading)
+
+        recent_label = Gtk.Label()
+        recent_label.set_wrap(True)
+        recent_label.set_xalign(0.0)
+        recent_changes_box.append(recent_label)
+
+        right_panel.append(recent_changes_box)
+        self._recent_changes_box = recent_changes_box
+        self._recent_changes_label = recent_label
+
+        export_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        export_row.set_halign(Gtk.Align.END)
+
+        export_csv_button = Gtk.Button(label="Export to CSV")
+        export_csv_button.set_tooltip_text("Save the filtered skill list to a CSV file.")
+        export_csv_button.connect("clicked", self._on_export_skills_csv_clicked)
+        export_row.append(export_csv_button)
+        self._export_csv_button = export_csv_button
+
+        export_json_button = Gtk.Button(label="Export to JSON")
+        export_json_button.set_tooltip_text("Save the filtered skill list to a JSON file.")
+        export_json_button.connect("clicked", self._on_export_skills_json_clicked)
+        export_row.append(export_json_button)
+        self._export_json_button = export_json_button
+
+        right_panel.append(export_row)
+
         action_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         action_button_box.set_visible(False)
         right_panel.append(action_button_box)
@@ -440,6 +492,24 @@ class SkillManagement:
         open_persona_button.set_visible(False)
         action_button_box.append(open_persona_button)
         self._open_persona_button = open_persona_button
+
+        history_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        history_box.set_visible(False)
+        history_heading = Gtk.Label(label="Recent backend activity")
+        history_heading.set_xalign(0.0)
+        try:
+            history_heading.add_css_class("title-5")
+        except Exception:  # pragma: no cover - GTK theme variations
+            pass
+        history_box.append(history_heading)
+
+        history_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        history_list.set_hexpand(True)
+        history_box.append(history_list)
+
+        right_panel.append(history_box)
+        self._history_box = history_box
+        self._history_list_box = history_list
 
         control_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         right_panel.append(control_row)
@@ -561,6 +631,11 @@ class SkillManagement:
                     self._tester_notes_buffer = buffer_getter()
                 except Exception:  # pragma: no cover - GTK compatibility variations
                     self._tester_notes_buffer = None
+            if self._tester_notes_buffer is not None:
+                try:
+                    self._tester_notes_buffer.connect("changed", self._on_notes_buffer_changed)
+                except Exception:  # pragma: no cover - GTK compatibility variations
+                    pass
         else:  # pragma: no cover - GTK fallback path
             notes_label_fallback = Gtk.Label()
             notes_label_fallback.set_xalign(0.0)
@@ -605,6 +680,9 @@ class SkillManagement:
         self._persona_error_reported = False
         self._populate_filter_options()
         self._rebuild_skill_list()
+        self._history_records = self._load_skill_history(persona_filter)
+        self._sync_history_feed()
+        self._update_action_state()
 
     def _resolve_persona_name(self) -> Optional[str]:
         getter = getattr(self.ATLAS, "get_active_persona_name", None)
@@ -764,6 +842,8 @@ class SkillManagement:
             self._select_skill(desired)
         else:
             self._show_empty_state()
+
+        self._update_action_state()
 
     def _populate_filter_options(self) -> None:
         preferences_changed = False
@@ -1065,12 +1145,12 @@ class SkillManagement:
             self._review_status_label,
             self._format_review_status_text(entry, include_prefix=True),
         )
-        self._set_notes_text(entry.tester_notes or "")
+        self._baseline_status = (entry.review_status or "").strip()
+        self._baseline_notes = entry.tester_notes or ""
+        self._recent_changes_snapshot = None
+        self._set_notes_text(self._baseline_notes)
         self._set_notes_editable(self._supports_review_persistence())
         self._initialize_test_panel(entry)
-        self._sync_preview_button_state()
-        self._sync_test_button_state()
-        self._sync_review_button_state()
         self._update_row_review_status(entry.name)
 
         message = self._describe_requirement_status(status, entry)
@@ -1088,9 +1168,13 @@ class SkillManagement:
             except Exception:  # pragma: no cover - GTK stub variations
                 pass
 
+        self._update_action_state()
+
     def _show_empty_state(self) -> None:
         self._active_skill = None
         self._active_requirement_status = None
+        self._baseline_notes = ""
+        self._baseline_status = ""
         self._set_label(self._title_label, "No skill selected")
         self._set_label(
             self._summary_label,
@@ -1123,9 +1207,7 @@ class SkillManagement:
         self._preview_in_progress = False
         self._set_test_running(False)
         self._initialize_test_panel(None)
-        self._sync_preview_button_state()
-        self._sync_test_button_state()
-        self._sync_review_button_state()
+        self._update_action_state()
 
     def _get_requirement_status(self, entry: _SkillEntry, *, refresh: bool = False) -> _RequirementStatus:
         if not refresh:
@@ -1505,6 +1587,11 @@ class SkillManagement:
         self._skill_scope = new_scope
         self._refresh_state()
 
+    def _on_notes_buffer_changed(self, _buffer: Gtk.TextBuffer) -> None:
+        if self._suppress_notes_signal:
+            return
+        self._update_action_state()
+
     def _on_enable_missing_tools_clicked(self, _button: Gtk.Button) -> None:
         status = self._active_requirement_status
         persona_name = self._persona_name
@@ -1639,6 +1726,10 @@ class SkillManagement:
             self._format_review_status_text(entry, include_prefix=True),
         )
         self._update_row_review_status(entry.name)
+        self._baseline_status = "reviewed"
+        self._baseline_notes = entry.tester_notes or ""
+        self._recent_changes_snapshot = None
+        self._update_action_state()
 
     def _on_open_tool_manager_clicked(self, _button: Gtk.Button) -> None:
         opener = getattr(self.parent_window, "show_tools_menu", None)
@@ -2038,10 +2129,15 @@ class SkillManagement:
             self._set_label(self._test_output_view, text)
 
     def _set_notes_text(self, text: str) -> None:
-        if self._tester_notes_buffer is not None:
-            self._set_buffer_text(self._tester_notes_buffer, text)
-        elif isinstance(self._tester_notes_view, Gtk.Label):
-            self._set_label(self._tester_notes_view, text)
+        self._suppress_notes_signal = True
+        try:
+            if self._tester_notes_buffer is not None:
+                self._set_buffer_text(self._tester_notes_buffer, text)
+            elif isinstance(self._tester_notes_view, Gtk.Label):
+                self._set_label(self._tester_notes_view, text)
+        finally:
+            self._suppress_notes_signal = False
+        self._update_action_state()
 
     def _get_notes_text(self) -> str:
         if self._tester_notes_buffer is not None:
@@ -2076,6 +2172,348 @@ class SkillManagement:
         sensitive = getattr(view, "set_sensitive", None)
         if callable(sensitive):
             sensitive(bool(enabled))
+
+    def _update_action_state(self) -> None:
+        has_entries = bool(self._entries)
+        has_visible = bool(self._display_entries)
+        self._set_button_sensitive(self._export_csv_button, has_entries and has_visible)
+        self._set_button_sensitive(self._export_json_button, has_entries and has_visible)
+        self._sync_recent_changes_panel()
+        self._sync_preview_button_state()
+        self._sync_test_button_state()
+        self._sync_review_button_state()
+
+    def _sync_recent_changes_panel(self) -> None:
+        box = self._recent_changes_box
+        label = self._recent_changes_label
+        if box is None or label is None:
+            return
+
+        entry = self._entry_lookup.get(self._active_skill) if self._active_skill else None
+        if entry is None:
+            setter = getattr(box, "set_visible", None)
+            if callable(setter):
+                setter(False)
+            if self._recent_changes_snapshot not in (None, tuple()):
+                logger.info("Pending skill review changes cleared.")
+            self._recent_changes_snapshot = None
+            return
+
+        changes = self._compute_pending_skill_changes(entry)
+        snapshot = tuple(changes)
+
+        if not changes:
+            setter = getattr(box, "set_visible", None)
+            if callable(setter):
+                setter(False)
+            if self._recent_changes_snapshot not in (None, tuple()):
+                logger.info("Pending skill review changes for '%s' cleared.", entry.name)
+            self._recent_changes_snapshot = tuple()
+            return
+
+        label.set_label("\n".join(changes))
+        label.set_wrap(True)
+        setter = getattr(box, "set_visible", None)
+        if callable(setter):
+            setter(True)
+
+        if snapshot != self._recent_changes_snapshot:
+            logger.info(
+                "Pending skill review changes for '%s': %s",
+                entry.name,
+                "; ".join(changes),
+            )
+        self._recent_changes_snapshot = snapshot
+
+    def _compute_pending_skill_changes(self, entry: _SkillEntry) -> List[str]:
+        changes: List[str] = []
+        current_notes = self._get_notes_text()
+        if current_notes.strip() != (self._baseline_notes or "").strip():
+            changes.append("Tester notes updated")
+
+        baseline_status = (self._baseline_status or "").strip()
+        if baseline_status.casefold() != "reviewed" and self._supports_review_persistence():
+            previous = baseline_status or "unreviewed"
+            changes.append(f"Review status will change from '{previous}' to 'reviewed'")
+        return changes
+
+    def _load_skill_history(self, persona: Optional[str]) -> List[Dict[str, Any]]:
+        server = getattr(self.ATLAS, "server", None)
+        method = getattr(server, "list_skill_changes", None)
+        self._skill_history_supported = callable(method)
+        if not self._skill_history_supported:
+            return []
+
+        kwargs: Dict[str, Any] = {}
+        if persona:
+            kwargs["persona"] = persona
+
+        try:
+            response = method(**kwargs) if callable(method) else None
+        except Exception as exc:  # pragma: no cover - backend failure logging
+            logger.error("Failed to load skill history: %s", exc, exc_info=True)
+            self._handle_backend_error("Unable to load skill change history from ATLAS.")
+            return []
+
+        records = response
+        if isinstance(response, Mapping):
+            records = response.get("changes")
+
+        normalized: List[Dict[str, Any]] = []
+        if isinstance(records, Iterable):
+            for raw in records:
+                entry = self._normalize_skill_history_record(raw)
+                if entry is not None:
+                    normalized.append(entry)
+        return normalized[:10]
+
+    def _normalize_skill_history_record(self, record: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(record, Mapping):
+            return None
+
+        summary = record.get("summary") or record.get("description")
+        action = record.get("action") or record.get("change")
+        skill_name = record.get("skill") or record.get("name")
+        persona_name = record.get("persona") or record.get("persona_name")
+        author = record.get("author") or record.get("user") or record.get("actor")
+
+        if not summary:
+            parts: List[str] = []
+            if action:
+                parts.append(str(action).strip().capitalize())
+            if skill_name:
+                parts.append(f"skill '{skill_name}'")
+            if persona_name:
+                parts.append(f"for persona '{persona_name}'")
+            summary = " ".join(parts) or "Skill metadata updated."
+
+        timestamp = record.get("timestamp") or record.get("updated_at") or record.get("created_at")
+        parsed_timestamp = self._parse_timestamp(timestamp)
+
+        return {
+            "summary": str(summary).strip(),
+            "author": str(author).strip() if author else "Unknown",
+            "timestamp": parsed_timestamp,
+            "persona": str(persona_name).strip() if persona_name else None,
+        }
+
+    def _sync_history_feed(self) -> None:
+        box = self._history_box
+        container = self._history_list_box
+        if box is None or container is None:
+            return
+
+        self._clear_container(container)
+
+        if not self._skill_history_supported:
+            label = Gtk.Label(label="History feed is unavailable for this backend.")
+            label.set_xalign(0.0)
+            label.set_wrap(True)
+            container.append(label)
+            setter = getattr(box, "set_visible", None)
+            if callable(setter):
+                setter(True)
+            return
+
+        if not self._history_records:
+            label = Gtk.Label(label="No recent changes recorded.")
+            label.set_xalign(0.0)
+            try:
+                label.add_css_class("dim-label")
+            except Exception:  # pragma: no cover - GTK theme variations
+                pass
+            container.append(label)
+            setter = getattr(box, "set_visible", None)
+            if callable(setter):
+                setter(True)
+            return
+
+        for record in self._history_records:
+            timestamp = record.get("timestamp")
+            timestamp_text = self._format_history_timestamp(timestamp)
+            author = record.get("author") or "Unknown"
+            summary = record.get("summary") or "Skill metadata updated."
+            persona_label = record.get("persona")
+            if persona_label and persona_label != (self._persona_name or ""):
+                summary = f"{summary} (persona: {persona_label})"
+
+            entry_label = Gtk.Label()
+            entry_label.set_xalign(0.0)
+            entry_label.set_wrap(True)
+            try:
+                entry_label.add_css_class("dim-label")
+            except Exception:  # pragma: no cover - GTK theme variations
+                pass
+            entry_label.set_label(f"{timestamp_text} – {author}: {summary}")
+            container.append(entry_label)
+
+        setter = getattr(box, "set_visible", None)
+        if callable(setter):
+            setter(True)
+
+    def _format_history_timestamp(self, timestamp: Optional[datetime]) -> str:
+        if timestamp is None:
+            return "Unknown time"
+        relative = self._format_relative_time(timestamp)
+        iso_text = timestamp.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        return f"{relative} ({iso_text})"
+
+    def _choose_export_path(self, *, title: str, suggested_name: str, pattern: str) -> Optional[str]:
+        chooser_cls = getattr(Gtk, "FileChooserNative", None)
+        action_enum = getattr(Gtk.FileChooserAction, "SAVE", None) if hasattr(Gtk, "FileChooserAction") else None
+        if chooser_cls is None or action_enum is None:
+            return None
+
+        chooser = chooser_cls(title=title, transient_for=self.parent_window, modal=True, action=action_enum)
+        if hasattr(chooser, "set_current_name"):
+            try:
+                chooser.set_current_name(suggested_name)
+            except Exception:
+                pass
+
+        if self._last_export_directory and hasattr(chooser, "set_current_folder"):
+            try:
+                chooser.set_current_folder(str(self._last_export_directory))
+            except Exception:
+                pass
+
+        file_filter_cls = getattr(Gtk, "FileFilter", None)
+        if callable(file_filter_cls):
+            try:
+                file_filter = file_filter_cls()
+                if hasattr(file_filter, "set_name"):
+                    file_filter.set_name(pattern.upper())
+                if hasattr(file_filter, "add_pattern"):
+                    file_filter.add_pattern(pattern)
+                adder = getattr(chooser, "add_filter", None)
+                if callable(adder):
+                    adder(file_filter)
+            except Exception:  # pragma: no cover - GTK compatibility variations
+                pass
+
+        response = None
+        if hasattr(chooser, "run"):
+            try:
+                response = chooser.run()
+            except Exception:
+                response = None
+        elif hasattr(chooser, "show"):
+            try:
+                chooser.show()
+                response = getattr(Gtk.ResponseType, "ACCEPT", 1)
+            except Exception:
+                response = None
+
+        accepted = {
+            getattr(Gtk.ResponseType, "ACCEPT", None),
+            getattr(Gtk.ResponseType, "OK", None),
+            getattr(Gtk.ResponseType, "YES", None),
+        }
+
+        filename: Optional[str] = None
+        if response in accepted:
+            file_obj = getattr(chooser, "get_file", None)
+            handle = file_obj() if callable(file_obj) else None
+            if handle is not None and hasattr(handle, "get_path"):
+                filename = handle.get_path()
+            else:
+                getter = getattr(chooser, "get_filename", None)
+                if callable(getter):
+                    filename = getter()
+
+        if hasattr(chooser, "destroy"):
+            try:
+                chooser.destroy()
+            except Exception:
+                pass
+
+        if filename:
+            path_obj = Path(filename).expanduser().resolve()
+            self._last_export_directory = path_obj.parent
+            return str(path_obj)
+        return None
+
+    def _serialize_skill_entry(self, entry: _SkillEntry) -> Dict[str, Any]:
+        return {
+            "name": entry.name,
+            "summary": entry.summary,
+            "version": entry.version,
+            "persona": entry.persona,
+            "category": entry.category,
+            "required_tools": list(entry.required_tools),
+            "required_capabilities": list(entry.required_capabilities),
+            "capability_tags": list(entry.capability_tags),
+            "review_status": entry.review_status,
+            "tester_notes": entry.tester_notes,
+        }
+
+    def _export_skills_to_csv(self, path: str, entries: List[_SkillEntry]) -> None:
+        try:
+            with open(path, "w", encoding="utf-8", newline="") as handle:
+                fieldnames = [
+                    "name",
+                    "summary",
+                    "version",
+                    "persona",
+                    "category",
+                    "required_tools",
+                    "required_capabilities",
+                    "capability_tags",
+                    "review_status",
+                    "tester_notes",
+                ]
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                for entry in entries:
+                    metadata = self._serialize_skill_entry(entry)
+                    writer.writerow(
+                        {
+                            "name": metadata["name"],
+                            "summary": metadata["summary"],
+                            "version": metadata["version"] or "",
+                            "persona": metadata["persona"] or "",
+                            "category": metadata["category"] or "",
+                            "required_tools": ", ".join(entry.required_tools),
+                            "required_capabilities": ", ".join(entry.required_capabilities),
+                            "capability_tags": ", ".join(entry.capability_tags),
+                            "review_status": metadata["review_status"] or "",
+                            "tester_notes": metadata["tester_notes"] or "",
+                        }
+                    )
+        except Exception as exc:  # pragma: no cover - filesystem issues
+            logger.error("Failed to export skill list to CSV: %s", exc, exc_info=True)
+            self._handle_backend_error("Unable to export skill list to CSV.")
+
+    def _export_skills_to_json(self, path: str, entries: List[_SkillEntry]) -> None:
+        payload = [self._serialize_skill_entry(entry) for entry in entries]
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, ensure_ascii=False)
+        except Exception as exc:  # pragma: no cover - filesystem issues
+            logger.error("Failed to export skill list to JSON: %s", exc, exc_info=True)
+            self._handle_backend_error("Unable to export skill list to JSON.")
+
+    def _on_export_skills_csv_clicked(self, _button: Gtk.Button) -> None:
+        entries = list(self._display_entries or self._entries)
+        if not entries:
+            self._handle_backend_error("No skill data is available to export.")
+            return
+
+        path = self._choose_export_path(title="Export skills to CSV", suggested_name="skills.csv", pattern="*.csv")
+        if not path:
+            return
+        self._export_skills_to_csv(path, entries)
+
+    def _on_export_skills_json_clicked(self, _button: Gtk.Button) -> None:
+        entries = list(self._display_entries or self._entries)
+        if not entries:
+            self._handle_backend_error("No skill data is available to export.")
+            return
+
+        path = self._choose_export_path(title="Export skills to JSON", suggested_name="skills.json", pattern="*.json")
+        if not path:
+            return
+        self._export_skills_to_json(path, entries)
 
     def _sync_preview_button_state(self) -> None:
         button = self._preview_button
@@ -2272,6 +2710,13 @@ class SkillManagement:
 
         return list(getattr(container, "children", []) or [])
 
+    def _set_button_sensitive(self, button: Optional[Gtk.Button], enabled: bool) -> None:
+        if button is None:
+            return
+        setter = getattr(button, "set_sensitive", None)
+        if callable(setter):
+            setter(bool(enabled))
+
     def _set_label(self, label: Optional[Gtk.Label], text: str) -> None:
         if label is None:
             return
@@ -2284,6 +2729,57 @@ class SkillManagement:
     def _format_list(self, items: Iterable[str]) -> str:
         values = [item for item in items if item]
         return ", ".join(values) if values else "None"
+
+    def _parse_timestamp(self, value: Any) -> Optional[datetime]:
+        if isinstance(value, (int, float)):
+            timestamp = float(value)
+            if timestamp > 10**12:
+                timestamp /= 1000.0
+            try:
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                return None
+
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            try:
+                return datetime.fromisoformat(text)
+            except ValueError:
+                try:
+                    numeric = float(text)
+                except ValueError:
+                    return None
+                return self._parse_timestamp(numeric)
+        return None
+
+    def _format_relative_time(self, timestamp: datetime) -> str:
+        now = datetime.now(timezone.utc)
+        delta = now - timestamp
+        total_seconds = max(int(delta.total_seconds()), 0)
+
+        if total_seconds < 60:
+            return "moments ago"
+        minutes = total_seconds // 60
+        if minutes < 60:
+            return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        days = hours // 24
+        if days < 7:
+            return f"{days} day{'s' if days != 1 else ''} ago"
+        weeks = days // 7
+        if weeks < 4:
+            return f"{weeks} week{'s' if weeks != 1 else ''} ago"
+        months = days // 30
+        if months < 12:
+            return f"{months} month{'s' if months != 1 else ''} ago"
+        years = days // 365
+        return f"{years} year{'s' if years != 1 else ''} ago"
 
     def _handle_backend_error(self, message: str) -> None:
         logger.error("Skill management error: %s", message)
