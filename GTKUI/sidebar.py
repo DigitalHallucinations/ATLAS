@@ -53,6 +53,7 @@ class MainWindow(AtlasWindow):
         layout.append(self.sidebar)
 
         separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        separator.add_css_class("sidebar-divider")
         layout.append(separator)
 
         self.notebook = Gtk.Notebook()
@@ -181,7 +182,7 @@ class MainWindow(AtlasWindow):
 
             return scroller, dialog
 
-        result = self._open_or_focus_page("accounts", "Accounts", factory)
+        result = self._open_or_focus_page("accounts", "Account", factory)
         if result is not None:
             self.sidebar.set_active_item("accounts")
 
@@ -415,16 +416,10 @@ class _NavigationSidebar(Gtk.Box):
             tooltip="Skills",
         )
         self._create_nav_item(
-            "accounts",
-            "Accounts",
-            self.main_window.show_accounts_page,
-            tooltip="Accounts",
-        )
-        self._create_nav_item(
             "speech",
-            "Speech Settings",
+            "Speech",
             self.main_window.show_speech_settings,
-            tooltip="Speech Settings",
+            tooltip="Speech",
         )
         self._create_nav_item(
             "personas",
@@ -452,6 +447,13 @@ class _NavigationSidebar(Gtk.Box):
         self._footer_listbox = footer_listbox
         content_box.append(footer_listbox)
 
+        self._create_nav_item(
+            "accounts",
+            "Account",
+            self.main_window.show_accounts_page,
+            tooltip="Account",
+            container=footer_listbox,
+        )
         self._create_nav_item(
             "settings",
             "Settings",
