@@ -31,6 +31,15 @@ class _ToolEntry:
 class ToolManagement:
     """Controller responsible for rendering the tool management workspace."""
 
+    _SORT_OPTIONS = [
+        ("title_asc", "Title (A–Z)"),
+        ("title_desc", "Title (Z–A)"),
+        ("name_asc", "Name (A–Z)"),
+        ("name_desc", "Name (Z–A)"),
+    ]
+    _DEFAULT_SORT_KEY = "title_asc"
+    _CAPABILITY_ALL_ID = "__all__"
+
     def __init__(self, atlas: Any, parent_window: Any) -> None:
         self.ATLAS = atlas
         self.parent_window = parent_window
@@ -46,10 +55,14 @@ class ToolManagement:
         self._save_button: Optional[Gtk.Button] = None
         self._reset_button: Optional[Gtk.Button] = None
         self._scope_selector: Optional[Gtk.ComboBoxText] = None
+        self._search_entry: Optional[Gtk.SearchEntry] = None
+        self._capability_selector: Optional[Gtk.ComboBoxText] = None
+        self._sort_selector: Optional[Gtk.ComboBoxText] = None
 
         self._entries: List[_ToolEntry] = []
         self._entry_lookup: Dict[str, _ToolEntry] = {}
         self._row_lookup: Dict[str, Gtk.Widget] = {}
+        self._visible_entries: List[_ToolEntry] = []
 
         self._persona_name: Optional[str] = None
         self._enabled_tools: set[str] = set()
@@ -58,6 +71,14 @@ class ToolManagement:
         self._suppress_toggle = False
         self._tool_scope = "persona"
         self._suppress_scope_signal = False
+        self._suppress_filter_signals = False
+
+        self._filter_text = ""
+        self._capability_filter: Optional[str] = None
+        self._sort_key = self._DEFAULT_SORT_KEY
+        self._capability_options: List[str] = [self._CAPABILITY_ALL_ID]
+        self._sort_option_ids: List[str] = [key for key, _ in self._SORT_OPTIONS]
+        self._preferences_loaded_key: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -87,6 +108,35 @@ class ToolManagement:
         heading = Gtk.Label(label="Available Tools")
         heading.set_xalign(0.0)
         left_panel.append(heading)
+
+        search_entry = Gtk.SearchEntry()
+        try:
+            search_entry.set_placeholder_text("Search tools…")
+        except Exception:  # pragma: no cover - GTK version differences
+            pass
+        search_entry.connect("changed", self._on_search_changed)
+        search_entry.connect("search-changed", self._on_search_changed)
+        left_panel.append(search_entry)
+        self._search_entry = search_entry
+
+        filter_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        filter_row.set_hexpand(True)
+
+        capability_selector = Gtk.ComboBoxText()
+        capability_selector.set_hexpand(True)
+        capability_selector.connect("changed", self._on_capability_filter_changed)
+        capability_selector.set_tooltip_text("Filter tools by advertised capability.")
+        filter_row.append(capability_selector)
+        self._capability_selector = capability_selector
+
+        sort_selector = Gtk.ComboBoxText()
+        sort_selector.set_hexpand(False)
+        sort_selector.connect("changed", self._on_sort_changed)
+        sort_selector.set_tooltip_text("Sort the tool catalog.")
+        filter_row.append(sort_selector)
+        self._sort_selector = sort_selector
+
+        left_panel.append(filter_row)
 
         tool_list = Gtk.ListBox()
         tool_list.connect("row-selected", self._on_row_selected)
@@ -197,6 +247,10 @@ class ToolManagement:
         self._persona_name = persona
         self._sync_scope_widget(bool(persona))
 
+        preferences_key = self._get_preferences_key(persona)
+        if preferences_key != self._preferences_loaded_key:
+            self._load_view_preferences(persona)
+
         persona_filter = persona if self._tool_scope == "persona" and persona else None
 
         if persona:
@@ -216,6 +270,9 @@ class ToolManagement:
 
         self._entries = entries
         self._entry_lookup = {entry.name: entry for entry in entries}
+        self._populate_capability_selector()
+        self._populate_sort_selector()
+        self._sync_filter_widgets()
         self._rebuild_tool_list()
         self._update_action_state()
 
@@ -346,15 +403,24 @@ class ToolManagement:
                 continue
 
         self._row_lookup.clear()
+        visible_entries = self._derive_visible_entries()
+        self._visible_entries = visible_entries
 
-        for entry in self._entries:
+        for entry in visible_entries:
             row = self._create_row(entry)
             self._tool_list.append(row)
             self._row_lookup[entry.name] = row
 
-        if self._entries:
-            self._select_tool(self._entries[0].name)
+        if visible_entries:
+            desired = self._active_tool
+            if not desired or desired not in self._row_lookup:
+                desired = visible_entries[0].name
+            self._select_tool(desired)
         else:
+            try:
+                self._tool_list.select_row(None)  # type: ignore[arg-type]
+            except Exception:  # pragma: no cover - GTK compatibility fallback
+                pass
             self._show_empty_state()
 
     def _create_row(self, entry: _ToolEntry) -> Gtk.Widget:
@@ -389,7 +455,10 @@ class ToolManagement:
 
     def _select_tool(self, tool_name: str) -> None:
         entry = self._entry_lookup.get(tool_name)
-        if entry is None:
+        row = self._row_lookup.get(tool_name)
+        if entry is None or row is None:
+            self._active_tool = None
+            self._show_empty_state()
             return
 
         self._active_tool = tool_name
@@ -405,8 +474,7 @@ class ToolManagement:
 
         self._set_label(self._auth_label, self._format_auth(entry))
 
-        row = self._row_lookup.get(tool_name)
-        if row is not None and self._tool_list is not None:
+        if self._tool_list is not None:
             try:
                 self._tool_list.select_row(row)
             except Exception:  # pragma: no cover - GTK stub variations
@@ -433,6 +501,61 @@ class ToolManagement:
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
+    def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
+        if self._suppress_filter_signals:
+            return
+
+        getter = getattr(entry, "get_text", None)
+        try:
+            text = getter() if callable(getter) else None
+        except Exception:  # pragma: no cover - GTK compatibility fallback
+            text = None
+        if not isinstance(text, str):
+            text = getattr(entry, "text", None)
+        if not isinstance(text, str):
+            props = getattr(entry, "props", None)
+            text = getattr(props, "text", "") if props is not None else ""
+        new_text = text or ""
+
+        if new_text == self._filter_text:
+            return
+
+        self._filter_text = new_text
+        self._persist_view_preferences()
+        self._rebuild_tool_list()
+
+    def _on_capability_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_filter_signals:
+            return
+
+        selected = self._get_combo_active_id(combo, self._capability_options)
+        normalized = None if not selected or selected == self._CAPABILITY_ALL_ID else selected
+
+        if normalized == self._capability_filter:
+            return
+
+        self._capability_filter = normalized
+        self._persist_view_preferences()
+        self._rebuild_tool_list()
+
+    def _on_sort_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_filter_signals:
+            return
+
+        selected = self._get_combo_active_id(combo, self._sort_option_ids)
+        if not selected:
+            selected = self._DEFAULT_SORT_KEY
+
+        if selected not in self._sort_option_ids:
+            selected = self._DEFAULT_SORT_KEY
+
+        if selected == self._sort_key:
+            return
+
+        self._sort_key = selected
+        self._persist_view_preferences()
+        self._rebuild_tool_list()
+
     def _on_row_selected(self, _listbox: Gtk.ListBox, row: Gtk.Widget) -> None:
         for name, candidate in self._row_lookup.items():
             if candidate is row:
@@ -564,6 +687,273 @@ class ToolManagement:
         setter = getattr(button, "set_sensitive", None)
         if callable(setter):
             setter(bool(enabled))
+
+    def _populate_capability_selector(self) -> None:
+        capabilities = sorted({cap for entry in self._entries for cap in entry.capabilities})
+        options = [self._CAPABILITY_ALL_ID] + capabilities
+        self._capability_options = options
+
+        if self._capability_filter and self._capability_filter not in capabilities:
+            self._capability_filter = None
+            if self._preferences_loaded_key is not None:
+                self._persist_view_preferences()
+
+        selector = self._capability_selector
+        if selector is None:
+            return
+
+        self._clear_combo_box(selector)
+        append = getattr(selector, "append", None)
+        append_text = getattr(selector, "append_text", None)
+        for option in options:
+            label = "All capabilities" if option == self._CAPABILITY_ALL_ID else option
+            try:
+                if callable(append):
+                    append(option, label)
+                elif callable(append_text):
+                    append_text(label)
+            except Exception:  # pragma: no cover - GTK fallback
+                continue
+
+    def _populate_sort_selector(self) -> None:
+        self._sort_option_ids = [key for key, _ in self._SORT_OPTIONS]
+        selector = self._sort_selector
+        if selector is None:
+            self._normalize_sort_key(persist=False)
+            return
+
+        self._clear_combo_box(selector)
+        append = getattr(selector, "append", None)
+        append_text = getattr(selector, "append_text", None)
+        for key, label in self._SORT_OPTIONS:
+            try:
+                if callable(append):
+                    append(key, label)
+                elif callable(append_text):
+                    append_text(label)
+            except Exception:  # pragma: no cover - GTK fallback
+                continue
+
+        self._normalize_sort_key(persist=False)
+
+    def _sync_filter_widgets(self) -> None:
+        if not any((self._search_entry, self._capability_selector, self._sort_selector)):
+            return
+
+        self._suppress_filter_signals = True
+        try:
+            if self._search_entry is not None:
+                getter = getattr(self._search_entry, "get_text", None)
+                try:
+                    current = getter() if callable(getter) else None
+                except Exception:  # pragma: no cover - GTK fallback
+                    current = None
+                if not isinstance(current, str):
+                    current = getattr(self._search_entry, "text", None)
+                if not isinstance(current, str):
+                    props = getattr(self._search_entry, "props", None)
+                    current = getattr(props, "text", "") if props is not None else ""
+                desired = self._filter_text or ""
+                if current != desired:
+                    setter = getattr(self._search_entry, "set_text", None)
+                    try:
+                        if callable(setter):
+                            setter(desired)
+                        else:
+                            setattr(self._search_entry, "text", desired)
+                    except Exception:  # pragma: no cover - GTK fallback
+                        pass
+
+            if self._capability_selector is not None:
+                desired_capability = self._capability_filter or self._CAPABILITY_ALL_ID
+                self._set_combo_selection(self._capability_selector, self._capability_options, desired_capability)
+
+            if self._sort_selector is not None:
+                desired_sort = self._normalize_sort_key(persist=False)
+                self._set_combo_selection(self._sort_selector, self._sort_option_ids, desired_sort)
+        finally:
+            self._suppress_filter_signals = False
+
+    def _clear_combo_box(self, combo: Gtk.ComboBoxText) -> None:
+        remover = getattr(combo, "remove_all", None)
+        if callable(remover):
+            try:
+                remover()
+                return
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+        remove = getattr(combo, "remove", None)
+        if callable(remove):
+            while True:
+                try:
+                    remove(0)
+                except Exception:
+                    break
+
+    def _set_combo_selection(self, combo: Gtk.ComboBoxText, options: List[str], desired_id: str) -> None:
+        if not options:
+            return
+        if desired_id not in options:
+            desired_id = options[0]
+
+        setter_id = getattr(combo, "set_active_id", None)
+        if callable(setter_id):
+            try:
+                setter_id(desired_id)
+                return
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+        set_active = getattr(combo, "set_active", None)
+        if callable(set_active):
+            try:
+                index = options.index(desired_id)
+            except ValueError:
+                index = 0
+            try:
+                set_active(index)
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+    def _get_combo_active_id(self, combo: Gtk.ComboBoxText, options: List[str]) -> Optional[str]:
+        getter = getattr(combo, "get_active_id", None)
+        if callable(getter):
+            try:
+                active_id = getter()
+            except Exception:  # pragma: no cover - GTK fallback
+                active_id = None
+            if isinstance(active_id, str):
+                return active_id
+            if active_id is not None:
+                return str(active_id)
+
+        get_active = getattr(combo, "get_active", None)
+        if callable(get_active):
+            try:
+                index = get_active()
+            except Exception:  # pragma: no cover - GTK fallback
+                index = None
+            if isinstance(index, int) and 0 <= index < len(options):
+                return options[index]
+        return None
+
+    def _derive_visible_entries(self) -> List[_ToolEntry]:
+        query = (self._filter_text or "").strip().casefold()
+        capability = self._capability_filter
+
+        visible: List[_ToolEntry] = []
+        for entry in self._entries:
+            if query:
+                haystack_parts = [
+                    entry.name,
+                    entry.title,
+                    entry.summary,
+                    " ".join(entry.capabilities),
+                ]
+                haystack = " ".join(part for part in haystack_parts if part).casefold()
+                if query not in haystack:
+                    continue
+
+            if capability and capability not in entry.capabilities:
+                continue
+
+            visible.append(entry)
+
+        return self._sort_entries(visible)
+
+    def _sort_entries(self, entries: List[_ToolEntry]) -> List[_ToolEntry]:
+        if not entries:
+            return []
+
+        sort_key = self._normalize_sort_key(persist=False)
+
+        def title_key(item: _ToolEntry) -> tuple[str, str]:
+            primary = (item.title or item.name or "").casefold()
+            secondary = (item.name or "").casefold()
+            return primary, secondary
+
+        def name_key(item: _ToolEntry) -> tuple[str, str]:
+            primary = (item.name or "").casefold()
+            secondary = (item.title or item.name or "").casefold()
+            return primary, secondary
+
+        if sort_key == "title_desc":
+            return sorted(entries, key=title_key, reverse=True)
+        if sort_key == "name_asc":
+            return sorted(entries, key=name_key)
+        if sort_key == "name_desc":
+            return sorted(entries, key=name_key, reverse=True)
+        return sorted(entries, key=title_key)
+
+    def _normalize_sort_key(self, *, persist: bool = False) -> str:
+        valid_keys = self._sort_option_ids or [self._DEFAULT_SORT_KEY]
+        desired = self._sort_key if self._sort_key in valid_keys else valid_keys[0]
+        if desired != self._sort_key:
+            self._sort_key = desired
+            if persist and self._preferences_loaded_key is not None:
+                self._persist_view_preferences()
+        return desired
+
+    def _load_view_preferences(self, persona: Optional[str]) -> None:
+        storage = self._get_settings_bucket()
+        key = self._get_preferences_key(persona)
+        record = storage.get(key)
+        if not isinstance(record, Mapping):
+            record = {}
+
+        text_value = record.get("filter_text")
+        self._filter_text = str(text_value) if text_value is not None else ""
+
+        capability_value = record.get("capability")
+        if capability_value:
+            self._capability_filter = str(capability_value)
+        else:
+            self._capability_filter = None
+
+        sort_value = record.get("sort_key")
+        self._sort_key = str(sort_value) if isinstance(sort_value, str) else self._DEFAULT_SORT_KEY
+
+        self._preferences_loaded_key = key
+        self._normalize_sort_key(persist=True)
+
+    def _persist_view_preferences(self) -> None:
+        key = self._get_preferences_key(self._persona_name)
+        storage = self._get_settings_bucket()
+
+        normalized_sort = self._normalize_sort_key(persist=False)
+        capability_value = (
+            str(self._capability_filter)
+            if self._capability_filter is not None
+            else None
+        )
+
+        payload = {
+            "filter_text": str(self._filter_text or ""),
+            "capability": capability_value,
+            "sort_key": normalized_sort,
+        }
+
+        storage[key] = payload
+        self._preferences_loaded_key = key
+
+    def _get_preferences_key(self, persona: Optional[str]) -> str:
+        if persona:
+            return f"persona::{persona}"
+        return "persona::__global__"
+
+    def _get_settings_bucket(self) -> Dict[str, Any]:
+        settings = getattr(self.ATLAS, "settings", None)
+        if not isinstance(settings, dict):
+            settings = {}
+            setattr(self.ATLAS, "settings", settings)
+
+        bucket = settings.get("tool_management")
+        if not isinstance(bucket, dict):
+            bucket = {}
+            settings["tool_management"] = bucket
+
+        return bucket
 
     def _on_scope_changed(self, combo: Gtk.ComboBoxText) -> None:
         if self._suppress_scope_signal:
