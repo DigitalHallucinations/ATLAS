@@ -102,6 +102,39 @@ class ToolManagement:
         self._refresh_state()
         return self._widget
 
+    def enable_tools_for_persona(self, persona: str, tools: Iterable[str]) -> bool:
+        """Enable the provided tools for ``persona`` and persist the change."""
+
+        if not persona:
+            self._handle_backend_error("No persona provided for enabling tools.")
+            return False
+
+        manager = getattr(self.ATLAS, "persona_manager", None)
+        setter = getattr(manager, "set_allowed_tools", None)
+        if not callable(setter):
+            self._handle_backend_error("Persona manager is unavailable. Unable to save tools.")
+            return False
+
+        existing = set(self._load_enabled_tools(persona))
+        candidates = {str(tool).strip() for tool in tools if tool}
+        desired = sorted(existing | candidates)
+
+        try:
+            result = setter(persona, desired)
+        except Exception as exc:  # pragma: no cover - backend failure logging
+            logger.error("Failed to persist tools for persona '%s': %s", persona, exc, exc_info=True)
+            self._handle_backend_error(str(exc) or "Unable to save tool configuration.")
+            return False
+
+        if isinstance(result, Mapping) and not result.get("success", True):
+            errors = result.get("errors") or []
+            message = "; ".join(str(err) for err in errors if err) or str(result.get("error") or "Unable to save tool configuration.")
+            self._handle_backend_error(message)
+            return False
+
+        self._refresh_state()
+        return True
+
     # ------------------------------------------------------------------
     # Workspace construction
     # ------------------------------------------------------------------
@@ -120,7 +153,10 @@ class ToolManagement:
         heading.set_xalign(0.0)
         left_panel.append(heading)
 
-        search_entry = Gtk.SearchEntry()
+        SearchEntryClass = getattr(Gtk, "SearchEntry", None)
+        if SearchEntryClass is None:
+            SearchEntryClass = getattr(Gtk, "Entry", Gtk.Widget)
+        search_entry = SearchEntryClass()
         try:
             search_entry.set_placeholder_text("Search tools…")
         except Exception:  # pragma: no cover - GTK version differences
@@ -209,9 +245,14 @@ class ToolManagement:
         right_panel.append(status_badge_box)
         self._status_badge_box = status_badge_box
 
-        capability_badge_box = Gtk.FlowBox()
-        capability_badge_box.set_max_children_per_line(6)
-        capability_badge_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        FlowBoxClass = getattr(Gtk, "FlowBox", Gtk.Box)
+        capability_badge_box = FlowBoxClass()
+        setter = getattr(capability_badge_box, "set_max_children_per_line", None)
+        if callable(setter):
+            setter(6)
+        selector = getattr(capability_badge_box, "set_selection_mode", None)
+        if callable(selector):
+            selector(Gtk.SelectionMode.NONE)
         capability_badge_box.set_valign(Gtk.Align.START)
         capability_badge_box.set_hexpand(True)
         capability_badge_box.set_visible(False)
@@ -497,8 +538,17 @@ class ToolManagement:
         checkbox: Optional[Gtk.CheckButton] = None
         if allow_bulk:
             checkbox = Gtk.CheckButton()
-            checkbox.set_halign(Gtk.Align.CENTER)
-            checkbox.set_valign(Gtk.Align.CENTER)
+            align_cls = getattr(Gtk, "Align", None)
+            align_center = getattr(align_cls, "CENTER", None) if align_cls is not None else None
+            if align_center is not None:
+                try:
+                    checkbox.set_halign(align_center)
+                except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                    pass
+                try:
+                    checkbox.set_valign(align_center)
+                except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                    pass
             checkbox.set_tooltip_text("Select this tool for bulk actions.")
             self._suppress_bulk_signals = True
             try:
@@ -533,11 +583,20 @@ class ToolManagement:
             pass
         container.append(summary)
 
-        capability_badge_box = Gtk.FlowBox()
-        capability_badge_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        capability_badge_box.set_max_children_per_line(6)
-        capability_badge_box.set_row_spacing(2)
-        capability_badge_box.set_column_spacing(4)
+        FlowBoxClass = getattr(Gtk, "FlowBox", Gtk.Box)
+        capability_badge_box = FlowBoxClass()
+        selector = getattr(capability_badge_box, "set_selection_mode", None)
+        if callable(selector):
+            selector(Gtk.SelectionMode.NONE)
+        setter = getattr(capability_badge_box, "set_max_children_per_line", None)
+        if callable(setter):
+            setter(6)
+        setter = getattr(capability_badge_box, "set_row_spacing", None)
+        if callable(setter):
+            setter(2)
+        setter = getattr(capability_badge_box, "set_column_spacing", None)
+        if callable(setter):
+            setter(4)
         for badge_text, css_classes in self._iter_capability_badges(entry):
             badge = self._create_badge(badge_text, css_classes)
             capability_badge_box.insert(badge, -1)
