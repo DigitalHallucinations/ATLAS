@@ -52,6 +52,33 @@ def _coerce_string_sequence(values: Iterable[Any]) -> Tuple[str, ...]:
     return tuple(tokens)
 
 
+_SHARED_PERSONA_EXCLUSION_TOKENS = {
+    "-shared",
+    "!shared",
+    "no-shared",
+    "without-shared",
+    "shared=false",
+    "shared:false",
+}
+
+
+def _persona_filter_matches(persona: Optional[str], tokens: Sequence[str]) -> bool:
+    if not tokens:
+        return True
+
+    persona_token = (persona or "shared").strip().lower() or "shared"
+    exclude_shared = any(token in _SHARED_PERSONA_EXCLUSION_TOKENS for token in tokens)
+    positive_tokens = [token for token in tokens if token not in _SHARED_PERSONA_EXCLUSION_TOKENS]
+
+    if persona_token == "shared":
+        return not exclude_shared
+
+    if not positive_tokens:
+        return True
+
+    return persona_token in positive_tokens
+
+
 def _parse_version(text: Optional[str]) -> Optional[Tuple[Any, ...]]:
     if text is None:
         return None
@@ -326,11 +353,11 @@ class CapabilityRegistry:
     ) -> List[ToolCapabilityView]:
         with self._lock:
             self.refresh_if_stale()
-            persona_tokens = {
+            persona_tokens = [
                 token.strip().lower()
                 for token in persona_filters or []
                 if isinstance(token, str) and token.strip()
-            }
+            ]
             capability_tokens = {
                 token.strip().lower()
                 for token in capability_filters or []
@@ -346,10 +373,8 @@ class CapabilityRegistry:
             for record in self._tool_records:
                 manifest = record.manifest
                 persona_key = _normalize_persona(manifest.persona)
-                if persona_tokens:
-                    candidate = (persona_key or "").lower()
-                    if candidate not in persona_tokens:
-                        continue
+                if persona_tokens and not _persona_filter_matches(persona_key, persona_tokens):
+                    continue
                 if capability_tokens:
                     record_caps = {token.lower() for token in record.capability_tags}
                     if not capability_tokens.issubset(record_caps):
@@ -423,11 +448,11 @@ class CapabilityRegistry:
     ) -> List[SkillCapabilityView]:
         with self._lock:
             self.refresh_if_stale()
-            persona_tokens = {
+            persona_tokens = [
                 token.strip().lower()
                 for token in persona_filters or []
                 if isinstance(token, str) and token.strip()
-            }
+            ]
             capability_tokens = {
                 token.strip().lower()
                 for token in capability_filters or []
@@ -438,10 +463,8 @@ class CapabilityRegistry:
             for record in self._skill_records:
                 manifest = record.manifest
                 persona_key = _normalize_persona(manifest.persona)
-                if persona_tokens:
-                    candidate = (persona_key or "").lower()
-                    if candidate not in persona_tokens:
-                        continue
+                if persona_tokens and not _persona_filter_matches(persona_key, persona_tokens):
+                    continue
                 if capability_tokens:
                     record_caps = {token.lower() for token in record.capability_tags}
                     if not capability_tokens.issubset(record_caps):

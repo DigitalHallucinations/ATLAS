@@ -35,6 +35,13 @@ def _write_shared_manifests(root: Path, tools: list[dict], skills: list[dict]) -
     skill_path.write_text(json.dumps(skills), encoding="utf-8")
 
 
+def _write_persona_tools(root: Path, persona: str, tools: list[dict]) -> None:
+    manifest_dir = root / "modules" / "Personas" / persona / "Toolbox"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_dir / "functions.json"
+    manifest_path.write_text(json.dumps(tools), encoding="utf-8")
+
+
 def _minimal_tool(name: str) -> dict:
     return {
         "name": name,
@@ -140,3 +147,21 @@ def test_registry_records_provider_metrics(capability_root: Path) -> None:
     assert provider_health["total"] == 1
     assert provider_health["success"] == 1
     assert provider_health["failure"] == 0
+
+
+def test_query_tools_includes_shared_persona_when_filtered(capability_root: Path) -> None:
+    shared_tool = _minimal_tool("shared_tool")
+    atlas_tool = _minimal_tool("atlas_tool")
+    _write_shared_manifests(capability_root, [shared_tool], [])
+    _write_persona_tools(capability_root, "Atlas", [atlas_tool])
+
+    registry = CapabilityRegistry(config_manager=_DummyConfig(capability_root))
+    registry.refresh(force=True)
+
+    atlas_results = registry.query_tools(persona_filters=["atlas"])
+    atlas_names = {view.manifest.name for view in atlas_results}
+    assert atlas_names == {"shared_tool", "atlas_tool"}
+
+    atlas_without_shared = registry.query_tools(persona_filters=["atlas", "-shared"])
+    atlas_without_shared_names = {view.manifest.name for view in atlas_without_shared}
+    assert atlas_without_shared_names == {"atlas_tool"}
