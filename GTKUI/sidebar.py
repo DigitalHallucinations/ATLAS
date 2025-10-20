@@ -42,6 +42,8 @@ class MainWindow(AtlasWindow):
         self.provider_management = ProviderManagement(self.ATLAS, self)
         self.tool_management = ToolManagement(self.ATLAS, self)
         self.skill_management = SkillManagement(self.ATLAS, self)
+        self.tool_management.on_open_in_persona = self._open_tool_in_persona
+        self.skill_management.on_open_in_persona = self._open_skill_in_persona
 
         layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         layout.set_hexpand(True)
@@ -98,7 +100,7 @@ class MainWindow(AtlasWindow):
         if page is not None:
             self.sidebar.set_active_item("personas")
 
-    def show_tools_menu(self) -> None:
+    def show_tools_menu(self, tool_name: str | None = None) -> None:
         if not self._ensure_initialized():
             return
 
@@ -108,8 +110,10 @@ class MainWindow(AtlasWindow):
         page = self._open_or_focus_page("tools", "Tools", factory)
         if page is not None:
             self.sidebar.set_active_item("tools")
+            if tool_name:
+                GLib.idle_add(self._focus_tool_in_manager, tool_name)
 
-    def show_skills_menu(self) -> None:
+    def show_skills_menu(self, skill_name: str | None = None) -> None:
         if not self._ensure_initialized():
             return
 
@@ -119,6 +123,8 @@ class MainWindow(AtlasWindow):
         page = self._open_or_focus_page("skills", "Skills", factory)
         if page is not None:
             self.sidebar.set_active_item("skills")
+            if skill_name:
+                GLib.idle_add(self._focus_skill_in_manager, skill_name)
 
     def show_speech_settings(self) -> None:
         if not self._ensure_initialized():
@@ -185,6 +191,30 @@ class MainWindow(AtlasWindow):
         result = self._open_or_focus_page("accounts", "Account", factory)
         if result is not None:
             self.sidebar.set_active_item("accounts")
+
+    def _open_tool_in_persona(self, tool_name: str) -> None:
+        persona_name = self._get_active_persona_name()
+        if not persona_name:
+            self._notify_persona_warning("Select a persona before configuring tools.")
+            return
+
+        if not self.persona_management.ensure_persona_settings(persona_name):
+            self._notify_persona_warning("Unable to open persona settings.")
+            return
+
+        GLib.idle_add(self._focus_persona_tool, tool_name)
+
+    def _open_skill_in_persona(self, skill_name: str) -> None:
+        persona_name = self._get_active_persona_name()
+        if not persona_name:
+            self._notify_persona_warning("Select a persona before configuring skills.")
+            return
+
+        if not self.persona_management.ensure_persona_settings(persona_name):
+            self._notify_persona_warning("Unable to open persona settings.")
+            return
+
+        GLib.idle_add(self._focus_persona_skill, skill_name)
 
     def close_application(self, *_args) -> bool:
         logger.info("Closing application")
@@ -292,6 +322,56 @@ class MainWindow(AtlasWindow):
             return True
         self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
         return False
+
+    def _focus_tool_in_manager(self, tool_name: str) -> bool:
+        if not self.tool_management.focus_tool(tool_name):
+            logger.debug("Tool '%s' could not be focused in the workspace", tool_name)
+        return False
+
+    def _focus_skill_in_manager(self, skill_name: str) -> bool:
+        if not self.skill_management.focus_skill(skill_name):
+            logger.debug("Skill '%s' could not be focused in the workspace", skill_name)
+        return False
+
+    def _focus_persona_tool(self, tool_name: str) -> bool:
+        if not self.persona_management.focus_tools_tab(tool_name):
+            self._notify_persona_warning(
+                f"Tool '{tool_name}' is not available in the active persona."
+            )
+        return False
+
+    def _focus_persona_skill(self, skill_name: str) -> bool:
+        if not self.persona_management.focus_skills_tab(skill_name):
+            self._notify_persona_warning(
+                f"Skill '{skill_name}' is not available in the active persona."
+            )
+        return False
+
+    def _get_active_persona_name(self) -> str | None:
+        getter = getattr(self.ATLAS, "get_active_persona_name", None)
+        if not callable(getter):
+            return None
+
+        try:
+            persona = getter()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.error("Failed to determine active persona: %s", exc, exc_info=True)
+            return None
+
+        if persona:
+            return str(persona)
+        return None
+
+    def _notify_persona_warning(self, message: str) -> None:
+        notifier = getattr(self.ATLAS, "show_persona_message", None)
+        if callable(notifier):
+            try:
+                notifier("warning", message)
+                return
+            except Exception:  # pragma: no cover - defensive logging only
+                logger.debug("Failed to send persona warning: %s", message, exc_info=True)
+
+        self.show_error_dialog(message)
 
     # ------------------------------------------------------------------
     # Dialog helpers
