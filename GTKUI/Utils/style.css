@@ -188,31 +188,43 @@ window.chat-page {
     color: #ffffff;
 }
 
-/* Sidebar button styling */
-button.sidebar-button {
+/* Sidebar navigation styling */
+.sidebar-nav {
     background-color: transparent;
-    border: none;
+}
+
+.sidebar-nav-item {
+    background-color: transparent;
     color: #f0f0f0;
-    padding: 8px 10px;
     border-radius: 10px;
     font-size: 15px;
     font-weight: 600;
-    text-align: left;
-    transition: background-color 0.2s ease, transform 0.2s ease;
+    transition: background-color 0.2s ease, transform 0.2s ease, color 0.2s ease;
 }
 
-button.sidebar-button:hover {
+.sidebar-nav-item label {
+    color: inherit;
+}
+
+.sidebar-nav-item:hover,
+.sidebar-nav-item:focus-visible {
     background-color: #3a3a3a;
     transform: translateX(2px);
+    outline: none;
 }
 
-button.sidebar-button:active {
+.sidebar-nav-item:focus-visible {
+    box-shadow: 0 0 0 1px #888888;
+}
+
+.sidebar-nav-item.active {
     background-color: #357ABD;
     color: #ffffff;
+    transform: none;
 }
 
-button.sidebar-button:focus {
-    border: 1px solid #888888;
+.sidebar-nav-item.active label {
+    color: inherit;
 }
 
 /* Error Dialog Styling */
