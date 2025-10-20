@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, Tuple
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 
 from GTKUI.Chat.chat_page import ChatPage
 from GTKUI.Persona_manager.persona_management import PersonaManagement
@@ -468,7 +468,15 @@ class _NavigationSidebar(Gtk.Box):
         if hasattr(row, "set_accessible_name"):
             row.set_accessible_name(label)
         elif hasattr(row, "update_property"):
-            row.update_property(Gtk.AccessibleProperty.LABEL, label)
+            try:
+                row.update_property(
+                    Gtk.AccessibleProperty.LABEL, GLib.Variant.new_string(label)
+                )
+            except TypeError as exc:  # pragma: no cover - defensive fallback
+                logger.debug(
+                    "Gtk.ListBoxRow.update_property failed; skipping accessible label: %s",
+                    exc,
+                )
         else:
             logger.debug(
                 "Gtk.ListBoxRow does not support accessible names; skipping label assignment"
