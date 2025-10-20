@@ -248,15 +248,15 @@ class ToolManagement:
         tool_list.connect("row-selected", self._on_row_selected)
         self._tool_list = tool_list
 
-        scroller = Gtk.ScrolledWindow()
+        left_scroller = Gtk.ScrolledWindow()
         try:
-            scroller.set_has_frame(False)
+            left_scroller.set_has_frame(False)
         except Exception:  # pragma: no cover - GTK version differences
             pass
-        scroller.set_hexpand(False)
-        scroller.set_vexpand(True)
-        scroller.set_child(tool_list)
-        left_panel.append(scroller)
+        left_scroller.set_hexpand(False)
+        left_scroller.set_vexpand(True)
+        left_scroller.set_child(tool_list)
+        left_panel.append(left_scroller)
 
         right_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         right_panel.set_hexpand(True)
@@ -470,7 +470,16 @@ class ToolManagement:
         right_panel.append(history_box)
 
         root.append(left_panel)
-        root.append(right_panel)
+
+        right_scroller = Gtk.ScrolledWindow()
+        try:
+            right_scroller.set_has_frame(False)
+        except Exception:  # pragma: no cover - GTK version differences
+            pass
+        right_scroller.set_hexpand(True)
+        right_scroller.set_vexpand(True)
+        right_scroller.set_child(right_panel)
+        root.append(right_scroller)
         return root
 
     # ------------------------------------------------------------------
