@@ -97,6 +97,7 @@ class _AtlasStub:
         self.tool_fetches = 0
         self.skill_fetches = 0
         self.tool_requests: list[Dict[str, Any]] = []
+        self.skill_requests: list[Dict[str, Any]] = []
         self.persona_manager = _PersonaManagerStub()
         self.server = types.SimpleNamespace(get_tools=self._get_tools, get_skills=self._get_skills)
 
@@ -129,8 +130,9 @@ class _AtlasStub:
             ],
         }
 
-    def _get_skills(self, **_: Any) -> Dict[str, Any]:
+    def _get_skills(self, **kwargs: Any) -> Dict[str, Any]:
         self.skill_fetches += 1
+        self.skill_requests.append(dict(kwargs))
         return {
             "count": 2,
             "skills": [
@@ -305,3 +307,38 @@ def test_skill_management_renders_payloads():
     assert manager._entries, "Skill entries should be populated from backend payload"
     assert manager._active_skill is not None
     assert not parent.errors
+
+
+def test_skill_management_scope_modes():
+    from GTKUI.Skill_manager.skill_management import SkillManagement
+
+    parent = _ParentWindowStub()
+    atlas = _AtlasStub()
+    manager = SkillManagement(atlas, parent)
+
+    widget = manager.get_embeddable_widget()
+    assert widget is not None
+    assert atlas.skill_requests
+    assert atlas.skill_requests[-1] == {"persona": "Atlas"}
+
+    scope_widget = manager._scope_selector
+    assert scope_widget is not None
+    assert scope_widget.get_active_text() == "Persona skills"
+
+    initial_fetches = atlas.skill_fetches
+
+    scope_widget.set_active(1)
+    manager._on_scope_changed(scope_widget)
+
+    assert manager._skill_scope == "all"
+    assert atlas.skill_requests[-1] == {}
+    assert atlas.skill_fetches > initial_fetches
+    assert scope_widget.get_active_text() == "All skills"
+    assert manager._entries, "Entries should remain populated when showing all skills"
+
+    scope_widget.set_active(0)
+    manager._on_scope_changed(scope_widget)
+
+    assert manager._skill_scope == "persona"
+    assert atlas.skill_requests[-1] == {"persona": "Atlas"}
+    assert scope_widget.get_active_text() == "Persona skills"
