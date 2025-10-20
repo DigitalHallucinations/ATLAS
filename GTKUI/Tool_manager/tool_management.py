@@ -249,6 +249,10 @@ class ToolManagement:
         self._tool_list = tool_list
 
         scroller = Gtk.ScrolledWindow()
+        try:
+            scroller.set_has_frame(False)
+        except Exception:  # pragma: no cover - GTK version differences
+            pass
         scroller.set_hexpand(False)
         scroller.set_vexpand(True)
         scroller.set_child(tool_list)
