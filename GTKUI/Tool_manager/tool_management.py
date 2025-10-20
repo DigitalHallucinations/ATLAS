@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any, Callable, Dict, Iterable as TypingIterable, List, Optional, Sequence, Tuple
 
 import gi
 
@@ -51,6 +52,11 @@ class ToolManagement:
         self._summary_label: Optional[Gtk.Label] = None
         self._capabilities_label: Optional[Gtk.Label] = None
         self._auth_label: Optional[Gtk.Label] = None
+        self._status_badge_box: Optional[Gtk.Box] = None
+        self._capability_badge_box: Optional[Gtk.Widget] = None
+        self._warning_badge_box: Optional[Gtk.Box] = None
+        self._telemetry_label: Optional[Gtk.Label] = None
+        self._cta_box: Optional[Gtk.Box] = None
         self._switch: Optional[Gtk.Switch] = None
         self._save_button: Optional[Gtk.Button] = None
         self._reset_button: Optional[Gtk.Button] = None
@@ -193,11 +199,46 @@ class ToolManagement:
         right_panel.append(capabilities_label)
         self._capabilities_label = capabilities_label
 
+        status_badge_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        status_badge_box.set_hexpand(False)
+        right_panel.append(status_badge_box)
+        self._status_badge_box = status_badge_box
+
+        capability_badge_box = Gtk.FlowBox()
+        capability_badge_box.set_max_children_per_line(6)
+        capability_badge_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        capability_badge_box.set_valign(Gtk.Align.START)
+        capability_badge_box.set_hexpand(True)
+        capability_badge_box.set_visible(False)
+        right_panel.append(capability_badge_box)
+        self._capability_badge_box = capability_badge_box
+
         auth_label = Gtk.Label()
         auth_label.set_wrap(True)
         auth_label.set_xalign(0.0)
         right_panel.append(auth_label)
         self._auth_label = auth_label
+
+        warning_badge_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        warning_badge_box.set_visible(False)
+        right_panel.append(warning_badge_box)
+        self._warning_badge_box = warning_badge_box
+
+        telemetry_label = Gtk.Label()
+        telemetry_label.set_wrap(True)
+        telemetry_label.set_xalign(0.0)
+        try:
+            telemetry_label.add_css_class("dim-label")
+        except Exception:  # pragma: no cover - GTK theme variations
+            pass
+        right_panel.append(telemetry_label)
+        self._telemetry_label = telemetry_label
+
+        cta_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        cta_box.set_halign(Gtk.Align.START)
+        cta_box.set_visible(False)
+        right_panel.append(cta_box)
+        self._cta_box = cta_box
 
         toggle_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         toggle_row.set_hexpand(True)
@@ -424,10 +465,20 @@ class ToolManagement:
             self._show_empty_state()
 
     def _create_row(self, entry: _ToolEntry) -> Gtk.Widget:
-        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        header_row.set_hexpand(True)
         title = Gtk.Label(label=entry.title or entry.name)
         title.set_xalign(0.0)
-        container.append(title)
+        title.set_hexpand(True)
+        header_row.append(title)
+
+        for badge_text, css_classes in self._iter_status_badges(entry):
+            badge = self._create_badge(badge_text, css_classes)
+            header_row.append(badge)
+
+        container.append(header_row)
 
         summary = Gtk.Label(label=entry.summary)
         summary.set_xalign(0.0)
@@ -437,6 +488,34 @@ class ToolManagement:
         except Exception:  # pragma: no cover - GTK theme variations
             pass
         container.append(summary)
+
+        capability_badge_box = Gtk.FlowBox()
+        capability_badge_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        capability_badge_box.set_max_children_per_line(6)
+        capability_badge_box.set_row_spacing(2)
+        capability_badge_box.set_column_spacing(4)
+        for badge_text, css_classes in self._iter_capability_badges(entry):
+            badge = self._create_badge(badge_text, css_classes)
+            capability_badge_box.insert(badge, -1)
+        if capability_badge_box.get_child_at_index(0) is not None:
+            container.append(capability_badge_box)
+
+        warnings = list(self._iter_warning_badges(entry))
+        if warnings:
+            warning_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            for badge_text, css_classes in warnings:
+                warning_box.append(self._create_badge(badge_text, css_classes))
+            container.append(warning_box)
+
+        telemetry_text = self._format_last_success(entry)
+        if telemetry_text:
+            telemetry = Gtk.Label(label=telemetry_text)
+            telemetry.set_xalign(0.0)
+            try:
+                telemetry.add_css_class("caption")
+            except Exception:  # pragma: no cover - GTK theme variations
+                pass
+            container.append(telemetry)
 
         RowClass = getattr(Gtk, "ListBoxRow", None)
         if RowClass is not None:
@@ -472,7 +551,12 @@ class ToolManagement:
             capability_text = "Capabilities: (unspecified)"
         self._set_label(self._capabilities_label, capability_text)
 
+        self._sync_badge_container(self._status_badge_box, self._iter_status_badges(entry))
+        self._sync_capability_box(entry)
+        self._sync_warning_box(entry)
         self._set_label(self._auth_label, self._format_auth(entry))
+        self._set_label(self._telemetry_label, self._format_detail_telemetry(entry))
+        self._sync_cta_box(entry)
 
         if self._tool_list is not None:
             try:
@@ -494,6 +578,17 @@ class ToolManagement:
         self._set_label(self._summary_label, "Select a tool to view configuration details.")
         self._set_label(self._capabilities_label, "Capabilities: (n/a)")
         self._set_label(self._auth_label, "Authentication status: unavailable")
+        self._sync_badge_container(self._status_badge_box, [])
+        self._clear_container(self._capability_badge_box)
+        self._clear_container(self._warning_badge_box)
+        if self._capability_badge_box is not None:
+            self._capability_badge_box.set_visible(False)
+        if self._warning_badge_box is not None:
+            self._warning_badge_box.set_visible(False)
+        self._set_label(self._telemetry_label, "Telemetry unavailable.")
+        if self._cta_box is not None:
+            self._cta_box.set_visible(False)
+            self._clear_container(self._cta_box)
         self._set_switch_sensitive(self._current_scope_allows_editing())
         self._set_switch_active(False)
         self._update_action_state()
@@ -640,6 +735,368 @@ class ToolManagement:
             base += f" – {warning}"
 
         return base
+
+    def _iter_status_badges(self, entry: _ToolEntry) -> TypingIterable[Tuple[str, Sequence[str]]]:
+        status_values: List[str] = []
+        metadata = entry.raw_metadata or {}
+        for key in ("account_status", "status", "state"):
+            value = metadata.get(key)
+            if isinstance(value, str):
+                status_values.append(value)
+        auth_status = entry.auth.get("status") if isinstance(entry.auth, Mapping) else None
+        if isinstance(auth_status, str):
+            status_values.append(auth_status)
+
+        seen: set[str] = set()
+        for value in status_values:
+            normalized = value.strip()
+            if not normalized:
+                continue
+            lowered = normalized.casefold()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            css_class = self._status_to_css_class(lowered)
+            yield normalized, ("tag-badge", css_class)
+
+    def _iter_capability_badges(self, entry: _ToolEntry) -> TypingIterable[Tuple[str, Sequence[str]]]:
+        for capability in entry.capabilities:
+            text = capability.strip()
+            if text:
+                yield text, ("tag-badge", "capability-badge")
+
+        metadata_caps = entry.raw_metadata.get("capability_tags") if isinstance(entry.raw_metadata, Mapping) else None
+        if isinstance(metadata_caps, Iterable) and not isinstance(metadata_caps, (str, bytes)):
+            for capability in metadata_caps:
+                text = str(capability).strip()
+                if text and text not in entry.capabilities:
+                    yield text, ("tag-badge", "capability-badge")
+
+    def _iter_warning_badges(self, entry: _ToolEntry) -> TypingIterable[Tuple[str, Sequence[str]]]:
+        auth = entry.auth if isinstance(entry.auth, Mapping) else {}
+        for key in ("warning", "error"):
+            value = auth.get(key)
+            if isinstance(value, str) and value.strip():
+                yield value.strip(), ("tag-badge", "status-warning")
+
+        metadata = entry.raw_metadata or {}
+        warnings = metadata.get("warnings")
+        if isinstance(warnings, Iterable) and not isinstance(warnings, (str, bytes)):
+            for warning in warnings:
+                text = str(warning).strip()
+                if text:
+                    yield text, ("tag-badge", "status-warning")
+
+    def _sync_badge_container(
+        self,
+        container: Optional[Gtk.Box],
+        badges: TypingIterable[Tuple[str, Sequence[str]]],
+    ) -> None:
+        if container is None:
+            return
+
+        self._clear_container(container)
+        has_badges = False
+        for text, css_classes in badges:
+            has_badges = True
+            container.append(self._create_badge(text, css_classes))
+        container.set_visible(has_badges)
+
+    def _sync_capability_box(self, entry: _ToolEntry) -> None:
+        box = self._capability_badge_box
+        if box is None:
+            return
+
+        self._clear_container(box)
+        has_badges = False
+        for text, css_classes in self._iter_capability_badges(entry):
+            has_badges = True
+            badge = self._create_badge(text, css_classes)
+            if hasattr(box, "insert"):
+                try:
+                    box.insert(badge, -1)  # type: ignore[arg-type]
+                    continue
+                except Exception:  # pragma: no cover - GTK fallback
+                    pass
+            append = getattr(box, "append", None)
+            if callable(append):
+                append(badge)
+        box.set_visible(has_badges)
+
+    def _sync_warning_box(self, entry: _ToolEntry) -> None:
+        box = self._warning_badge_box
+        if box is None:
+            return
+
+        self._sync_badge_container(box, self._iter_warning_badges(entry))
+
+    def _sync_cta_box(self, entry: _ToolEntry) -> None:
+        box = self._cta_box
+        if box is None:
+            return
+
+        self._clear_container(box)
+        actions = list(self._iter_cta_actions(entry))
+        if not actions:
+            box.set_visible(False)
+            return
+
+        for label, callback in actions:
+            button = Gtk.Button(label=label)
+            try:
+                button.add_css_class("suggested-action")
+            except Exception:  # pragma: no cover - GTK theme variations
+                pass
+            button.connect("clicked", callback)
+            box.append(button)
+
+        box.set_visible(True)
+
+    def _iter_cta_actions(
+        self, entry: _ToolEntry
+    ) -> TypingIterable[Tuple[str, Callable[[Gtk.Button], None]]]:
+        auth = entry.auth if isinstance(entry.auth, Mapping) else {}
+        provider_name = self._resolve_provider_name(auth, entry.raw_metadata)
+        needs_attention = bool(list(self._iter_warning_badges(entry))) or self._needs_credentials(entry)
+
+        if needs_attention and provider_name:
+            yield (
+                "Fix credentials",
+                lambda _btn, provider=provider_name: self._open_provider_settings(provider),
+            )
+        elif needs_attention:
+            yield (
+                "Manage accounts",
+                lambda _btn: self._open_accounts_page(),
+            )
+
+    def _needs_credentials(self, entry: _ToolEntry) -> bool:
+        metadata = entry.raw_metadata or {}
+        account_status = metadata.get("account_status") or entry.account_status
+        if isinstance(account_status, str) and account_status.strip():
+            status = account_status.strip().casefold()
+            if status in {"missing", "missing_credentials", "unauthorized", "error"}:
+                return True
+
+        auth = entry.auth if isinstance(entry.auth, Mapping) else {}
+        required = auth.get("required")
+        has_error = isinstance(auth.get("error"), str) and bool(auth.get("error").strip())
+        return bool(required) and has_error
+
+    def _resolve_provider_name(
+        self, auth: Mapping[str, Any], metadata: Mapping[str, Any] | None
+    ) -> Optional[str]:
+        candidates = []
+        for key in ("provider", "account", "name"):
+            value = auth.get(key)
+            if isinstance(value, str):
+                candidates.append(value)
+        if metadata and isinstance(metadata, Mapping):
+            provider_value = metadata.get("provider") or metadata.get("account")
+            if isinstance(provider_value, str):
+                candidates.append(provider_value)
+
+        for candidate in candidates:
+            text = candidate.strip()
+            if text:
+                return text
+        return None
+
+    def _open_provider_settings(self, provider: str) -> None:
+        window = getattr(self.parent_window, "provider_management", None)
+        if window is not None and hasattr(window, "show_provider_settings"):
+            try:
+                window.show_provider_settings(provider)
+                return
+            except Exception:  # pragma: no cover - interface guard
+                logger.debug("Failed to open provider settings for %s", provider, exc_info=True)
+
+        fallback = getattr(self.parent_window, "show_provider_menu", None)
+        if callable(fallback):
+            fallback()
+
+    def _open_accounts_page(self) -> None:
+        opener = getattr(self.parent_window, "show_accounts_page", None)
+        if callable(opener):
+            opener()
+
+    def _create_badge(self, text: str, css_classes: Sequence[str]) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        label = Gtk.Label(label=text)
+        label.set_xalign(0.0)
+        label.set_wrap(False)
+        for css_class in css_classes:
+            try:
+                label.add_css_class(css_class)
+                box.add_css_class(css_class)
+            except Exception:  # pragma: no cover - GTK theme variations
+                pass
+        box.append(label)
+        return box
+
+    def _clear_container(self, container: Optional[Gtk.Widget]) -> None:
+        if container is None:
+            return
+
+        if hasattr(container, "remove_all"):
+            try:
+                container.remove_all()  # type: ignore[attr-defined]
+                return
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+        children = self._get_container_children(container)
+        remover = getattr(container, "remove", None)
+        if callable(remover):
+            for child in children:
+                try:
+                    remover(child)
+                except Exception:  # pragma: no cover - GTK fallback
+                    continue
+
+    def _get_container_children(self, container: Gtk.Widget) -> List[Gtk.Widget]:
+        getter = getattr(container, "get_children", None)
+        if callable(getter):
+            try:
+                return list(getter())
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+        children: List[Gtk.Widget] = []
+        get_first_child = getattr(container, "get_first_child", None)
+        if callable(get_first_child):
+            current = get_first_child()
+            while current is not None:
+                children.append(current)
+                get_next = getattr(current, "get_next_sibling", None)
+                current = get_next() if callable(get_next) else None
+        else:
+            raw_children = getattr(container, "children", None)
+            if isinstance(raw_children, Iterable):
+                children.extend(raw_children)
+        return children
+
+    def _status_to_css_class(self, status: str) -> str:
+        if status in {"ok", "enabled", "healthy", "ready", "active"}:
+            return "status-ok"
+        if status in {"degraded", "warning", "partial", "stale"}:
+            return "status-warning"
+        if status in {"missing", "missing_credentials", "error", "failed", "unauthorized", "disabled"}:
+            return "status-error"
+        return "status-unknown"
+
+    def _format_last_success(self, entry: _ToolEntry) -> Optional[str]:
+        timestamp = self._extract_last_success(entry.raw_metadata)
+        if timestamp is None:
+            return None
+        relative = self._format_relative_time(timestamp)
+        return f"Last success {relative}"
+
+    def _format_detail_telemetry(self, entry: _ToolEntry) -> str:
+        pieces: List[str] = []
+        last_success = self._format_last_success(entry)
+        if last_success:
+            pieces.append(last_success)
+
+        health_summary = self._format_health_summary(entry)
+        if health_summary:
+            pieces.append(health_summary)
+
+        if not pieces:
+            return "Telemetry unavailable."
+        return " · ".join(pieces)
+
+    def _format_health_summary(self, entry: _ToolEntry) -> Optional[str]:
+        metadata = entry.raw_metadata or {}
+        health = metadata.get("health")
+        if isinstance(health, Mapping):
+            state = health.get("state")
+            metrics = health.get("metrics")
+        else:
+            state = None
+            metrics = None
+
+        text_parts: List[str] = []
+        if isinstance(state, str) and state.strip():
+            text_parts.append(f"State: {state.strip()}")
+
+        if isinstance(metrics, Mapping):
+            metric_parts = []
+            for key, value in metrics.items():
+                metric_parts.append(f"{key}: {value}")
+            if metric_parts:
+                text_parts.append("Metrics: " + ", ".join(metric_parts))
+
+        if text_parts:
+            return " ".join(text_parts)
+        return None
+
+    def _extract_last_success(self, metadata: Mapping[str, Any]) -> Optional[datetime]:
+        candidates = []
+        for key in ("last_success_at", "last_success", "lastSuccess", "last_success_ts"):
+            if metadata and key in metadata:
+                candidates.append(metadata.get(key))
+        if metadata:
+            health = metadata.get("health")
+            if isinstance(health, Mapping) and "last_success_at" in health:
+                candidates.append(health.get("last_success_at"))
+
+        for candidate in candidates:
+            parsed = self._parse_timestamp(candidate)
+            if parsed is not None:
+                return parsed
+        return None
+
+    def _parse_timestamp(self, value: Any) -> Optional[datetime]:
+        if isinstance(value, (int, float)):
+            timestamp = float(value)
+            if timestamp > 10**12:  # assume milliseconds
+                timestamp /= 1000.0
+            try:
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                return None
+
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            try:
+                return datetime.fromisoformat(text)
+            except ValueError:
+                try:
+                    numeric = float(text)
+                except ValueError:
+                    return None
+                return self._parse_timestamp(numeric)
+        return None
+
+    def _format_relative_time(self, timestamp: datetime) -> str:
+        now = datetime.now(timezone.utc)
+        delta = now - timestamp
+        total_seconds = max(int(delta.total_seconds()), 0)
+
+        if total_seconds < 60:
+            return "moments ago"
+        minutes = total_seconds // 60
+        if minutes < 60:
+            return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        days = hours // 24
+        if days < 7:
+            return f"{days} day{'s' if days != 1 else ''} ago"
+        weeks = days // 7
+        if weeks < 4:
+            return f"{weeks} week{'s' if weeks != 1 else ''} ago"
+        months = days // 30
+        if months < 12:
+            return f"{months} month{'s' if months != 1 else ''} ago"
+        years = days // 365
+        return f"{years} year{'s' if years != 1 else ''} ago"
 
     def _set_label(self, label: Optional[Gtk.Label], text: str) -> None:
         if label is None:

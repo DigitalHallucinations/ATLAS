@@ -3,6 +3,36 @@ label {
     font-size: 14px;
 }
 
+/* Tool management badge styling */
+.tag-badge {
+    background-color: #3a3a3a;
+    color: #f0f0f0;
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 12px;
+}
+
+.capability-badge {
+    background-color: #283593;
+}
+
+.status-ok {
+    background-color: #1b5e20;
+}
+
+.status-warning {
+    background-color: #ff8f00;
+    color: #1b1b1b;
+}
+
+.status-error {
+    background-color: #c62828;
+}
+
+.status-unknown {
+    background-color: #424242;
+}
+
 /* Ensure dark-themed windows inherit readable text colors */
 window.sidebar,
 window.sidebar *,
