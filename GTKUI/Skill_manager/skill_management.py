@@ -32,6 +32,20 @@ class _SkillEntry:
     raw_metadata: Dict[str, Any]
 
 
+@dataclass(slots=True)
+class _RequirementStatus:
+    """Represents persona compatibility metadata for a skill."""
+
+    persona_name: Optional[str]
+    missing_tools: List[str]
+    missing_capabilities: List[str]
+    satisfied_tools: List[str]
+    satisfied_capabilities: List[str]
+    evaluation_error: Optional[str] = None
+    persona_mismatch: bool = False
+    show_dialog: bool = False
+
+
 class SkillManagement:
     """Controller responsible for rendering the skill management workspace."""
 
@@ -56,6 +70,12 @@ class SkillManagement:
         self._capability_tags_label: Optional[Gtk.Label] = None
         self._safety_notes_label: Optional[Gtk.Label] = None
         self._source_label: Optional[Gtk.Label] = None
+        self._tool_badge_box: Optional[Gtk.Widget] = None
+        self._capability_badge_box: Optional[Gtk.Widget] = None
+        self._requirement_status_label: Optional[Gtk.Label] = None
+        self._action_button_box: Optional[Gtk.Widget] = None
+        self._enable_tools_button: Optional[Gtk.Button] = None
+        self._open_tool_manager_button: Optional[Gtk.Button] = None
         self._scope_selector: Optional[Gtk.ComboBoxText] = None
         self._search_entry: Optional[Gtk.SearchEntry] = None
         self._category_combo: Optional[Gtk.ComboBoxText] = None
@@ -68,6 +88,7 @@ class SkillManagement:
         self._display_entries: List[_SkillEntry] = []
         self._visible_entry_names: Set[str] = set()
         self._active_skill: Optional[str] = None
+        self._active_requirement_status: Optional[_RequirementStatus] = None
         self._skill_scope = "persona"
         self._persona_name: Optional[str] = None
         self._suppress_scope_signal = False
@@ -83,6 +104,8 @@ class SkillManagement:
         self._persona_option_lookup: Dict[str, Optional[str]] = {}
         self._persona_reverse_lookup: Dict[Optional[str], str] = {}
         self._preferences_loaded_key: Optional[str] = None
+        self._requirement_cache: Dict[str, _RequirementStatus] = {}
+        self._persona_error_reported = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -134,7 +157,10 @@ class SkillManagement:
         filter_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         filter_column.set_hexpand(True)
 
-        search_entry = Gtk.SearchEntry()
+        SearchEntryClass = getattr(Gtk, "SearchEntry", None)
+        if SearchEntryClass is None:
+            SearchEntryClass = getattr(Gtk, "Entry", Gtk.Widget)
+        search_entry = SearchEntryClass()
         search_entry.set_hexpand(True)
         try:
             search_entry.set_placeholder_text("Search skills")
@@ -250,17 +276,101 @@ class SkillManagement:
         right_panel.append(required_tools_label)
         self._required_tools_label = required_tools_label
 
+        FlowBoxClass = getattr(Gtk, "FlowBox", Gtk.Box)
+        tool_badge_box = FlowBoxClass()
+        configure = getattr(tool_badge_box, "set_selection_mode", None)
+        if callable(configure):
+            try:
+                configure(Gtk.SelectionMode.NONE)
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+        setter = getattr(tool_badge_box, "set_max_children_per_line", None)
+        if callable(setter):
+            try:
+                setter(4)
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+        spacing = getattr(tool_badge_box, "set_row_spacing", None)
+        if callable(spacing):
+            try:
+                spacing(4)
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+        spacing = getattr(tool_badge_box, "set_column_spacing", None)
+        if callable(spacing):
+            try:
+                spacing(6)
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+        tool_badge_box.set_visible(False)
+        right_panel.append(tool_badge_box)
+        self._tool_badge_box = tool_badge_box
+
         required_capabilities_label = Gtk.Label()
         required_capabilities_label.set_wrap(True)
         required_capabilities_label.set_xalign(0.0)
         right_panel.append(required_capabilities_label)
         self._required_capabilities_label = required_capabilities_label
 
+        capability_badge_box = FlowBoxClass()
+        configure = getattr(capability_badge_box, "set_selection_mode", None)
+        if callable(configure):
+            try:
+                configure(Gtk.SelectionMode.NONE)
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+        setter = getattr(capability_badge_box, "set_max_children_per_line", None)
+        if callable(setter):
+            try:
+                setter(4)
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+        spacing = getattr(capability_badge_box, "set_row_spacing", None)
+        if callable(spacing):
+            try:
+                spacing(4)
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+        spacing = getattr(capability_badge_box, "set_column_spacing", None)
+        if callable(spacing):
+            try:
+                spacing(6)
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+        capability_badge_box.set_visible(False)
+        right_panel.append(capability_badge_box)
+        self._capability_badge_box = capability_badge_box
+
         capability_tags_label = Gtk.Label()
         capability_tags_label.set_wrap(True)
         capability_tags_label.set_xalign(0.0)
         right_panel.append(capability_tags_label)
         self._capability_tags_label = capability_tags_label
+
+        requirement_status_label = Gtk.Label()
+        requirement_status_label.set_wrap(True)
+        requirement_status_label.set_xalign(0.0)
+        right_panel.append(requirement_status_label)
+        self._requirement_status_label = requirement_status_label
+
+        action_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        action_button_box.set_visible(False)
+        right_panel.append(action_button_box)
+        self._action_button_box = action_button_box
+
+        enable_tools_button = Gtk.Button(label="Enable missing tools")
+        enable_tools_button.set_tooltip_text("Automatically enable required tools for the active persona.")
+        enable_tools_button.connect("clicked", self._on_enable_missing_tools_clicked)
+        enable_tools_button.set_visible(False)
+        action_button_box.append(enable_tools_button)
+        self._enable_tools_button = enable_tools_button
+
+        open_tool_manager_button = Gtk.Button(label="Open tool manager")
+        open_tool_manager_button.set_tooltip_text("Review persona tool access in the management workspace.")
+        open_tool_manager_button.connect("clicked", self._on_open_tool_manager_clicked)
+        open_tool_manager_button.set_visible(False)
+        action_button_box.append(open_tool_manager_button)
+        self._open_tool_manager_button = open_tool_manager_button
 
         safety_notes_label = Gtk.Label()
         safety_notes_label.set_wrap(True)
@@ -292,6 +402,9 @@ class SkillManagement:
 
         self._entries = entries
         self._entry_lookup = {entry.name: entry for entry in entries}
+        self._requirement_cache.clear()
+        self._active_requirement_status = None
+        self._persona_error_reported = False
         self._populate_filter_options()
         self._rebuild_skill_list()
 
@@ -576,9 +689,21 @@ class SkillManagement:
 
     def _create_row(self, entry: _SkillEntry) -> Gtk.Widget:
         container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+
+        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        header_row.set_hexpand(True)
+
         title = Gtk.Label(label=entry.name)
         title.set_xalign(0.0)
-        container.append(title)
+        title.set_hexpand(True)
+        header_row.append(title)
+
+        status = self._get_requirement_status(entry)
+        indicator = self._build_requirement_indicator(status, entry)
+        if indicator is not None:
+            header_row.append(indicator)
+
+        container.append(header_row)
 
         summary = Gtk.Label(label=entry.summary)
         summary.set_xalign(0.0)
@@ -623,6 +748,9 @@ class SkillManagement:
 
         self._active_skill = skill_name
 
+        status = self._get_requirement_status(entry, refresh=True)
+        self._active_requirement_status = status
+
         persona_scope = entry.persona or "Shared"
         version = entry.version or "Unspecified"
         category = entry.category or "Uncategorized"
@@ -636,9 +764,17 @@ class SkillManagement:
             self._required_tools_label,
             "Required tools: " + self._format_list(entry.required_tools),
         )
+        self._sync_requirement_badges(self._tool_badge_box, entry.required_tools, status, unknown_label="No tools required")
         self._set_label(
             self._required_capabilities_label,
             "Required capabilities: " + self._format_list(entry.required_capabilities),
+        )
+        self._sync_requirement_badges(
+            self._capability_badge_box,
+            entry.required_capabilities,
+            status,
+            kind="capability",
+            unknown_label="No capabilities required",
         )
         self._set_label(
             self._capability_tags_label,
@@ -649,6 +785,15 @@ class SkillManagement:
         source = entry.source or "Source metadata unavailable"
         self._set_label(self._source_label, f"Source: {source}")
 
+        message = self._describe_requirement_status(status, entry)
+        if status.evaluation_error and status.show_dialog and not self._persona_error_reported:
+            self._handle_backend_error(status.evaluation_error)
+            self._persona_error_reported = True
+        elif not status.evaluation_error:
+            self._persona_error_reported = False
+        self._set_label(self._requirement_status_label, message)
+        self._sync_action_buttons(status)
+
         if self._skill_list is not None:
             try:
                 self._skill_list.select_row(row)
@@ -657,6 +802,7 @@ class SkillManagement:
 
     def _show_empty_state(self) -> None:
         self._active_skill = None
+        self._active_requirement_status = None
         self._set_label(self._title_label, "No skill selected")
         self._set_label(
             self._summary_label,
@@ -670,6 +816,296 @@ class SkillManagement:
         self._set_label(self._capability_tags_label, "Capability tags: (n/a)")
         self._set_label(self._safety_notes_label, "Safety notes: (n/a)")
         self._set_label(self._source_label, "Source: (n/a)")
+        self._set_label(self._requirement_status_label, "Requirement status: (n/a)")
+        self._clear_container(self._tool_badge_box)
+        if self._tool_badge_box is not None:
+            self._tool_badge_box.set_visible(False)
+        self._clear_container(self._capability_badge_box)
+        if self._capability_badge_box is not None:
+            self._capability_badge_box.set_visible(False)
+        if self._action_button_box is not None:
+            self._action_button_box.set_visible(False)
+        if self._enable_tools_button is not None:
+            self._enable_tools_button.set_visible(False)
+        if self._open_tool_manager_button is not None:
+            self._open_tool_manager_button.set_visible(False)
+
+    def _get_requirement_status(self, entry: _SkillEntry, *, refresh: bool = False) -> _RequirementStatus:
+        if not refresh:
+            cached = self._requirement_cache.get(entry.name)
+            if cached is not None:
+                return cached
+
+        status = self._evaluate_requirements(entry)
+        self._requirement_cache[entry.name] = status
+        return status
+
+    def _evaluate_requirements(self, entry: _SkillEntry) -> _RequirementStatus:
+        persona_name = self._persona_name
+        context = self._get_persona_context()
+
+        if context is None:
+            message = "No active persona selected; requirement status is unknown."
+            show_dialog = False
+            if persona_name:
+                message = "Unable to determine requirement status for the active persona."
+                show_dialog = True
+            return _RequirementStatus(
+                persona_name=persona_name,
+                missing_tools=[],
+                missing_capabilities=[],
+                satisfied_tools=[],
+                satisfied_capabilities=[],
+                evaluation_error=message,
+                persona_mismatch=False,
+                show_dialog=show_dialog,
+            )
+
+        resolved_persona = context.get("persona_name") or persona_name
+        allowed_tools = set(context.get("allowed_tools", []))
+        allowed_capabilities = set(context.get("capability_tags", []))
+
+        missing_tools: List[str] = []
+        satisfied_tools: List[str] = []
+        for tool in entry.required_tools:
+            if tool in allowed_tools:
+                satisfied_tools.append(tool)
+            else:
+                missing_tools.append(tool)
+
+        missing_capabilities: List[str] = []
+        satisfied_capabilities: List[str] = []
+        for capability in entry.required_capabilities:
+            if capability in allowed_capabilities:
+                satisfied_capabilities.append(capability)
+            else:
+                missing_capabilities.append(capability)
+
+        persona_mismatch = False
+        if entry.persona and resolved_persona:
+            persona_mismatch = entry.persona.strip().casefold() != resolved_persona.strip().casefold()
+        elif entry.persona and not resolved_persona:
+            persona_mismatch = True
+
+        return _RequirementStatus(
+            persona_name=resolved_persona,
+            missing_tools=missing_tools,
+            missing_capabilities=missing_capabilities,
+            satisfied_tools=satisfied_tools,
+            satisfied_capabilities=satisfied_capabilities,
+            evaluation_error=None,
+            persona_mismatch=persona_mismatch,
+            show_dialog=False,
+        )
+
+    def _describe_requirement_status(self, status: _RequirementStatus, entry: _SkillEntry) -> str:
+        if status.evaluation_error:
+            return status.evaluation_error
+
+        messages: List[str] = []
+        if status.persona_mismatch and entry.persona:
+            if status.persona_name:
+                messages.append(
+                    f"Skill is scoped to persona '{entry.persona}', but active persona is '{status.persona_name}'."
+                )
+            else:
+                messages.append(f"Skill is scoped to persona '{entry.persona}'.")
+
+        if status.missing_tools:
+            messages.append("Missing tools: " + ", ".join(status.missing_tools))
+        if status.missing_capabilities:
+            messages.append("Missing capabilities: " + ", ".join(status.missing_capabilities))
+
+        if not messages:
+            return "All requirements satisfied for the active persona."
+        return " \u2013 ".join(messages)
+
+    def _build_requirement_indicator(
+        self, status: _RequirementStatus, entry: _SkillEntry
+    ) -> Optional[Gtk.Widget]:
+        needs_attention = bool(
+            status.evaluation_error or status.missing_tools or status.missing_capabilities or status.persona_mismatch
+        )
+        if not needs_attention:
+            return None
+
+        indicator = Gtk.Label(label="⚠")
+        try:
+            indicator.set_hexpand(False)
+        except Exception:  # pragma: no cover - GTK compatibility fallbacks
+            pass
+        try:
+            indicator.set_xalign(1.0)
+        except Exception:  # pragma: no cover - GTK compatibility fallbacks
+            pass
+        align_cls = getattr(Gtk, "Align", None)
+        if align_cls is not None:
+            align_value = getattr(align_cls, "END", getattr(align_cls, "FILL", None))
+            if align_value is not None:
+                try:
+                    indicator.set_halign(align_value)
+                except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                    pass
+        indicator.set_tooltip_text(self._describe_requirement_status(status, entry))
+        return indicator
+
+    def _create_badge_widget(self, text: str, css_classes: List[str]) -> Gtk.Widget:
+        badge = Gtk.Label(label=text)
+        try:
+            badge.set_xalign(0.5)
+        except Exception:  # pragma: no cover - GTK compatibility fallbacks
+            pass
+        for css in css_classes:
+            try:
+                badge.add_css_class(css)
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                continue
+        return badge
+
+    def _sync_requirement_badges(
+        self,
+        container: Optional[Gtk.Widget],
+        required_items: Iterable[str],
+        status: _RequirementStatus,
+        *,
+        kind: str = "tool",
+        unknown_label: str = "None",
+    ) -> None:
+        if container is None:
+            return
+
+        self._clear_container(container)
+
+        items = [item for item in required_items if item]
+        if status.evaluation_error:
+            widget = self._create_badge_widget("Status unavailable", ["tag-badge", "status-unknown"])
+            self._append_badge(container, widget)
+            container.set_visible(True)
+            return
+
+        if not items:
+            widget = self._create_badge_widget(unknown_label, ["tag-badge", "status-ok"])
+            self._append_badge(container, widget)
+            container.set_visible(True)
+            return
+
+        missing_lookup = set(status.missing_tools if kind == "tool" else status.missing_capabilities)
+        for item in items:
+            css = ["tag-badge"]
+            if item in missing_lookup:
+                css.append("status-error")
+            else:
+                css.append("status-ok")
+            widget = self._create_badge_widget(item, css)
+            self._append_badge(container, widget)
+
+        container.set_visible(True)
+
+    def _append_badge(self, container: Gtk.Widget, widget: Gtk.Widget) -> None:
+        inserter = getattr(container, "insert", None)
+        if callable(inserter):
+            try:
+                inserter(widget, -1)
+                return
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+
+        appender = getattr(container, "append", None)
+        if callable(appender):
+            try:
+                appender(widget)
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+
+    def _sync_action_buttons(self, status: _RequirementStatus) -> None:
+        enable_button = self._enable_tools_button
+        open_button = self._open_tool_manager_button
+        button_box = self._action_button_box
+
+        enable_visible = bool(status.missing_tools) and not status.evaluation_error and bool(self._persona_name)
+        if enable_button is not None:
+            enable_button.set_visible(enable_visible)
+            setter = getattr(enable_button, "set_sensitive", None)
+            if callable(setter):
+                setter(enable_visible)
+
+        open_visible = bool(
+            status.missing_tools or status.missing_capabilities or status.evaluation_error or status.persona_mismatch
+        )
+        if open_button is not None:
+            open_button.set_visible(open_visible)
+            setter = getattr(open_button, "set_sensitive", None)
+            if callable(setter):
+                setter(True)
+
+        if button_box is not None:
+            button_box.set_visible(enable_visible or open_visible)
+
+    def _get_persona_context(self) -> Optional[Dict[str, Any]]:
+        persona_name = self._persona_name
+        if not persona_name:
+            return None
+
+        manager = getattr(self.ATLAS, "persona_manager", None)
+        if manager is None:
+            return None
+
+        getter = getattr(manager, "get_current_persona_context", None)
+        if callable(getter):
+            try:
+                context = getter()
+            except Exception as exc:  # pragma: no cover - backend failure logging
+                logger.error("Failed to load active persona context: %s", exc, exc_info=True)
+                return None
+            if isinstance(context, Mapping):
+                return {
+                    "persona_name": context.get("persona_name") or persona_name,
+                    "allowed_tools": self._normalize_strings(context.get("allowed_tools")),
+                    "capability_tags": self._normalize_strings(context.get("capability_tags")),
+                }
+
+        persona_getter = getattr(manager, "get_persona", None)
+        if callable(persona_getter):
+            try:
+                persona_payload = persona_getter(persona_name)
+            except Exception as exc:  # pragma: no cover - backend failure logging
+                logger.error("Failed to load persona '%s': %s", persona_name, exc, exc_info=True)
+                return None
+            if isinstance(persona_payload, Mapping):
+                return {
+                    "persona_name": persona_payload.get("name") or persona_name,
+                    "allowed_tools": self._normalize_strings(persona_payload.get("allowed_tools")),
+                    "capability_tags": self._normalize_strings(persona_payload.get("capability_tags")),
+                }
+
+        return None
+
+    def _normalize_strings(self, values: Any) -> List[str]:
+        normalized: List[str] = []
+        seen: Set[str] = set()
+
+        if isinstance(values, str):
+            candidates = [values]
+        elif isinstance(values, Iterable) and not isinstance(values, (str, bytes)):
+            candidates = list(values)
+        else:
+            candidates = []
+
+        for item in candidates:
+            if isinstance(item, Mapping):
+                candidate_value = item.get("name")
+            else:
+                candidate_value = item
+
+            if candidate_value is None:
+                continue
+
+            text = str(candidate_value).strip()
+            if text and text not in seen:
+                normalized.append(text)
+                seen.add(text)
+
+        return normalized
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -762,6 +1198,84 @@ class SkillManagement:
 
         self._skill_scope = new_scope
         self._refresh_state()
+
+    def _on_enable_missing_tools_clicked(self, _button: Gtk.Button) -> None:
+        status = self._active_requirement_status
+        persona_name = self._persona_name
+        if status is None or not status.missing_tools or not persona_name:
+            return
+
+        tools_to_enable = list(status.missing_tools)
+        tool_manager = getattr(self.parent_window, "tool_management", None)
+        enabler = getattr(tool_manager, "enable_tools_for_persona", None) if tool_manager else None
+        if not callable(enabler):
+            try:
+                from GTKUI.Tool_manager.tool_management import ToolManagement  # pylint: disable=import-outside-toplevel
+            except Exception:  # pragma: no cover - import fallback
+                enabler = None
+            else:
+                enabler = getattr(ToolManagement(self.ATLAS, self.parent_window), "enable_tools_for_persona", None)
+
+        if callable(enabler):
+            try:
+                success = bool(enabler(persona_name, tools_to_enable))
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                logger.error("Failed to enable tools via ToolManagement: %s", exc, exc_info=True)
+                self._handle_backend_error("Unable to enable tools automatically.")
+                return
+            if success:
+                self._refresh_state()
+                if self._active_skill:
+                    self._select_skill(self._active_skill)
+            return
+
+        persona_manager = getattr(self.ATLAS, "persona_manager", None)
+        setter = getattr(persona_manager, "set_allowed_tools", None)
+        if not callable(setter):
+            self._handle_backend_error("Tool management is unavailable. Unable to enable tools automatically.")
+            return
+
+        existing_tools: List[str] = []
+        getter = getattr(persona_manager, "get_persona", None)
+        if callable(getter):
+            try:
+                payload = getter(persona_name)
+            except Exception as exc:  # pragma: no cover - backend failure logging
+                logger.error("Failed to load persona '%s' for enabling tools: %s", persona_name, exc, exc_info=True)
+                self._handle_backend_error("Unable to load persona configuration from ATLAS.")
+                return
+            if isinstance(payload, Mapping):
+                existing_tools = self._normalize_strings(payload.get("allowed_tools"))
+
+        desired = sorted({*existing_tools, *tools_to_enable})
+
+        try:
+            result = setter(persona_name, desired)
+        except Exception as exc:  # pragma: no cover - backend failure logging
+            logger.error("Failed to persist enabled tools for persona '%s': %s", persona_name, exc, exc_info=True)
+            self._handle_backend_error(str(exc) or "Unable to enable required tools.")
+            return
+
+        if isinstance(result, Mapping) and not result.get("success", True):
+            errors = result.get("errors") or []
+            message = "; ".join(str(err) for err in errors if err) or str(result.get("error") or "Unable to enable required tools.")
+            self._handle_backend_error(message)
+            return
+
+        self._refresh_state()
+        if self._active_skill:
+            self._select_skill(self._active_skill)
+
+    def _on_open_tool_manager_clicked(self, _button: Gtk.Button) -> None:
+        opener = getattr(self.parent_window, "show_tools_menu", None)
+        if callable(opener):
+            try:
+                opener()
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                logger.error("Failed to open tool management workspace: %s", exc, exc_info=True)
+                self._handle_backend_error("Unable to open tool management workspace.")
+        else:
+            self._handle_backend_error("Tool manager workspace is unavailable.")
 
     def _sync_scope_widget(self, persona_available: bool) -> None:
         widget = self._scope_selector
@@ -868,6 +1382,37 @@ class SkillManagement:
     # ------------------------------------------------------------------
     # Utility helpers
     # ------------------------------------------------------------------
+    def _clear_container(self, container: Optional[Gtk.Widget]) -> None:
+        if container is None:
+            return
+
+        remover = getattr(container, "remove_all", None)
+        if callable(remover):
+            try:
+                remover()
+                return
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+
+        children = self._get_container_children(container)
+        remove_child = getattr(container, "remove", None)
+        if callable(remove_child):
+            for child in children:
+                try:
+                    remove_child(child)
+                except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                    continue
+
+    def _get_container_children(self, container: Gtk.Widget) -> List[Gtk.Widget]:
+        getter = getattr(container, "get_children", None)
+        if callable(getter):
+            try:
+                return list(getter())
+            except Exception:  # pragma: no cover - GTK compatibility fallbacks
+                pass
+
+        return list(getattr(container, "children", []) or [])
+
     def _set_label(self, label: Optional[Gtk.Label], text: str) -> None:
         if label is None:
             return
