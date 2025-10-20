@@ -7,7 +7,7 @@ import logging
 import threading
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 import gi
 
@@ -62,6 +62,8 @@ class SkillManagement:
         self.ATLAS = atlas
         self.parent_window = parent_window
 
+        self.on_open_in_persona: Optional[Callable[[str], None]] = None
+
         self._widget: Optional[Gtk.Widget] = None
         self._skill_list: Optional[Gtk.ListBox] = None
         self._title_label: Optional[Gtk.Label] = None
@@ -81,6 +83,7 @@ class SkillManagement:
         self._action_button_box: Optional[Gtk.Widget] = None
         self._enable_tools_button: Optional[Gtk.Button] = None
         self._open_tool_manager_button: Optional[Gtk.Button] = None
+        self._open_persona_button: Optional[Gtk.Button] = None
         self._preview_button: Optional[Gtk.Button] = None
         self._test_button: Optional[Gtk.Button] = None
         self._mark_reviewed_button: Optional[Gtk.Button] = None
@@ -134,6 +137,42 @@ class SkillManagement:
             self._widget = self._build_workspace()
         self._refresh_state()
         return self._widget
+
+    def focus_skill(self, skill_name: str) -> bool:
+        """Ensure ``skill_name`` is visible and selected in the catalog."""
+
+        if not skill_name:
+            return False
+
+        if skill_name not in self._entry_lookup:
+            if self._skill_scope != "all":
+                self._skill_scope = "all"
+                self._sync_scope_widget(bool(self._persona_name))
+                self._refresh_state()
+        if skill_name not in self._entry_lookup:
+            return False
+
+        if skill_name not in self._visible_entry_names:
+            filters_changed = False
+            if self._filter_text:
+                self._filter_text = ""
+                filters_changed = True
+            if self._category_filter is not None:
+                self._category_filter = None
+                filters_changed = True
+            if self._persona_filter is not None:
+                self._persona_filter = None
+                filters_changed = True
+            if filters_changed:
+                self._persist_view_preferences()
+                self._populate_filter_options()
+            self._rebuild_skill_list()
+
+        if skill_name not in self._visible_entry_names:
+            return False
+
+        self._select_skill(skill_name)
+        return True
 
     # ------------------------------------------------------------------
     # Workspace construction
@@ -394,6 +433,13 @@ class SkillManagement:
         open_tool_manager_button.set_visible(False)
         action_button_box.append(open_tool_manager_button)
         self._open_tool_manager_button = open_tool_manager_button
+
+        open_persona_button = Gtk.Button(label="Configure in persona")
+        open_persona_button.set_tooltip_text("Open the active persona editor to configure this skill.")
+        open_persona_button.connect("clicked", self._on_open_in_persona_clicked)
+        open_persona_button.set_visible(False)
+        action_button_box.append(open_persona_button)
+        self._open_persona_button = open_persona_button
 
         control_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         right_panel.append(control_row)
@@ -1289,8 +1335,17 @@ class SkillManagement:
             if callable(setter):
                 setter(True)
 
+        persona_callback_available = callable(self.on_open_in_persona) and bool(self._persona_name)
+        persona_visible = persona_callback_available and bool(self._active_skill)
+        persona_button = self._open_persona_button
+        if persona_button is not None:
+            persona_button.set_visible(persona_visible)
+            setter = getattr(persona_button, "set_sensitive", None)
+            if callable(setter):
+                setter(persona_visible)
+
         if button_box is not None:
-            button_box.set_visible(enable_visible or open_visible)
+            button_box.set_visible(enable_visible or open_visible or persona_visible)
 
     def _get_persona_context(self) -> Optional[Dict[str, Any]]:
         persona_name = self._persona_name
@@ -1595,6 +1650,18 @@ class SkillManagement:
                 self._handle_backend_error("Unable to open tool management workspace.")
         else:
             self._handle_backend_error("Tool manager workspace is unavailable.")
+
+    def _on_open_in_persona_clicked(self, _button: Gtk.Button) -> None:
+        callback = self.on_open_in_persona
+        skill_name = self._active_skill
+        if not callable(callback) or not skill_name:
+            return
+
+        try:
+            callback(skill_name)
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.error("Failed to open persona configuration for skill '%s': %s", skill_name, exc, exc_info=True)
+            self._handle_backend_error("Unable to open persona editor for this skill.")
 
     def _sync_scope_widget(self, persona_available: bool) -> None:
         widget = self._scope_selector

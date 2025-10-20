@@ -45,6 +45,8 @@ class ToolManagement:
         self.ATLAS = atlas
         self.parent_window = parent_window
 
+        self.on_open_in_persona: Optional[Callable[[str], None]] = None
+
         self._widget: Optional[Gtk.Widget] = None
         self._tool_list: Optional[Gtk.ListBox] = None
         self._persona_label: Optional[Gtk.Label] = None
@@ -101,6 +103,39 @@ class ToolManagement:
             self._widget = self._build_workspace()
         self._refresh_state()
         return self._widget
+
+    def focus_tool(self, tool_name: str) -> bool:
+        """Ensure ``tool_name`` is visible and selected in the catalog."""
+
+        if not tool_name:
+            return False
+
+        if tool_name not in self._entry_lookup:
+            if self._tool_scope != "all":
+                self._tool_scope = "all"
+                self._sync_scope_widget(bool(self._persona_name))
+                self._refresh_state()
+        if tool_name not in self._entry_lookup:
+            return False
+
+        if tool_name not in {entry.name for entry in self._visible_entries}:
+            changed = False
+            if self._filter_text:
+                self._filter_text = ""
+                changed = True
+            if self._capability_filter is not None:
+                self._capability_filter = None
+                changed = True
+            if changed:
+                self._persist_view_preferences()
+                self._sync_filter_widgets()
+            self._rebuild_tool_list()
+
+        if tool_name not in {entry.name for entry in self._visible_entries}:
+            return False
+
+        self._select_tool(tool_name)
+        return True
 
     def enable_tools_for_persona(self, persona: str, tools: Iterable[str]) -> bool:
         """Enable the provided tools for ``persona`` and persist the change."""
@@ -1175,6 +1210,13 @@ class ToolManagement:
         auth = entry.auth if isinstance(entry.auth, Mapping) else {}
         provider_name = self._resolve_provider_name(auth, entry.raw_metadata)
         needs_attention = bool(list(self._iter_warning_badges(entry))) or self._needs_credentials(entry)
+
+        persona_callback = self.on_open_in_persona
+        if callable(persona_callback) and self._persona_name and entry.name:
+            yield (
+                "Configure in persona",
+                lambda _btn, tool=entry.name: persona_callback(tool),
+            )
 
         if needs_attention and provider_name:
             yield (

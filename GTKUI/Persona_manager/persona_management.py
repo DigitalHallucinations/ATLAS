@@ -37,6 +37,8 @@ class PersonaManagement:
         self.persona_window = None
         self._persona_page = None
         self.settings_window = None
+        self._settings_stack: Optional[Gtk.Stack] = None
+        self._editor_persona_name: Optional[str] = None
         self._persona_message_handler = self._handle_persona_message
         self.ATLAS.register_message_dispatcher(self._persona_message_handler)
         self._current_editor_state = None
@@ -700,26 +702,29 @@ class PersonaManagement:
         if self.persona_window:
             self.persona_window.close()
 
-        state = self.ATLAS.get_persona_editor_state(persona_name)
+        requested_persona = persona_name
+        state = self.ATLAS.get_persona_editor_state(requested_persona)
         if state is None:
             self.ATLAS.show_persona_message(
                 "error",
-                f"Unable to load persona '{persona_name}' for editing.",
+                f"Unable to load persona '{requested_persona}' for editing.",
             )
             return
 
         general_state = state.get('general', {})
-        persona_name = general_state.get('name') or state.get('original_name') or "Persona"
+        display_name = general_state.get('name') or state.get('original_name') or "Persona"
 
         if self.settings_window:
             self.settings_window.close()
 
         self.settings_window = AtlasWindow(
-            title=f"Settings for {persona_name}",
+            title=f"Settings for {display_name}",
             default_size=(560, 820),
             modal=True,
             transient_for=self.parent_window,
         )
+        self.settings_window.connect("destroy", self._on_settings_window_destroyed)
+        self._editor_persona_name = state.get('original_name') or requested_persona
         self.show_persona_settings(state, self.settings_window)
 
     def show_persona_settings(self, persona_state, settings_window):
@@ -731,6 +736,7 @@ class PersonaManagement:
         self.skill_rows = {}
         self._skill_order = []
         self.skill_list_box = None
+        self._settings_stack = None
         settings_window.set_tooltip_text("Configure the persona's details, provider/model, and speech options.")
 
         # Create a vertical box container for the settings.
@@ -787,6 +793,7 @@ class PersonaManagement:
         stack_switcher.set_tooltip_text("Switch between settings tabs.")
         main_vbox.append(stack_switcher)
         main_vbox.append(stack)
+        self._settings_stack = stack
 
         # General Tab (with scrollable box)
         self.general_tab = GeneralTab(persona_state, self.ATLAS)
@@ -845,6 +852,123 @@ class PersonaManagement:
         main_vbox.append(actions_box)
 
         settings_window.present()
+
+    def _on_settings_window_destroyed(self, *_args) -> None:
+        self.settings_window = None
+        self._settings_stack = None
+        self._editor_persona_name = None
+        self._current_editor_state = None
+        self.tool_rows = {}
+        self.tool_list_box = None
+        self.skill_rows = {}
+        self.skill_list_box = None
+
+    def ensure_persona_settings(self, persona_name: str) -> bool:
+        if not persona_name:
+            return False
+
+        if self.settings_window is None or self._editor_persona_name != persona_name:
+            self.open_persona_settings(persona_name)
+
+        window = self.settings_window
+        if isinstance(window, Gtk.Window):
+            try:
+                window.present()
+            except Exception:
+                pass
+
+        return self.settings_window is not None
+
+    def focus_tools_tab(self, tool_name: Optional[str] = None) -> bool:
+        if not self._ensure_stack_visible("tools"):
+            return False
+
+        if not tool_name:
+            return True
+
+        info = self.tool_rows.get(tool_name)
+        if not info:
+            return False
+
+        self._focus_editor_row(self.tool_list_box, info)
+        return True
+
+    def focus_skills_tab(self, skill_name: Optional[str] = None) -> bool:
+        if not self._ensure_stack_visible("skills"):
+            return False
+
+        if not skill_name:
+            return True
+
+        info = self.skill_rows.get(skill_name)
+        if not info:
+            return False
+
+        self._focus_editor_row(self.skill_list_box, info)
+        return True
+
+    def _ensure_stack_visible(self, child_name: str) -> bool:
+        stack = self._settings_stack
+        if not isinstance(stack, Gtk.Stack):
+            return False
+
+        setter = getattr(stack, "set_visible_child_name", None)
+        if not callable(setter):
+            return False
+
+        try:
+            setter(child_name)
+        except Exception:
+            return False
+
+        window = self.settings_window
+        if isinstance(window, Gtk.Window):
+            try:
+                window.present()
+            except Exception:
+                pass
+        return True
+
+    def _focus_editor_row(self, list_box: Optional[Gtk.ListBox], info: Dict[str, Any]) -> None:
+        if not isinstance(list_box, Gtk.ListBox):
+            return
+
+        row = info.get('row')
+        if isinstance(row, Gtk.ListBoxRow):
+            try:
+                list_box.select_row(row)
+            except Exception:
+                pass
+
+        focus_widget = info.get('check')
+        if isinstance(focus_widget, Gtk.Widget):
+            try:
+                focus_widget.grab_focus()
+                return
+            except Exception:
+                pass
+
+        if isinstance(row, Gtk.Widget):
+            try:
+                row.grab_focus()
+            except Exception:
+                pass
+
+    def _open_tool_management(self, tool_name: str) -> None:
+        opener = getattr(self.parent_window, "show_tools_menu", None)
+        if callable(opener):
+            try:
+                opener(tool_name=tool_name)
+            except Exception:
+                pass
+
+    def _open_skill_management(self, skill_name: str) -> None:
+        opener = getattr(self.parent_window, "show_skills_menu", None)
+        if callable(opener):
+            try:
+                opener(skill_name=skill_name)
+            except Exception:
+                pass
 
     def create_provider_model_tab(self, persona_state):
         """
@@ -1468,6 +1592,15 @@ class PersonaManagement:
                 check.set_tooltip_text("\n\n".join(tooltip_parts))
             controls.append(check)
 
+            workspace_btn = Gtk.Button()
+            workspace_btn.add_css_class("flat")
+            workspace_btn.set_can_focus(True)
+            workspace_btn.set_tooltip_text("Open this tool in the management workspace.")
+            workspace_btn.set_accessible_name(f"Open {display_name} in tool manager")
+            workspace_btn.set_child(self._ensure_tool_row_icons("document-open-symbolic"))
+            workspace_btn.connect("clicked", lambda _b, tname=name: self._open_tool_management(tname))
+            controls.append(workspace_btn)
+
             badge_widget: Optional[Gtk.Widget] = None
             if reason_text:
                 badge = Gtk.Label(label=reason_text)
@@ -1589,6 +1722,15 @@ class PersonaManagement:
                 tooltip_text = "\n\n".join(tooltip_parts)
                 check.set_tooltip_text(tooltip_text)
             controls.append(check)
+
+            workspace_btn = Gtk.Button()
+            workspace_btn.add_css_class("flat")
+            workspace_btn.set_can_focus(True)
+            workspace_btn.set_tooltip_text("Open this skill in the management workspace.")
+            workspace_btn.set_accessible_name(f"Open {display_name} in skill manager")
+            workspace_btn.set_child(self._ensure_tool_row_icons("document-open-symbolic"))
+            workspace_btn.connect("clicked", lambda _b, sname=name: self._open_skill_management(sname))
+            controls.append(workspace_btn)
 
             badge_widget: Optional[Gtk.Widget] = None
             if reason_text:
