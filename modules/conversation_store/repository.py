@@ -368,6 +368,7 @@ class ConversationStoreRepository:
         name: Optional[str] = None,
         dob: Optional[str] = None,
         password_hash: Optional[str] = None,
+        user_id: Optional[Any] = None,
     ) -> bool:
         cleaned = str(username).strip()
         if not cleaned:
@@ -388,6 +389,8 @@ class ConversationStoreRepository:
                 record.dob = dob.strip() or None
             if password_hash is not None:
                 record.password_hash = password_hash
+            if user_id is not None:
+                record.user_id = _coerce_uuid(user_id)
             try:
                 session.flush()
             except IntegrityError:
@@ -407,15 +410,27 @@ class ConversationStoreRepository:
     def set_user_password(self, username: str, password_hash: str) -> bool:
         return self.update_user_account(username, password_hash=password_hash)
 
-    def update_last_login(self, username: str, timestamp: Any) -> bool:
+    def update_last_login(
+        self,
+        username: str,
+        timestamp: Any,
+        *,
+        user_id: Optional[Any] = None,
+    ) -> bool:
         cleaned = str(username).strip()
-        if not cleaned:
+        user_uuid = _coerce_uuid(user_id) if user_id is not None else None
+        if not cleaned and user_uuid is None:
             return False
         moment = _coerce_dt(timestamp)
         with self._session_scope() as session:
-            record = session.execute(
-                select(UserCredential).where(UserCredential.username == cleaned)
-            ).scalar_one_or_none()
+            if user_uuid is not None:
+                record = session.execute(
+                    select(UserCredential).where(UserCredential.user_id == user_uuid)
+                ).scalar_one_or_none()
+            else:
+                record = session.execute(
+                    select(UserCredential).where(UserCredential.username == cleaned)
+                ).scalar_one_or_none()
             if record is None:
                 return False
             record.last_login = moment
@@ -427,16 +442,24 @@ class ConversationStoreRepository:
         username: str,
         attempts: Sequence[Any],
         lockout_until: Optional[Any],
+        *,
+        user_id: Optional[Any] = None,
     ) -> bool:
         cleaned = str(username).strip()
-        if not cleaned:
+        user_uuid = _coerce_uuid(user_id) if user_id is not None else None
+        if not cleaned and user_uuid is None:
             return False
         normalized_attempts = _normalize_attempts(attempts)
         lockout_dt = _coerce_dt(lockout_until) if lockout_until is not None else None
         with self._session_scope() as session:
-            record = session.execute(
-                select(UserCredential).where(UserCredential.username == cleaned)
-            ).scalar_one_or_none()
+            if user_uuid is not None:
+                record = session.execute(
+                    select(UserCredential).where(UserCredential.user_id == user_uuid)
+                ).scalar_one_or_none()
+            else:
+                record = session.execute(
+                    select(UserCredential).where(UserCredential.username == cleaned)
+                ).scalar_one_or_none()
             if record is None:
                 return False
             record.failed_attempts = normalized_attempts

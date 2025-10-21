@@ -4,10 +4,10 @@ from pathlib import Path
 import pytest
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from modules.conversation_store import Base, ConversationStoreRepository
+from modules.conversation_store import Base, ConversationStoreRepository, User
 from modules.user_accounts.migrate_legacy import migrate_sqlite_accounts
 from modules.user_accounts.user_account_service import ConversationCredentialStore
 
@@ -120,6 +120,7 @@ def test_migrate_sqlite_accounts(tmp_path, repository):
     assert record["name"] == "Legacy User"
     assert record["dob"] == "1990-01-01"
     assert record["last_login"] == "2024-01-01T12:00:00Z"
+    assert record["user_id"] is not None
 
     lockout = repository.get_lockout_state("legacy")
     assert lockout is not None
@@ -129,4 +130,17 @@ def test_migrate_sqlite_accounts(tmp_path, repository):
     attempts = repository.get_login_attempts("legacy")
     assert len(attempts) == 1
     assert attempts[0]["successful"] is False
+
+    session = repository._session_factory()
+    try:
+        user_row = session.execute(
+            select(User).where(User.external_id == "legacy")
+        ).scalar_one_or_none()
+    finally:
+        session.close()
+
+    assert user_row is not None
+    assert str(user_row.id) == record["user_id"]
+    assert user_row.display_name == "Legacy User"
+    assert (user_row.meta or {}).get("email") == "legacy@example.com"
 
