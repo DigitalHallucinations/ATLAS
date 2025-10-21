@@ -262,6 +262,7 @@ class ConversationRoutes:
                     "limit": {"type": "integer", "minimum": 1, "maximum": page_size_limit},
                     "offset": {"type": "integer", "minimum": 0},
                     "order": {"type": "string", "enum": ["asc", "desc"]},
+                    "top_k": {"type": "integer", "minimum": 1},
                     "vector": {
                         "type": "object",
                         "required": ["values"],
@@ -504,6 +505,15 @@ class ConversationRoutes:
         offset_value = max(int(payload.get("offset") or 0), 0)
         window = offset_value + limit
         query_limit = max(window, 1)
+        raw_top_k = payload.get("top_k")
+        top_k_value: Optional[int] = None
+        if raw_top_k is not None:
+            try:
+                top_k_value = max(int(raw_top_k), 1)
+            except (TypeError, ValueError):
+                top_k_value = None
+        if top_k_value is None:
+            top_k_value = query_limit
 
         if text_query or not vector_values:
             for message in self._repository.query_messages_by_text(
@@ -535,6 +545,9 @@ class ConversationRoutes:
                 metadata_filter=metadata_filter or None,
                 include_deleted=False,
                 order=order,
+                offset=offset_value,
+                limit=query_limit,
+                top_k=top_k_value,
             ):
                 embedding = vector.get("embedding") or []
                 if not embedding:

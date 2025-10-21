@@ -307,6 +307,108 @@ def test_search_scans_long_conversations(server: AtlasServer, tenant_context: Re
         late_message["id"],
     ]
 
+
+def test_vector_search_limits_repository_fetches(
+    server: AtlasServer,
+    tenant_context: RequestContext,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    conversation_id = str(uuid.uuid4())
+    base_vector = [0.2, 0.3, 0.4]
+
+    for filler_index in range(80):
+        server.create_message(
+            {
+                "conversation_id": conversation_id,
+                "role": "assistant",
+                "content": {"text": f"filler-{filler_index}"},
+                "metadata": {"topic": "bulk", "filler": filler_index},
+                "vectors": [
+                    {
+                        "values": [-value for value in base_vector],
+                        "provider": "unit-test",
+                        "model": "demo",
+                    }
+                ],
+            },
+            context=tenant_context,
+        )
+
+    matching_ids: list[str] = []
+    for match_index in range(40):
+        created = server.create_message(
+            {
+                "conversation_id": conversation_id,
+                "role": "assistant",
+                "content": {"text": f"match-{match_index}"},
+                "metadata": {"topic": "bulk", "match": match_index},
+                "vectors": [
+                    {
+                        "values": base_vector,
+                        "provider": "unit-test",
+                        "model": "demo",
+                    }
+                ],
+            },
+            context=tenant_context,
+        )
+        matching_ids.append(created["id"])
+
+    calls: list[dict[str, object]] = []
+    original = ConversationStoreRepository.query_message_vectors
+
+    def instrumented(self, *args, **kwargs):
+        record: dict[str, object] = {"kwargs": dict(kwargs), "yield_count": 0}
+        calls.append(record)
+        for message, vector in original(self, *args, **kwargs):
+            record["yield_count"] = int(record["yield_count"]) + 1
+            yield message, vector
+
+    monkeypatch.setattr(ConversationStoreRepository, "query_message_vectors", instrumented)
+
+    expected_desc = list(reversed(matching_ids))
+
+    windowed = server.search_conversations(
+        {
+            "conversation_ids": [conversation_id],
+            "vector": {"values": base_vector},
+            "limit": 5,
+            "offset": 10,
+            "top_k": 50,
+        },
+        context=tenant_context,
+    )
+    assert windowed["count"] == 5
+    assert [item["message"]["id"] for item in windowed["items"]] == expected_desc[10:15]
+    assert len(calls) >= 1
+    first_call = calls[0]
+    first_kwargs = first_call["kwargs"]
+    assert isinstance(first_kwargs, dict)
+    assert first_kwargs["limit"] == 15
+    assert first_kwargs["offset"] == 10
+    assert first_kwargs["top_k"] == 50
+    assert first_call["yield_count"] == 15
+
+    bulk = server.search_conversations(
+        {
+            "conversation_ids": [conversation_id],
+            "vector": {"values": base_vector},
+            "limit": 20,
+            "top_k": 12,
+        },
+        context=tenant_context,
+    )
+    assert bulk["count"] == 12
+    assert [item["message"]["id"] for item in bulk["items"]] == expected_desc[:12]
+    assert len(calls) >= 2
+    second_call = calls[1]
+    second_kwargs = second_call["kwargs"]
+    assert isinstance(second_kwargs, dict)
+    assert second_kwargs["limit"] == 20
+    assert second_kwargs["offset"] == 0
+    assert second_kwargs["top_k"] == 12
+    assert second_call["yield_count"] == 12
+
 @pytest.mark.asyncio
 async def test_streaming_delivers_message_events(server: AtlasServer, tenant_context: RequestContext):
     conversation_id = str(uuid.uuid4())
