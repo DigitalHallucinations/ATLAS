@@ -433,6 +433,8 @@ class ToolManagement:
         self._history_box = history_box
         self._history_list_box = history_list
 
+        right_panel.append(history_box)
+
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         actions.set_halign(Gtk.Align.END)
 
@@ -467,7 +469,6 @@ class ToolManagement:
         self._reset_button = reset_button
 
         right_panel.append(actions)
-        right_panel.append(history_box)
 
         root.append(left_panel)
 
