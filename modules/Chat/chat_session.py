@@ -41,7 +41,7 @@ class ChatExportResult:
 class ChatSession:
     def __init__(self, atlas):
         self.ATLAS = atlas
-        self.conversation_history = []
+        self.conversation_history: list[Dict[str, Any]] = []
         self.negotiation_history: list[Dict[str, Any]] = []
         self.current_model = None
         self.current_provider = None
@@ -50,10 +50,27 @@ class ChatSession:
         self.reminder_interval = 10  # Remind of persona every 10 messages
         self._conversation_id = self._generate_conversation_id()
         self._last_persona_reminder_index: int | None = None
+        self._conversation_repository = getattr(self.ATLAS, "conversation_repository", None)
+        if self._conversation_repository is not None:
+            try:
+                self._conversation_repository.ensure_conversation(self._conversation_id)
+                retention = self.ATLAS.config_manager.get_conversation_retention_policies()
+                history_limit = retention.get("history_message_limit") if retention else None
+                stored_messages = self._conversation_repository.load_recent_messages(
+                    self._conversation_id,
+                    limit=history_limit,
+                )
+                self.conversation_history.extend(stored_messages)
+                self._apply_history_limit()
+            except Exception as exc:  # pragma: no cover - persistence fallback
+                self.ATLAS.logger.warning(
+                    "Failed to load conversation history from store: %s", exc, exc_info=True
+                )
+                self._conversation_repository = None
         self.set_default_provider_and_model()
 
     def _generate_conversation_id(self) -> str:
-        return uuid.uuid4().hex
+        return str(uuid.uuid4())
 
     @property
     def conversation_id(self) -> str:
@@ -236,6 +253,7 @@ class ChatSession:
             self.ATLAS.logger.debug("Cleared persona system prompt; no persona active.")
         self.messages_since_last_reminder = 0
         self._last_persona_reminder_index = None
+        self._sync_conversation_history()
 
     def reinforce_persona(self):
         if not self.current_persona_prompt:
@@ -266,6 +284,7 @@ class ChatSession:
         self._last_persona_reminder_index = reminder_index
         self.messages_since_last_reminder = 0
         self.ATLAS.logger.debug("Reinforced persona in conversation")
+        self._sync_conversation_history()
 
     @staticmethod
     def _is_persona_reminder(message: Mapping[str, Any]) -> bool:
@@ -283,10 +302,21 @@ class ChatSession:
         self.conversation_history = []
         self.current_persona_prompt = None
         self.messages_since_last_reminder = 0
+        old_conversation_id = self._conversation_id
         self._conversation_id = self._generate_conversation_id()
         self._last_persona_reminder_index = None
         self.negotiation_history = []
         self.set_default_provider_and_model()
+        if self._conversation_repository is not None:
+            try:
+                self._conversation_repository.hard_delete_conversation(old_conversation_id)
+                self._conversation_repository.ensure_conversation(self._conversation_id)
+            except Exception as exc:  # pragma: no cover - persistence fallback
+                self.ATLAS.logger.warning(
+                    "Failed to reset persistent conversation state: %s",
+                    exc,
+                    exc_info=True,
+                )
         provider_manager = getattr(self.ATLAS, "provider_manager", None)
         if provider_manager is not None:
             try:
@@ -632,6 +662,94 @@ class ChatSession:
 
         return entry
 
+    def _persist_entry(self, entry: Mapping[str, Any]) -> Dict[str, Any]:
+        if self._conversation_repository is None:
+            return dict(entry)
+
+        try:
+            role = str(entry.get("role") or "assistant")
+            content = entry.get("content")
+            metadata = entry.get("metadata")
+            if metadata is not None and not isinstance(metadata, Mapping):
+                metadata = {"value": metadata}
+            timestamp = entry.get("timestamp")
+            message_id = entry.get("message_id")
+            fallback_id = entry.get("id")
+            extra = {
+                key: value
+                for key, value in entry.items()
+                if key
+                not in {"id", "conversation_id", "role", "content", "metadata", "timestamp"}
+            }
+            stored = self._conversation_repository.add_message(
+                self._conversation_id,
+                role=role,
+                content=content,
+                metadata=metadata,
+                timestamp=timestamp,
+                message_id=message_id or (str(fallback_id) if fallback_id else None),
+                extra=extra,
+            )
+        except Exception as exc:  # pragma: no cover - defensive persistence
+            self.ATLAS.logger.warning(
+                "Failed to persist conversation entry: %s", exc, exc_info=True
+            )
+            return dict(entry)
+
+        return stored
+
+    def _sync_conversation_history(self) -> None:
+        if self._conversation_repository is None:
+            return
+
+        snapshot = list(self.conversation_history)
+        try:
+            self._conversation_repository.ensure_conversation(self._conversation_id)
+            self._conversation_repository.reset_conversation(self._conversation_id)
+            refreshed: list[Dict[str, Any]] = []
+            for entry in snapshot:
+                refreshed.append(self._persist_entry(entry))
+        except Exception as exc:  # pragma: no cover - defensive persistence
+            self.ATLAS.logger.warning(
+                "Failed to synchronize conversation history: %s", exc, exc_info=True
+            )
+        else:
+            self.conversation_history = refreshed
+            self._apply_history_limit()
+
+    def _apply_history_limit(self) -> None:
+        retention = self.ATLAS.config_manager.get_conversation_retention_policies()
+        limit = retention.get("history_message_limit") if retention else None
+        if not isinstance(limit, int) or limit <= 0:
+            return
+
+        if len(self.conversation_history) <= limit:
+            return
+
+        overflow = len(self.conversation_history) - limit
+        removed_entries = self.conversation_history[:overflow]
+        self.conversation_history = self.conversation_history[overflow:]
+
+        if self._conversation_repository is None:
+            return
+
+        for entry in removed_entries:
+            message_id = entry.get("id")
+            if not message_id:
+                continue
+            try:
+                self._conversation_repository.soft_delete_message(
+                    self._conversation_id,
+                    message_id,
+                    reason="history_retention",
+                )
+            except Exception:  # pragma: no cover - best-effort enforcement
+                self.ATLAS.logger.debug(
+                    "Failed to soft delete message %s during retention cleanup",
+                    message_id,
+                    exc_info=True,
+                )
+
     def add_message(
         self,
         user,
@@ -657,11 +775,51 @@ class ChatSession:
             timestamp=timestamp,
             metadata=metadata,
         )
+        stored_entry: Dict[str, Any]
         if extra_fields:
             entry.update(extra_fields)
 
-        self.conversation_history.append(entry)
-        return entry
+        if self._conversation_repository is not None:
+            payload_metadata = entry.get("metadata")
+            if payload_metadata is not None and not isinstance(payload_metadata, Mapping):
+                payload_metadata = {"value": payload_metadata}
+            message_id = extra_fields.get("message_id") if extra_fields else None
+            extra_payload = {
+                key: value
+                for key, value in entry.items()
+                if key
+                not in {
+                    "role",
+                    "content",
+                    "metadata",
+                    "timestamp",
+                    "conversation_id",
+                    "message_id",
+                }
+            }
+            try:
+                stored_entry = self._conversation_repository.add_message(
+                    self._conversation_id,
+                    role=role,
+                    content=content,
+                    metadata=payload_metadata,
+                    timestamp=entry.get("timestamp"),
+                    message_id=message_id,
+                    extra=extra_payload,
+                )
+            except Exception as exc:  # pragma: no cover - persistence fallback
+                self.ATLAS.logger.warning(
+                    "Failed to persist message: %s", exc, exc_info=True
+                )
+                stored_entry = dict(entry)
+            else:
+                entry = stored_entry
+        else:
+            stored_entry = dict(entry)
+
+        self.conversation_history.append(stored_entry)
+        self._apply_history_limit()
+        return stored_entry
 
     def _clone_tool_payload(self, value: Any) -> Any:
         """Return a JSON-friendly clone of ``value`` suitable for storage."""
@@ -751,8 +909,21 @@ class ChatSession:
             entry_metadata = entry.setdefault("metadata", {})
             entry_metadata.setdefault("tool_call_id", tool_call_id)
 
-        self.conversation_history.append(entry)
-        return entry
+        stored_entry = self.add_message(
+            user=user,
+            conversation_id=conversation_id,
+            role=entry.get("role", "tool"),
+            content=entry.get("content"),
+            timestamp=entry.get("timestamp"),
+            metadata=entry.get("metadata"),
+            **{
+                key: value
+                for key, value in entry.items()
+                if key
+                not in {"role", "content", "metadata", "timestamp", "id", "conversation_id"}
+            },
+        )
+        return stored_entry
 
     def get_history(self, user=None, conversation_id=None) -> list[Dict[str, Any]]:
         """Return a snapshot list of the current conversation history."""

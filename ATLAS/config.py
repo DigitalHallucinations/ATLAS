@@ -7,6 +7,10 @@ import shlex
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import sessionmaker
+
 from modules.orchestration.message_bus import (
     InMemoryQueueBackend,
     MessageBus,
@@ -139,6 +143,58 @@ class ConfigManager:
         # Ensure any persisted OpenAI speech preferences are reflected in the active config
         self._synchronize_openai_speech_block()
 
+        conversation_store_block = self.config.get("conversation_database")
+        if not isinstance(conversation_store_block, Mapping):
+            conversation_store_block = {}
+        else:
+            conversation_store_block = dict(conversation_store_block)
+
+        env_db_url = self.env_config.get("CONVERSATION_DATABASE_URL")
+        if env_db_url and not conversation_store_block.get("url"):
+            conversation_store_block["url"] = env_db_url
+
+        pool_block = conversation_store_block.get("pool")
+        if not isinstance(pool_block, Mapping):
+            pool_block = {}
+        else:
+            pool_block = dict(pool_block)
+
+        for env_key, setting_key in (
+            ("CONVERSATION_DATABASE_POOL_SIZE", "size"),
+            ("CONVERSATION_DATABASE_MAX_OVERFLOW", "max_overflow"),
+            ("CONVERSATION_DATABASE_POOL_TIMEOUT", "timeout"),
+        ):
+            value = self.env_config.get(env_key)
+            if value is None:
+                continue
+            try:
+                pool_block[setting_key] = int(value)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid %s value %r; expected integer", env_key, value
+                )
+
+        conversation_store_block["pool"] = pool_block
+
+        retention_block = conversation_store_block.get("retention")
+        if not isinstance(retention_block, Mapping):
+            retention_block = {}
+        else:
+            retention_block = dict(retention_block)
+
+        env_retention_days = self.env_config.get("CONVERSATION_DATABASE_RETENTION_DAYS")
+        if env_retention_days is not None:
+            try:
+                retention_block["days"] = int(env_retention_days)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid CONVERSATION_DATABASE_RETENTION_DAYS value %r", env_retention_days
+                )
+
+        retention_block.setdefault("history_message_limit", 500)
+        conversation_store_block["retention"] = retention_block
+        self.config["conversation_database"] = conversation_store_block
+
         huggingface_block = self.yaml_config.get("HUGGINGFACE")
         if isinstance(huggingface_block, Mapping):
             self.config["HUGGINGFACE"] = dict(huggingface_block)
@@ -192,6 +248,8 @@ class ConfigManager:
             self._pending_provider_warnings[default_provider] = warning_message
 
         self._message_bus: Optional[MessageBus] = None
+        self._conversation_engine: Engine | None = None
+        self._conversation_session_factory: sessionmaker | None = None
 
     def _normalize_network_allowlist(self, value):
         """Return a sanitized allowlist for sandboxed tool networking."""
@@ -212,6 +270,66 @@ class ConfigManager:
             return normalized or None
 
         return None
+
+    def get_conversation_database_config(self) -> Dict[str, Any]:
+        """Return the merged configuration block for the conversation database."""
+
+        block = self.config.get("conversation_database")
+        if not isinstance(block, Mapping):
+            return {}
+        return dict(block)
+
+    def get_conversation_retention_policies(self) -> Dict[str, Any]:
+        """Return configured retention policies for the conversation store."""
+
+        config = self.get_conversation_database_config()
+        retention = config.get("retention") or {}
+        if isinstance(retention, Mapping):
+            return dict(retention)
+        return {}
+
+    def get_conversation_store_engine(self) -> Engine | None:
+        """Return a configured SQLAlchemy engine for the conversation store."""
+
+        if self._conversation_engine is None:
+            self.get_conversation_store_session_factory()
+        return self._conversation_engine
+
+    def get_conversation_store_session_factory(self) -> sessionmaker | None:
+        """Return a configured session factory for the conversation store."""
+
+        if self._conversation_session_factory is not None:
+            return self._conversation_session_factory
+
+        engine, factory = self._build_conversation_store_session_factory()
+        self._conversation_engine = engine
+        self._conversation_session_factory = factory
+        return factory
+
+    def _build_conversation_store_session_factory(
+        self,
+    ) -> Tuple[Engine | None, sessionmaker | None]:
+        config = self.get_conversation_database_config()
+        url = config.get("url")
+        if not url:
+            return None, None
+
+        pool_config = config.get("pool") or {}
+        engine_kwargs: Dict[str, Any] = {}
+        if isinstance(pool_config, Mapping):
+            size = pool_config.get("size")
+            if size is not None:
+                engine_kwargs["pool_size"] = int(size)
+            max_overflow = pool_config.get("max_overflow")
+            if max_overflow is not None:
+                engine_kwargs["max_overflow"] = int(max_overflow)
+            timeout = pool_config.get("timeout")
+            if timeout is not None:
+                engine_kwargs["pool_timeout"] = int(timeout)
+
+        engine = create_engine(url, future=True, **engine_kwargs)
+        factory = sessionmaker(bind=engine, future=True)
+        return engine, factory
 
     def get_llm_fallback_config(self) -> Dict[str, Any]:
         """Return the configured fallback provider settings with sensible defaults."""
