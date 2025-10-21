@@ -609,6 +609,8 @@ class MistralGenerator:
             conversation_id,
             role,
             content_text,
+            message_type="text",
+            status="sent",
             **sanitized_fields,
         )
 

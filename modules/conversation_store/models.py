@@ -168,6 +168,18 @@ class Message(Base):
     )
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     role = Column(String(32), nullable=False)
+    message_type = Column(
+        String(32),
+        nullable=False,
+        default="text",
+        server_default="text",
+    )
+    status = Column(
+        String(32),
+        nullable=False,
+        default="sent",
+        server_default="sent",
+    )
     content = Column(JSONB, nullable=False)
     meta = Column("metadata", JSONB, nullable=False, default=dict)
     extra = Column(JSONB, nullable=False, default=dict)
@@ -201,6 +213,8 @@ class Message(Base):
             "conversation_id",
             "created_at",
         ),
+        Index("ix_messages_message_type", "message_type"),
+        Index("ix_messages_status", "status"),
     )
 
 
