@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence
 
-from sqlalchemy import and_, create_engine, delete, or_, select
+from sqlalchemy import and_, create_engine, delete, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from .models import (
     Base,
@@ -1179,6 +1179,149 @@ class ConversationStoreRepository:
         if direction == "backward":
             messages.reverse()
         return messages
+
+    def query_messages_by_text(
+        self,
+        *,
+        conversation_ids: Sequence[Any],
+        text: str = "",
+        metadata_filter: Optional[Mapping[str, Any]] = None,
+        include_deleted: bool = False,
+        order: str = "desc",
+        offset: int = 0,
+        limit: Optional[int] = None,
+        batch_size: int = 200,
+    ) -> Iterator[Dict[str, Any]]:
+        conversation_uuids = [
+            _coerce_uuid(identifier) for identifier in conversation_ids if identifier is not None
+        ]
+        if not conversation_uuids:
+            return
+
+        normalized_text = str(text or "").strip()
+        order = "asc" if str(order or "").lower() == "asc" else "desc"
+        batch_size = max(int(batch_size), 1)
+        remaining = None if limit is None else max(int(limit), 0)
+        offset_value = max(int(offset), 0)
+
+        with self._session_scope() as session:
+            bind = session.get_bind()
+            supports_full_text = bool(
+                bind is not None and getattr(bind.dialect, "name", "") == "postgresql"
+            )
+            stmt = (
+                select(Message)
+                .where(Message.conversation_id.in_(conversation_uuids))
+                .options(joinedload(Message.conversation))
+            )
+            if metadata_filter:
+                stmt = stmt.where(Message.meta.contains(dict(metadata_filter)))
+            if not include_deleted:
+                stmt = stmt.where(Message.deleted_at.is_(None))
+
+            content_text = Message.content["text"].astext
+            if normalized_text:
+                pattern = f"%{normalized_text}%"
+                clauses = [content_text.ilike(pattern)]
+                if supports_full_text:
+                    ts_query = func.plainto_tsquery("simple", normalized_text)
+                    clauses.append(func.to_tsvector("simple", content_text).match(ts_query))
+                stmt = stmt.where(or_(*clauses))
+
+            if order == "asc":
+                stmt = stmt.order_by(Message.created_at.asc(), Message.id.asc())
+            else:
+                stmt = stmt.order_by(Message.created_at.desc(), Message.id.desc())
+
+            while True:
+                fetch_size = batch_size
+                if remaining is not None:
+                    if remaining <= 0:
+                        break
+                    fetch_size = min(fetch_size, remaining)
+
+                windowed = stmt.offset(offset_value).limit(fetch_size)
+                rows = session.execute(windowed).scalars().all()
+                if not rows:
+                    break
+
+                serialized = [self._serialize_message(row) for row in rows]
+                for payload in serialized:
+                    yield payload
+
+                offset_value += len(rows)
+                if remaining is not None:
+                    remaining -= len(rows)
+                    if remaining <= 0:
+                        break
+                if len(rows) < fetch_size:
+                    break
+
+    def query_message_vectors(
+        self,
+        *,
+        conversation_ids: Sequence[Any],
+        metadata_filter: Optional[Mapping[str, Any]] = None,
+        include_deleted: bool = False,
+        order: str = "desc",
+        offset: int = 0,
+        limit: Optional[int] = None,
+        batch_size: int = 200,
+    ) -> Iterator[tuple[Dict[str, Any], Dict[str, Any]]]:
+        conversation_uuids = [
+            _coerce_uuid(identifier) for identifier in conversation_ids if identifier is not None
+        ]
+        if not conversation_uuids:
+            return
+
+        order = "asc" if str(order or "").lower() == "asc" else "desc"
+        batch_size = max(int(batch_size), 1)
+        remaining = None if limit is None else max(int(limit), 0)
+        offset_value = max(int(offset), 0)
+
+        with self._session_scope() as session:
+            stmt = (
+                select(MessageVector)
+                .join(Message, Message.id == MessageVector.message_id)
+                .where(MessageVector.conversation_id.in_(conversation_uuids))
+                .options(joinedload(MessageVector.message).joinedload(Message.conversation))
+            )
+
+            if metadata_filter:
+                stmt = stmt.where(MessageVector.meta.contains(dict(metadata_filter)))
+            if not include_deleted:
+                stmt = stmt.where(Message.deleted_at.is_(None))
+
+            if order == "asc":
+                stmt = stmt.order_by(Message.created_at.asc(), Message.id.asc())
+            else:
+                stmt = stmt.order_by(Message.created_at.desc(), Message.id.desc())
+
+            while True:
+                fetch_size = batch_size
+                if remaining is not None:
+                    if remaining <= 0:
+                        break
+                    fetch_size = min(fetch_size, remaining)
+
+                windowed = stmt.offset(offset_value).limit(fetch_size)
+                rows = session.execute(windowed).scalars().all()
+                if not rows:
+                    break
+
+                for vector in rows:
+                    message = vector.message
+                    if message is None:
+                        continue
+                    yield self._serialize_message(message), _serialize_vector(vector)
+
+                offset_value += len(rows)
+                if remaining is not None:
+                    remaining -= len(rows)
+                    if remaining <= 0:
+                        break
+                if len(rows) < fetch_size:
+                    break
 
     def fetch_message_events(
         self,

@@ -260,6 +260,8 @@ class ConversationRoutes:
                     "text": {"type": "string"},
                     "metadata": {"type": "object"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": page_size_limit},
+                    "offset": {"type": "integer", "minimum": 0},
+                    "order": {"type": "string", "enum": ["asc", "desc"]},
                     "vector": {
                         "type": "object",
                         "required": ["values"],
@@ -480,20 +482,28 @@ class ConversationRoutes:
             return {"count": 0, "items": []}
 
         results: Dict[str, Dict[str, Any]] = {}
-        text_query = str(payload.get("text") or "").strip().lower()
+        text_query = str(payload.get("text") or "").strip()
         vector_block = payload.get("vector")
         vector_values: Sequence[float] = ()
         if vector_block:
             vector_values = [float(value) for value in vector_block.get("values") or []]
 
-        for conversation_id in conversation_ids:
-            messages = self._repository.fetch_messages(
-                conversation_id,
-                limit=self._page_size_limit,
+        order = str(payload.get("order") or "desc").lower()
+        if order not in {"asc", "desc"}:
+            order = "desc"
+        offset_value = max(int(payload.get("offset") or 0), 0)
+        window = offset_value + limit
+        query_limit = max(window, 1)
+
+        if text_query or not vector_values:
+            for message in self._repository.query_messages_by_text(
+                conversation_ids=conversation_ids,
+                text=text_query,
                 metadata_filter=metadata_filter or None,
                 include_deleted=False,
-            )
-            for message in messages:
+                order=order,
+                limit=query_limit,
+            ):
                 identifier = message["id"]
                 record = results.setdefault(
                     identifier,
@@ -503,47 +513,53 @@ class ConversationRoutes:
                         "score": 0.0,
                     },
                 )
+                record["message"] = message
                 if text_query:
-                    content_text = _extract_text(message.get("content"))
-                    if text_query in content_text.lower():
-                        record["score"] = max(record["score"], 1.0)
-                else:
-                    record.setdefault("score", 0.0)
+                    record["score"] = max(record["score"], 1.0)
 
-            if vector_values:
-                vectors = self._repository.fetch_message_vectors(conversation_id=conversation_id)
-                for vector in vectors:
-                    message_id = vector.get("message_id")
-                    embedding = vector.get("embedding") or []
-                    if not embedding:
-                        continue
-                    similarity = _cosine_similarity(vector_values, [float(component) for component in embedding])
-                    if similarity <= 0:
-                        continue
-                    metadata = vector.get("metadata") or {}
-                    if metadata_filter and not _metadata_matches(metadata, metadata_filter):
-                        continue
-                    message = self._repository.get_message(conversation_id, message_id)
-                    record = results.setdefault(
-                        message_id,
-                        {
-                            "conversation_id": message["conversation_id"],
-                            "message": message,
-                            "score": 0.0,
-                        },
-                    )
-                    record["score"] = max(record["score"], float(similarity))
+        if vector_values:
+            for message, vector in self._repository.query_message_vectors(
+                conversation_ids=conversation_ids,
+                metadata_filter=metadata_filter or None,
+                include_deleted=False,
+                order=order,
+            ):
+                embedding = vector.get("embedding") or []
+                if not embedding:
+                    continue
+                similarity = _cosine_similarity(
+                    vector_values, [float(component) for component in embedding]
+                )
+                if similarity <= 0:
+                    continue
+                identifier = message["id"]
+                record = results.setdefault(
+                    identifier,
+                    {
+                        "conversation_id": message["conversation_id"],
+                        "message": message,
+                        "score": 0.0,
+                    },
+                )
+                record["message"] = message
+                record["score"] = max(record["score"], float(similarity))
 
-        ordered = sorted(
-            (item for item in results.values() if item["score"] > 0 or not text_query and not vector_values),
-            key=lambda entry: (
-                -entry["score"],
-                _parse_datetime(entry["message"].get("created_at") or entry["message"].get("timestamp")),
-            ),
-            reverse=False,
-        )
-        trimmed = ordered[:limit]
-        return {"count": len(trimmed), "items": trimmed}
+        def _sort_key(entry: Mapping[str, Any]) -> tuple[float, float]:
+            raw_created = entry["message"].get("created_at") or entry["message"].get("timestamp")
+            created_ts = 0.0
+            if raw_created:
+                created_ts = _parse_datetime(raw_created).timestamp()
+            timestamp_key = created_ts if order == "asc" else -created_ts
+            return (-float(entry["score"]), timestamp_key)
+
+        filtered_items = [
+            item
+            for item in results.values()
+            if item["score"] > 0 or (not text_query and not vector_values)
+        ]
+        ordered = sorted(filtered_items, key=_sort_key)
+        windowed = ordered[offset_value : offset_value + limit]
+        return {"count": len(windowed), "items": windowed}
 
     async def stream_message_events(
         self,

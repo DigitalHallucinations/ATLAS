@@ -192,6 +192,103 @@ def test_search_supports_text_and_vector(server: AtlasServer, tenant_context: Re
     assert vector_results["items"][0]["message"]["id"] == vector_message["id"]
 
 
+def test_search_scans_long_conversations(server: AtlasServer, tenant_context: RequestContext):
+    conversation_id = str(uuid.uuid4())
+    base_vector = [0.05, 0.1, 0.2]
+
+    early_message = server.create_message(
+        {
+            "conversation_id": conversation_id,
+            "role": "assistant",
+            "content": {"text": "needle early"},
+            "metadata": {"topic": "long"},
+            "vectors": [
+                {
+                    "values": base_vector,
+                    "provider": "unit-test",
+                    "model": "demo",
+                }
+            ],
+        },
+        context=tenant_context,
+    )
+
+    for idx in range(120):
+        server.create_message(
+            {
+                "conversation_id": conversation_id,
+                "role": "user",
+                "content": {"text": f"filler-{idx}"},
+                "metadata": {"topic": "long", "index": idx},
+            },
+            context=tenant_context,
+        )
+
+    late_message = server.create_message(
+        {
+            "conversation_id": conversation_id,
+            "role": "assistant",
+            "content": {"text": "needle late"},
+            "metadata": {"topic": "long"},
+            "vectors": [
+                {
+                    "values": base_vector,
+                    "provider": "unit-test",
+                    "model": "demo",
+                }
+            ],
+        },
+        context=tenant_context,
+    )
+
+    text_results = server.search_conversations(
+        {"conversation_ids": [conversation_id], "text": "Needle", "limit": 2},
+        context=tenant_context,
+    )
+    assert [item["message"]["id"] for item in text_results["items"]] == [
+        late_message["id"],
+        early_message["id"],
+    ]
+
+    text_offset = server.search_conversations(
+        {
+            "conversation_ids": [conversation_id],
+            "text": "needle",
+            "limit": 1,
+            "offset": 1,
+        },
+        context=tenant_context,
+    )
+    assert text_offset["count"] == 1
+    assert text_offset["items"][0]["message"]["id"] == early_message["id"]
+
+    vector_results = server.search_conversations(
+        {
+            "conversation_ids": [conversation_id],
+            "vector": {"values": base_vector},
+            "limit": 2,
+        },
+        context=tenant_context,
+    )
+    assert [item["message"]["id"] for item in vector_results["items"]] == [
+        late_message["id"],
+        early_message["id"],
+    ]
+
+    vector_ascending = server.search_conversations(
+        {
+            "conversation_ids": [conversation_id],
+            "vector": {"values": base_vector},
+            "limit": 2,
+            "order": "asc",
+        },
+        context=tenant_context,
+    )
+    assert [item["message"]["id"] for item in vector_ascending["items"]] == [
+        early_message["id"],
+        late_message["id"],
+    ]
+
 @pytest.mark.asyncio
 async def test_streaming_delivers_message_events(server: AtlasServer, tenant_context: RequestContext):
     conversation_id = str(uuid.uuid4())
