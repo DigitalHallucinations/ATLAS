@@ -258,6 +258,10 @@ class ToolManagement:
         left_scroller.set_child(tool_list)
         left_panel.append(left_scroller)
 
+        right_wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        right_wrapper.set_hexpand(True)
+        right_wrapper.set_vexpand(True)
+
         right_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         right_panel.set_hexpand(True)
         right_panel.set_vexpand(True)
@@ -280,7 +284,7 @@ class ToolManagement:
         persona_row.append(scope_selector)
         self._scope_selector = scope_selector
 
-        right_panel.append(persona_row)
+        right_wrapper.append(persona_row)
 
         title_label = Gtk.Label()
         title_label.set_xalign(0.0)
@@ -480,7 +484,8 @@ class ToolManagement:
         right_scroller.set_hexpand(True)
         right_scroller.set_vexpand(True)
         right_scroller.set_child(right_panel)
-        root.append(right_scroller)
+        right_wrapper.append(right_scroller)
+        root.append(right_wrapper)
         return root
 
     # ------------------------------------------------------------------
