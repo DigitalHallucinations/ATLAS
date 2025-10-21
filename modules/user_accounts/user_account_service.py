@@ -1,14 +1,16 @@
 """High-level helpers for working with user accounts.
 
-This module provides a lightweight façade around :class:`UserAccountDatabase`
-so callers do not need to interact with the SQLite layer directly.  The
-service is responsible for persisting the currently active user through the
-configuration layer and exposes a small set of convenience helpers that the
-UI can safely call from asynchronous code via thread executors.
+The service orchestrates credential storage on top of the PostgreSQL-backed
+conversation store.  It exposes convenience helpers for account management,
+password policies, and synchronisation with the active user configuration so
+that callers do not need to interact with the persistence layer directly.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import os
 import re
 import secrets
 import threading
@@ -19,12 +21,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple, Mapping
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 from modules.conversation_store import ConversationStoreRepository
-
-from .user_account_db import (
-    DuplicateUserError,
-    InvalidCurrentPasswordError,
-    UserAccountDatabase,
-)
+from sqlalchemy.exc import IntegrityError
 
 __all__ = [
     "UserAccount",
@@ -34,8 +31,273 @@ __all__ = [
     "DuplicateUserError",
     "InvalidCurrentPasswordError",
     "AccountLockedError",
+    "ConversationCredentialStore",
 ]
 
+
+class DuplicateUserError(RuntimeError):
+    """Raised when attempting to create a user with duplicate credentials."""
+
+
+class InvalidCurrentPasswordError(RuntimeError):
+    """Raised when the supplied current password does not match the stored hash."""
+
+
+_DUPLICATE_USER_MESSAGE = "A user with the same username or email already exists."
+
+
+class ConversationCredentialStore:
+    """Store backed by :class:`ConversationStoreRepository` for user accounts."""
+
+    def __init__(self, repository: ConversationStoreRepository) -> None:
+        if repository is None:
+            raise ValueError("Conversation repository is required for account storage")
+        self._repository = repository
+
+    @property
+    def repository(self) -> ConversationStoreRepository:
+        return self._repository
+
+    # ------------------------------------------------------------------
+    # Static helpers mirrored from the legacy SQLite implementation
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _hash_password(password: str, *, iterations: int = 100_000) -> str:
+        if password is None:
+            raise ValueError("Password must not be None when hashing.")
+        salt = os.urandom(16)
+        password_bytes = password.encode("utf-8")
+        dk = hashlib.pbkdf2_hmac("sha256", password_bytes, salt, iterations)
+        return f"pbkdf2_sha256${iterations}${salt.hex()}${dk.hex()}"
+
+    @staticmethod
+    def _verify_password(stored_hash: Optional[str], candidate_password: Optional[str]) -> bool:
+        if not stored_hash or candidate_password is None:
+            return False
+        try:
+            algorithm, iterations, salt_hex, hash_hex = stored_hash.split("$", 3)
+            iterations_int = int(iterations)
+            salt = bytes.fromhex(salt_hex)
+            expected_hash = bytes.fromhex(hash_hex)
+        except (ValueError, TypeError):
+            return False
+        if algorithm != "pbkdf2_sha256":
+            return False
+        candidate_bytes = candidate_password.encode("utf-8")
+        candidate_hash = hashlib.pbkdf2_hmac("sha256", candidate_bytes, salt, iterations_int)
+        return hmac.compare_digest(candidate_hash, expected_hash)
+
+    @staticmethod
+    def _hash_reset_token(token: str) -> str:
+        if token is None:
+            raise ValueError("Reset token must not be None")
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _compare_reset_token(stored_hash: Optional[str], candidate: Optional[str]) -> bool:
+        if not stored_hash or candidate is None:
+            return False
+        candidate_hash = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(stored_hash, candidate_hash)
+
+    @staticmethod
+    def _canonicalize_email(email: Optional[str]) -> Optional[str]:
+        if email is None:
+            return None
+        cleaned = str(email).strip()
+        return cleaned.lower() if cleaned else None
+
+    @staticmethod
+    def _dict_to_row(record: Dict[str, object]) -> Tuple[object, ...]:
+        return (
+            int(record["id"]),
+            str(record["username"]),
+            record["password_hash"],
+            str(record["email"]),
+            record.get("name"),
+            record.get("dob"),
+            record.get("last_login"),
+        )
+
+    def add_user(
+        self,
+        username: str,
+        password: str,
+        email: str,
+        name: Optional[str],
+        dob: Optional[str],
+    ) -> None:
+        hashed_password = self._hash_password(password)
+        canonical_email = self._canonicalize_email(email)
+        if not canonical_email:
+            raise ValueError("Email must not be empty")
+        try:
+            self._repository.create_user_account(
+                username,
+                hashed_password,
+                canonical_email,
+                name=name,
+                dob=dob,
+            )
+        except IntegrityError as exc:
+            raise DuplicateUserError(_DUPLICATE_USER_MESSAGE) from exc
+
+    def get_user(self, username: str) -> Optional[Tuple[object, ...]]:
+        record = self._repository.get_user_account(username)
+        if not record:
+            return None
+        return self._dict_to_row(record)
+
+    def get_username_for_email(self, email: str) -> Optional[str]:
+        return self._repository.get_username_for_email(email)
+
+    def get_all_users(self) -> List[Tuple[object, ...]]:
+        records = self._repository.list_user_accounts()
+        return [self._dict_to_row(record) for record in records]
+
+    def search_users(self, query_text: Optional[str]) -> List[Tuple[object, ...]]:
+        records = self._repository.search_user_accounts(query_text)
+        return [self._dict_to_row(record) for record in records]
+
+    def get_user_details(self, username: str) -> Optional[Dict[str, object]]:
+        record = self._repository.get_user_account(username)
+        if not record:
+            return None
+        return {
+            "id": int(record["id"]),
+            "username": str(record["username"]),
+            "email": str(record["email"]),
+            "name": record.get("name"),
+            "dob": record.get("dob"),
+            "last_login": record.get("last_login"),
+        }
+
+    def verify_user_password(self, username: str, candidate_password: Optional[str]) -> bool:
+        record = self._repository.get_user_account(username)
+        if not record:
+            return False
+        return self._verify_password(record.get("password_hash"), candidate_password)
+
+    def update_last_login(self, username: str, timestamp: str) -> bool:
+        return self._repository.update_last_login(username, timestamp)
+
+    def add_login_attempt(
+        self,
+        username: Optional[str],
+        timestamp: str,
+        successful: bool,
+        reason: Optional[str],
+    ) -> None:
+        self._repository.record_login_attempt(username, timestamp, successful, reason)
+
+    def get_login_attempts(self, username: str, limit: int = 10) -> List[Dict[str, object]]:
+        return self._repository.get_login_attempts(username, limit)
+
+    def prune_login_attempts(self, username: str, limit: int) -> None:
+        self._repository.prune_login_attempts(username, limit)
+
+    def set_lockout_entry(
+        self,
+        username: str,
+        attempts: Iterable[str],
+        lockout_until: Optional[str],
+    ) -> None:
+        self._repository.set_lockout_state(username, list(attempts), lockout_until)
+
+    def get_lockout_entry(
+        self, username: str
+    ) -> Optional[Tuple[List[str], Optional[str]]]:
+        state = self._repository.get_lockout_state(username)
+        if state is None:
+            return None
+        return (
+            list(state.get("failed_attempts") or []),
+            state.get("lockout_until"),
+        )
+
+    def get_all_lockout_entries(self) -> List[Tuple[str, List[str], Optional[str]]]:
+        entries = []
+        for state in self._repository.get_all_lockout_states():
+            entries.append(
+                (
+                    str(state["username"]),
+                    list(state.get("failed_attempts") or []),
+                    state.get("lockout_until"),
+                )
+            )
+        return entries
+
+    def delete_lockout_entry(self, username: str) -> bool:
+        return self._repository.clear_lockout_state(username)
+
+    def set_user_password(self, username: str, password: str) -> bool:
+        hashed_password = self._hash_password(password)
+        try:
+            return self._repository.set_user_password(username, hashed_password)
+        except IntegrityError as exc:
+            raise DuplicateUserError(_DUPLICATE_USER_MESSAGE) from exc
+
+    def update_user(
+        self,
+        username: str,
+        *,
+        password: Optional[str] = None,
+        email: Optional[str] = None,
+        name: Optional[str] = None,
+        dob: Optional[str] = None,
+    ) -> None:
+        password_hash = self._hash_password(password) if password is not None else None
+        canonical_email = (
+            self._canonicalize_email(email) if email is not None else None
+        )
+        try:
+            self._repository.update_user_account(
+                username,
+                email=canonical_email,
+                name=name,
+                dob=dob,
+                password_hash=password_hash,
+            )
+        except IntegrityError as exc:
+            raise DuplicateUserError(_DUPLICATE_USER_MESSAGE) from exc
+
+    def delete_user(self, username: str) -> bool:
+        return self._repository.delete_user_account(username)
+
+    def create_password_reset_token(
+        self,
+        username: str,
+        token: str,
+        expires_at_iso: str,
+    ) -> None:
+        hashed_token = self._hash_reset_token(token)
+        self._repository.upsert_password_reset_token(
+            username,
+            hashed_token,
+            expires_at_iso,
+            _dt.datetime.now(_dt.timezone.utc),
+        )
+
+    def get_password_reset_token(self, username: str) -> Optional[Tuple[str, str]]:
+        record = self._repository.get_password_reset_token(username)
+        if not record:
+            return None
+        expires_at = record.get("expires_at")
+        return str(record["token_hash"]), str(expires_at) if expires_at is not None else None
+
+    def verify_password_reset_token(self, username: str, token: str) -> Tuple[bool, Optional[str]]:
+        stored = self.get_password_reset_token(username)
+        if not stored:
+            return False, None
+        stored_hash, expires_at = stored
+        matches = self._compare_reset_token(stored_hash, token)
+        return matches, expires_at
+
+    def delete_password_reset_token(self, username: str) -> None:
+        self._repository.delete_password_reset_token(username)
+
+    def close_connection(self) -> None:  # pragma: no cover - compatibility shim
+        return None
 
 @dataclass(frozen=True)
 class UserAccount:
@@ -102,15 +364,24 @@ class UserAccountService:
         self,
         *,
         config_manager: Optional[ConfigManager] = None,
-        database: Optional[UserAccountDatabase] = None,
+        credential_store: Optional[ConversationCredentialStore] = None,
         clock: Optional[Callable[[], _dt.datetime]] = None,
         conversation_repository: Optional[ConversationStoreRepository] = None,
     ) -> None:
         self.logger = setup_logger(__name__)
         self.config_manager = config_manager or ConfigManager()
-        self._database = database or UserAccountDatabase()
+        if credential_store is not None:
+            self._database = credential_store
+            repository = conversation_repository or credential_store.repository
+        else:
+            if conversation_repository is None:
+                raise ValueError(
+                    "conversation_repository is required when credential_store is not provided"
+                )
+            repository = conversation_repository
+            self._database = ConversationCredentialStore(repository)
+        self._conversation_repository = repository
         self._clock: Callable[[], _dt.datetime] = clock or self._default_clock
-        self._conversation_repository = conversation_repository
         self._password_requirements = self._resolve_password_requirements()
 
         self._lockout_threshold = self._resolve_lockout_setting(
