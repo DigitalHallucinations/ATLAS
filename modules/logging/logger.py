@@ -1,6 +1,8 @@
 import logging
 import os
+from pathlib import Path
 from logging.handlers import RotatingFileHandler
+
 import yaml
 
 class CustomLogger(logging.Logger):
@@ -19,9 +21,10 @@ class CustomLogger(logging.Logger):
             'max_file_size': 50 * 1024 * 1024,  # 50 MB
             'backup_count': 5
         }
-        config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'logging_config.yaml')
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
+        project_root = Path(__file__).resolve().parents[2]
+        config_path = project_root / 'ATLAS' / 'config' / 'logging_config.yaml'
+        if config_path.exists():
+            with config_path.open('r', encoding='utf-8') as f:
                 return yaml.safe_load(f)
         return default_config
 

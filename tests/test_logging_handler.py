@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 import types
+from pathlib import Path
 
 
 class _DummyTextIter:
@@ -106,3 +107,44 @@ def test_paused_queue_respects_max_lines() -> None:
 
     assert len(handler._queue) == 5  # noqa: SLF001 - accessing protected member for testing.
     assert list(handler._queue) == [f"message {index}" for index in range(5, 10)]
+
+
+def test_setup_logger_uses_yaml_console_level() -> None:
+    """``setup_logger`` should honour the console level defined in the YAML config."""
+
+    from modules.logging.logger import setup_logger
+
+    config_path = Path(__file__).resolve().parents[1] / "ATLAS" / "config" / "logging_config.yaml"
+    original_content = config_path.read_text(encoding="utf-8")
+
+    updated_config = """
+log_level: INFO
+file_log_level: DEBUG
+console_log_level: CRITICAL
+log_format: '%(levelname)s:%(message)s'
+log_file: CSSLM.log
+max_file_size: 52428800
+backup_count: 5
+"""
+
+    logger = None
+    original_logger_class = logging.getLoggerClass()
+    try:
+        config_path.write_text(updated_config.strip() + "\n", encoding="utf-8")
+        logging.setLoggerClass(original_logger_class)
+        logger = setup_logger("test_yaml_console_level")
+
+        console_handlers = [
+            handler
+            for handler in logger.handlers
+            if type(handler) is logging.StreamHandler  # noqa: E721 - type check ensures file handlers are excluded.
+        ]
+        assert console_handlers, "Expected a console handler to be configured."
+        assert console_handlers[0].level == logging.CRITICAL
+    finally:
+        config_path.write_text(original_content, encoding="utf-8")
+        logging.setLoggerClass(original_logger_class)
+        if logger is not None:
+            for handler in list(logger.handlers):
+                logger.removeHandler(handler)
+                handler.close()
