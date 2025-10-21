@@ -163,7 +163,7 @@ class ProviderManager:
             return
 
         if result.get("error"):
-            self.logger.info(
+            self.logger.debug(
                 "Skipping cached OpenAI model refresh because discovery failed: %s",
                 result["error"],
             )
@@ -171,7 +171,7 @@ class ProviderManager:
 
         models = result.get("models") if isinstance(result.get("models"), list) else []
         if models:
-            self.logger.info(
+            self.logger.debug(
                 "Primed cached OpenAI model list with %d entries during startup.",
                 len(models),
             )
@@ -1308,7 +1308,7 @@ class ProviderManager:
 
         try:
             self.huggingface_generator = HuggingFaceGenerator(self.config_manager)
-            self.logger.info("HuggingFace generator initialized successfully.")
+            self.logger.debug("HuggingFace generator initialized successfully.")
             return self._build_result(True, message="HuggingFace generator initialized.")
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to initialize HuggingFace generator: %s", exc, exc_info=True)
@@ -1504,7 +1504,10 @@ class ProviderManager:
         """
         # Only skip initialization if the provider is already set and generate_response_func is initialized
         if llm_provider == self.current_llm_provider and self.generate_response_func is not None:
-            self.logger.info(f"Provider {llm_provider} is already the current provider and is initialized. No action taken.")
+            self.logger.debug(
+                "Provider %s is already current and initialized; skipping switch.",
+                llm_provider,
+            )
             return
 
         # Validate provider
@@ -1512,7 +1515,7 @@ class ProviderManager:
             self.logger.warning(f"Provider {llm_provider} is not implemented. Reverting to default provider OpenAI.")
             llm_provider = "OpenAI"
 
-        self.logger.info(f"Attempting to switch to provider: {llm_provider}")
+        self.logger.debug("Attempting to switch to provider: %s", llm_provider)
 
         previous_provider = self.current_llm_provider
 
@@ -1587,7 +1590,7 @@ class ProviderManager:
                 default_model = self.get_default_model_for_provider("HuggingFace")
                 if default_model:
                     self._pending_models["HuggingFace"] = default_model
-                    self.logger.info(
+                    self.logger.debug(
                         "HuggingFace default model '%s' recorded for deferred loading.",
                         default_model,
                     )
@@ -1651,9 +1654,9 @@ class ProviderManager:
             self.current_llm_provider = llm_provider
             self.providers[llm_provider] = self.generate_response_func
 
-            self.logger.info(f"Switched to LLM provider: {self.current_llm_provider}")
+            self.logger.info("Switched to LLM provider: %s", self.current_llm_provider)
             if self.current_model:
-                self.logger.info(f"Current model set to: {self.current_model}")
+                self.logger.debug("Current model set to: %s", self.current_model)
 
         except Exception as e:
             self.logger.error(f"Failed to switch to provider {llm_provider}: {str(e)}")
@@ -1675,9 +1678,9 @@ class ProviderManager:
             )
 
         await self.switch_llm_provider(provider)
-        self.logger.info(f"Current provider set to {self.current_llm_provider}")
+        self.logger.debug("Current provider set to %s", self.current_llm_provider)
         if self.current_model:
-            self.logger.info(f"Current model set to: {self.current_model}")
+            self.logger.debug("Current model set to: %s", self.current_model)
 
     def get_current_model(self) -> str:
         """
@@ -1919,7 +1922,7 @@ class ProviderManager:
         )
 
         # Log the incoming parameters
-        self.logger.info(
+        self.logger.debug(
             "Generating response with Provider: %s, Model: %s, Persona: %s",
             requested_provider,
             resolved_model,
@@ -1938,7 +1941,7 @@ class ProviderManager:
             functions = None
 
         start_time = time.time()
-        self.logger.info(
+        self.logger.debug(
             "Starting API call to %s with model %s for %s",
             requested_provider,
             resolved_model,
@@ -2031,7 +2034,7 @@ class ProviderManager:
                 dict(call_kwargs),
             )
 
-            self.logger.info(f"API call completed in {time.time() - start_time:.2f} seconds")
+            self.logger.debug("API call completed in %.2f seconds", time.time() - start_time)
             return response
         except Exception as e:
             self.logger.error(f"Error during API call to {requested_provider}: {str(e)}")
@@ -2083,7 +2086,7 @@ class ProviderManager:
 
         fallback_function = await self._ensure_provider_callable(fallback_provider)
 
-        self.logger.info(f"Using fallback provider {fallback_provider} for {llm_call_type}")
+        self.logger.info("Using fallback provider %s for %s", fallback_provider, llm_call_type)
 
         current_conversation_id = kwargs.get("conversation_id") or getattr(
             self, "current_conversation_id", None
@@ -2191,7 +2194,7 @@ class ProviderManager:
             self.model_manager.set_model(model, self.current_llm_provider)
             self._provider_model_ready[self.current_llm_provider] = True
             self._pending_models.pop(self.current_llm_provider, None)
-        self.logger.info(f"Model set to {model}")
+        self.logger.debug("Model set to %s", model)
 
     def switch_background_provider(self, background_provider: str):
         """
@@ -2205,7 +2208,7 @@ class ProviderManager:
             return
 
         self.current_background_provider = background_provider
-        self.logger.info(f"Switched background provider to: {self.current_background_provider}")
+        self.logger.debug("Switched background provider to: %s", self.current_background_provider)
 
     def get_current_provider(self) -> str:
         """
@@ -2326,7 +2329,7 @@ class ProviderManager:
                         fallback_model = candidate.strip()
 
         if fallback_model:
-            self.logger.info(
+            self.logger.debug(
                 "Using configured default model '%s' for provider %s.",
                 fallback_model,
                 provider,

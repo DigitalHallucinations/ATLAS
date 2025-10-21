@@ -49,7 +49,7 @@ class GrokGenerator:
 
         # Initialize Grok Client
         self.client = Client(api_key=self.api_key)
-        self.logger.info("Grok client initialized")
+        self.logger.debug("Grok client initialized")
 
     async def generate_response(
         self,
@@ -79,7 +79,7 @@ class GrokGenerator:
     ) -> Union[str, AsyncIterator[str]]:
         """Generate a response using the Grok chat API."""
 
-        self.logger.info("Generating Grok response with model %s (stream=%s)", model, stream)
+        self.logger.debug("Generating Grok response with model %s (stream=%s)", model, stream)
 
         resolved_functions = functions
         if resolved_functions is None and current_persona is not None:
@@ -644,4 +644,4 @@ class GrokGenerator:
             self.logger.warning("Failed to close Grok client cleanly: %s", exc, exc_info=True)
         finally:
             self.client = None
-            self.logger.info("Grok client unloaded.")
+            self.logger.debug("Grok client unloaded.")

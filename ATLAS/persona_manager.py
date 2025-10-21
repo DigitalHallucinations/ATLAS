@@ -66,7 +66,10 @@ class PersonaManager:
         if persona:
             self.current_persona = persona
             self.current_system_prompt = self.build_system_prompt(persona)
-            self.logger.info(f"Default persona '{self.default_persona_name}' loaded with personalized system prompt.")
+            self.logger.debug(
+                "Default persona '%s' loaded with personalized system prompt.",
+                self.default_persona_name,
+            )
         else:
             self.logger.error(f"Failed to load default persona: '{self.default_persona_name}'")
 
@@ -74,7 +77,7 @@ class PersonaManager:
         """Get the list of persona directories."""
         try:
             persona_names = [name for name in os.listdir(persona_path) if os.path.isdir(os.path.join(persona_path, name))]
-            self.logger.info(f"Persona names loaded: {persona_names}")
+            self.logger.debug("Persona names loaded: %s", persona_names)
             return persona_names
         except OSError as e:
             self.logger.error(f"Error loading persona names: {e}")
@@ -107,7 +110,7 @@ class PersonaManager:
             dict: The loaded persona data, or None if loading fails.
         """
         if persona_name in self.personas:  # Check cache first
-            self.logger.info(f"Persona '{persona_name}' retrieved from cache.")
+            self.logger.debug("Persona '%s' retrieved from cache.", persona_name)
             return self.personas[persona_name]
         
         try:
@@ -126,7 +129,7 @@ class PersonaManager:
             return None
 
         self.personas[persona_name] = persona_data
-        self.logger.info("Persona '%s' loaded successfully.", persona_name)
+        self.logger.debug("Persona '%s' loaded successfully.", persona_name)
         return persona_data
 
     def set_user(self, user: str) -> None:
@@ -410,7 +413,7 @@ class PersonaManager:
 
     def updater(self, selected_persona_name: str):
         """Update the current persona."""
-        self.logger.info(f"Attempting to update persona to '{selected_persona_name}'.")
+        self.logger.debug("Attempting to update persona to '%s'.", selected_persona_name)
         
         persona = self.get_persona(selected_persona_name)
         if not persona:
@@ -423,8 +426,8 @@ class PersonaManager:
         self.master.system_name = selected_persona_name
         self.master.system_name_tag = selected_persona_name
 
-        self.logger.info(f"Persona switched to '{selected_persona_name}' with new system prompt.")
-        self.logger.info(f"Current persona is now: {self.current_persona}")
+        self.logger.info("Persona switched to '%s' with new system prompt.", selected_persona_name)
+        self.logger.debug("Current persona is now: %s", self.current_persona)
 
 
     def _build_substitution_data(self, persona: dict) -> Dict[str, str]:
@@ -436,10 +439,10 @@ class PersonaManager:
         # Profile placeholder
         try:
             if persona.get("user_profile_enabled") == "True":
-                self.logger.info(f"Adding Profile to persona: '{persona['name']}'.")
+                self.logger.debug("Adding Profile to persona: '%s'.", persona['name'])
                 substitutions["<<Profile>>"] = user_data_manager.get_profile_text()
             else:
-                self.logger.info(f"Profile not added for persona: '{persona['name']}'.")
+                self.logger.debug("Profile not added for persona: '%s'.", persona['name'])
                 substitutions["<<Profile>>"] = "Profile not available for this persona."
         except Exception as exc:  # pragma: no cover - defensive logging only
             self.logger.error("Failed to load profile text for persona '%s'", persona.get("name"), exc_info=True)
@@ -448,10 +451,10 @@ class PersonaManager:
         # EMR placeholder
         try:
             if persona.get("medical_persona") == "True":
-                self.logger.info(f"Adding EMR to medical persona: '{persona['name']}'.")
+                self.logger.debug("Adding EMR to medical persona: '%s'.", persona['name'])
                 substitutions["<<emr>>"] = user_data_manager.get_emr()
             else:
-                self.logger.info(f"EMR not added for non-medical persona: '{persona['name']}'.")
+                self.logger.debug("EMR not added for non-medical persona: '%s'.", persona['name'])
                 substitutions["<<emr>>"] = "EMR not available for this persona."
         except Exception as exc:  # pragma: no cover - defensive logging only
             self.logger.error("Failed to load EMR for persona '%s'", persona.get("name"), exc_info=True)
@@ -460,10 +463,10 @@ class PersonaManager:
         # System info placeholder
         try:
             if persona.get("sys_info_enabled") == "True":
-                self.logger.info(f"Adding system info to persona: '{persona['name']}'.")
+                self.logger.debug("Adding system info to persona: '%s'.", persona['name'])
                 substitutions["<<sysinfo>>"] = user_data_manager.get_system_info()
             else:
-                self.logger.info(f"System info not added for persona: '{persona['name']}'.")
+                self.logger.debug("System info not added for persona: '%s'.", persona['name'])
                 substitutions["<<sysinfo>>"] = "System info not available for this persona."
         except Exception as exc:  # pragma: no cover - defensive logging only
             self.logger.error(
@@ -485,7 +488,7 @@ class PersonaManager:
             str: The personalized system prompt.
         """
 
-        self.logger.info(f"Building system prompt for persona '{persona.get('name')}'.")
+        self.logger.debug("Building system prompt for persona '%s'.", persona.get('name'))
         substitutions = self._build_substitution_data(persona)
 
         # Assemble the system prompt from the content parts
@@ -502,8 +505,10 @@ class PersonaManager:
         for placeholder, data in substitutions.items():
             personalized_content = personalized_content.replace(placeholder, str(data or ""))
 
-        self.logger.info(
-            "System prompt built for persona '%s': %s", persona.get("name"), personalized_content
+        self.logger.debug(
+            "System prompt built for persona '%s': %s",
+            persona.get("name"),
+            personalized_content,
         )
         return personalized_content
 

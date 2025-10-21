@@ -96,7 +96,7 @@ class ElevenLabsTTS(BaseTTS):
             "Content-Type": "application/json",
         }
 
-        logger.info("Fetching voices from Eleven Labs API...")
+        logger.debug("Fetching voices from Eleven Labs API...")
         try:
             response = requests.get(url, headers=headers, timeout=30)
         except Exception as exc:  # noqa: BLE001 - propagate precise error upstream
@@ -125,7 +125,7 @@ class ElevenLabsTTS(BaseTTS):
 
         self.voice_ids = voices
         self.configured = True
-        logger.info("Loaded %s voices from Eleven Labs.", len(self.voice_ids))
+        logger.debug("Loaded %s voices from Eleven Labs.", len(self.voice_ids))
 
     async def ensure_ready(self) -> None:
         """Ensure the provider has loaded voices before use."""
@@ -161,7 +161,7 @@ class ElevenLabsTTS(BaseTTS):
         """
         Plays the specified audio file.
         """
-        logger.info(f"Playing audio file: {filename}")
+        logger.debug("Playing audio file: %s", filename)
         if not self._ensure_mixer_ready():
             logger.warning("Skipping audio playback because the mixer could not be initialized.")
             return
@@ -171,7 +171,7 @@ class ElevenLabsTTS(BaseTTS):
             pygame.mixer.music.play()
             while pygame.mixer.music.get_busy():
                 pygame.time.Clock().tick(10)
-            logger.info("Audio playback finished.")
+            logger.debug("Audio playback finished.")
         except Exception:
             logger.exception("Error occurred during audio playback.")
         finally:
@@ -206,7 +206,7 @@ class ElevenLabsTTS(BaseTTS):
             return
 
         if not self._use_tts:
-            logger.info("TTS is turned off.")
+            logger.debug("TTS is turned off.")
             return
 
         if not self.configured:
@@ -214,7 +214,7 @@ class ElevenLabsTTS(BaseTTS):
             return
 
         if self.contains_code(text):
-            logger.info("Skipping TTS as the text contains code.")
+            logger.debug("Skipping TTS as the text contains code.")
             text = re.sub(r"`[^`]*`", "", text)
 
         if not self.voice_ids:
@@ -241,7 +241,7 @@ class ElevenLabsTTS(BaseTTS):
         }
 
         def download_and_save_audio():
-            logger.info(f"Sending TTS request to Eleven Labs with text: {text}")
+            logger.debug("Sending TTS request to Eleven Labs with text: %s", text)
             connect_timeout = 30
             read_timeout = 30
 
@@ -265,12 +265,12 @@ class ElevenLabsTTS(BaseTTS):
                 logger.error("Failed to send Eleven Labs TTS request: %s", exc)
                 raise
 
-            logger.info(f"Eleven Labs API response status: {response.status_code}")
+            logger.debug("Eleven Labs API response status: %s", response.status_code)
             if not response.ok:
                 logger.error(f"Eleven Labs TTS Error: {response.text}")
                 return None
 
-            logger.info("Received TTS response successfully.")
+            logger.debug("Received TTS response successfully.")
             output_dir = self._resolve_output_dir()
             try:
                 os.makedirs(output_dir, exist_ok=True)
@@ -295,7 +295,7 @@ class ElevenLabsTTS(BaseTTS):
                 for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
                     if chunk:
                         f.write(chunk)
-            logger.info(f"Audio saved to {output_path}")
+            logger.debug("Audio saved to %s", output_path)
             return output_path
 
         try:
@@ -369,7 +369,11 @@ class ElevenLabsTTS(BaseTTS):
             if v['name'] == voice['name'] and v['voice_id'] == voice['voice_id']:
                 self.voice_ids.pop(i)
                 self.voice_ids.insert(0, voice)
-                logger.info(f"Voice set to: {voice['name']} with ID: {voice['voice_id']}")
+                logger.debug(
+                    "Voice set to: %s with ID: %s",
+                    voice['name'],
+                    voice['voice_id'],
+                )
                 return
         logger.error(f"Voice {voice['name']} not found in Eleven Labs voices.")
 

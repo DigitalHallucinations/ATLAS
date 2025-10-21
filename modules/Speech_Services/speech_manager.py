@@ -351,7 +351,7 @@ class SpeechManager:
     def initialize_services(self):
         """Eagerly instantiate all registered speech providers."""
 
-        logger.info("Eagerly initializing all registered speech services.")
+        logger.debug("Eagerly initializing all registered speech services.")
         for provider_key in list(self._tts_factories.keys()):
             self.get_tts_provider(provider_key)
 
@@ -1108,7 +1108,7 @@ class SpeechManager:
             provider (str, optional): The TTS provider key. If None, the default is used.
         """
         if not self.config_manager.get_tts_enabled():
-            logger.info("TTS is disabled. Skipping TTS generation.")
+            logger.debug("TTS is disabled. Skipping TTS generation.")
             return
 
         provider = provider or self.get_default_tts_provider()
@@ -1199,7 +1199,7 @@ class SpeechManager:
                     )
                 return
             tts.set_tts(value)
-            logger.info(f"TTS for provider '{provider}' set to {value}.")
+            logger.debug("TTS for provider '%s' set to %s.", provider, value)
         else:
             self._tts_enabled = value
             if hasattr(self.config_manager, 'set_tts_enabled'):
@@ -1207,7 +1207,7 @@ class SpeechManager:
                     self.config_manager.set_tts_enabled(value)
                 except Exception as exc:
                     logger.error(f"Failed to persist TTS status: {exc}")
-            logger.info(f"Global TTS enabled set to {self._tts_enabled}.")
+            logger.debug("Global TTS enabled set to %s.", self._tts_enabled)
 
     def get_tts_status(self, provider: str = None) -> bool:
         """
@@ -1237,7 +1237,7 @@ class SpeechManager:
                 return False
             return tts.get_tts()
         else:
-            logger.info(f"Global TTS status: {self.config_manager.get_tts_enabled()}")
+            logger.debug("Global TTS status: %s", self.config_manager.get_tts_enabled())
             return self.config_manager.get_tts_enabled()
 
     def add_tts_provider(self, name: str, tts_instance: Any):
@@ -1251,7 +1251,7 @@ class SpeechManager:
         if name in self.tts_services:
             logger.warning(f"TTS provider '{name}' already exists. Overwriting.")
         self.tts_services[name] = tts_instance
-        logger.info(f"TTS provider '{name}' added.")
+        logger.debug("TTS provider '%s' added.", name)
 
     def remove_tts_provider(self, name: str):
         """
@@ -1262,7 +1262,7 @@ class SpeechManager:
         """
         if name in self.tts_services:
             del self.tts_services[name]
-            logger.info(f"TTS provider '{name}' removed.")
+            logger.debug("TTS provider '%s' removed.", name)
         else:
             logger.warning(f"TTS provider '{name}' does not exist.")
 
@@ -1310,7 +1310,7 @@ class SpeechManager:
                 )
                 return
             self._active_tts_key = provider
-            logger.info(
+            logger.debug(
                 "Default TTS provider set to '%s' (initialization in progress).",
                 provider,
             )
@@ -1390,7 +1390,7 @@ class SpeechManager:
                 if hasattr(self.config_manager, 'yaml_config'):
                     self.config_manager.yaml_config['DEFAULT_TTS_PROVIDER'] = tts_provider
                 config_updated = True
-                logger.info(f"Persisted default TTS provider '{tts_provider}'.")
+                logger.debug("Persisted default TTS provider '%s'.", tts_provider)
             else:
                 logger.error(f"Cannot set unknown TTS provider '{tts_provider}'.")
 
@@ -1402,7 +1402,7 @@ class SpeechManager:
                 if hasattr(self.config_manager, 'yaml_config'):
                     self.config_manager.yaml_config['DEFAULT_STT_PROVIDER'] = stt_provider
                 config_updated = True
-                logger.info(f"Persisted default STT provider '{stt_provider}'.")
+                logger.debug("Persisted default STT provider '%s'.", stt_provider)
             else:
                 logger.error(f"Cannot set unknown STT provider '{stt_provider}'.")
 
@@ -1426,7 +1426,7 @@ class SpeechManager:
         self._stt_default_locked = True
         if hasattr(self.config_manager, 'config'):
             self.config_manager.config['DEFAULT_STT_PROVIDER'] = None
-        logger.info("STT disabled and default provider cleared.")
+        logger.debug("STT disabled and default provider cleared.")
 
     def configure_openai_speech(
         self,
@@ -1638,7 +1638,7 @@ class SpeechManager:
             provider (str, optional): STT provider key.
         """
         if self._stt_recording:
-            logger.info("STT recording is already active.")
+            logger.debug("STT recording is already active.")
             return True
 
         provider = provider or self.get_default_stt_provider()
@@ -1657,7 +1657,7 @@ class SpeechManager:
         self._recording_provider = provider
         self._last_audio_path = None
         self._last_audio_provider = None
-        logger.info(f"Listening started using provider '{provider}'.")
+        logger.debug("Listening started using provider '%s'.", provider)
         return True
 
     def stop_listening(self, provider: str = None) -> Optional[str]:
@@ -1683,7 +1683,7 @@ class SpeechManager:
         self._last_audio_provider = provider
         self._stt_recording = False
         self._recording_provider = None
-        logger.info(f"Listening stopped for provider '{provider}'.")
+        logger.debug("Listening stopped for provider '%s'.", provider)
         return audio_reference
 
     def transcribe(self, audio_file: str, provider: str = None) -> str:
@@ -1750,7 +1750,7 @@ class SpeechManager:
         if name in self.stt_services:
             logger.warning(f"STT provider '{name}' already exists. Overwriting.")
         self.stt_services[name] = stt_instance
-        logger.info(f"STT provider '{name}' added.")
+        logger.debug("STT provider '%s' added.", name)
 
     def remove_stt_provider(self, name: str):
         """
@@ -1761,7 +1761,7 @@ class SpeechManager:
         """
         if name in self.stt_services:
             del self.stt_services[name]
-            logger.info(f"STT provider '{name}' removed.")
+            logger.debug("STT provider '%s' removed.", name)
         else:
             logger.warning(f"STT provider '{name}' does not exist.")
 
@@ -1910,7 +1910,7 @@ class SpeechManager:
                 if inspect.isawaitable(result):
                     await result
 
-                logger.info(f"Closed {label} provider '{name}'.")
+                logger.debug("Closed %s provider '%s'.", label, name)
 
         # Close TTS and STT services while respecting synchronous and asynchronous closers.
         await _shutdown(self.tts_services, "TTS")

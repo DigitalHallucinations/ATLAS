@@ -686,7 +686,7 @@ def _resolve_provider_manager(provider_manager=None, config_manager=None):
     )
 
 def get_required_args(function):
-    logger.info("Retrieving required arguments for the function.")
+    logger.debug("Retrieving required arguments for the function.")
     sig = inspect.signature(_resolve_function_callable(function))
     return [
         param.name for param in sig.parameters.values()
@@ -1915,7 +1915,7 @@ def get_tool_activity_log(limit: Optional[int] = None) -> List[Dict[str, Any]]:
 def load_default_function_map(*, refresh: bool = False, config_manager=None):
     """Load the shared default tool function map."""
 
-    logger.info("Attempting to load shared default function map.")
+    logger.debug("Attempting to load shared default function map.")
 
     try:
         app_root = _get_config_manager(config_manager).get_app_root()
@@ -1944,7 +1944,7 @@ def load_default_function_map(*, refresh: bool = False, config_manager=None):
             if cache_entry:
                 cached_mtime, cached_map = cache_entry
                 if cached_mtime == file_mtime:
-                    logger.info("Returning cached shared function map without reloading module.")
+                    logger.debug("Returning cached shared function map without reloading module.")
                     metadata_lookup = _build_metadata_lookup(
                         _load_default_functions_payload(
                             refresh=refresh, config_manager=config_manager
@@ -1956,7 +1956,7 @@ def load_default_function_map(*, refresh: bool = False, config_manager=None):
                         cached_map, metadata_lookup=metadata_lookup
                     )
 
-                logger.info(
+                logger.debug(
                     "Detected updated shared maps.py (cached mtime %s, current mtime %s); reloading.",
                     cached_mtime,
                     file_mtime,
@@ -1965,14 +1965,14 @@ def load_default_function_map(*, refresh: bool = False, config_manager=None):
                 _default_function_map_cache = None
 
             if refresh:
-                logger.info("Refresh requested for shared tool map; clearing cached module.")
+                logger.debug("Refresh requested for shared tool map; clearing cached module.")
                 sys.modules.pop(module_name, None)
                 _default_function_map_cache = None
 
             module = sys.modules.get(module_name)
 
             if module is None:
-                logger.info("Loading shared tool map module '%s' from '%s'.", module_name, maps_path)
+                logger.debug("Loading shared tool map module '%s' from '%s'.", module_name, maps_path)
                 spec = importlib.util.spec_from_file_location(module_name, maps_path)
                 if spec is None or spec.loader is None:
                     raise ImportError(f"Could not load specification for shared tool map from {maps_path}")
@@ -1980,7 +1980,7 @@ def load_default_function_map(*, refresh: bool = False, config_manager=None):
                 sys.modules[module_name] = module
                 spec.loader.exec_module(module)
             else:
-                logger.info("Reusing already loaded shared tool map module '%s'.", module_name)
+                logger.debug("Reusing already loaded shared tool map module '%s'.", module_name)
 
             function_map = getattr(module, "function_map", None)
 
@@ -2013,7 +2013,7 @@ def load_function_map_from_current_persona(
     refresh=False,
     config_manager=None,
 ):
-    logger.info("Attempting to load function map from current persona.")
+    logger.debug("Attempting to load function map from current persona.")
     if not current_persona or "name" not in current_persona:
         logger.error("Current persona is None or does not have a 'name' key.")
         return load_default_function_map(refresh=refresh, config_manager=config_manager)
@@ -2036,7 +2036,7 @@ def load_function_map_from_current_persona(
     module_name = f'persona_{persona_name}_maps'
     try:
         if refresh:
-            logger.info(
+            logger.debug(
                 "Refresh requested for persona '%s'; clearing cached module and function map.",
                 persona_name,
             )
@@ -2051,7 +2051,7 @@ def load_function_map_from_current_persona(
         if not refresh and cache_entry:
             cached_mtime, cached_signature, cached_map = cache_entry
             if cached_mtime == file_mtime and cached_signature == allowed_signature:
-                logger.info(
+                logger.debug(
                     "Returning cached function map for persona '%s' without reloading module.",
                     persona_name,
                 )
@@ -2069,7 +2069,7 @@ def load_function_map_from_current_persona(
                     metadata_lookup=metadata_lookup,
                 )
 
-            logger.info(
+            logger.debug(
                 "Detected updated maps.py for persona '%s' (cached mtime %s, current mtime %s); reloading.",
                 persona_name,
                 cached_mtime,
@@ -2081,7 +2081,7 @@ def load_function_map_from_current_persona(
         module = sys.modules.get(module_name)
 
         if module is None:
-            logger.info(
+            logger.debug(
                 "Module '%s' not found in sys.modules; loading from '%s'.",
                 module_name,
                 maps_path,
@@ -2095,14 +2095,14 @@ def load_function_map_from_current_persona(
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
         else:
-            logger.info(
+            logger.debug(
                 "Reusing already loaded module '%s' from sys.modules for persona '%s'.",
                 module_name,
                 persona_name,
             )
 
         if hasattr(module, 'function_map'):
-            logger.info(
+            logger.debug(
                 "Function map successfully loaded for persona '%s': %s",
                 persona_name,
                 module.function_map,
@@ -2139,7 +2139,7 @@ def load_function_map_from_current_persona(
     except Exception as e:
         logger.error(f"Error loading function map for persona '{persona_name}': {e}", exc_info=True)
 
-    logger.info(
+    logger.debug(
         "Falling back to shared default function map for persona '%s'.",
         persona_name,
     )
@@ -2153,7 +2153,7 @@ def load_functions_from_json(
     refresh=False,
     config_manager=None,
 ):
-    logger.info("Attempting to load functions from JSON for the current persona.")
+    logger.debug("Attempting to load functions from JSON for the current persona.")
     if not current_persona or "name" not in current_persona:
         logger.error("Current persona is None or does not have a 'name' key.")
         return None
@@ -2175,7 +2175,7 @@ def load_functions_from_json(
             if cache_entry:
                 cached_revision, cached_signature, cached_functions = cache_entry
                 if cached_revision == revision and cached_signature == allowed_signature:
-                    logger.info(
+                    logger.debug(
                         "Returning cached functions for persona '%s' (revision %s).",
                         persona_name,
                         cached_revision,
@@ -2256,8 +2256,8 @@ async def use_tool(
     stream: Optional[bool] = None,
     generation_settings: Optional[Mapping[str, Any]] = None,
 ):
-    logger.info(f"use_tool called for user: {user}, conversation_id: {conversation_id}")
-    logger.info(f"Message received: {message}")
+    logger.debug(f"use_tool called for user: {user}, conversation_id: {conversation_id}")
+    logger.debug(f"Message received: {message}")
 
     if conversation_manager is None:
         conversation_manager = conversation_history
@@ -2391,9 +2391,9 @@ async def use_tool(
     for index, tool_call_entry in enumerate(tool_call_entries):
         function_name = tool_call_entry.get("name")
         tool_call_id = tool_call_entry.get("id")
-        logger.info(f"Function call detected: {function_name} (index {index})")
+        logger.debug(f"Function call detected: {function_name} (index {index})")
         function_args_json = tool_call_entry.get("arguments", "{}")
-        logger.info(f"Function arguments (JSON): {function_args_json}")
+        logger.debug(f"Function arguments (JSON): {function_args_json}")
 
         if conversation_budget_ms is not None:
             consumed_ms = _get_conversation_runtime_ms(conversation_id)
@@ -2428,7 +2428,7 @@ async def use_tool(
 
         try:
             function_args = json.loads(function_args_json)
-            logger.info(f"Function arguments (parsed): {function_args}")
+            logger.debug(f"Function arguments (parsed): {function_args}")
         except json.JSONDecodeError as exc:
             logger.error(
                 "Error decoding JSON for function arguments: %s", exc, exc_info=True
@@ -2527,9 +2527,9 @@ async def use_tool(
             )
 
         required_args = get_required_args(function_entry)
-        logger.info(f"Required arguments for function '{function_name}': {required_args}")
+        logger.debug(f"Required arguments for function '{function_name}': {required_args}")
         provided_args = list(function_args.keys())
-        logger.info(f"Provided arguments for function '{function_name}': {provided_args}")
+        logger.debug(f"Provided arguments for function '{function_name}': {provided_args}")
         missing_args = set(required_args) - set(function_args.keys())
 
         if missing_args:
@@ -2566,7 +2566,7 @@ async def use_tool(
             )
 
         try:
-            logger.info(f"Calling function '{function_name}' with arguments: {function_args}")
+            logger.debug(f"Calling function '{function_name}' with arguments: {function_args}")
             func = _resolve_function_callable(function_entry)
             entry_metadata = dict(entry_metadata)
 
@@ -2845,7 +2845,7 @@ async def use_tool(
                 timestamp=final_completed_at or datetime.utcnow(),
             )
 
-            logger.info(
+            logger.debug(
                 "Function '%s' executed successfully. Response: %s",
                 function_name,
                 function_response,
@@ -2865,7 +2865,7 @@ async def use_tool(
                     },
                     metadata={"component": "ToolManager"},
                 )
-                logger.info("Published 'code_executed' event.")
+                logger.debug("Published 'code_executed' event.")
 
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             conversation_history.add_response(
@@ -2875,7 +2875,7 @@ async def use_tool(
                 current_time,
                 tool_call_id=tool_call_id,
             )
-            logger.info("Function response added to conversation history.")
+            logger.debug("Function response added to conversation history.")
 
             executed_calls.append(
                 {
@@ -2921,7 +2921,7 @@ async def use_tool(
         return None
 
     messages = conversation_history.get_history(user, conversation_id)
-    logger.info(f"Conversation history after tool execution: {messages}")
+    logger.debug(f"Conversation history after tool execution: {messages}")
 
     effective_stream = bool(stream) if stream is not None else False
 
@@ -2958,12 +2958,12 @@ async def use_tool(
         generation_settings=generation_context,
     )
 
-    logger.info(f"Model response after function execution: {new_text}")
+    logger.debug(f"Model response after function execution: {new_text}")
 
     if effective_stream and (
         isinstance(new_text, AsyncIterator) or inspect.isasyncgen(new_text)
     ):
-        logger.info("Returning streaming response produced after tool execution.")
+        logger.debug("Returning streaming response produced after tool execution.")
         return _proxy_streaming_response(
             new_text,
             conversation_history=conversation_history,
@@ -2980,7 +2980,7 @@ async def use_tool(
         )
 
     if isinstance(new_text, AsyncIterator) or inspect.isasyncgen(new_text):
-        logger.info(
+        logger.debug(
             "Received async iterator response but streaming was disabled; collecting chunks."
         )
         new_text = await _collect_async_chunks(new_text)
@@ -2993,7 +2993,7 @@ async def use_tool(
             new_text,
             metadata_overrides=metadata_overrides,
         )
-        logger.info("Assistant's message added to conversation history.")
+        logger.debug("Assistant's message added to conversation history.")
 
     return new_text
 
@@ -3015,10 +3015,10 @@ async def call_model_with_new_prompt(
     stream: bool = False,
     generation_settings: Optional[Mapping[str, Any]] = None,
 ):
-    logger.info("Calling model after tool execution.")
-    logger.info(f"Messages provided to model: {messages}")
+    logger.debug("Calling model after tool execution.")
+    logger.debug(f"Messages provided to model: {messages}")
     if prompt:
-        logger.info(f"Additional user prompt supplied: {prompt}")
+        logger.debug(f"Additional user prompt supplied: {prompt}")
 
     provider_manager, config_manager = _resolve_provider_manager(
         provider_manager, config_manager
@@ -3068,10 +3068,10 @@ async def call_model_with_new_prompt(
             return response
 
         if isinstance(response, AsyncIterator) or inspect.isasyncgen(response):
-            logger.info("Received streaming response while streaming disabled; collecting chunks into text.")
+            logger.debug("Received streaming response while streaming disabled; collecting chunks into text.")
             response = await _collect_async_chunks(response)
 
-        logger.info(f"Model's response: {response}")
+        logger.debug(f"Model's response: {response}")
         return response
     except Exception as e:
         logger.error(f"Error calling model with new prompt: {e}", exc_info=True)
