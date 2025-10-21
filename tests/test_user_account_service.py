@@ -63,6 +63,22 @@ class _StubConfigManager:
         return self._overrides.get(key, default)
 
 
+class _StubConversationRepository:
+    def __init__(self):
+        self.ensure_user_calls: list[tuple[str, Optional[str], dict[str, object]]] = []
+
+    def ensure_user(
+        self,
+        external_id,
+        *,
+        display_name=None,
+        metadata=None,
+    ):
+        record = dict(metadata or {})
+        self.ensure_user_calls.append((external_id, display_name, record))
+        return "user-stub-id"
+
+
 def _install_db_stubs(monkeypatch, app_root=None):
     class _ConfigManagerStub:
         def __init__(self):
@@ -75,7 +91,14 @@ def _install_db_stubs(monkeypatch, app_root=None):
     monkeypatch.setattr(user_account_db, 'setup_logger', lambda *_args, **_kwargs: _StubLogger())
 
 
-def _create_service(tmp_path, monkeypatch, *, config_overrides=None, clock=None):
+def _create_service(
+    tmp_path,
+    monkeypatch,
+    *,
+    config_overrides=None,
+    clock=None,
+    conversation_repository=None,
+):
     _install_db_stubs(monkeypatch)
     monkeypatch.setattr(user_account_service, 'setup_logger', lambda *_args, **_kwargs: _StubLogger())
 
@@ -85,6 +108,7 @@ def _create_service(tmp_path, monkeypatch, *, config_overrides=None, clock=None)
         config_manager=config,
         database=database,
         clock=clock,
+        conversation_repository=conversation_repository,
     )
     return service, config
 
@@ -157,6 +181,32 @@ def test_register_user_persists_account(tmp_path, monkeypatch):
 
         with pytest.raises(user_account_db.DuplicateUserError):
             service.register_user('alice', 'Newpass1!@', 'duplicate@example.com')
+    finally:
+        service.close()
+
+
+def test_conversation_store_synchronised(tmp_path, monkeypatch):
+    repository = _StubConversationRepository()
+    service, _ = _create_service(
+        tmp_path,
+        monkeypatch,
+        conversation_repository=repository,
+    )
+
+    try:
+        service.register_user('bob', 'Password123!', 'bob@example.com', 'Bob', '1985-05-05')
+        assert repository.ensure_user_calls
+        create_call = repository.ensure_user_calls[0]
+        assert create_call[0] == 'bob'
+        assert create_call[1] == 'Bob'
+        assert create_call[2]['email'] == 'bob@example.com'
+
+        repository.ensure_user_calls.clear()
+        assert service.authenticate_user('bob', 'Password123!') is True
+        assert repository.ensure_user_calls
+        login_call = repository.ensure_user_calls[-1]
+        assert login_call[0] == 'bob'
+        assert 'last_login' in login_call[2]
     finally:
         service.close()
 

@@ -489,7 +489,10 @@ class ATLAS:
         if self._user_account_service is None:
             from modules.user_accounts.user_account_service import UserAccountService
 
-            self._user_account_service = UserAccountService(config_manager=self.config_manager)
+            self._user_account_service = UserAccountService(
+                config_manager=self.config_manager,
+                conversation_repository=self.conversation_repository,
+            )
 
         return self._user_account_service
 

@@ -98,11 +98,19 @@ class ChatSession:
 
         ensure_identity = getattr(self.ATLAS, "_ensure_user_identity", None)
         active_user = None
+        active_display: str | None = None
         if callable(ensure_identity):
             try:
-                active_user, _ = ensure_identity()
+                identity = ensure_identity()
+                if isinstance(identity, (list, tuple)) and identity:
+                    active_user = identity[0]
+                    if len(identity) > 1:
+                        active_display = identity[1]
+                else:
+                    active_user = identity
             except Exception:  # pragma: no cover - defensive fallback
                 active_user = None
+                active_display = None
 
         self.add_message(
             user=str(active_user) if active_user is not None else None,
@@ -110,6 +118,7 @@ class ChatSession:
             role="user",
             content=message,
             metadata={"source": "user"},
+            user_display_name=active_display,
         )
         self.messages_since_last_reminder += 1
 
@@ -758,6 +767,10 @@ class ChatSession:
         content,
         timestamp=None,
         metadata: Dict[str, Any] | None = None,
+        user_display_name: str | None = None,
+        user_metadata: Dict[str, Any] | None = None,
+        session_identifier: str | None = None,
+        session_metadata: Dict[str, Any] | None = None,
         **extra_fields: Any,
     ) -> Dict[str, Any]:
         """Add a generic message to the conversation history.
@@ -775,14 +788,19 @@ class ChatSession:
             timestamp=timestamp,
             metadata=metadata,
         )
+        if user_display_name is not None:
+            entry["user_display_name"] = user_display_name
+        if user_metadata:
+            entry["user_metadata"] = dict(user_metadata)
+        if session_identifier is not None:
+            entry["session_identifier"] = session_identifier
+        if session_metadata:
+            entry["session_metadata"] = dict(session_metadata)
         stored_entry: Dict[str, Any]
         if extra_fields:
             entry.update(extra_fields)
 
         if self._conversation_repository is not None:
-            payload_metadata = entry.get("metadata")
-            if payload_metadata is not None and not isinstance(payload_metadata, Mapping):
-                payload_metadata = {"value": payload_metadata}
             message_id = extra_fields.get("message_id") if extra_fields else None
             extra_payload = {
                 key: value
@@ -795,17 +813,41 @@ class ChatSession:
                     "timestamp",
                     "conversation_id",
                     "message_id",
+                    "user_display_name",
+                    "user_metadata",
+                    "session_identifier",
+                    "session_metadata",
                 }
             }
             try:
+                metadata_payload = entry.get("metadata")
+                if metadata_payload is not None and not isinstance(metadata_payload, Mapping):
+                    metadata_payload = {"value": metadata_payload}
+                entry_metadata = metadata_payload
+                user_value = None
+                if isinstance(entry_metadata, Mapping):
+                    user_value = entry_metadata.get("user")
+                user_meta_payload = entry.get("user_metadata")
+                if not isinstance(user_meta_payload, Mapping):
+                    user_meta_payload = None
+                session_meta_payload = entry.get("session_metadata")
+                if not isinstance(session_meta_payload, Mapping):
+                    session_meta_payload = None
                 stored_entry = self._conversation_repository.add_message(
                     self._conversation_id,
                     role=role,
                     content=content,
-                    metadata=payload_metadata,
+                    metadata=entry_metadata,
                     timestamp=entry.get("timestamp"),
                     message_id=message_id,
                     extra=extra_payload,
+                    user=user_value,
+                    user_display_name=entry.get("user_display_name"),
+                    user_metadata=dict(user_meta_payload) if user_meta_payload else None,
+                    session=entry.get("session_identifier"),
+                    session_metadata=dict(session_meta_payload)
+                    if session_meta_payload
+                    else None,
                 )
             except Exception as exc:  # pragma: no cover - persistence fallback
                 self.ATLAS.logger.warning(

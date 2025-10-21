@@ -4,11 +4,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import sessionmaker
 
 from modules.conversation_store import Base, ConversationStoreRepository
-from modules.conversation_store.models import Message
+from modules.conversation_store.models import Message, Session, User, Conversation
 
 
 @pytest.fixture
@@ -87,6 +87,57 @@ def test_idempotent_inserts(repository, engine):
     with sessionmaker(bind=engine, future=True)() as session:
         stored = session.query(Message).filter_by(conversation_id=conversation_id).all()
         assert len(stored) == 1
+
+
+def test_user_and_session_identity_reuse(repository, engine):
+    conversation_id = _uuid()
+    repository.ensure_conversation(conversation_id)
+
+    first = repository.add_message(
+        conversation_id,
+        role="user",
+        content={"text": "hello"},
+        metadata={"source": "unit"},
+        user="tester",
+        user_display_name="Test User",
+        session="session-xyz",
+        session_metadata={"ip": "127.0.0.1"},
+    )
+
+    second = repository.add_message(
+        conversation_id,
+        role="assistant",
+        content={"text": "response"},
+        metadata={},
+        user="tester",
+        session="session-xyz",
+    )
+
+    assert first["user_id"] == second["user_id"]
+    assert first["session_id"] == second["session_id"]
+
+    with sessionmaker(bind=engine, future=True)() as db_session:
+        user_row = db_session.execute(
+            select(User).where(User.external_id == "tester")
+        ).scalar_one()
+        session_row = db_session.execute(
+            select(Session).where(Session.external_id == "session-xyz")
+        ).scalar_one()
+        message_rows = (
+            db_session.query(Message)
+            .filter_by(conversation_id=conversation_id)
+            .order_by(Message.created_at)
+            .all()
+        )
+        conversation_row = db_session.get(Conversation, conversation_id)
+
+    assert str(user_row.id) == first["user_id"]
+    assert user_row.display_name == "Test User"
+    assert str(session_row.id) == first["session_id"]
+    assert session_row.user_id == user_row.id
+    assert conversation_row is not None
+    assert conversation_row.session_id == session_row.id
+    assert {message.user_id for message in message_rows} == {user_row.id}
 
 
 def test_delete_workflows(repository, engine):

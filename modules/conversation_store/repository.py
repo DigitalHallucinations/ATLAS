@@ -21,6 +21,8 @@ from .models import (
     MessageAsset,
     MessageEvent,
     MessageVector,
+    Session as StoreSession,
+    User,
 )
 
 
@@ -219,6 +221,108 @@ class ConversationStoreRepository:
 
     # -- CRUD operations ----------------------------------------------------
 
+    def ensure_user(
+        self,
+        external_id: Any,
+        *,
+        display_name: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+    ) -> uuid.UUID:
+        """Ensure that a user record exists for ``external_id`` and return its UUID."""
+
+        if external_id is None:
+            raise ValueError("External user identifier must not be None")
+
+        identifier = str(external_id).strip()
+        if not identifier:
+            raise ValueError("External user identifier must not be empty")
+
+        display = display_name.strip() if isinstance(display_name, str) else None
+        metadata_payload = dict(metadata or {})
+
+        with self._session_scope() as session:
+            record = session.execute(
+                select(User).where(User.external_id == identifier)
+            ).scalar_one_or_none()
+
+            if record is None:
+                record = User(
+                    external_id=identifier,
+                    display_name=display or identifier,
+                    meta=metadata_payload,
+                )
+                session.add(record)
+                session.flush()
+            else:
+                updated = False
+                if display and record.display_name != display:
+                    record.display_name = display
+                    updated = True
+
+                if metadata_payload:
+                    merged = dict(record.meta or {})
+                    before = merged.copy()
+                    merged.update(metadata_payload)
+                    if merged != before:
+                        record.meta = merged
+                        updated = True
+
+                if updated:
+                    session.flush()
+
+            return record.id
+
+    def ensure_session(
+        self,
+        user_id: Any | None,
+        external_session_id: Any,
+        *,
+        metadata: Optional[Mapping[str, Any]] = None,
+    ) -> uuid.UUID:
+        """Ensure that a session record exists and return its UUID."""
+
+        if external_session_id is None:
+            raise ValueError("External session identifier must not be None")
+
+        identifier = str(external_session_id).strip()
+        if not identifier:
+            raise ValueError("External session identifier must not be empty")
+
+        user_uuid = _coerce_uuid(user_id) if user_id is not None else None
+        metadata_payload = dict(metadata or {})
+
+        with self._session_scope() as session:
+            record = session.execute(
+                select(StoreSession).where(StoreSession.external_id == identifier)
+            ).scalar_one_or_none()
+
+            if record is None:
+                record = StoreSession(
+                    external_id=identifier,
+                    user_id=user_uuid,
+                    meta=metadata_payload,
+                )
+                session.add(record)
+                session.flush()
+            else:
+                updated = False
+                if user_uuid is not None and record.user_id != user_uuid:
+                    record.user_id = user_uuid
+                    updated = True
+
+                if metadata_payload:
+                    merged = dict(record.meta or {})
+                    before = merged.copy()
+                    merged.update(metadata_payload)
+                    if merged != before:
+                        record.meta = merged
+                        updated = True
+
+                if updated:
+                    session.flush()
+
+            return record.id
+
     def ensure_conversation(
         self,
         conversation_id: Any,
@@ -276,6 +380,12 @@ class ConversationStoreRepository:
         content: Any,
         metadata: Optional[Dict[str, Any]] = None,
         user_id: Any | None = None,
+        user: Any | None = None,
+        user_display_name: Optional[str] = None,
+        user_metadata: Optional[Mapping[str, Any]] = None,
+        session_id: Any | None = None,
+        session: Any | None = None,
+        session_metadata: Optional[Mapping[str, Any]] = None,
         timestamp: Any | None = None,
         message_id: Optional[str] = None,
         extra: Optional[Dict[str, Any]] = None,
@@ -286,7 +396,48 @@ class ConversationStoreRepository:
         """Insert a message and related resources, returning the stored payload."""
 
         conversation_uuid = _coerce_uuid(conversation_id)
-        user_uuid = _coerce_uuid(user_id) if user_id else None
+
+        user_uuid: uuid.UUID | None
+        user_metadata_payload: Optional[Dict[str, Any]] = None
+        if user_metadata:
+            if isinstance(user_metadata, Mapping):
+                user_metadata_payload = dict(user_metadata)
+            else:
+                user_metadata_payload = dict(user_metadata)
+
+        session_metadata_payload: Optional[Dict[str, Any]] = None
+        if session_metadata:
+            if isinstance(session_metadata, Mapping):
+                session_metadata_payload = dict(session_metadata)
+            else:
+                session_metadata_payload = dict(session_metadata)
+
+        if user_id is not None:
+            user_uuid = _coerce_uuid(user_id)
+        elif user is not None:
+            user_uuid = self.ensure_user(
+                user,
+                display_name=user_display_name,
+                metadata=user_metadata_payload,
+            )
+        else:
+            user_uuid = None
+
+        session_uuid: uuid.UUID | None
+        if session_id is not None:
+            session_uuid = _coerce_uuid(session_id)
+        elif session is not None:
+            session_uuid = self.ensure_session(
+                user_uuid,
+                session,
+                metadata=session_metadata_payload,
+            )
+        else:
+            session_uuid = None
+
+        if session_uuid is not None:
+            self.ensure_conversation(conversation_uuid, session_id=session_uuid)
+
         extra_payload = dict(extra or {})
         message_metadata = dict(metadata or {})
 
@@ -714,6 +865,11 @@ class ConversationStoreRepository:
             if message.updated_at is not None
             else None,
         }
+        payload["user_id"] = str(message.user_id) if message.user_id else None
+        session_ref = None
+        if message.conversation is not None and message.conversation.session_id is not None:
+            session_ref = str(message.conversation.session_id)
+        payload["session_id"] = session_ref
         if message.extra:
             payload.update(message.extra)
         if message.client_message_id:

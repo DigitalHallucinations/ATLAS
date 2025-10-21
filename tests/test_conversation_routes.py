@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from modules.Server import AtlasServer, RequestContext
 from modules.Server.conversation_routes import ConversationAuthorizationError
 from modules.conversation_store import Base, ConversationStoreRepository
+from modules.conversation_store.models import Message, Session, User
 from modules.orchestration.message_bus import InMemoryQueueBackend, MessageBus
 
 
@@ -51,10 +52,18 @@ def server(repository, message_bus):
 
 @pytest.fixture
 def tenant_context():
-    return RequestContext(tenant_id="tenant-1", user_id=str(uuid.uuid4()))
+    return RequestContext(
+        tenant_id="tenant-1",
+        user_id=str(uuid.uuid4()),
+        session_id="session-1",
+    )
 
 
-def test_message_crud_and_pagination(server: AtlasServer, tenant_context: RequestContext):
+def test_message_crud_and_pagination(
+    server: AtlasServer,
+    tenant_context: RequestContext,
+    repository: ConversationStoreRepository,
+):
     conversation_id = str(uuid.uuid4())
     first = server.create_message(
         {
@@ -66,6 +75,23 @@ def test_message_crud_and_pagination(server: AtlasServer, tenant_context: Reques
         context=tenant_context,
     )
     assert first["metadata"]["tenant_id"] == tenant_context.tenant_id
+    assert first["user_id"] is not None
+    assert first["session_id"] is not None
+
+    with repository._session_factory() as db_session:  # type: ignore[attr-defined]
+        message_row = db_session.get(Message, uuid.UUID(first["id"]))
+        assert message_row is not None
+        assert message_row.user_id is not None
+        conversation_row = message_row.conversation
+        assert conversation_row is not None
+        assert conversation_row.session_id is not None
+        stored_user = db_session.get(User, message_row.user_id)
+        stored_session = db_session.get(Session, conversation_row.session_id)
+        assert stored_user is not None
+        assert stored_user.external_id == tenant_context.user_id
+        assert stored_session is not None
+        assert stored_session.external_id == tenant_context.session_id
+        assert stored_session.user_id == stored_user.id
 
     updated = server.update_message(
         first["id"],
