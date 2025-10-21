@@ -10,13 +10,9 @@ from gi.repository import Gtk
 from ATLAS.ATLAS import ATLAS
 from GTKUI.sidebar import MainWindow
 
-async def initialize_atlas():
-    atlas = ATLAS()
-    await atlas.initialize()
-    return atlas
-
 def main():
-    atlas = asyncio.run(initialize_atlas())
+    atlas = ATLAS()
+    asyncio.run(atlas.initialize())
 
     app = Gtk.Application(application_id='com.example.atlas')
 
