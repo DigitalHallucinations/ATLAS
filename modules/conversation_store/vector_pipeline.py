@@ -180,7 +180,16 @@ class ConversationVectorCatalog:
             conversation_uuid = _maybe_uuid(namespace)
             if conversation_uuid is None:
                 return
-            self._repository.delete_message_vectors(conversation_id=conversation_uuid)
+            conversation = self._repository.get_conversation(conversation_uuid)
+            if conversation is None:
+                return
+            tenant_id = conversation.get("tenant_id")
+            if not tenant_id:
+                return
+            self._repository.delete_message_vectors(
+                tenant_id=tenant_id,
+                conversation_id=conversation_uuid,
+            )
 
         await asyncio.to_thread(_delete)
 

@@ -74,7 +74,7 @@ def test_message_crud_and_pagination(
         },
         context=tenant_context,
     )
-    assert first["metadata"]["tenant_id"] == tenant_context.tenant_id
+    assert first["tenant_id"] == tenant_context.tenant_id
     assert first["user_id"] is not None
     assert first["session_id"] is not None
 
@@ -144,6 +144,7 @@ def test_message_crud_and_pagination(
 def test_search_supports_text_and_vector(server: AtlasServer, tenant_context: RequestContext):
     conversation_id = str(uuid.uuid4())
     other_conversation = str(uuid.uuid4())
+    foreign_conversation = str(uuid.uuid4())
 
     vector_message = server.create_message(
         {
@@ -173,6 +174,17 @@ def test_search_supports_text_and_vector(server: AtlasServer, tenant_context: Re
         context=tenant_context,
     )
 
+    foreign_context = RequestContext(tenant_id="tenant-2")
+    server.create_message(
+        {
+            "conversation_id": foreign_conversation,
+            "role": "assistant",
+            "content": {"text": "outside tenant"},
+            "metadata": {"topic": "weather"},
+        },
+        context=foreign_context,
+    )
+
     text_results = server.search_conversations(
         {"conversation_ids": [conversation_id], "text": "weather"},
         context=tenant_context,
@@ -190,6 +202,12 @@ def test_search_supports_text_and_vector(server: AtlasServer, tenant_context: Re
     )
     assert vector_results["count"] == 1
     assert vector_results["items"][0]["message"]["id"] == vector_message["id"]
+
+    with pytest.raises(ConversationAuthorizationError):
+        server.search_conversations(
+            {"conversation_ids": [foreign_conversation], "text": "weather"},
+            context=tenant_context,
+        )
 
 
 def test_search_scans_long_conversations(server: AtlasServer, tenant_context: RequestContext):

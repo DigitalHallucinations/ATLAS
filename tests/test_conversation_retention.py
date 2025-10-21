@@ -47,32 +47,35 @@ def test_prune_expired_messages_removes_old_records(retention_repository, engine
     repo = retention_repository
     now = datetime(2024, 2, 1, tzinfo=timezone.utc)
     conversation_id = uuid.uuid4()
-    repo.ensure_conversation(conversation_id, metadata={"tenant_id": "alpha"})
+    repo.ensure_conversation(conversation_id, tenant_id="alpha")
 
     old_message = repo.add_message(
         conversation_id,
+        tenant_id="alpha",
         role="user",
         content={"text": "ancient"},
         timestamp=(now - timedelta(days=45)).isoformat(),
-        metadata={"tenant_id": "alpha"},
+        metadata={},
         assets=[{"asset_type": "file", "uri": "s3://bucket/asset"}],
         events=[{"event_type": "ingested", "metadata": {"source": "test"}}],
     )
 
     soft_deleted = repo.add_message(
         conversation_id,
+        tenant_id="alpha",
         role="assistant",
         content={"text": "trashed"},
         timestamp=(now - timedelta(days=20)).isoformat(),
-        metadata={"tenant_id": "alpha"},
+        metadata={},
     )
 
     lingering = repo.add_message(
         conversation_id,
+        tenant_id="alpha",
         role="system",
         content={"text": "lingering"},
         timestamp=(now - timedelta(days=18)).isoformat(),
-        metadata={"tenant_id": "alpha"},
+        metadata={},
     )
 
     with sessionmaker(bind=engine, future=True)() as session:
@@ -116,22 +119,12 @@ def test_prune_archived_conversations_enforces_policies(retention_repository, en
     repo = retention_repository
     now = datetime(2024, 2, 1, tzinfo=timezone.utc)
 
-    aging_conversation = repo.ensure_conversation(
-        uuid.uuid4(), metadata={"tenant_id": "alpha"}
-    )
-    tenant_recent_a = repo.ensure_conversation(
-        uuid.uuid4(), metadata={"tenant_id": "alpha"}
-    )
-    tenant_recent_b = repo.ensure_conversation(
-        uuid.uuid4(), metadata={"tenant_id": "alpha"}
-    )
-    tenant_recent_c = repo.ensure_conversation(
-        uuid.uuid4(), metadata={"tenant_id": "alpha"}
-    )
+    aging_conversation = repo.ensure_conversation(uuid.uuid4(), tenant_id="alpha")
+    tenant_recent_a = repo.ensure_conversation(uuid.uuid4(), tenant_id="alpha")
+    tenant_recent_b = repo.ensure_conversation(uuid.uuid4(), tenant_id="alpha")
+    tenant_recent_c = repo.ensure_conversation(uuid.uuid4(), tenant_id="alpha")
 
-    archived_to_prune = repo.ensure_conversation(
-        uuid.uuid4(), metadata={"tenant_id": "beta"}
-    )
+    archived_to_prune = repo.ensure_conversation(uuid.uuid4(), tenant_id="beta")
 
     with sessionmaker(bind=engine, future=True)() as session:
         aging = session.get(Conversation, aging_conversation)

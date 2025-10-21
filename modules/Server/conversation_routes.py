@@ -290,7 +290,6 @@ class ConversationRoutes:
         self._create_validator.validate(payload)
         conversation_id = payload["conversation_id"]
         conversation_metadata = dict(payload.get("conversation_metadata") or {})
-        conversation_metadata.setdefault("tenant_id", context.tenant_id)
         user_uuid, session_uuid = self._resolve_identity(context)
         self._ensure_conversation_access(
             conversation_id,
@@ -300,13 +299,13 @@ class ConversationRoutes:
         )
 
         metadata = dict(payload.get("metadata") or {})
-        metadata.setdefault("tenant_id", context.tenant_id)
         if context.user_id and "user" not in metadata:
             metadata["user"] = context.user_id
         extra = dict(payload.get("extra") or {})
         start_time = datetime.now(timezone.utc)
         stored = self._repository.add_message(
             conversation_id,
+            tenant_id=context.tenant_id,
             role=str(payload["role"]),
             content=payload.get("content"),
             metadata=metadata,
@@ -322,7 +321,9 @@ class ConversationRoutes:
             status=payload.get("status"),
         )
         events = self._repository.fetch_message_events(
-            message_id=stored["id"], after=start_time
+            tenant_id=context.tenant_id,
+            message_id=stored["id"],
+            after=start_time,
         )
         self._emit_events(events, context, stored)
         return stored
@@ -348,6 +349,7 @@ class ConversationRoutes:
         stored = self._repository.record_edit(
             conversation_id,
             message_id,
+            tenant_id=context.tenant_id,
             content=payload.get("content"),
             metadata=payload.get("metadata"),
             extra=payload.get("extra"),
@@ -356,7 +358,9 @@ class ConversationRoutes:
             status=payload.get("status"),
         )
         events = self._repository.fetch_message_events(
-            message_id=message_id, after=start_time
+            tenant_id=context.tenant_id,
+            message_id=message_id,
+            after=start_time,
         )
         self._emit_events(events, context, stored)
         return stored
@@ -382,14 +386,19 @@ class ConversationRoutes:
         self._repository.soft_delete_message(
             conversation_id,
             message_id,
+            tenant_id=context.tenant_id,
             reason=payload.get("reason"),
             metadata=payload.get("metadata"),
             message_type=payload.get("message_type"),
             status=payload.get("status"),
         )
-        stored = self._repository.get_message(conversation_id, message_id)
+        stored = self._repository.get_message(
+            conversation_id, message_id, tenant_id=context.tenant_id
+        )
         events = self._repository.fetch_message_events(
-            message_id=message_id, after=start_time
+            tenant_id=context.tenant_id,
+            message_id=message_id,
+            after=start_time,
         )
         self._emit_events(events, context, stored)
         return {"status": "deleted", "message": stored}
@@ -423,6 +432,7 @@ class ConversationRoutes:
 
         records = self._repository.fetch_messages(
             conversation_id,
+            tenant_id=context.tenant_id,
             limit=limit + 1,
             cursor=cursor,
             direction=direction,
@@ -498,6 +508,7 @@ class ConversationRoutes:
         if text_query or not vector_values:
             for message in self._repository.query_messages_by_text(
                 conversation_ids=conversation_ids,
+                tenant_id=context.tenant_id,
                 text=text_query,
                 metadata_filter=metadata_filter or None,
                 include_deleted=False,
@@ -520,6 +531,7 @@ class ConversationRoutes:
         if vector_values:
             for message, vector in self._repository.query_message_vectors(
                 conversation_ids=conversation_ids,
+                tenant_id=context.tenant_id,
                 metadata_filter=metadata_filter or None,
                 include_deleted=False,
                 order=order,
@@ -577,7 +589,9 @@ class ConversationRoutes:
         )
         last_seen = after
         backlog = self._repository.fetch_message_events(
-            conversation_id=conversation_id, after=after
+            tenant_id=context.tenant_id,
+            conversation_id=conversation_id,
+            after=after,
         )
         for event in backlog:
             enriched = self._enrich_event(event, context)
@@ -588,7 +602,9 @@ class ConversationRoutes:
             while True:
                 await asyncio.sleep(self._poll_interval)
                 fresh = self._repository.fetch_message_events(
-                    conversation_id=conversation_id, after=last_seen
+                    tenant_id=context.tenant_id,
+                    conversation_id=conversation_id,
+                    after=last_seen,
                 )
                 for event in fresh:
                     enriched = self._enrich_event(event, context)
@@ -675,29 +691,40 @@ class ConversationRoutes:
         session_uuid: Optional[uuid.UUID] = None,
     ) -> Dict[str, Any]:
         tenant_id = context.tenant_id
-        conversation = self._repository.get_conversation(conversation_id)
+        conversation = self._repository.get_conversation(
+            conversation_id, tenant_id=tenant_id
+        )
         if conversation is None:
-            self._repository.ensure_conversation(
-                conversation_id,
-                session_id=session_uuid,
-                metadata=dict(metadata or {"tenant_id": tenant_id}),
+            try:
+                self._repository.ensure_conversation(
+                    conversation_id,
+                    tenant_id=tenant_id,
+                    session_id=session_uuid,
+                    metadata=dict(metadata or {}),
+                )
+            except ValueError as exc:
+                raise ConversationAuthorizationError(
+                    "Conversation is not accessible for this tenant"
+                ) from exc
+            conversation = self._repository.get_conversation(
+                conversation_id, tenant_id=tenant_id
             )
-            conversation = self._repository.get_conversation(conversation_id)
         if conversation is None:
             raise ConversationNotFoundError("Conversation could not be created")
-        stored_tenant = (conversation.get("metadata") or {}).get("tenant_id")
-        if stored_tenant and stored_tenant != tenant_id:
-            raise ConversationAuthorizationError("Conversation is not accessible for this tenant")
-        if not stored_tenant:
+        if metadata:
             merged_metadata = dict(conversation.get("metadata") or {})
-            merged_metadata.update(metadata or {})
-            merged_metadata.setdefault("tenant_id", tenant_id)
-            self._repository.ensure_conversation(
-                conversation_id,
-                session_id=session_uuid,
-                metadata=merged_metadata,
-            )
-            conversation = self._repository.get_conversation(conversation_id)
+            before = merged_metadata.copy()
+            merged_metadata.update(metadata)
+            if merged_metadata != before:
+                self._repository.ensure_conversation(
+                    conversation_id,
+                    tenant_id=tenant_id,
+                    session_id=session_uuid,
+                    metadata=merged_metadata,
+                )
+                conversation = self._repository.get_conversation(
+                    conversation_id, tenant_id=tenant_id
+                )
         return conversation
 
     def _emit_events(
