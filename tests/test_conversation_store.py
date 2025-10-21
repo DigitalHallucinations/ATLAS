@@ -61,6 +61,8 @@ def test_recent_messages_are_returned_in_chronological_order(repository):
 
     messages = repository.load_recent_messages(conversation_id, limit=5)
     assert [msg["metadata"]["idx"] for msg in messages] == list(range(5))
+    assert all(msg["message_type"] == "text" for msg in messages)
+    assert all(msg["status"] == "sent" for msg in messages)
 
 
 def test_idempotent_inserts(repository, engine):
@@ -155,6 +157,7 @@ def test_delete_workflows(repository, engine):
     with sessionmaker(bind=engine, future=True)() as session:
         message = session.get(Message, uuid.UUID(stored["id"]))
         assert message.deleted_at is not None
+        assert message.status == "deleted"
 
     repository.hard_delete_conversation(conversation_id)
 
@@ -196,3 +199,69 @@ def test_vector_upsert_and_fetch(repository):
     removed = repository.delete_message_vectors(conversation_id=conversation_id)
     assert removed == 1
     assert repository.fetch_message_vectors(conversation_id=conversation_id) == []
+
+
+def test_record_edit_updates_type_and_status(repository):
+    conversation_id = _uuid()
+    repository.ensure_conversation(conversation_id)
+    stored = repository.add_message(
+        conversation_id,
+        role="assistant",
+        content={"text": "draft"},
+        metadata={},
+    )
+
+    updated = repository.record_edit(
+        conversation_id,
+        stored["id"],
+        content={"text": "final"},
+        message_type="tool",
+        status="delivered",
+    )
+
+    assert updated["content"] == {"text": "final"}
+    assert updated["message_type"] == "tool"
+    assert updated["status"] == "delivered"
+
+    with repository._session_scope() as session:  # pylint: disable=protected-access
+        message = session.get(Message, uuid.UUID(stored["id"]))
+        assert message is not None
+        assert message.message_type == "tool"
+        assert message.status == "delivered"
+
+
+def test_fetch_messages_filters_by_type_and_status(repository):
+    conversation_id = _uuid()
+    repository.ensure_conversation(conversation_id)
+    first = repository.add_message(
+        conversation_id,
+        role="user",
+        content={"text": "pending"},
+        metadata={},
+        message_type="text",
+        status="pending",
+    )
+    second = repository.add_message(
+        conversation_id,
+        role="assistant",
+        content={"text": "complete"},
+        metadata={},
+        message_type="summary",
+        status="sent",
+    )
+    repository.add_message(
+        conversation_id,
+        role="assistant",
+        content={"text": "other"},
+        metadata={},
+        message_type="tool",
+        status="failed",
+    )
+
+    filtered = repository.fetch_messages(
+        conversation_id,
+        message_types=["summary", "text"],
+        statuses=["sent", "pending"],
+    )
+
+    assert [msg["id"] for msg in filtered] == [first["id"], second["id"]]

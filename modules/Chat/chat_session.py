@@ -119,6 +119,8 @@ class ChatSession:
             content=message,
             metadata={"source": "user"},
             user_display_name=active_display,
+            message_type="text",
+            status="sent",
         )
         self.messages_since_last_reminder += 1
 
@@ -222,6 +224,8 @@ class ChatSession:
             role="assistant",
             content=response_text,
             metadata=metadata,
+            message_type="text",
+            status="sent",
             **audio_payload,
         )
         return response
@@ -684,11 +688,22 @@ class ChatSession:
             timestamp = entry.get("timestamp")
             message_id = entry.get("message_id")
             fallback_id = entry.get("id")
+            message_type = entry.get("message_type")
+            status = entry.get("status")
             extra = {
                 key: value
                 for key, value in entry.items()
                 if key
-                not in {"id", "conversation_id", "role", "content", "metadata", "timestamp"}
+                not in {
+                    "id",
+                    "conversation_id",
+                    "role",
+                    "content",
+                    "metadata",
+                    "timestamp",
+                    "message_type",
+                    "status",
+                }
             }
             stored = self._conversation_repository.add_message(
                 self._conversation_id,
@@ -698,6 +713,8 @@ class ChatSession:
                 timestamp=timestamp,
                 message_id=message_id or (str(fallback_id) if fallback_id else None),
                 extra=extra,
+                message_type=message_type,
+                status=status,
             )
         except Exception as exc:  # pragma: no cover - defensive persistence
             self.ATLAS.logger.warning(
@@ -771,6 +788,8 @@ class ChatSession:
         user_metadata: Dict[str, Any] | None = None,
         session_identifier: str | None = None,
         session_metadata: Dict[str, Any] | None = None,
+        message_type: str | None = None,
+        status: str | None = None,
         **extra_fields: Any,
     ) -> Dict[str, Any]:
         """Add a generic message to the conversation history.
@@ -788,6 +807,8 @@ class ChatSession:
             timestamp=timestamp,
             metadata=metadata,
         )
+        entry["message_type"] = message_type or "text"
+        entry["status"] = status or "sent"
         if user_display_name is not None:
             entry["user_display_name"] = user_display_name
         if user_metadata:
@@ -813,6 +834,8 @@ class ChatSession:
                     "timestamp",
                     "conversation_id",
                     "message_id",
+                    "message_type",
+                    "status",
                     "user_display_name",
                     "user_metadata",
                     "session_identifier",
@@ -848,6 +871,8 @@ class ChatSession:
                     session_metadata=dict(session_meta_payload)
                     if session_meta_payload
                     else None,
+                    message_type=entry.get("message_type"),
+                    status=entry.get("status"),
                 )
             except Exception as exc:  # pragma: no cover - persistence fallback
                 self.ATLAS.logger.warning(
@@ -958,6 +983,8 @@ class ChatSession:
             content=entry.get("content"),
             timestamp=entry.get("timestamp"),
             metadata=entry.get("metadata"),
+            message_type="tool",
+            status="sent",
             **{
                 key: value
                 for key, value in entry.items()

@@ -1082,6 +1082,8 @@ class OpenAIGenerator:
             conversation_id,
             role or "assistant",
             text_content,
+            message_type="text",
+            status="sent",
             **sanitized_fields,
         )
 
@@ -1718,7 +1720,14 @@ class OpenAIGenerator:
                         yield suffix
                         full_response += suffix
 
-            conversation_manager.add_message(user, conversation_id, "assistant", full_response)
+            conversation_manager.add_message(
+                user,
+                conversation_id,
+                "assistant",
+                full_response,
+                message_type="text",
+                status="sent",
+            )
             self.logger.info("Full streaming response added to conversation history.")
 
         if audio_enabled and final_response is not None:
@@ -1905,7 +1914,14 @@ class OpenAIGenerator:
                         full_response += text_piece
 
         if conversation_manager:
-            conversation_manager.add_message(user, conversation_id, "assistant", full_response)
+            conversation_manager.add_message(
+                user,
+                conversation_id,
+                "assistant",
+                full_response,
+                message_type="text",
+                status="sent",
+            )
             self.logger.info("Full streaming response added to conversation history.")
 
         if audio_chunks:

@@ -181,6 +181,8 @@ class ConversationRoutes:
                     "vectors": {"type": "array", "items": {"type": "object"}},
                     "events": {"type": "array", "items": {"type": "object"}},
                     "conversation_metadata": {"type": "object"},
+                    "message_type": {"type": "string", "minLength": 1},
+                    "status": {"type": "string", "minLength": 1},
                 },
                 "additionalProperties": False,
             }
@@ -195,6 +197,8 @@ class ConversationRoutes:
                     "metadata": {"type": "object"},
                     "extra": {"type": "object"},
                     "events": {"type": "array", "items": {"type": "object"}},
+                    "message_type": {"type": "string", "minLength": 1},
+                    "status": {"type": "string", "minLength": 1},
                 },
                 "additionalProperties": False,
                 "anyOf": [
@@ -202,6 +206,8 @@ class ConversationRoutes:
                     {"required": ["metadata"]},
                     {"required": ["extra"]},
                     {"required": ["events"]},
+                    {"required": ["message_type"]},
+                    {"required": ["status"]},
                 ],
             }
         )
@@ -213,6 +219,8 @@ class ConversationRoutes:
                     "conversation_id": {"type": "string"},
                     "reason": {"type": "string"},
                     "metadata": {"type": "object"},
+                    "message_type": {"type": "string", "minLength": 1},
+                    "status": {"type": "string", "minLength": 1},
                 },
                 "additionalProperties": False,
             }
@@ -226,6 +234,16 @@ class ConversationRoutes:
                     "direction": {"type": "string", "enum": ["forward", "backward"]},
                     "metadata": {"type": "object"},
                     "include_deleted": {"type": "boolean"},
+                    "message_types": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        "uniqueItems": True,
+                    },
+                    "statuses": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        "uniqueItems": True,
+                    },
                 },
                 "additionalProperties": False,
             }
@@ -298,6 +316,8 @@ class ConversationRoutes:
             assets=list(payload.get("assets") or []),
             vectors=list(payload.get("vectors") or []),
             events=list(payload.get("events") or []),
+            message_type=payload.get("message_type"),
+            status=payload.get("status"),
         )
         events = self._repository.fetch_message_events(
             message_id=stored["id"], after=start_time
@@ -330,6 +350,8 @@ class ConversationRoutes:
             metadata=payload.get("metadata"),
             extra=payload.get("extra"),
             events=list(payload.get("events") or []),
+            message_type=payload.get("message_type"),
+            status=payload.get("status"),
         )
         events = self._repository.fetch_message_events(
             message_id=message_id, after=start_time
@@ -360,6 +382,8 @@ class ConversationRoutes:
             message_id,
             reason=payload.get("reason"),
             metadata=payload.get("metadata"),
+            message_type=payload.get("message_type"),
+            status=payload.get("status"),
         )
         stored = self._repository.get_message(conversation_id, message_id)
         events = self._repository.fetch_message_events(
@@ -390,6 +414,8 @@ class ConversationRoutes:
         direction = str(params.get("direction") or "forward").lower()
         include_deleted = bool(params.get("include_deleted", False))
         metadata_filter = dict(params.get("metadata") or {})
+        message_types = list(params.get("message_types") or [])
+        statuses = list(params.get("statuses") or [])
         cursor_value = params.get("cursor")
         cursor = _decode_cursor(cursor_value) if cursor_value else None
 
@@ -400,6 +426,8 @@ class ConversationRoutes:
             direction=direction,
             metadata_filter=metadata_filter or None,
             include_deleted=include_deleted,
+            message_types=message_types or None,
+            statuses=statuses or None,
         )
 
         next_cursor = None

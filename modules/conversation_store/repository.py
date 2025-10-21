@@ -69,6 +69,24 @@ def _dt_to_iso(moment: Optional[datetime]) -> Optional[str]:
     return moment.isoformat().replace("+00:00", "Z")
 
 
+_DEFAULT_MESSAGE_TYPE = "text"
+_DEFAULT_STATUS = "sent"
+
+
+def _normalize_message_type(value: Any) -> str:
+    if value is None:
+        return _DEFAULT_MESSAGE_TYPE
+    text = str(value).strip()
+    return text or _DEFAULT_MESSAGE_TYPE
+
+
+def _normalize_status(value: Any) -> str:
+    if value is None:
+        return _DEFAULT_STATUS
+    text = str(value).strip()
+    return text or _DEFAULT_STATUS
+
+
 def _normalize_attempts(attempts: Sequence[Any]) -> List[str]:
     normalised: List[str] = []
     for attempt in attempts:
@@ -805,10 +823,15 @@ class ConversationStoreRepository:
         assets: Optional[List[Dict[str, Any]]] = None,
         vectors: Optional[List[Dict[str, Any]]] = None,
         events: Optional[List[Dict[str, Any]]] = None,
+        message_type: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Insert a message and related resources, returning the stored payload."""
 
         conversation_uuid = _coerce_uuid(conversation_id)
+
+        normalized_type = _normalize_message_type(message_type)
+        normalized_status = _normalize_status(status)
 
         user_uuid: uuid.UUID | None
         user_metadata_payload: Optional[Dict[str, Any]] = None
@@ -871,6 +894,8 @@ class ConversationStoreRepository:
                 conversation_id=conversation_uuid,
                 user_id=user_uuid,
                 role=role,
+                message_type=normalized_type,
+                status=normalized_status,
                 content=content,
                 meta=message_metadata,
                 extra=extra_payload,
@@ -892,7 +917,11 @@ class ConversationStoreRepository:
                 [
                     {
                         "event_type": "created",
-                        "metadata": {"role": role},
+                        "metadata": {
+                            "role": role,
+                            "message_type": normalized_type,
+                            "status": normalized_status,
+                        },
                     }
                 ],
             )
@@ -909,6 +938,8 @@ class ConversationStoreRepository:
         metadata: Optional[Dict[str, Any]] = None,
         extra: Optional[Dict[str, Any]] = None,
         events: Optional[List[Dict[str, Any]]] = None,
+        message_type: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Update an existing message and record corresponding events."""
 
@@ -930,6 +961,11 @@ class ConversationStoreRepository:
                 existing_extra.update(extra)
                 message.extra = existing_extra
 
+            if message_type is not None:
+                message.message_type = _normalize_message_type(message_type)
+            if status is not None:
+                message.status = _normalize_status(status)
+
             message.updated_at = datetime.now(timezone.utc)
             self._store_events(session, message, events)
             self._store_events(
@@ -938,7 +974,10 @@ class ConversationStoreRepository:
                 [
                     {
                         "event_type": "edited",
-                        "metadata": {},
+                        "metadata": {
+                            "message_type": message.message_type,
+                            "status": message.status,
+                        },
                     }
                 ],
             )
@@ -952,6 +991,8 @@ class ConversationStoreRepository:
         *,
         reason: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        status: Optional[str] = None,
+        message_type: Optional[str] = None,
     ) -> None:
         conversation_uuid = _coerce_uuid(conversation_id)
         message_uuid = _coerce_uuid(message_id)
@@ -960,7 +1001,14 @@ class ConversationStoreRepository:
             if message is None or message.conversation_id != conversation_uuid:
                 raise ValueError("Unknown message or conversation")
 
+            if message_type is not None:
+                message.message_type = _normalize_message_type(message_type)
+            if status is None:
+                message.status = _normalize_status("deleted")
+            else:
+                message.status = _normalize_status(status)
             message.deleted_at = datetime.now(timezone.utc)
+            message.updated_at = datetime.now(timezone.utc)
             audit_metadata = {"reason": reason} if reason else {}
             if metadata:
                 audit_metadata.update(metadata)
@@ -970,7 +1018,11 @@ class ConversationStoreRepository:
                 [
                     {
                         "event_type": "soft_deleted",
-                        "metadata": audit_metadata,
+                        "metadata": {
+                            **audit_metadata,
+                            "message_type": message.message_type,
+                            "status": message.status,
+                        },
                     }
                 ],
             )
@@ -1051,6 +1103,8 @@ class ConversationStoreRepository:
         direction: str = "forward",
         metadata_filter: Optional[Mapping[str, Any]] = None,
         include_deleted: bool = True,
+        message_types: Optional[Sequence[str]] = None,
+        statuses: Optional[Sequence[str]] = None,
     ) -> List[Dict[str, Any]]:
         conversation_uuid = _coerce_uuid(conversation_id)
         with self._session_scope() as session:
@@ -1059,6 +1113,18 @@ class ConversationStoreRepository:
                 stmt = stmt.where(Message.meta.contains(dict(metadata_filter)))
             if not include_deleted:
                 stmt = stmt.where(Message.deleted_at.is_(None))
+            if message_types:
+                normalized_types = {
+                    _normalize_message_type(item) for item in message_types if item is not None
+                }
+                if normalized_types:
+                    stmt = stmt.where(Message.message_type.in_(sorted(normalized_types)))
+            if statuses:
+                normalized_statuses = {
+                    _normalize_status(item) for item in statuses if item is not None
+                }
+                if normalized_statuses:
+                    stmt = stmt.where(Message.status.in_(sorted(normalized_statuses)))
 
             if direction == "backward":
                 if cursor is not None:
@@ -1268,6 +1334,8 @@ class ConversationStoreRepository:
             "id": str(message.id),
             "conversation_id": str(message.conversation_id),
             "role": message.role,
+            "message_type": message.message_type,
+            "status": message.status,
             "content": message.content,
             "metadata": dict(message.meta or {}),
             "timestamp": message.created_at.astimezone(timezone.utc).strftime(
