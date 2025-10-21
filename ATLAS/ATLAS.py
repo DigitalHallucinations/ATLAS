@@ -26,6 +26,7 @@ from modules.logging.logger import setup_logger
 from ATLAS.provider_manager import ProviderManager
 from ATLAS.persona_manager import PersonaManager
 from modules.Chat.chat_session import ChatHistoryExportError, ChatSession
+from modules.conversation_store import ConversationStoreRepository
 from modules.Speech_Services.speech_manager import SpeechManager
 from modules.background_tasks import run_async_in_thread
 from modules.user_accounts.user_account_service import PasswordRequirements
@@ -62,6 +63,23 @@ class ATLAS:
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
         self._default_status_tooltip = "Active LLM provider/model and TTS status"
         self.server = AtlasServer(config_manager=self.config_manager)
+        self.conversation_repository: ConversationStoreRepository | None = None
+
+        session_factory = self.config_manager.get_conversation_store_session_factory()
+        if session_factory is not None:
+            retention = self.config_manager.get_conversation_retention_policies()
+            try:
+                repository = ConversationStoreRepository(
+                    session_factory,
+                    retention=retention,
+                )
+                repository.create_schema()
+            except Exception as exc:  # pragma: no cover - database bootstrap issues
+                self.logger.warning(
+                    "Conversation store unavailable: %s", exc, exc_info=True
+                )
+            else:
+                self.conversation_repository = repository
 
     def _resolve_user_identity(self, *, prefer_generic: bool = False) -> Tuple[str, str]:
         """Return best-effort user identifier and display name."""
