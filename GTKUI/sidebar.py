@@ -217,7 +217,7 @@ class MainWindow(AtlasWindow):
         GLib.idle_add(self._focus_persona_skill, skill_name)
 
     def close_application(self, *_args) -> bool:
-        logger.info("Closing application")
+        logger.debug("Closing application")
         app = self.get_application()
         if app:
             app.quit()

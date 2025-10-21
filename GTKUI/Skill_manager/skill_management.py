@@ -2195,7 +2195,7 @@ class SkillManagement:
             if callable(setter):
                 setter(False)
             if self._recent_changes_snapshot not in (None, tuple()):
-                logger.info("Pending skill review changes cleared.")
+                logger.debug("Pending skill review changes cleared.")
             self._recent_changes_snapshot = None
             return
 
@@ -2207,7 +2207,7 @@ class SkillManagement:
             if callable(setter):
                 setter(False)
             if self._recent_changes_snapshot not in (None, tuple()):
-                logger.info("Pending skill review changes for '%s' cleared.", entry.name)
+                logger.debug("Pending skill review changes for '%s' cleared.", entry.name)
             self._recent_changes_snapshot = tuple()
             return
 
@@ -2218,7 +2218,7 @@ class SkillManagement:
             setter(True)
 
         if snapshot != self._recent_changes_snapshot:
-            logger.info(
+            logger.debug(
                 "Pending skill review changes for '%s': %s",
                 entry.name,
                 "; ".join(changes),

@@ -1061,8 +1061,8 @@ class SpeechSettings(Gtk.Box):
             )
             return
 
-        logger.info("Open AI STT provider set to %s", prepared_settings.get("stt_provider"))
-        logger.info("Open AI TTS provider set to %s", prepared_settings.get("tts_provider"))
+        logger.debug("Open AI STT provider set to %s", prepared_settings.get("stt_provider"))
+        logger.debug("Open AI TTS provider set to %s", prepared_settings.get("tts_provider"))
 
         self._apply_provider_status_to_entry(
             self.openai_api_entry,

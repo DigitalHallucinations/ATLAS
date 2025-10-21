@@ -37,7 +37,7 @@ class GPT4oTTS:
             raise RuntimeError("AsyncOpenAI client is unavailable in the installed OpenAI SDK")
 
         self._client = AsyncOpenAI(api_key=self.api_key)
-        logger.info("Initialized GPT4o TTS provider.")
+        logger.debug("Initialized GPT4o TTS provider.")
 
     async def text_to_speech(
         self,
@@ -72,7 +72,7 @@ class GPT4oTTS:
             raise RuntimeError(message)
 
         await asyncio.to_thread(destination.write_bytes, audio_bytes)
-        logger.info("GPT4o TTS synthesis complete. Audio saved to %s", destination)
+        logger.debug("GPT4o TTS synthesis complete. Audio saved to %s", destination)
         return str(destination)
 
     async def _gather_audio_bytes(self, response: Any) -> bytes:

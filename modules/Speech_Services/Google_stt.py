@@ -16,7 +16,7 @@ class GoogleSTT:
         sample_rate_hertz=None,
         enable_automatic_punctuation=True,
     ):
-        logger.info("Initializing GoogleSTT")
+        logger.debug("Initializing GoogleSTT")
         effective_sample_rate = sample_rate_hertz if sample_rate_hertz is not None else fs
         if effective_sample_rate is None:
             effective_sample_rate = 16000
@@ -38,14 +38,14 @@ class GoogleSTT:
             self.frames.append(indata.copy())
 
     def listen(self):  
-        logger.info("Listening...")
+        logger.debug("Listening...")
         self.frames = []
         self.recording = True
         self.stream = sd.InputStream(callback=self.callback, channels=1, samplerate=self.fs)
         self.stream.start()
 
     def stop_listening(self):
-        logger.info("Stopping listening")
+        logger.debug("Stopping listening")
         if self.recording:
             self.stream.stop()
             self.recording = False
@@ -57,7 +57,7 @@ class GoogleSTT:
         self.frames = []
 
     def save_recording(self, filename='output.wav'):
-        logger.info("Saving recording")
+        logger.debug("Saving recording")
         output_dir = 'assets/user/sst_output'
         os.makedirs(output_dir, exist_ok=True)  
         output_file = os.path.join(output_dir, filename)
@@ -65,12 +65,12 @@ class GoogleSTT:
         if self.frames:
             data = np.concatenate(self.frames)
             sf.write(output_file, data, self.fs)
-            logger.info(f"Audio recorded and saved as {output_file}")
+            logger.debug("Audio recorded and saved as %s", output_file)
         else:
             logger.warning("No frames to save")
 
     def transcribe(self, audio_file):
-        logger.info(f"Transcribing file {audio_file}")
+        logger.debug("Transcribing file %s", audio_file)
         audio_file_path = os.path.join('assets/user/sst_output', audio_file)
 
         if not os.path.exists(audio_file_path):
@@ -93,6 +93,6 @@ class GoogleSTT:
 
         # Delete the audio file after transcription
         os.remove(audio_file_path)
-        logger.info(f"Deleted audio file {audio_file_path}")
+        logger.debug("Deleted audio file %s", audio_file_path)
 
         return ' '.join(transcript)

@@ -67,7 +67,11 @@ class ChatSession:
     def set_default_provider_and_model(self):
         self.current_provider = self.ATLAS.get_default_provider()
         self.current_model = self.ATLAS.get_default_model()
-        self.ATLAS.logger.info(f"ChatSession initialized with provider: {self.current_provider} and model: {self.current_model}")
+        self.ATLAS.logger.debug(
+            "ChatSession initialized with provider: %s and model: %s",
+            self.current_provider,
+            self.current_model,
+        )
 
     async def send_message(self, message: str) -> Union[str, Dict[str, Any]]:
         new_persona_prompt = self.ATLAS.persona_manager.get_current_persona_prompt()
@@ -224,11 +228,12 @@ class ChatSession:
         if prompt:
             # Insert the new persona's system prompt at the start of the conversation
             self.conversation_history.insert(0, {"role": "system", "content": prompt})
-            self.ATLAS.logger.info(
-                f"Switched to new persona: {prompt[:50]}..."
+            self.ATLAS.logger.debug(
+                "Switched to new persona: %s...",
+                prompt[:50],
             )  # Log first 50 chars
         else:
-            self.ATLAS.logger.info("Cleared persona system prompt; no persona active.")
+            self.ATLAS.logger.debug("Cleared persona system prompt; no persona active.")
         self.messages_since_last_reminder = 0
         self._last_persona_reminder_index = None
 
@@ -260,7 +265,7 @@ class ChatSession:
         self.conversation_history.insert(reminder_index, reminder)
         self._last_persona_reminder_index = reminder_index
         self.messages_since_last_reminder = 0
-        self.ATLAS.logger.info("Reinforced persona in conversation")
+        self.ATLAS.logger.debug("Reinforced persona in conversation")
 
     @staticmethod
     def _is_persona_reminder(message: Mapping[str, Any]) -> bool:
@@ -299,11 +304,11 @@ class ChatSession:
             model (str): The model to use.
         """
         self.current_model = model
-        self.ATLAS.logger.info(f"ChatSession model set to: {model}")
+        self.ATLAS.logger.debug("ChatSession model set to: %s", model)
 
     def set_provider(self, provider: str):
         self.current_provider = provider
-        self.ATLAS.logger.info(f"ChatSession provider set to: {provider}")
+        self.ATLAS.logger.debug("ChatSession provider set to: %s", provider)
         # When changing the provider, we should also update the model to the default for that provider
         default_model = self.ATLAS.provider_manager.get_default_model_for_provider(provider)
         if default_model:

@@ -1610,7 +1610,7 @@ class ChatPage(Gtk.Box):
         else:
             attempted = "Linux xdg-open"
 
-        logger.info(
+        logger.debug(
             "Gtk.UriLauncher unavailable or failed; attempting %s (fallback order: %s)",
             attempted,
             fallback_order,

@@ -744,11 +744,13 @@ class ATLAS:
         default_provider = self.config_manager.get_default_provider()
         if self.config_manager.is_default_provider_ready():
             await self.provider_manager.set_current_provider(default_provider)
-            self.logger.info(
-                f"Default provider set to: {self.provider_manager.get_current_provider()}"
+            self.logger.debug(
+                "Default provider set to: %s",
+                self.provider_manager.get_current_provider(),
             )
-            self.logger.info(
-                f"Default model set to: {self.provider_manager.get_current_model()}"
+            self.logger.debug(
+                "Default model set to: %s",
+                self.provider_manager.get_current_model(),
             )
         else:
             warning_message = self.config_manager.get_pending_provider_warnings().get(
@@ -770,13 +772,13 @@ class ATLAS:
         # Load TTS setting from configuration
         tts_enabled = self.config_manager.get_tts_enabled()
         self.speech_manager.set_tts_status(tts_enabled)
-        self.logger.info(f"TTS enabled: {tts_enabled}")
+        self.logger.debug("TTS enabled: %s", tts_enabled)
         
         # Optionally, set default TTS provider if specified in config.yaml
         default_tts_provider = self.config_manager.get_config('DEFAULT_TTS_PROVIDER')
         if default_tts_provider:
             self.speech_manager.set_default_tts_provider(default_tts_provider)
-            self.logger.info(f"Default TTS provider set to: {default_tts_provider}")
+            self.logger.debug("Default TTS provider set to: %s", default_tts_provider)
 
         self._initialized = True
         self._notify_persona_change_listeners()
@@ -814,12 +816,12 @@ class ATLAS:
         Args:
             persona (str): The name of the persona to load.
         """
-        self.logger.info(f"Loading persona: {persona}")
+        self.logger.debug("Loading persona: %s", persona)
         manager = self._require_persona_manager()
 
         manager.updater(persona)
         self.current_persona = manager.current_persona  # Update the current_persona in ATLAS
-        self.logger.info(f"Current persona set to: {self.current_persona}")
+        self.logger.debug("Current persona set to: %s", self.current_persona)
         self._notify_persona_change_listeners()
 
     def get_active_persona_name(self) -> str:
@@ -1514,7 +1516,7 @@ class ATLAS:
         self.chat_session.set_model(current_model)
 
         # Log the updates
-        self.logger.info(f"Current provider set to {provider} with model {current_model}")
+        self.logger.debug("Current provider set to %s with model %s", provider, current_model)
         # Notify any observers (e.g., UI components) about the change
         self._notify_provider_change_listeners()
 
@@ -1630,14 +1632,14 @@ class ATLAS:
         """
         Handle history-related functionality.
         """
-        self.logger.info("History button clicked")
+        self.logger.debug("History button clicked")
         print("History button clicked")
 
     def show_settings(self):
         """
         Handle settings-related functionality.
         """
-        self.logger.info("Settings page clicked")
+        self.logger.debug("Settings page clicked")
         print("Settings page clicked")
 
     def get_default_provider(self) -> str:
@@ -2177,7 +2179,7 @@ class ATLAS:
                 "status_summary": self.get_chat_status_summary(),
             }
 
-        self.logger.info("Listening started using provider '%s'.", provider_key)
+        self.logger.debug("Listening started using provider '%s'.", provider_key)
         return {
             "ok": True,
             "status_text": "Listening…",

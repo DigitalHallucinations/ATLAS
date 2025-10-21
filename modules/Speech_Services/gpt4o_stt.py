@@ -33,7 +33,7 @@ class GPT4oSTT:
             logger.error("OPENAI_API_KEY is not set for GPT4o STT.")
             raise Exception("OPENAI_API_KEY is required for GPT4o STT")
         self.openai.api_key = self.api_key
-        logger.info(f"Initialized GPT4o STT provider (variant: {self.variant}).")
+        logger.debug("Initialized GPT4o STT provider (variant: %s).", self.variant)
         
     def transcribe(self, audio_file: str, language=None) -> str:
         """
@@ -55,7 +55,7 @@ class GPT4oSTT:
                 if language:
                     params["language"] = language
                 result = self.openai.Audio.transcribe(**params)
-            logger.info("GPT4o STT transcription complete.")
+            logger.debug("GPT4o STT transcription complete.")
             return result.get("text", "")
         except Exception as e:
             logger.error(f"GPT4o STT transcription error: {e}")

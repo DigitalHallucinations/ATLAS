@@ -62,7 +62,7 @@ def apply_css():
             css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
-        logger.info(f"Successfully applied CSS from {css_file_path}")
+        logger.debug("Successfully applied CSS from %s", css_file_path)
     except Exception as e:
         logger.error(f"Failed to load external CSS file '{css_file_path}': {e}")
 

@@ -344,7 +344,7 @@ class ConfigManager:
             'JAVASCRIPT_EXECUTOR_ARGS': os.getenv('JAVASCRIPT_EXECUTOR_ARGS'),
             'APP_ROOT': os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         }
-        self.logger.info(f"APP_ROOT is set to: {config['APP_ROOT']}")
+        self.logger.debug("APP_ROOT is set to: %s", config["APP_ROOT"])
         return config
 
     def _load_yaml_config(self) -> Dict[str, Any]:
@@ -363,7 +363,7 @@ class ConfigManager:
         try:
             with open(yaml_path, 'r') as file:
                 config = yaml.safe_load(file) or {}
-                self.logger.info(f"Loaded configuration from {yaml_path}")
+                self.logger.debug("Loaded configuration from %s", yaml_path)
                 return config
         except Exception as e:
             self.logger.error(f"Failed to load configuration from {yaml_path}: {e}")
@@ -1433,7 +1433,7 @@ class ConfigManager:
         if sanitized is None:
             self.yaml_config.pop('ACTIVE_USER', None)
             self.config.pop('ACTIVE_USER', None)
-            self.logger.info("Cleared active user from configuration")
+            self.logger.debug("Cleared active user from configuration")
         else:
             self.yaml_config['ACTIVE_USER'] = sanitized
             self.config['ACTIVE_USER'] = sanitized
@@ -3253,7 +3253,7 @@ class ConfigManager:
         """
         self.yaml_config['TTS_ENABLED'] = value
         self.config['TTS_ENABLED'] = value
-        self.logger.info(f"TTS_ENABLED set to {value}")
+        self.logger.debug("TTS_ENABLED set to %s", value)
         # Optionally, write back to config.yaml if persistence is required
         self._write_yaml_config()
 
@@ -3336,7 +3336,7 @@ class ConfigManager:
             os.makedirs(os.path.dirname(yaml_path), exist_ok=True)
             with open(yaml_path, 'w') as file:
                 yaml.dump(self.yaml_config, file)
-            self.logger.info(f"Configuration written to {yaml_path}")
+            self.logger.debug("Configuration written to %s", yaml_path)
         except Exception as e:
             self.logger.error(f"Failed to write configuration to {yaml_path}: {e}")
 

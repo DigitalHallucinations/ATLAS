@@ -2153,7 +2153,7 @@ class ToolManagement:
         if not self._current_scope_allows_editing():
             box.set_visible(False)
             if self._last_diff_snapshot:
-                logger.info(
+                logger.debug(
                     "Pending tool changes for persona '%s' cleared.",
                     self._persona_name or "(unknown persona)",
                 )
@@ -2167,7 +2167,7 @@ class ToolManagement:
             if box.get_visible():
                 box.set_visible(False)
             if self._last_diff_snapshot not in (None, (frozenset(), frozenset())):
-                logger.info(
+                logger.debug(
                     "Pending tool changes for persona '%s' cleared.",
                     self._persona_name or "(unknown persona)",
                 )
@@ -2185,7 +2185,7 @@ class ToolManagement:
         box.set_visible(True)
 
         if diff_snapshot != self._last_diff_snapshot:
-            logger.info(
+            logger.debug(
                 "Pending tool changes for persona '%s': enabling=%s; disabling=%s",
                 self._persona_name or "(unknown persona)",
                 sorted(added),

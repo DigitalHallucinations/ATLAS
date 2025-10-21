@@ -29,7 +29,7 @@ class GoogleTTS(BaseTTS):
         self._playback_thread: Optional[threading.Thread] = None
 
     def play_audio(self, filename):
-        logger.info(f"Playing audio file: {filename}")
+        logger.debug("Playing audio file: %s", filename)
         try:
             pygame.mixer.init()
         except Exception as exc:
@@ -42,7 +42,7 @@ class GoogleTTS(BaseTTS):
             pygame.mixer.music.play()
             while pygame.mixer.music.get_busy():
                 pygame.time.Clock().tick(10)
-            logger.info("Audio playback finished.")
+            logger.debug("Audio playback finished.")
         except Exception as exc:
             logger.error(f"Error during audio playback: {exc}")
         finally:
@@ -61,11 +61,11 @@ class GoogleTTS(BaseTTS):
 
     async def text_to_speech(self, text: str):
         if not self._use_tts:
-            logger.info("TTS is turned off.")
+            logger.debug("TTS is turned off.")
             return
 
         if self.contains_code(text):
-            logger.info("Skipping TTS as the text contains code.")
+            logger.debug("Skipping TTS as the text contains code.")
             text = re.sub(r"`[^`]*`", "", text)
 
         synthesis_input = texttospeech.SynthesisInput(text=text)
@@ -80,7 +80,7 @@ class GoogleTTS(BaseTTS):
                 voice=self.voice,
                 audio_config=audio_config,
             )
-            logger.info("Google TTS response received successfully.")
+            logger.debug("Google TTS response received successfully.")
         except Exception as e:
             logger.error(f"Google TTS synthesis error: {e}")
             return
@@ -88,7 +88,7 @@ class GoogleTTS(BaseTTS):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
             tmp_file.write(response.audio_content)
             temp_path = tmp_file.name
-        logger.info(f'Audio content written to temporary file "{temp_path}"')
+        logger.debug('Audio content written to temporary file "%s"', temp_path)
 
         playback_thread = threading.Thread(
             target=self.play_audio,
@@ -136,7 +136,7 @@ class GoogleTTS(BaseTTS):
             logger.warning("Invalid voice payload supplied to Google TTS; keeping current voice.")
             return
         self._update_voice(name=name, language_code=language_code)
-        logger.info(
+        logger.debug(
             "Google TTS voice set to: %s (language: %s)",
             self._voice_config.get("name"),
             self._voice_config.get("language_code"),
@@ -153,7 +153,7 @@ class GoogleTTS(BaseTTS):
                     'ssml_gender': texttospeech.SsmlVoiceGender(voice.ssml_gender).name,
                     'natural_sample_rate_hertz': voice.natural_sample_rate_hertz,
                 })
-            logger.info(f"Google TTS: Found {len(voices)} voices.")
+            logger.debug("Google TTS: Found %s voices.", len(voices))
         except Exception as e:
             logger.error(f"Error fetching Google TTS voices: {e}")
         return voices

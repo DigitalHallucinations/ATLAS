@@ -71,11 +71,11 @@ class WhisperSTT:
             try:
                 import whisper
                 self.model = whisper.load_model(model_name, device=self.device)
-                logger.info(f"Loaded local Whisper model: {model_name} on {self.device}")
+                logger.debug("Loaded local Whisper model: %s on %s", model_name, self.device)
             except Exception as e:
                 logger.error(f"Failed to load local Whisper model: {e}")
                 if self.fallback_online:
-                    logger.info("Falling back to online mode due to local model load failure.")
+                    logger.debug("Falling back to online mode due to local model load failure.")
                     self.mode = "online"
                     self._init_online()
                 else:
@@ -93,7 +93,7 @@ class WhisperSTT:
             else:
                 openai.api_key = self.api_key
                 self.online_configured = True
-                logger.info("Configured OpenAI API for Whisper online mode.")
+                logger.debug("Configured OpenAI API for Whisper online mode.")
         except Exception as e:
             logger.error(f"Failed to initialize Whisper online mode: {e}")
             self.online_configured = False
@@ -115,7 +115,7 @@ class WhisperSTT:
         self.recording = True
         try:
             self.stream.start()
-            logger.info("Whisper STT listening...")
+            logger.debug("Whisper STT listening...")
         except Exception as e:
             logger.error(f"Error starting stream: {e}")
 
@@ -128,7 +128,7 @@ class WhisperSTT:
                 self.stream.stop()
                 self.recording = False
                 self.save_recording()
-                logger.info("Whisper STT stopped listening.")
+                logger.debug("Whisper STT stopped listening.")
             except Exception as e:
                 logger.error(f"Error stopping stream: {e}")
         try:
@@ -148,7 +148,7 @@ class WhisperSTT:
             try:
                 data = np.concatenate(self.frames)
                 sf.write(output_file, data, self.fs)
-                logger.info(f"Saved Whisper audio to {output_file}")
+                logger.debug("Saved Whisper audio to %s", output_file)
                 self.audio_file = output_file
             except Exception as e:
                 logger.error(f"Error saving recording: {e}")
@@ -162,7 +162,7 @@ class WhisperSTT:
         if self.noise_reduction and NOISEREDUCE_AVAILABLE:
             try:
                 reduced_noise = nr.reduce_noise(y=audio_data, sr=self.fs)
-                logger.info("Noise reduction applied.")
+                logger.debug("Noise reduction applied.")
                 return reduced_noise
             except Exception as e:
                 logger.error(f"Noise reduction failed: {e}")
@@ -179,7 +179,7 @@ class WhisperSTT:
                     temp_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
                     sound = AudioSegment.from_file(audio_file)
                     sound.export(temp_wav.name, format="wav")
-                    logger.info(f"Converted {audio_file} to WAV format.")
+                    logger.debug("Converted %s to WAV format.", audio_file)
                     return temp_wav.name
                 except Exception as e:
                     logger.error(f"Audio conversion failed: {e}")
@@ -226,11 +226,11 @@ class WhisperSTT:
                     initial_prompt=initial_prompt
                 )
                 transcript = result['segments'] if return_segments else result.get("text", "")
-                logger.info("Local Whisper transcription complete.")
+                logger.debug("Local Whisper transcription complete.")
             except Exception as e:
                 logger.error(f"Error during local transcription: {e}")
                 if self.fallback_online and self.online_configured:
-                    logger.info("Falling back to online transcription.")
+                    logger.debug("Falling back to online transcription.")
                     transcript = self._transcribe_online(audio_file, language, task, initial_prompt)
         else:
             if not getattr(self, "online_configured", False):
@@ -239,7 +239,7 @@ class WhisperSTT:
             else:
                 transcript = self._transcribe_online(audio_file, language, task, initial_prompt)
         duration = time.time() - start_time
-        logger.info(f"Transcription duration: {duration:.2f} seconds.")
+        logger.debug("Transcription duration: %.2f seconds.", duration)
         # Clean up temporary file if created.
         if temp_file:
             try:
@@ -262,7 +262,7 @@ class WhisperSTT:
                 if initial_prompt:
                     params["initial_prompt"] = initial_prompt
                 result = openai.Audio.transcribe(**params)
-            logger.info("Online Whisper transcription complete.")
+            logger.debug("Online Whisper transcription complete.")
             return result.get("text", "")
         except Exception as e:
             logger.error(f"Error during online transcription: {e}")
@@ -295,5 +295,5 @@ class WhisperSTT:
         Stub for real-time streaming transcription.
         Future implementation: Process audio in overlapping chunks.
         """
-        logger.info("Streaming transcription not yet implemented.")
+        logger.debug("Streaming transcription not yet implemented.")
         return ""
