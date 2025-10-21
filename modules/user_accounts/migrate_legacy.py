@@ -95,7 +95,7 @@ def migrate_sqlite_accounts(
                 counters["users_skipped"] += 1
                 continue
 
-            user_uuid: Optional[str] = None
+            user_uuid_str: Optional[str] = None
             try:
                 repository.create_user_account(
                     username,
@@ -125,21 +125,20 @@ def migrate_sqlite_accounts(
                 metadata["dob"] = dob
 
             try:
-                user_uuid = str(
-                    repository.ensure_user(
-                        username,
-                        display_name=name or username,
-                        metadata=metadata,
-                    )
+                user_uuid = repository.ensure_user(
+                    username,
+                    display_name=name or username,
+                    metadata=metadata,
                 )
             except Exception as exc:  # pragma: no cover - defensive logging
                 log.warning("Failed to ensure user '%s': %s", username, exc)
                 user_uuid = None
 
             if user_uuid is not None:
-                user_ids[username] = user_uuid
+                user_uuid_str = str(user_uuid)
+                user_ids[username] = user_uuid_str
                 try:
-                    repository.update_user_account(username, user_id=user_uuid)
+                    repository.attach_credential(username, user_uuid)
                 except Exception as exc:  # pragma: no cover - defensive logging
                     log.warning(
                         "Failed to backfill user UUID for '%s': %s", username, exc
@@ -150,7 +149,7 @@ def migrate_sqlite_accounts(
                     repository.update_last_login(
                         username,
                         str(last_login),
-                        user_id=user_uuid,
+                        user_id=user_uuid_str,
                     )
                 except Exception as exc:  # pragma: no cover - defensive logging
                     log.warning(

@@ -6,7 +6,7 @@ from typing import Optional
 import pytest
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 yaml_stub = types.ModuleType("yaml")
@@ -20,7 +20,12 @@ dotenv_stub.find_dotenv = lambda *_args, **_kwargs: ""
 sys.modules.setdefault("dotenv", dotenv_stub)
 
 from modules.background_tasks import run_async_in_thread
-from modules.conversation_store import Base, ConversationStoreRepository
+from modules.conversation_store import (
+    Base,
+    ConversationStoreRepository,
+    User,
+    UserCredential,
+)
 from modules.user_accounts import user_account_service
 
 
@@ -63,6 +68,7 @@ class _SpyConversationRepository:
     def __init__(self, delegate: ConversationStoreRepository) -> None:
         self._delegate = delegate
         self.ensure_user_calls: list[tuple[str, Optional[str], dict[str, object]]] = []
+        self.attach_credential_calls: list[tuple[str, str]] = []
 
     def ensure_user(
         self,
@@ -78,6 +84,10 @@ class _SpyConversationRepository:
             display_name=display_name,
             metadata=metadata,
         )
+
+    def attach_credential(self, username, user_id):
+        self.attach_credential_calls.append((str(username), str(user_id)))
+        return self._delegate.attach_credential(username, user_id)
 
     def __getattr__(self, name: str):
         return getattr(self._delegate, name)
@@ -140,6 +150,23 @@ def test_register_user_persists_account(monkeypatch, conversation_repository):
 
         with pytest.raises(user_account_service.DuplicateUserError):
             service.register_user("bob", "Password123!", "alice@example.com")
+
+        session = conversation_repository._session_factory()
+        credential_row = None
+        user_row = None
+        try:
+            credential_row = session.execute(
+                select(UserCredential).where(UserCredential.username == "alice")
+            ).scalar_one()
+            assert credential_row.user_id is not None
+            user_row = session.execute(
+                select(User).where(User.id == credential_row.user_id)
+            ).scalar_one_or_none()
+        finally:
+            session.close()
+
+        assert user_row is not None
+        assert str(user_row.id) == str(credential_row.user_id)
     finally:
         service.close()
 
@@ -193,6 +220,19 @@ def test_conversation_store_synchronised(monkeypatch, conversation_repository):
         assert external_id == "bob"
         assert display_name == "Bob"
         assert metadata["email"] == "bob@example.com"
+        assert metadata["name"] == "Bob"
+        assert spy_repo.attach_credential_calls
+        attach_username, attach_uuid = spy_repo.attach_credential_calls[0]
+        assert attach_username == "bob"
+        session = conversation_repository._session_factory()
+        try:
+            credential_row = session.execute(
+                select(UserCredential).where(UserCredential.username == "bob")
+            ).scalar_one()
+            assert credential_row.user_id is not None
+            assert str(credential_row.user_id) == attach_uuid
+        finally:
+            session.close()
     finally:
         service.close()
 

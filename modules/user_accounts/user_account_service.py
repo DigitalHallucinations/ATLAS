@@ -131,6 +131,16 @@ class ConversationCredentialStore:
         canonical_email = self._canonicalize_email(email)
         if not canonical_email:
             raise ValueError("Email must not be empty")
+        metadata_payload = {"email": canonical_email}
+        if name:
+            metadata_payload["name"] = name
+        if dob:
+            metadata_payload["dob"] = dob
+        user_uuid = self._repository.ensure_user(
+            username,
+            display_name=name or username,
+            metadata=metadata_payload,
+        )
         try:
             self._repository.create_user_account(
                 username,
@@ -138,6 +148,7 @@ class ConversationCredentialStore:
                 canonical_email,
                 name=name,
                 dob=dob,
+                user_id=user_uuid,
             )
         except IntegrityError as exc:
             raise DuplicateUserError(_DUPLICATE_USER_MESSAGE) from exc
@@ -422,7 +433,7 @@ class UserAccountService:
         if repository is None:
             return
         try:
-            repository.ensure_user(
+            user_uuid = repository.ensure_user(
                 username,
                 display_name=display_name,
                 metadata=dict(metadata or {}),
@@ -430,6 +441,15 @@ class UserAccountService:
         except Exception as exc:  # pragma: no cover - best effort logging
             self.logger.warning(
                 "Failed to synchronize user '%s' with conversation store: %s",
+                username,
+                exc,
+            )
+            return
+        try:
+            repository.attach_credential(username, user_uuid)
+        except Exception as exc:  # pragma: no cover - best effort logging
+            self.logger.warning(
+                "Failed to attach credential for '%s' in conversation store: %s",
                 username,
                 exc,
             )
@@ -1109,6 +1129,8 @@ class UserAccountService:
         metadata_payload: Dict[str, object] = {}
         if account.email:
             metadata_payload["email"] = account.email
+        if account.name:
+            metadata_payload["name"] = account.name
         if account.dob:
             metadata_payload["dob"] = account.dob
         self._sync_conversation_user(
