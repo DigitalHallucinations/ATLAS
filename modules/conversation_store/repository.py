@@ -44,6 +44,13 @@ def _coerce_uuid(value: Any) -> uuid.UUID:
         return uuid.UUID(hex=text.replace("-", ""))
 
 
+def _normalize_tenant_id(value: Any) -> str:
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        raise ValueError("Tenant identifier must be a non-empty string")
+    return text
+
+
 def _coerce_dt(value: Any) -> datetime:
     if isinstance(value, datetime):
         if value.tzinfo is None:
@@ -211,6 +218,7 @@ def _serialize_vector(vector: MessageVector) -> Dict[str, Any]:
         "vector_key": vector.vector_key,
         "conversation_id": str(vector.conversation_id),
         "message_id": str(vector.message_id),
+        "tenant_id": vector.tenant_id,
         "provider": vector.provider,
         "embedding_model": vector.embedding_model,
         "embedding_model_version": vector.embedding_model_version,
@@ -777,12 +785,14 @@ class ConversationStoreRepository:
         self,
         conversation_id: Any,
         *,
+        tenant_id: Any,
         session_id: Any | None = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> uuid.UUID:
         """Ensure that a conversation row exists and return its UUID."""
 
         conversation_uuid = _coerce_uuid(conversation_id)
+        tenant_key = _normalize_tenant_id(tenant_id)
         session_uuid = _coerce_uuid(session_id) if session_id is not None else None
         with self._session_scope() as session:
             conversation = session.get(Conversation, conversation_uuid)
@@ -790,10 +800,15 @@ class ConversationStoreRepository:
                 conversation = Conversation(
                     id=conversation_uuid,
                     session_id=session_uuid,
+                    tenant_id=tenant_key,
                     meta=metadata or {},
                 )
                 session.add(conversation)
             else:
+                if conversation.tenant_id and conversation.tenant_id != tenant_key:
+                    raise ValueError("Conversation belongs to a different tenant")
+                if conversation.tenant_id != tenant_key:
+                    conversation.tenant_id = tenant_key
                 if metadata:
                     merged = dict(conversation.meta or {})
                     merged.update(metadata)
@@ -806,14 +821,17 @@ class ConversationStoreRepository:
         self,
         conversation_id: Any,
         *,
+        tenant_id: Any,
         limit: Optional[int] = None,
         before: Optional[datetime] = None,
     ) -> List[Dict[str, Any]]:
         """Return serialized messages ordered by creation time ascending."""
 
         conversation_uuid = _coerce_uuid(conversation_id)
+        tenant_key = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             stmt = select(Message).where(Message.conversation_id == conversation_uuid)
+            stmt = stmt.where(Message.tenant_id == tenant_key)
             if before is not None:
                 stmt = stmt.where(Message.created_at < before)
             stmt = stmt.order_by(Message.created_at.desc())
@@ -826,6 +844,7 @@ class ConversationStoreRepository:
         self,
         conversation_id: Any,
         *,
+        tenant_id: Any,
         role: str,
         content: Any,
         metadata: Optional[Dict[str, Any]] = None,
@@ -848,6 +867,7 @@ class ConversationStoreRepository:
         """Insert a message and related resources, returning the stored payload."""
 
         conversation_uuid = _coerce_uuid(conversation_id)
+        tenant_key = _normalize_tenant_id(tenant_id)
 
         normalized_type = _normalize_message_type(message_type)
         normalized_status = _normalize_status(status)
@@ -890,19 +910,29 @@ class ConversationStoreRepository:
         else:
             session_uuid = None
 
-        if session_uuid is not None:
-            self.ensure_conversation(conversation_uuid, session_id=session_uuid)
+        self.ensure_conversation(
+            conversation_uuid, tenant_id=tenant_key, session_id=session_uuid
+        )
 
         extra_payload = dict(extra or {})
         message_metadata = dict(metadata or {})
 
         with self._session_scope() as session:
+            conversation = session.get(Conversation, conversation_uuid)
+            if conversation is None:
+                raise ValueError("Conversation could not be loaded after creation")
+            if conversation.tenant_id != tenant_key:
+                raise ValueError("Conversation belongs to a different tenant")
+            if session_uuid is not None and conversation.session_id != session_uuid:
+                conversation.session_id = session_uuid
+
             if message_id is not None:
                 existing = session.execute(
                     select(Message).where(
                         and_(
                             Message.conversation_id == conversation_uuid,
                             Message.client_message_id == message_id,
+                            Message.tenant_id == tenant_key,
                         )
                     )
                 ).scalar_one_or_none()
@@ -911,6 +941,7 @@ class ConversationStoreRepository:
 
             message = Message(
                 conversation_id=conversation_uuid,
+                tenant_id=tenant_key,
                 user_id=user_uuid,
                 role=role,
                 message_type=normalized_type,
@@ -953,6 +984,7 @@ class ConversationStoreRepository:
         conversation_id: Any,
         message_id: Any,
         *,
+        tenant_id: Any,
         content: Optional[Any] = None,
         metadata: Optional[Dict[str, Any]] = None,
         extra: Optional[Dict[str, Any]] = None,
@@ -964,9 +996,14 @@ class ConversationStoreRepository:
 
         conversation_uuid = _coerce_uuid(conversation_id)
         message_uuid = _coerce_uuid(message_id)
+        tenant_key = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             message = session.get(Message, message_uuid)
-            if message is None or message.conversation_id != conversation_uuid:
+            if (
+                message is None
+                or message.conversation_id != conversation_uuid
+                or message.tenant_id != tenant_key
+            ):
                 raise ValueError("Unknown message or conversation")
 
             if content is not None:
@@ -1008,6 +1045,7 @@ class ConversationStoreRepository:
         conversation_id: Any,
         message_id: Any,
         *,
+        tenant_id: Any,
         reason: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         status: Optional[str] = None,
@@ -1015,9 +1053,14 @@ class ConversationStoreRepository:
     ) -> None:
         conversation_uuid = _coerce_uuid(conversation_id)
         message_uuid = _coerce_uuid(message_id)
+        tenant_key = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             message = session.get(Message, message_uuid)
-            if message is None or message.conversation_id != conversation_uuid:
+            if (
+                message is None
+                or message.conversation_id != conversation_uuid
+                or message.tenant_id != tenant_key
+            ):
                 raise ValueError("Unknown message or conversation")
 
             if message_type is not None:
@@ -1046,57 +1089,73 @@ class ConversationStoreRepository:
                 ],
             )
 
-    def hard_delete_conversation(self, conversation_id: Any) -> None:
+    def hard_delete_conversation(self, conversation_id: Any, *, tenant_id: Any) -> None:
         conversation_uuid = _coerce_uuid(conversation_id)
+        tenant_key = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             conversation = session.get(Conversation, conversation_uuid)
-            if conversation is None:
+            if conversation is None or conversation.tenant_id != tenant_key:
                 return
             session.delete(conversation)
 
-    def reset_conversation(self, conversation_id: Any) -> None:
+    def reset_conversation(self, conversation_id: Any, *, tenant_id: Any) -> None:
         """Remove all messages but leave the conversation row intact."""
 
         conversation_uuid = _coerce_uuid(conversation_id)
+        tenant_key = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             session.execute(
-                delete(Message).where(Message.conversation_id == conversation_uuid)
+                delete(Message).where(
+                    Message.conversation_id == conversation_uuid,
+                    Message.tenant_id == tenant_key,
+                )
             )
 
     # -- inspection helpers --------------------------------------------------
 
-    def get_conversation(self, conversation_id: Any) -> Optional[Dict[str, Any]]:
+    def get_conversation(
+        self, conversation_id: Any, *, tenant_id: Any | None = None
+    ) -> Optional[Dict[str, Any]]:
         conversation_uuid = _coerce_uuid(conversation_id)
+        tenant_key = _normalize_tenant_id(tenant_id) if tenant_id is not None else None
         with self._session_scope() as session:
             record = session.get(Conversation, conversation_uuid)
             if record is None:
+                return None
+            if tenant_key is not None and record.tenant_id != tenant_key:
                 return None
             payload: Dict[str, Any] = {
                 "id": str(record.id),
                 "session_id": str(record.session_id) if record.session_id else None,
                 "title": record.title,
                 "metadata": dict(record.meta or {}),
+                "tenant_id": record.tenant_id,
                 "created_at": record.created_at.astimezone(timezone.utc).isoformat(),
             }
             if record.archived_at is not None:
                 payload["archived_at"] = record.archived_at.astimezone(timezone.utc).isoformat()
             return payload
 
-    def get_message(self, conversation_id: Any, message_id: Any) -> Dict[str, Any]:
+    def get_message(
+        self, conversation_id: Any, message_id: Any, *, tenant_id: Any
+    ) -> Dict[str, Any]:
         conversation_uuid = _coerce_uuid(conversation_id)
         message_uuid = _coerce_uuid(message_id)
+        tenant_key = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             message = session.get(Message, message_uuid)
-            if message is None or message.conversation_id != conversation_uuid:
+            if (
+                message is None
+                or message.conversation_id != conversation_uuid
+                or message.tenant_id != tenant_key
+            ):
                 raise ValueError("Unknown message or conversation")
             return self._serialize_message(message)
 
     def list_conversations_for_tenant(self, tenant_id: str) -> List[Dict[str, Any]]:
-        tenant_key = str(tenant_id)
+        tenant_key = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
-            stmt = select(Conversation).where(
-                Conversation.meta.contains({"tenant_id": tenant_key})
-            )
+            stmt = select(Conversation).where(Conversation.tenant_id == tenant_key)
             rows = session.execute(stmt).scalars().all()
 
         conversations: List[Dict[str, Any]] = []
@@ -1106,6 +1165,7 @@ class ConversationStoreRepository:
                 "session_id": str(record.session_id) if record.session_id else None,
                 "title": record.title,
                 "metadata": dict(record.meta or {}),
+                "tenant_id": record.tenant_id,
                 "created_at": record.created_at.astimezone(timezone.utc).isoformat(),
             }
             if record.archived_at is not None:
@@ -1117,6 +1177,7 @@ class ConversationStoreRepository:
         self,
         conversation_id: Any,
         *,
+        tenant_id: Any,
         limit: int = 20,
         cursor: Optional[tuple[datetime, uuid.UUID]] = None,
         direction: str = "forward",
@@ -1126,8 +1187,10 @@ class ConversationStoreRepository:
         statuses: Optional[Sequence[str]] = None,
     ) -> List[Dict[str, Any]]:
         conversation_uuid = _coerce_uuid(conversation_id)
+        tenant_key = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             stmt = select(Message).where(Message.conversation_id == conversation_uuid)
+            stmt = stmt.where(Message.tenant_id == tenant_key)
             if metadata_filter:
                 stmt = stmt.where(Message.meta.contains(dict(metadata_filter)))
             if not include_deleted:
@@ -1184,6 +1247,7 @@ class ConversationStoreRepository:
         self,
         *,
         conversation_ids: Sequence[Any],
+        tenant_id: Any,
         text: str = "",
         metadata_filter: Optional[Mapping[str, Any]] = None,
         include_deleted: bool = False,
@@ -1198,6 +1262,7 @@ class ConversationStoreRepository:
         if not conversation_uuids:
             return
 
+        tenant_key = _normalize_tenant_id(tenant_id)
         normalized_text = str(text or "").strip()
         order = "asc" if str(order or "").lower() == "asc" else "desc"
         batch_size = max(int(batch_size), 1)
@@ -1212,6 +1277,7 @@ class ConversationStoreRepository:
             stmt = (
                 select(Message)
                 .where(Message.conversation_id.in_(conversation_uuids))
+                .where(Message.tenant_id == tenant_key)
                 .options(joinedload(Message.conversation))
             )
             if metadata_filter:
@@ -1261,6 +1327,7 @@ class ConversationStoreRepository:
         self,
         *,
         conversation_ids: Sequence[Any],
+        tenant_id: Any,
         metadata_filter: Optional[Mapping[str, Any]] = None,
         include_deleted: bool = False,
         order: str = "desc",
@@ -1274,6 +1341,7 @@ class ConversationStoreRepository:
         if not conversation_uuids:
             return
 
+        tenant_key = _normalize_tenant_id(tenant_id)
         order = "asc" if str(order or "").lower() == "asc" else "desc"
         batch_size = max(int(batch_size), 1)
         remaining = None if limit is None else max(int(limit), 0)
@@ -1284,6 +1352,8 @@ class ConversationStoreRepository:
                 select(MessageVector)
                 .join(Message, Message.id == MessageVector.message_id)
                 .where(MessageVector.conversation_id.in_(conversation_uuids))
+                .where(MessageVector.tenant_id == tenant_key)
+                .where(Message.tenant_id == tenant_key)
                 .options(joinedload(MessageVector.message).joinedload(Message.conversation))
             )
 
@@ -1326,13 +1396,16 @@ class ConversationStoreRepository:
     def fetch_message_events(
         self,
         *,
+        tenant_id: Any,
         conversation_id: Any | None = None,
         message_id: Any | None = None,
         after: Optional[Any] = None,
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
+        tenant_key = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             stmt = select(MessageEvent)
+            stmt = stmt.where(MessageEvent.tenant_id == tenant_key)
             if conversation_id is not None:
                 stmt = stmt.where(MessageEvent.conversation_id == _coerce_uuid(conversation_id))
             if message_id is not None:
@@ -1350,6 +1423,7 @@ class ConversationStoreRepository:
                 "id": str(event.id),
                 "conversation_id": str(event.conversation_id),
                 "message_id": str(event.message_id),
+                "tenant_id": event.tenant_id,
                 "event_type": event.event_type,
                 "metadata": dict(event.meta or {}),
                 "created_at": event.created_at.astimezone(timezone.utc).isoformat(),
@@ -1382,14 +1456,18 @@ class ConversationStoreRepository:
     def fetch_message_vectors(
         self,
         *,
+        tenant_id: Any | None = None,
         conversation_id: Any | None = None,
         message_id: Any | None = None,
         message_ids: Optional[Sequence[Any]] = None,
         vector_keys: Optional[Sequence[str]] = None,
         provider: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        tenant_key = _normalize_tenant_id(tenant_id) if tenant_id is not None else None
         with self._session_scope() as session:
             stmt = select(MessageVector)
+            if tenant_key is not None:
+                stmt = stmt.where(MessageVector.tenant_id == tenant_key)
             if conversation_id is not None:
                 stmt = stmt.where(
                     MessageVector.conversation_id == _coerce_uuid(conversation_id)
@@ -1413,12 +1491,15 @@ class ConversationStoreRepository:
     def delete_message_vectors(
         self,
         *,
+        tenant_id: Any,
         conversation_id: Any | None = None,
         message_id: Any | None = None,
         vector_keys: Optional[Sequence[str]] = None,
     ) -> int:
+        tenant_key = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             stmt = delete(MessageVector)
+            stmt = stmt.where(MessageVector.tenant_id == tenant_key)
             if conversation_id is not None:
                 stmt = stmt.where(
                     MessageVector.conversation_id == _coerce_uuid(conversation_id)
@@ -1538,13 +1619,15 @@ class ConversationStoreRepository:
                         continue
                     if limit < 1:
                         continue
+                    try:
+                        normalized_tenant = _normalize_tenant_id(tenant_key)
+                    except ValueError:
+                        continue
                     rows = (
                         session.execute(
                             select(Conversation)
                             .where(
-                                Conversation.meta.contains(
-                                    {"tenant_id": str(tenant_key)}
-                                ),
+                                Conversation.tenant_id == normalized_tenant,
                                 Conversation.archived_at.is_(None),
                             )
                             .order_by(
@@ -1606,6 +1689,7 @@ class ConversationStoreRepository:
             record = MessageAsset(
                 conversation_id=message.conversation_id,
                 message_id=message.id,
+                tenant_id=message.tenant_id,
                 asset_type=asset_type,
                 uri=asset.get("uri"),
                 meta=dict(asset.get("metadata") or {}),
@@ -1636,6 +1720,7 @@ class ConversationStoreRepository:
             record = MessageEvent(
                 conversation_id=message.conversation_id,
                 message_id=message.id,
+                tenant_id=message.tenant_id,
                 event_type=str(event.get("event_type") or event.get("type") or "event"),
                 meta=dict(event.get("metadata") or {}),
             )
@@ -1645,6 +1730,7 @@ class ConversationStoreRepository:
         payload: Dict[str, Any] = {
             "id": str(message.id),
             "conversation_id": str(message.conversation_id),
+            "tenant_id": message.tenant_id,
             "role": message.role,
             "message_type": message.message_type,
             "status": message.status,
@@ -1685,6 +1771,7 @@ class ConversationStoreRepository:
             existing = MessageVector(
                 conversation_id=message.conversation_id,
                 message_id=message.id,
+                tenant_id=message.tenant_id,
                 provider=payload.provider,
                 vector_key=payload.vector_key,
             )
@@ -1697,6 +1784,7 @@ class ConversationStoreRepository:
             existing.provider = payload.provider
 
         existing.conversation_id = message.conversation_id
+        existing.tenant_id = message.tenant_id
         existing.provider = payload.provider
         existing.vector_key = payload.vector_key
         existing.embedding = payload.embedding

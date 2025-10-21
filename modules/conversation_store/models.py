@@ -148,6 +148,7 @@ class Conversation(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
     title = Column(String(255), nullable=True)
+    tenant_id = Column(String(255), nullable=False, index=True)
     meta = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     archived_at = Column(DateTime(timezone=True), nullable=True)
@@ -155,6 +156,10 @@ class Conversation(Base):
     session = relationship("Session", back_populates="conversations")
     messages = relationship(
         "Message", back_populates="conversation", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_conversations_tenant_created_at", "tenant_id", "created_at"),
     )
 
 
@@ -166,6 +171,7 @@ class Message(Base):
     conversation_id = Column(
         UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
+    tenant_id = Column(String(255), nullable=False, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     role = Column(String(32), nullable=False)
     message_type = Column(
@@ -213,6 +219,12 @@ class Message(Base):
             "conversation_id",
             "created_at",
         ),
+        Index(
+            "ix_messages_tenant_conversation_created_at",
+            "tenant_id",
+            "conversation_id",
+            "created_at",
+        ),
         Index("ix_messages_message_type", "message_type"),
         Index("ix_messages_status", "status"),
     )
@@ -229,6 +241,7 @@ class MessageAsset(Base):
     message_id = Column(
         UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
+    tenant_id = Column(String(255), nullable=False, index=True)
     asset_type = Column(String(64), nullable=False)
     uri = Column(Text, nullable=True)
     meta = Column("metadata", JSONB, nullable=False, default=dict)
@@ -240,6 +253,11 @@ class MessageAsset(Base):
         Index(
             "ix_message_assets_conversation_created_at",
             "conversation_id",
+            "created_at",
+        ),
+        Index(
+            "ix_message_assets_tenant_created_at",
+            "tenant_id",
             "created_at",
         ),
     )
@@ -262,6 +280,7 @@ class MessageVector(Base):
     message_id = Column(
         UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
+    tenant_id = Column(String(255), nullable=False, index=True)
     provider = Column(String(128), nullable=True)
     vector_key = Column(String(255), nullable=False, unique=True)
     embedding = Column(_VECTOR_TYPE, nullable=True)
@@ -295,6 +314,11 @@ class MessageVector(Base):
             "conversation_id",
             "vector_key",
         ),
+        Index(
+            "ix_message_vectors_tenant_created_at",
+            "tenant_id",
+            "created_at",
+        ),
     )
 
 
@@ -309,6 +333,7 @@ class MessageEvent(Base):
     message_id = Column(
         UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
+    tenant_id = Column(String(255), nullable=False, index=True)
     event_type = Column(String(64), nullable=False)
     meta = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -319,6 +344,11 @@ class MessageEvent(Base):
         Index(
             "ix_message_events_conversation_created_at",
             "conversation_id",
+            "created_at",
+        ),
+        Index(
+            "ix_message_events_tenant_created_at",
+            "tenant_id",
             "created_at",
         ),
     )

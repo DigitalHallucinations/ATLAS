@@ -14,6 +14,9 @@ from modules.conversation_store import (
 )
 from modules.Tools.Base_Tools.vector_store import build_vector_store_service
 
+# Use a fixed tenant identifier for repository interactions.
+TENANT = "vector-test"
+
 # Ensure the in-memory adapter is registered for tests.
 import modules.Tools.providers.vector_store.in_memory  # noqa: F401
 
@@ -41,9 +44,10 @@ def _uuid() -> uuid.UUID:
 @pytest.mark.asyncio
 async def test_pipeline_persists_vectors_and_hydrates(repository):
     conversation_id = _uuid()
-    repository.ensure_conversation(conversation_id)
+    repository.ensure_conversation(conversation_id, tenant_id=TENANT)
     message = repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="assistant",
         content={"text": "hello"},
         metadata={},
@@ -110,9 +114,10 @@ async def test_pipeline_persists_vectors_and_hydrates(repository):
 @pytest.mark.asyncio
 async def test_pipeline_uses_embedder_when_vectors_missing(repository):
     conversation_id = _uuid()
-    repository.ensure_conversation(conversation_id)
+    repository.ensure_conversation(conversation_id, tenant_id=TENANT)
     message = repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="user",
         content={"text": "embed me"},
         metadata={},
@@ -146,7 +151,9 @@ async def test_pipeline_uses_embedder_when_vectors_missing(repository):
 
     assert captured == [message["id"]]
 
-    stored = repository.fetch_message_vectors(conversation_id=conversation_id)
+    stored = repository.fetch_message_vectors(
+        tenant_id=TENANT, conversation_id=conversation_id
+    )
     assert len(stored) == 1
     assert stored[0]["metadata"]["message_id"] == message["id"]
 

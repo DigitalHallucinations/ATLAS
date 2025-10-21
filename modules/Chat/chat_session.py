@@ -51,13 +51,18 @@ class ChatSession:
         self._conversation_id = self._generate_conversation_id()
         self._last_persona_reminder_index: int | None = None
         self._conversation_repository = getattr(self.ATLAS, "conversation_repository", None)
+        tenant_identifier = getattr(self.ATLAS, "tenant_id", None)
+        self._tenant_id = str(tenant_identifier).strip() if tenant_identifier else "default"
         if self._conversation_repository is not None:
             try:
-                self._conversation_repository.ensure_conversation(self._conversation_id)
+                self._conversation_repository.ensure_conversation(
+                    self._conversation_id, tenant_id=self._tenant_id
+                )
                 retention = self.ATLAS.config_manager.get_conversation_retention_policies()
                 history_limit = retention.get("history_message_limit") if retention else None
                 stored_messages = self._conversation_repository.load_recent_messages(
                     self._conversation_id,
+                    tenant_id=self._tenant_id,
                     limit=history_limit,
                 )
                 self.conversation_history.extend(stored_messages)
@@ -322,8 +327,12 @@ class ChatSession:
         self.set_default_provider_and_model()
         if self._conversation_repository is not None:
             try:
-                self._conversation_repository.hard_delete_conversation(old_conversation_id)
-                self._conversation_repository.ensure_conversation(self._conversation_id)
+                self._conversation_repository.hard_delete_conversation(
+                    old_conversation_id, tenant_id=self._tenant_id
+                )
+                self._conversation_repository.ensure_conversation(
+                    self._conversation_id, tenant_id=self._tenant_id
+                )
             except Exception as exc:  # pragma: no cover - persistence fallback
                 self.ATLAS.logger.warning(
                     "Failed to reset persistent conversation state: %s",
@@ -707,6 +716,7 @@ class ChatSession:
             }
             stored = self._conversation_repository.add_message(
                 self._conversation_id,
+                tenant_id=self._tenant_id,
                 role=role,
                 content=content,
                 metadata=metadata,
@@ -730,8 +740,12 @@ class ChatSession:
 
         snapshot = list(self.conversation_history)
         try:
-            self._conversation_repository.ensure_conversation(self._conversation_id)
-            self._conversation_repository.reset_conversation(self._conversation_id)
+            self._conversation_repository.ensure_conversation(
+                self._conversation_id, tenant_id=self._tenant_id
+            )
+            self._conversation_repository.reset_conversation(
+                self._conversation_id, tenant_id=self._tenant_id
+            )
             refreshed: list[Dict[str, Any]] = []
             for entry in snapshot:
                 refreshed.append(self._persist_entry(entry))
@@ -767,6 +781,7 @@ class ChatSession:
                 self._conversation_repository.soft_delete_message(
                     self._conversation_id,
                     message_id,
+                    tenant_id=self._tenant_id,
                     reason="history_retention",
                 )
             except Exception:  # pragma: no cover - best-effort enforcement
@@ -858,6 +873,7 @@ class ChatSession:
                     session_meta_payload = None
                 stored_entry = self._conversation_repository.add_message(
                     self._conversation_id,
+                    tenant_id=self._tenant_id,
                     role=role,
                     content=content,
                     metadata=entry_metadata,

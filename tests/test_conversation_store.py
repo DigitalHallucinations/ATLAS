@@ -11,6 +11,9 @@ from modules.conversation_store import Base, ConversationStoreRepository
 from modules.conversation_store.models import Message, Session, User, Conversation
 
 
+TENANT = "test-tenant"
+
+
 @pytest.fixture
 def engine(postgresql):
     engine = create_engine(postgresql.dsn(), future=True)
@@ -47,11 +50,12 @@ def test_schema_contains_expected_tables(engine):
 
 def test_recent_messages_are_returned_in_chronological_order(repository):
     conversation_id = _uuid()
-    repository.ensure_conversation(conversation_id)
+    repository.ensure_conversation(conversation_id, tenant_id=TENANT)
     base_time = datetime.now(timezone.utc)
     for idx in range(5):
         repository.add_message(
             conversation_id,
+            tenant_id=TENANT,
             role="user" if idx % 2 else "assistant",
             content={"text": f"message-{idx}"},
             timestamp=(base_time + timedelta(seconds=idx)).isoformat(),
@@ -59,7 +63,9 @@ def test_recent_messages_are_returned_in_chronological_order(repository):
             message_id=f"m-{idx}",
         )
 
-    messages = repository.load_recent_messages(conversation_id, limit=5)
+    messages = repository.load_recent_messages(
+        conversation_id, tenant_id=TENANT, limit=5
+    )
     assert [msg["metadata"]["idx"] for msg in messages] == list(range(5))
     assert all(msg["message_type"] == "text" for msg in messages)
     assert all(msg["status"] == "sent" for msg in messages)
@@ -67,9 +73,10 @@ def test_recent_messages_are_returned_in_chronological_order(repository):
 
 def test_idempotent_inserts(repository, engine):
     conversation_id = _uuid()
-    repository.ensure_conversation(conversation_id)
+    repository.ensure_conversation(conversation_id, tenant_id=TENANT)
     repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="user",
         content={"text": "hello"},
         metadata={},
@@ -77,13 +84,14 @@ def test_idempotent_inserts(repository, engine):
     )
     repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="user",
         content={"text": "hello"},
         metadata={},
         message_id="duplicate",
     )
 
-    messages = repository.load_recent_messages(conversation_id)
+    messages = repository.load_recent_messages(conversation_id, tenant_id=TENANT)
     assert len(messages) == 1
 
     with sessionmaker(bind=engine, future=True)() as session:
@@ -93,10 +101,11 @@ def test_idempotent_inserts(repository, engine):
 
 def test_user_and_session_identity_reuse(repository, engine):
     conversation_id = _uuid()
-    repository.ensure_conversation(conversation_id)
+    repository.ensure_conversation(conversation_id, tenant_id=TENANT)
 
     first = repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="user",
         content={"text": "hello"},
         metadata={"source": "unit"},
@@ -108,6 +117,7 @@ def test_user_and_session_identity_reuse(repository, engine):
 
     second = repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="assistant",
         content={"text": "response"},
         metadata={},
@@ -144,22 +154,25 @@ def test_user_and_session_identity_reuse(repository, engine):
 
 def test_delete_workflows(repository, engine):
     conversation_id = _uuid()
-    repository.ensure_conversation(conversation_id)
+    repository.ensure_conversation(conversation_id, tenant_id=TENANT)
     stored = repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="assistant",
         content={"text": "to delete"},
         metadata={},
     )
 
-    repository.soft_delete_message(conversation_id, stored["id"], reason="cleanup")
+    repository.soft_delete_message(
+        conversation_id, stored["id"], tenant_id=TENANT, reason="cleanup"
+    )
 
     with sessionmaker(bind=engine, future=True)() as session:
         message = session.get(Message, uuid.UUID(stored["id"]))
         assert message.deleted_at is not None
         assert message.status == "deleted"
 
-    repository.hard_delete_conversation(conversation_id)
+    repository.hard_delete_conversation(conversation_id, tenant_id=TENANT)
 
     with sessionmaker(bind=engine, future=True)() as session:
         assert session.get(Message, uuid.UUID(stored["id"])) is None
@@ -167,9 +180,10 @@ def test_delete_workflows(repository, engine):
 
 def test_vector_upsert_and_fetch(repository):
     conversation_id = _uuid()
-    repository.ensure_conversation(conversation_id)
+    repository.ensure_conversation(conversation_id, tenant_id=TENANT)
     message = repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="user",
         content={"text": "vector"},
         metadata={},
@@ -192,20 +206,30 @@ def test_vector_upsert_and_fetch(repository):
     assert stored_record["embedding_checksum"]
     assert stored_record["metadata"]["conversation_id"] == str(conversation_id)
 
-    fetched = repository.fetch_message_vectors(conversation_id=conversation_id)
+    fetched = repository.fetch_message_vectors(
+        tenant_id=TENANT, conversation_id=conversation_id
+    )
     assert len(fetched) == 1
     assert fetched[0]["vector_key"] == stored_record["vector_key"]
 
-    removed = repository.delete_message_vectors(conversation_id=conversation_id)
+    removed = repository.delete_message_vectors(
+        tenant_id=TENANT, conversation_id=conversation_id
+    )
     assert removed == 1
-    assert repository.fetch_message_vectors(conversation_id=conversation_id) == []
+    assert (
+        repository.fetch_message_vectors(
+            tenant_id=TENANT, conversation_id=conversation_id
+        )
+        == []
+    )
 
 
 def test_record_edit_updates_type_and_status(repository):
     conversation_id = _uuid()
-    repository.ensure_conversation(conversation_id)
+    repository.ensure_conversation(conversation_id, tenant_id=TENANT)
     stored = repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="assistant",
         content={"text": "draft"},
         metadata={},
@@ -214,6 +238,7 @@ def test_record_edit_updates_type_and_status(repository):
     updated = repository.record_edit(
         conversation_id,
         stored["id"],
+        tenant_id=TENANT,
         content={"text": "final"},
         message_type="tool",
         status="delivered",
@@ -232,9 +257,10 @@ def test_record_edit_updates_type_and_status(repository):
 
 def test_fetch_messages_filters_by_type_and_status(repository):
     conversation_id = _uuid()
-    repository.ensure_conversation(conversation_id)
+    repository.ensure_conversation(conversation_id, tenant_id=TENANT)
     first = repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="user",
         content={"text": "pending"},
         metadata={},
@@ -243,6 +269,7 @@ def test_fetch_messages_filters_by_type_and_status(repository):
     )
     second = repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="assistant",
         content={"text": "complete"},
         metadata={},
@@ -251,6 +278,7 @@ def test_fetch_messages_filters_by_type_and_status(repository):
     )
     repository.add_message(
         conversation_id,
+        tenant_id=TENANT,
         role="assistant",
         content={"text": "other"},
         metadata={},
@@ -260,6 +288,7 @@ def test_fetch_messages_filters_by_type_and_status(repository):
 
     filtered = repository.fetch_messages(
         conversation_id,
+        tenant_id=TENANT,
         message_types=["summary", "text"],
         statuses=["sent", "pending"],
     )
