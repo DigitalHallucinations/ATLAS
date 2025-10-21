@@ -441,16 +441,6 @@ class _NavigationSidebar(Gtk.Box):
         self.set_hexpand(False)
         self.set_halign(Gtk.Align.START)
 
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        content_box.set_vexpand(True)
-
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_hexpand(False)
-        scroller.set_vexpand(True)
-        scroller.set_child(content_box)
-        self.append(scroller)
-
         self._nav_items: Dict[str, Gtk.ListBoxRow] = {}
         self._row_actions: Dict[Gtk.ListBoxRow, Callable[[], None]] = {}
         self._active_nav_id: str | None = None
@@ -463,7 +453,7 @@ class _NavigationSidebar(Gtk.Box):
         primary_listbox.set_halign(Gtk.Align.START)
         self._primary_listbox = primary_listbox
         primary_listbox.connect("row-activated", self._on_row_activated)
-        content_box.append(primary_listbox)
+        self.append(primary_listbox)
 
         self._create_nav_item(
             "providers",
@@ -506,7 +496,7 @@ class _NavigationSidebar(Gtk.Box):
         personas_history_divider.add_css_class("sidebar-divider")
         personas_history_divider.set_margin_top(10)
         personas_history_divider.set_margin_bottom(1)
-        content_box.append(personas_history_divider)
+        self.append(personas_history_divider)
 
         history_listbox = Gtk.ListBox()
         history_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -516,7 +506,14 @@ class _NavigationSidebar(Gtk.Box):
         history_listbox.set_halign(Gtk.Align.START)
         history_listbox.connect("row-activated", self._on_row_activated)
         self._history_listbox = history_listbox
-        content_box.append(history_listbox)
+
+        history_scroller = Gtk.ScrolledWindow()
+        history_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        history_scroller.set_hexpand(False)
+        history_scroller.set_halign(Gtk.Align.FILL)
+        history_scroller.set_vexpand(True)
+        history_scroller.set_child(history_listbox)
+        self.append(history_scroller)
 
         self._create_nav_item(
             None,
@@ -529,15 +526,11 @@ class _NavigationSidebar(Gtk.Box):
             label_css_classes=["history-nav-label"],
         )
 
-        spacer = Gtk.Box()
-        spacer.set_vexpand(True)
-        content_box.append(spacer)
-
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         separator.add_css_class("sidebar-divider")
         separator.set_margin_top(10)
         separator.set_margin_bottom(10)
-        content_box.append(separator)
+        self.append(separator)
 
         footer_listbox = Gtk.ListBox()
         footer_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -547,7 +540,7 @@ class _NavigationSidebar(Gtk.Box):
         footer_listbox.set_halign(Gtk.Align.START)
         footer_listbox.connect("row-activated", self._on_row_activated)
         self._footer_listbox = footer_listbox
-        content_box.append(footer_listbox)
+        self.append(footer_listbox)
 
         self._create_nav_item(
             "accounts",
