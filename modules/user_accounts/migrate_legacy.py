@@ -68,6 +68,8 @@ def migrate_sqlite_accounts(
         "login_attempts_migrated": 0,
     }
 
+    user_ids: Dict[str, str] = {}
+
     with sqlite3.connect(str(path)) as conn:
         conn.row_factory = sqlite3.Row
 
@@ -93,6 +95,7 @@ def migrate_sqlite_accounts(
                 counters["users_skipped"] += 1
                 continue
 
+            user_uuid: Optional[str] = None
             try:
                 repository.create_user_account(
                     username,
@@ -115,9 +118,40 @@ def migrate_sqlite_accounts(
             else:
                 counters["users_migrated"] += 1
 
+            metadata = {"email": canonical_email}
+            if name:
+                metadata["name"] = name
+            if dob:
+                metadata["dob"] = dob
+
+            try:
+                user_uuid = str(
+                    repository.ensure_user(
+                        username,
+                        display_name=name or username,
+                        metadata=metadata,
+                    )
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging
+                log.warning("Failed to ensure user '%s': %s", username, exc)
+                user_uuid = None
+
+            if user_uuid is not None:
+                user_ids[username] = user_uuid
+                try:
+                    repository.update_user_account(username, user_id=user_uuid)
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    log.warning(
+                        "Failed to backfill user UUID for '%s': %s", username, exc
+                    )
+
             if last_login not in (None, ""):
                 try:
-                    repository.update_last_login(username, str(last_login))
+                    repository.update_last_login(
+                        username,
+                        str(last_login),
+                        user_id=user_uuid,
+                    )
                 except Exception as exc:  # pragma: no cover - defensive logging
                     log.warning(
                         "Failed to migrate last login for '%s': %s", username, exc
@@ -132,8 +166,14 @@ def migrate_sqlite_accounts(
                 continue
             attempts = list(_normalise_attempt_payload(row["failed_attempts"]))
             lockout_until = row["lockout_until"]
+            user_uuid = user_ids.get(username)
             try:
-                repository.set_lockout_state(username, attempts, lockout_until)
+                repository.set_lockout_state(
+                    username,
+                    attempts,
+                    lockout_until,
+                    user_id=user_uuid,
+                )
                 counters["lockouts_migrated"] += 1
             except Exception as exc:  # pragma: no cover - defensive logging
                 log.warning(
