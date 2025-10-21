@@ -20,6 +20,7 @@ adapters and are typically instantiated by the tool provider router.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Sequence
@@ -155,6 +156,33 @@ class VectorStoreAdapter(Protocol):
         ...
 
 
+class PersistentVectorCatalog(Protocol):
+    """Protocol describing optional persistent vector catalogs."""
+
+    async def hydrate(self) -> Mapping[str, Sequence[VectorRecord]]:
+        ...
+
+    async def upsert(
+        self,
+        namespace: str,
+        vectors: Sequence[VectorRecord],
+    ) -> Sequence[VectorRecord]:
+        ...
+
+    async def query(
+        self,
+        namespace: str,
+        query: Sequence[float],
+        *,
+        metadata_filter: Optional[Mapping[str, Any]],
+        top_k: int,
+    ) -> Sequence[QueryMatch]:
+        ...
+
+    async def delete_namespace(self, namespace: str) -> None:
+        ...
+
+
 AdapterFactory = Callable[[Optional[ConfigManager], Mapping[str, Any]], VectorStoreAdapter]
 
 _ADAPTER_REGISTRY: Dict[str, AdapterFactory] = {}
@@ -236,6 +264,7 @@ def build_vector_store_service(
     adapter_name: Optional[str] = None,
     adapter_config: Optional[Mapping[str, Any]] = None,
     config_manager: Optional[ConfigManager] = None,
+    catalog: Optional[PersistentVectorCatalog] = None,
 ) -> "VectorStoreService":
     """Construct a :class:`VectorStoreService` from configuration."""
 
@@ -267,7 +296,7 @@ def build_vector_store_service(
         config_manager=config_manager,
         config=resolved_config,
     )
-    return VectorStoreService(adapter)
+    return VectorStoreService(adapter, catalog=catalog)
 
 
 def _normalize_namespace(namespace: str) -> str:
@@ -382,8 +411,36 @@ def _normalize_top_k(value: Any) -> int:
 class VectorStoreService:
     """High level orchestration layer around a :class:`VectorStoreAdapter`."""
 
-    def __init__(self, adapter: VectorStoreAdapter) -> None:
+    def __init__(
+        self,
+        adapter: VectorStoreAdapter,
+        *,
+        catalog: Optional[PersistentVectorCatalog] = None,
+    ) -> None:
         self._adapter = adapter
+        self._catalog = catalog
+        self._hydrated = catalog is None
+        self._hydration_lock: Optional[asyncio.Lock] = None
+
+    async def hydrate(self) -> None:
+        """Ensure the underlying adapter reflects any persisted catalog state."""
+
+        await self._ensure_hydrated()
+
+    async def _ensure_hydrated(self) -> None:
+        if self._catalog is None or self._hydrated:
+            return
+        if self._hydration_lock is None:
+            self._hydration_lock = asyncio.Lock()
+        async with self._hydration_lock:
+            if self._hydrated:
+                return
+            namespace_map = await self._catalog.hydrate()
+            for namespace, records in namespace_map.items():
+                if not records:
+                    continue
+                await self._adapter.upsert_vectors(namespace, records)
+            self._hydrated = True
 
     async def upsert_vectors(
         self,
@@ -391,9 +448,20 @@ class VectorStoreService:
         namespace: str,
         vectors: Sequence[Any],
     ) -> Mapping[str, Any]:
+        await self._ensure_hydrated()
         normalized_namespace = _normalize_namespace(namespace)
         normalized_vectors = _normalize_vector_payload(vectors)
-        response = await self._adapter.upsert_vectors(normalized_namespace, normalized_vectors)
+        persisted: Sequence[VectorRecord] = ()
+        if self._catalog is not None:
+            persisted = await self._catalog.upsert(normalized_namespace, normalized_vectors)
+
+        merged: Dict[str, VectorRecord] = {record.id: record for record in normalized_vectors}
+        for record in persisted:
+            merged[record.id] = record
+
+        final_vectors = tuple(merged.values())
+
+        response = await self._adapter.upsert_vectors(normalized_namespace, final_vectors)
         if not isinstance(response, UpsertResponse):
             raise VectorStoreOperationError("Adapter returned an invalid upsert response.")
         return response.to_dict()
@@ -407,6 +475,7 @@ class VectorStoreService:
         filter: Optional[Mapping[str, Any]] = None,
         include_values: bool = False,
     ) -> Mapping[str, Any]:
+        await self._ensure_hydrated()
         normalized_namespace = _normalize_namespace(namespace)
         normalized_query = _normalize_query_vector(query)
         normalized_top_k = _normalize_top_k(top_k)
@@ -421,10 +490,42 @@ class VectorStoreService:
         )
         if not isinstance(response, QueryResponse):
             raise VectorStoreOperationError("Adapter returned an invalid query response.")
-        return response.to_dict(include_values=bool(include_values))
+        matches = list(response.matches)
+
+        if self._catalog is not None:
+            catalog_filter = dict(normalized_filter) if normalized_filter else None
+            persisted_matches = await self._catalog.query(
+                normalized_namespace,
+                normalized_query,
+                metadata_filter=catalog_filter,
+                top_k=normalized_top_k,
+            )
+
+            combined: Dict[str, QueryMatch] = {match.id: match for match in matches}
+            for persisted in persisted_matches:
+                existing = combined.get(persisted.id)
+                if existing is None or persisted.score > existing.score:
+                    combined[persisted.id] = persisted
+
+            sorted_matches = sorted(
+                combined.values(), key=lambda item: (-item.score, item.id)
+            )
+            limited_matches = tuple(sorted_matches[:normalized_top_k])
+        else:
+            limited_matches = tuple(matches[:normalized_top_k])
+
+        merged_response = QueryResponse(
+            namespace=response.namespace,
+            matches=limited_matches,
+            top_k=normalized_top_k,
+        )
+        return merged_response.to_dict(include_values=bool(include_values))
 
     async def delete_namespace(self, *, namespace: str) -> Mapping[str, Any]:
+        await self._ensure_hydrated()
         normalized_namespace = _normalize_namespace(namespace)
+        if self._catalog is not None:
+            await self._catalog.delete_namespace(normalized_namespace)
         response = await self._adapter.delete_namespace(normalized_namespace)
         if not isinstance(response, DeleteResponse):
             raise VectorStoreOperationError("Adapter returned an invalid delete response.")
@@ -437,14 +538,16 @@ def _resolve_service(
     adapter_name: Optional[str],
     adapter_config: Optional[Mapping[str, Any]],
     config_manager: Optional[ConfigManager],
+    catalog: Optional[PersistentVectorCatalog],
 ) -> VectorStoreService:
     if adapter is not None:
-        return VectorStoreService(adapter)
+        return VectorStoreService(adapter, catalog=catalog)
 
     return build_vector_store_service(
         adapter_name=adapter_name,
         adapter_config=adapter_config,
         config_manager=config_manager,
+        catalog=catalog,
     )
 
 
@@ -456,6 +559,7 @@ async def upsert_vectors(
     adapter_name: Optional[str] = None,
     adapter_config: Optional[Mapping[str, Any]] = None,
     config_manager: Optional[ConfigManager] = None,
+    catalog: Optional[PersistentVectorCatalog] = None,
 ) -> Mapping[str, Any]:
     """Insert or update embeddings within ``namespace``."""
 
@@ -464,6 +568,7 @@ async def upsert_vectors(
         adapter_name=adapter_name,
         adapter_config=adapter_config,
         config_manager=config_manager,
+        catalog=catalog,
     )
     return await service.upsert_vectors(namespace=namespace, vectors=vectors)
 
@@ -479,6 +584,7 @@ async def query_vectors(
     adapter_name: Optional[str] = None,
     adapter_config: Optional[Mapping[str, Any]] = None,
     config_manager: Optional[ConfigManager] = None,
+    catalog: Optional[PersistentVectorCatalog] = None,
 ) -> Mapping[str, Any]:
     """Return the most similar embeddings for ``query`` within ``namespace``."""
 
@@ -487,6 +593,7 @@ async def query_vectors(
         adapter_name=adapter_name,
         adapter_config=adapter_config,
         config_manager=config_manager,
+        catalog=catalog,
     )
     return await service.query_vectors(
         namespace=namespace,
@@ -504,6 +611,7 @@ async def delete_namespace(
     adapter_name: Optional[str] = None,
     adapter_config: Optional[Mapping[str, Any]] = None,
     config_manager: Optional[ConfigManager] = None,
+    catalog: Optional[PersistentVectorCatalog] = None,
 ) -> Mapping[str, Any]:
     """Delete all embeddings stored within ``namespace``."""
 
@@ -512,6 +620,7 @@ async def delete_namespace(
         adapter_name=adapter_name,
         adapter_config=adapter_config,
         config_manager=config_manager,
+        catalog=catalog,
     )
     return await service.delete_namespace(namespace=namespace)
 
@@ -527,6 +636,7 @@ __all__ = [
     "QueryResponse",
     "DeleteResponse",
     "VectorStoreAdapter",
+    "PersistentVectorCatalog",
     "VectorStoreService",
     "register_vector_store_adapter",
     "available_vector_store_adapters",

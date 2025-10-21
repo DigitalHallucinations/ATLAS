@@ -2,6 +2,7 @@
 
 from .models import Base, Conversation, Message, MessageAsset, MessageEvent, MessageVector, Session, User
 from .repository import ConversationStoreRepository, create_conversation_engine
+from .vector_pipeline import ConversationVectorCatalog, ConversationVectorPipeline
 
 __all__ = [
     "Base",
@@ -14,4 +15,6 @@ __all__ = [
     "MessageEvent",
     "ConversationStoreRepository",
     "create_conversation_engine",
+    "ConversationVectorCatalog",
+    "ConversationVectorPipeline",
 ]

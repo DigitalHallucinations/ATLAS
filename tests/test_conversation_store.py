@@ -109,3 +109,39 @@ def test_delete_workflows(repository, engine):
 
     with sessionmaker(bind=engine, future=True)() as session:
         assert session.get(Message, uuid.UUID(stored["id"])) is None
+
+
+def test_vector_upsert_and_fetch(repository):
+    conversation_id = _uuid()
+    repository.ensure_conversation(conversation_id)
+    message = repository.add_message(
+        conversation_id,
+        role="user",
+        content={"text": "vector"},
+        metadata={},
+    )
+
+    stored_vectors = repository.upsert_message_vectors(
+        message["id"],
+        [
+            {
+                "values": [0.1, 0.2, 0.3],
+                "provider": "unit-test",
+                "model": "tiny",
+                "metadata": {"extra": True},
+            }
+        ],
+    )
+
+    assert len(stored_vectors) == 1
+    stored_record = stored_vectors[0]
+    assert stored_record["embedding_checksum"]
+    assert stored_record["metadata"]["conversation_id"] == str(conversation_id)
+
+    fetched = repository.fetch_message_vectors(conversation_id=conversation_id)
+    assert len(fetched) == 1
+    assert fetched[0]["vector_key"] == stored_record["vector_key"]
+
+    removed = repository.delete_message_vectors(conversation_id=conversation_id)
+    assert removed == 1
+    assert repository.fetch_message_vectors(conversation_id=conversation_id) == []

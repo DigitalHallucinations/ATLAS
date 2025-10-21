@@ -25,8 +25,12 @@ class CustomLogger(logging.Logger):
         config_path = project_root / 'ATLAS' / 'config' / 'logging_config.yaml'
         if config_path.exists():
             with config_path.open('r', encoding='utf-8') as f:
-                return yaml.safe_load(f)
-        return default_config
+                loaded = yaml.safe_load(f) or {}
+                if isinstance(loaded, dict):
+                    merged = default_config.copy()
+                    merged.update(loaded)
+                    return merged
+        return default_config.copy()
 
     def _configure_logger(self):
         self.setLevel(self._get_log_level(self.config['log_level']))
