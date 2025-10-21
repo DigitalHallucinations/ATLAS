@@ -11,11 +11,17 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+
+try:  # pragma: no cover - optional dependency for pgvector support
+    from pgvector.sqlalchemy import Vector as PGVector  # type: ignore
+except Exception:  # pragma: no cover - fallback when pgvector is unavailable
+    PGVector = None  # type: ignore
 from sqlalchemy.orm import declarative_base, relationship
 
 
@@ -36,7 +42,7 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     external_id = Column(String(255), unique=True, nullable=True)
     display_name = Column(String(255), nullable=True)
-    metadata = Column(JSONB, nullable=False, default=dict)
+    meta = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
@@ -45,12 +51,13 @@ class User(Base):
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
 
 
+
 class Session(Base):
     __tablename__ = "sessions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    metadata = Column(JSONB, nullable=False, default=dict)
+    meta = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     expires_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -60,13 +67,14 @@ class Session(Base):
     )
 
 
+
 class Conversation(Base):
     __tablename__ = "conversations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
     title = Column(String(255), nullable=True)
-    metadata = Column(JSONB, nullable=False, default=dict)
+    meta = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     archived_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -74,6 +82,7 @@ class Conversation(Base):
     messages = relationship(
         "Message", back_populates="conversation", cascade="all, delete-orphan"
     )
+
 
 
 class Message(Base):
@@ -86,7 +95,7 @@ class Message(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     role = Column(String(32), nullable=False)
     content = Column(JSONB, nullable=False)
-    metadata = Column(JSONB, nullable=False, default=dict)
+    meta = Column("metadata", JSONB, nullable=False, default=dict)
     extra = Column(JSONB, nullable=False, default=dict)
     client_message_id = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -121,6 +130,7 @@ class Message(Base):
     )
 
 
+
 class MessageAsset(Base):
     __tablename__ = "message_assets"
 
@@ -133,7 +143,7 @@ class MessageAsset(Base):
     )
     asset_type = Column(String(64), nullable=False)
     uri = Column(Text, nullable=True)
-    metadata = Column(JSONB, nullable=False, default=dict)
+    meta = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     message = relationship("Message", back_populates="assets")
@@ -147,6 +157,13 @@ class MessageAsset(Base):
     )
 
 
+
+if PGVector is not None:  # pragma: no cover - exercised when pgvector installed
+    _VECTOR_TYPE = PGVector()
+else:
+    _VECTOR_TYPE = ARRAY(Float)
+
+
 class MessageVector(Base):
     __tablename__ = "message_vectors"
 
@@ -158,19 +175,40 @@ class MessageVector(Base):
         UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
     provider = Column(String(128), nullable=True)
-    embedding = Column(ARRAY(Float), nullable=True)
-    metadata = Column(JSONB, nullable=False, default=dict)
+    vector_key = Column(String(255), nullable=False, unique=True)
+    embedding = Column(_VECTOR_TYPE, nullable=True)
+    embedding_model = Column(String(128), nullable=True)
+    embedding_model_version = Column(String(64), nullable=True)
+    embedding_checksum = Column(String(128), nullable=True)
+    dimensions = Column(Integer, nullable=True)
+    meta = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
 
     message = relationship("Message", back_populates="vectors")
 
     __table_args__ = (
+        UniqueConstraint(
+            "message_id",
+            "provider",
+            "embedding_model",
+            "embedding_model_version",
+            name="uq_message_vectors_message_model",
+        ),
         Index(
             "ix_message_vectors_conversation_created_at",
             "conversation_id",
             "created_at",
         ),
+        Index(
+            "ix_message_vectors_conversation_vector_key",
+            "conversation_id",
+            "vector_key",
+        ),
     )
+
 
 
 class MessageEvent(Base):
@@ -184,7 +222,7 @@ class MessageEvent(Base):
         UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
     event_type = Column(String(64), nullable=False)
-    metadata = Column(JSONB, nullable=False, default=dict)
+    meta = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     message = relationship("Message", back_populates="events")
@@ -196,3 +234,22 @@ class MessageEvent(Base):
             "created_at",
         ),
     )
+
+
+def _attach_metadata_property(model_cls):
+    def _get(instance):
+        value = getattr(instance, "meta")
+        if value is None:
+            value = {}
+            setattr(instance, "meta", value)
+        return value
+
+    def _set(instance, value):
+        setattr(instance, "meta", dict(value or {}))
+
+    setattr(model_cls, "metadata", property(_get, _set))
+
+
+for _model in (User, Session, Conversation, Message, MessageAsset, MessageVector, MessageEvent):
+    _attach_metadata_property(_model)
+

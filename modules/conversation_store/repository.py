@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import struct
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence
 
 from sqlalchemy import and_, create_engine, delete, select
 from sqlalchemy.engine import Engine
@@ -49,6 +52,129 @@ def _coerce_dt(value: Any) -> datetime:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed
     raise TypeError(f"Unsupported datetime value: {value!r}")
+
+
+def _hash_vector(values: Sequence[float]) -> str:
+    hasher = hashlib.sha1()
+    for component in values:
+        hasher.update(struct.pack("!d", float(component)))
+    return hasher.hexdigest()
+
+
+def _default_vector_key(
+    message_id: uuid.UUID,
+    provider: Optional[str],
+    model: Optional[str],
+    version: Optional[str],
+) -> str:
+    provider_part = (provider or "conversation").strip() or "conversation"
+    model_part = (model or "default").strip() or "default"
+    version_part = (version or "v0").strip() or "v0"
+    return f"{message_id}:{provider_part}:{model_part}:{version_part}"
+
+
+@dataclass
+class _VectorPayload:
+    provider: Optional[str]
+    vector_key: str
+    embedding: List[float]
+    metadata: Dict[str, Any]
+    model: Optional[str]
+    version: Optional[str]
+    checksum: str
+    dimensions: int
+
+
+def _normalize_vector_payload(message: Message, vector: Mapping[str, Any]) -> _VectorPayload:
+    if not isinstance(vector, Mapping):
+        raise TypeError("Vector payloads must be mappings containing embedding data.")
+
+    provider = vector.get("provider")
+    if provider is not None:
+        provider = str(provider).strip() or None
+
+    model = vector.get("model") or vector.get("embedding_model")
+    if model is not None:
+        model = str(model).strip() or None
+
+    version = vector.get("model_version") or vector.get("embedding_model_version")
+    if version is not None:
+        version = str(version).strip() or None
+
+    raw_values = vector.get("embedding")
+    if raw_values is None:
+        raw_values = vector.get("values")
+    if raw_values is None:
+        raise ValueError("Vector payloads must include 'embedding' or 'values'.")
+    if not isinstance(raw_values, Sequence) or isinstance(raw_values, (bytes, bytearray, str)):
+        raise TypeError("Vector embeddings must be a sequence of numeric values.")
+
+    embedding: List[float] = []
+    for component in raw_values:
+        embedding.append(float(component))
+    if not embedding:
+        raise ValueError("Vector embeddings must contain at least one component.")
+
+    checksum = vector.get("checksum") or vector.get("embedding_checksum")
+    if checksum is None or not str(checksum).strip():
+        checksum = _hash_vector(embedding)
+    else:
+        checksum = str(checksum)
+
+    raw_vector_key = vector.get("vector_key") or vector.get("id")
+    vector_key = str(raw_vector_key).strip() if raw_vector_key is not None else ""
+    if not vector_key:
+        vector_key = _default_vector_key(message.id, provider, model, version)
+
+    metadata = dict(vector.get("metadata") or {})
+    metadata.setdefault("conversation_id", str(message.conversation_id))
+    metadata.setdefault("message_id", str(message.id))
+    metadata.setdefault("namespace", metadata.get("namespace") or str(message.conversation_id))
+    if provider:
+        metadata.setdefault("provider", provider)
+    if model:
+        metadata.setdefault("model", model)
+        metadata.setdefault("embedding_model", model)
+    if version:
+        metadata.setdefault("model_version", version)
+        metadata.setdefault("embedding_model_version", version)
+    metadata.setdefault("vector_key", vector_key)
+    metadata.setdefault("checksum", checksum)
+    metadata.setdefault("embedding_checksum", checksum)
+    metadata.setdefault("dimensions", len(embedding))
+
+    return _VectorPayload(
+        provider=provider,
+        vector_key=vector_key,
+        embedding=embedding,
+        metadata=metadata,
+        model=model,
+        version=version,
+        checksum=str(checksum),
+        dimensions=len(embedding),
+    )
+
+
+def _serialize_vector(vector: MessageVector) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "id": str(vector.id),
+        "vector_key": vector.vector_key,
+        "conversation_id": str(vector.conversation_id),
+        "message_id": str(vector.message_id),
+        "provider": vector.provider,
+        "embedding_model": vector.embedding_model,
+        "embedding_model_version": vector.embedding_model_version,
+        "embedding_checksum": vector.embedding_checksum,
+        "dimensions": vector.dimensions,
+        "metadata": dict(vector.meta or {}),
+        "created_at": vector.created_at.astimezone(timezone.utc).isoformat(),
+    }
+    if vector.updated_at is not None:
+        payload["updated_at"] = vector.updated_at.astimezone(timezone.utc).isoformat()
+    embedding = vector.embedding
+    if embedding is not None:
+        payload["embedding"] = [float(component) for component in embedding]
+    return payload
 
 
 def create_conversation_engine(url: str, **engine_kwargs: Any) -> Engine:
@@ -110,14 +236,14 @@ class ConversationStoreRepository:
                 conversation = Conversation(
                     id=conversation_uuid,
                     session_id=session_uuid,
-                    metadata=metadata or {},
+                    meta=metadata or {},
                 )
                 session.add(conversation)
             else:
                 if metadata:
-                    merged = dict(conversation.metadata or {})
+                    merged = dict(conversation.meta or {})
                     merged.update(metadata)
-                    conversation.metadata = merged
+                    conversation.meta = merged
                 if session_uuid and conversation.session_id != session_uuid:
                     conversation.session_id = session_uuid
         return conversation_uuid
@@ -182,7 +308,7 @@ class ConversationStoreRepository:
                 user_id=user_uuid,
                 role=role,
                 content=content,
-                metadata=message_metadata,
+                meta=message_metadata,
                 extra=extra_payload,
                 client_message_id=message_id,
             )
@@ -232,9 +358,9 @@ class ConversationStoreRepository:
             if content is not None:
                 message.content = content
             if metadata is not None:
-                existing = dict(message.metadata or {})
+                existing = dict(message.meta or {})
                 existing.update(metadata)
-                message.metadata = existing
+                message.meta = existing
             if extra is not None:
                 existing_extra = dict(message.extra or {})
                 existing_extra.update(extra)
@@ -302,6 +428,80 @@ class ConversationStoreRepository:
                 delete(Message).where(Message.conversation_id == conversation_uuid)
             )
 
+    # -- vector catalog operations -------------------------------------------
+
+    def upsert_message_vectors(
+        self,
+        message_id: Any,
+        vectors: Sequence[Mapping[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        if not vectors:
+            return []
+
+        message_uuid = _coerce_uuid(message_id)
+        with self._session_scope() as session:
+            message = session.get(Message, message_uuid)
+            if message is None:
+                raise ValueError("Unknown message supplied for vector upsert.")
+
+            stored: List[Dict[str, Any]] = []
+            for vector in vectors:
+                payload = _normalize_vector_payload(message, vector)
+                stored.append(self._upsert_vector_record(session, message, payload))
+            return stored
+
+    def fetch_message_vectors(
+        self,
+        *,
+        conversation_id: Any | None = None,
+        message_id: Any | None = None,
+        message_ids: Optional[Sequence[Any]] = None,
+        vector_keys: Optional[Sequence[str]] = None,
+        provider: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        with self._session_scope() as session:
+            stmt = select(MessageVector)
+            if conversation_id is not None:
+                stmt = stmt.where(
+                    MessageVector.conversation_id == _coerce_uuid(conversation_id)
+                )
+            if message_id is not None:
+                stmt = stmt.where(MessageVector.message_id == _coerce_uuid(message_id))
+            if message_ids:
+                stmt = stmt.where(
+                    MessageVector.message_id.in_([_coerce_uuid(item) for item in message_ids])
+                )
+            if vector_keys:
+                stmt = stmt.where(MessageVector.vector_key.in_(list(vector_keys)))
+            if provider is not None:
+                stmt = stmt.where(MessageVector.provider == provider)
+
+            stmt = stmt.order_by(MessageVector.created_at.asc())
+            rows = session.execute(stmt).scalars().all()
+
+        return [_serialize_vector(row) for row in rows]
+
+    def delete_message_vectors(
+        self,
+        *,
+        conversation_id: Any | None = None,
+        message_id: Any | None = None,
+        vector_keys: Optional[Sequence[str]] = None,
+    ) -> int:
+        with self._session_scope() as session:
+            stmt = delete(MessageVector)
+            if conversation_id is not None:
+                stmt = stmt.where(
+                    MessageVector.conversation_id == _coerce_uuid(conversation_id)
+                )
+            if message_id is not None:
+                stmt = stmt.where(MessageVector.message_id == _coerce_uuid(message_id))
+            if vector_keys:
+                stmt = stmt.where(MessageVector.vector_key.in_(list(vector_keys)))
+
+            result = session.execute(stmt)
+            return int(result.rowcount or 0)
+
     # -- internal helpers ---------------------------------------------------
 
     def _store_assets(
@@ -329,7 +529,7 @@ class ConversationStoreRepository:
                 message_id=message.id,
                 asset_type=asset_type,
                 uri=asset.get("uri"),
-                metadata=dict(asset.get("metadata") or {}),
+                meta=dict(asset.get("metadata") or {}),
             )
             session.add(record)
 
@@ -342,14 +542,8 @@ class ConversationStoreRepository:
         if not vectors:
             return
         for vector in vectors:
-            record = MessageVector(
-                conversation_id=message.conversation_id,
-                message_id=message.id,
-                provider=vector.get("provider"),
-                embedding=vector.get("embedding"),
-                metadata=dict(vector.get("metadata") or {}),
-            )
-            session.add(record)
+            payload = _normalize_vector_payload(message, vector)
+            self._upsert_vector_record(session, message, payload)
 
     def _store_events(
         self,
@@ -364,7 +558,7 @@ class ConversationStoreRepository:
                 conversation_id=message.conversation_id,
                 message_id=message.id,
                 event_type=str(event.get("event_type") or event.get("type") or "event"),
-                metadata=dict(event.get("metadata") or {}),
+                meta=dict(event.get("metadata") or {}),
             )
             session.add(record)
 
@@ -374,7 +568,7 @@ class ConversationStoreRepository:
             "conversation_id": str(message.conversation_id),
             "role": message.role,
             "content": message.content,
-            "metadata": dict(message.metadata or {}),
+            "metadata": dict(message.meta or {}),
             "timestamp": message.created_at.astimezone(timezone.utc).strftime(
                 "%Y-%m-%d %H:%M:%S"
             ),
@@ -386,3 +580,41 @@ class ConversationStoreRepository:
         if message.deleted_at is not None:
             payload["deleted_at"] = message.deleted_at.astimezone(timezone.utc).isoformat()
         return payload
+
+    def _upsert_vector_record(
+        self,
+        session: Session,
+        message: Message,
+        payload: _VectorPayload,
+    ) -> Dict[str, Any]:
+        existing = session.execute(
+            select(MessageVector).where(MessageVector.vector_key == payload.vector_key)
+        ).scalar_one_or_none()
+
+        if existing is None:
+            existing = MessageVector(
+                conversation_id=message.conversation_id,
+                message_id=message.id,
+                provider=payload.provider,
+                vector_key=payload.vector_key,
+            )
+            session.add(existing)
+        else:
+            if existing.message_id != message.id:
+                raise ValueError(
+                    "Vector key already associated with a different message in the conversation store."
+                )
+            existing.provider = payload.provider
+
+        existing.conversation_id = message.conversation_id
+        existing.provider = payload.provider
+        existing.vector_key = payload.vector_key
+        existing.embedding = payload.embedding
+        existing.embedding_model = payload.model
+        existing.embedding_model_version = payload.version
+        existing.embedding_checksum = payload.checksum
+        existing.meta = dict(payload.metadata)
+        existing.dimensions = payload.dimensions
+
+        session.flush()
+        return _serialize_vector(existing)
