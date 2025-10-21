@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence
 
 from sqlalchemy import and_, create_engine, delete, or_, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import (
@@ -23,6 +24,9 @@ from .models import (
     MessageVector,
     Session as StoreSession,
     User,
+    PasswordResetToken,
+    UserCredential,
+    UserLoginAttempt,
 )
 
 
@@ -54,6 +58,32 @@ def _coerce_dt(value: Any) -> datetime:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed
     raise TypeError(f"Unsupported datetime value: {value!r}")
+
+
+def _dt_to_iso(moment: Optional[datetime]) -> Optional[str]:
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    moment = moment.astimezone(timezone.utc).replace(microsecond=0)
+    return moment.isoformat().replace("+00:00", "Z")
+
+
+def _normalize_attempts(attempts: Sequence[Any]) -> List[str]:
+    normalised: List[str] = []
+    for attempt in attempts:
+        if isinstance(attempt, str):
+            text = attempt.strip()
+            if text:
+                normalised.append(text)
+                continue
+        if isinstance(attempt, datetime):
+            normalised.append(_dt_to_iso(_coerce_dt(attempt)) or "")
+            continue
+        candidate = str(attempt).strip()
+        if candidate:
+            normalised.append(candidate)
+    return normalised
 
 
 def _hash_vector(values: Sequence[float]) -> str:
@@ -179,6 +209,26 @@ def _serialize_vector(vector: MessageVector) -> Dict[str, Any]:
     return payload
 
 
+def _serialize_credential(record: UserCredential) -> Dict[str, Any]:
+    attempts = list(record.failed_attempts or [])
+    normalized_attempts = _normalize_attempts(attempts)
+    data: Dict[str, Any] = {
+        "id": int(record.id),
+        "user_id": str(record.user_id) if record.user_id else None,
+        "username": record.username,
+        "password_hash": record.password_hash,
+        "email": record.email,
+        "name": record.name,
+        "dob": record.dob,
+        "last_login": _dt_to_iso(record.last_login),
+        "failed_attempts": normalized_attempts,
+        "lockout_until": _dt_to_iso(record.lockout_until),
+        "created_at": _dt_to_iso(record.created_at),
+        "updated_at": _dt_to_iso(record.updated_at),
+    }
+    return data
+
+
 def create_conversation_engine(url: str, **engine_kwargs: Any) -> Engine:
     """Create a SQLAlchemy engine for the conversation store."""
 
@@ -218,6 +268,346 @@ class ConversationStoreRepository:
         if engine is None:
             raise RuntimeError("Session factory is not bound to an engine")
         Base.metadata.create_all(engine)
+
+    # -- credential helpers -------------------------------------------------
+
+    def create_user_account(
+        self,
+        username: str,
+        password_hash: str,
+        email: str,
+        *,
+        name: Optional[str] = None,
+        dob: Optional[str] = None,
+        user_id: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        cleaned_username = str(username).strip()
+        if not cleaned_username:
+            raise ValueError("Username must not be empty")
+        cleaned_email = str(email).strip().lower()
+        if not cleaned_email:
+            raise ValueError("Email must not be empty")
+
+        normalised_name = name.strip() if isinstance(name, str) and name.strip() else None
+        normalised_dob = dob.strip() if isinstance(dob, str) and dob.strip() else None
+        user_uuid = _coerce_uuid(user_id) if user_id is not None else None
+
+        with self._session_scope() as session:
+            record = UserCredential(
+                user_id=user_uuid,
+                username=cleaned_username,
+                password_hash=password_hash,
+                email=cleaned_email,
+                name=normalised_name,
+                dob=normalised_dob,
+                failed_attempts=[],
+            )
+            session.add(record)
+            try:
+                session.flush()
+            except IntegrityError:
+                raise
+            return _serialize_credential(record)
+
+    def get_user_account(self, username: str) -> Optional[Dict[str, Any]]:
+        cleaned = str(username).strip()
+        if not cleaned:
+            return None
+        with self._session_scope() as session:
+            record = session.execute(
+                select(UserCredential).where(UserCredential.username == cleaned)
+            ).scalar_one_or_none()
+            if record is None:
+                return None
+            return _serialize_credential(record)
+
+    def get_user_account_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        cleaned = str(email).strip().lower()
+        if not cleaned:
+            return None
+        with self._session_scope() as session:
+            record = session.execute(
+                select(UserCredential).where(UserCredential.email == cleaned)
+            ).scalar_one_or_none()
+            if record is None:
+                return None
+            return _serialize_credential(record)
+
+    def get_username_for_email(self, email: str) -> Optional[str]:
+        record = self.get_user_account_by_email(email)
+        if not record:
+            return None
+        return record["username"]
+
+    def list_user_accounts(self) -> List[Dict[str, Any]]:
+        with self._session_scope() as session:
+            rows = session.execute(select(UserCredential)).scalars().all()
+            return [_serialize_credential(row) for row in rows]
+
+    def search_user_accounts(self, query_text: Optional[str]) -> List[Dict[str, Any]]:
+        search_term = (str(query_text or "").strip().lower())
+        with self._session_scope() as session:
+            stmt = select(UserCredential)
+            if search_term:
+                like_term = f"%{search_term}%"
+                stmt = stmt.where(
+                    or_(
+                        UserCredential.username.ilike(like_term),
+                        UserCredential.email.ilike(like_term),
+                        UserCredential.name.ilike(like_term),
+                    )
+                )
+            rows = session.execute(stmt).scalars().all()
+            return [_serialize_credential(row) for row in rows]
+
+    def update_user_account(
+        self,
+        username: str,
+        *,
+        email: Optional[str] = None,
+        name: Optional[str] = None,
+        dob: Optional[str] = None,
+        password_hash: Optional[str] = None,
+    ) -> bool:
+        cleaned = str(username).strip()
+        if not cleaned:
+            return False
+        with self._session_scope() as session:
+            record = session.execute(
+                select(UserCredential).where(UserCredential.username == cleaned)
+            ).scalar_one_or_none()
+            if record is None:
+                return False
+
+            if email is not None:
+                cleaned_email = str(email).strip().lower() or None
+                record.email = cleaned_email
+            if name is not None:
+                record.name = name.strip() or None
+            if dob is not None:
+                record.dob = dob.strip() or None
+            if password_hash is not None:
+                record.password_hash = password_hash
+            try:
+                session.flush()
+            except IntegrityError:
+                raise
+            return True
+
+    def delete_user_account(self, username: str) -> bool:
+        cleaned = str(username).strip()
+        if not cleaned:
+            return False
+        with self._session_scope() as session:
+            result = session.execute(
+                delete(UserCredential).where(UserCredential.username == cleaned)
+            )
+            return result.rowcount > 0
+
+    def set_user_password(self, username: str, password_hash: str) -> bool:
+        return self.update_user_account(username, password_hash=password_hash)
+
+    def update_last_login(self, username: str, timestamp: Any) -> bool:
+        cleaned = str(username).strip()
+        if not cleaned:
+            return False
+        moment = _coerce_dt(timestamp)
+        with self._session_scope() as session:
+            record = session.execute(
+                select(UserCredential).where(UserCredential.username == cleaned)
+            ).scalar_one_or_none()
+            if record is None:
+                return False
+            record.last_login = moment
+            session.flush()
+            return True
+
+    def set_lockout_state(
+        self,
+        username: str,
+        attempts: Sequence[Any],
+        lockout_until: Optional[Any],
+    ) -> bool:
+        cleaned = str(username).strip()
+        if not cleaned:
+            return False
+        normalized_attempts = _normalize_attempts(attempts)
+        lockout_dt = _coerce_dt(lockout_until) if lockout_until is not None else None
+        with self._session_scope() as session:
+            record = session.execute(
+                select(UserCredential).where(UserCredential.username == cleaned)
+            ).scalar_one_or_none()
+            if record is None:
+                return False
+            record.failed_attempts = normalized_attempts
+            record.lockout_until = lockout_dt
+            session.flush()
+            return True
+
+    def clear_lockout_state(self, username: str) -> bool:
+        return self.set_lockout_state(username, [], None)
+
+    def get_lockout_state(self, username: str) -> Optional[Dict[str, Any]]:
+        record = self.get_user_account(username)
+        if record is None:
+            return None
+        return {
+            "username": record["username"],
+            "failed_attempts": list(record.get("failed_attempts") or []),
+            "lockout_until": record.get("lockout_until"),
+        }
+
+    def get_all_lockout_states(self) -> List[Dict[str, Any]]:
+        accounts = self.list_user_accounts()
+        states: List[Dict[str, Any]] = []
+        for account in accounts:
+            if account.get("failed_attempts") or account.get("lockout_until"):
+                states.append(
+                    {
+                        "username": account["username"],
+                        "failed_attempts": list(account.get("failed_attempts") or []),
+                        "lockout_until": account.get("lockout_until"),
+                    }
+                )
+        return states
+
+    def record_login_attempt(
+        self,
+        username: Optional[str],
+        timestamp: Any,
+        successful: bool,
+        reason: Optional[str],
+    ) -> None:
+        moment = _coerce_dt(timestamp)
+        cleaned_username = None if username in (None, "") else str(username)
+        trimmed_reason = None if reason in (None, "") else str(reason)
+        with self._session_scope() as session:
+            credential = None
+            if cleaned_username:
+                credential = session.execute(
+                    select(UserCredential).where(UserCredential.username == cleaned_username)
+                ).scalar_one_or_none()
+            attempt = UserLoginAttempt(
+                credential=credential,
+                username=cleaned_username,
+                attempted_at=moment,
+                successful=bool(successful),
+                reason=trimmed_reason,
+            )
+            session.add(attempt)
+
+    def get_login_attempts(self, username: str, limit: int = 10) -> List[Dict[str, Any]]:
+        cleaned = str(username).strip()
+        if not cleaned or limit <= 0:
+            return []
+        with self._session_scope() as session:
+            stmt = (
+                select(UserLoginAttempt)
+                .where(UserLoginAttempt.username == cleaned)
+                .order_by(UserLoginAttempt.attempted_at.desc(), UserLoginAttempt.id.desc())
+                .limit(int(limit))
+            )
+            rows = session.execute(stmt).scalars().all()
+        attempts: List[Dict[str, Any]] = []
+        for row in rows:
+            attempts.append(
+                {
+                    "timestamp": _dt_to_iso(row.attempted_at),
+                    "successful": bool(row.successful),
+                    "reason": row.reason if row.reason not in (None, "") else None,
+                }
+            )
+        return attempts
+
+    def prune_login_attempts(self, username: str, limit: int) -> None:
+        cleaned = str(username).strip()
+        if not cleaned:
+            return
+        with self._session_scope() as session:
+            if limit <= 0:
+                session.execute(
+                    delete(UserLoginAttempt).where(UserLoginAttempt.username == cleaned)
+                )
+                return
+
+            subquery = (
+                select(UserLoginAttempt.id)
+                .where(UserLoginAttempt.username == cleaned)
+                .order_by(UserLoginAttempt.attempted_at.desc(), UserLoginAttempt.id.desc())
+                .limit(int(limit))
+            )
+            session.execute(
+                delete(UserLoginAttempt).where(
+                    and_(
+                        UserLoginAttempt.username == cleaned,
+                        ~UserLoginAttempt.id.in_(subquery),
+                    )
+                )
+            )
+
+    def upsert_password_reset_token(
+        self,
+        username: str,
+        token_hash: str,
+        expires_at: Any,
+        created_at: Optional[Any] = None,
+    ) -> None:
+        cleaned = str(username).strip()
+        if not cleaned:
+            raise ValueError("Username must not be empty when storing reset token")
+        expires_dt = _coerce_dt(expires_at) if expires_at is not None else None
+        created_dt = (
+            _coerce_dt(created_at)
+            if created_at is not None
+            else _coerce_dt(datetime.now(timezone.utc))
+        )
+        with self._session_scope() as session:
+            credential = session.execute(
+                select(UserCredential).where(UserCredential.username == cleaned)
+            ).scalar_one_or_none()
+            if credential is None:
+                raise ValueError(f"Unknown username '{cleaned}' for reset token")
+            token = session.execute(
+                select(PasswordResetToken).where(PasswordResetToken.username == cleaned)
+            ).scalar_one_or_none()
+            if token is None:
+                token = PasswordResetToken(
+                    credential=credential,
+                    username=cleaned,
+                    token_hash=token_hash,
+                    expires_at=expires_dt,
+                    created_at=created_dt,
+                )
+                session.add(token)
+            else:
+                token.token_hash = token_hash
+                token.expires_at = expires_dt
+                token.created_at = created_dt
+
+    def get_password_reset_token(self, username: str) -> Optional[Dict[str, Any]]:
+        cleaned = str(username).strip()
+        if not cleaned:
+            return None
+        with self._session_scope() as session:
+            token = session.execute(
+                select(PasswordResetToken).where(PasswordResetToken.username == cleaned)
+            ).scalar_one_or_none()
+            if token is None:
+                return None
+            return {
+                "username": token.username,
+                "token_hash": token.token_hash,
+                "expires_at": _dt_to_iso(token.expires_at),
+            }
+
+    def delete_password_reset_token(self, username: str) -> None:
+        cleaned = str(username).strip()
+        if not cleaned:
+            return
+        with self._session_scope() as session:
+            session.execute(
+                delete(PasswordResetToken).where(PasswordResetToken.username == cleaned)
+            )
 
     # -- CRUD operations ----------------------------------------------------
 

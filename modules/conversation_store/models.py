@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     Float,
@@ -49,7 +50,79 @@ class User(Base):
     )
 
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
+    credentials = relationship(
+        "UserCredential",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
+
+class UserCredential(Base):
+    __tablename__ = "user_credentials"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    username = Column(String(255), nullable=False, unique=True)
+    password_hash = Column(String(512), nullable=False)
+    email = Column(String(320), nullable=False, unique=True)
+    name = Column(String(255), nullable=True)
+    dob = Column(String(32), nullable=True)
+    last_login = Column(DateTime(timezone=True), nullable=True)
+    failed_attempts = Column(JSONB, nullable=False, default=list)
+    lockout_until = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+    user = relationship("User", back_populates="credentials")
+    login_attempts = relationship(
+        "UserLoginAttempt",
+        back_populates="credential",
+        cascade="all, delete-orphan",
+    )
+    reset_token = relationship(
+        "PasswordResetToken",
+        back_populates="credential",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class UserLoginAttempt(Base):
+    __tablename__ = "user_login_attempts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    credential_id = Column(
+        Integer,
+        ForeignKey("user_credentials.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    username = Column(String(255), nullable=True, index=True)
+    attempted_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    successful = Column(Boolean, nullable=False, default=False)
+    reason = Column(String(255), nullable=True)
+
+    credential = relationship("UserCredential", back_populates="login_attempts")
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    credential_id = Column(
+        Integer,
+        ForeignKey("user_credentials.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    username = Column(String(255), nullable=False, unique=True)
+    token_hash = Column(String(128), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    credential = relationship("UserCredential", back_populates="reset_token")
 
 
 class Session(Base):
