@@ -6,7 +6,7 @@ import base64
 import binascii
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
-from collections.abc import Iterable, Mapping
+from collections.abc import AsyncIterator, Iterable, Mapping
 from typing import Any, Dict, List, Optional
 
 from modules.Personas import (
@@ -23,6 +23,7 @@ from modules.Personas import (
     _validate_persona_payload,
 )
 from modules.analytics.persona_metrics import get_persona_metrics
+from modules.conversation_store import ConversationStoreRepository
 from modules.logging.audit import (
     get_persona_audit_logger,
     get_persona_review_logger,
@@ -36,7 +37,9 @@ from modules.orchestration.capability_registry import (
     SkillCapabilityView,
     get_capability_registry,
 )
+from modules.orchestration.message_bus import MessageBus
 from modules.persona_review import REVIEW_INTERVAL_DAYS, compute_review_status
+from .conversation_routes import ConversationRoutes, RequestContext
 
 logger = setup_logger(__name__)
 
@@ -77,8 +80,81 @@ def _as_bool(raw_value: Optional[Any]) -> bool:
 class AtlasServer:
     """Expose read-only endpoints for tool metadata."""
 
-    def __init__(self, *, config_manager: Optional[object] = None) -> None:
+    def __init__(
+        self,
+        *,
+        config_manager: Optional[object] = None,
+        conversation_repository: ConversationStoreRepository | None = None,
+        message_bus: Optional[MessageBus] = None,
+    ) -> None:
         self._config_manager = config_manager
+        self._conversation_repository = conversation_repository
+        self._message_bus = message_bus
+        self._conversation_routes: ConversationRoutes | None = None
+
+    def _get_conversation_routes(self) -> ConversationRoutes:
+        if self._conversation_routes is None:
+            repository = self._conversation_repository or self._build_conversation_repository()
+            if repository is None:
+                raise RuntimeError("Conversation store repository is not configured")
+            self._conversation_repository = repository
+
+            bus = self._message_bus
+            if bus is None and hasattr(self._config_manager, "configure_message_bus"):
+                try:
+                    bus = self._config_manager.configure_message_bus()
+                except Exception as exc:  # pragma: no cover - defensive logging only
+                    logger.warning("Failed to configure message bus: %s", exc)
+                    bus = None
+            self._message_bus = bus
+
+            self._conversation_routes = ConversationRoutes(repository, message_bus=bus)
+        return self._conversation_routes
+
+    def _build_conversation_repository(self) -> ConversationStoreRepository | None:
+        if self._config_manager is None:
+            return None
+        getter = getattr(self._config_manager, "get_conversation_store_session_factory", None)
+        if not callable(getter):
+            return None
+        session_factory = getter()
+        if session_factory is None:
+            return None
+        retention_getter = getattr(self._config_manager, "get_conversation_retention_policies", None)
+        retention = retention_getter() if callable(retention_getter) else {}
+        repository = ConversationStoreRepository(session_factory, retention=retention)
+        try:
+            repository.create_schema()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.warning("Failed to initialize conversation store schema: %s", exc)
+        return repository
+
+    @staticmethod
+    def _coerce_context(context: Any) -> RequestContext:
+        if isinstance(context, RequestContext):
+            return context
+        if isinstance(context, Mapping):
+            tenant_id = context.get("tenant_id")
+            if tenant_id is None:
+                raise ValueError("Context mapping must include 'tenant_id'")
+            roles = context.get("roles") or ()
+            metadata = context.get("metadata")
+            if metadata is not None and not isinstance(metadata, Mapping):
+                metadata = None
+            if isinstance(roles, str):
+                roles_tuple = (roles,)
+            elif isinstance(roles, Iterable):
+                roles_tuple = tuple(roles)
+            else:
+                roles_tuple = ()
+            return RequestContext(
+                tenant_id=str(tenant_id),
+                user_id=context.get("user_id"),
+                session_id=context.get("session_id"),
+                roles=roles_tuple,
+                metadata=metadata,
+            )
+        raise TypeError("Unsupported request context type")
 
     def get_tools(
         self,
@@ -768,6 +844,88 @@ class AtlasServer:
 
         result.setdefault("success", True)
         return result
+
+    # -- conversation routes -------------------------------------------------
+
+    def create_message(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        """Handle ``POST /messages`` requests."""
+
+        routes = self._get_conversation_routes()
+        request_context = self._coerce_context(context)
+        return routes.create_message(payload, context=request_context)
+
+    def update_message(
+        self,
+        message_id: str,
+        payload: Mapping[str, Any],
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        """Handle ``PATCH /messages/{id}`` requests."""
+
+        routes = self._get_conversation_routes()
+        request_context = self._coerce_context(context)
+        return routes.update_message(message_id, payload, context=request_context)
+
+    def delete_message(
+        self,
+        message_id: str,
+        payload: Mapping[str, Any],
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        """Handle ``DELETE /messages/{id}`` requests."""
+
+        routes = self._get_conversation_routes()
+        request_context = self._coerce_context(context)
+        return routes.delete_message(message_id, payload, context=request_context)
+
+    def list_messages(
+        self,
+        conversation_id: str,
+        params: Optional[Mapping[str, Any]] = None,
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        """Handle ``GET /conversations/{id}/messages`` requests."""
+
+        routes = self._get_conversation_routes()
+        request_context = self._coerce_context(context)
+        return routes.list_messages(conversation_id, params, context=request_context)
+
+    def search_conversations(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        """Handle ``POST /conversations/search`` requests."""
+
+        routes = self._get_conversation_routes()
+        request_context = self._coerce_context(context)
+        return routes.search_conversations(payload, context=request_context)
+
+    def stream_conversation_events(
+        self,
+        conversation_id: str,
+        *,
+        context: Any,
+        after: Optional[str] = None,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Stream conversation message events via Server-Sent Events."""
+
+        routes = self._get_conversation_routes()
+        request_context = self._coerce_context(context)
+        return routes.stream_message_events(
+            conversation_id,
+            context=request_context,
+            after=after,
+        )
 
 
 def _filter_entries(

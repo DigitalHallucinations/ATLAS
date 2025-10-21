@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence
 
-from sqlalchemy import and_, create_engine, delete, select
+from sqlalchemy import and_, create_engine, delete, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -428,6 +428,143 @@ class ConversationStoreRepository:
                 delete(Message).where(Message.conversation_id == conversation_uuid)
             )
 
+    # -- inspection helpers --------------------------------------------------
+
+    def get_conversation(self, conversation_id: Any) -> Optional[Dict[str, Any]]:
+        conversation_uuid = _coerce_uuid(conversation_id)
+        with self._session_scope() as session:
+            record = session.get(Conversation, conversation_uuid)
+            if record is None:
+                return None
+            payload: Dict[str, Any] = {
+                "id": str(record.id),
+                "session_id": str(record.session_id) if record.session_id else None,
+                "title": record.title,
+                "metadata": dict(record.meta or {}),
+                "created_at": record.created_at.astimezone(timezone.utc).isoformat(),
+            }
+            if record.archived_at is not None:
+                payload["archived_at"] = record.archived_at.astimezone(timezone.utc).isoformat()
+            return payload
+
+    def get_message(self, conversation_id: Any, message_id: Any) -> Dict[str, Any]:
+        conversation_uuid = _coerce_uuid(conversation_id)
+        message_uuid = _coerce_uuid(message_id)
+        with self._session_scope() as session:
+            message = session.get(Message, message_uuid)
+            if message is None or message.conversation_id != conversation_uuid:
+                raise ValueError("Unknown message or conversation")
+            return self._serialize_message(message)
+
+    def list_conversations_for_tenant(self, tenant_id: str) -> List[Dict[str, Any]]:
+        tenant_key = str(tenant_id)
+        with self._session_scope() as session:
+            stmt = select(Conversation).where(
+                Conversation.meta.contains({"tenant_id": tenant_key})
+            )
+            rows = session.execute(stmt).scalars().all()
+
+        conversations: List[Dict[str, Any]] = []
+        for record in rows:
+            payload: Dict[str, Any] = {
+                "id": str(record.id),
+                "session_id": str(record.session_id) if record.session_id else None,
+                "title": record.title,
+                "metadata": dict(record.meta or {}),
+                "created_at": record.created_at.astimezone(timezone.utc).isoformat(),
+            }
+            if record.archived_at is not None:
+                payload["archived_at"] = record.archived_at.astimezone(timezone.utc).isoformat()
+            conversations.append(payload)
+        return conversations
+
+    def fetch_messages(
+        self,
+        conversation_id: Any,
+        *,
+        limit: int = 20,
+        cursor: Optional[tuple[datetime, uuid.UUID]] = None,
+        direction: str = "forward",
+        metadata_filter: Optional[Mapping[str, Any]] = None,
+        include_deleted: bool = True,
+    ) -> List[Dict[str, Any]]:
+        conversation_uuid = _coerce_uuid(conversation_id)
+        with self._session_scope() as session:
+            stmt = select(Message).where(Message.conversation_id == conversation_uuid)
+            if metadata_filter:
+                stmt = stmt.where(Message.meta.contains(dict(metadata_filter)))
+            if not include_deleted:
+                stmt = stmt.where(Message.deleted_at.is_(None))
+
+            if direction == "backward":
+                if cursor is not None:
+                    created_at, message_uuid = cursor
+                    stmt = stmt.where(
+                        or_(
+                            Message.created_at < created_at,
+                            and_(
+                                Message.created_at == created_at,
+                                Message.id < message_uuid,
+                            ),
+                        )
+                    )
+                stmt = stmt.order_by(Message.created_at.desc(), Message.id.desc())
+            else:
+                if cursor is not None:
+                    created_at, message_uuid = cursor
+                    stmt = stmt.where(
+                        or_(
+                            Message.created_at > created_at,
+                            and_(
+                                Message.created_at == created_at,
+                                Message.id > message_uuid,
+                            ),
+                        )
+                    )
+                stmt = stmt.order_by(Message.created_at.asc(), Message.id.asc())
+
+            stmt = stmt.limit(max(limit, 1))
+            rows = session.execute(stmt).scalars().all()
+
+        messages = [self._serialize_message(row) for row in rows]
+        if direction == "backward":
+            messages.reverse()
+        return messages
+
+    def fetch_message_events(
+        self,
+        *,
+        conversation_id: Any | None = None,
+        message_id: Any | None = None,
+        after: Optional[Any] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        with self._session_scope() as session:
+            stmt = select(MessageEvent)
+            if conversation_id is not None:
+                stmt = stmt.where(MessageEvent.conversation_id == _coerce_uuid(conversation_id))
+            if message_id is not None:
+                stmt = stmt.where(MessageEvent.message_id == _coerce_uuid(message_id))
+            if after is not None:
+                stmt = stmt.where(MessageEvent.created_at > _coerce_dt(after))
+            stmt = stmt.order_by(MessageEvent.created_at.asc(), MessageEvent.id.asc())
+            if limit:
+                stmt = stmt.limit(limit)
+            rows = session.execute(stmt).scalars().all()
+
+        events: List[Dict[str, Any]] = []
+        for event in rows:
+            payload: Dict[str, Any] = {
+                "id": str(event.id),
+                "conversation_id": str(event.conversation_id),
+                "message_id": str(event.message_id),
+                "event_type": event.event_type,
+                "metadata": dict(event.meta or {}),
+                "created_at": event.created_at.astimezone(timezone.utc).isoformat(),
+            }
+            events.append(payload)
+        return events
+
     # -- vector catalog operations -------------------------------------------
 
     def upsert_message_vectors(
@@ -572,6 +709,10 @@ class ConversationStoreRepository:
             "timestamp": message.created_at.astimezone(timezone.utc).strftime(
                 "%Y-%m-%d %H:%M:%S"
             ),
+            "created_at": message.created_at.astimezone(timezone.utc).isoformat(),
+            "updated_at": message.updated_at.astimezone(timezone.utc).isoformat()
+            if message.updated_at is not None
+            else None,
         }
         if message.extra:
             payload.update(message.extra)
