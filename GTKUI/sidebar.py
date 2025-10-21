@@ -524,6 +524,7 @@ class _NavigationSidebar(Gtk.Box):
             self.main_window.handle_history_button,
             tooltip="History",
             container=history_listbox,
+            margin_start=24,
         )
 
         spacer = Gtk.Box()
@@ -569,6 +570,11 @@ class _NavigationSidebar(Gtk.Box):
         callback: Callable[[], None],
         tooltip: str | None = None,
         container: Gtk.ListBox | None = None,
+        *,
+        margin_top: int = 3,
+        margin_bottom: int = 3,
+        margin_start: int = 12,
+        margin_end: int = 12,
     ) -> None:
         row = Gtk.ListBoxRow()
         row.set_accessible_role(Gtk.AccessibleRole.LIST_ITEM)
@@ -593,10 +599,10 @@ class _NavigationSidebar(Gtk.Box):
         row.set_tooltip_text(tooltip)
 
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.set_margin_top(3)
-        box.set_margin_bottom(3)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
+        box.set_margin_top(margin_top)
+        box.set_margin_bottom(margin_bottom)
+        box.set_margin_start(margin_start)
+        box.set_margin_end(margin_end)
         box.set_hexpand(False)
 
         text = Gtk.Label(label=label)
