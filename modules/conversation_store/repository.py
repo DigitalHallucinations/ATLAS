@@ -1334,6 +1334,7 @@ class ConversationStoreRepository:
         offset: int = 0,
         limit: Optional[int] = None,
         batch_size: int = 200,
+        top_k: Optional[int] = None,
     ) -> Iterator[tuple[Dict[str, Any], Dict[str, Any]]]:
         conversation_uuids = [
             _coerce_uuid(identifier) for identifier in conversation_ids if identifier is not None
@@ -1346,6 +1347,7 @@ class ConversationStoreRepository:
         batch_size = max(int(batch_size), 1)
         remaining = None if limit is None else max(int(limit), 0)
         offset_value = max(int(offset), 0)
+        top_remaining = None if top_k is None else max(int(top_k), 0)
 
         with self._session_scope() as session:
             stmt = (
@@ -1373,6 +1375,10 @@ class ConversationStoreRepository:
                     if remaining <= 0:
                         break
                     fetch_size = min(fetch_size, remaining)
+                if top_remaining is not None:
+                    if top_remaining <= 0:
+                        break
+                    fetch_size = min(fetch_size, top_remaining)
 
                 windowed = stmt.offset(offset_value).limit(fetch_size)
                 rows = session.execute(windowed).scalars().all()
@@ -1384,12 +1390,18 @@ class ConversationStoreRepository:
                     if message is None:
                         continue
                     yield self._serialize_message(message), _serialize_vector(vector)
+                    if top_remaining is not None:
+                        top_remaining -= 1
+                        if top_remaining <= 0:
+                            break
 
                 offset_value += len(rows)
                 if remaining is not None:
                     remaining -= len(rows)
                     if remaining <= 0:
                         break
+                if top_remaining is not None and top_remaining <= 0:
+                    break
                 if len(rows) < fetch_size:
                     break
 
