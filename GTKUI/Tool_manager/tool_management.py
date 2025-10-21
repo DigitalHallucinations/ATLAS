@@ -399,6 +399,20 @@ class ToolManagement:
         self._recent_changes_box = recent_changes_box
         self._recent_changes_label = recent_label
 
+        history_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        history_box.set_visible(False)
+        history_heading = Gtk.Label(label="Recent backend activity")
+        history_heading.set_xalign(0.0)
+        try:
+            history_heading.add_css_class("title-5")
+        except Exception:  # pragma: no cover - GTK theme variations
+            pass
+        history_box.append(history_heading)
+
+        history_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        history_list.set_hexpand(True)
+        history_box.append(history_list)
+
         export_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         export_row.set_halign(Gtk.Align.END)
 
@@ -414,21 +428,7 @@ class ToolManagement:
         export_row.append(export_json_button)
         self._export_json_button = export_json_button
 
-        right_panel.append(export_row)
-
-        history_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        history_box.set_visible(False)
-        history_heading = Gtk.Label(label="Recent backend activity")
-        history_heading.set_xalign(0.0)
-        try:
-            history_heading.add_css_class("title-5")
-        except Exception:  # pragma: no cover - GTK theme variations
-            pass
-        history_box.append(history_heading)
-
-        history_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        history_list.set_hexpand(True)
-        history_box.append(history_list)
+        history_box.append(export_row)
 
         self._history_box = history_box
         self._history_list_box = history_list
