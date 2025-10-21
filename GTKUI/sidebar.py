@@ -593,10 +593,10 @@ class _NavigationSidebar(Gtk.Box):
         row.set_tooltip_text(tooltip)
 
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.set_margin_top(6)
-        box.set_margin_bottom(6)
-        box.set_margin_start(10)
-        box.set_margin_end(10)
+        box.set_margin_top(3)
+        box.set_margin_bottom(3)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
         box.set_hexpand(False)
 
         text = Gtk.Label(label=label)
