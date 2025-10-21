@@ -524,7 +524,8 @@ class _NavigationSidebar(Gtk.Box):
             self.main_window.handle_history_button,
             tooltip="History",
             container=history_listbox,
-            margin_start=24,
+            margin_start=3,
+            margin_top=3,
         )
 
         spacer = Gtk.Box()
