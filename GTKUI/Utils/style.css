@@ -3,6 +3,10 @@ label {
     font-size: 14px;
 }
 
+.history-nav-label {
+    font-size: 12px;
+}
+
 /* Tool management badge styling */
 .tag-badge {
     background-color: #3a3a3a;

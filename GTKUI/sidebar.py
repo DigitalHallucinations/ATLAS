@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Dict, Sequence, Tuple
 
 import gi
 
@@ -526,6 +526,7 @@ class _NavigationSidebar(Gtk.Box):
             container=history_listbox,
             margin_start=3,
             margin_top=3,
+            label_css_classes=["history-nav-label"],
         )
 
         spacer = Gtk.Box()
@@ -576,6 +577,7 @@ class _NavigationSidebar(Gtk.Box):
         margin_bottom: int = 3,
         margin_start: int = 12,
         margin_end: int = 12,
+        label_css_classes: Sequence[str] | None = None,
     ) -> None:
         row = Gtk.ListBoxRow()
         row.set_accessible_role(Gtk.AccessibleRole.LIST_ITEM)
@@ -610,6 +612,9 @@ class _NavigationSidebar(Gtk.Box):
         text.set_xalign(0.0)
         text.set_halign(Gtk.Align.START)
         text.set_hexpand(False)
+        if label_css_classes:
+            for css_class in label_css_classes:
+                text.add_css_class(css_class)
         box.append(text)
 
         row.set_child(box)
