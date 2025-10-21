@@ -39,7 +39,11 @@ from modules.orchestration.capability_registry import (
 )
 from modules.orchestration.message_bus import MessageBus
 from modules.persona_review import REVIEW_INTERVAL_DAYS, compute_review_status
-from .conversation_routes import ConversationRoutes, RequestContext
+from .conversation_routes import (
+    ConversationAuthorizationError,
+    ConversationRoutes,
+    RequestContext,
+)
 
 logger = setup_logger(__name__)
 
@@ -846,6 +850,25 @@ class AtlasServer:
         return result
 
     # -- conversation routes -------------------------------------------------
+
+    def run_conversation_retention(self, *, context: Any) -> Dict[str, Any]:
+        """Trigger conversation-store retention policies on demand."""
+
+        repository = self._conversation_repository
+        if repository is None:
+            repository = self._build_conversation_repository()
+            if repository is None:
+                raise RuntimeError("Conversation store repository is not configured")
+            self._conversation_repository = repository
+
+        request_context = self._coerce_context(context)
+        normalized_roles = {role.lower() for role in request_context.roles}
+        if not normalized_roles.intersection({"admin", "system"}):
+            raise ConversationAuthorizationError(
+                "Administrative role required to trigger retention policies"
+            )
+
+        return repository.run_retention(now=datetime.now(timezone.utc))
 
     def create_message(
         self,

@@ -9,6 +9,8 @@ import threading
 from concurrent.futures import Future
 from typing import Any, Awaitable, Callable, Generic, TypeVar, cast
 
+from .retention import RetentionWorker
+
 
 T = TypeVar("T")
 
@@ -85,4 +87,7 @@ def run_async_in_thread(
     thread = threading.Thread(target=runner, name=thread_name, daemon=True)
     thread.start()
     return future
+
+
+__all__ = ["AwaitableFuture", "run_async_in_thread", "RetentionWorker"]
 

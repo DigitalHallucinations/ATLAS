@@ -7,7 +7,7 @@ import hashlib
 import struct
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence
 
 from sqlalchemy import and_, create_engine, delete, or_, select
@@ -1268,6 +1268,156 @@ class ConversationStoreRepository:
 
             result = session.execute(stmt)
             return int(result.rowcount or 0)
+
+    # -- retention helpers --------------------------------------------------
+
+    def _retention_days(self, key: str) -> Optional[int]:
+        value = self._retention.get(key)
+        if value is None:
+            return None
+        try:
+            days = int(value)
+        except (TypeError, ValueError):
+            return None
+        return max(days, 0)
+
+    def prune_expired_messages(self, *, now: Optional[datetime] = None) -> Dict[str, int]:
+        """Apply message-level retention policies and return summary counts."""
+
+        moment = now or datetime.now(timezone.utc)
+        stats = {"soft_deleted": 0, "hard_deleted": 0}
+
+        soft_delete_after = self._retention_days("soft_delete_after_days")
+        soft_delete_grace = self._retention_days("soft_delete_grace_days")
+        retention_days = self._retention_days("message_retention_days")
+        if retention_days is None:
+            retention_days = self._retention_days("days")
+
+        with self._session_scope() as session:
+            if soft_delete_after and soft_delete_after > 0:
+                cutoff = moment - timedelta(days=soft_delete_after)
+                rows = (
+                    session.execute(
+                        select(Message).where(
+                            Message.deleted_at.is_(None),
+                            Message.created_at < cutoff,
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                for message in rows:
+                    message.deleted_at = moment
+                    message.status = "deleted"
+                    stats["soft_deleted"] += 1
+                if rows:
+                    session.flush()
+
+            if soft_delete_grace and soft_delete_grace > 0:
+                cutoff = moment - timedelta(days=soft_delete_grace)
+                result = session.execute(
+                    delete(Message).where(
+                        Message.deleted_at.is_not(None),
+                        Message.deleted_at < cutoff,
+                    )
+                )
+                stats["hard_deleted"] += int(result.rowcount or 0)
+
+            if retention_days and retention_days > 0:
+                cutoff = moment - timedelta(days=retention_days)
+                result = session.execute(
+                    delete(Message).where(Message.created_at < cutoff)
+                )
+                stats["hard_deleted"] += int(result.rowcount or 0)
+
+        return stats
+
+    def prune_archived_conversations(
+        self, *, now: Optional[datetime] = None
+    ) -> Dict[str, int]:
+        """Apply conversation-level retention policies."""
+
+        moment = now or datetime.now(timezone.utc)
+        stats = {"archived": 0, "deleted": 0}
+
+        archive_after = self._retention_days("conversation_archive_days")
+        archived_retention = self._retention_days("archived_conversation_retention_days")
+        tenant_limits = self._retention.get("tenant_limits")
+
+        with self._session_scope() as session:
+            if archive_after and archive_after > 0:
+                cutoff = moment - timedelta(days=archive_after)
+                rows = (
+                    session.execute(
+                        select(Conversation).where(
+                            Conversation.archived_at.is_(None),
+                            Conversation.created_at < cutoff,
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                for conversation in rows:
+                    conversation.archived_at = moment
+                    stats["archived"] += 1
+                if rows:
+                    session.flush()
+
+            if isinstance(tenant_limits, Mapping):
+                for tenant_key, policy in tenant_limits.items():
+                    if not isinstance(policy, Mapping):
+                        continue
+                    max_conversations = policy.get("max_conversations")
+                    if max_conversations is None:
+                        continue
+                    try:
+                        limit = int(max_conversations)
+                    except (TypeError, ValueError):
+                        continue
+                    if limit < 1:
+                        continue
+                    rows = (
+                        session.execute(
+                            select(Conversation)
+                            .where(
+                                Conversation.meta.contains(
+                                    {"tenant_id": str(tenant_key)}
+                                ),
+                                Conversation.archived_at.is_(None),
+                            )
+                            .order_by(
+                                Conversation.created_at.desc(), Conversation.id.desc()
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    excess = rows[limit:]
+                    for conversation in excess:
+                        conversation.archived_at = moment
+                        stats["archived"] += 1
+                    if excess:
+                        session.flush()
+
+            if archived_retention and archived_retention > 0:
+                cutoff = moment - timedelta(days=archived_retention)
+                result = session.execute(
+                    delete(Conversation).where(
+                        Conversation.archived_at.is_not(None),
+                        Conversation.archived_at < cutoff,
+                    )
+                )
+                stats["deleted"] += int(result.rowcount or 0)
+
+        return stats
+
+    def run_retention(self, *, now: Optional[datetime] = None) -> Dict[str, Dict[str, int]]:
+        """Execute all configured retention policies and return aggregated stats."""
+
+        moment = now or datetime.now(timezone.utc)
+        messages = self.prune_expired_messages(now=moment)
+        conversations = self.prune_archived_conversations(now=moment)
+        return {"messages": messages, "conversations": conversations}
 
     # -- internal helpers ---------------------------------------------------
 
