@@ -271,10 +271,18 @@ class ConversationRoutes:
         conversation_id = payload["conversation_id"]
         conversation_metadata = dict(payload.get("conversation_metadata") or {})
         conversation_metadata.setdefault("tenant_id", context.tenant_id)
-        self._ensure_conversation_access(conversation_id, context, conversation_metadata)
+        user_uuid, session_uuid = self._resolve_identity(context)
+        self._ensure_conversation_access(
+            conversation_id,
+            context,
+            conversation_metadata,
+            session_uuid=session_uuid,
+        )
 
         metadata = dict(payload.get("metadata") or {})
         metadata.setdefault("tenant_id", context.tenant_id)
+        if context.user_id and "user" not in metadata:
+            metadata["user"] = context.user_id
         extra = dict(payload.get("extra") or {})
         start_time = datetime.now(timezone.utc)
         stored = self._repository.add_message(
@@ -282,7 +290,8 @@ class ConversationRoutes:
             role=str(payload["role"]),
             content=payload.get("content"),
             metadata=metadata,
-            user_id=context.user_id,
+            user_id=user_uuid,
+            session_id=session_uuid,
             timestamp=payload.get("timestamp"),
             message_id=payload.get("message_id"),
             extra=extra,
@@ -306,7 +315,12 @@ class ConversationRoutes:
         self._require_context(context)
         self._update_validator.validate(payload)
         conversation_id = payload["conversation_id"]
-        self._ensure_conversation_access(conversation_id, context)
+        _, session_uuid = self._resolve_identity(context)
+        self._ensure_conversation_access(
+            conversation_id,
+            context,
+            session_uuid=session_uuid,
+        )
 
         start_time = datetime.now(timezone.utc)
         stored = self._repository.record_edit(
@@ -333,7 +347,12 @@ class ConversationRoutes:
         self._require_context(context)
         self._delete_validator.validate(payload)
         conversation_id = payload["conversation_id"]
-        self._ensure_conversation_access(conversation_id, context)
+        _, session_uuid = self._resolve_identity(context)
+        self._ensure_conversation_access(
+            conversation_id,
+            context,
+            session_uuid=session_uuid,
+        )
 
         start_time = datetime.now(timezone.utc)
         self._repository.soft_delete_message(
@@ -359,7 +378,12 @@ class ConversationRoutes:
         params = params or {}
         self._require_context(context)
         self._list_validator.validate(params)
-        self._ensure_conversation_access(conversation_id, context)
+        _, session_uuid = self._resolve_identity(context)
+        self._ensure_conversation_access(
+            conversation_id,
+            context,
+            session_uuid=session_uuid,
+        )
 
         limit = int(params.get("page_size") or 20)
         limit = max(1, min(limit, self._page_size_limit))
@@ -405,6 +429,7 @@ class ConversationRoutes:
     ) -> Dict[str, Any]:
         self._require_context(context)
         self._search_validator.validate(payload)
+        _, session_uuid = self._resolve_identity(context)
         metadata_filter = dict(payload.get("metadata") or {})
         limit = int(payload.get("limit") or 20)
         limit = max(1, min(limit, self._page_size_limit))
@@ -413,7 +438,13 @@ class ConversationRoutes:
         if raw_ids:
             conversation_ids = []
             for identifier in raw_ids:
-                conversation_ids.append(self._ensure_conversation_access(identifier, context)["id"])
+                conversation_ids.append(
+                    self._ensure_conversation_access(
+                        identifier,
+                        context,
+                        session_uuid=session_uuid,
+                    )["id"]
+                )
         else:
             conversation_ids = [record["id"] for record in self._repository.list_conversations_for_tenant(context.tenant_id)]
 
@@ -494,7 +525,12 @@ class ConversationRoutes:
         after: Optional[str] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         self._require_context(context)
-        self._ensure_conversation_access(conversation_id, context)
+        _, session_uuid = self._resolve_identity(context)
+        self._ensure_conversation_access(
+            conversation_id,
+            context,
+            session_uuid=session_uuid,
+        )
         last_seen = after
         backlog = self._repository.fetch_message_events(
             conversation_id=conversation_id, after=after
@@ -539,18 +575,67 @@ class ConversationRoutes:
         if context is None or not context.tenant_id:
             raise ConversationAuthorizationError("A tenant scoped context is required")
 
+    def _resolve_identity(
+        self, context: RequestContext
+    ) -> tuple[Optional[uuid.UUID], Optional[uuid.UUID]]:
+        """Ensure the context user/session exist in the conversation store."""
+
+        if self._repository is None:
+            return None, None
+
+        user_uuid: Optional[uuid.UUID] = None
+        session_uuid: Optional[uuid.UUID] = None
+
+        user_metadata: Dict[str, Any] = {"tenant_id": context.tenant_id}
+        session_metadata: Dict[str, Any] = {"tenant_id": context.tenant_id}
+        user_display_name: Optional[str] = None
+
+        extra_metadata = context.metadata if isinstance(context.metadata, Mapping) else None
+        if isinstance(extra_metadata, Mapping):
+            user_section = extra_metadata.get("user")
+            if isinstance(user_section, Mapping):
+                user_metadata.update(dict(user_section))
+            session_section = extra_metadata.get("session")
+            if isinstance(session_section, Mapping):
+                session_metadata.update(dict(session_section))
+            display_candidate = extra_metadata.get("user_display_name")
+            if isinstance(display_candidate, str):
+                stripped = display_candidate.strip()
+                user_display_name = stripped or None
+
+        if context.roles:
+            user_metadata.setdefault("roles", list(context.roles))
+
+        if context.user_id:
+            user_uuid = self._repository.ensure_user(
+                context.user_id,
+                display_name=user_display_name,
+                metadata=user_metadata,
+            )
+
+        if context.session_id:
+            session_uuid = self._repository.ensure_session(
+                user_uuid,
+                context.session_id,
+                metadata=session_metadata,
+            )
+
+        return user_uuid, session_uuid
+
     def _ensure_conversation_access(
         self,
         conversation_id: str,
         context: RequestContext,
         metadata: Optional[Mapping[str, Any]] = None,
+        *,
+        session_uuid: Optional[uuid.UUID] = None,
     ) -> Dict[str, Any]:
         tenant_id = context.tenant_id
         conversation = self._repository.get_conversation(conversation_id)
         if conversation is None:
             self._repository.ensure_conversation(
                 conversation_id,
-                session_id=context.session_id,
+                session_id=session_uuid,
                 metadata=dict(metadata or {"tenant_id": tenant_id}),
             )
             conversation = self._repository.get_conversation(conversation_id)
@@ -565,7 +650,7 @@ class ConversationRoutes:
             merged_metadata.setdefault("tenant_id", tenant_id)
             self._repository.ensure_conversation(
                 conversation_id,
-                session_id=context.session_id,
+                session_id=session_uuid,
                 metadata=merged_metadata,
             )
             conversation = self._repository.get_conversation(conversation_id)

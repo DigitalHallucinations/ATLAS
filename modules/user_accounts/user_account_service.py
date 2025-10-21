@@ -14,10 +14,11 @@ import secrets
 import threading
 import datetime as _dt
 from dataclasses import dataclass, replace
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, Mapping
 
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
+from modules.conversation_store import ConversationStoreRepository
 
 from .user_account_db import (
     DuplicateUserError,
@@ -103,11 +104,13 @@ class UserAccountService:
         config_manager: Optional[ConfigManager] = None,
         database: Optional[UserAccountDatabase] = None,
         clock: Optional[Callable[[], _dt.datetime]] = None,
+        conversation_repository: Optional[ConversationStoreRepository] = None,
     ) -> None:
         self.logger = setup_logger(__name__)
         self.config_manager = config_manager or ConfigManager()
         self._database = database or UserAccountDatabase()
         self._clock: Callable[[], _dt.datetime] = clock or self._default_clock
+        self._conversation_repository = conversation_repository
         self._password_requirements = self._resolve_password_requirements()
 
         self._lockout_threshold = self._resolve_lockout_setting(
@@ -134,6 +137,31 @@ class UserAccountService:
         self._active_lockouts: Dict[str, _dt.datetime] = {}
         self._lockout_lock = threading.RLock()
         self._load_lockout_state()
+
+    def _sync_conversation_user(
+        self,
+        username: Optional[str],
+        *,
+        display_name: Optional[str] = None,
+        metadata: Optional[Mapping[str, object]] = None,
+    ) -> None:
+        if not username:
+            return
+        repository = self._conversation_repository
+        if repository is None:
+            return
+        try:
+            repository.ensure_user(
+                username,
+                display_name=display_name,
+                metadata=dict(metadata or {}),
+            )
+        except Exception as exc:  # pragma: no cover - best effort logging
+            self.logger.warning(
+                "Failed to synchronize user '%s' with conversation store: %s",
+                username,
+                exc,
+            )
 
     def _resolve_password_requirements(self) -> PasswordRequirements:
         """Return the password policy taking configuration overrides into account."""
@@ -807,6 +835,16 @@ class UserAccountService:
 
         account = self._row_to_account(record)
         self.logger.info("Registered new user '%s'", account.username)
+        metadata_payload: Dict[str, object] = {}
+        if account.email:
+            metadata_payload["email"] = account.email
+        if account.dob:
+            metadata_payload["dob"] = account.dob
+        self._sync_conversation_user(
+            account.username,
+            display_name=account.name,
+            metadata=metadata_payload,
+        )
         return account
 
     def authenticate_user(self, username: str, password: str) -> bool:
@@ -868,6 +906,22 @@ class UserAccountService:
                     normalised_username,
                     exc,
                 )
+            metadata_payload: Dict[str, object] = {"last_login": timestamp}
+            display_name: Optional[str] = None
+            try:
+                account_row = self._database.get_user(normalised_username)
+            except Exception:  # pragma: no cover - fallback when lookup fails
+                account_row = None
+            if account_row:
+                account_details = self._row_to_account(account_row)
+                display_name = account_details.name
+                if account_details.email:
+                    metadata_payload.setdefault("email", account_details.email)
+            self._sync_conversation_user(
+                normalised_username,
+                display_name=display_name,
+                metadata=metadata_payload,
+            )
             return True
 
         self._record_login_attempt(normalised_username, timestamp, False, "invalid-credentials")
