@@ -327,6 +327,25 @@ class ConversationStoreRepository:
                 raise
             return _serialize_credential(record)
 
+    def attach_credential(self, username: str, user_id: Any) -> Optional[str]:
+        cleaned_username = str(username).strip()
+        if not cleaned_username:
+            return None
+        user_uuid = _coerce_uuid(user_id)
+
+        with self._session_scope() as session:
+            credential = session.execute(
+                select(UserCredential).where(UserCredential.username == cleaned_username)
+            ).scalar_one_or_none()
+            if credential is None:
+                return None
+            if credential.user_id == user_uuid:
+                existing = credential.user_id
+                return str(existing) if existing is not None else None
+            credential.user_id = user_uuid
+            session.flush()
+            return str(credential.user_id) if credential.user_id is not None else None
+
     def get_user_account(self, username: str) -> Optional[Dict[str, Any]]:
         cleaned = str(username).strip()
         if not cleaned:
