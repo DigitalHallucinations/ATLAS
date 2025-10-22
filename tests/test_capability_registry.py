@@ -1,17 +1,11 @@
 import json
+import os
+import time
 from pathlib import Path
 
 import pytest
 
 from modules.orchestration.capability_registry import CapabilityRegistry
-
-import json
-from pathlib import Path
-
-import pytest
-
-from modules.orchestration.capability_registry import CapabilityRegistry
-
 
 class _DummyConfig:
     def __init__(self, root: Path) -> None:
@@ -272,3 +266,62 @@ def test_get_task_catalog_prefers_persona_variants(capability_root: Path) -> Non
     atlas_catalog = registry.get_task_catalog(persona="Atlas")
     assert len(atlas_catalog) == 1
     assert atlas_catalog[0].manifest.summary == "Atlas version"
+
+
+def test_registry_refresh_detects_task_manifest_changes(capability_root: Path) -> None:
+    shared_tool = _minimal_tool("shared_tool")
+    shared_skill = _minimal_skill("shared_skill")
+    shared_task = _minimal_task("SharedTask")
+    _write_shared_manifests(capability_root, [shared_tool], [shared_skill], [shared_task])
+
+    registry = CapabilityRegistry(config_manager=_DummyConfig(capability_root))
+    assert registry.refresh(force=True)
+    initial_revision = registry.revision
+
+    assert not registry.refresh(force=False)
+
+    additional_task = _minimal_task("SecondTask")
+    _write_shared_manifests(
+        capability_root,
+        [shared_tool],
+        [shared_skill],
+        [shared_task, additional_task],
+    )
+    manifest_path = capability_root / "modules" / "Tasks" / "tasks.json"
+    os.utime(manifest_path, (time.time() + 5, time.time() + 5))
+
+    assert registry.refresh(force=False)
+    assert registry.revision == initial_revision + 1
+    catalog = registry.get_task_catalog(persona=None)
+    assert {view.manifest.name for view in catalog} == {"SharedTask", "SecondTask"}
+
+
+def test_registry_summary_includes_tasks_and_health(capability_root: Path) -> None:
+    tool = _minimal_tool("summary_tool")
+    skill = _minimal_skill("summary_skill")
+    task = _minimal_task("SummaryTask")
+    _write_shared_manifests(capability_root, [tool], [skill], [task])
+
+    registry = CapabilityRegistry(config_manager=_DummyConfig(capability_root))
+    registry.refresh(force=True)
+    registry.record_tool_execution(
+        persona=None,
+        tool_name="summary_tool",
+        success=True,
+        latency_ms=120.0,
+    )
+
+    summary = registry.summary(persona="Atlas")
+    assert summary["persona"] == "Atlas"
+    assert summary["revision"] == registry.revision
+
+    tool_entry = next(entry for entry in summary["tools"] if entry["name"] == "summary_tool")
+    assert tool_entry["compatibility"]["persona_specific"] is False
+    assert tool_entry["health"]["tool"]["total"] == 1
+
+    skill_entry = next(entry for entry in summary["skills"] if entry["name"] == "summary_skill")
+    assert skill_entry["compatibility"]["matches_request"] is True
+
+    task_entry = next(entry for entry in summary["tasks"] if entry["name"] == "SummaryTask")
+    assert task_entry["compatibility"]["persona_specific"] is False
+    assert set(task_entry["required_skills"]) == {"sample"}

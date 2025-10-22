@@ -151,3 +151,6 @@ averages, and provider backoff state—are continuously recorded by
 `ToolManager` and surfaced through the registry. If you need to eagerly reload
 metadata after editing a manifest, call
 `CapabilityRegistry.refresh(force=True)` or restart the service.
+
+For task-specific manifests, lifecycle states, and API guidance see
+[Task metadata and lifecycle](tasks/overview.md).

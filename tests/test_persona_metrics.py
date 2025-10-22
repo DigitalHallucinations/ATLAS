@@ -8,6 +8,9 @@ import pytest
 from modules.analytics.persona_metrics import (
     PersonaMetricEvent,
     PersonaMetricsStore,
+    TaskLifecycleEvent,
+    get_task_lifecycle_metrics,
+    record_task_lifecycle_event,
 )
 
 
@@ -168,8 +171,127 @@ def test_record_event_concurrent_persistence(metrics_store):
     assert tools == {"alpha", "beta"}
 
 
+def test_task_lifecycle_metrics_aggregation(metrics_store):
+    base = datetime(2024, 3, 1, 8, 0, tzinfo=timezone.utc)
+    metrics_store.record_task_event(
+        TaskLifecycleEvent(
+            task_id="task-1",
+            event="created",
+            persona="Atlas",
+            tenant_id="tenant-a",
+            to_status="ready",
+            success=None,
+            latency_ms=None,
+            reassignments=0,
+            timestamp=base,
+            metadata={"source": "unit"},
+        )
+    )
+    metrics_store.record_task_event(
+        TaskLifecycleEvent(
+            task_id="task-1",
+            event="completed",
+            persona="Atlas",
+            tenant_id="tenant-a",
+            from_status="review",
+            to_status="done",
+            success=True,
+            latency_ms=540.0,
+            reassignments=0,
+            timestamp=base + timedelta(minutes=30),
+        )
+    )
+    metrics_store.record_task_event(
+        TaskLifecycleEvent(
+            task_id="task-1",
+            event="reassigned",
+            persona="Atlas",
+            tenant_id="tenant-a",
+            from_status="done",
+            to_status="done",
+            success=None,
+            latency_ms=None,
+            reassignments=1,
+            timestamp=base + timedelta(hours=1),
+        )
+    )
+    metrics_store.record_task_event(
+        TaskLifecycleEvent(
+            task_id="other",
+            event="cancelled",
+            persona="Other",
+            tenant_id="tenant-b",
+            from_status="review",
+            to_status="cancelled",
+            success=False,
+            latency_ms=200.0,
+            reassignments=0,
+            timestamp=base + timedelta(hours=2),
+        )
+    )
+
+    metrics = metrics_store.get_task_metrics(persona="Atlas")
+    assert metrics["totals"]["events"] == 3
+    assert metrics["totals"]["reassignments"] == 1
+    assert metrics["success_rate"] == pytest.approx(1.0)
+    assert metrics["average_latency_ms"] == pytest.approx(540.0)
+
+    status_totals = {entry["status"]: entry for entry in metrics["status_totals"]}
+    assert status_totals["done"]["events"] == 2
+
+    task_summary = {entry["task_id"]: entry for entry in metrics["tasks"]}
+    assert task_summary["task-1"]["reassignments"] == 1
+    assert task_summary["task-1"]["last_status"] == "done"
+
+    recent_first = metrics["recent"][0]
+    assert recent_first["event"] == "reassigned"
+    assert recent_first["task_id"] == "task-1"
+
+
+def test_record_task_lifecycle_event_publishes(monkeypatch, metrics_store):
+    published = []
+
+    def _fake_publish(topic, payload, **kwargs):
+        published.append((topic, payload, kwargs))
+
+    monkeypatch.setattr(
+        "modules.analytics.persona_metrics.publish_bus_event",
+        _fake_publish,
+    )
+    monkeypatch.setattr(
+        "modules.analytics.persona_metrics._get_store",
+        lambda config_manager=None: metrics_store,
+    )
+
+    timestamp = datetime(2024, 4, 5, 9, 30, tzinfo=timezone.utc)
+    record_task_lifecycle_event(
+        task_id="task-123",
+        event="completed",
+        persona="Atlas",
+        tenant_id="tenant-x",
+        from_status="review",
+        to_status="done",
+        success=True,
+        latency_ms=1250.0,
+        reassignments=0,
+        timestamp=timestamp,
+        metadata={"source": "test"},
+    )
+
+    assert published and published[0][0] == "task_metrics.lifecycle"
+    payload = published[0][1]
+    assert payload["task_id"] == "task-123"
+    assert payload["success"] is True
+
+    metrics = get_task_lifecycle_metrics(persona="Atlas")
+    assert metrics["totals"]["events"] == 1
+    assert metrics["success_rate"] == pytest.approx(1.0)
+    assert metrics["recent"][0]["metadata"]["source"] == "test"
+
+
 def test_persona_metrics_server_endpoint(tmp_path):
     pytest.importorskip("jsonschema")
+    pytest.importorskip("sqlalchemy")
     from modules.Server.routes import AtlasServer
 
     app_root = tmp_path / "app"
