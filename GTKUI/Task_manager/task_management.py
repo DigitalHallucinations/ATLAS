@@ -505,19 +505,17 @@ class TaskManagement:
             self._status_filter = None
 
     def _on_persona_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
-        index = getattr(combo, "_active", -1)
+        index = combo.get_active()
         if 0 <= index < len(self._persona_option_lookup):
-            selected = self._persona_option_lookup[index]
-            self._persona_filter = selected
+            self._persona_filter = self._persona_option_lookup[index]
         else:
             self._persona_filter = None
         self._rebuild_task_list()
 
     def _on_status_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
-        index = getattr(combo, "_active", -1)
+        index = combo.get_active()
         if 0 <= index < len(self._status_option_lookup):
-            selected = self._status_option_lookup[index]
-            self._status_filter = selected
+            self._status_filter = self._status_option_lookup[index]
         else:
             self._status_filter = None
         self._refresh_state()
