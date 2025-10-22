@@ -90,43 +90,6 @@ class ChatPage(Gtk.Box):
         self._blackboard_subscription = None
         self.connect("destroy", self._on_destroy)
 
-        # --- Header bar with persona title & quick actions ---
-        self.header_bar = Gtk.HeaderBar()
-        self.header_bar.add_css_class("flat")
-        self.append(self.header_bar)
-
-        # Persona title and active user labels inside header
-        self.header_title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.header_title_box.set_hexpand(True)
-
-        self.persona_title_label = Gtk.Label(xalign=0)
-        self.persona_title_label.add_css_class("title-1")
-        self.persona_title_label.set_tooltip_text("Current persona")
-        self.header_title_box.append(self.persona_title_label)
-
-        self.user_title_label = Gtk.Label(xalign=0)
-        self.user_title_label.add_css_class("caption")
-        self.user_title_label.set_tooltip_text("Signed-in account")
-        self.header_title_box.append(self.user_title_label)
-
-        self.header_bar.set_title_widget(self.header_title_box)
-
-        # Clear chat button
-        self.clear_btn = Gtk.Button()
-        self.clear_btn.set_tooltip_text("Clear chat history")
-        self._set_button_icon(self.clear_btn, "../../Icons/clear.png", "user-trash")
-        self.clear_btn.add_css_class("flat")
-        self.clear_btn.connect("clicked", self.on_clear_chat)
-        self.header_bar.pack_end(self.clear_btn)
-
-        # Export chat button
-        self.export_btn = Gtk.Button()
-        self.export_btn.set_tooltip_text("Export chat to a text file")
-        self._set_button_icon(self.export_btn, "../../Icons/export.png", "document-save")
-        self.export_btn.add_css_class("flat")
-        self.export_btn.connect("clicked", self.on_export_chat)
-        self.header_bar.pack_end(self.export_btn)
-
         # Main vertical container.
         self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.vbox.set_hexpand(True)
@@ -405,7 +368,6 @@ class ChatPage(Gtk.Box):
         self.ATLAS.add_provider_change_listener(self._provider_change_handler)
         self._active_user_listener = None
         self._current_user_display_name = self.ATLAS.get_user_display_name()
-        self.user_title_label.set_text(f"Active user: {self._current_user_display_name}")
         self.update_persona_label()
         self._register_active_user_listener()
         self._register_persona_change_listener()
@@ -418,7 +380,6 @@ class ChatPage(Gtk.Box):
         except Exception as exc:  # pragma: no cover - filesystem issues are logged but non-fatal
             logger.warning("Unable to create audio output directory: %s", exc)
             self._audio_output_dir = Path.home()
-        self._export_dialog = None
         self._initialize_debug_logging()
 
     # --------------------------- Utilities ---------------------------
@@ -1875,18 +1836,15 @@ class ChatPage(Gtk.Box):
             logger.debug("Unable to stringify value for terminal view", exc_info=True)
             return str(value)
 
-    # --------------------------- Header helpers ---------------------------
+    # --------------------------- Persona helpers ---------------------------
 
     def update_persona_label(self):
         """
-        Updates the window title and header label with the current persona's name.
+        Update the window title with the current persona's name.
         """
         persona_name = self.ATLAS.get_active_persona_name()
-        self.persona_title_label.set_text(persona_name)
 
         user_display = getattr(self, "_current_user_display_name", None)
-        if hasattr(self, "user_title_label") and user_display:
-            self.user_title_label.set_text(f"Active user: {user_display}")
 
         self._refresh_blackboard_tab()
 
@@ -1986,8 +1944,6 @@ class ChatPage(Gtk.Box):
 
     def _apply_active_user_identity(self, username: str, display_name: str) -> bool:
         self._current_user_display_name = display_name or username
-        if hasattr(self, "user_title_label"):
-            self.user_title_label.set_text(f"Active user: {self._current_user_display_name}")
         self.update_persona_label()
         self.update_status_bar()
         return False
@@ -2414,82 +2370,6 @@ class ChatPage(Gtk.Box):
         bottom = max(0.0, vadj.get_upper() - vadj.get_page_size())
         vadj.set_value(bottom)
         return False  # Stop the timeout
-
-    def on_clear_chat(self, _btn):
-        """
-        Clears the current chat history from the UI (does not modify persisted history unless your app does so elsewhere).
-        """
-        for child in list(self.chat_history.get_children()):
-            self.chat_history.remove(child)
-
-        result: Dict[str, Optional[str]] = {}
-        try:
-            result = self.ATLAS.reset_chat_history() or {}
-        except Exception as exc:  # pragma: no cover - defensive logging
-            logger.error("Failed to reset chat history: %s", exc)
-            result = {"success": False, "error": "Failed to reset chat history."}
-        finally:
-            # Always clear the terminal/thinking panes so stale content is removed.
-            self._refresh_terminal_tab()
-            self._update_terminal_thinking(None)
-
-        if result.get("success"):
-            status_message = result.get("message", "Chat cleared.")
-        else:
-            status_message = result.get("error", "Failed to reset chat history.")
-        self.status_label.set_text(status_message)
-        if result.get("success"):
-            status_summary = result.get("status_summary")
-            GLib.timeout_add_seconds(
-                2, lambda: (self.update_status_bar(status_summary) or False)
-            )
-
-    def on_export_chat(self, _btn):
-        """Launch a modal dialog that lets the user export the chat history."""
-        if self._export_dialog is not None:
-            # An export dialog is already active.
-            return
-
-        dialog = Gtk.FileChooserNative(
-            title="Export chat",
-            action=Gtk.FileChooserAction.SAVE,
-            transient_for=self,
-        )
-        dialog.set_modal(True)
-        dialog.set_current_name("chat.txt")
-
-        self.export_btn.set_sensitive(False)
-        self._export_dialog = dialog
-        dialog.connect("response", self._on_export_dialog_response)
-        dialog.show()
-
-    def _on_export_dialog_response(self, dialog, response):
-        """Handle export dialog responses and perform the chat history export."""
-        try:
-            if response == Gtk.ResponseType.ACCEPT:
-                gio_file = dialog.get_file()
-                path = gio_file.get_path() if gio_file is not None else None
-                if not path:
-                    self.status_label.set_text("No file selected for export.")
-                    return
-
-                result = self.ATLAS.export_chat_history(path)
-                if result.get("success"):
-                    self.status_label.set_text(
-                        result.get("message")
-                        or "Chat history exported successfully."
-                    )
-                else:
-                    self.status_label.set_text(
-                        result.get("error") or "Export failed."
-                    )
-            else:
-                self.status_label.set_text("Export cancelled.")
-        finally:
-            self.export_btn.set_sensitive(True)
-            dialog.destroy()
-            if self._export_dialog is dialog:
-                self._export_dialog = None
 
     def _on_close_request(self, *_args):
         """Unregister provider change listeners before the window closes."""
