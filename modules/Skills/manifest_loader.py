@@ -104,6 +104,15 @@ except OSError as exc:  # pragma: no cover - schema should exist
     _SCHEMA = {"definitions": {"skill": {"type": "object"}}}
 
 _ENTRY_VALIDATOR = Draft7Validator(_SCHEMA["definitions"]["skill"])
+_REQUIRED_STRING_FIELDS = {"name", "version", "instruction_prompt", "safety_notes"}
+_REQUIRED_FIELDS = (
+    "name",
+    "version",
+    "instruction_prompt",
+    "required_tools",
+    "required_capabilities",
+    "safety_notes",
+)
 
 
 @dataclass(frozen=True)
@@ -190,6 +199,11 @@ def _load_skill_file(path: Path, *, persona: Optional[str], app_root: Path) -> I
 
     entries: List[SkillMetadata] = []
     for index, entry in enumerate(_iter_skill_entries(payload)):
+        missing_fields = _missing_required_fields(entry)
+        if missing_fields:
+            _log_manual_validation_error(path, index, missing_fields)
+            continue
+
         errors = list(_ENTRY_VALIDATOR.iter_errors(entry))
         if errors:
             for error in errors:
@@ -208,6 +222,17 @@ def _iter_skill_entries(payload: List[Any]) -> Iterator[dict[str, Any]]:
             yield item
         else:
             logger.error("Skill manifest entries must be objects; skipping %r", item)
+
+
+def _missing_required_fields(entry: Mapping[str, Any]) -> List[str]:
+    missing: List[str] = []
+    for field in _REQUIRED_FIELDS:
+        if field not in entry:
+            missing.append(field)
+            continue
+        if field in _REQUIRED_STRING_FIELDS and not str(entry.get(field) or "").strip():
+            missing.append(field)
+    return missing
 
 
 def _normalize_entry(
@@ -347,4 +372,14 @@ def _log_validation_error(path: Path, index: int, error: ValidationError) -> Non
         index,
         f" ({location})" if location else "",
         error.message,
+    )
+
+
+def _log_manual_validation_error(path: Path, index: int, missing_fields: List[str]) -> None:
+    formatted = ", ".join(sorted(missing_fields))
+    logger.error(
+        "Validation error in %s at entry %s: missing required fields: %s",
+        path,
+        index,
+        formatted,
     )

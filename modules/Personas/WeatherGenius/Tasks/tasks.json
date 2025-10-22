@@ -37,5 +37,46 @@
       "field-support"
     ],
     "priority": "High"
+  },
+  {
+    "name": "SevereWeatherAlertEscalation",
+    "summary": "Escalate severe weather threats with targeted notifications and protective guidance.",
+    "description": "Continuously monitor NOAA/NWS alert feeds and local forecasts, determining when to notify duty officers and response teams with clear action paths.",
+    "required_skills": [
+      "SevereWeatherAlert",
+      "DailyDigest"
+    ],
+    "required_tools": [
+      "weather_alert_feed",
+      "get_current_weather",
+      "get_daily_weather_summary",
+      "google_search"
+    ],
+    "acceptance_criteria": [
+      "Identifies alert thresholds that require escalation and documents the triggering criteria.",
+      "Routes notifications to the correct duty officers with time-sensitive summaries and recommended actions.",
+      "Correlates alerts with forecast data to validate severity and anticipated impact windows before escalating."
+    ],
+    "escalation_policy": {
+      "level": "Weather Duty Supervisor",
+      "contact": "wx-escalations@atlas",
+      "timeframe": "Escalate within 10 minutes of extreme alerts",
+      "triggers": [
+        "NWS severity classified as severe or extreme",
+        "Conflicting alert and forecast data",
+        "Multiple counties impacted"
+      ],
+      "actions": [
+        "Notify regional duty supervisor",
+        "Page on-call incident commander",
+        "Initiate protective action checklist"
+      ]
+    },
+    "tags": [
+      "weather",
+      "alerts",
+      "escalation"
+    ],
+    "priority": "Critical"
   }
 ]

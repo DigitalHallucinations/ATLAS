@@ -190,6 +190,90 @@
         ]
     },
     {
+        "name": "weather_alert_feed",
+        "version": "1.0.0",
+        "side_effects": "read_external_service",
+        "default_timeout": 30,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Retrieve active NOAA/NWS weather alerts for a geographic point.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "lat": {
+                    "type": "number",
+                    "description": "Latitude for the alert query"
+                },
+                "lon": {
+                    "type": "number",
+                    "description": "Longitude for the alert query"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "actual",
+                        "exercise",
+                        "system",
+                        "test",
+                        "draft"
+                    ],
+                    "default": "actual",
+                    "description": "Filter alerts by NWS status"
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": [
+                        "minor",
+                        "moderate",
+                        "severe",
+                        "extreme"
+                    ],
+                    "description": "Optional severity filter"
+                },
+                "urgency": {
+                    "type": "string",
+                    "enum": [
+                        "immediate",
+                        "expected",
+                        "future",
+                        "past",
+                        "unknown"
+                    ],
+                    "description": "Optional urgency filter"
+                },
+                "certainty": {
+                    "type": "string",
+                    "enum": [
+                        "observed",
+                        "likely",
+                        "possible",
+                        "unlikely",
+                        "unknown"
+                    ],
+                    "description": "Optional certainty filter"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 20,
+                    "description": "Maximum number of alerts to return"
+                }
+            },
+            "required": [
+                "lat",
+                "lon"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "weather_alerts",
+            "monitoring"
+        ]
+    },
+    {
         "name": "google_search",
         "version": "1.0.0",
         "side_effects": "none",
