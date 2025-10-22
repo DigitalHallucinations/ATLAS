@@ -20,6 +20,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Seque
 
 from modules.Tools.manifest_loader import ToolManifestEntry, load_manifest_entries
 from modules.Skills.manifest_loader import SkillMetadata, load_skill_metadata
+from modules.Tasks.manifest_loader import TaskMetadata, load_task_metadata
 from modules.logging.logger import setup_logger
 
 try:  # ConfigManager may not be available in certain test scenarios
@@ -226,6 +227,16 @@ class SkillCapabilityView:
     required_capabilities: Tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class TaskCapabilityView:
+    """Projection of a task manifest entry with normalized metadata."""
+
+    manifest: TaskMetadata
+    required_skills: Tuple[str, ...]
+    required_tools: Tuple[str, ...]
+    tags: Tuple[str, ...]
+
+
 @dataclass
 class _ToolRecord:
     manifest: ToolManifestEntry
@@ -239,6 +250,14 @@ class _SkillRecord:
     manifest: SkillMetadata
     capability_tags: Tuple[str, ...]
     required_capabilities: Tuple[str, ...]
+
+
+@dataclass
+class _TaskRecord:
+    manifest: TaskMetadata
+    required_skills: Tuple[str, ...]
+    required_tools: Tuple[str, ...]
+    tags: Tuple[str, ...]
 
 
 class CapabilityRegistry:
@@ -259,6 +278,8 @@ class CapabilityRegistry:
         self._provider_snapshots: Dict[Tuple[Optional[str], str, str], Mapping[str, Any]] = {}
         self._skill_records: List[_SkillRecord] = []
         self._skill_lookup: Dict[Tuple[Optional[str], str], _SkillRecord] = {}
+        self._task_records: List[_TaskRecord] = []
+        self._task_lookup: Dict[Tuple[Optional[str], str], _TaskRecord] = {}
 
     # ------------------------------------------------------------------
     # Configuration helpers
@@ -324,6 +345,20 @@ class CapabilityRegistry:
                 skill_records.append(record)
                 skill_lookup[(persona_key, entry.name)] = record
 
+            task_entries = load_task_metadata(config_manager=self._config_manager)
+            task_records: List[_TaskRecord] = []
+            task_lookup: Dict[Tuple[Optional[str], str], _TaskRecord] = {}
+            for entry in task_entries:
+                persona_key = _normalize_persona(entry.persona)
+                record = _TaskRecord(
+                    manifest=entry,
+                    required_skills=_coerce_string_sequence(entry.required_skills),
+                    required_tools=_coerce_string_sequence(entry.required_tools),
+                    tags=_coerce_string_sequence(entry.tags),
+                )
+                task_records.append(record)
+                task_lookup[(persona_key, entry.name)] = record
+
             self._tool_records = tool_records
             self._tool_lookup = tool_lookup
             self._tool_payloads = tool_payloads
@@ -331,6 +366,8 @@ class CapabilityRegistry:
             self._persona_tool_sources = persona_sources
             self._skill_records = skill_records
             self._skill_lookup = skill_lookup
+            self._task_records = task_records
+            self._task_lookup = task_lookup
             self._manifest_state = manifest_state
             self._revision += 1
             logger.debug("Capability registry refreshed (revision=%s)", self._revision)
@@ -479,6 +516,93 @@ class CapabilityRegistry:
                     )
                 )
             return results
+
+    def query_tasks(
+        self,
+        *,
+        persona_filters: Optional[Sequence[str]] = None,
+        required_skill_filters: Optional[Sequence[str]] = None,
+        required_tool_filters: Optional[Sequence[str]] = None,
+        tag_filters: Optional[Sequence[str]] = None,
+    ) -> List[TaskCapabilityView]:
+        with self._lock:
+            self.refresh_if_stale()
+            persona_tokens = [
+                token.strip().lower()
+                for token in persona_filters or []
+                if isinstance(token, str) and token.strip()
+            ]
+            skill_tokens = {
+                token.strip().lower()
+                for token in required_skill_filters or []
+                if isinstance(token, str) and token.strip()
+            }
+            tool_tokens = {
+                token.strip().lower()
+                for token in required_tool_filters or []
+                if isinstance(token, str) and token.strip()
+            }
+            tag_tokens = {
+                token.strip().lower()
+                for token in tag_filters or []
+                if isinstance(token, str) and token.strip()
+            }
+
+            results: List[TaskCapabilityView] = []
+            for record in self._task_records:
+                manifest = record.manifest
+                persona_key = _normalize_persona(manifest.persona)
+                if persona_tokens and not _persona_filter_matches(persona_key, persona_tokens):
+                    continue
+                if skill_tokens:
+                    record_skills = {token.lower() for token in record.required_skills}
+                    if not skill_tokens.issubset(record_skills):
+                        continue
+                if tool_tokens:
+                    record_tools = {token.lower() for token in record.required_tools}
+                    if not tool_tokens.issubset(record_tools):
+                        continue
+                if tag_tokens:
+                    record_tags = {token.lower() for token in record.tags}
+                    if not tag_tokens.issubset(record_tags):
+                        continue
+
+                results.append(
+                    TaskCapabilityView(
+                        manifest=manifest,
+                        required_skills=record.required_skills,
+                        required_tools=record.required_tools,
+                        tags=record.tags,
+                    )
+                )
+            return results
+
+    def get_task_catalog(self, persona: Optional[str]) -> List[TaskCapabilityView]:
+        with self._lock:
+            self.refresh_if_stale()
+            persona_key = _normalize_persona(persona)
+
+            catalog: Dict[str, _TaskRecord] = {}
+            for record in self._task_records:
+                record_persona = _normalize_persona(record.manifest.persona)
+                if record_persona is None:
+                    catalog[record.manifest.name] = record
+
+            if persona_key is not None:
+                for record in self._task_records:
+                    if _normalize_persona(record.manifest.persona) == persona_key:
+                        catalog[record.manifest.name] = record
+
+            ordered = sorted(catalog.values(), key=lambda rec: rec.manifest.name.lower())
+            return [
+                TaskCapabilityView(
+                    manifest=record.manifest,
+                    required_skills=record.required_skills,
+                    required_tools=record.required_tools,
+                    tags=record.tags,
+                )
+                for record in ordered
+            ]
 
     def get_tool_metadata_lookup(
         self,
@@ -672,7 +796,9 @@ class CapabilityRegistry:
             for persona_dir in sorted(p for p in personas_root.iterdir() if p.is_dir()):
                 yield persona_dir / "Toolbox" / "functions.json"
                 yield persona_dir / "Skills" / "skills.json"
+                yield persona_dir / "Tasks" / "tasks.json"
         yield app_root / "modules" / "Skills" / "skills.json"
+        yield app_root / "modules" / "Tasks" / "tasks.json"
 
     def _load_tool_payloads(
         self, app_root: Path
@@ -762,6 +888,7 @@ __all__ = [
     "CapabilityRegistry",
     "ToolCapabilityView",
     "SkillCapabilityView",
+    "TaskCapabilityView",
     "get_capability_registry",
     "reset_capability_registry",
 ]
