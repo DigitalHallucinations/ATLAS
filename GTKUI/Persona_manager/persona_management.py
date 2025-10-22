@@ -1,5 +1,7 @@
 # GTKUI/Persona_manager/persona_management.py
 
+import logging
+
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib
@@ -15,6 +17,9 @@ from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
 from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css
 from modules.logging.audit import PersonaAuditEntry, get_persona_audit_logger
+
+
+logger = logging.getLogger(__name__)
 
 
 class PersonaManagement:
@@ -1596,9 +1601,28 @@ class PersonaManagement:
             workspace_btn.add_css_class("flat")
             workspace_btn.set_can_focus(True)
             workspace_btn.set_tooltip_text("Open this tool in the management workspace.")
-            # GTK compatibility guard: set_accessible_name may be missing on older builds.
-            if hasattr(workspace_btn, "set_accessible_name"):
-                workspace_btn.set_accessible_name(f"Open {display_name} in tool manager")
+            accessible_label = f"Open {display_name} in tool manager"
+            set_accessible = getattr(workspace_btn, "set_accessible_name", None)
+            if callable(set_accessible):
+                set_accessible(accessible_label)
+            else:
+                update_property = getattr(workspace_btn, "update_property", None)
+                if callable(update_property):
+                    try:
+                        update_property(
+                            Gtk.AccessibleProperty.LABEL,
+                            GLib.Variant.new_string(accessible_label),
+                        )
+                    except TypeError as exc:  # pragma: no cover - defensive fallback
+                        logger.debug(
+                            "Gtk.Button.update_property failed; skipping accessible label: %s",
+                            exc,
+                        )
+                else:
+                    logger.debug(
+                        "Gtk.Button does not support accessible labels; expected name '%s'",
+                        accessible_label,
+                    )
             workspace_btn.set_child(self._ensure_tool_row_icons("document-open-symbolic"))
             workspace_btn.connect("clicked", lambda _b, tname=name: self._open_tool_management(tname))
             controls.append(workspace_btn)
@@ -1729,9 +1753,28 @@ class PersonaManagement:
             workspace_btn.add_css_class("flat")
             workspace_btn.set_can_focus(True)
             workspace_btn.set_tooltip_text("Open this skill in the management workspace.")
-            # GTK compatibility guard: set_accessible_name may be missing on older builds.
-            if hasattr(workspace_btn, "set_accessible_name"):
-                workspace_btn.set_accessible_name(f"Open {display_name} in skill manager")
+            accessible_label = f"Open {display_name} in skill manager"
+            set_accessible = getattr(workspace_btn, "set_accessible_name", None)
+            if callable(set_accessible):
+                set_accessible(accessible_label)
+            else:
+                update_property = getattr(workspace_btn, "update_property", None)
+                if callable(update_property):
+                    try:
+                        update_property(
+                            Gtk.AccessibleProperty.LABEL,
+                            GLib.Variant.new_string(accessible_label),
+                        )
+                    except TypeError as exc:  # pragma: no cover - defensive fallback
+                        logger.debug(
+                            "Gtk.Button.update_property failed; skipping accessible label: %s",
+                            exc,
+                        )
+                else:
+                    logger.debug(
+                        "Gtk.Button does not support accessible labels; expected name '%s'",
+                        accessible_label,
+                    )
             workspace_btn.set_child(self._ensure_tool_row_icons("document-open-symbolic"))
             workspace_btn.connect("clicked", lambda _b, sname=name: self._open_skill_management(sname))
             controls.append(workspace_btn)
