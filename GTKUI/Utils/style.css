@@ -7,6 +7,16 @@ label {
     font-size: 12px;
 }
 
+.history-nav-subtitle {
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.history-placeholder {
+    font-size: 11px;
+    opacity: 0.6;
+}
+
 /* Tool management badge styling */
 .tag-badge {
     background-color: #3a3a3a;

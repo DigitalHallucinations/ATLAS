@@ -64,6 +64,13 @@ class ATLAS:
         self._default_status_tooltip = "Active LLM provider/model and TTS status"
         self.server = AtlasServer(config_manager=self.config_manager)
         self.conversation_repository: ConversationStoreRepository | None = None
+        self._conversation_history_listeners: List[Callable[[Dict[str, Any]], None]] = []
+
+        tenant_value = self.config_manager.config.get("tenant_id")
+        if tenant_value is None:
+            tenant_value = self.config_manager.env_config.get("TENANT_ID")
+        tenant_text = str(tenant_value).strip() if tenant_value else "default"
+        self.tenant_id = tenant_text or "default"
 
         session_factory = self.config_manager.get_conversation_store_session_factory()
         if session_factory is not None:
@@ -1052,6 +1059,168 @@ class ATLAS:
             return list(history)
 
         return []
+
+    # ------------------------------------------------------------------
+    # Conversation repository helpers
+    # ------------------------------------------------------------------
+    def add_conversation_history_listener(
+        self, listener: Callable[[Dict[str, Any]], None]
+    ) -> None:
+        """Register a callback notified when the conversation list changes."""
+
+        if not callable(listener):
+            raise TypeError("listener must be callable")
+
+        if listener not in self._conversation_history_listeners:
+            self._conversation_history_listeners.append(listener)
+
+    def remove_conversation_history_listener(
+        self, listener: Callable[[Dict[str, Any]], None]
+    ) -> None:
+        """Remove a previously registered conversation listener."""
+
+        try:
+            self._conversation_history_listeners.remove(listener)
+        except ValueError:
+            pass
+
+    def _conversation_tenant(self) -> str:
+        tenant = getattr(self, "tenant_id", None)
+        if not tenant:
+            return "default"
+        text = str(tenant).strip()
+        return text or "default"
+
+    def _notify_conversation_listeners(self, payload: Mapping[str, Any]) -> None:
+        event = dict(payload)
+        for listener in list(self._conversation_history_listeners):
+            try:
+                listener(event)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.debug(
+                    "Conversation listener %s failed: %s", listener, exc, exc_info=True
+                )
+
+    def notify_conversation_updated(
+        self, conversation_id: Any, *, reason: str = "updated"
+    ) -> None:
+        """Notify UI components that a conversation has changed."""
+
+        identifier = str(conversation_id)
+        payload = {"conversation_id": identifier, "reason": reason}
+        self._notify_conversation_listeners(payload)
+
+    def get_recent_conversations(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Return the most recent conversations for the active tenant."""
+
+        repository = self.conversation_repository
+        if repository is None:
+            return []
+
+        try:
+            window = max(int(limit), 1)
+        except (TypeError, ValueError):
+            window = 20
+
+        try:
+            return repository.list_conversations_for_tenant(
+                self._conversation_tenant(),
+                limit=window,
+                order="desc",
+            )
+        except Exception as exc:  # pragma: no cover - database errors logged
+            self.logger.error("Failed to load recent conversations: %s", exc, exc_info=True)
+            return []
+
+    def list_all_conversations(self, *, order: str = "desc") -> List[Dict[str, Any]]:
+        """Return all conversations for the tenant in the requested order."""
+
+        repository = self.conversation_repository
+        if repository is None:
+            return []
+
+        try:
+            return repository.list_conversations_for_tenant(
+                self._conversation_tenant(),
+                order=order,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.error("Failed to enumerate conversations: %s", exc, exc_info=True)
+            return []
+
+    def get_conversation_messages(
+        self,
+        conversation_id: Any,
+        *,
+        limit: int = 200,
+        include_deleted: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Return messages for ``conversation_id`` using the conversation store."""
+
+        repository = self.conversation_repository
+        if repository is None:
+            return []
+
+        try:
+            window = max(int(limit), 1)
+        except (TypeError, ValueError):
+            window = 200
+
+        try:
+            return repository.fetch_messages(
+                conversation_id,
+                tenant_id=self._conversation_tenant(),
+                limit=window,
+                direction="forward",
+                include_deleted=include_deleted,
+            )
+        except Exception as exc:  # pragma: no cover - persistence failures logged
+            self.logger.error(
+                "Failed to load messages for conversation %s: %s", conversation_id, exc, exc_info=True
+            )
+            return []
+
+    def reset_conversation_messages(self, conversation_id: Any) -> Dict[str, Any]:
+        """Remove stored messages for ``conversation_id`` while preserving the record."""
+
+        repository = self.conversation_repository
+        if repository is None:
+            return {"success": False, "error": "Conversation store unavailable."}
+
+        try:
+            repository.reset_conversation(
+                conversation_id,
+                tenant_id=self._conversation_tenant(),
+            )
+        except Exception as exc:  # pragma: no cover - propagate details to UI payload
+            self.logger.error(
+                "Failed to reset conversation %s: %s", conversation_id, exc, exc_info=True
+            )
+            return {"success": False, "error": str(exc) or "Unable to reset conversation."}
+
+        self.notify_conversation_updated(conversation_id, reason="reset")
+        return {"success": True}
+
+    def delete_conversation(self, conversation_id: Any) -> Dict[str, Any]:
+        """Permanently delete ``conversation_id`` and associated assets."""
+
+        repository = self.conversation_repository
+        if repository is None:
+            return {"success": False, "error": "Conversation store unavailable."}
+
+        try:
+            repository.hard_delete_conversation(
+                conversation_id,
+                tenant_id=self._conversation_tenant(),
+            )
+        except Exception as exc:  # pragma: no cover - persistence failure reported
+            self.logger.error(
+                "Failed to delete conversation %s: %s", conversation_id, exc, exc_info=True
+            )
+            return {"success": False, "error": str(exc) or "Unable to delete conversation."}
+
+        self.notify_conversation_updated(conversation_id, reason="deleted")
+        return {"success": True}
 
     def get_negotiation_log(self) -> List[Dict[str, Any]]:
         """Expose recorded negotiation traces to the UI layer."""
