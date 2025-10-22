@@ -16,6 +16,9 @@ from .models import (
 from .repository import ConversationStoreRepository, create_conversation_engine
 from .vector_pipeline import ConversationVectorCatalog, ConversationVectorPipeline
 
+# Import task models so they share the conversation metadata during bootstrap.
+from modules.task_store import models as task_models  # noqa: F401
+
 __all__ = [
     "Base",
     "User",
