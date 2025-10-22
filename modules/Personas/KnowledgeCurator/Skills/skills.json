@@ -1,0 +1,24 @@
+[
+  {
+    "name": "KnowledgeArchiveDigest",
+    "version": "1.0.0",
+    "instruction_prompt": "Transform the latest request into a knowledge-base entry.\n\n1. Call `context_tracker` to confirm the conversation's goals, prior answers, and any artifacts that should be linked.\n2. Identify what is already known versus new information. Note missing evidence and request follow-up sources when gaps exist.\n3. Use `google_search` to validate critical claims or collect authoritative references to cite.\n4. Timestamp the summary with `get_current_info` and record owners or review cadences mentioned by the user.\n5. Deliver a structured digest with: question, key findings, citations, retention or sensitivity notes, and outstanding follow-ups.\n\nStay neutral, cite every external statement, and flag when policy or retention limits block storing specific details.",
+    "required_tools": [
+      "context_tracker",
+      "google_search",
+      "get_current_info"
+    ],
+    "required_capabilities": [
+      "knowledge_management",
+      "source_verification"
+    ],
+    "safety_notes": "Handle confidential material carefully: confirm the user approves storing it, redact sensitive identifiers when retention rules require it, and highlight any regulatory considerations.",
+    "summary": "Curated archive entry with citations, review cadence, and follow-up actions.",
+    "category": "Knowledge Management",
+    "capability_tags": [
+      "archiving",
+      "summaries",
+      "citations"
+    ]
+  }
+]
