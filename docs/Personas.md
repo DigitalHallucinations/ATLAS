@@ -33,6 +33,7 @@ Each production persona exposes a curated task manifest under `modules/Personas/
 - **MEDIC** – Trigger `ClinicalEvidenceSnapshot` to assemble bedside-ready evidence summaries. Record patient acuity and key symptoms to focus the literature search.
 - **DocGenius** – Reuse `ClinicalEvidenceSnapshot` for documentation handoffs and add preferred citation styles in metadata when necessary.
 - **ResumeGenius** – Trigger `AutomationPolicyPrecheck` before enabling a new resume-generation automation. Note any consent or privacy exceptions so governance can weigh in quickly.
+- **ComplianceOfficer** – Partner with this persona whenever teams need policy interpretation, risk triage, or governance review. It leans on `policy_reference`, `google_search`, and `get_current_info` to cite current rules and recommend compliant next steps.
 
 Personal-assistant personas expose two calendar toggles in their `type` entry:
 
