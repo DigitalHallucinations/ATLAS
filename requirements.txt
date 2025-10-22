@@ -3,12 +3,12 @@
 # =====================================
 
 # Task scheduling
-APScheduler>=3.10.4
-SQLAlchemy>=1.4,<3
-alembic>=1.12
-psycopg[binary]>=3.1
+APScheduler
+SQLAlchemy
+alembic
+psycopg
 pytest-postgresql
-tzlocal>=5.0
+tzlocal
 
 # =====================================
 # GUI
@@ -27,12 +27,11 @@ mistralai
 anthropic
 huggingface_hub
 google.generativeai
+xai_sdk
 
 # Speech Services Providers
-# These are optional and can be installed based on your needs.
 google-cloud-texttospeech 
-google-cloud-speech  
-xai_sdk
+google-cloud-speech
 openai-whisper
 
 # for Config
@@ -85,9 +84,6 @@ pytz
 # Transformers for model architectures and pipelines
 transformers>=4.31.0
 
-# Hugging Face Hub for model downloads and management
-huggingface-hub>=0.16.4
-
 # Datasets for data handling and preprocessing
 datasets>=2.14.5
 
@@ -123,6 +119,5 @@ onnxruntime>=1.15.1
 # Additional Recommendations
 # =====================================
 
-# Wheel is often required for building certain packages from source
 wheel>=0.38.4
 
