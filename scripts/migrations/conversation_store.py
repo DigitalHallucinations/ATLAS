@@ -16,6 +16,7 @@ def upgrade(connection: Connection) -> None:
     metadata.create_all(connection)
 
     inspector = inspect(connection)
+    dialect_name = getattr(connection.dialect, "name", "")
     columns = {column["name"] for column in inspector.get_columns("messages")}
 
     if "message_type" not in columns:
@@ -49,6 +50,32 @@ def upgrade(connection: Connection) -> None:
     connection.execute(
         text("CREATE INDEX IF NOT EXISTS ix_messages_status ON messages (status)")
     )
+
+    if dialect_name == "postgresql":
+        if "message_text_tsv" not in columns:
+            connection.execute(
+                text("ALTER TABLE messages ADD COLUMN message_text_tsv tsvector")
+            )
+        connection.execute(
+            text(
+                """
+                UPDATE messages
+                   SET message_text_tsv = to_tsvector(
+                       'simple',
+                       COALESCE(content->>'text', '')
+                   )
+                 WHERE message_text_tsv IS NULL
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_messages_message_text_tsv
+                    ON messages USING gin (message_text_tsv)
+                """
+            )
+        )
 
     existing_conversation_columns = {
         column["name"] for column in inspector.get_columns("conversations")

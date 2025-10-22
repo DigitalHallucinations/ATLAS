@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence
 
-from sqlalchemy import and_, create_engine, delete, func, or_, select
+from sqlalchemy import and_, create_engine, delete, func, inspect, or_, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
@@ -92,6 +92,18 @@ def _normalize_status(value: Any) -> str:
         return _DEFAULT_STATUS
     text = str(value).strip()
     return text or _DEFAULT_STATUS
+
+
+def _extract_text_content(payload: Any) -> str:
+    """Extract a plain-text representation from a message payload."""
+
+    if isinstance(payload, Mapping):
+        value = payload.get("text")
+        if isinstance(value, str):
+            return value
+    if isinstance(payload, str):
+        return payload
+    return ""
 
 
 def _normalize_attempts(attempts: Sequence[Any]) -> List[str]:
@@ -294,6 +306,34 @@ class ConversationStoreRepository:
         if engine is None:
             raise RuntimeError("Session factory is not bound to an engine")
         Base.metadata.create_all(engine)
+        if getattr(engine.dialect, "name", "") == "postgresql":
+            inspector = inspect(engine)
+            columns = {column["name"] for column in inspector.get_columns("messages")}
+            with engine.begin() as connection:
+                if "message_text_tsv" not in columns:
+                    connection.execute(
+                        text("ALTER TABLE messages ADD COLUMN message_text_tsv tsvector")
+                    )
+                connection.execute(
+                    text(
+                        """
+                        UPDATE messages
+                           SET message_text_tsv = to_tsvector(
+                               'simple',
+                               COALESCE(content->>'text', '')
+                           )
+                         WHERE message_text_tsv IS NULL
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        CREATE INDEX IF NOT EXISTS ix_messages_message_text_tsv
+                            ON messages USING gin (message_text_tsv)
+                        """
+                    )
+                )
 
     # -- credential helpers -------------------------------------------------
 
@@ -952,6 +992,16 @@ class ConversationStoreRepository:
                 client_message_id=message_id,
             )
 
+            bind = session.get_bind()
+            text_content = _extract_text_content(content)
+            if (
+                bind is not None
+                and getattr(bind.dialect, "name", "") == "postgresql"
+            ):
+                message.message_text_tsv = func.to_tsvector("simple", text_content)
+            else:
+                message.message_text_tsv = None
+
             if timestamp is not None:
                 message.created_at = _coerce_dt(timestamp)
 
@@ -1287,12 +1337,16 @@ class ConversationStoreRepository:
 
             content_text = Message.content["text"].astext
             if normalized_text:
-                pattern = f"%{normalized_text}%"
-                clauses = [content_text.ilike(pattern)]
-                if supports_full_text:
+                if supports_full_text and hasattr(Message, "message_text_tsv"):
                     ts_query = func.plainto_tsquery("simple", normalized_text)
-                    clauses.append(func.to_tsvector("simple", content_text).match(ts_query))
-                stmt = stmt.where(or_(*clauses))
+                    stmt = stmt.where(
+                        Message.message_text_tsv.match(
+                            ts_query, postgresql_regconfig="simple"
+                        )
+                    )
+                else:
+                    pattern = f"%{normalized_text}%"
+                    stmt = stmt.where(content_text.ilike(pattern))
 
             if order == "asc":
                 stmt = stmt.order_by(Message.created_at.asc(), Message.id.asc())
