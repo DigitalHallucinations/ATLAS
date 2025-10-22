@@ -101,12 +101,15 @@ class _AtlasStub:
     def __init__(self) -> None:
         self.tool_fetches = 0
         self.skill_fetches = 0
+        self.task_fetches = 0
         self.tool_requests: list[Dict[str, Any]] = []
         self.skill_requests: list[Dict[str, Any]] = []
+        self.task_requests: list[Dict[str, Any]] = []
+        self.task_transitions: list[Dict[str, Any]] = []
+        self.task_contexts: list[Any] = []
         self.settings_updates: list[Dict[str, Any]] = []
         self.credential_updates: list[Dict[str, Any]] = []
         self.persona_manager = _PersonaManagerStub()
-        self.server = types.SimpleNamespace(get_tools=self._get_tools, get_skills=self._get_skills)
         self._tool_catalog: list[Dict[str, Any]] = [
             {
                 "name": "google_search",
@@ -153,6 +156,81 @@ class _AtlasStub:
                 "credentials": {"TOKEN": {"configured": True}},
             },
         ]
+        self._task_catalog: list[Dict[str, Any]] = [
+            {
+                "id": "task-1",
+                "title": "Draft proposal",
+                "description": "Prepare an initial proposal for review.",
+                "status": "draft",
+                "priority": 1,
+                "owner_id": "user-1",
+                "session_id": "session-1",
+                "conversation_id": "conv-1",
+                "tenant_id": "default",
+                "metadata": {
+                    "persona": "Atlas",
+                    "required_skills": ["analysis"],
+                    "required_tools": ["google_search"],
+                    "acceptance_criteria": ["Proposal outline ready"],
+                    "dependencies": [
+                        {"id": "support-1", "title": "Collect references", "status": "done"}
+                    ],
+                },
+                "created_at": "2024-01-01T10:00:00+00:00",
+                "updated_at": "2024-01-01T10:00:00+00:00",
+                "due_at": "2024-01-05T12:00:00+00:00",
+            },
+            {
+                "id": "task-2",
+                "title": "Deep dive research",
+                "description": "Collect supporting data for the proposal.",
+                "status": "ready",
+                "priority": 2,
+                "owner_id": "user-1",
+                "session_id": "session-1",
+                "conversation_id": "conv-2",
+                "tenant_id": "default",
+                "metadata": {
+                    "persona": "Researcher",
+                    "required_skills": ["research"],
+                    "required_tools": ["terminal_command"],
+                    "acceptance_criteria": ["Data summarized for review"],
+                    "dependencies": [
+                        {"id": "task-1", "title": "Draft proposal", "status": "draft"}
+                    ],
+                },
+                "created_at": "2024-01-02T09:00:00+00:00",
+                "updated_at": "2024-01-02T09:00:00+00:00",
+                "due_at": None,
+            },
+            {
+                "id": "task-3",
+                "title": "QA review",
+                "description": "Review deliverables for completeness.",
+                "status": "in_progress",
+                "priority": 3,
+                "owner_id": None,
+                "session_id": None,
+                "conversation_id": "conv-3",
+                "tenant_id": "default",
+                "metadata": {
+                    "required_skills": ["quality assurance"],
+                    "required_tools": [],
+                    "acceptance_criteria": ["Checklist completed"],
+                    "dependencies": [],
+                },
+                "created_at": "2024-01-03T08:00:00+00:00",
+                "updated_at": "2024-01-03T08:30:00+00:00",
+                "due_at": None,
+            },
+        ]
+        self.server = types.SimpleNamespace(
+            get_tools=self._get_tools,
+            get_skills=self._get_skills,
+            list_tasks=self._list_tasks,
+            get_task=self._get_task,
+            transition_task=self._transition_task,
+        )
 
     def is_initialized(self) -> bool:
         return True
@@ -238,6 +316,68 @@ class _AtlasStub:
                 },
             ],
         }
+
+    def _list_tasks(self, params: Dict[str, Any] | None = None, *, context: Any | None = None) -> Dict[str, Any]:
+        params = dict(params or {})
+        self.task_requests.append(dict(params))
+        if context is not None:
+            self.task_contexts.append(context)
+        self.task_fetches += 1
+        status_filter = params.get("status")
+        if isinstance(status_filter, str):
+            statuses = {status_filter}
+        elif isinstance(status_filter, (list, tuple, set)):
+            statuses = {str(value) for value in status_filter}
+        else:
+            statuses = None
+        items = []
+        for entry in self._task_catalog:
+            if statuses and entry.get("status") not in statuses:
+                continue
+            items.append(copy.deepcopy(entry))
+        return {
+            "items": items,
+            "page": {"next_cursor": None, "page_size": len(items), "count": len(items)},
+        }
+
+    def _get_task(
+        self,
+        task_id: str,
+        *,
+        context: Any | None = None,
+        include_events: bool = False,
+    ) -> Dict[str, Any]:
+        if context is not None:
+            self.task_contexts.append(context)
+        for entry in self._task_catalog:
+            if entry.get("id") == task_id:
+                payload = copy.deepcopy(entry)
+                if include_events:
+                    payload["events"] = []
+                return payload
+        return {"id": task_id, "status": "unknown", "metadata": {}}
+
+    def _transition_task(
+        self,
+        task_id: str,
+        target_status: str,
+        *,
+        context: Any | None = None,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        record = {
+            "task_id": task_id,
+            "target": str(target_status),
+            "context": context,
+            "expected": expected_updated_at,
+        }
+        self.task_transitions.append(record)
+        for entry in self._task_catalog:
+            if entry.get("id") == task_id:
+                entry["status"] = str(target_status)
+                entry["updated_at"] = f"2024-02-{len(self.task_transitions):02d}T12:00:00+00:00"
+                return copy.deepcopy(entry)
+        return {"id": task_id, "status": str(target_status)}
 
 
 def _walk(widget: Any):

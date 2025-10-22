@@ -136,6 +136,10 @@ if Gtk is None:
     sys.modules["gi.repository.Gtk"] = Gtk
     gi_repository.Gtk = Gtk
 
+# Provide a canonical widget base class that mirrors Gtk.Widget so downstream
+# code can use ``Gtk.Widget`` for isinstance checks and fallbacks.
+Gtk.Widget = _DummyWidget
+
 Gdk = sys.modules.get("gi.repository.Gdk")
 if Gdk is None:
     Gdk = types.ModuleType("Gdk")
@@ -403,6 +407,77 @@ class _ListBox(_DummyWidget):
         return list(self.children)
 
 
+class _ListBoxRow(_DummyWidget):
+    def __init__(self):
+        super().__init__()
+        self._child = None
+
+    def set_child(self, child):
+        self._child = child
+        super().set_child(child)
+
+
+class _FlowBox(_DummyWidget):
+    def __init__(self):
+        super().__init__()
+        self.children = []
+        self.selection_mode = None
+        self.max_children_per_line = None
+        self.row_spacing = 0
+        self.column_spacing = 0
+
+    def append(self, child):
+        self.children.append(child)
+
+    def remove(self, child):
+        if child in self.children:
+            self.children.remove(child)
+
+    def remove_all(self):
+        self.children.clear()
+
+    def set_selection_mode(self, mode):
+        self.selection_mode = mode
+
+    def set_max_children_per_line(self, value):
+        self.max_children_per_line = value
+
+    def set_row_spacing(self, value):
+        self.row_spacing = value
+
+    def set_column_spacing(self, value):
+        self.column_spacing = value
+
+
+class _Notebook(_DummyWidget):
+    def __init__(self):
+        super().__init__()
+        self.pages: list[tuple[object, object]] = []
+        self.current_page = 0
+
+    def append_page(self, child, label):
+        self.pages.append((child, label))
+        return len(self.pages) - 1
+
+    def set_current_page(self, index):
+        self.current_page = index
+
+    def set_scrollable(self, *_args, **_kwargs):
+        return None
+
+    def set_tab_reorderable(self, *_args, **_kwargs):
+        return None
+
+
+class _SearchEntry(_Entry):
+    def __init__(self):
+        super().__init__()
+
+
+class _Separator(_DummyWidget):
+    pass
+
+
 class _AlertDialog(_DummyWidget):
     _next_future = None
 
@@ -472,6 +547,14 @@ Gtk.Box = _Box
 Gtk.Grid = _Grid
 Gtk.ScrolledWindow = _ScrolledWindow
 Gtk.ListBox = _ListBox
+Gtk.ListBoxRow = _ListBoxRow
+Gtk.FlowBox = _FlowBox
+if not hasattr(Gtk, "Notebook"):
+    Gtk.Notebook = _Notebook
+if not hasattr(Gtk, "SearchEntry"):
+    Gtk.SearchEntry = _SearchEntry
+if not hasattr(Gtk, "Separator"):
+    Gtk.Separator = _Separator
 Gtk.Image = _Image
 Gtk.AlertDialog = _AlertDialog
 
@@ -527,6 +610,10 @@ for name in [
     "Adjustment",
     "SpinButton",
     "CheckButton",
+    "ListBox",
+    "ListBoxRow",
+    "FlowBox",
+    "Notebook",
 ]:
     _ensure_getattr(getattr(Gtk, name, None))
 
@@ -534,10 +621,12 @@ for enum_name, default in [
     ("Align", types.SimpleNamespace(START=0, END=1, CENTER=2)),
     ("Orientation", types.SimpleNamespace(VERTICAL=0, HORIZONTAL=1)),
     ("PolicyType", types.SimpleNamespace(NEVER=0, AUTOMATIC=1)),
+    ("SelectionMode", types.SimpleNamespace(NONE=0, SINGLE=1, MULTIPLE=2)),
     ("WrapMode", types.SimpleNamespace(WORD_CHAR=0)),
     ("ContentFit", types.SimpleNamespace(CONTAIN=0)),
     ("FileChooserAction", types.SimpleNamespace(SAVE=0)),
     ("ResponseType", types.SimpleNamespace(ACCEPT=0)),
+    ("MessageType", types.SimpleNamespace(INFO=0, WARNING=1, ERROR=2)),
 ]:
     if not hasattr(Gtk, enum_name):
         setattr(Gtk, enum_name, default)
