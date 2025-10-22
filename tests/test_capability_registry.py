@@ -25,14 +25,19 @@ class _DummyConfig:
 def capability_root(tmp_path: Path) -> Path:
     (tmp_path / "modules" / "Tools" / "tool_maps").mkdir(parents=True, exist_ok=True)
     (tmp_path / "modules" / "Skills").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "modules" / "Tasks").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 
-def _write_shared_manifests(root: Path, tools: list[dict], skills: list[dict]) -> None:
+def _write_shared_manifests(
+    root: Path, tools: list[dict], skills: list[dict], tasks: list[dict]
+) -> None:
     tool_path = root / "modules" / "Tools" / "tool_maps" / "functions.json"
     skill_path = root / "modules" / "Skills" / "skills.json"
+    task_path = root / "modules" / "Tasks" / "tasks.json"
     tool_path.write_text(json.dumps(tools), encoding="utf-8")
     skill_path.write_text(json.dumps(skills), encoding="utf-8")
+    task_path.write_text(json.dumps(tasks), encoding="utf-8")
 
 
 def _write_persona_tools(root: Path, persona: str, tools: list[dict]) -> None:
@@ -40,6 +45,13 @@ def _write_persona_tools(root: Path, persona: str, tools: list[dict]) -> None:
     manifest_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = manifest_dir / "functions.json"
     manifest_path.write_text(json.dumps(tools), encoding="utf-8")
+
+
+def _write_persona_tasks(root: Path, persona: str, tasks: list[dict]) -> None:
+    manifest_dir = root / "modules" / "Personas" / persona / "Tasks"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_dir / "tasks.json"
+    manifest_path.write_text(json.dumps(tasks), encoding="utf-8")
 
 
 def _minimal_tool(name: str) -> dict:
@@ -74,10 +86,27 @@ def _minimal_skill(name: str) -> dict:
     }
 
 
+def _minimal_task(name: str) -> dict:
+    return {
+        "name": name,
+        "summary": f"Task {name}",
+        "description": "",
+        "required_skills": ["sample"],
+        "required_tools": ["sample"],
+        "acceptance_criteria": ["completed"],
+        "escalation_policy": {
+            "level": "tier1",
+            "contact": "oncall@example.com",
+        },
+        "tags": ["sample"],
+    }
+
+
 def test_registry_filters_invalid_entries(capability_root: Path) -> None:
     tools = [_minimal_tool("valid_tool"), {"description": "missing name"}]
     skills = [_minimal_skill("valid_skill")]
-    _write_shared_manifests(capability_root, tools, skills)
+    tasks = [_minimal_task("shared_task")]
+    _write_shared_manifests(capability_root, tools, skills, tasks)
 
     registry = CapabilityRegistry(config_manager=_DummyConfig(capability_root))
     assert registry.refresh(force=True)
@@ -90,7 +119,8 @@ def test_registry_filters_invalid_entries(capability_root: Path) -> None:
 def test_registry_records_tool_metrics(capability_root: Path) -> None:
     tools = [_minimal_tool("measured_tool")]
     skills = [_minimal_skill("skill")]
-    _write_shared_manifests(capability_root, tools, skills)
+    tasks = [_minimal_task("shared_task")]
+    _write_shared_manifests(capability_root, tools, skills, tasks)
 
     registry = CapabilityRegistry(config_manager=_DummyConfig(capability_root))
     registry.refresh(force=True)
@@ -118,7 +148,8 @@ def test_registry_records_tool_metrics(capability_root: Path) -> None:
 def test_registry_records_provider_metrics(capability_root: Path) -> None:
     tools = [_minimal_tool("provider_tool")]
     skills = [_minimal_skill("skill")]
-    _write_shared_manifests(capability_root, tools, skills)
+    tasks = [_minimal_task("shared_task")]
+    _write_shared_manifests(capability_root, tools, skills, tasks)
 
     registry = CapabilityRegistry(config_manager=_DummyConfig(capability_root))
     registry.refresh(force=True)
@@ -152,7 +183,7 @@ def test_registry_records_provider_metrics(capability_root: Path) -> None:
 def test_query_tools_includes_shared_persona_when_filtered(capability_root: Path) -> None:
     shared_tool = _minimal_tool("shared_tool")
     atlas_tool = _minimal_tool("atlas_tool")
-    _write_shared_manifests(capability_root, [shared_tool], [])
+    _write_shared_manifests(capability_root, [shared_tool], [], [_minimal_task("shared_task")])
     _write_persona_tools(capability_root, "Atlas", [atlas_tool])
 
     registry = CapabilityRegistry(config_manager=_DummyConfig(capability_root))
@@ -165,3 +196,79 @@ def test_query_tools_includes_shared_persona_when_filtered(capability_root: Path
     atlas_without_shared = registry.query_tools(persona_filters=["atlas", "-shared"])
     atlas_without_shared_names = {view.manifest.name for view in atlas_without_shared}
     assert atlas_without_shared_names == {"atlas_tool"}
+
+
+def test_query_tasks_supports_filters(capability_root: Path) -> None:
+    shared_tool = _minimal_tool("shared_tool")
+    shared_skill = _minimal_skill("shared_skill")
+    shared_task = _minimal_task("SharedTask")
+    _write_shared_manifests(capability_root, [shared_tool], [shared_skill], [shared_task])
+
+    persona_tasks = [
+        {
+            "name": "SharedTask",
+            "extends": "SharedTask",
+            "summary": "Persona tuned summary",
+            "tags": ["sample", "atlas"],
+        },
+        {
+            "name": "AtlasTask",
+            "summary": "Atlas specific task",
+            "description": "Persona exclusive",
+            "required_skills": ["sample", "advanced"],
+            "required_tools": ["sample"],
+            "acceptance_criteria": ["completed"],
+            "escalation_policy": {
+                "level": "tier1",
+                "contact": "atlas@example.com",
+            },
+            "tags": ["atlas", "priority"],
+        },
+    ]
+    _write_persona_tasks(capability_root, "Atlas", persona_tasks)
+
+    registry = CapabilityRegistry(config_manager=_DummyConfig(capability_root))
+    registry.refresh(force=True)
+
+    atlas_results = registry.query_tasks(persona_filters=["atlas"])
+    atlas_names = {view.manifest.name for view in atlas_results}
+    assert atlas_names == {"SharedTask", "AtlasTask"}
+
+    persona_only = registry.query_tasks(persona_filters=["atlas", "-shared"])
+    assert {view.manifest.persona for view in persona_only} == {"Atlas"}
+
+    tag_filtered = registry.query_tasks(tag_filters=["priority"])
+    assert {view.manifest.name for view in tag_filtered} == {"AtlasTask"}
+
+    skill_filtered = registry.query_tasks(required_skill_filters=["advanced"])
+    assert {view.manifest.name for view in skill_filtered} == {"AtlasTask"}
+
+
+def test_get_task_catalog_prefers_persona_variants(capability_root: Path) -> None:
+    shared_tool = _minimal_tool("shared_tool")
+    shared_skill = _minimal_skill("shared_skill")
+    shared_task = _minimal_task("SharedTask")
+    _write_shared_manifests(capability_root, [shared_tool], [shared_skill], [shared_task])
+
+    _write_persona_tasks(
+        capability_root,
+        "Atlas",
+        [
+            {
+                "name": "SharedTask",
+                "extends": "SharedTask",
+                "summary": "Atlas version",
+            }
+        ],
+    )
+
+    registry = CapabilityRegistry(config_manager=_DummyConfig(capability_root))
+    registry.refresh(force=True)
+
+    shared_catalog = registry.get_task_catalog(persona=None)
+    assert len(shared_catalog) == 1
+    assert shared_catalog[0].manifest.summary == "Task SharedTask"
+
+    atlas_catalog = registry.get_task_catalog(persona="Atlas")
+    assert len(atlas_catalog) == 1
+    assert atlas_catalog[0].manifest.summary == "Atlas version"
