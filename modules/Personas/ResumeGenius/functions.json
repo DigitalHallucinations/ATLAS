@@ -42,5 +42,45 @@
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ats_scoring_service",
+            "description": "Score a resume against a job description to surface ATS compatibility, matched strengths, and optimization opportunities.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "resume_text": {
+                        "type": "string",
+                        "description": "Full resume text that should be evaluated for ATS compatibility."
+                    },
+                    "job_description": {
+                        "type": "string",
+                        "description": "Target job description or posting details to align the resume against."
+                    },
+                    "job_title": {
+                        "type": "string",
+                        "description": "Optional job title to improve context-specific scoring."
+                    },
+                    "focus_skills": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Optional list of priority skills or keywords to emphasize during scoring."
+                    },
+                    "experience_level": {
+                        "type": "string",
+                        "description": "Optional experience level (e.g., entry, mid, senior) to tune the scoring rubric."
+                    },
+                    "locale": {
+                        "type": "string",
+                        "description": "Optional locale or region to account for geographic hiring nuances."
+                    }
+                },
+                "required": ["resume_text", "job_description"]
+            }
+        }
     }
 ]

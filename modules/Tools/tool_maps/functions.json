@@ -335,6 +335,63 @@
         }
     },
     {
+        "name": "ats_scoring_service",
+        "version": "1.0.0",
+        "side_effects": "read_external_service",
+        "default_timeout": 20,
+        "auth": {
+            "required": true,
+            "type": "api_key",
+            "env": "ATS_SCORING_SERVICE_API_KEY",
+            "docs": "Configure ATS_SCORING_SERVICE_API_KEY or ats_scoring_service.api_key for authenticated requests."
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "resume_analysis",
+            "ats_compliance"
+        ],
+        "description": "Submit resume and job description text to the ATS scoring service and return compatibility insights and optimization suggestions.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "resume_text": {
+                    "type": "string",
+                    "description": "Full resume text to analyse for ATS alignment."
+                },
+                "job_description": {
+                    "type": "string",
+                    "description": "Target job description that should be used as the comparison baseline."
+                },
+                "job_title": {
+                    "type": "string",
+                    "description": "Optional job title that provides additional scoring context."
+                },
+                "focus_skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional list of focus skills or keywords that should be highlighted in the evaluation."
+                },
+                "experience_level": {
+                    "type": "string",
+                    "description": "Optional experience level (for example: entry, mid, senior) to tune scoring guidance."
+                },
+                "locale": {
+                    "type": "string",
+                    "description": "Optional locale or hiring region to account for local expectations."
+                }
+            },
+            "required": [
+                "resume_text",
+                "job_description"
+            ]
+        }
+    },
+    {
         "name": "context_tracker",
         "version": "1.0.0",
         "side_effects": "none",
