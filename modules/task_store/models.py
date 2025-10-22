@@ -40,10 +40,11 @@ def _utcnow() -> datetime:
 class TaskStatus(str, enum.Enum):
     """Enumerates supported lifecycle states for a task."""
 
-    PENDING = "pending"
+    DRAFT = "draft"
+    READY = "ready"
     IN_PROGRESS = "in_progress"
-    BLOCKED = "blocked"
-    COMPLETED = "completed"
+    REVIEW = "review"
+    DONE = "done"
     CANCELLED = "cancelled"
 
 
@@ -79,7 +80,7 @@ class Task(Base):
     status = Column(
         Enum(TaskStatus, name="task_status", validate_strings=True),
         nullable=False,
-        default=TaskStatus.PENDING,
+        default=TaskStatus.DRAFT,
     )
     priority = Column(Integer, nullable=False, default=0)
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))

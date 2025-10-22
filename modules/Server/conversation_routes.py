@@ -8,13 +8,16 @@ import math
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict, Iterable, Mapping, Optional, Sequence
+from typing import Any, AsyncIterator, Dict, Iterable, Mapping, Optional, Sequence, TYPE_CHECKING
 
 from jsonschema import Draft202012Validator
 
 from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
 from modules.orchestration.message_bus import MessageBus
+
+if TYPE_CHECKING:
+    from modules.task_store.service import TaskService
 
 logger = setup_logger(__name__)
 
@@ -155,11 +158,13 @@ class ConversationRoutes:
         repository: ConversationStoreRepository,
         *,
         message_bus: Optional[MessageBus] = None,
+        task_service: Optional["TaskService"] = None,
         page_size_limit: int = 100,
         poll_interval: float = 0.5,
     ) -> None:
         self._repository = repository
         self._bus = message_bus
+        self._task_service = task_service
         self._page_size_limit = max(int(page_size_limit), 1)
         self._poll_interval = max(float(poll_interval), 0.05)
         self._create_validator = _JsonSchemaValidator(

@@ -11,6 +11,17 @@ from .models import (
     TaskStatus,
     ensure_task_schema,
 )
+from .repository import (
+    TaskConcurrencyError,
+    TaskNotFoundError,
+    TaskStoreRepository,
+)
+from .service import (
+    TaskDependencyError,
+    TaskService,
+    TaskServiceError,
+    TaskTransitionError,
+)
 
 __all__ = [
     "Base",
@@ -22,4 +33,11 @@ __all__ = [
     "TaskEventType",
     "TaskStatus",
     "ensure_task_schema",
+    "TaskStoreRepository",
+    "TaskConcurrencyError",
+    "TaskNotFoundError",
+    "TaskService",
+    "TaskServiceError",
+    "TaskTransitionError",
+    "TaskDependencyError",
 ]

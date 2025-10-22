@@ -113,7 +113,7 @@ def test_dependency_cascade(session, identity):
         owner=user,
         session=store_session,
         conversation=conversation,
-        status=TaskStatus.BLOCKED,
+        status=TaskStatus.READY,
     )
     blocked.dependencies.append(TaskDependency(depends_on=blocker))
 
@@ -127,7 +127,7 @@ def test_dependency_cascade(session, identity):
     assert dependencies == []
 
     remaining_task = session.execute(select(Task).where(Task.title == "Write report")).scalar_one()
-    assert remaining_task.status == TaskStatus.BLOCKED
+    assert remaining_task.status == TaskStatus.READY
 @compiles(JSONB, "sqlite")
 def _compile_sqlite_jsonb(element, compiler, **kw):
     return "TEXT"

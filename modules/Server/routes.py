@@ -7,7 +7,7 @@ import binascii
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncIterator, Iterable, Mapping
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from modules.Personas import (
     PersonaBundleError,
@@ -38,6 +38,9 @@ from modules.orchestration.capability_registry import (
     get_capability_registry,
 )
 from modules.orchestration.message_bus import MessageBus
+
+if TYPE_CHECKING:
+    from modules.task_store.service import TaskService
 from modules.persona_review import REVIEW_INTERVAL_DAYS, compute_review_status
 from .conversation_routes import (
     ConversationAuthorizationError,
@@ -90,10 +93,12 @@ class AtlasServer:
         config_manager: Optional[object] = None,
         conversation_repository: ConversationStoreRepository | None = None,
         message_bus: Optional[MessageBus] = None,
+        task_service: "TaskService" | None = None,
     ) -> None:
         self._config_manager = config_manager
         self._conversation_repository = conversation_repository
         self._message_bus = message_bus
+        self._task_service: "TaskService" | None = task_service
         self._conversation_routes: ConversationRoutes | None = None
 
     def _get_conversation_routes(self) -> ConversationRoutes:
@@ -112,7 +117,13 @@ class AtlasServer:
                     bus = None
             self._message_bus = bus
 
-            self._conversation_routes = ConversationRoutes(repository, message_bus=bus)
+            task_service = self._task_service or self._build_task_service()
+            self._task_service = task_service
+            self._conversation_routes = ConversationRoutes(
+                repository,
+                message_bus=bus,
+                task_service=task_service,
+            )
         return self._conversation_routes
 
     def _build_conversation_repository(self) -> ConversationStoreRepository | None:
@@ -132,6 +143,18 @@ class AtlasServer:
         except Exception as exc:  # pragma: no cover - defensive logging only
             logger.warning("Failed to initialize conversation store schema: %s", exc)
         return repository
+
+    def _build_task_service(self) -> "TaskService" | None:
+        if self._config_manager is None:
+            return None
+        getter = getattr(self._config_manager, "get_task_service", None)
+        if not callable(getter):
+            return None
+        try:
+            return getter()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.warning("Failed to initialize task service: %s", exc)
+            return None
 
     @staticmethod
     def _coerce_context(context: Any) -> RequestContext:
