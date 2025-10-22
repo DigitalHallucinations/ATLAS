@@ -16,13 +16,27 @@ def test_load_skill_metadata_includes_shared_and_persona():
     shared_names = {entry.name for entry in entries if entry.persona is None}
     persona_names = {entry.name for entry in entries if entry.persona == "ATLAS"}
 
-    assert {"ContextualSummarizer", "SafetyScout", "ResearchBrief", "DailyDigest"}.issubset(shared_names)
+    assert {
+        "ContextualSummarizer",
+        "SafetyScout",
+        "ResearchBrief",
+        "DailyDigest",
+        "SevereWeatherAlert",
+    }.issubset(shared_names)
     assert "AtlasReporter" in persona_names
 
     research = next(entry for entry in entries if entry.name == "ResearchBrief")
     assert research.summary
     assert research.category == "Knowledge Synthesis"
     assert "web_research" in research.capability_tags
+
+    severe = next(entry for entry in entries if entry.name == "SevereWeatherAlert")
+    assert set(severe.required_tools) == {
+        "weather_alert_feed",
+        "get_current_weather",
+        "get_daily_weather_summary",
+    }
+    assert "weather" in severe.capability_tags
 
 
 @pytest.mark.parametrize("invalid_entry", [

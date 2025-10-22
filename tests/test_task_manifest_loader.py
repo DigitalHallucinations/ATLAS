@@ -152,3 +152,22 @@ def test_medic_trial_task_references_new_skill():
     assert "fetch_pubmed_details" in target.required_tools
     assert any("cohort" in criterion.lower() for criterion in target.acceptance_criteria)
     assert any("pubmed" in criterion.lower() for criterion in target.acceptance_criteria)
+
+
+def test_weather_genius_escalation_task_includes_alert_workflow():
+    from modules import Tasks as tasks_pkg
+
+    entries = tasks_pkg.manifest_loader.load_task_metadata()
+
+    target = next(
+        entry
+        for entry in entries
+        if entry.persona == "WeatherGenius" and entry.name == "SevereWeatherAlertEscalation"
+    )
+
+    assert "SevereWeatherAlert" in target.required_skills
+    assert "weather_alert_feed" in target.required_tools
+    assert target.priority == "Critical"
+    assert any(
+        "alert" in trigger.lower() for trigger in target.escalation_policy.get("triggers", [])
+    )

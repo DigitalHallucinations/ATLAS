@@ -79,6 +79,28 @@
     ]
   },
   {
+    "name": "SevereWeatherAlert",
+    "version": "1.0.0",
+    "instruction_prompt": "Continuously monitor NOAA/NWS alert feeds for severe weather near the target area, cross-check forecasts, and recommend escalation steps and protective actions when thresholds are exceeded.",
+    "required_tools": [
+      "weather_alert_feed",
+      "get_current_weather",
+      "get_daily_weather_summary"
+    ],
+    "required_capabilities": [
+      "weather_monitoring",
+      "risk_assessment"
+    ],
+    "safety_notes": "Escalate extreme or conflicting alerts to human supervisors, provide verifiable sources, and avoid speculative warnings.",
+    "summary": "NOAA-integrated severe weather monitoring with actionable escalation guidance.",
+    "category": "Weather Intelligence",
+    "capability_tags": [
+      "weather",
+      "alerts",
+      "monitoring"
+    ]
+  },
+  {
     "name": "RiskPulse",
     "version": "0.9.0",
     "instruction_prompt": "Scan recent discussions and trusted sources for operational, compliance, or reputational risks, summarize the severity, and propose mitigations where possible.",
