@@ -37,5 +37,42 @@
       "compliance"
     ],
     "priority": "Medium"
+  },
+  {
+    "name": "ATSFitAnalyzer",
+    "summary": "Assess resume alignment with a target job using ATS scoring insights.",
+    "description": "Leverage the ATS scoring service to evaluate resume compatibility, highlight strengths and gaps, and recommend concrete optimization steps tailored to the job description.",
+    "required_skills": [
+      "ATSCompatibility"
+    ],
+    "required_tools": [
+      "ats_scoring_service",
+      "google_search",
+      "policy_reference"
+    ],
+    "acceptance_criteria": [
+      "Presents the ATS compatibility score with a short explanation of the scoring rubric and any confidence limits.",
+      "Summarizes matched strengths and identifies the most critical missing keywords or experience gaps relative to the job description.",
+      "Delivers a prioritized list of optimization actions with guidance on how to adjust resume content or structure."
+    ],
+    "escalation_policy": {
+      "level": "Resume QA Leads",
+      "contact": "resume-quality@atlas",
+      "timeframe": "Next business day",
+      "triggers": [
+        "Scoring service unavailable",
+        "Score below threshold without actionable mitigations"
+      ],
+      "actions": [
+        "Notify duty lead",
+        "Capture remediation plan"
+      ]
+    },
+    "tags": [
+      "resumegenius",
+      "ats",
+      "resume"
+    ],
+    "priority": "High"
   }
 ]

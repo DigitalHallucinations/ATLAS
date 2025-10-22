@@ -171,3 +171,21 @@ def test_weather_genius_escalation_task_includes_alert_workflow():
     assert any(
         "alert" in trigger.lower() for trigger in target.escalation_policy.get("triggers", [])
     )
+
+
+def test_resume_genius_ats_task_surfaces_gap_analysis():
+    from modules import Tasks as tasks_pkg
+
+    entries = tasks_pkg.manifest_loader.load_task_metadata()
+
+    target = next(
+        entry
+        for entry in entries
+        if entry.persona == "ResumeGenius" and entry.name == "ATSFitAnalyzer"
+    )
+
+    assert "ATSCompatibility" in target.required_skills
+    assert "ats_scoring_service" in target.required_tools
+    assert any("score" in criterion.lower() for criterion in target.acceptance_criteria)
+    assert any("gap" in criterion.lower() for criterion in target.acceptance_criteria)
+    assert any("optimiz" in criterion.lower() for criterion in target.acceptance_criteria)

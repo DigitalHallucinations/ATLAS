@@ -20,6 +20,7 @@ def test_load_skill_metadata_includes_shared_and_persona():
         "ContextualSummarizer",
         "SafetyScout",
         "ResearchBrief",
+        "ATSCompatibility",
         "DailyDigest",
         "SevereWeatherAlert",
     }.issubset(shared_names)
@@ -37,6 +38,15 @@ def test_load_skill_metadata_includes_shared_and_persona():
         "get_daily_weather_summary",
     }
     assert "weather" in severe.capability_tags
+
+    ats = next(entry for entry in entries if entry.name == "ATSCompatibility")
+    assert set(ats.required_tools) == {
+        "ats_scoring_service",
+        "google_search",
+        "policy_reference",
+    }
+    assert ats.category == "Career Services"
+    assert "ats" in ats.capability_tags
 
 
 @pytest.mark.parametrize("invalid_entry", [

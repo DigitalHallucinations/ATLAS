@@ -441,8 +441,18 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
 
     config_manager = tool_manager.ConfigManager()
 
+    persona_payload = {
+        "name": persona_name,
+        "allowed_tools": [
+            "google_search",
+            "get_current_info",
+            "policy_reference",
+            "ats_scoring_service",
+        ],
+    }
+
     functions = tool_manager.load_functions_from_json(
-        {"name": persona_name}, refresh=True, config_manager=config_manager
+        persona_payload, refresh=True, config_manager=config_manager
     )
 
     assert isinstance(functions, list)
@@ -524,6 +534,89 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
         "calendar_write",
     ]
     assert debian_calendar_metadata["providers"][0]["name"] == "debian12_local"
+
+
+def test_resume_genius_manifest_includes_ats_scoring(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    if "sqlalchemy" not in sys.modules:
+        sqlalchemy_stub = types.ModuleType("sqlalchemy")
+        sqlalchemy_stub.create_engine = lambda *_args, **_kwargs: None
+        monkeypatch.setitem(sys.modules, "sqlalchemy", sqlalchemy_stub)
+
+        engine_stub = types.ModuleType("sqlalchemy.engine")
+        engine_stub.Engine = object
+        monkeypatch.setitem(sys.modules, "sqlalchemy.engine", engine_stub)
+
+        orm_stub = types.ModuleType("sqlalchemy.orm")
+
+        class _Sessionmaker:
+            def __call__(self, *_args, **_kwargs):
+                return None
+
+        orm_stub.sessionmaker = _Sessionmaker
+        orm_stub.Session = object
+        orm_stub.joinedload = lambda *_args, **_kwargs: None
+        orm_stub.relationship = lambda *_args, **_kwargs: None
+        orm_stub.declarative_base = lambda *_args, **_kwargs: type("Base", (), {})
+        monkeypatch.setitem(sys.modules, "sqlalchemy.orm", orm_stub)
+
+    if "modules.task_store" not in sys.modules:
+        task_store_stub = types.ModuleType("modules.task_store")
+
+        class _DummyRepository:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def create_schema(self) -> None:
+                return None
+
+        class _DummyService:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+        task_store_stub.TaskStoreRepository = _DummyRepository
+        task_store_stub.TaskService = _DummyService
+        monkeypatch.setitem(sys.modules, "modules.task_store", task_store_stub)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    persona_name = "ResumeGenius"
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
+
+    tool_manager._function_payload_cache.pop(persona_name, None)
+
+    config_manager = tool_manager.ConfigManager()
+    persona_payload = {
+        "name": persona_name,
+        "allowed_tools": [
+            "google_search",
+            "get_current_info",
+            "policy_reference",
+            "ats_scoring_service",
+        ],
+    }
+    functions = tool_manager.load_functions_from_json(
+        persona_payload, refresh=True, config_manager=config_manager
+    )
+
+    names = [entry["name"] for entry in functions]
+    assert "ats_scoring_service" in names, names
+    ats_entry = next(entry for entry in functions if entry["name"] == "ats_scoring_service")
+    assert ats_entry["capabilities"] == ["resume_analysis", "ats_compliance"]
+    assert ats_entry["auth"]["required"] is True
+    assert ats_entry["default_timeout"] == 20
+
+    properties = ats_entry["parameters"]["properties"]
+    assert {"resume_text", "job_description"}.issubset(properties)
+    assert "ATS" in ats_entry["description"]
 
 
 def test_shared_terminal_command_manifest_entry(monkeypatch):
