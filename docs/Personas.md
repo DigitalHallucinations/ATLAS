@@ -32,8 +32,13 @@ Each production persona exposes a curated task manifest under `modules/Personas/
 - **WeatherGenius** – Trigger `WeatherOperationsSnapshot` when a field team needs real-time weather posture guidance. Attach region codes or GPS coordinates in the metadata payload.
 - **MEDIC** – Trigger `ClinicalEvidenceSnapshot` to assemble bedside-ready evidence summaries. Record patient acuity and key symptoms to focus the literature search.
 - **DocGenius** – Reuse `ClinicalEvidenceSnapshot` for documentation handoffs and add preferred citation styles in metadata when necessary.
+- **KnowledgeCurator** – Dispatch `KnowledgeArchiveDigest` to transform ad-hoc updates into durable knowledge cards. The skill leans on `context_tracker`, `google_search`, and `get_current_info` so every entry is grounded in conversation history, cited to reputable sources, and timestamped for future audits.
 - **ResumeGenius** – Trigger `AutomationPolicyPrecheck` before enabling a new resume-generation automation. Note any consent or privacy exceptions so governance can weigh in quickly.
 - **ComplianceOfficer** – Partner with this persona whenever teams need policy interpretation, risk triage, or governance review. It leans on `policy_reference`, `google_search`, and `get_current_info` to cite current rules and recommend compliant next steps.
+
+### KnowledgeCurator workflow
+
+KnowledgeCurator acts as the team's archivist. Every request is normalized with `context_tracker` so the persona can see prior answers and link related artifacts. It validates external claims through `google_search`, timestamps deliverables with `get_current_info`, and then responds with a structured knowledge card that highlights the governing question, confirmed findings, citations, retention caveats, and open follow-ups. Mention owners or review cadences when the user supplies them so the archive stays actionable.
 
 Personal-assistant personas expose two calendar toggles in their `type` entry:
 
