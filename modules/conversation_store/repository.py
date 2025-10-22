@@ -1202,10 +1202,36 @@ class ConversationStoreRepository:
                 raise ValueError("Unknown message or conversation")
             return self._serialize_message(message)
 
-    def list_conversations_for_tenant(self, tenant_id: str) -> List[Dict[str, Any]]:
+    def list_conversations_for_tenant(
+        self,
+        tenant_id: str,
+        *,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        order: str = "desc",
+    ) -> List[Dict[str, Any]]:
         tenant_key = _normalize_tenant_id(tenant_id)
+        order_value = str(order or "desc").lower()
+        order_desc = order_value not in {"asc", "ascending"}
+        offset_value = max(int(offset), 0)
+        window = None if limit is None else max(int(limit), 0)
+
         with self._session_scope() as session:
             stmt = select(Conversation).where(Conversation.tenant_id == tenant_key)
+            if order_desc:
+                stmt = stmt.order_by(
+                    Conversation.created_at.desc(), Conversation.id.desc()
+                )
+            else:
+                stmt = stmt.order_by(
+                    Conversation.created_at.asc(), Conversation.id.asc()
+                )
+
+            if offset_value:
+                stmt = stmt.offset(offset_value)
+            if window is not None and window > 0:
+                stmt = stmt.limit(window)
+
             rows = session.execute(stmt).scalars().all()
 
         conversations: List[Dict[str, Any]] = []

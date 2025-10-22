@@ -5,7 +5,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, Sequence, Tuple
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import gi
 
@@ -13,6 +14,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
 from GTKUI.Chat.chat_page import ChatPage
+from GTKUI.Chat.conversation_history_page import ConversationHistoryPage
 from GTKUI.Persona_manager.persona_management import PersonaManagement
 from GTKUI.Provider_manager.provider_management import ProviderManagement
 from GTKUI.Settings.Speech.speech_settings import SpeechSettings
@@ -154,10 +156,29 @@ class MainWindow(AtlasWindow):
         if page is not None:
             self.sidebar.set_active_item("settings")
 
+    def show_conversation_history_page(
+        self, conversation_id: str | None = None
+    ) -> None:
+        if not self._ensure_initialized():
+            return
+
+        def factory() -> Gtk.Widget:
+            return ConversationHistoryPage(self.ATLAS)
+
+        page = self._open_or_focus_page("conversation-history", "History", factory)
+        if page is not None and conversation_id:
+            focus = getattr(page, "focus_conversation", None)
+            if callable(focus):
+                GLib.idle_add(focus, conversation_id)
+
     def handle_history_button(self) -> None:
         if not self._ensure_initialized():
             return
-        self.ATLAS.log_history()
+        try:
+            self.ATLAS.log_history()
+        except Exception:  # pragma: no cover - defensive logging only
+            logger.debug("History logger hook failed", exc_info=True)
+        self.show_conversation_history_page()
 
     def show_accounts_page(self) -> None:
         if not self._ensure_initialized():
@@ -444,6 +465,12 @@ class _NavigationSidebar(Gtk.Box):
         self._nav_items: Dict[str, Gtk.ListBoxRow] = {}
         self._row_actions: Dict[Gtk.ListBoxRow, Callable[[], None]] = {}
         self._active_nav_id: str | None = None
+        self._history_limit = 20
+        self._history_rows: Dict[str, Gtk.ListBoxRow] = {}
+        self._history_placeholder_row: Gtk.ListBoxRow | None = None
+        self._history_header_row: Gtk.ListBoxRow | None = None
+        self._history_listener: Optional[Callable[[Dict[str, Any]], None]] = None
+        self.connect("unrealize", self._on_unrealize)
 
         primary_listbox = Gtk.ListBox()
         primary_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -515,16 +542,23 @@ class _NavigationSidebar(Gtk.Box):
         history_scroller.set_child(history_listbox)
         self.append(history_scroller)
 
-        self._create_nav_item(
+        self._history_header_row = self._create_nav_item(
             None,
             "History",
-            self.main_window.handle_history_button,
+            lambda: self.main_window.show_conversation_history_page(),
             tooltip="History",
             container=history_listbox,
             margin_start=3,
             margin_top=3,
             label_css_classes=["history-nav-label"],
         )
+
+        self._refresh_history_sidebar()
+        listener = getattr(self.ATLAS, "add_conversation_history_listener", None)
+        if callable(listener):
+            callback = lambda event: GLib.idle_add(self._handle_history_event, event)
+            listener(callback)
+            self._history_listener = callback
 
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         separator.add_css_class("sidebar-divider")
@@ -571,7 +605,7 @@ class _NavigationSidebar(Gtk.Box):
         margin_start: int = 12,
         margin_end: int = 12,
         label_css_classes: Sequence[str] | None = None,
-    ) -> None:
+    ) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         row.set_accessible_role(Gtk.AccessibleRole.LIST_ITEM)
         if hasattr(row, "set_accessible_name"):
@@ -623,6 +657,146 @@ class _NavigationSidebar(Gtk.Box):
 
         if nav_id:
             self._nav_items[nav_id] = row
+
+        return row
+
+    def _handle_history_event(self, _event: Mapping[str, Any]) -> bool:
+        self._refresh_history_sidebar()
+        return False
+
+    def _refresh_history_sidebar(self) -> None:
+        listbox = getattr(self, "_history_listbox", None)
+        if listbox is None:
+            return
+
+        fetcher = getattr(self.ATLAS, "get_recent_conversations", None)
+        records: List[Dict[str, Any]] = []
+        if callable(fetcher):
+            try:
+                records = fetcher(limit=self._history_limit)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.debug("Failed to refresh history sidebar: %s", exc, exc_info=True)
+        self._populate_history_sidebar(records)
+
+    def _populate_history_sidebar(self, records: Sequence[Mapping[str, Any]]) -> None:
+        listbox = getattr(self, "_history_listbox", None)
+        if listbox is None:
+            return
+
+        children_getter = getattr(listbox, "get_children", None)
+        if callable(children_getter):
+            rows = list(children_getter())
+        else:
+            rows: List[Gtk.ListBoxRow] = []
+            child = listbox.get_first_child()
+            while child is not None:
+                rows.append(child)
+                child = child.get_next_sibling()
+
+        for row in rows:
+            if row is self._history_header_row:
+                continue
+            listbox.remove(row)
+
+        self._history_rows.clear()
+        self._history_placeholder_row = None
+
+        if not records:
+            placeholder_row = Gtk.ListBoxRow()
+            placeholder_row.set_activatable(False)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            box.set_margin_top(4)
+            box.set_margin_bottom(4)
+            box.set_margin_start(12)
+            box.set_margin_end(12)
+            label = Gtk.Label(label="No saved conversations yet.")
+            label.set_xalign(0.0)
+            label.add_css_class("history-placeholder")
+            box.append(label)
+            placeholder_row.set_child(box)
+            listbox.append(placeholder_row)
+            self._history_placeholder_row = placeholder_row
+            return
+
+        for record in records[: self._history_limit]:
+            identifier = str(record.get("id") or "")
+            row = Gtk.ListBoxRow()
+            row.set_accessible_role(Gtk.AccessibleRole.LIST_ITEM)
+            row.add_css_class("sidebar-nav-item")
+            row.set_activatable(True)
+
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            box.set_margin_top(4)
+            box.set_margin_bottom(4)
+            box.set_margin_start(12)
+            box.set_margin_end(12)
+
+            title_label = Gtk.Label(label=self._format_history_title(record))
+            title_label.set_xalign(0.0)
+            title_label.add_css_class("history-nav-label")
+            box.append(title_label)
+
+            timestamp_text = self._format_history_timestamp(record.get("created_at"))
+            if timestamp_text:
+                subtitle = Gtk.Label(label=timestamp_text)
+                subtitle.set_xalign(0.0)
+                subtitle.add_css_class("history-nav-subtitle")
+                box.append(subtitle)
+
+            row.set_child(box)
+
+            action = lambda conv_id=identifier: self.main_window.show_conversation_history_page(
+                conv_id
+            )
+            self._row_actions[row] = action
+
+            gesture = Gtk.GestureClick()
+            gesture.connect(
+                "released",
+                lambda _gesture, _n, _x, _y, conv_id=identifier: self.main_window.show_conversation_history_page(
+                    conv_id
+                ),
+            )
+            row.add_controller(gesture)
+
+            listbox.append(row)
+            if identifier:
+                self._history_rows[identifier] = row
+
+    def _format_history_title(self, record: Mapping[str, Any]) -> str:
+        title = record.get("title")
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+
+        metadata = record.get("metadata")
+        if isinstance(metadata, Mapping):
+            candidate = metadata.get("title") or metadata.get("name")
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+
+        identifier = record.get("id")
+        text = str(identifier) if identifier is not None else ""
+        return f"Conversation {text[:8]}" if text else "Conversation"
+
+    def _format_history_timestamp(self, value: Any) -> str:
+        if not value:
+            return ""
+        text = str(value)
+        if text.endswith("Z"):
+            text = text.replace("Z", "+00:00")
+        try:
+            moment = datetime.fromisoformat(text)
+        except ValueError:
+            return ""
+        if moment.tzinfo is not None:
+            moment = moment.astimezone()
+        return moment.strftime("%Y-%m-%d %H:%M")
+
+    def _on_unrealize(self, *_args) -> None:
+        remover = getattr(self.ATLAS, "remove_conversation_history_listener", None)
+        if callable(remover) and self._history_listener is not None:
+            remover(self._history_listener)
+            self._history_listener = None
 
     def _on_row_activated(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         callback = self._row_actions.get(row)

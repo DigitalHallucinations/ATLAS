@@ -325,20 +325,27 @@ class ChatSession:
         self._last_persona_reminder_index = None
         self.negotiation_history = []
         self.set_default_provider_and_model()
+        notifier = getattr(self.ATLAS, "notify_conversation_updated", None)
         if self._conversation_repository is not None:
             try:
                 self._conversation_repository.hard_delete_conversation(
                     old_conversation_id, tenant_id=self._tenant_id
                 )
+                if callable(notifier):
+                    notifier(old_conversation_id, reason="deleted")
                 self._conversation_repository.ensure_conversation(
                     self._conversation_id, tenant_id=self._tenant_id
                 )
+                if callable(notifier):
+                    notifier(self._conversation_id, reason="created")
             except Exception as exc:  # pragma: no cover - persistence fallback
                 self.ATLAS.logger.warning(
                     "Failed to reset persistent conversation state: %s",
                     exc,
                     exc_info=True,
                 )
+        elif callable(notifier):
+            notifier(self._conversation_id, reason="reset")
         provider_manager = getattr(self.ATLAS, "provider_manager", None)
         if provider_manager is not None:
             try:
@@ -902,6 +909,14 @@ class ChatSession:
 
         self.conversation_history.append(stored_entry)
         self._apply_history_limit()
+        notifier = getattr(self.ATLAS, "notify_conversation_updated", None)
+        if callable(notifier):
+            try:
+                notifier(self._conversation_id, reason="message")
+            except Exception:  # pragma: no cover - defensive logging only
+                self.ATLAS.logger.debug(
+                    "Conversation update notification failed for %s", self._conversation_id, exc_info=True
+                )
         return stored_entry
 
     def _clone_tool_payload(self, value: Any) -> Any:
