@@ -158,17 +158,29 @@ class AtlasServer:
             logger.warning("Failed to initialize task service: %s", exc)
             return None
 
-    def _get_task_routes(self) -> TaskRoutes:
-        if self._task_routes is None:
-            task_service = self._task_service or self._build_task_service()
-            if task_service is None:
-                raise RuntimeError("Task service is not configured")
-            self._task_service = task_service
-            self._task_routes = TaskRoutes(
-                task_service,
-                message_bus=self._message_bus,
+    def _ensure_task_routes(self) -> TaskRoutes | None:
+        if self._task_routes is not None:
+            return self._task_routes
+
+        task_service = self._task_service or self._build_task_service()
+        if task_service is None:
+            logger.warning(
+                "Task service is not configured; task endpoints will be disabled"
             )
+            return None
+
+        self._task_service = task_service
+        self._task_routes = TaskRoutes(
+            task_service,
+            message_bus=self._message_bus,
+        )
         return self._task_routes
+
+    def _require_task_routes(self) -> TaskRoutes:
+        routes = self._ensure_task_routes()
+        if routes is None:
+            raise RuntimeError("Task service is not configured")
+        return routes
 
     @staticmethod
     def _coerce_context(context: Any) -> RequestContext:
@@ -995,7 +1007,7 @@ class AtlasServer:
         *,
         context: Any,
     ) -> Dict[str, Any]:
-        routes = self._get_task_routes()
+        routes = self._require_task_routes()
         request_context = self._coerce_context(context)
         return routes.create_task(payload, context=request_context)
 
@@ -1006,7 +1018,7 @@ class AtlasServer:
         *,
         context: Any,
     ) -> Dict[str, Any]:
-        routes = self._get_task_routes()
+        routes = self._require_task_routes()
         request_context = self._coerce_context(context)
         return routes.update_task(task_id, payload, context=request_context)
 
@@ -1018,7 +1030,7 @@ class AtlasServer:
         context: Any,
         expected_updated_at: Any | None = None,
     ) -> Dict[str, Any]:
-        routes = self._get_task_routes()
+        routes = self._require_task_routes()
         request_context = self._coerce_context(context)
         return routes.transition_task(
             task_id,
@@ -1048,7 +1060,7 @@ class AtlasServer:
         context: Any,
         include_events: bool = False,
     ) -> Dict[str, Any]:
-        routes = self._get_task_routes()
+        routes = self._require_task_routes()
         request_context = self._coerce_context(context)
         return routes.get_task(task_id, context=request_context, include_events=include_events)
 
@@ -1058,8 +1070,10 @@ class AtlasServer:
         *,
         context: Any,
     ) -> Dict[str, Any]:
-        routes = self._get_task_routes()
+        routes = self._ensure_task_routes()
         request_context = self._coerce_context(context)
+        if routes is None:
+            return {"items": []}
         return routes.list_tasks(params, context=request_context)
 
     def search_tasks(
@@ -1068,7 +1082,7 @@ class AtlasServer:
         *,
         context: Any,
     ) -> Dict[str, Any]:
-        routes = self._get_task_routes()
+        routes = self._require_task_routes()
         request_context = self._coerce_context(context)
         return routes.search_tasks(payload, context=request_context)
 
@@ -1079,7 +1093,7 @@ class AtlasServer:
         context: Any,
         after: Optional[str] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
-        routes = self._get_task_routes()
+        routes = self._require_task_routes()
         request_context = self._coerce_context(context)
         return routes.stream_task_events(task_id, context=request_context, after=after)
 
