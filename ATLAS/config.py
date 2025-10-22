@@ -17,6 +17,7 @@ from modules.orchestration.message_bus import (
     RedisStreamBackend,
     configure_message_bus,
 )
+from modules.task_store import TaskService, TaskStoreRepository
 from urllib.parse import urlparse
 
 _UNSET = object()
@@ -251,6 +252,8 @@ class ConfigManager:
         self._conversation_engine: Engine | None = None
         self._conversation_session_factory: sessionmaker | None = None
         self._task_session_factory: sessionmaker | None = None
+        self._task_repository: TaskStoreRepository | None = None
+        self._task_service: TaskService | None = None
 
     def _normalize_network_allowlist(self, value):
         """Return a sanitized allowlist for sandboxed tool networking."""
@@ -319,6 +322,38 @@ class ConfigManager:
 
         self._task_session_factory = conversation_factory
         return conversation_factory
+
+    def get_task_repository(self) -> TaskStoreRepository | None:
+        """Return a configured repository for task persistence."""
+
+        if self._task_repository is not None:
+            return self._task_repository
+
+        factory = self.get_task_store_session_factory()
+        if factory is None:
+            return None
+
+        repository = TaskStoreRepository(factory)
+        try:
+            repository.create_schema()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.warning("Failed to initialize task store schema: %s", exc)
+        self._task_repository = repository
+        return repository
+
+    def get_task_service(self) -> TaskService | None:
+        """Return the task lifecycle service backed by the repository."""
+
+        if self._task_service is not None:
+            return self._task_service
+
+        repository = self.get_task_repository()
+        if repository is None:
+            return None
+
+        service = TaskService(repository)
+        self._task_service = service
+        return service
 
     def _build_conversation_store_session_factory(
         self,
