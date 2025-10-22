@@ -1319,6 +1319,59 @@ class ConversationStoreRepository:
             messages.reverse()
         return messages
 
+    def stream_conversation_messages(
+        self,
+        conversation_id: Any,
+        *,
+        tenant_id: Any,
+        batch_size: int = 200,
+        cursor: Optional[tuple[datetime, uuid.UUID]] = None,
+        direction: str = "forward",
+        metadata_filter: Optional[Mapping[str, Any]] = None,
+        include_deleted: bool = True,
+        message_types: Optional[Sequence[str]] = None,
+        statuses: Optional[Sequence[str]] = None,
+    ) -> Iterator[Dict[str, Any]]:
+        """Yield messages for the conversation by repeatedly paging ``fetch_messages``."""
+
+        window = max(int(batch_size), 1)
+        next_cursor = cursor
+
+        while True:
+            messages = self.fetch_messages(
+                conversation_id,
+                tenant_id=tenant_id,
+                limit=window,
+                cursor=next_cursor,
+                direction=direction,
+                metadata_filter=metadata_filter,
+                include_deleted=include_deleted,
+                message_types=message_types,
+                statuses=statuses,
+            )
+
+            if not messages:
+                break
+
+            for payload in messages:
+                yield payload
+
+            if len(messages) < window:
+                break
+
+            anchor = messages[0] if direction == "backward" else messages[-1]
+            created_value = anchor.get("created_at") or anchor.get("timestamp")
+            if created_value is None:
+                break
+
+            try:
+                created_at = _coerce_dt(created_value)
+                message_uuid = _coerce_uuid(anchor.get("id"))
+            except Exception:
+                break
+
+            next_cursor = (created_at, message_uuid)
+
     def query_messages_by_text(
         self,
         *,

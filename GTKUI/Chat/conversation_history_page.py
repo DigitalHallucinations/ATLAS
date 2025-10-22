@@ -262,7 +262,7 @@ class ConversationHistoryPage(Gtk.Box):
         self._update_action_buttons()
 
     def _load_messages(self, conversation_id: str) -> None:
-        messages = self.ATLAS.get_conversation_messages(conversation_id, limit=500)
+        messages = self.ATLAS.get_conversation_messages(conversation_id)
         self._render_messages(messages)
 
     def _render_messages(self, messages: List[Dict[str, Any]]) -> None:
@@ -271,54 +271,69 @@ class ConversationHistoryPage(Gtk.Box):
             self._show_message_placeholder("No messages stored for this conversation.")
             return
 
-        for message in messages:
-            container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            container.add_css_class("conversation-history-entry")
-            container.set_margin_bottom(8)
+        iterator = iter(messages)
 
-            header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            header.set_hexpand(True)
+        def process_batch() -> bool:
+            processed = 0
+            for message in iterator:
+                container = self._build_message_widget(message)
+                self.message_box.append(container)
+                processed += 1
+                if processed >= 100:
+                    GLib.idle_add(process_batch)
+                    return False
+            return False
 
-            role = str(message.get("role") or "message").capitalize()
-            role_label = Gtk.Label(label=role)
-            role_label.set_xalign(0.0)
-            role_label.add_css_class("history-nav-label")
-            header.append(role_label)
+        process_batch()
 
-            status = message.get("status")
-            if status:
-                status_label = Gtk.Label(label=f"[{status}]")
-                status_label.set_xalign(0.0)
-                status_label.add_css_class("history-nav-subtitle")
-                header.append(status_label)
+    def _build_message_widget(self, message: Mapping[str, Any]) -> Gtk.Widget:
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        container.add_css_class("conversation-history-entry")
+        container.set_margin_bottom(8)
 
-            timestamp = self._format_timestamp(message.get("created_at") or message.get("timestamp"))
-            if timestamp:
-                time_label = Gtk.Label(label=timestamp)
-                time_label.set_xalign(1.0)
-                time_label.set_hexpand(True)
-                time_label.add_css_class("history-nav-subtitle")
-                header.append(time_label)
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        header.set_hexpand(True)
 
-            container.append(header)
+        role = str(message.get("role") or "message").capitalize()
+        role_label = Gtk.Label(label=role)
+        role_label.set_xalign(0.0)
+        role_label.add_css_class("history-nav-label")
+        header.append(role_label)
 
-            content_label = Gtk.Label(label=self._format_content(message.get("content")))
-            content_label.set_xalign(0.0)
-            content_label.set_wrap(True)
-            content_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            content_label.set_max_width_chars(80)
-            container.append(content_label)
+        status = message.get("status")
+        if status:
+            status_label = Gtk.Label(label=f"[{status}]")
+            status_label.set_xalign(0.0)
+            status_label.add_css_class("history-nav-subtitle")
+            header.append(status_label)
 
-            metadata = message.get("metadata")
-            if isinstance(metadata, Mapping) and metadata:
-                meta_label = Gtk.Label(label=self._format_metadata(metadata))
-                meta_label.set_xalign(0.0)
-                meta_label.set_wrap(True)
-                meta_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-                meta_label.add_css_class("history-nav-subtitle")
-                container.append(meta_label)
+        timestamp = self._format_timestamp(message.get("created_at") or message.get("timestamp"))
+        if timestamp:
+            time_label = Gtk.Label(label=timestamp)
+            time_label.set_xalign(1.0)
+            time_label.set_hexpand(True)
+            time_label.add_css_class("history-nav-subtitle")
+            header.append(time_label)
 
-            self.message_box.append(container)
+        container.append(header)
+
+        content_label = Gtk.Label(label=self._format_content(message.get("content")))
+        content_label.set_xalign(0.0)
+        content_label.set_wrap(True)
+        content_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        content_label.set_max_width_chars(80)
+        container.append(content_label)
+
+        metadata = message.get("metadata")
+        if isinstance(metadata, Mapping) and metadata:
+            meta_label = Gtk.Label(label=self._format_metadata(metadata))
+            meta_label.set_xalign(0.0)
+            meta_label.set_wrap(True)
+            meta_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            meta_label.add_css_class("history-nav-subtitle")
+            container.append(meta_label)
+
+        return container
 
     # ------------------------------------------------------------------
     # Formatting helpers
@@ -384,6 +399,8 @@ class ConversationHistoryPage(Gtk.Box):
                 next_child = child.get_next_sibling()
                 self.message_box.remove(child)
                 child = next_child
+        if hasattr(self.message_box, "children"):
+            self.message_box.children = []
 
     def _show_message_placeholder(self, text: str = "Select a conversation to view its messages.") -> None:
         self._clear_message_box()
