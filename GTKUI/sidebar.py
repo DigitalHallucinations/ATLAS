@@ -20,6 +20,7 @@ from GTKUI.Provider_manager.provider_management import ProviderManagement
 from GTKUI.Settings.Speech.speech_settings import SpeechSettings
 from GTKUI.Tool_manager import ToolManagement
 from GTKUI.Skill_manager import SkillManagement
+from GTKUI.Task_manager import TaskManagement
 from GTKUI.UserAccounts.account_dialog import AccountDialog
 from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css
@@ -44,6 +45,7 @@ class MainWindow(AtlasWindow):
         self.provider_management = ProviderManagement(self.ATLAS, self)
         self.tool_management = ToolManagement(self.ATLAS, self)
         self.skill_management = SkillManagement(self.ATLAS, self)
+        self.task_management = TaskManagement(self.ATLAS, self)
         self.tool_management.on_open_in_persona = self._open_tool_in_persona
         self.skill_management.on_open_in_persona = self._open_skill_in_persona
 
@@ -114,6 +116,19 @@ class MainWindow(AtlasWindow):
             self.sidebar.set_active_item("tools")
             if tool_name:
                 GLib.idle_add(self._focus_tool_in_manager, tool_name)
+
+    def show_task_workspace(self, task_id: str | None = None) -> None:
+        if not self._ensure_initialized():
+            return
+
+        def factory() -> Gtk.Widget:
+            return self.task_management.get_embeddable_widget()
+
+        page = self._open_or_focus_page("tasks", "Tasks", factory)
+        if page is not None:
+            self.sidebar.set_active_item("tasks")
+            if task_id:
+                GLib.idle_add(self._focus_task_in_manager, task_id)
 
     def show_skills_menu(self, skill_name: str | None = None) -> None:
         if not self._ensure_initialized():
@@ -349,6 +364,11 @@ class MainWindow(AtlasWindow):
             logger.debug("Tool '%s' could not be focused in the workspace", tool_name)
         return False
 
+    def _focus_task_in_manager(self, task_id: str) -> bool:
+        if not self.task_management.focus_task(task_id):
+            logger.debug("Task '%s' could not be focused in the workspace", task_id)
+        return False
+
     def _focus_skill_in_manager(self, skill_name: str) -> bool:
         if not self.skill_management.focus_skill(skill_name):
             logger.debug("Skill '%s' could not be focused in the workspace", skill_name)
@@ -452,6 +472,7 @@ class _NavigationSidebar(Gtk.Box):
         self.provider_management = main_window.provider_management
         self.tool_management = main_window.tool_management
         self.skill_management = main_window.skill_management
+        self.task_management = main_window.task_management
 
         self.set_margin_top(4)
         self.set_margin_bottom(4)
@@ -499,6 +520,12 @@ class _NavigationSidebar(Gtk.Box):
             "Tools",
             self.main_window.show_tools_menu,
             tooltip="Tools",
+        )
+        self._create_nav_item(
+            "tasks",
+            "Tasks",
+            self.main_window.show_task_workspace,
+            tooltip="Tasks",
         )
         self._create_nav_item(
             "skills",
