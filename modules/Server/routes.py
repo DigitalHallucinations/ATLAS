@@ -47,6 +47,7 @@ from .conversation_routes import (
     ConversationRoutes,
     RequestContext,
 )
+from .task_routes import TaskRoutes
 
 logger = setup_logger(__name__)
 
@@ -100,6 +101,7 @@ class AtlasServer:
         self._message_bus = message_bus
         self._task_service: "TaskService" | None = task_service
         self._conversation_routes: ConversationRoutes | None = None
+        self._task_routes: TaskRoutes | None = None
 
     def _get_conversation_routes(self) -> ConversationRoutes:
         if self._conversation_routes is None:
@@ -155,6 +157,18 @@ class AtlasServer:
         except Exception as exc:  # pragma: no cover - defensive logging only
             logger.warning("Failed to initialize task service: %s", exc)
             return None
+
+    def _get_task_routes(self) -> TaskRoutes:
+        if self._task_routes is None:
+            task_service = self._task_service or self._build_task_service()
+            if task_service is None:
+                raise RuntimeError("Task service is not configured")
+            self._task_service = task_service
+            self._task_routes = TaskRoutes(
+                task_service,
+                message_bus=self._message_bus,
+            )
+        return self._task_routes
 
     @staticmethod
     def _coerce_context(context: Any) -> RequestContext:
@@ -972,6 +986,102 @@ class AtlasServer:
             context=request_context,
             after=after,
         )
+
+    # -- task routes -------------------------------------------------------
+
+    def create_task(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        routes = self._get_task_routes()
+        request_context = self._coerce_context(context)
+        return routes.create_task(payload, context=request_context)
+
+    def update_task(
+        self,
+        task_id: str,
+        payload: Mapping[str, Any],
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        routes = self._get_task_routes()
+        request_context = self._coerce_context(context)
+        return routes.update_task(task_id, payload, context=request_context)
+
+    def transition_task(
+        self,
+        task_id: str,
+        target_status: Any,
+        *,
+        context: Any,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        routes = self._get_task_routes()
+        request_context = self._coerce_context(context)
+        return routes.transition_task(
+            task_id,
+            target_status,
+            context=request_context,
+            expected_updated_at=expected_updated_at,
+        )
+
+    def delete_task(
+        self,
+        task_id: str,
+        *,
+        context: Any,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        return self.transition_task(
+            task_id,
+            target_status="cancelled",
+            context=context,
+            expected_updated_at=expected_updated_at,
+        )
+
+    def get_task(
+        self,
+        task_id: str,
+        *,
+        context: Any,
+        include_events: bool = False,
+    ) -> Dict[str, Any]:
+        routes = self._get_task_routes()
+        request_context = self._coerce_context(context)
+        return routes.get_task(task_id, context=request_context, include_events=include_events)
+
+    def list_tasks(
+        self,
+        params: Optional[Mapping[str, Any]] = None,
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        routes = self._get_task_routes()
+        request_context = self._coerce_context(context)
+        return routes.list_tasks(params, context=request_context)
+
+    def search_tasks(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        routes = self._get_task_routes()
+        request_context = self._coerce_context(context)
+        return routes.search_tasks(payload, context=request_context)
+
+    def stream_task_events(
+        self,
+        task_id: str,
+        *,
+        context: Any,
+        after: Optional[str] = None,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        routes = self._get_task_routes()
+        request_context = self._coerce_context(context)
+        return routes.stream_task_events(task_id, context=request_context, after=after)
 
 
 def _filter_entries(
