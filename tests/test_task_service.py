@@ -165,3 +165,35 @@ def test_dependency_gating_blocks_progress(service, repository, identity, sessio
     assert progressed["status"] == TaskStatus.READY.value
     assert svc.dependencies_complete(primary["id"], tenant_id=identity["tenant_id"])
     assert any(event for event in events if event[0] == "task.status_changed")
+
+
+def test_update_task_same_owner_no_reassignment(service, identity, monkeypatch):
+    svc, events = service
+    record = svc.create_task(
+        "Owned task",
+        tenant_id=identity["tenant_id"],
+        conversation_id=identity["conversation_id"],
+        owner_id=identity["user_id"],
+    )
+    initial_event_count = len(events)
+
+    lifecycle_events: list[dict] = []
+
+    def capture_lifecycle_event(**payload):
+        lifecycle_events.append(payload)
+
+    monkeypatch.setattr(
+        "modules.task_store.service.record_task_lifecycle_event",
+        capture_lifecycle_event,
+    )
+
+    updated = svc.update_task(
+        record["id"],
+        tenant_id=identity["tenant_id"],
+        changes={"owner_id": identity["user_id"]},
+    )
+
+    assert updated["owner_id"] == record["owner_id"]
+    assert updated.get("events") == []
+    assert len(events) == initial_event_count
+    assert lifecycle_events == []
