@@ -135,3 +135,20 @@ def test_invalid_task_entries_are_skipped(
             source="modules/Tasks/tasks.json",
         )
     ]
+
+
+def test_medic_trial_task_references_new_skill():
+    from modules import Tasks as tasks_pkg
+
+    entries = tasks_pkg.manifest_loader.load_task_metadata()
+
+    target = next(
+        entry
+        for entry in entries
+        if entry.persona == "MEDIC" and entry.name == "ClinicalTrialAbstractSynthesizer"
+    )
+
+    assert "ClinicalEvidenceSynthesizer" in target.required_skills
+    assert "fetch_pubmed_details" in target.required_tools
+    assert any("cohort" in criterion.lower() for criterion in target.acceptance_criteria)
+    assert any("pubmed" in criterion.lower() for criterion in target.acceptance_criteria)

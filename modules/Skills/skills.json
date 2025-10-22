@@ -98,5 +98,27 @@
       "monitoring",
       "analysis"
     ]
+  },
+  {
+    "name": "ClinicalEvidenceSynthesizer",
+    "version": "1.0.0",
+    "instruction_prompt": "Coordinate literature searches, detailed PubMed retrieval, and concise synthesis of clinical trial evidence with clear citations and risk notes.",
+    "required_tools": [
+      "search_pubmed",
+      "search_pmc",
+      "fetch_pubmed_details"
+    ],
+    "required_capabilities": [
+      "medical_research",
+      "evidence_synthesis"
+    ],
+    "safety_notes": "Cross-verify trial outcomes against source abstracts, flag uncertain cohorts or endpoints, and never infer efficacy without evidence.",
+    "summary": "End-to-end clinical literature review covering search, trial detail extraction, and synthesis.",
+    "category": "Medical Intelligence",
+    "capability_tags": [
+      "medicine",
+      "research",
+      "summaries"
+    ]
   }
 ]

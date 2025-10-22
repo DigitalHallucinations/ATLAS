@@ -18,7 +18,38 @@ dotenv_stub.set_key = lambda *args, **kwargs: None
 dotenv_stub.find_dotenv = lambda *args, **kwargs: ""
 sys.modules.setdefault("dotenv", dotenv_stub)
 
-from modules.Tools.Medical_Tools import search_pmc, search_pubmed
+sqlalchemy_stub = types.ModuleType("sqlalchemy")
+sqlalchemy_stub.create_engine = lambda *args, **kwargs: None
+
+sqlalchemy_engine_stub = types.ModuleType("sqlalchemy.engine")
+sqlalchemy_engine_stub.Engine = object
+
+sqlalchemy_orm_stub = types.ModuleType("sqlalchemy.orm")
+
+
+class _SessionmakerStub:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __call__(self, *args, **kwargs):  # pragma: no cover - helper stub
+        return None
+
+
+sqlalchemy_orm_stub.sessionmaker = _SessionmakerStub
+
+sqlalchemy_stub.engine = sqlalchemy_engine_stub
+sqlalchemy_stub.orm = sqlalchemy_orm_stub
+
+sys.modules.setdefault("sqlalchemy", sqlalchemy_stub)
+sys.modules.setdefault("sqlalchemy.engine", sqlalchemy_engine_stub)
+sys.modules.setdefault("sqlalchemy.orm", sqlalchemy_orm_stub)
+
+task_store_stub = types.ModuleType("modules.task_store")
+task_store_stub.TaskService = object
+task_store_stub.TaskStoreRepository = object
+sys.modules.setdefault("modules.task_store", task_store_stub)
+
+from modules.Tools.Medical_Tools import fetch_pubmed_details, search_pmc, search_pubmed
 
 
 class _FakeResponse:
@@ -191,3 +222,43 @@ def test_search_pmc_applies_filters(monkeypatch):
     assert captured["params"]["db"] == "pmc"
     assert captured["params"]["articletype"] == "clinicaltrial"
     assert captured["params"]["hasabstract"] == "y"
+
+
+def test_fetch_pubmed_details_batches_and_merges(monkeypatch):
+    captured: List[Dict[str, Any]] = []
+
+    def _fake_get(url: str, *, params: Dict[str, Any], headers: Dict[str, str], timeout: float):
+        captured.append(params)
+        pmids = params["id"].split(",")
+        payload: Dict[str, Any] = {"result": {"uids": pmids}}
+        for pmid in pmids:
+            payload["result"][pmid] = {"title": f"Title {pmid}", "abstract": f"Abstract {pmid}"}
+        return _FakeResponse(200, payload)
+
+    monkeypatch.setattr(
+        "modules.Tools.Medical_Tools._client.requests.get",
+        lambda url, params, headers, timeout: _fake_get(url, params=params, headers=headers, timeout=timeout),
+    )
+    monkeypatch.setattr(
+        "modules.Tools.Medical_Tools._client.get_auth_params",
+        lambda: {},
+    )
+
+    status, payload = asyncio.run(
+        fetch_pubmed_details(["100", "200", "300"], chunk_size=2, retmode="json", rettype="abstract")
+    )
+
+    assert status == 200
+    assert len(captured) == 2
+    assert captured[0]["id"] == "100,200"
+    assert captured[1]["id"] == "300"
+    assert payload["ids"] == ["100", "200", "300"]
+    assert len(payload["records"]) == 3
+    assert all(record["pmid"] in {"100", "200", "300"} for record in payload["records"])
+
+
+def test_fetch_pubmed_details_requires_identifiers():
+    status, payload = asyncio.run(fetch_pubmed_details([]))
+
+    assert status == -1
+    assert "error" in payload
