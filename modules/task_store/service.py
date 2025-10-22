@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
@@ -55,6 +56,22 @@ def _parse_timestamp(value: Any) -> Optional[datetime]:
     else:
         timestamp = timestamp.astimezone(timezone.utc)
     return timestamp
+
+
+def _normalize_owner_identifier(value: Any) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, bytes):
+        return str(uuid.UUID(bytes=value))
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return str(uuid.UUID(text))
+    except ValueError:
+        return str(uuid.UUID(hex=text.replace("-", "")))
 
 
 def _extract_persona(payload: Mapping[str, Any]) -> Optional[str]:
@@ -188,6 +205,35 @@ class TaskService:
         expected_updated_at: Any | None = None,
     ) -> Dict[str, Any]:
         change_payload = dict(changes)
+        if not change_payload:
+            raise ValueError("At least one field must be provided for update")
+
+        snapshot = self._repository.get_task(task_id, tenant_id=tenant_id)
+
+        owner_changed = False
+        if "owner_id" in change_payload:
+            existing_owner = _normalize_owner_identifier(snapshot.get("owner_id"))
+            requested_owner = _normalize_owner_identifier(change_payload["owner_id"])
+            if existing_owner == requested_owner:
+                change_payload.pop("owner_id")
+            else:
+                owner_changed = True
+
+        if not change_payload:
+            if expected_updated_at is not None:
+                expected_timestamp = _parse_timestamp(expected_updated_at)
+                current_timestamp = _parse_timestamp(snapshot.get("updated_at"))
+                if (
+                    expected_timestamp is None
+                    or current_timestamp is None
+                    or current_timestamp != expected_timestamp
+                ):
+                    raise TaskConcurrencyError("Task was modified by another transaction")
+            snapshot_payload = dict(snapshot)
+            snapshot_payload.setdefault("events", [])
+            return snapshot_payload
+
+        applied_changes = dict(change_payload)
         record = self._repository.update_task(
             task_id,
             tenant_id=tenant_id,
@@ -199,17 +245,12 @@ class TaskService:
             {
                 "task_id": record["id"],
                 "tenant_id": record.get("tenant_id"),
-                "changes": change_payload,
+                "changes": applied_changes,
             },
         )
-        if "owner_id" in change_payload:
+        if owner_changed:
             timestamp = _parse_timestamp(record.get("updated_at")) or datetime.now(timezone.utc)
-            owner_value = change_payload.get("owner_id")
-            owner_serialized = (
-                str(owner_value)
-                if owner_value is not None and owner_value != ""
-                else None
-            )
+            owner_serialized = record.get("owner_id") or None
             record_task_lifecycle_event(
                 task_id=record.get("id"),
                 event="reassigned",
