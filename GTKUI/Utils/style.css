@@ -270,7 +270,8 @@ window.chat-page {
 }
 
 .sidebar-nav-item:focus-visible {
-    text-decoration-thickness: 2px;
+    text-decoration: none;
+    box-shadow: inset 0 -2px 0 0 currentColor;
 }
 
 .sidebar-nav-item.active {
