@@ -17,7 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID, TSVECTOR
 
 try:  # pragma: no cover - optional dependency for pgvector support
     from pgvector.sqlalchemy import Vector as PGVector  # type: ignore
@@ -190,6 +190,7 @@ class Message(Base):
     meta = Column("metadata", JSONB, nullable=False, default=dict)
     extra = Column(JSONB, nullable=False, default=dict)
     client_message_id = Column(String(255), nullable=True)
+    message_text_tsv = Column(TSVECTOR, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
