@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
@@ -15,10 +15,14 @@ from modules.orchestration.message_bus import MessagePriority
 __all__ = [
     "PersonaMetricEvent",
     "PersonaMetricsStore",
+    "TaskLifecycleEvent",
     "record_persona_tool_event",
     "record_persona_skill_event",
+    "record_task_lifecycle_event",
     "get_persona_metrics",
+    "get_task_lifecycle_metrics",
     "reset_persona_metrics",
+    "reset_task_metrics",
 ]
 
 
@@ -96,6 +100,45 @@ class PersonaMetricEvent:
         return payload
 
 
+@dataclass(frozen=True)
+class TaskLifecycleEvent:
+    """Represents a lifecycle transition or assignment change for a task."""
+
+    task_id: str
+    event: str
+    persona: Optional[str] = None
+    tenant_id: Optional[str] = None
+    from_status: Optional[str] = None
+    to_status: Optional[str] = None
+    success: Optional[bool] = None
+    latency_ms: Optional[float] = None
+    reassignments: int = 0
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    metadata: Optional[Mapping[str, Any]] = None
+
+    def __post_init__(self) -> None:
+        event_name = str(self.event or "").strip().lower()
+        object.__setattr__(self, "event", event_name or "status_changed")
+        if self.metadata is None:
+            object.__setattr__(self, "metadata", {})
+
+    def as_dict(self) -> Dict[str, Any]:
+        payload = {
+            "task_id": self.task_id,
+            "event": self.event,
+            "persona": self.persona,
+            "tenant_id": self.tenant_id,
+            "from_status": self.from_status,
+            "to_status": self.to_status,
+            "success": self.success,
+            "latency_ms": float(self.latency_ms) if self.latency_ms is not None else None,
+            "reassignments": int(self.reassignments or 0),
+            "timestamp": _isoformat(self.timestamp),
+            "metadata": dict(self.metadata or {}),
+        }
+        return payload
+
+
 class PersonaMetricsStore:
     """Persist persona/tool metrics and expose aggregation helpers."""
 
@@ -131,7 +174,25 @@ class PersonaMetricsStore:
         """Remove all recorded metrics."""
 
         with self._lock:
-            payload = {"events": []}
+            payload = {"events": [], "task_events": []}
+            self._write_payload(payload)
+
+    def record_task_event(self, event: TaskLifecycleEvent) -> None:
+        """Append ``event`` to the persisted task lifecycle log."""
+
+        with self._lock:
+            payload = self._load_payload()
+            events = payload.setdefault("task_events", [])
+            events.append(event.as_dict())
+            self._write_payload(payload)
+
+    def reset_task_metrics(self) -> None:
+        """Remove all recorded task lifecycle metrics."""
+
+        with self._lock:
+            payload = self._load_payload()
+            payload.setdefault("events", payload.get("events", []))
+            payload["task_events"] = []
             self._write_payload(payload)
 
     # ------------------------ Aggregation helpers ------------------------
@@ -188,6 +249,133 @@ class PersonaMetricsStore:
         result["skills"] = skill_metrics
         return result
 
+    def get_task_metrics(
+        self,
+        *,
+        persona: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        limit_recent: int = 50,
+    ) -> Dict[str, Any]:
+        """Return aggregated lifecycle metrics filtered by persona/tenant."""
+
+        persona_key = (persona or "").strip().lower() or None
+        tenant_key = (tenant_id or "").strip().lower() or None
+
+        with self._lock:
+            payload = self._load_payload()
+
+        raw_events = payload.get("task_events") or []
+        filtered: List[Tuple[Dict[str, Any], Optional[datetime]]] = []
+
+        for item in raw_events:
+            if not isinstance(item, Mapping):
+                continue
+            event = self._normalize_task_event(item)
+            event_persona = (event.get("persona") or "").strip().lower() or None
+            event_tenant = (event.get("tenant_id") or "").strip().lower() or None
+            if persona_key is not None and event_persona != persona_key:
+                continue
+            if tenant_key is not None and event_tenant != tenant_key:
+                continue
+            timestamp = _parse_iso(event.get("timestamp"))
+            filtered.append((event, timestamp))
+
+        total_events = len(filtered)
+        success_events = [event for event, _ in filtered if event.get("success") is not None]
+        successes = sum(1 for event in success_events if bool(event.get("success")))
+        failures = sum(1 for event in success_events if event.get("success") is False)
+        denominator = len(success_events)
+        success_rate = successes / denominator if denominator else 0.0
+
+        latencies = [
+            float(event.get("latency_ms"))
+            for event, _ in filtered
+            if event.get("latency_ms") is not None
+        ]
+        average_latency = sum(latencies) / len(latencies) if latencies else 0.0
+
+        reassignment_total = sum(int(event.get("reassignments") or 0) for event, _ in filtered)
+
+        status_totals: Dict[str, Dict[str, Any]] = {}
+        task_totals: Dict[str, Dict[str, Any]] = {}
+        for event, timestamp in filtered:
+            status = str(event.get("to_status") or "").strip().lower() or "unknown"
+            status_bucket = status_totals.setdefault(
+                status,
+                {
+                    "status": status,
+                    "events": 0,
+                    "success": 0,
+                    "failure": 0,
+                },
+            )
+            status_bucket["events"] += 1
+            if event.get("success") is True:
+                status_bucket["success"] += 1
+            elif event.get("success") is False:
+                status_bucket["failure"] += 1
+
+            task_id = str(event.get("task_id") or "").strip() or "unknown"
+            task_bucket = task_totals.setdefault(
+                task_id,
+                {
+                    "task_id": task_id,
+                    "events": 0,
+                    "success": 0,
+                    "failure": 0,
+                    "reassignments": 0,
+                    "last_status": None,
+                    "last_timestamp": None,
+                },
+            )
+            task_bucket["events"] += 1
+            if event.get("success") is True:
+                task_bucket["success"] += 1
+            elif event.get("success") is False:
+                task_bucket["failure"] += 1
+            task_bucket["reassignments"] += int(event.get("reassignments") or 0)
+            if timestamp is not None:
+                task_bucket["last_status"] = status
+                task_bucket["last_timestamp"] = _isoformat(timestamp)
+
+        status_summary = sorted(status_totals.values(), key=lambda item: item["status"])
+        task_summary = sorted(task_totals.values(), key=lambda item: item["task_id"])
+
+        filtered.sort(key=lambda pair: pair[1] or datetime.min)
+        recent_pairs = filtered[-limit_recent:]
+        recent_events = [
+            {
+                "task_id": event.get("task_id"),
+                "event": event.get("event"),
+                "persona": event.get("persona"),
+                "tenant_id": event.get("tenant_id"),
+                "from_status": event.get("from_status"),
+                "to_status": event.get("to_status"),
+                "success": event.get("success"),
+                "latency_ms": event.get("latency_ms"),
+                "reassignments": event.get("reassignments"),
+                "timestamp": event.get("timestamp"),
+                "metadata": dict(event.get("metadata") or {}),
+            }
+            for event, _ in reversed(recent_pairs)
+        ]
+
+        return {
+            "persona": persona,
+            "tenant_id": tenant_id,
+            "totals": {
+                "events": total_events,
+                "success_events": successes,
+                "failure_events": failures,
+                "reassignments": reassignment_total,
+            },
+            "success_rate": success_rate,
+            "average_latency_ms": average_latency,
+            "status_totals": status_summary,
+            "tasks": task_summary,
+            "recent": recent_events,
+        }
+
     def _normalize_event_dict(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         event = dict(payload)
         category = str(event.get("category") or "tool").strip().lower()
@@ -202,6 +390,36 @@ class PersonaMetricsStore:
             event["tool"] = tool_name or skill_name
         else:
             event["tool"] = tool_name
+        return event
+
+    def _normalize_task_event(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        event = dict(payload)
+        event.setdefault("task_id", str(payload.get("task_id") or ""))
+        event.setdefault("event", str(payload.get("event") or "status_changed"))
+        event.setdefault("persona", payload.get("persona"))
+        event.setdefault("tenant_id", payload.get("tenant_id"))
+        event.setdefault("from_status", payload.get("from_status"))
+        event.setdefault("to_status", payload.get("to_status"))
+        event.setdefault("success", payload.get("success"))
+        latency = payload.get("latency_ms")
+        if latency is None:
+            event["latency_ms"] = None
+        else:
+            try:
+                event["latency_ms"] = float(latency)
+            except (TypeError, ValueError):
+                event["latency_ms"] = None
+        try:
+            event["reassignments"] = int(payload.get("reassignments") or 0)
+        except (TypeError, ValueError):
+            event["reassignments"] = 0
+        timestamp = payload.get("timestamp")
+        if isinstance(timestamp, datetime):
+            event["timestamp"] = _isoformat(timestamp)
+        else:
+            event["timestamp"] = str(timestamp) if timestamp is not None else None
+        metadata = payload.get("metadata")
+        event["metadata"] = metadata if isinstance(metadata, Mapping) else {}
         return event
 
     def _aggregate_category(
@@ -280,12 +498,12 @@ class PersonaMetricsStore:
 
     def _load_payload(self) -> Dict[str, Any]:
         if not os.path.exists(self._storage_path):
-            return {"events": []}
+            return {"events": [], "task_events": []}
         try:
             with open(self._storage_path, "r", encoding="utf-8") as handle:
                 return json.load(handle)
         except json.JSONDecodeError:
-            return {"events": []}
+            return {"events": [], "task_events": []}
 
     def _write_payload(self, payload: Dict[str, Any]) -> None:
         tmp_path = f"{self._storage_path}.tmp"
@@ -388,6 +606,66 @@ def record_persona_skill_event(
     )
 
 
+def record_task_lifecycle_event(
+    *,
+    task_id: Optional[str],
+    event: str,
+    persona: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    from_status: Optional[str] = None,
+    to_status: Optional[str] = None,
+    success: Optional[bool] = None,
+    latency_ms: Optional[float] = None,
+    reassignments: int = 0,
+    timestamp: Optional[datetime] = None,
+    metadata: Optional[Mapping[str, Any]] = None,
+    config_manager: Optional[Any] = None,
+) -> None:
+    """Persist task lifecycle analytics and broadcast to the message bus."""
+
+    if not task_id:
+        return
+
+    persona_value = None
+    if persona is not None:
+        text = str(persona).strip()
+        persona_value = text or None
+
+    tenant_value = None
+    if tenant_id is not None:
+        text = str(tenant_id).strip()
+        tenant_value = text or None
+
+    event_payload = TaskLifecycleEvent(
+        task_id=str(task_id),
+        event=event,
+        persona=persona_value,
+        tenant_id=tenant_value,
+        from_status=from_status,
+        to_status=to_status,
+        success=success,
+        latency_ms=float(latency_ms) if latency_ms is not None else None,
+        reassignments=int(reassignments or 0),
+        timestamp=timestamp or datetime.now(timezone.utc),
+        metadata=metadata,
+    )
+    store = _get_store(config_manager)
+    store.record_task_event(event_payload)
+    publish_bus_event(
+        "task_metrics.lifecycle",
+        event_payload.as_dict(),
+        priority=MessagePriority.LOW,
+        correlation_id=str(task_id),
+        tracing={
+            "persona": event_payload.persona,
+            "event": event_payload.event,
+            "success": event_payload.success,
+        },
+        metadata={"component": "analytics"},
+        emit_legacy=False,
+    )
+
+
 def get_persona_metrics(
     persona: str,
     *,
@@ -402,8 +680,30 @@ def get_persona_metrics(
     return store.get_metrics(persona, start=start, end=end, limit_recent=limit_recent)
 
 
+def get_task_lifecycle_metrics(
+    *,
+    persona: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    limit_recent: int = 50,
+    config_manager: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Return aggregated lifecycle analytics from the shared store."""
+
+    store = _get_store(config_manager)
+    return store.get_task_metrics(
+        persona=persona, tenant_id=tenant_id, limit_recent=limit_recent
+    )
+
+
 def reset_persona_metrics(*, config_manager: Optional[Any] = None) -> None:
     """Clear recorded persona metrics in the shared store."""
 
     store = _get_store(config_manager)
     store.reset()
+
+
+def reset_task_metrics(*, config_manager: Optional[Any] = None) -> None:
+    """Clear recorded task lifecycle metrics in the shared store."""
+
+    store = _get_store(config_manager)
+    store.reset_task_metrics()

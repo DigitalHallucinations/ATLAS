@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from modules.Tools.tool_event_system import publish_bus_event
+from modules.analytics.persona_metrics import record_task_lifecycle_event
 
 from .models import TaskStatus
 from .repository import (
@@ -31,6 +33,41 @@ def _coerce_status(value: Any) -> TaskStatus:
         return value
     text = str(value).strip().lower()
     return TaskStatus(text)
+
+
+def _parse_timestamp(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        timestamp = value
+    elif value is None:
+        return None
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            timestamp = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    else:
+        timestamp = timestamp.astimezone(timezone.utc)
+    return timestamp
+
+
+def _extract_persona(payload: Mapping[str, Any]) -> Optional[str]:
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, Mapping):
+        metadata = payload.get("meta") if isinstance(payload.get("meta"), Mapping) else None
+    if not isinstance(metadata, Mapping):
+        return None
+    persona = metadata.get("persona") or metadata.get("persona_name")
+    if persona is None:
+        return None
+    text = str(persona).strip()
+    return text or None
 
 
 _ALLOWED_TRANSITIONS: Dict[TaskStatus, set[TaskStatus]] = {
@@ -123,6 +160,23 @@ class TaskService:
             "task.created",
             {"task_id": record["id"], "tenant_id": record.get("tenant_id"), "status": record["status"]},
         )
+        created_at = _parse_timestamp(record.get("created_at")) or datetime.now(timezone.utc)
+        record_task_lifecycle_event(
+            task_id=record.get("id"),
+            event="created",
+            persona=_extract_persona(record),
+            tenant_id=record.get("tenant_id"),
+            from_status=None,
+            to_status=record.get("status"),
+            success=None,
+            latency_ms=None,
+            reassignments=0,
+            timestamp=created_at,
+            metadata={
+                "priority": record.get("priority"),
+                "conversation_id": record.get("conversation_id"),
+            },
+        )
         return record
 
     def update_task(
@@ -133,10 +187,11 @@ class TaskService:
         changes: Mapping[str, Any],
         expected_updated_at: Any | None = None,
     ) -> Dict[str, Any]:
+        change_payload = dict(changes)
         record = self._repository.update_task(
             task_id,
             tenant_id=tenant_id,
-            changes=changes,
+            changes=change_payload,
             expected_updated_at=expected_updated_at,
         )
         self._emit(
@@ -144,9 +199,32 @@ class TaskService:
             {
                 "task_id": record["id"],
                 "tenant_id": record.get("tenant_id"),
-                "changes": dict(changes),
+                "changes": change_payload,
             },
         )
+        if "owner_id" in change_payload:
+            timestamp = _parse_timestamp(record.get("updated_at")) or datetime.now(timezone.utc)
+            owner_value = change_payload.get("owner_id")
+            owner_serialized = (
+                str(owner_value)
+                if owner_value is not None and owner_value != ""
+                else None
+            )
+            record_task_lifecycle_event(
+                task_id=record.get("id"),
+                event="reassigned",
+                persona=_extract_persona(record),
+                tenant_id=record.get("tenant_id"),
+                from_status=record.get("status"),
+                to_status=record.get("status"),
+                success=None,
+                latency_ms=None,
+                reassignments=1,
+                timestamp=timestamp,
+                metadata={
+                    "owner_id": owner_serialized,
+                },
+            )
         return record
 
     def transition_task(
@@ -195,6 +273,33 @@ class TaskService:
                 "from": current_status.value,
                 "to": desired_status.value,
             },
+        )
+        previous_timestamp = _parse_timestamp(snapshot.get("updated_at"))
+        current_timestamp = _parse_timestamp(updated.get("updated_at")) or datetime.now(timezone.utc)
+        latency_ms: Optional[float] = None
+        if previous_timestamp is not None and current_timestamp is not None:
+            latency_ms = (current_timestamp - previous_timestamp).total_seconds() * 1000.0
+        if desired_status == TaskStatus.DONE:
+            lifecycle_event = "completed"
+            success_flag: Optional[bool] = True
+        elif desired_status == TaskStatus.CANCELLED:
+            lifecycle_event = "cancelled"
+            success_flag = False
+        else:
+            lifecycle_event = "status_changed"
+            success_flag = None
+        record_task_lifecycle_event(
+            task_id=updated.get("id"),
+            event=lifecycle_event,
+            persona=_extract_persona(updated),
+            tenant_id=updated.get("tenant_id"),
+            from_status=current_status.value,
+            to_status=desired_status.value,
+            success=success_flag,
+            latency_ms=latency_ms,
+            reassignments=0,
+            timestamp=current_timestamp,
+            metadata={"requested_status": desired_status.value},
         )
         return updated
 

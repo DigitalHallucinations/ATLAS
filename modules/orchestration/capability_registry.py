@@ -164,6 +164,33 @@ def _percentile(values: Sequence[float], percentile: float) -> Optional[float]:
     return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
 
 
+def _compatibility_flags(
+    entry_persona: Optional[str],
+    requested_persona: Optional[str],
+    allowlist: Optional[Iterable[Any]] = None,
+) -> Mapping[str, Any]:
+    entry_key = _normalize_persona(entry_persona)
+    requested_key = _normalize_persona(requested_persona)
+    tokens = [
+        str(token).strip()
+        for token in allowlist or []
+        if isinstance(token, str) and str(token).strip()
+    ]
+    matches = True
+    if requested_key is not None:
+        if entry_key is None:
+            matches = True
+        else:
+            matches = entry_key == requested_key
+    payload = {
+        "persona": entry_persona,
+        "persona_specific": entry_key is not None,
+        "matches_request": matches,
+        "allowlist": tuple(tokens),
+    }
+    return MappingProxyType(payload)
+
+
 @dataclass
 class RollingMetricWindow:
     """Rolling window aggregating success and latency metrics."""
@@ -603,6 +630,88 @@ class CapabilityRegistry:
                 )
                 for record in ordered
             ]
+
+    def summary(self, *, persona: Optional[str] = None) -> Mapping[str, Any]:
+        """Return an overview of tools, skills, and tasks for dashboards."""
+
+        persona_filters: Optional[List[str]]
+        if persona is None:
+            persona_filters = None
+        else:
+            persona_filters = [persona]
+
+        tool_views = self.query_tools(persona_filters=persona_filters)
+        skill_views = self.query_skills(persona_filters=persona_filters)
+        task_views = self.get_task_catalog(persona)
+
+        with self._lock:
+            revision = self._revision
+
+        tool_entries = []
+        for view in tool_views:
+            manifest = view.manifest
+            compatibility = _compatibility_flags(
+                manifest.persona, persona, getattr(manifest, "persona_allowlist", None)
+            )
+            tool_entries.append(
+                MappingProxyType(
+                    {
+                        "name": manifest.name,
+                        "persona": manifest.persona,
+                        "version": manifest.version,
+                        "capabilities": list(manifest.capabilities),
+                        "capability_tags": list(view.capability_tags),
+                        "compatibility": compatibility,
+                        "health": view.health,
+                        "providers": manifest.providers,
+                    }
+                )
+            )
+
+        skill_entries = []
+        for view in skill_views:
+            manifest = view.manifest
+            compatibility = _compatibility_flags(manifest.persona, persona)
+            skill_entries.append(
+                MappingProxyType(
+                    {
+                        "name": manifest.name,
+                        "persona": manifest.persona,
+                        "version": manifest.version,
+                        "capability_tags": list(view.capability_tags),
+                        "required_capabilities": list(view.required_capabilities),
+                        "required_tools": list(manifest.required_tools),
+                        "compatibility": compatibility,
+                    }
+                )
+            )
+
+        task_entries = []
+        for view in task_views:
+            manifest = view.manifest
+            compatibility = _compatibility_flags(manifest.persona, persona)
+            task_entries.append(
+                MappingProxyType(
+                    {
+                        "name": manifest.name,
+                        "persona": manifest.persona,
+                        "summary": manifest.summary,
+                        "required_skills": list(view.required_skills),
+                        "required_tools": list(view.required_tools),
+                        "tags": list(view.tags),
+                        "compatibility": compatibility,
+                    }
+                )
+            )
+
+        payload = {
+            "revision": revision,
+            "persona": persona,
+            "tools": tuple(tool_entries),
+            "skills": tuple(skill_entries),
+            "tasks": tuple(task_entries),
+        }
+        return MappingProxyType(payload)
 
     def get_tool_metadata_lookup(
         self,
