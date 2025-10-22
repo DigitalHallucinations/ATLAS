@@ -198,3 +198,18 @@ async def test_stream_task_events_polling(server, tenant_context):
     )
     result = await consumer
     assert result["event_type"] == "updated"
+
+
+def test_list_tasks_handles_missing_service(caplog):
+    class _ConfigManager:
+        def get_task_service(self):
+            raise RuntimeError("not available")
+
+    server = AtlasServer(config_manager=_ConfigManager())
+
+    result = server.list_tasks(context=RequestContext(tenant_id="tenant"))
+
+    assert result == {"items": []}
+    assert any(
+        "Task service is not configured" in record.message for record in caplog.records
+    )
