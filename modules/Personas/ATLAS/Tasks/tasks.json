@@ -1,0 +1,81 @@
+[
+  {
+    "extends": "MissionControlWeeklyBrief",
+    "name": "MissionControlWeeklyBrief",
+    "summary": "ATLAS mission control weekly brief for leadership alignment.",
+    "description": "Tailor the weekly brief for ATLAS operations, aligning product, engineering, and go-to-market stakeholders on risks and commitments.",
+    "required_skills": [
+      "AtlasReporter",
+      "RiskPulse"
+    ],
+    "required_tools": [
+      "context_tracker",
+      "priority_queue",
+      "google_search"
+    ],
+    "acceptance_criteria": [
+      "Summarizes completed, in-progress, and blocked initiatives with responsible owners.",
+      "Highlights the top operational risks alongside mitigation steps and decision deadlines.",
+      "Links to source dashboards or tickets so leadership can verify status changes."
+    ],
+    "escalation_policy": {
+      "level": "Mission Control Duty Lead",
+      "contact": "atlas-ops-lead@atlas",
+      "timeframe": "Within 1 business day",
+      "triggers": [
+        "Blocked deliverable",
+        "Unresolved cross-team dependency"
+      ],
+      "actions": [
+        "Notify duty lead",
+        "Schedule follow-up review"
+      ]
+    },
+    "tags": [
+      "atlas",
+      "mission-control",
+      "weekly",
+      "operations"
+    ],
+    "priority": "High"
+  },
+  {
+    "extends": "AutomationPolicyPrecheck",
+    "name": "AutomationPolicyPrecheck",
+    "summary": "ATLAS automation policy precheck for mission tooling changes.",
+    "description": "Validate automation changes touching ATLAS mission control systems against governance, audit, and privacy controls before rollout.",
+    "required_skills": [
+      "SafetyScout",
+      "RiskPulse"
+    ],
+    "required_tools": [
+      "policy_reference",
+      "google_search",
+      "context_tracker"
+    ],
+    "acceptance_criteria": [
+      "Confirms applicable automation and change-management policies for the proposed update.",
+      "Documents potential compliance risks with recommended mitigations or required approvals.",
+      "Records change ticket references and the go/no-go recommendation with accountable approvers."
+    ],
+    "escalation_policy": {
+      "level": "Automation Governance",
+      "contact": "atlas-automation@atlas",
+      "timeframe": "Same business day",
+      "triggers": [
+        "Policy conflict detected",
+        "Deployment deadline under 24 hours"
+      ],
+      "actions": [
+        "Alert governance chair",
+        "Log audit trail entry"
+      ]
+    },
+    "tags": [
+      "atlas",
+      "automation",
+      "compliance"
+    ],
+    "priority": "High"
+  }
+]

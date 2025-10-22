@@ -1,0 +1,41 @@
+[
+  {
+    "extends": "WeatherOperationsSnapshot",
+    "name": "WeatherOperationsSnapshot",
+    "summary": "WeatherGenius operational snapshot for field deployment teams.",
+    "description": "Blend meteorological alerts with logistics guidance so WeatherGenius can brief response coordinators in plain language.",
+    "required_skills": [
+      "DailyDigest",
+      "RiskPulse"
+    ],
+    "required_tools": [
+      "get_current_info",
+      "geocode_location",
+      "google_search"
+    ],
+    "acceptance_criteria": [
+      "Captures active weather alerts for primary regions with severity classifications.",
+      "Translates alerts into recommended posture changes for field crews, noting timing windows.",
+      "Lists data sources consulted and timestamps the assessment for traceability."
+    ],
+    "escalation_policy": {
+      "level": "Weather Duty Forecaster",
+      "contact": "wx-ops@atlas",
+      "timeframe": "Immediate for red alerts",
+      "triggers": [
+        "Red alert detected",
+        "Conflicting data sources"
+      ],
+      "actions": [
+        "Escalate to on-call meteorologist",
+        "Coordinate with mission control"
+      ]
+    },
+    "tags": [
+      "weather",
+      "operations",
+      "field-support"
+    ],
+    "priority": "High"
+  }
+]

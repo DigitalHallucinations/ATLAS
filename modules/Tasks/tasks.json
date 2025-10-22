@@ -1,0 +1,154 @@
+[
+  {
+    "name": "MissionControlWeeklyBrief",
+    "summary": "Weekly operations digest for mission control stakeholders.",
+    "description": "Aggregate operational updates, open risks, and upcoming milestones so mission control leads can brief leadership.",
+    "required_skills": [
+      "AtlasReporter",
+      "RiskPulse"
+    ],
+    "required_tools": [
+      "context_tracker",
+      "priority_queue",
+      "google_search"
+    ],
+    "acceptance_criteria": [
+      "Summarizes completed, in-progress, and blocked initiatives with responsible owners.",
+      "Highlights the top operational risks alongside mitigation steps and decision deadlines.",
+      "Outlines next-week focus areas and the leadership decisions required to unblock work."
+    ],
+    "escalation_policy": {
+      "level": "Mission Control Duty Lead",
+      "contact": "mission-control@atlas",
+      "timeframe": "Within 1 business day",
+      "triggers": [
+        "Blocked deliverable",
+        "Unresponsive stakeholder"
+      ],
+      "actions": [
+        "Notify duty lead",
+        "Schedule follow-up review"
+      ]
+    },
+    "tags": [
+      "operations",
+      "reporting",
+      "weekly"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "WeatherOperationsSnapshot",
+    "summary": "Real-time weather operations status for field teams.",
+    "description": "Synthesize severe weather alerts, regional impacts, and recommended operational posture for response teams.",
+    "required_skills": [
+      "DailyDigest",
+      "RiskPulse"
+    ],
+    "required_tools": [
+      "get_current_info",
+      "geocode_location",
+      "google_search"
+    ],
+    "acceptance_criteria": [
+      "Captures active weather alerts for primary regions with severity classifications.",
+      "Recommends operational posture adjustments with rationale and confidence level.",
+      "Lists data sources consulted and timestamps the assessment for traceability."
+    ],
+    "escalation_policy": {
+      "level": "Weather Duty Forecaster",
+      "contact": "wx-ops@atlas",
+      "timeframe": "Immediate for red alerts",
+      "triggers": [
+        "Red alert detected",
+        "Conflicting data sources"
+      ],
+      "actions": [
+        "Escalate to on-call meteorologist",
+        "Coordinate with mission control"
+      ]
+    },
+    "tags": [
+      "weather",
+      "operations",
+      "snapshot"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "ClinicalEvidenceSnapshot",
+    "summary": "Rapid clinical evidence review for decision support.",
+    "description": "Aggregate guidelines, recent studies, and safety considerations relevant to the clinician's question.",
+    "required_skills": [
+      "ResearchBrief",
+      "SafetyScout"
+    ],
+    "required_tools": [
+      "search_pubmed",
+      "search_pmc",
+      "policy_reference"
+    ],
+    "acceptance_criteria": [
+      "Identifies the most recent clinical guidelines relevant to the presenting question.",
+      "Summarizes two to three peer-reviewed studies with key outcomes, populations, and limitations.",
+      "Flags safety considerations, contraindications, or notable evidence gaps that affect recommendations."
+    ],
+    "escalation_policy": {
+      "level": "Clinical Safety Officer",
+      "contact": "clinical-safety@atlas",
+      "timeframe": "Within 4 hours",
+      "triggers": [
+        "High-risk recommendation",
+        "Insufficient evidence discovered"
+      ],
+      "actions": [
+        "Page safety officer",
+        "Request physician review"
+      ]
+    },
+    "tags": [
+      "clinical",
+      "evidence",
+      "research"
+    ],
+    "priority": "Critical"
+  },
+  {
+    "name": "AutomationPolicyPrecheck",
+    "summary": "Pre-flight compliance review for automation changes.",
+    "description": "Review automation requests against governance policies to confirm compliance before deployment.",
+    "required_skills": [
+      "SafetyScout",
+      "RiskPulse"
+    ],
+    "required_tools": [
+      "policy_reference",
+      "google_search",
+      "context_tracker"
+    ],
+    "acceptance_criteria": [
+      "Confirms applicable automation and change-management policies for the proposed update.",
+      "Documents potential compliance risks with recommended mitigations or required approvals.",
+      "Provides a go/no-go recommendation including rationale and accountable stakeholders."
+    ],
+    "escalation_policy": {
+      "level": "Automation Governance",
+      "contact": "automation-governance@atlas",
+      "timeframe": "Same business day",
+      "triggers": [
+        "Policy conflict detected",
+        "Missing approvals"
+      ],
+      "actions": [
+        "Alert governance chair",
+        "Log audit trail entry"
+      ]
+    },
+    "tags": [
+      "automation",
+      "compliance",
+      "review"
+    ],
+    "priority": "High"
+  }
+]

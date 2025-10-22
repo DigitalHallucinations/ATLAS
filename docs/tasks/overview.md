@@ -22,6 +22,26 @@ Task manifests live under `modules/Tasks/tasks.json` and persona overrides under
 
 Persona manifests can inherit shared tasks by setting `extends` and overriding a subset of the above fields. When a persona omits a field, the loader merges the value from the shared manifest.
 
+## Operational task catalog
+
+The following manifest-backed tasks are now available to operators. Create a task by calling `AtlasServer.create_task` (or the `POST /tasks` HTTP route) with the `title` set to the manifest name and include the persona routing hint in `metadata.manifest_task`. The orchestrator will look up the manifest entry and hydrate the downstream workflow with the skills, tools, and acceptance criteria defined below.
+
+| Manifest name | Persona | Trigger phrase | Deliverable |
+| --- | --- | --- | --- |
+| `MissionControlWeeklyBrief` | ATLAS | `metadata.manifest_task="MissionControlWeeklyBrief"` | A weekly leadership brief covering status, risks, and next-step decisions for mission control stakeholders. |
+| `WeatherOperationsSnapshot` | WeatherGenius | `metadata.manifest_task="WeatherOperationsSnapshot"` | A real-time operations snapshot that translates weather alerts into field deployment guidance. |
+| `ClinicalEvidenceSnapshot` | MEDIC, DocGenius | `metadata.manifest_task="ClinicalEvidenceSnapshot"` | A concise evidence digest summarizing current guidelines, key studies, and safety considerations. |
+| `AutomationPolicyPrecheck` | ATLAS, ResumeGenius | `metadata.manifest_task="AutomationPolicyPrecheck"` | A compliance pre-check documenting policy coverage, risks, and go/no-go guidance for automation changes. |
+
+### Operator workflow
+
+1. Resolve the correct persona for the request (for example, ATLAS for mission control reporting).
+2. Call `create_task` with a descriptive `description`, `conversation_id`, and the manifest name in both the `title` and `metadata.manifest_task` fields. Include additional metadata such as affected teams or change ticket references when available.
+3. Route the resulting task to the persona by setting `metadata.persona` to the target persona identifier (e.g., `"ATLAS"` or `"WeatherGenius"`). The routing layer will reconcile the manifest metadata with the persona's enabled skills and tools.
+4. Monitor the acceptance criteria within the manifest to verify completion. The criteria are intentionally phrased as checklists so reviewers can record pass/fail outcomes.
+
+Escalations are documented inside each manifest entry. When a condition in the `triggers` list occurs, page the listed contact within the specified `timeframe` and follow the recorded `actions`.
+
 ## Lifecycle states
 
 The task domain model defines the following lifecycle states (`modules/task_store/models.py`):

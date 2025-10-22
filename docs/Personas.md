@@ -24,6 +24,16 @@ When the persona loader runs it automatically injects the set of known tool iden
 schema so the validator can confirm that `allowed_tools` only contains supported tools. Any
 additional persona fields remain opt-in and are still passed through unchanged.
 
+## Manifest-backed tasks per persona
+
+Each production persona exposes a curated task manifest under `modules/Personas/<Persona>/Tasks/tasks.json`. Operators should populate the `metadata.manifest_task` field when creating a task so routing logic can hydrate the correct capabilities.
+
+- **ATLAS** – Use `MissionControlWeeklyBrief` for the weekly leadership brief and `AutomationPolicyPrecheck` for governance reviews. Include the target sprint or change ticket identifiers in the task metadata to streamline follow-up.
+- **WeatherGenius** – Trigger `WeatherOperationsSnapshot` when a field team needs real-time weather posture guidance. Attach region codes or GPS coordinates in the metadata payload.
+- **MEDIC** – Trigger `ClinicalEvidenceSnapshot` to assemble bedside-ready evidence summaries. Record patient acuity and key symptoms to focus the literature search.
+- **DocGenius** – Reuse `ClinicalEvidenceSnapshot` for documentation handoffs and add preferred citation styles in metadata when necessary.
+- **ResumeGenius** – Trigger `AutomationPolicyPrecheck` before enabling a new resume-generation automation. Note any consent or privacy exceptions so governance can weigh in quickly.
+
 Personal-assistant personas expose two calendar toggles in their `type` entry:
 
 - `access_to_calendar` grants read-only access to the Debian 12 calendar tool so the persona

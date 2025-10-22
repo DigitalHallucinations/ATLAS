@@ -1,0 +1,41 @@
+[
+  {
+    "extends": "ClinicalEvidenceSnapshot",
+    "name": "ClinicalEvidenceSnapshot",
+    "summary": "DocGenius clinical evidence handoff for documentation teams.",
+    "description": "Package the evidence review so documentation specialists can translate it into discharge instructions and care pathways.",
+    "required_skills": [
+      "ResearchBrief",
+      "SafetyScout"
+    ],
+    "required_tools": [
+      "search_pubmed",
+      "search_pmc",
+      "policy_reference"
+    ],
+    "acceptance_criteria": [
+      "Identifies the most recent clinical guidelines relevant to the presenting question.",
+      "Summarizes two to three peer-reviewed studies with key outcomes, populations, and limitations.",
+      "Provides citation-ready references and highlights patient-friendly language considerations."
+    ],
+    "escalation_policy": {
+      "level": "Clinical Documentation Lead",
+      "contact": "doc-team-lead@atlas",
+      "timeframe": "Within 1 business day",
+      "triggers": [
+        "Conflicting guideline recommendations",
+        "Missing publication metadata"
+      ],
+      "actions": [
+        "Request clinician review",
+        "Update documentation playbook"
+      ]
+    },
+    "tags": [
+      "docgenius",
+      "clinical",
+      "documentation"
+    ],
+    "priority": "High"
+  }
+]

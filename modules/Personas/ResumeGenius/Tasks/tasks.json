@@ -1,0 +1,41 @@
+[
+  {
+    "extends": "AutomationPolicyPrecheck",
+    "name": "AutomationPolicyPrecheck",
+    "summary": "ResumeGenius automation policy precheck for talent workflows.",
+    "description": "Review resume-generation automation against privacy, consent, and brand governance rules before enabling a new workflow.",
+    "required_skills": [
+      "SafetyScout",
+      "RiskPulse"
+    ],
+    "required_tools": [
+      "policy_reference",
+      "google_search",
+      "context_tracker"
+    ],
+    "acceptance_criteria": [
+      "Confirms applicable automation and change-management policies for the proposed update.",
+      "Documents potential compliance risks with recommended mitigations or required approvals.",
+      "Validates candidate consent handling and records the go/no-go recommendation with approvers."
+    ],
+    "escalation_policy": {
+      "level": "Talent Automation Council",
+      "contact": "talent-automation@atlas",
+      "timeframe": "Same business day",
+      "triggers": [
+        "Policy conflict detected",
+        "Unverified consent requirements"
+      ],
+      "actions": [
+        "Alert council chair",
+        "Log audit trail entry"
+      ]
+    },
+    "tags": [
+      "resumegenius",
+      "automation",
+      "compliance"
+    ],
+    "priority": "Medium"
+  }
+]
