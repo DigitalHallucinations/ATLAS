@@ -1152,8 +1152,9 @@ class ATLAS:
         self,
         conversation_id: Any,
         *,
-        limit: int = 200,
+        limit: Optional[int] = None,
         include_deleted: bool = True,
+        batch_size: int = 200,
     ) -> List[Dict[str, Any]]:
         """Return messages for ``conversation_id`` using the conversation store."""
 
@@ -1161,19 +1162,39 @@ class ATLAS:
         if repository is None:
             return []
 
-        try:
-            window = max(int(limit), 1)
-        except (TypeError, ValueError):
-            window = 200
+        remaining: Optional[int]
+        if limit is None:
+            remaining = None
+        else:
+            try:
+                remaining = max(int(limit), 0)
+            except (TypeError, ValueError):
+                remaining = None
 
         try:
-            return repository.fetch_messages(
+            chunk_size = max(int(batch_size), 1)
+        except (TypeError, ValueError):
+            chunk_size = 200
+
+        try:
+            stream = repository.stream_conversation_messages(
                 conversation_id,
                 tenant_id=self._conversation_tenant(),
-                limit=window,
+                batch_size=chunk_size,
                 direction="forward",
                 include_deleted=include_deleted,
             )
+
+            messages: List[Dict[str, Any]] = []
+            if remaining is None:
+                messages.extend(stream)
+            else:
+                for message in stream:
+                    if remaining <= 0:
+                        break
+                    messages.append(message)
+                    remaining -= 1
+            return messages
         except Exception as exc:  # pragma: no cover - persistence failures logged
             self.logger.error(
                 "Failed to load messages for conversation %s: %s", conversation_id, exc, exc_info=True
