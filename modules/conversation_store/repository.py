@@ -15,6 +15,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
+from modules.task_store import ensure_task_schema
+
 from .models import (
     Base,
     Conversation,
@@ -306,6 +308,7 @@ class ConversationStoreRepository:
         if engine is None:
             raise RuntimeError("Session factory is not bound to an engine")
         Base.metadata.create_all(engine)
+        ensure_task_schema(engine)
         if getattr(engine.dialect, "name", "") == "postgresql":
             inspector = inspect(engine)
             columns = {column["name"] for column in inspector.get_columns("messages")}

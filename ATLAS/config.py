@@ -250,6 +250,7 @@ class ConfigManager:
         self._message_bus: Optional[MessageBus] = None
         self._conversation_engine: Engine | None = None
         self._conversation_session_factory: sessionmaker | None = None
+        self._task_session_factory: sessionmaker | None = None
 
     def _normalize_network_allowlist(self, value):
         """Return a sanitized allowlist for sandboxed tool networking."""
@@ -305,6 +306,19 @@ class ConfigManager:
         self._conversation_engine = engine
         self._conversation_session_factory = factory
         return factory
+
+    def get_task_store_session_factory(self) -> sessionmaker | None:
+        """Return a session factory for task persistence that shares the conversation engine."""
+
+        if self._task_session_factory is not None:
+            return self._task_session_factory
+
+        conversation_factory = self.get_conversation_store_session_factory()
+        if conversation_factory is None:
+            return None
+
+        self._task_session_factory = conversation_factory
+        return conversation_factory
 
     def _build_conversation_store_session_factory(
         self,
