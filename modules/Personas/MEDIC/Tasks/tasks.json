@@ -37,5 +37,42 @@
       "evidence"
     ],
     "priority": "Critical"
+  },
+  {
+    "name": "ClinicalTrialAbstractSynthesizer",
+    "summary": "Generate a structured summary of clinical trial abstracts with cohort and outcome details.",
+    "description": "Search PubMed for relevant clinical trials, fetch abstract details, and synthesize findings with explicit cohort characteristics and citations.",
+    "required_skills": [
+      "ClinicalEvidenceSynthesizer"
+    ],
+    "required_tools": [
+      "search_pubmed",
+      "search_pmc",
+      "fetch_pubmed_details"
+    ],
+    "acceptance_criteria": [
+      "Summaries address each selected abstract's objectives, key outcomes, and limitations without omissions.",
+      "Cohort details include study design, population size, and notable demographic or inclusion criteria for every trial.",
+      "Each cited trial includes a formatted reference with PubMed ID and publication year."
+    ],
+    "escalation_policy": {
+      "level": "Clinical Safety Officer",
+      "contact": "clinical-safety@atlas",
+      "timeframe": "Within 4 hours",
+      "triggers": [
+        "Conflicting trial outcomes",
+        "Missing citation data"
+      ],
+      "actions": [
+        "Request physician review",
+        "Hold dissemination until verified"
+      ]
+    },
+    "tags": [
+      "medic",
+      "clinical",
+      "trials"
+    ],
+    "priority": "High"
   }
 ]

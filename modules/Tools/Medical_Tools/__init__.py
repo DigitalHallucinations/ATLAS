@@ -8,5 +8,6 @@ loop.
 
 from .PubMedCentral.ENTREZ_API import search_pubmed  # noqa: F401
 from .PubMedCentral.PMC_API import search_pmc  # noqa: F401
+from .PubMedCentral.efetch import fetch_pubmed_details  # noqa: F401
 
-__all__ = ["search_pubmed", "search_pmc"]
+__all__ = ["search_pubmed", "search_pmc", "fetch_pubmed_details"]

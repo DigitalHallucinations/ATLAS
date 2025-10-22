@@ -3246,6 +3246,33 @@ def test_persona_function_map_includes_metadata(monkeypatch):
     assert time_meta.get("cost_unit") == "USD"
 
 
+def test_medic_persona_exposes_pubmed_fetch(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
+
+    persona_payload = {"name": "MEDIC"}
+
+    function_map = tool_manager.load_function_map_from_current_persona(
+        persona_payload, refresh=True
+    )
+
+    assert "fetch_pubmed_details" in function_map
+    fetch_entry = function_map["fetch_pubmed_details"]
+    assert isinstance(fetch_entry, dict)
+    fetch_callable = _resolve_callable(fetch_entry)
+    assert callable(fetch_callable)
+
+
 def test_use_tool_resolves_google_search_with_default_map(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)
