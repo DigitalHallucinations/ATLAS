@@ -1596,7 +1596,9 @@ class PersonaManagement:
             workspace_btn.add_css_class("flat")
             workspace_btn.set_can_focus(True)
             workspace_btn.set_tooltip_text("Open this tool in the management workspace.")
-            workspace_btn.set_accessible_name(f"Open {display_name} in tool manager")
+            # GTK compatibility guard: set_accessible_name may be missing on older builds.
+            if hasattr(workspace_btn, "set_accessible_name"):
+                workspace_btn.set_accessible_name(f"Open {display_name} in tool manager")
             workspace_btn.set_child(self._ensure_tool_row_icons("document-open-symbolic"))
             workspace_btn.connect("clicked", lambda _b, tname=name: self._open_tool_management(tname))
             controls.append(workspace_btn)
@@ -1727,7 +1729,9 @@ class PersonaManagement:
             workspace_btn.add_css_class("flat")
             workspace_btn.set_can_focus(True)
             workspace_btn.set_tooltip_text("Open this skill in the management workspace.")
-            workspace_btn.set_accessible_name(f"Open {display_name} in skill manager")
+            # GTK compatibility guard: set_accessible_name may be missing on older builds.
+            if hasattr(workspace_btn, "set_accessible_name"):
+                workspace_btn.set_accessible_name(f"Open {display_name} in skill manager")
             workspace_btn.set_child(self._ensure_tool_row_icons("document-open-symbolic"))
             workspace_btn.connect("clicked", lambda _b, sname=name: self._open_skill_management(sname))
             controls.append(workspace_btn)
