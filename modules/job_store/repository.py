@@ -968,6 +968,56 @@ class JobStoreRepository:
             rows = session.execute(stmt).all()
             return [_serialize_task_link(link, task) for link, task in rows]
 
+    def detach_task(
+        self,
+        job_id: Any,
+        *,
+        tenant_id: Any,
+        link_id: Any | None = None,
+        task_id: Any | None = None,
+    ) -> Dict[str, Any]:
+        tenant_key = _normalize_tenant_id(tenant_id)
+        job_uuid = _coerce_uuid(job_id)
+        if job_uuid is None:
+            raise JobNotFoundError("Job identifier is required")
+
+        link_uuid = _coerce_uuid(link_id) if link_id is not None else None
+        task_uuid = _coerce_uuid(task_id) if task_id is not None else None
+        if link_uuid is None and task_uuid is None:
+            raise ValueError("A link_id or task_id must be supplied")
+
+        with self._session_scope() as session:
+            job_stmt = (
+                select(Job)
+                .where(Job.id == job_uuid)
+                .where(Job.tenant_id == tenant_key)
+            )
+            job = session.execute(job_stmt).scalar_one_or_none()
+            if job is None:
+                raise JobNotFoundError("Job not found for tenant")
+
+            stmt = (
+                select(JobTaskLink, Task)
+                .join(Task, JobTaskLink.task_id == Task.id)
+                .join(Conversation, Task.conversation_id == Conversation.id)
+                .where(JobTaskLink.job_id == job.id)
+                .where(Conversation.tenant_id == tenant_key)
+            )
+            if link_uuid is not None:
+                stmt = stmt.where(JobTaskLink.id == link_uuid)
+            if task_uuid is not None:
+                stmt = stmt.where(JobTaskLink.task_id == task_uuid)
+
+            row = session.execute(stmt).first()
+            if row is None:
+                raise ValueError("Linked task was not found for this job")
+
+            link, task = row
+            payload = _serialize_task_link(link, task)
+            session.delete(link)
+            session.flush()
+            return payload
+
 
 __all__ = [
     "JobStoreRepository",

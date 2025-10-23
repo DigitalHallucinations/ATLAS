@@ -204,6 +204,38 @@ class JobService:
     def list_linked_tasks(self, job_id: Any, *, tenant_id: Any) -> list[Dict[str, Any]]:
         return self._repository.list_linked_tasks(job_id, tenant_id=tenant_id)
 
+    def link_task(
+        self,
+        job_id: Any,
+        task_id: Any,
+        *,
+        tenant_id: Any,
+        relationship_type: Any | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        return self._repository.attach_task(
+            job_id,
+            task_id,
+            tenant_id=tenant_id,
+            relationship_type=relationship_type,
+            metadata=metadata,
+        )
+
+    def unlink_task(
+        self,
+        job_id: Any,
+        *,
+        tenant_id: Any,
+        link_id: Any | None = None,
+        task_id: Any | None = None,
+    ) -> Dict[str, Any]:
+        return self._repository.detach_task(
+            job_id,
+            tenant_id=tenant_id,
+            link_id=link_id,
+            task_id=task_id,
+        )
+
     # -- Lifecycle orchestration --------------------------------------------
 
     def create_job(
