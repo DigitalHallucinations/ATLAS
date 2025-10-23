@@ -11,6 +11,40 @@ if not hasattr(gi_stub, "require_version"):
 repository_stub = sys.modules.setdefault("gi.repository", types.ModuleType("gi.repository"))
 gi_stub.repository = repository_stub
 
+sqlalchemy_stub = types.ModuleType("sqlalchemy")
+sqlalchemy_exc = types.ModuleType("sqlalchemy.exc")
+setattr(sqlalchemy_exc, "IntegrityError", Exception)
+sqlalchemy_stub.exc = sqlalchemy_exc
+sys.modules.setdefault("sqlalchemy", sqlalchemy_stub)
+sys.modules.setdefault("sqlalchemy.exc", sqlalchemy_exc)
+
+jsonschema_stub = types.ModuleType("jsonschema")
+
+class _DummyValidator:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def validate(self, *args, **kwargs):  # pragma: no cover - stub helper
+        return None
+
+    def iter_errors(self, *args, **kwargs):  # pragma: no cover - stub helper
+        return []
+
+
+class _DummyValidationError(Exception):
+    def __init__(self, message: str = "", path=None):
+        super().__init__(message)
+        self.message = message
+        self.absolute_path = list(path or [])
+
+
+jsonschema_stub.Draft7Validator = _DummyValidator
+jsonschema_stub.Draft202012Validator = _DummyValidator
+jsonschema_stub.ValidationError = _DummyValidationError
+jsonschema_stub.exceptions = types.SimpleNamespace(ValidationError=_DummyValidationError)
+sys.modules["jsonschema"] = jsonschema_stub
+sys.modules["jsonschema.exceptions"] = jsonschema_stub.exceptions
+
 import asyncio
 import pytest
 

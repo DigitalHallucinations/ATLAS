@@ -14,6 +14,8 @@ from gi.repository import GLib, Gtk
 
 from modules.Tools.tool_event_system import subscribe_bus_event
 
+from .widgets import clear_container, create_badge, create_badge_container, sync_badge_section
+
 logger = logging.getLogger(__name__)
 
 
@@ -317,41 +319,10 @@ class TaskManagement:
         header.set_xalign(0.0)
         container.append(header)
 
-        badge_container = self._create_badge_container()
+        badge_container = create_badge_container()
         badge_container.set_visible(False)
         container.append(badge_container)
         return badge_container
-
-    def _create_badge_container(self) -> Gtk.Widget:
-        flow_class = getattr(Gtk, "FlowBox", None)
-        if flow_class is None:
-            return Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        container = flow_class()
-        setter = getattr(container, "set_selection_mode", None)
-        if callable(setter):
-            try:
-                setter(Gtk.SelectionMode.NONE)
-            except Exception:  # pragma: no cover - GTK fallback
-                pass
-        setter = getattr(container, "set_max_children_per_line", None)
-        if callable(setter):
-            try:
-                setter(6)
-            except Exception:  # pragma: no cover - GTK fallback
-                pass
-        setter = getattr(container, "set_row_spacing", None)
-        if callable(setter):
-            try:
-                setter(6)
-            except Exception:  # pragma: no cover - GTK fallback
-                pass
-        setter = getattr(container, "set_column_spacing", None)
-        if callable(setter):
-            try:
-                setter(6)
-            except Exception:  # pragma: no cover - GTK fallback
-                pass
-        return container
 
     # ------------------------------------------------------------------
     # Data loading and synchronization
@@ -418,6 +389,8 @@ class TaskManagement:
     def _load_task_catalog(self) -> List[Mapping[str, Any]]:
         server = getattr(self.ATLAS, "server", None)
         get_catalog = getattr(server, "get_task_catalog", None)
+        if not callable(get_catalog):
+            get_catalog = getattr(self.ATLAS, "get_task_catalog", None)
         if not callable(get_catalog):
             return []
 
@@ -598,7 +571,7 @@ class TaskManagement:
             self._status_filter = None
 
     def _on_persona_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
-        index = combo.get_active()
+        index = self._combo_active_index(combo)
         if 0 <= index < len(self._persona_option_lookup):
             self._persona_filter = self._persona_option_lookup[index]
         else:
@@ -607,12 +580,28 @@ class TaskManagement:
         self._refresh_task_catalog()
 
     def _on_status_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
-        index = combo.get_active()
+        index = self._combo_active_index(combo)
         if 0 <= index < len(self._status_option_lookup):
             self._status_filter = self._status_option_lookup[index]
         else:
             self._status_filter = None
         self._refresh_state()
+
+    def _combo_active_index(self, combo: Gtk.ComboBoxText) -> int:
+        getter = getattr(combo, "get_active", None)
+        if callable(getter):
+            try:
+                value = getter()
+            except Exception:  # pragma: no cover - GTK fallback
+                value = None
+            if isinstance(value, int):
+                return value
+
+        active_text = getattr(combo, "get_active_text", lambda: None)()
+        items = list(getattr(combo, "_items", []))
+        if active_text in items:
+            return items.index(active_text)
+        return -1
 
     # ------------------------------------------------------------------
     # List management
@@ -621,7 +610,7 @@ class TaskManagement:
         listbox = self._task_list
         if listbox is None:
             return
-        self._clear_container(listbox)
+        clear_container(listbox)
         setattr(listbox, "_selected_row", None)
         self._row_lookup.clear()
 
@@ -669,7 +658,7 @@ class TaskManagement:
         container = self._catalog_container
         if container is None:
             return
-        self._clear_container(container)
+        clear_container(container)
 
         if not self._catalog_entries:
             placeholder = Gtk.Label(
@@ -819,7 +808,7 @@ class TaskManagement:
         info.set_hexpand(True)
         box.append(info)
 
-        status_badge = self._create_badge(self._format_status(entry.status), self._status_css(entry.status))
+        status_badge = create_badge(self._format_status(entry.status), self._status_css(entry.status))
         info.append(status_badge)
 
         if entry.persona:
@@ -913,10 +902,10 @@ class TaskManagement:
             self._set_label(self._due_label, "-")
             self._set_label(self._updated_label, "-")
             self._update_action_buttons(None)
-            self._sync_badge_section(self._required_skills_box, [])
-            self._sync_badge_section(self._required_tools_box, [])
-            self._sync_badge_section(self._acceptance_box, [])
-            self._sync_badge_section(self._dependencies_box, [])
+            sync_badge_section(self._required_skills_box, [])
+            sync_badge_section(self._required_tools_box, [])
+            sync_badge_section(self._acceptance_box, [])
+            sync_badge_section(self._dependencies_box, [])
             return
 
         self._set_label(self._title_label, entry.title)
@@ -943,10 +932,26 @@ class TaskManagement:
             else:
                 dependency_badges.append((str(dependency), ("tag-badge",)))
 
-        self._sync_badge_section(self._required_skills_box, skill_badges, fallback="No skills recorded")
-        self._sync_badge_section(self._required_tools_box, tool_badges, fallback="No tools recorded")
-        self._sync_badge_section(self._acceptance_box, criteria_badges, fallback="No acceptance criteria")
-        self._sync_badge_section(self._dependencies_box, dependency_badges, fallback="No dependencies")
+        sync_badge_section(
+            self._required_skills_box,
+            skill_badges,
+            fallback="No skills recorded",
+        )
+        sync_badge_section(
+            self._required_tools_box,
+            tool_badges,
+            fallback="No tools recorded",
+        )
+        sync_badge_section(
+            self._acceptance_box,
+            criteria_badges,
+            fallback="No acceptance criteria",
+        )
+        sync_badge_section(
+            self._dependencies_box,
+            dependency_badges,
+            fallback="No dependencies",
+        )
 
     def _set_label(self, widget: Optional[Gtk.Label], text: str) -> None:
         if widget is None:
@@ -983,57 +988,6 @@ class TaskManagement:
             secondary.set_label(label)
             secondary.set_visible(True)
             secondary._target_status = target  # type: ignore[attr-defined]
-
-    def _sync_badge_section(
-        self,
-        container: Optional[Gtk.Widget],
-        badges: Sequence[Tuple[str, Sequence[str]]],
-        *,
-        fallback: Optional[str] = None,
-    ) -> None:
-        if container is None:
-            return
-        self._clear_container(container)
-        has_badges = False
-        for text, css_classes in badges:
-            badge = self._create_badge(text, css_classes)
-            self._append_badge(container, badge)
-            has_badges = True
-        if not has_badges and fallback:
-            badge = self._create_badge(fallback, ("tag-badge", "status-unknown"))
-            self._append_badge(container, badge)
-            has_badges = True
-        if hasattr(container, "set_visible"):
-            container.set_visible(has_badges)
-
-    def _append_badge(self, container: Gtk.Widget, badge: Gtk.Widget) -> None:
-        inserter = getattr(container, "insert", None)
-        if callable(inserter):
-            try:
-                inserter(badge, -1)
-                return
-            except Exception:  # pragma: no cover - GTK fallback
-                pass
-        appender = getattr(container, "append", None)
-        if callable(appender):
-            appender(badge)
-
-    def _create_badge(self, text: str, css_classes: Sequence[str]) -> Gtk.Widget:
-        label = Gtk.Label(label=text)
-        label.set_xalign(0.0)
-        label.set_wrap(False)
-        try:
-            label.add_css_class("tag-badge")
-        except Exception:  # pragma: no cover - GTK fallback
-            pass
-        for css in css_classes:
-            if css == "tag-badge":
-                continue
-            try:
-                label.add_css_class(css)
-            except Exception:  # pragma: no cover - GTK fallback
-                continue
-        return label
 
     def _format_status(self, status: str) -> str:
         if not status:
