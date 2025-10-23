@@ -3,7 +3,7 @@
 from functools import lru_cache
 
 from modules.Tools.Base_Tools.Google_search import GoogleSearch
-from modules.Tools.Base_Tools.ats_scoring import ATSScoringService
+from modules.Personas.ResumeGenius.Toolbox.ats_scoring import ATSScoringService
 from modules.Tools.Base_Tools.policy_reference import policy_reference
 from modules.Tools.Base_Tools.time import get_current_info
 
