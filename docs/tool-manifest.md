@@ -152,5 +152,15 @@ averages, and provider backoff state—are continuously recorded by
 metadata after editing a manifest, call
 `CapabilityRegistry.refresh(force=True)` or restart the service.
 
+The registry snapshot returned by `CapabilityRegistry.summary` (and surfaced by
+the discovery APIs) now also includes a normalized `jobs` collection. Each entry
+reports the job summary and description, the personas allowed to schedule it,
+the required skills and tools, and the derived capability requirements inferred
+from those dependencies. Rolling execution metrics are attached under
+`health.job`, mirroring the tool health payload, so dashboards can filter on
+availability or success rate. When querying by persona, the registry applies
+persona filters to both the manifest owner (shared vs persona-specific) and the
+job-level persona allowlist to ensure UI clients only see eligible jobs.
+
 For task-specific manifests, lifecycle states, and API guidance see
 [Task metadata and lifecycle](tasks/overview.md).
