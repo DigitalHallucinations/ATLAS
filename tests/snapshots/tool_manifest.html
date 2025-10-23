@@ -186,7 +186,6 @@
       <tr><td>filesystem_list</td><td>1.0.0</td><td>—</td><td>low</td><td>No</td><td>List directory contents within the sandbox, returning metadata for each entry.</td></tr>
       <tr><td>filesystem_read</td><td>1.0.0</td><td>—</td><td>medium</td><td>No</td><td>Read a file from the sandboxed filesystem, returning MIME metadata and optionally truncated contents.</td></tr>
       <tr><td>filesystem_write</td><td>1.0.0</td><td>—</td><td>high</td><td>No</td><td>Write or overwrite a file within the sandboxed filesystem while enforcing byte and total storage quotas.</td></tr>
-      <tr><td>geocode_location</td><td>1.0.0</td><td>geolocation, mapping</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Look up latitude and longitude coordinates for a user-specified location string using OpenWeather&#x27;s geocoding API.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>get_current_location</td><td>1.0.0</td><td>geolocation, context_awareness</td><td>—</td><td>No</td><td>Retrieve the caller&#x27;s approximate location using the IP-API geolocation service.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
@@ -213,6 +212,7 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>geocode_location</td><td>1.0.0</td><td>geolocation, mapping</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Look up latitude and longitude coordinates for a user-specified location string using OpenWeather&#x27;s geocoding API.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>get_current_weather</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Get current and forecast weather data for a location</td></tr>
       <tr><td>get_daily_weather_summary</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Get daily aggregated historical weather data for a location</td></tr>

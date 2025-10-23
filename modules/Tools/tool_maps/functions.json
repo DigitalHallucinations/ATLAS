@@ -277,48 +277,6 @@
         }
     },
     {
-        "name": "geocode_location",
-        "version": "1.0.0",
-        "side_effects": "read_external_service",
-        "default_timeout": 15,
-        "auth": {
-            "required": true,
-            "type": "api_key",
-            "env": "OPENWEATHERMAP_API_KEY"
-        },
-        "allow_parallel": true,
-        "idempotency_key": {
-            "required": true,
-            "scope": "per-location"
-        },
-        "cost_per_call": 0.0,
-        "cost_unit": "USD",
-        "capabilities": [
-            "geolocation",
-            "mapping"
-        ],
-        "providers": [
-            {
-                "name": "openweathermap",
-                "priority": 0,
-                "health_check_interval": 600
-            }
-        ],
-        "description": "Look up latitude and longitude coordinates for a user-specified location string using OpenWeather's geocoding API.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "location": {
-                    "type": "string",
-                    "description": "City name, state code (US only), and optional country code separated by commas."
-                }
-            },
-            "required": [
-                "location"
-            ]
-        }
-    },
-    {
         "name": "get_current_location",
         "version": "1.0.0",
         "side_effects": "read_external_service",

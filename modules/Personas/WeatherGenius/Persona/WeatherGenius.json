@@ -98,6 +98,7 @@
             "allowed_tools": [
                 "google_search",
                 "get_current_info",
+                "geocode_location",
                 "policy_reference"
             ]
         }
