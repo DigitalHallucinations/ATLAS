@@ -361,12 +361,14 @@ class ConversationStoreRepository:
         """Create conversation store tables if they do not already exist."""
 
         from modules.task_store import ensure_task_schema  # local import to avoid circular deps
+        from modules.job_store import ensure_job_schema
 
         engine: Engine | None = getattr(self._session_factory, "bind", None)
         if engine is None:
             raise RuntimeError("Session factory is not bound to an engine")
         Base.metadata.create_all(engine)
         ensure_task_schema(engine)
+        ensure_job_schema(engine)
         if getattr(engine.dialect, "name", "") == "postgresql":
             inspector = inspect(engine)
             columns = {column["name"] for column in inspector.get_columns("messages")}
