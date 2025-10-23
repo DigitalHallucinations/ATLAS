@@ -890,6 +890,21 @@ class CapabilityRegistry:
                 )
             )
 
+        analytics: Mapping[str, Any] = MappingProxyType({})
+        try:
+            from modules.analytics.persona_metrics import (
+                get_job_lifecycle_metrics,
+                get_task_lifecycle_metrics,
+            )
+
+            analytics_payload = {
+                "tasks": get_task_lifecycle_metrics(persona=persona),
+                "jobs": get_job_lifecycle_metrics(persona=persona),
+            }
+            analytics = MappingProxyType(analytics_payload)
+        except Exception as exc:  # pragma: no cover - analytics optional
+            logger.debug("Capability summary analytics unavailable: %s", exc)
+
         payload = {
             "revision": revision,
             "persona": persona,
@@ -897,6 +912,7 @@ class CapabilityRegistry:
             "skills": tuple(skill_entries),
             "tasks": tuple(task_entries),
             "jobs": tuple(job_entries),
+            "analytics": analytics,
         }
         return MappingProxyType(payload)
 

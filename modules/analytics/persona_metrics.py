@@ -23,6 +23,7 @@ __all__ = [
     "record_job_lifecycle_event",
     "get_persona_metrics",
     "get_task_lifecycle_metrics",
+    "get_job_lifecycle_metrics",
     "reset_persona_metrics",
     "reset_task_metrics",
 ]
@@ -425,6 +426,181 @@ class PersonaMetricsStore:
             "recent": recent_events,
         }
 
+    def get_job_metrics(
+        self,
+        *,
+        persona: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        limit_recent: int = 50,
+    ) -> Dict[str, Any]:
+        """Return aggregated job lifecycle metrics filtered by persona/tenant."""
+
+        persona_key = (persona or "").strip().lower() or None
+        tenant_key = (tenant_id or "").strip().lower() or None
+
+        with self._lock:
+            payload = self._load_payload()
+
+        raw_events = payload.get("job_events") or []
+        filtered: List[Tuple[Dict[str, Any], Optional[datetime]]] = []
+
+        for item in raw_events:
+            if not isinstance(item, Mapping):
+                continue
+            event = self._normalize_job_event(item)
+            event_persona = (event.get("persona") or "").strip().lower() or None
+            event_tenant = (event.get("tenant_id") or "").strip().lower() or None
+            if persona_key is not None and event_persona != persona_key:
+                continue
+            if tenant_key is not None and event_tenant != tenant_key:
+                continue
+            timestamp = _parse_iso(event.get("timestamp"))
+            filtered.append((event, timestamp))
+
+        total_events = len(filtered)
+        success_events = [event for event, _ in filtered if event.get("success") is not None]
+        successes = sum(1 for event in success_events if bool(event.get("success")))
+        failures = sum(1 for event in success_events if event.get("success") is False)
+        denominator = len(success_events)
+        success_rate = successes / denominator if denominator else 0.0
+
+        latencies = [
+            float(event.get("latency_ms"))
+            for event, _ in filtered
+            if event.get("latency_ms") is not None
+        ]
+        average_latency = sum(latencies) / len(latencies) if latencies else 0.0
+
+        status_totals: Dict[str, Dict[str, Any]] = {}
+        job_totals: Dict[str, Dict[str, Any]] = {}
+        completion_timestamps: List[datetime] = []
+        sla_checks = 0
+        sla_breaches = 0
+
+        for event, timestamp in filtered:
+            status = str(event.get("to_status") or "").strip().lower() or "unknown"
+            status_bucket = status_totals.setdefault(
+                status,
+                {
+                    "status": status,
+                    "events": 0,
+                    "success": 0,
+                    "failure": 0,
+                },
+            )
+            status_bucket["events"] += 1
+            if event.get("success") is True:
+                status_bucket["success"] += 1
+            elif event.get("success") is False:
+                status_bucket["failure"] += 1
+
+            job_id = str(event.get("job_id") or "").strip() or "unknown"
+            job_bucket = job_totals.setdefault(
+                job_id,
+                {
+                    "job_id": job_id,
+                    "events": 0,
+                    "success": 0,
+                    "failure": 0,
+                    "last_status": None,
+                    "last_timestamp": None,
+                },
+            )
+            job_bucket["events"] += 1
+            if event.get("success") is True:
+                job_bucket["success"] += 1
+            elif event.get("success") is False:
+                job_bucket["failure"] += 1
+            if timestamp is not None:
+                job_bucket["last_status"] = status
+                job_bucket["last_timestamp"] = _isoformat(timestamp)
+
+            metadata = event.get("metadata") or {}
+            if isinstance(metadata, Mapping):
+                sla_flag = False
+                has_sla_metadata = False
+                if "sla_breached" in metadata:
+                    has_sla_metadata = True
+                    sla_flag = bool(metadata.get("sla_breached"))
+                if "sla_breach" in metadata:
+                    has_sla_metadata = True
+                    sla_flag = sla_flag or bool(metadata.get("sla_breach"))
+                if "sla_met" in metadata:
+                    has_sla_metadata = True
+                    sla_flag = sla_flag or metadata.get("sla_met") is False
+                if has_sla_metadata:
+                    sla_checks += 1
+                    if sla_flag:
+                        sla_breaches += 1
+
+            if (
+                timestamp is not None
+                and event.get("event") in {"completed", "failed", "cancelled"}
+            ):
+                completion_timestamps.append(timestamp)
+
+        status_summary = sorted(status_totals.values(), key=lambda item: item["status"])
+        job_summary = sorted(job_totals.values(), key=lambda item: item["job_id"])
+
+        filtered.sort(key=lambda pair: pair[1] or datetime.min)
+        recent_pairs = filtered[-limit_recent:]
+        recent_events = [
+            {
+                "job_id": event.get("job_id"),
+                "event": event.get("event"),
+                "persona": event.get("persona"),
+                "tenant_id": event.get("tenant_id"),
+                "from_status": event.get("from_status"),
+                "to_status": event.get("to_status"),
+                "success": event.get("success"),
+                "latency_ms": event.get("latency_ms"),
+                "timestamp": event.get("timestamp"),
+                "metadata": dict(event.get("metadata") or {}),
+            }
+            for event, _ in reversed(recent_pairs)
+        ]
+
+        throughput_per_hour = 0.0
+        if completion_timestamps:
+            completion_timestamps.sort()
+            if len(completion_timestamps) == 1:
+                throughput_per_hour = 1.0
+            else:
+                window_seconds = (
+                    completion_timestamps[-1] - completion_timestamps[0]
+                ).total_seconds()
+                if window_seconds <= 0:
+                    throughput_per_hour = float(len(completion_timestamps))
+                else:
+                    throughput_per_hour = (
+                        len(completion_timestamps) / (window_seconds / 3600.0)
+                    )
+
+        sla_adherence = 1.0
+        if sla_checks:
+            sla_adherence = (sla_checks - sla_breaches) / sla_checks
+
+        return {
+            "persona": persona,
+            "tenant_id": tenant_id,
+            "totals": {
+                "events": total_events,
+                "success_events": successes,
+                "failure_events": failures,
+            },
+            "success_rate": success_rate,
+            "average_latency_ms": average_latency,
+            "status_totals": status_summary,
+            "jobs": job_summary,
+            "recent": recent_events,
+            "throughput_per_hour": throughput_per_hour,
+            "sla": {
+                "checks": sla_checks,
+                "breaches": sla_breaches,
+                "adherence_rate": sla_adherence if sla_checks else None,
+            },
+        }
+
     def _normalize_event_dict(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         event = dict(payload)
         category = str(event.get("category") or "tool").strip().lower()
@@ -439,6 +615,22 @@ class PersonaMetricsStore:
             event["tool"] = tool_name or skill_name
         else:
             event["tool"] = tool_name
+        return event
+
+    def _normalize_job_event(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        event = dict(payload)
+        event.setdefault("persona", str(payload.get("persona") or ""))
+        event.setdefault("tenant_id", payload.get("tenant_id"))
+        event.setdefault("job_id", payload.get("job_id"))
+        metadata = event.get("metadata")
+        if not isinstance(metadata, Mapping):
+            metadata = {}
+        event["metadata"] = dict(metadata)
+        event_name = str(event.get("event") or "").strip().lower()
+        event["event"] = event_name or "status_changed"
+        timestamp = event.get("timestamp")
+        if isinstance(timestamp, datetime):
+            event["timestamp"] = _isoformat(timestamp)
         return event
 
     def _normalize_task_event(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
@@ -759,7 +951,7 @@ def record_job_lifecycle_event(
     store = _get_store(config_manager)
     store.record_job_event(event_payload)
     publish_bus_event(
-        "job_metrics.lifecycle",
+        "jobs.metrics.lifecycle",
         event_payload.as_dict(),
         priority=MessagePriority.LOW,
         correlation_id=str(job_id),
@@ -798,6 +990,21 @@ def get_task_lifecycle_metrics(
 
     store = _get_store(config_manager)
     return store.get_task_metrics(
+        persona=persona, tenant_id=tenant_id, limit_recent=limit_recent
+    )
+
+
+def get_job_lifecycle_metrics(
+    *,
+    persona: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    limit_recent: int = 50,
+    config_manager: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Return aggregated job lifecycle analytics from the shared store."""
+
+    store = _get_store(config_manager)
+    return store.get_job_metrics(
         persona=persona, tenant_id=tenant_id, limit_recent=limit_recent
     )
 

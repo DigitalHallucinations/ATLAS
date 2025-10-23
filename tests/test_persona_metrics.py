@@ -9,8 +9,11 @@ from modules.analytics.persona_metrics import (
     PersonaMetricEvent,
     PersonaMetricsStore,
     TaskLifecycleEvent,
+    JobLifecycleEvent,
     get_task_lifecycle_metrics,
+    get_job_lifecycle_metrics,
     record_task_lifecycle_event,
+    record_job_lifecycle_event,
 )
 
 
@@ -288,6 +291,124 @@ def test_record_task_lifecycle_event_publishes(monkeypatch, metrics_store):
     assert metrics["success_rate"] == pytest.approx(1.0)
     assert metrics["recent"][0]["metadata"]["source"] == "test"
 
+
+def test_job_lifecycle_metrics_aggregation(metrics_store):
+    base = datetime(2024, 5, 1, 12, 0, tzinfo=timezone.utc)
+    metrics_store.record_job_event(
+        JobLifecycleEvent(
+            job_id="job-1",
+            event="created",
+            persona="Atlas",
+            tenant_id="tenant-a",
+            to_status="draft",
+            success=None,
+            timestamp=base,
+            metadata={"owner_id": "owner-1"},
+        )
+    )
+    metrics_store.record_job_event(
+        JobLifecycleEvent(
+            job_id="job-1",
+            event="completed",
+            persona="Atlas",
+            tenant_id="tenant-a",
+            from_status="running",
+            to_status="succeeded",
+            success=True,
+            latency_ms=1200.0,
+            timestamp=base + timedelta(hours=1),
+            metadata={"sla_met": True},
+        )
+    )
+    metrics_store.record_job_event(
+        JobLifecycleEvent(
+            job_id="job-2",
+            event="failed",
+            persona="Atlas",
+            tenant_id="tenant-a",
+            from_status="running",
+            to_status="failed",
+            success=False,
+            latency_ms=1800.0,
+            timestamp=base + timedelta(hours=2),
+            metadata={"sla_breached": True},
+        )
+    )
+    metrics_store.record_job_event(
+        JobLifecycleEvent(
+            job_id="other",
+            event="completed",
+            persona="Other",
+            tenant_id="tenant-b",
+            to_status="succeeded",
+            success=True,
+            timestamp=base + timedelta(hours=3),
+        )
+    )
+
+    metrics = metrics_store.get_job_metrics(persona="Atlas")
+    assert metrics["totals"]["events"] == 3
+    assert metrics["totals"]["success_events"] == 1
+    assert metrics["totals"]["failure_events"] == 1
+    assert metrics["success_rate"] == pytest.approx(0.5)
+    assert metrics["throughput_per_hour"] == pytest.approx(2.0)
+
+    status_totals = {entry["status"]: entry for entry in metrics["status_totals"]}
+    assert status_totals["succeeded"]["success"] == 1
+    assert status_totals["failed"]["failure"] == 1
+
+    job_summary = {entry["job_id"]: entry for entry in metrics["jobs"]}
+    assert job_summary["job-1"]["last_status"] == "succeeded"
+    assert job_summary["job-2"]["failure"] == 1
+
+    sla_summary = metrics["sla"]
+    assert sla_summary["checks"] == 2
+    assert sla_summary["breaches"] == 1
+    assert sla_summary["adherence_rate"] == pytest.approx(0.5)
+
+    recent_first = metrics["recent"][0]
+    assert recent_first["event"] == "failed"
+    assert recent_first["job_id"] == "job-2"
+
+
+def test_record_job_lifecycle_event_publishes(monkeypatch, metrics_store):
+    published = []
+
+    def _fake_publish(topic, payload, **kwargs):
+        published.append((topic, payload, kwargs))
+
+    monkeypatch.setattr(
+        "modules.analytics.persona_metrics.publish_bus_event",
+        _fake_publish,
+    )
+    monkeypatch.setattr(
+        "modules.analytics.persona_metrics._get_store",
+        lambda config_manager=None: metrics_store,
+    )
+
+    timestamp = datetime(2024, 6, 10, 15, 45, tzinfo=timezone.utc)
+    record_job_lifecycle_event(
+        job_id="job-456",
+        event="completed",
+        persona="Atlas",
+        tenant_id="tenant-y",
+        from_status="running",
+        to_status="succeeded",
+        success=True,
+        latency_ms=640.0,
+        timestamp=timestamp,
+        metadata={"sla_met": True},
+    )
+
+    assert published and published[0][0] == "jobs.metrics.lifecycle"
+    payload = published[0][1]
+    assert payload["job_id"] == "job-456"
+    assert payload["success"] is True
+
+    metrics = get_job_lifecycle_metrics(persona="Atlas")
+    assert metrics["totals"]["events"] == 1
+    assert metrics["success_rate"] == pytest.approx(1.0)
+    assert metrics["recent"][0]["metadata"]["sla_met"] is True
 
 def test_persona_metrics_server_endpoint(tmp_path):
     pytest.importorskip("jsonschema")
