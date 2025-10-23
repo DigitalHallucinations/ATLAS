@@ -332,10 +332,6 @@ class MainWindow(AtlasWindow):
 
     def _create_tab_header(self, title: str, page_id: str) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        box.set_margin_top(4)
-        box.set_margin_bottom(4)
-        box.set_margin_start(8)
-        box.set_margin_end(4)
 
         label = Gtk.Label(label=title)
         label.set_xalign(0.0)
