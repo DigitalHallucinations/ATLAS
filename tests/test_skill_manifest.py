@@ -26,6 +26,7 @@ def test_load_skill_metadata_includes_shared_and_persona():
         "DailyDigest",
         "SevereWeatherAlert",
     }.issubset(shared_names)
+    assert "ATSCompatibility" not in shared_names
     assert "AtlasReporter" in atlas_persona_names
     assert "ATSCompatibility" in resume_genius_names
 
@@ -44,6 +45,7 @@ def test_load_skill_metadata_includes_shared_and_persona():
 
     ats = next(entry for entry in entries if entry.name == "ATSCompatibility")
     assert ats.persona == "ResumeGenius"
+    assert ats.source == "modules/Personas/ResumeGenius/Skills/skills.json"
     assert set(ats.required_tools) == {
         "ats_scoring_service",
         "google_search",
