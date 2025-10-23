@@ -320,6 +320,63 @@ class AtlasServer:
             "skills": [_serialize_skill(entry) for entry in entries],
         }
 
+    def get_task_catalog(
+        self,
+        *,
+        persona: Optional[Any] = None,
+        tags: Optional[Any] = None,
+        required_skills: Optional[Any] = None,
+        required_tools: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Return manifest-backed task metadata for UI catalogs."""
+
+        registry = get_capability_registry(config_manager=self._config_manager)
+        persona_tokens = _normalize_filters(persona)
+        tag_tokens = _normalize_filters(tags)
+        skill_tokens = _normalize_filters(required_skills)
+        tool_tokens = _normalize_filters(required_tools)
+
+        views = registry.query_tasks(
+            persona_filters=persona_tokens or None,
+            required_skill_filters=skill_tokens or None,
+            required_tool_filters=tool_tokens or None,
+            tag_filters=tag_tokens or None,
+        )
+
+        serialized: List[Dict[str, Any]] = []
+        for view in sorted(
+            views,
+            key=lambda item: (
+                (getattr(item.manifest, "persona", None) or ""),
+                item.manifest.name.lower(),
+            ),
+        ):
+            manifest = view.manifest
+            escalation = manifest.escalation_policy
+            escalation_payload: Optional[Dict[str, Any]]
+            if isinstance(escalation, Mapping):
+                escalation_payload = dict(escalation)
+            else:
+                escalation_payload = None
+
+            serialized.append(
+                {
+                    "name": manifest.name,
+                    "persona": manifest.persona,
+                    "summary": manifest.summary,
+                    "description": manifest.description,
+                    "required_skills": list(view.required_skills),
+                    "required_tools": list(view.required_tools),
+                    "acceptance_criteria": list(manifest.acceptance_criteria),
+                    "escalation_policy": escalation_payload,
+                    "tags": list(view.tags),
+                    "priority": manifest.priority,
+                    "source": manifest.source,
+                }
+            )
+
+        return {"count": len(serialized), "tasks": serialized}
+
     # ------------------------------------------------------------------
     # Blackboard endpoints
     # ------------------------------------------------------------------

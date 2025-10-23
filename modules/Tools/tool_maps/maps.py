@@ -1,16 +1,14 @@
 # components/tools/tool_maps/maps.py
 
-from functools import lru_cache, partial
+from functools import partial
 
 from modules.Tools.Base_Tools.Google_search import GoogleSearch
-from modules.Tools.Base_Tools.ats_scoring import ATSScoringService
 from modules.Tools.Base_Tools.policy_reference import policy_reference
 from modules.Tools.Base_Tools.time import get_current_info
 from modules.Tools.Base_Tools.context_tracker import context_tracker
 from modules.Tools.Base_Tools.priority_queue import priority_queue
 from modules.Tools.Base_Tools.terminal_command import TerminalCommand
 from modules.Tools.Base_Tools.webpage_fetch import WebpageFetcher
-from modules.Tools.Base_Tools.geocode import geocode_location
 from modules.Tools.Base_Tools.current_location import get_current_location
 from modules.Tools.Base_Tools.browser_lite import BrowserLite
 from modules.Tools.Base_Tools.calculator import Calculator
@@ -34,7 +32,6 @@ from modules.Tools.Base_Tools.task_queue import (
 )
 from ATLAS.config import ConfigManager
 from modules.Tools.Code_Execution import JavaScriptExecutor, PythonInterpreter
-from modules.Tools.Medical_Tools import search_pmc, search_pubmed
 
 # Create an instance of GoogleSearch
 google_search_instance = GoogleSearch()
@@ -81,15 +78,6 @@ async def _debian12_calendar_dispatch(*args, **kwargs):
     return await debian12_calendar(*args, **kwargs)
 
 
-@lru_cache(maxsize=1)
-def _ats_scoring_client() -> ATSScoringService:
-    return ATSScoringService()
-
-
-async def _ats_scoring_dispatch(**kwargs):
-    service = _ats_scoring_client()
-    return await service.score_resume(**kwargs)
-
 # A dictionary to map function names to actual function objects
 function_map = {
     "get_current_info": get_current_info,
@@ -101,9 +89,6 @@ function_map = {
     "terminal_command": TerminalCommand,
     "execute_python": python_interpreter.run,
     "execute_javascript": javascript_executor.run,
-    "search_pubmed": search_pubmed,
-    "search_pmc": search_pmc,
-    "geocode_location": geocode_location,
     "get_current_location": get_current_location,
     "debian12_calendar": _debian12_calendar_dispatch,
     "filesystem_read": read_file,
@@ -116,7 +101,6 @@ function_map = {
     "kv_increment": kv_increment,
     "browser_lite": browser_lite.run,
     "calculator": calculator_tool.evaluate,
-    "ats_scoring_service": _ats_scoring_dispatch,
     "upsert_vectors": vector_upsert,
     "query_vectors": vector_query,
     "delete_namespace": vector_delete,

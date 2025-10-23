@@ -207,6 +207,100 @@ def _ensure_pytz(monkeypatch):
     monkeypatch.setitem(sys.modules, "pytz", pytz_stub)
 
 
+def _ensure_sqlalchemy(monkeypatch):
+    if "sqlalchemy" in sys.modules:
+        return
+
+    sqlalchemy_stub = types.ModuleType("sqlalchemy")
+
+    class _SQLCallable:
+        def __init__(self, *_args, **_kwargs):  # pragma: no cover - simple stub
+            pass
+
+        def __call__(self, *_args, **_kwargs):  # pragma: no cover - simple stub
+            return None
+
+    sqlalchemy_stub.create_engine = lambda *_args, **_kwargs: None
+    sqlalchemy_stub.Column = _SQLCallable
+    sqlalchemy_stub.DateTime = _SQLCallable
+    sqlalchemy_stub.Enum = _SQLCallable
+    sqlalchemy_stub.ForeignKey = _SQLCallable
+    sqlalchemy_stub.Index = _SQLCallable
+    sqlalchemy_stub.Integer = _SQLCallable
+    sqlalchemy_stub.Boolean = _SQLCallable
+    sqlalchemy_stub.Float = _SQLCallable
+    sqlalchemy_stub.String = _SQLCallable
+    sqlalchemy_stub.Text = _SQLCallable
+    sqlalchemy_stub.UniqueConstraint = _SQLCallable
+    sqlalchemy_stub.inspect = lambda *_args, **_kwargs: types.SimpleNamespace(
+        has_table=lambda *_a, **_k: False
+    )
+    sqlalchemy_stub.and_ = lambda *_args, **_kwargs: None
+    sqlalchemy_stub.or_ = lambda *_args, **_kwargs: None
+    sqlalchemy_stub.select = lambda *_args, **_kwargs: None
+    sqlalchemy_stub.text = lambda *_args, **_kwargs: None
+    sqlalchemy_stub.delete = lambda *_args, **_kwargs: None
+
+    class _FuncProxy:
+        def __getattr__(self, _name):  # pragma: no cover - helper stub
+            return _SQLCallable()
+
+    sqlalchemy_stub.func = _FuncProxy()
+    monkeypatch.setitem(sys.modules, "sqlalchemy", sqlalchemy_stub)
+
+    dialects_stub = types.ModuleType("sqlalchemy.dialects")
+    postgres_stub = types.ModuleType("sqlalchemy.dialects.postgresql")
+    postgres_stub.ARRAY = _SQLCallable
+    postgres_stub.JSONB = _SQLCallable
+    postgres_stub.UUID = _SQLCallable
+    postgres_stub.TSVECTOR = _SQLCallable
+    monkeypatch.setitem(sys.modules, "sqlalchemy.dialects", dialects_stub)
+    monkeypatch.setitem(sys.modules, "sqlalchemy.dialects.postgresql", postgres_stub)
+
+    exc_stub = types.ModuleType("sqlalchemy.exc")
+    exc_stub.IntegrityError = type("IntegrityError", (Exception,), {})
+    monkeypatch.setitem(sys.modules, "sqlalchemy.exc", exc_stub)
+
+    if "modules.task_store" not in sys.modules:
+        task_store_stub = types.ModuleType("modules.task_store")
+
+        class _DummyRepository:
+            def __init__(self, *_args, **_kwargs):  # pragma: no cover - helper stub
+                pass
+
+            def create_schema(self) -> None:  # pragma: no cover - helper stub
+                return None
+
+        class _DummyService:
+            def __init__(self, *_args, **_kwargs):  # pragma: no cover - helper stub
+                pass
+
+        def _ensure_schema(*_args, **_kwargs):  # pragma: no cover - helper stub
+            return None
+
+        task_store_stub.TaskStoreRepository = _DummyRepository
+        task_store_stub.TaskService = _DummyService
+        task_store_stub.ensure_task_schema = _ensure_schema
+        monkeypatch.setitem(sys.modules, "modules.task_store", task_store_stub)
+
+    engine_stub = types.ModuleType("sqlalchemy.engine")
+    engine_stub.Engine = object
+    monkeypatch.setitem(sys.modules, "sqlalchemy.engine", engine_stub)
+
+    orm_stub = types.ModuleType("sqlalchemy.orm")
+
+    class _Sessionmaker:
+        def __call__(self, *_args, **_kwargs):  # pragma: no cover - helper stub
+            return None
+
+    orm_stub.sessionmaker = _Sessionmaker
+    orm_stub.Session = object
+    orm_stub.joinedload = lambda *_args, **_kwargs: None
+    orm_stub.relationship = lambda *_args, **_kwargs: None
+    orm_stub.declarative_base = lambda *_args, **_kwargs: type("Base", (), {})
+    monkeypatch.setitem(sys.modules, "sqlalchemy.orm", orm_stub)
+
+
 def test_default_function_map_vector_store_entries_dispatch(monkeypatch):
     import asyncio
     import importlib
@@ -214,6 +308,7 @@ def test_default_function_map_vector_store_entries_dispatch(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)
     _ensure_pytz(monkeypatch)
+    _ensure_sqlalchemy(monkeypatch)
 
     from modules.Tools.Base_Tools import vector_store as vector_store_module
     import modules.Tools.tool_maps.maps as maps_module
@@ -294,6 +389,7 @@ def test_default_function_map_task_queue_entries_dispatch(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)
     _ensure_pytz(monkeypatch)
+    _ensure_sqlalchemy(monkeypatch)
 
     from modules.Tools.Base_Tools import task_queue as task_queue_module
     import modules.Tools.tool_maps.maps as maps_module
@@ -386,6 +482,7 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)
     _ensure_pytz(monkeypatch)
+    _ensure_sqlalchemy(monkeypatch)
 
     geocode_stub = types.ModuleType("modules.Tools.location_services.geocode")
     geocode_stub.geocode_location = lambda *_args, **_kwargs: None
@@ -430,7 +527,7 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
     tool_manager = importlib.import_module("ATLAS.ToolManager")
     tool_manager = importlib.reload(tool_manager)
 
-    persona_name = "DocGenius"
+    persona_name = "ResumeGenius"
     monkeypatch.setattr(
         tool_manager.ConfigManager,
         "get_app_root",
@@ -508,12 +605,31 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
         ],
     }
 
-    assert "geocode_location" in shared_map
-    geocode_entry = shared_map["geocode_location"]
-    assert isinstance(geocode_entry, dict)
-    geocode_metadata = geocode_entry.get("metadata")
-    assert geocode_metadata["capabilities"] == ["geolocation", "mapping"]
-    assert geocode_metadata["auth"]["required"] is True
+    assert "geocode_location" not in shared_map
+
+    weather_payload = {
+        "name": "WeatherGenius",
+        "allowed_tools": [
+            "google_search",
+            "get_current_info",
+            "policy_reference",
+            "get_current_weather",
+            "get_historical_weather",
+            "get_daily_weather_summary",
+            "weather_alert_feed",
+            "geocode_location",
+        ],
+    }
+
+    weather_functions = tool_manager.load_functions_from_json(
+        weather_payload, refresh=True, config_manager=config_manager
+    )
+
+    geocode_entry = next(
+        entry for entry in weather_functions if entry["name"] == "geocode_location"
+    )
+    assert geocode_entry["capabilities"] == ["geolocation", "mapping"]
+    assert geocode_entry["auth"]["required"] is True
 
     assert "get_current_location" in shared_map
     current_location_entry = shared_map["get_current_location"]
@@ -540,28 +656,7 @@ def test_resume_genius_manifest_includes_ats_scoring(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)
     _ensure_pytz(monkeypatch)
-
-    if "sqlalchemy" not in sys.modules:
-        sqlalchemy_stub = types.ModuleType("sqlalchemy")
-        sqlalchemy_stub.create_engine = lambda *_args, **_kwargs: None
-        monkeypatch.setitem(sys.modules, "sqlalchemy", sqlalchemy_stub)
-
-        engine_stub = types.ModuleType("sqlalchemy.engine")
-        engine_stub.Engine = object
-        monkeypatch.setitem(sys.modules, "sqlalchemy.engine", engine_stub)
-
-        orm_stub = types.ModuleType("sqlalchemy.orm")
-
-        class _Sessionmaker:
-            def __call__(self, *_args, **_kwargs):
-                return None
-
-        orm_stub.sessionmaker = _Sessionmaker
-        orm_stub.Session = object
-        orm_stub.joinedload = lambda *_args, **_kwargs: None
-        orm_stub.relationship = lambda *_args, **_kwargs: None
-        orm_stub.declarative_base = lambda *_args, **_kwargs: type("Base", (), {})
-        monkeypatch.setitem(sys.modules, "sqlalchemy.orm", orm_stub)
+    _ensure_sqlalchemy(monkeypatch)
 
     if "modules.task_store" not in sys.modules:
         task_store_stub = types.ModuleType("modules.task_store")

@@ -98,7 +98,12 @@
             "allowed_tools": [
                 "google_search",
                 "get_current_info",
-                "policy_reference"
+                "policy_reference",
+                "get_current_weather",
+                "get_historical_weather",
+                "get_daily_weather_summary",
+                "weather_alert_feed",
+                "geocode_location"
             ]
         }
     ]

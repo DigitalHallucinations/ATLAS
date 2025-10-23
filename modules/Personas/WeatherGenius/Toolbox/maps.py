@@ -3,6 +3,7 @@
 from modules.Tools.Base_Tools.time import get_current_info
 from modules.Tools.Base_Tools.Google_search import GoogleSearch
 from modules.Tools.Base_Tools.policy_reference import policy_reference
+from modules.Tools.Base_Tools.geocode import geocode_location
 from modules.Personas.WeatherGenius.Toolbox.weather import get_current_weather
 from modules.Personas.WeatherGenius.Toolbox.historical_weather import get_historical_weather
 from modules.Personas.WeatherGenius.Toolbox.daily_summary import get_daily_weather_summary
@@ -20,5 +21,6 @@ function_map = {
     "get_current_info": get_current_info,
     "google_search": google_search_instance._search,
     "policy_reference": policy_reference,
+    "geocode_location": geocode_location,
     "weather_alert_feed": weather_alert_feed,
 }

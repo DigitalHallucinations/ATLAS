@@ -41,6 +41,17 @@
       <tr><td>terminal_command</td><td>1.0.0</td><td>—</td><td>high</td><td>No</td><td>Execute a terminal command and return the output, error, and status code.</td></tr>
     </tbody>
   </table>
+  <h2>Persona: ComplianceOfficer</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
+    </tbody>
+  </table>
   <h2>Persona: DocGenius</h2>
   <table>
     <thead>
@@ -57,6 +68,17 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: KnowledgeCurator</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
     </tbody>
@@ -80,7 +102,6 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
-      <tr><td>ats_scoring_service</td><td>1.0.0</td><td>resume_analysis, ats_compliance</td><td>—</td><td>Yes (docs: Configure ATS_SCORING_SERVICE_API_KEY or ats_scoring_service.api_key for authenticated requests., env: ATS_SCORING_SERVICE_API_KEY, type: api_key)</td><td>Submit resume and job description text to the ATS scoring service and return compatibility insights and optimization suggestions.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
     </tbody>
@@ -94,6 +115,7 @@
       <tr><td>ats_scoring_service</td><td>1.0.0</td><td>resume_analysis, ats_compliance</td><td>—</td><td>Yes (docs: Configure ATS_SCORING_SERVICE_API_KEY or ats_scoring_service.api_key for authenticated requests., env: ATS_SCORING_SERVICE_API_KEY, type: api_key)</td><td>Submit resume and job description text to the ATS scoring service and return compatibility insights and optimization suggestions.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
     </tbody>
   </table>
   <h2>Persona: Shared</h2>
@@ -102,7 +124,6 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
-      <tr><td>ats_scoring_service</td><td>1.0.0</td><td>resume_analysis, ats_compliance</td><td>—</td><td>Yes (docs: Configure ATS_SCORING_SERVICE_API_KEY or ats_scoring_service.api_key for authenticated requests., env: ATS_SCORING_SERVICE_API_KEY, type: api_key)</td><td>Submit resume and job description text to the ATS scoring service and return compatibility insights and optimization suggestions.</td></tr>
       <tr><td>browser_lite</td><td>1.0.0</td><td>browser_automation</td><td>high</td><td>No</td><td>Navigate a limited number of allowlisted pages with robots.txt enforcement, throttling, and optional screenshots.</td></tr>
       <tr><td>calculator</td><td>1.0.0</td><td>calculator</td><td>low</td><td>No</td><td>Evaluate sanitized mathematical expressions with Decimal precision and optional unit conversions.</td></tr>
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
@@ -113,7 +134,6 @@
       <tr><td>filesystem_list</td><td>1.0.0</td><td>—</td><td>low</td><td>No</td><td>List directory contents within the sandbox, returning metadata for each entry.</td></tr>
       <tr><td>filesystem_read</td><td>1.0.0</td><td>—</td><td>medium</td><td>No</td><td>Read a file from the sandboxed filesystem, returning MIME metadata and optionally truncated contents.</td></tr>
       <tr><td>filesystem_write</td><td>1.0.0</td><td>—</td><td>high</td><td>No</td><td>Write or overwrite a file within the sandboxed filesystem while enforcing byte and total storage quotas.</td></tr>
-      <tr><td>geocode_location</td><td>1.0.0</td><td>geolocation, mapping</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Look up latitude and longitude coordinates for a user-specified location string using OpenWeather&#x27;s geocoding API.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>get_current_location</td><td>1.0.0</td><td>geolocation, context_awareness</td><td>—</td><td>No</td><td>Retrieve the caller&#x27;s approximate location using the IP-API geolocation service.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
@@ -124,8 +144,6 @@
       <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
       <tr><td>priority_queue</td><td>1.0.0</td><td>task_management, status_reporting</td><td>—</td><td>No</td><td>Score and sort operational tasks to produce a prioritized execution list.</td></tr>
       <tr><td>query_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Return the most similar vectors for the supplied query embedding from the configured namespace.</td></tr>
-      <tr><td>search_pmc</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY, type: api_key)</td><td>Search PubMed Central for open access biomedical literature and return PMC IDs.</td></tr>
-      <tr><td>search_pubmed</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY, type: api_key)</td><td>Search PubMed for biomedical literature and return a list of PubMed IDs.</td></tr>
       <tr><td>structured_parse</td><td>1.0.0</td><td>document_parsing, ocr</td><td>low</td><td>No</td><td>Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents.</td></tr>
       <tr><td>task_queue_cancel</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Cancel a queued or scheduled task.</td></tr>
       <tr><td>task_queue_enqueue</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Enqueue a one-off task into the durable task queue with optional execution delay.</td></tr>
@@ -142,6 +160,7 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>geocode_location</td><td>1.0.0</td><td>geolocation, mapping</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Look up latitude and longitude coordinates for a user-specified location string using OpenWeather&#x27;s geocoding API.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>get_current_weather</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Get current and forecast weather data for a location</td></tr>
       <tr><td>get_daily_weather_summary</td><td>1.0.0</td><td>—</td><td>—</td><td>Yes (env: OPENWEATHERMAP_API_KEY, type: api_key)</td><td>Get daily aggregated historical weather data for a location</td></tr>
