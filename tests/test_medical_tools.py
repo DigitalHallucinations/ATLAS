@@ -49,7 +49,7 @@ task_store_stub.TaskService = object
 task_store_stub.TaskStoreRepository = object
 sys.modules.setdefault("modules.task_store", task_store_stub)
 
-from modules.Tools.Medical_Tools import fetch_pubmed_details, search_pmc, search_pubmed
+from modules.Personas.MEDIC.Toolbox.medical_tools import fetch_pubmed_details, search_pmc, search_pubmed
 
 
 class _FakeResponse:
@@ -76,11 +76,11 @@ def _patch_rate_limit(monkeypatch):
         return func(*args, **kwargs)
 
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.enforce_rate_limit",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.enforce_rate_limit",
         _noop_rate_limit,
     )
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.asyncio.to_thread",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.asyncio.to_thread",
         _direct_to_thread,
     )
     return monkeypatch
@@ -103,11 +103,11 @@ def test_search_pubmed_builds_expected_request(monkeypatch):
         return _FakeResponse(200, payload)
 
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.requests.get",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.requests.get",
         lambda url, params, headers, timeout: _fake_get(url, params=params, headers=headers, timeout=timeout),
     )
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.get_auth_params",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.get_auth_params",
         lambda: {"api_key": "secret"},
     )
 
@@ -151,11 +151,11 @@ def test_search_pubmed_paginates(monkeypatch):
         return _FakeResponse(200, payload)
 
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.requests.get",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.requests.get",
         lambda url, params, headers, timeout: _fake_get(url, params=params, headers=headers, timeout=timeout),
     )
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.get_auth_params",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.get_auth_params",
         lambda: {},
     )
 
@@ -174,11 +174,11 @@ def test_search_pubmed_reports_http_error(monkeypatch):
         return _FakeResponse(429, {"error": "rate limit"})
 
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.requests.get",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.requests.get",
         lambda url, params, headers, timeout: _fake_get(url, params=params, headers=headers, timeout=timeout),
     )
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.get_auth_params",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.get_auth_params",
         lambda: {},
     )
 
@@ -205,11 +205,11 @@ def test_search_pmc_applies_filters(monkeypatch):
         return _FakeResponse(200, payload)
 
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.requests.get",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.requests.get",
         lambda url, params, headers, timeout: _fake_get(url, params=params, headers=headers, timeout=timeout),
     )
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.get_auth_params",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.get_auth_params",
         lambda: {},
     )
 
@@ -236,11 +236,11 @@ def test_fetch_pubmed_details_batches_and_merges(monkeypatch):
         return _FakeResponse(200, payload)
 
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.requests.get",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.requests.get",
         lambda url, params, headers, timeout: _fake_get(url, params=params, headers=headers, timeout=timeout),
     )
     monkeypatch.setattr(
-        "modules.Tools.Medical_Tools._client.get_auth_params",
+        "modules.Personas.MEDIC.Toolbox.medical_tools._client.get_auth_params",
         lambda: {},
     )
 
