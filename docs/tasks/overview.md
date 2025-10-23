@@ -28,10 +28,20 @@ The following manifest-backed tasks are now available to operators. Create a tas
 
 | Manifest name | Persona | Trigger phrase | Deliverable |
 | --- | --- | --- | --- |
-| `MissionControlWeeklyBrief` | ATLAS | `metadata.manifest_task="MissionControlWeeklyBrief"` | A weekly leadership brief covering status, risks, and next-step decisions for mission control stakeholders. |
-| `WeatherOperationsSnapshot` | WeatherGenius | `metadata.manifest_task="WeatherOperationsSnapshot"` | A real-time operations snapshot that translates weather alerts into field deployment guidance. |
-| `ClinicalEvidenceSnapshot` | MEDIC, DocGenius | `metadata.manifest_task="ClinicalEvidenceSnapshot"` | A concise evidence digest summarizing current guidelines, key studies, and safety considerations. |
-| `AutomationPolicyPrecheck` | ATLAS, ResumeGenius | `metadata.manifest_task="AutomationPolicyPrecheck"` | A compliance pre-check documenting policy coverage, risks, and go/no-go guidance for automation changes. |
+| `MissionControlWeeklyBrief` | ATLAS | `metadata.manifest_task="MissionControlWeeklyBrief"` | Weekly leadership brief covering status, risks, and upcoming decisions for mission control stakeholders. |
+| `MissionControlDailyStandup` | ATLAS | `metadata.manifest_task="MissionControlDailyStandup"` | 24-hour mission progress snapshot highlighting blockers, decisions, and near-term focus areas. |
+| `ChangeCalendarImpactReview` | ATLAS | `metadata.manifest_task="ChangeCalendarImpactReview"` | Pre-release audit that spots scheduling conflicts, missing approvals, and coordination gaps. |
+| `OperationalRiskFlashReport` | ATLAS, ComplianceOfficer | `metadata.manifest_task="OperationalRiskFlashReport"` | Rapid triage of emerging operational or policy risks with recommended mitigations. |
+| `AutomationPolicyPrecheck` | ATLAS, ResumeGenius | `metadata.manifest_task="AutomationPolicyPrecheck"` | Compliance pre-check documenting policy coverage, risks, and go/no-go guidance for automation changes. |
+| `KnowledgeArchiveBackfill` | KnowledgeCurator | `metadata.manifest_task="KnowledgeArchiveBackfill"` | Backfills missing knowledge cards with citations, owners, and follow-up actions. |
+| `KnowledgeArchiveRefreshSweep` | KnowledgeCurator | `metadata.manifest_task="KnowledgeArchiveRefreshSweep"` | Quarterly audit ensuring high-traffic knowledge entries stay accurate and current. |
+| `WeatherOperationsSnapshot` | WeatherGenius | `metadata.manifest_task="WeatherOperationsSnapshot"` | Real-time operations snapshot that translates weather alerts into field deployment guidance. |
+| `WeatherFieldDeploymentBrief` | WeatherGenius | `metadata.manifest_task="WeatherFieldDeploymentBrief"` | Field-ready brief blending alerts, logistics constraints, and recommended posture levels. |
+| `SevereWeatherTabletopDrill` | WeatherGenius | `metadata.manifest_task="SevereWeatherTabletopDrill"` | Tabletop exercise plan with scenario injects, expected actions, and evaluation checklists. |
+| `ClinicalEvidenceSnapshot` | MEDIC, DocGenius | `metadata.manifest_task="ClinicalEvidenceSnapshot"` | Concise evidence digest summarizing current guidelines, key studies, and safety considerations. |
+| `ClinicalGuidelineUpdate` | MEDIC, DocGenius | `metadata.manifest_task="ClinicalGuidelineUpdate"` | Synthesizes new evidence into actionable guideline updates for care teams. |
+| `AdverseEventRapidReview` | MEDIC | `metadata.manifest_task="AdverseEventRapidReview"` | Rapid literature and policy check supporting urgent adverse event investigations. |
+| `ResumePipelineQualityReview` | ResumeGenius | `metadata.manifest_task="ResumePipelineQualityReview"` | Pipeline audit assessing ATS scores, systemic gaps, and remediation actions. |
 
 ### Operator workflow
 

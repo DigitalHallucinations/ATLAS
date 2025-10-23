@@ -150,5 +150,390 @@
       "review"
     ],
     "priority": "High"
+  },
+  {
+    "name": "MissionControlDailyStandup",
+    "summary": "Daily mission control standup brief for ATLAS leadership.",
+    "description": "Compile a 24-hour update covering mission progress, blockers, and near-term focus areas for the ATLAS duty team.",
+    "required_skills": [
+      "AtlasReporter",
+      "DailyDigest"
+    ],
+    "required_tools": [
+      "context_tracker",
+      "priority_queue",
+      "get_current_info",
+      "google_search"
+    ],
+    "acceptance_criteria": [
+      "Captures closed, in-flight, and upcoming work items with accountable owners from the past 24 hours.",
+      "Surfaces new or escalating risks that require leadership decisions within the next day.",
+      "Outlines the next 24-hour focus areas with explicit dependencies and checkpoints."
+    ],
+    "escalation_policy": {
+      "level": "Mission Control Duty Lead",
+      "contact": "atlas-ops-lead@atlas",
+      "timeframe": "Within 2 hours of standup",
+      "triggers": [
+        "Critical blocker without owner",
+        "Decision deadline inside 24 hours"
+      ],
+      "actions": [
+        "Notify duty lead",
+        "Spin up rapid response huddle"
+      ]
+    },
+    "tags": [
+      "atlas",
+      "operations",
+      "daily",
+      "standup"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "OperationalRiskFlashReport",
+    "summary": "Rapid operational risk triage for compliance and duty officers.",
+    "description": "Scan live context and trusted sources to summarize critical operational or policy risks with mitigation guidance.",
+    "required_skills": [
+      "RiskPulse",
+      "SafetyScout"
+    ],
+    "required_tools": [
+      "context_tracker",
+      "google_search",
+      "policy_reference"
+    ],
+    "acceptance_criteria": [
+      "Ranks each identified risk by severity and likelihood with supporting evidence.",
+      "Links risks to the governing policies or controls that are impacted or at risk of violation.",
+      "Recommends concrete mitigation or escalation steps with accountable owners."
+    ],
+    "escalation_policy": {
+      "level": "Compliance On-Call",
+      "contact": "compliance-oncall@atlas",
+      "timeframe": "Immediate for critical risks",
+      "triggers": [
+        "Critical severity risk",
+        "Policy gap detected"
+      ],
+      "actions": [
+        "Notify compliance on-call",
+        "Open governance incident record"
+      ]
+    },
+    "tags": [
+      "risk",
+      "compliance",
+      "ops"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "ChangeCalendarImpactReview",
+    "summary": "Assess upcoming releases for policy, resource, and dependency conflicts.",
+    "description": "Review the change calendar to highlight release collisions, approval gaps, and resource contention before execution.",
+    "required_skills": [
+      "AtlasReporter",
+      "SafetyScout"
+    ],
+    "required_tools": [
+      "context_tracker",
+      "priority_queue",
+      "policy_reference",
+      "google_search"
+    ],
+    "acceptance_criteria": [
+      "Maps each upcoming change to its approvals, rollback owner, and readiness checkpoints.",
+      "Calls out conflicts across teams or environments that require rescheduling or coordination.",
+      "Summarizes policy or compliance tasks that must be closed before the scheduled deployment."
+    ],
+    "escalation_policy": {
+      "level": "Release Management",
+      "contact": "release-management@atlas",
+      "timeframe": "Within 4 business hours",
+      "triggers": [
+        "Unapproved high-risk change",
+        "Environment collision detected"
+      ],
+      "actions": [
+        "Escalate to release manager",
+        "Schedule coordination review"
+      ]
+    },
+    "tags": [
+      "atlas",
+      "change-management",
+      "planning"
+    ],
+    "priority": "Medium"
+  },
+  {
+    "name": "KnowledgeArchiveBackfill",
+    "summary": "Backfill missing knowledge cards for high-priority incidents or initiatives.",
+    "description": "Normalize historical updates into durable knowledge entries so future teams can rediscover decisions and follow-ups.",
+    "required_skills": [
+      "KnowledgeArchiveDigest"
+    ],
+    "required_tools": [
+      "context_tracker",
+      "google_search",
+      "get_current_info"
+    ],
+    "acceptance_criteria": [
+      "Confirms the scope of historical context captured and identifies any missing source material.",
+      "Produces a knowledge card with question, key findings, citations, owners, and review cadence.",
+      "Documents outstanding follow-ups or artifacts that still need archival coverage."
+    ],
+    "escalation_policy": {
+      "level": "Knowledge Steward",
+      "contact": "knowledge-steward@atlas",
+      "timeframe": "Within 2 business days",
+      "triggers": [
+        "Incomplete source coverage",
+        "Retention policy conflict"
+      ],
+      "actions": [
+        "Request additional sources",
+        "Review retention guidance"
+      ]
+    },
+    "tags": [
+      "knowledge",
+      "archive",
+      "backlog"
+    ],
+    "priority": "Medium"
+  },
+  {
+    "name": "KnowledgeArchiveRefreshSweep",
+    "summary": "Quarterly refresh of critical knowledge base entries.",
+    "description": "Audit high-traffic knowledge cards, validate citations, and update timestamps or owners where the source data has changed.",
+    "required_skills": [
+      "KnowledgeArchiveDigest"
+    ],
+    "required_tools": [
+      "context_tracker",
+      "google_search",
+      "get_current_info"
+    ],
+    "acceptance_criteria": [
+      "Verifies that cited sources remain accessible and accurate, updating links or annotations when needed.",
+      "Captures changes in ownership, review cadence, or scope with a fresh timestamp.",
+      "Flags entries requiring deeper subject-matter review or additional archival artifacts."
+    ],
+    "escalation_policy": {
+      "level": "Knowledge Steward",
+      "contact": "knowledge-review@atlas",
+      "timeframe": "Within 5 business days",
+      "triggers": [
+        "Stale or invalid citation",
+        "Owner unavailable for confirmation"
+      ],
+      "actions": [
+        "Assign subject-matter reviewer",
+        "Queue follow-up archival task"
+      ]
+    },
+    "tags": [
+      "knowledge",
+      "maintenance",
+      "refresh"
+    ],
+    "priority": "Medium"
+  },
+  {
+    "name": "WeatherFieldDeploymentBrief",
+    "summary": "Weather posture brief tailored for field deployment leads.",
+    "description": "Blend the latest alerts, forecasts, and logistics notes into actionable guidance for crews preparing to mobilize.",
+    "required_skills": [
+      "DailyDigest",
+      "RiskPulse"
+    ],
+    "required_tools": [
+      "get_current_info",
+      "geocode_location",
+      "google_search",
+      "context_tracker"
+    ],
+    "acceptance_criteria": [
+      "Translates region-specific alerts into recommended posture levels with timing windows.",
+      "Lists logistics constraints such as access routes, staging areas, or supply impacts tied to the forecast.",
+      "Provides verification sources and timestamps for every major recommendation."
+    ],
+    "escalation_policy": {
+      "level": "Field Operations Lead",
+      "contact": "field-ops@atlas",
+      "timeframe": "Escalate within 30 minutes for red alerts",
+      "triggers": [
+        "Rapidly deteriorating conditions",
+        "Conflicting forecast signals"
+      ],
+      "actions": [
+        "Notify field duty lead",
+        "Coordinate with mission control"
+      ]
+    },
+    "tags": [
+      "weather",
+      "field",
+      "brief"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "SevereWeatherTabletopDrill",
+    "summary": "Plan and document a severe weather response tabletop exercise.",
+    "description": "Use live alert data and historical incidents to script a tabletop scenario, expected responses, and evaluation checklist.",
+    "required_skills": [
+      "SevereWeatherAlert",
+      "DailyDigest"
+    ],
+    "required_tools": [
+      "weather_alert_feed",
+      "get_current_weather",
+      "get_daily_weather_summary",
+      "get_current_info",
+      "google_search"
+    ],
+    "acceptance_criteria": [
+      "Defines scenario injects tied to credible alert thresholds and timelines.",
+      "Outlines expected actions by each duty role with decision points and communications cadence.",
+      "Provides evaluation metrics and after-action follow-up tasks to capture lessons learned."
+    ],
+    "escalation_policy": {
+      "level": "Weather Duty Supervisor",
+      "contact": "wx-training@atlas",
+      "timeframe": "Within 1 business day",
+      "triggers": [
+        "Exercise gaps affecting life safety",
+        "Unassigned follow-up actions"
+      ],
+      "actions": [
+        "Escalate to duty supervisor",
+        "Schedule remediation workshop"
+      ]
+    },
+    "tags": [
+      "weather",
+      "training",
+      "tabletop"
+    ],
+    "priority": "Medium"
+  },
+  {
+    "name": "ClinicalGuidelineUpdate",
+    "summary": "Synthesize new clinical evidence into guideline updates for care teams.",
+    "description": "Monitor recent publications and regulatory advisories, then translate validated findings into actionable updates for clinicians.",
+    "required_skills": [
+      "ClinicalEvidenceSynthesizer",
+      "SafetyScout"
+    ],
+    "required_tools": [
+      "search_pubmed",
+      "search_pmc",
+      "fetch_pubmed_details",
+      "policy_reference"
+    ],
+    "acceptance_criteria": [
+      "Identifies the most relevant studies or advisories released within the review window and summarizes key outcomes.",
+      "Assesses patient safety implications, contraindications, and monitoring requirements for the updated guidance.",
+      "Recommends communication and training actions for affected care teams with responsible owners."
+    ],
+    "escalation_policy": {
+      "level": "Clinical Governance Board",
+      "contact": "clinical-governance@atlas",
+      "timeframe": "Within 24 hours for safety-critical changes",
+      "triggers": [
+        "High-risk safety signal",
+        "Conflicting regulatory guidance"
+      ],
+      "actions": [
+        "Page governance board chair",
+        "Initiate urgent policy review"
+      ]
+    },
+    "tags": [
+      "clinical",
+      "guidelines",
+      "updates"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "AdverseEventRapidReview",
+    "summary": "Rapid literature and policy check for reported adverse events.",
+    "description": "Investigate a newly reported adverse event by reviewing literature, safety bulletins, and policy controls before clinician follow-up.",
+    "required_skills": [
+      "ResearchBrief",
+      "SafetyScout"
+    ],
+    "required_tools": [
+      "google_search",
+      "search_pubmed",
+      "search_pmc",
+      "policy_reference"
+    ],
+    "acceptance_criteria": [
+      "Summarizes current evidence or case reports related to the adverse event with citations and data freshness.",
+      "Evaluates policy coverage or gaps for the affected workflow and recommends interim safeguards if needed.",
+      "Captures open clinical questions and next diagnostic steps for physician review."
+    ],
+    "escalation_policy": {
+      "level": "Clinical Safety Officer",
+      "contact": "clinical-safety@atlas",
+      "timeframe": "Within 2 hours for high-severity events",
+      "triggers": [
+        "Life-threatening presentation",
+        "Policy coverage uncertain"
+      ],
+      "actions": [
+        "Page safety officer",
+        "Initiate incident tracking"
+      ]
+    },
+    "tags": [
+      "clinical",
+      "safety",
+      "adverse-events"
+    ],
+    "priority": "Critical"
+  },
+  {
+    "name": "ResumePipelineQualityReview",
+    "summary": "Audit resume generation pipelines for ATS alignment and policy compliance.",
+    "description": "Sample recent resume outputs to evaluate ATS scores, identify systemic gaps, and recommend iterative improvements.",
+    "required_skills": [
+      "ATSCompatibility"
+    ],
+    "required_tools": [
+      "ats_scoring_service",
+      "google_search",
+      "policy_reference"
+    ],
+    "acceptance_criteria": [
+      "Reports ATS scores across the sampled resumes with insight into the scoring rubric and variance.",
+      "Highlights recurring keyword or experience gaps that reduce interview conversion potential.",
+      "Documents remediation actions, including policy or privacy considerations for content updates."
+    ],
+    "escalation_policy": {
+      "level": "Resume QA Leads",
+      "contact": "resume-quality@atlas",
+      "timeframe": "Within 1 business day",
+      "triggers": [
+        "Pipeline regression detected",
+        "Compliance concern identified"
+      ],
+      "actions": [
+        "Notify QA lead",
+        "Schedule remediation review"
+      ]
+    },
+    "tags": [
+      "resume",
+      "ats",
+      "quality"
+    ],
+    "priority": "Medium"
   }
 ]
