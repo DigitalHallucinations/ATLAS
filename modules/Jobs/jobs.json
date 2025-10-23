@@ -1,0 +1,87 @@
+[
+  {
+    "name": "DailyBriefing",
+    "summary": "Coordinate recurring intelligence briefings for knowledge workers.",
+    "description": "Collects the latest updates, synthesizes highlights, and distributes a concise summary to subscribed personas.",
+    "personas": ["ATLAS", "ResumeGenius", "KnowledgeCurator"],
+    "required_skills": ["Summarization", "Prioritization", "Research"],
+    "required_tools": ["browser", "notebook", "notification_service"],
+    "task_graph": [
+      {
+        "task": "GatherDailySignals",
+        "description": "Aggregate relevant sources and headlines for the day."
+      },
+      {
+        "task": "SynthesizeBrief",
+        "depends_on": ["GatherDailySignals"],
+        "description": "Compose the briefing tailored to the requesting persona."
+      },
+      {
+        "task": "DistributeBrief",
+        "depends_on": ["SynthesizeBrief"],
+        "metadata": {
+          "channel": "email"
+        }
+      }
+    ],
+    "recurrence": {
+      "frequency": "daily",
+      "timezone": "UTC",
+      "start_date": "2024-01-01"
+    },
+    "acceptance_criteria": [
+      "Brief includes top three priority items",
+      "References at least two distinct sources",
+      "Delivery completed before 09:00 UTC"
+    ],
+    "escalation_policy": {
+      "level": "tier1",
+      "contact": "jobs-oncall@example.com",
+      "actions": ["notify"],
+      "timeframe": "1h"
+    },
+    "accepts_external_requests": true
+  },
+  {
+    "name": "WeeklyPerformanceReview",
+    "summary": "Review progress metrics and surface insights for leadership.",
+    "description": "Aggregates task outcomes, highlights blockers, and prepares talking points for the upcoming leadership sync.",
+    "personas": ["ATLAS", "ComplianceOfficer"],
+    "required_skills": ["Analysis", "Reporting"],
+    "required_tools": ["dashboard_service", "spreadsheet"],
+    "task_graph": [
+      {
+        "task": "CollectKPIs",
+        "description": "Pull the latest key performance indicators from connected systems."
+      },
+      {
+        "task": "DiagnoseTrends",
+        "depends_on": ["CollectKPIs"],
+        "description": "Analyze changes and annotate any anomalies."
+      },
+      {
+        "task": "PublishInsights",
+        "depends_on": ["DiagnoseTrends"],
+        "metadata": {
+          "channel": "workspace"
+        }
+      }
+    ],
+    "recurrence": {
+      "frequency": "weekly",
+      "interval": 1,
+      "timezone": "UTC"
+    },
+    "acceptance_criteria": [
+      "Includes summary of week-over-week movement",
+      "Flags unresolved risks with owners",
+      "Deliverable linked in leadership workspace"
+    ],
+    "escalation_policy": {
+      "level": "tier2",
+      "contact": "jobs-oncall@example.com",
+      "actions": ["page"],
+      "notes": "Escalate to leadership enablement when deliverable slips."
+    }
+  }
+]

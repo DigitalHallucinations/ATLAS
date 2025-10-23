@@ -1,0 +1,78 @@
+[
+  {
+    "name": "DailyBriefing",
+    "extends": "DailyBriefing",
+    "summary": "Tailored daily executive briefing for ATLAS program stakeholders.",
+    "personas": ["ATLAS"],
+    "required_tools": ["browser", "notebook", "atlas_dashboard"],
+    "acceptance_criteria": [
+      "Atlas leadership receives prioritized next steps",
+      "Brief highlights emerging partner risks"
+    ],
+    "task_graph": [
+      {
+        "task": "GatherDailySignals",
+        "description": "Aggregate relevant sources and headlines for the day."
+      },
+      {
+        "task": "AtlasSignalRouting",
+        "depends_on": ["GatherDailySignals"],
+        "description": "Map updates to Atlas workstreams."
+      },
+      {
+        "task": "SynthesizeBrief",
+        "depends_on": ["AtlasSignalRouting"],
+        "description": "Compose the briefing tailored to the requesting persona."
+      },
+      {
+        "task": "DistributeBrief",
+        "depends_on": ["SynthesizeBrief"],
+        "metadata": {
+          "channel": "workspace"
+        }
+      }
+    ]
+  },
+  {
+    "name": "AtlasLaunchReadiness",
+    "summary": "Coordinate launch readiness reviews for new Atlas capabilities.",
+    "description": "Schedules stakeholder checkpoints, confirms documentation, and tracks outstanding launch blockers.",
+    "personas": ["ATLAS"],
+    "required_skills": ["ProgramManagement", "RiskAssessment"],
+    "required_tools": ["roadmap_service", "ticketing_system"],
+    "task_graph": [
+      {
+        "task": "PlanLaunchReview",
+        "description": "Schedule kickoff and confirm participants."
+      },
+      {
+        "task": "AuditLaunchChecklist",
+        "depends_on": ["PlanLaunchReview"],
+        "description": "Validate documentation, testing, and training artifacts."
+      },
+      {
+        "task": "EscalateOpenRisks",
+        "depends_on": ["AuditLaunchChecklist"],
+        "metadata": {
+          "channel": "incident"
+        }
+      }
+    ],
+    "recurrence": {
+      "frequency": "weekly",
+      "interval": 2,
+      "timezone": "UTC"
+    },
+    "acceptance_criteria": [
+      "All launch checklist items have assigned owners",
+      "Risks include mitigation status",
+      "Review summary shared with Atlas stakeholders"
+    ],
+    "escalation_policy": {
+      "level": "tier2",
+      "contact": "atlas-oncall@example.com",
+      "actions": ["notify", "page"],
+      "timeframe": "4h"
+    }
+  }
+]
