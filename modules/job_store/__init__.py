@@ -14,6 +14,12 @@ from .models import (
     JobTaskLink,
     ensure_job_schema,
 )
+from .service import (
+    JobDependencyError,
+    JobService,
+    JobServiceError,
+    JobTransitionError,
+)
 
 __all__ = [
     "Base",
@@ -28,4 +34,8 @@ __all__ = [
     "JobStatus",
     "JobTaskLink",
     "ensure_job_schema",
+    "JobService",
+    "JobServiceError",
+    "JobTransitionError",
+    "JobDependencyError",
 ]
