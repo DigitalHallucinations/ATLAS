@@ -7,8 +7,35 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Iterator, Mapping, Optional, Sequence
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload, sessionmaker
+try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
+    from sqlalchemy import select
+except Exception:  # pragma: no cover - fallback when SQLAlchemy is absent
+    def select(*_args, **_kwargs):  # type: ignore[override]
+        raise RuntimeError("SQLAlchemy select is unavailable in this environment")
+
+
+try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
+    from sqlalchemy.orm import Session, joinedload, sessionmaker
+except Exception:  # pragma: no cover - fallback when SQLAlchemy is absent
+    class _Session:  # pragma: no cover - lightweight placeholder type
+        pass
+
+    class _Sessionmaker:  # pragma: no cover - lightweight placeholder type
+        def __init__(self, *_args, **_kwargs):
+            raise RuntimeError("SQLAlchemy sessionmaker is unavailable in this environment")
+
+    def joinedload(*_args, **_kwargs):  # type: ignore[override]
+        raise RuntimeError("SQLAlchemy joinedload is unavailable in this environment")
+
+    Session = _Session  # type: ignore[assignment]
+    sessionmaker = _Sessionmaker  # type: ignore[assignment]
+else:  # pragma: no cover - sanitize stubbed implementations
+    if not isinstance(sessionmaker, type):  # pragma: no cover - test stub compatibility
+        class _Sessionmaker:  # lightweight placeholder mirroring SQLAlchemy API
+            def __init__(self, *_args, **_kwargs):
+                raise RuntimeError("SQLAlchemy sessionmaker is unavailable in this environment")
+
+        sessionmaker = _Sessionmaker  # type: ignore[assignment]
 
 from modules.conversation_store.models import Conversation
 
