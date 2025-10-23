@@ -2,6 +2,7 @@ import json
 import os
 import time
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -20,18 +21,26 @@ def capability_root(tmp_path: Path) -> Path:
     (tmp_path / "modules" / "Tools" / "tool_maps").mkdir(parents=True, exist_ok=True)
     (tmp_path / "modules" / "Skills").mkdir(parents=True, exist_ok=True)
     (tmp_path / "modules" / "Tasks").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "modules" / "Jobs").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 
 def _write_shared_manifests(
-    root: Path, tools: list[dict], skills: list[dict], tasks: list[dict]
+    root: Path,
+    tools: list[dict],
+    skills: list[dict],
+    tasks: list[dict],
+    jobs: Optional[list[dict]] = None,
 ) -> None:
     tool_path = root / "modules" / "Tools" / "tool_maps" / "functions.json"
     skill_path = root / "modules" / "Skills" / "skills.json"
     task_path = root / "modules" / "Tasks" / "tasks.json"
+    job_path = root / "modules" / "Jobs" / "jobs.json"
     tool_path.write_text(json.dumps(tools), encoding="utf-8")
     skill_path.write_text(json.dumps(skills), encoding="utf-8")
     task_path.write_text(json.dumps(tasks), encoding="utf-8")
+    job_payload = jobs if jobs is not None else []
+    job_path.write_text(json.dumps(job_payload), encoding="utf-8")
 
 
 def _write_persona_tools(root: Path, persona: str, tools: list[dict]) -> None:
@@ -46,6 +55,13 @@ def _write_persona_tasks(root: Path, persona: str, tasks: list[dict]) -> None:
     manifest_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = manifest_dir / "tasks.json"
     manifest_path.write_text(json.dumps(tasks), encoding="utf-8")
+
+
+def _write_persona_jobs(root: Path, persona: str, jobs: list[dict]) -> None:
+    manifest_dir = root / "modules" / "Personas" / persona / "Jobs"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_dir / "jobs.json"
+    manifest_path.write_text(json.dumps(jobs), encoding="utf-8")
 
 
 def _minimal_tool(name: str) -> dict:
@@ -73,8 +89,8 @@ def _minimal_skill(name: str) -> dict:
         "instruction_prompt": "run",
         "required_tools": [],
         "required_capabilities": ["sample"],
-        "safety_notes": "",
-        "summary": "",
+        "safety_notes": "Follow standard guardrails",
+        "summary": "Sample skill",
         "category": "general",
         "capability_tags": ["sample"],
     }
@@ -93,6 +109,29 @@ def _minimal_task(name: str) -> dict:
             "contact": "oncall@example.com",
         },
         "tags": ["sample"],
+    }
+
+
+def _minimal_job(name: str, *, personas: list[str]) -> dict:
+    return {
+        "name": name,
+        "summary": f"Job {name}",
+        "description": "Run sample workflow",
+        "personas": personas,
+        "required_skills": ["summary_skill"],
+        "required_tools": ["summary_tool"],
+        "task_graph": [
+            {
+                "task": "SummaryTask",
+                "description": "Execute summary task",
+            }
+        ],
+        "recurrence": {"frequency": "adhoc"},
+        "acceptance_criteria": ["complete"],
+        "escalation_policy": {
+            "level": "tier1",
+            "contact": "alerts@example.com",
+        },
     }
 
 
@@ -238,6 +277,35 @@ def test_query_tasks_supports_filters(capability_root: Path) -> None:
     assert {view.manifest.name for view in skill_filtered} == {"AtlasTask"}
 
 
+def test_query_jobs_respects_persona_allowlist(capability_root: Path) -> None:
+    shared_tool = _minimal_tool("summary_tool")
+    shared_skill = _minimal_skill("summary_skill")
+    shared_task = _minimal_task("SummaryTask")
+    shared_job = _minimal_job("GlobalJob", personas=["Atlas", "Nova"])
+    _write_shared_manifests(
+        capability_root,
+        [shared_tool],
+        [shared_skill],
+        [shared_task],
+        jobs=[shared_job],
+    )
+
+    atlas_job = _minimal_job("AtlasOnly", personas=["Atlas"])
+    _write_persona_jobs(capability_root, "Atlas", [atlas_job])
+
+    registry = CapabilityRegistry(config_manager=_DummyConfig(capability_root))
+    registry.refresh(force=True)
+
+    atlas_views = registry.query_jobs(persona_filters=["atlas"])
+    assert {view.manifest.name for view in atlas_views} == {"GlobalJob", "AtlasOnly"}
+
+    nova_views = registry.query_jobs(persona_filters=["nova"])
+    assert {view.manifest.name for view in nova_views} == {"GlobalJob"}
+
+    persona_only = registry.query_jobs(persona_filters=["atlas", "-shared"])
+    assert {view.manifest.name for view in persona_only} == {"AtlasOnly"}
+
+
 def test_get_task_catalog_prefers_persona_variants(capability_root: Path) -> None:
     shared_tool = _minimal_tool("shared_tool")
     shared_skill = _minimal_skill("shared_skill")
@@ -300,7 +368,8 @@ def test_registry_summary_includes_tasks_and_health(capability_root: Path) -> No
     tool = _minimal_tool("summary_tool")
     skill = _minimal_skill("summary_skill")
     task = _minimal_task("SummaryTask")
-    _write_shared_manifests(capability_root, [tool], [skill], [task])
+    job = _minimal_job("SummaryJob", personas=["Atlas", "Nova"])
+    _write_shared_manifests(capability_root, [tool], [skill], [task], jobs=[job])
 
     registry = CapabilityRegistry(config_manager=_DummyConfig(capability_root))
     registry.refresh(force=True)
@@ -309,6 +378,12 @@ def test_registry_summary_includes_tasks_and_health(capability_root: Path) -> No
         tool_name="summary_tool",
         success=True,
         latency_ms=120.0,
+    )
+    registry.record_job_execution(
+        persona=None,
+        job_name="SummaryJob",
+        success=False,
+        latency_ms=45.0,
     )
 
     summary = registry.summary(persona="Atlas")
@@ -325,3 +400,9 @@ def test_registry_summary_includes_tasks_and_health(capability_root: Path) -> No
     task_entry = next(entry for entry in summary["tasks"] if entry["name"] == "SummaryTask")
     assert task_entry["compatibility"]["persona_specific"] is False
     assert set(task_entry["required_skills"]) == {"sample"}
+
+    job_entry = next(entry for entry in summary["jobs"] if entry["name"] == "SummaryJob")
+    assert job_entry["compatibility"]["matches_request"] is True
+    assert set(job_entry["personas"]) == {"Atlas", "Nova"}
+    assert set(job_entry["required_capabilities"]) == {"sample"}
+    assert job_entry["health"]["job"]["total"] == 1

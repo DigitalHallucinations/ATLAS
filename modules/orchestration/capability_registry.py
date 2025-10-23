@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import copy
 import threading
-import copy
 import json
 import time
 from collections import deque
@@ -21,6 +20,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Seque
 from modules.Tools.manifest_loader import ToolManifestEntry, load_manifest_entries
 from modules.Skills.manifest_loader import SkillMetadata, load_skill_metadata
 from modules.Tasks.manifest_loader import TaskMetadata, load_task_metadata
+from modules.Jobs.manifest_loader import JobMetadata, load_job_metadata
 from modules.logging.logger import setup_logger
 
 try:  # ConfigManager may not be available in certain test scenarios
@@ -33,6 +33,19 @@ logger = setup_logger(__name__)
 
 
 _MAX_METRIC_SAMPLES = 100
+
+
+_EMPTY_METRIC_SUMMARY = MappingProxyType(
+    {
+        "total": 0,
+        "success": 0,
+        "failure": 0,
+        "success_rate": 0.0,
+        "average_latency_ms": None,
+        "p95_latency_ms": None,
+        "last_sample_at": None,
+    }
+)
 
 
 def _normalize_persona(persona: Optional[str]) -> Optional[str]:
@@ -51,6 +64,17 @@ def _coerce_string_sequence(values: Iterable[Any]) -> Tuple[str, ...]:
         if text:
             tokens.append(text)
     return tuple(tokens)
+
+
+def _dedupe_sequence(values: Iterable[str]) -> Tuple[str, ...]:
+    seen = set()
+    result: List[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return tuple(result)
 
 
 _SHARED_PERSONA_EXCLUSION_TOKENS = {
@@ -78,6 +102,28 @@ def _persona_filter_matches(persona: Optional[str], tokens: Sequence[str]) -> bo
         return True
 
     return persona_token in positive_tokens
+
+
+def _job_persona_matches(personas: Sequence[str], tokens: Sequence[str]) -> bool:
+    if not tokens:
+        return True
+
+    normalized_personas: set[str] = set()
+    for persona in personas:
+        normalized = _normalize_persona(persona)
+        if normalized:
+            normalized_personas.add(normalized.lower())
+
+    positive_tokens = [
+        token
+        for token in tokens
+        if token not in _SHARED_PERSONA_EXCLUSION_TOKENS
+    ]
+
+    if not positive_tokens:
+        return True
+
+    return any(token in normalized_personas for token in positive_tokens)
 
 
 def _parse_version(text: Optional[str]) -> Optional[Tuple[Any, ...]]:
@@ -264,6 +310,18 @@ class TaskCapabilityView:
     tags: Tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class JobCapabilityView:
+    """Projection of a job manifest entry with normalized metadata."""
+
+    manifest: JobMetadata
+    personas: Tuple[str, ...]
+    required_skills: Tuple[str, ...]
+    required_tools: Tuple[str, ...]
+    required_capabilities: Tuple[str, ...]
+    health: Mapping[str, Any]
+
+
 @dataclass
 class _ToolRecord:
     manifest: ToolManifestEntry
@@ -287,6 +345,15 @@ class _TaskRecord:
     tags: Tuple[str, ...]
 
 
+@dataclass
+class _JobRecord:
+    manifest: JobMetadata
+    personas: Tuple[str, ...]
+    required_skills: Tuple[str, ...]
+    required_tools: Tuple[str, ...]
+    required_capabilities: Tuple[str, ...]
+
+
 class CapabilityRegistry:
     """Registry providing cached manifest metadata and health statistics."""
 
@@ -307,6 +374,9 @@ class CapabilityRegistry:
         self._skill_lookup: Dict[Tuple[Optional[str], str], _SkillRecord] = {}
         self._task_records: List[_TaskRecord] = []
         self._task_lookup: Dict[Tuple[Optional[str], str], _TaskRecord] = {}
+        self._job_records: List[_JobRecord] = []
+        self._job_lookup: Dict[Tuple[Optional[str], str], _JobRecord] = {}
+        self._job_metrics: Dict[Tuple[Optional[str], str], RollingMetricWindow] = {}
 
     # ------------------------------------------------------------------
     # Configuration helpers
@@ -386,6 +456,52 @@ class CapabilityRegistry:
                 task_records.append(record)
                 task_lookup[(persona_key, entry.name)] = record
 
+            job_entries = load_job_metadata(config_manager=self._config_manager)
+            job_records: List[_JobRecord] = []
+            job_lookup: Dict[Tuple[Optional[str], str], _JobRecord] = {}
+            for entry in job_entries:
+                persona_key = _normalize_persona(entry.persona)
+                personas = _dedupe_sequence(entry.personas)
+                required_skills = _coerce_string_sequence(entry.required_skills)
+                required_tools = _coerce_string_sequence(entry.required_tools)
+
+                capability_hints: List[str] = []
+                for skill_name in required_skills:
+                    skill_record = skill_lookup.get((persona_key, skill_name))
+                    if skill_record is None:
+                        skill_record = skill_lookup.get((None, skill_name))
+                    if skill_record is None:
+                        continue
+                    capability_hints.extend(skill_record.required_capabilities)
+                    capability_hints.extend(skill_record.capability_tags)
+
+                for tool_name in required_tools:
+                    tool_record = tool_lookup.get((persona_key, tool_name))
+                    if tool_record is None:
+                        tool_record = tool_lookup.get((None, tool_name))
+                    if tool_record is None:
+                        continue
+                    capability_hints.extend(tool_record.capability_tags)
+                    capabilities = getattr(tool_record.manifest, "capabilities", ())
+                    if isinstance(capabilities, Iterable) and not isinstance(
+                        capabilities, (str, bytes)
+                    ):
+                        capability_hints.extend(
+                            str(token).strip()
+                            for token in capabilities
+                            if isinstance(token, str) and str(token).strip()
+                        )
+
+                record = _JobRecord(
+                    manifest=entry,
+                    personas=personas,
+                    required_skills=required_skills,
+                    required_tools=required_tools,
+                    required_capabilities=_dedupe_sequence(capability_hints),
+                )
+                job_records.append(record)
+                job_lookup[(persona_key, entry.name)] = record
+
             self._tool_records = tool_records
             self._tool_lookup = tool_lookup
             self._tool_payloads = tool_payloads
@@ -395,6 +511,8 @@ class CapabilityRegistry:
             self._skill_lookup = skill_lookup
             self._task_records = task_records
             self._task_lookup = task_lookup
+            self._job_records = job_records
+            self._job_lookup = job_lookup
             self._manifest_state = manifest_state
             self._revision += 1
             logger.debug("Capability registry refreshed (revision=%s)", self._revision)
@@ -456,9 +574,7 @@ class CapabilityRegistry:
 
                 tool_key = (persona_key, manifest.name)
                 tool_metric = self._tool_metrics.get(tool_key)
-                tool_summary = tool_metric.summary() if tool_metric else MappingProxyType(
-                    {"total": 0, "success": 0, "failure": 0, "success_rate": 0.0, "average_latency_ms": None, "p95_latency_ms": None, "last_sample_at": None}
-                )
+                tool_summary = tool_metric.summary() if tool_metric else _EMPTY_METRIC_SUMMARY
                 if min_success_rate is not None and tool_summary["success_rate"] < min_success_rate:
                     continue
 
@@ -474,17 +590,7 @@ class CapabilityRegistry:
                     snapshot = self._provider_snapshots.get(provider_key, MappingProxyType({}))
                     provider_health[provider_name] = MappingProxyType(
                         {
-                            "metrics": metrics.summary() if metrics else MappingProxyType(
-                                {
-                                    "total": 0,
-                                    "success": 0,
-                                    "failure": 0,
-                                    "success_rate": 0.0,
-                                    "average_latency_ms": None,
-                                    "p95_latency_ms": None,
-                                    "last_sample_at": None,
-                                }
-                            ),
+                            "metrics": metrics.summary() if metrics else _EMPTY_METRIC_SUMMARY,
                             "router": snapshot,
                         }
                     )
@@ -604,6 +710,64 @@ class CapabilityRegistry:
                 )
             return results
 
+    def query_jobs(
+        self,
+        *,
+        persona_filters: Optional[Sequence[str]] = None,
+        required_capability_filters: Optional[Sequence[str]] = None,
+        required_skill_filters: Optional[Sequence[str]] = None,
+    ) -> List[JobCapabilityView]:
+        with self._lock:
+            self.refresh_if_stale()
+            persona_tokens = [
+                token.strip().lower()
+                for token in persona_filters or []
+                if isinstance(token, str) and token.strip()
+            ]
+            capability_tokens = {
+                token.strip().lower()
+                for token in required_capability_filters or []
+                if isinstance(token, str) and token.strip()
+            }
+            skill_tokens = {
+                token.strip().lower()
+                for token in required_skill_filters or []
+                if isinstance(token, str) and token.strip()
+            }
+
+            results: List[JobCapabilityView] = []
+            for record in self._job_records:
+                manifest = record.manifest
+                persona_key = _normalize_persona(manifest.persona)
+                if persona_tokens and not _persona_filter_matches(persona_key, persona_tokens):
+                    continue
+                if persona_tokens and not _job_persona_matches(record.personas, persona_tokens):
+                    continue
+                if capability_tokens:
+                    record_caps = {token.lower() for token in record.required_capabilities}
+                    if not capability_tokens.issubset(record_caps):
+                        continue
+                if skill_tokens:
+                    record_skills = {token.lower() for token in record.required_skills}
+                    if not skill_tokens.issubset(record_skills):
+                        continue
+
+                job_key = (persona_key, manifest.name)
+                metrics = self._job_metrics.get(job_key)
+                job_health = metrics.summary() if metrics else _EMPTY_METRIC_SUMMARY
+
+                results.append(
+                    JobCapabilityView(
+                        manifest=manifest,
+                        personas=record.personas,
+                        required_skills=record.required_skills,
+                        required_tools=record.required_tools,
+                        required_capabilities=record.required_capabilities,
+                        health=MappingProxyType({"job": job_health}),
+                    )
+                )
+            return results
+
     def get_task_catalog(self, persona: Optional[str]) -> List[TaskCapabilityView]:
         with self._lock:
             self.refresh_if_stale()
@@ -632,7 +796,7 @@ class CapabilityRegistry:
             ]
 
     def summary(self, *, persona: Optional[str] = None) -> Mapping[str, Any]:
-        """Return an overview of tools, skills, and tasks for dashboards."""
+        """Return an overview of tools, skills, tasks, and jobs for dashboards."""
 
         persona_filters: Optional[List[str]]
         if persona is None:
@@ -643,6 +807,7 @@ class CapabilityRegistry:
         tool_views = self.query_tools(persona_filters=persona_filters)
         skill_views = self.query_skills(persona_filters=persona_filters)
         task_views = self.get_task_catalog(persona)
+        job_views = self.query_jobs(persona_filters=persona_filters)
 
         with self._lock:
             revision = self._revision
@@ -704,12 +869,34 @@ class CapabilityRegistry:
                 )
             )
 
+        job_entries = []
+        for view in job_views:
+            manifest = view.manifest
+            compatibility = _compatibility_flags(manifest.persona, persona, view.personas)
+            job_entries.append(
+                MappingProxyType(
+                    {
+                        "name": manifest.name,
+                        "persona": manifest.persona,
+                        "summary": manifest.summary,
+                        "description": manifest.description,
+                        "personas": list(view.personas),
+                        "required_skills": list(view.required_skills),
+                        "required_tools": list(view.required_tools),
+                        "required_capabilities": list(view.required_capabilities),
+                        "health": view.health,
+                        "compatibility": compatibility,
+                    }
+                )
+            )
+
         payload = {
             "revision": revision,
             "persona": persona,
             "tools": tuple(tool_entries),
             "skills": tuple(skill_entries),
             "tasks": tuple(task_entries),
+            "jobs": tuple(job_entries),
         }
         return MappingProxyType(payload)
 
@@ -849,6 +1036,24 @@ class CapabilityRegistry:
                     window.add(success=success, latency_ms=None, timestamp=timestamp)
                 self._provider_snapshots[provider_key] = MappingProxyType(dict(snapshot))
 
+    def record_job_execution(
+        self,
+        *,
+        persona: Optional[str],
+        job_name: str,
+        success: bool,
+        latency_ms: Optional[float] = None,
+        timestamp: Optional[float] = None,
+    ) -> None:
+        persona_key = _normalize_persona(persona)
+        job_key = (persona_key, job_name)
+        with self._lock:
+            window = self._job_metrics.get(job_key)
+            if window is None:
+                window = RollingMetricWindow()
+                self._job_metrics[job_key] = window
+            window.add(success=success, latency_ms=latency_ms, timestamp=timestamp)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -906,8 +1111,10 @@ class CapabilityRegistry:
                 yield persona_dir / "Toolbox" / "functions.json"
                 yield persona_dir / "Skills" / "skills.json"
                 yield persona_dir / "Tasks" / "tasks.json"
+                yield persona_dir / "Jobs" / "jobs.json"
         yield app_root / "modules" / "Skills" / "skills.json"
         yield app_root / "modules" / "Tasks" / "tasks.json"
+        yield app_root / "modules" / "Jobs" / "jobs.json"
 
     def _load_tool_payloads(
         self, app_root: Path
@@ -998,6 +1205,7 @@ __all__ = [
     "ToolCapabilityView",
     "SkillCapabilityView",
     "TaskCapabilityView",
+    "JobCapabilityView",
     "get_capability_registry",
     "reset_capability_registry",
 ]
