@@ -1,5 +1,44 @@
 [
     {
+        "name": "get_current_info",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "format_type": {
+                    "type": "string",
+                    "enum": [
+                        "time",
+                        "date",
+                        "day",
+                        "month_year",
+                        "timestamp"
+                    ],
+                    "default": "timestamp"
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "Optional IANA timezone identifier (e.g., \"America/New_York\"). Defaults to the configured timezone or UTC."
+                }
+            },
+            "required": []
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "time_information",
+            "date_information"
+        ]
+    },
+    {
         "name": "google_search",
         "version": "1.0.0",
         "side_effects": "none",
@@ -54,45 +93,6 @@
                 "priority": 10,
                 "health_check_interval": 300
             }
-        ]
-    },
-    {
-        "name": "get_current_info",
-        "version": "1.0.0",
-        "side_effects": "none",
-        "default_timeout": 5,
-        "auth": {
-            "required": false
-        },
-        "allow_parallel": true,
-        "idempotency_key": false,
-        "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "format_type": {
-                    "type": "string",
-                    "enum": [
-                        "time",
-                        "date",
-                        "day",
-                        "month_year",
-                        "timestamp"
-                    ],
-                    "default": "timestamp"
-                },
-                "timezone": {
-                    "type": "string",
-                    "description": "Optional IANA timezone identifier (e.g., \"America/New_York\"). Defaults to the configured timezone or UTC."
-                }
-            },
-            "required": []
-        },
-        "cost_per_call": 0.0,
-        "cost_unit": "USD",
-        "capabilities": [
-            "time_information",
-            "date_information"
         ]
     },
     {
@@ -160,5 +160,41 @@
                 "query"
             ]
         }
+    },
+    {
+        "name": "regulatory_gap_audit",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Compare provided controls against compliance checklists and flag gaps.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "description": "Regulatory domain to audit (e.g., gdpr, hipaa, iso27001)."
+                },
+                "controls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Implemented controls to evaluate."
+                }
+            },
+            "required": [
+                "domain",
+                "controls"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "compliance",
+            "risk_assessment"
+        ]
     }
 ]

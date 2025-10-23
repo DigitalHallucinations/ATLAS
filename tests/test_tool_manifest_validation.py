@@ -135,3 +135,26 @@ def test_manifest_accepts_known_side_effect_categories(persona_workspace, side_e
 
     assert isinstance(loaded, list)
     assert loaded[0]["side_effects"] == side_effect
+
+
+@pytest.mark.parametrize(
+    "persona, tool",
+    [
+        ("ATLAS", "task_catalog_snapshot"),
+        ("Cleverbot", "persona_backstory_sampler"),
+        ("DocGenius", "generate_doc_outline"),
+        ("Einstein", "relativity_scenario"),
+        ("Nikola Tesla", "wireless_power_brief"),
+        ("genius", "metaphor_palette"),
+        ("ComplianceOfficer", "regulatory_gap_audit"),
+        ("KnowledgeCurator", "knowledge_card_builder"),
+        ("HealthCoach", "habit_stack_planner"),
+        ("FitnessCoach", "microcycle_plan"),
+        ("LanguageTutor", "dialogue_drill"),
+        ("MathTutor", "stepwise_solution"),
+    ],
+)
+def test_specialized_tools_present_in_manifest(persona: str, tool: str) -> None:
+    tool_manager._function_payload_cache.pop(persona, None)
+    entries = tool_manager.load_functions_from_json({"name": persona}, refresh=True)
+    assert any(entry["name"] == tool for entry in entries)

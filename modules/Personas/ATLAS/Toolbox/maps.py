@@ -6,6 +6,8 @@ from modules.Tools.Base_Tools.policy_reference import policy_reference
 from modules.Tools.Base_Tools.context_tracker import context_tracker
 from modules.Tools.Base_Tools.priority_queue import priority_queue
 
+from .catalog import task_catalog_snapshot
+
 # Create an instance of GoogleSearch
 google_search_instance = GoogleSearch()
 
@@ -16,5 +18,6 @@ function_map = {
     "google_search": google_search_instance._search,
     "policy_reference": policy_reference,
     "context_tracker": context_tracker,
-    "priority_queue": priority_queue
+    "priority_queue": priority_queue,
+    "task_catalog_snapshot": task_catalog_snapshot,
 }

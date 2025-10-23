@@ -4,6 +4,8 @@ from modules.Tools.Base_Tools.time import get_current_info
 from modules.Tools.Base_Tools.Google_search import GoogleSearch
 from modules.Tools.Base_Tools.policy_reference import policy_reference
 
+from .documentation import generate_doc_outline
+
 # Create an instance of GoogleSearch
 google_search_instance = GoogleSearch()
 
@@ -11,5 +13,6 @@ google_search_instance = GoogleSearch()
 function_map = {
     "get_current_info": get_current_info,
     "google_search": google_search_instance._search,
-    "policy_reference": policy_reference
+    "policy_reference": policy_reference,
+    "generate_doc_outline": generate_doc_outline,
 }

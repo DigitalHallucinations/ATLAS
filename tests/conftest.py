@@ -23,7 +23,12 @@ if "pygame" not in sys.modules:
     sys.modules["pygame"] = pygame_module
 
 
-if "requests" not in sys.modules:
+try:
+    import requests  # type: ignore  # noqa: F401
+except Exception:
+    requests = None  # pragma: no cover - ensures stub path executes
+
+if "requests" not in sys.modules and requests is None:
     class _DummyResponse:
         ok = True
         text = ""
@@ -78,6 +83,79 @@ if "requests" not in sys.modules:
             return request
 
     adapters_module.HTTPAdapter = _HTTPAdapter
+
+
+try:
+    import jsonschema  # type: ignore  # noqa: F401
+except Exception:
+    jsonschema = None  # pragma: no cover - ensures stub path executes
+
+if "jsonschema" not in sys.modules and jsonschema is None:
+    jsonschema_stub = types.ModuleType("jsonschema")
+    jsonschema_stub.__file__ = __file__
+    sys.modules["jsonschema"] = jsonschema_stub
+
+
+try:
+    import sqlalchemy  # type: ignore  # noqa: F401
+except Exception:
+    sqlalchemy = None  # pragma: no cover - ensures stub path executes
+
+if "sqlalchemy" not in sys.modules and sqlalchemy is None:
+    sqlalchemy_stub = types.ModuleType("sqlalchemy")
+    sqlalchemy_stub.__file__ = __file__
+    sqlalchemy_stub.__path__ = []
+
+    def _marker(name):
+        class _Type:
+            def __init__(self, *args, **kwargs):  # pragma: no cover - stub initialiser
+                self.args = args
+                self.kwargs = kwargs
+
+        _Type.__name__ = name
+        return _Type
+
+    def _noop(*_args, **_kwargs):  # pragma: no cover - lightweight stub
+        return None
+
+    for attr in [
+        "Boolean",
+        "Enum",
+        "DateTime",
+        "Float",
+        "ForeignKey",
+        "Index",
+        "Integer",
+        "String",
+        "Text",
+        "UniqueConstraint",
+    ]:
+        setattr(sqlalchemy_stub, attr, _marker(attr))
+
+    sqlalchemy_stub.Column = lambda *args, **kwargs: {"args": args, "kwargs": kwargs}
+    sqlalchemy_stub.inspect = _noop
+    sqlalchemy_stub.create_engine = _noop
+
+    dialects_module = types.ModuleType("sqlalchemy.dialects")
+    postgres_module = types.ModuleType("sqlalchemy.dialects.postgresql")
+    for attr in ["ARRAY", "JSONB", "UUID", "TSVECTOR"]:
+        setattr(postgres_module, attr, _marker(attr))
+
+    orm_module = types.ModuleType("sqlalchemy.orm")
+    orm_module.declarative_base = lambda: type("Base", (), {})
+    orm_module.relationship = _noop
+    orm_module.sessionmaker = lambda *args, **kwargs: _noop
+
+    engine_module = types.ModuleType("sqlalchemy.engine")
+    engine_module.Engine = _marker("Engine")
+
+    sqlalchemy_stub.Engine = engine_module.Engine
+
+    sys.modules["sqlalchemy"] = sqlalchemy_stub
+    sys.modules["sqlalchemy.dialects"] = dialects_module
+    sys.modules["sqlalchemy.dialects.postgresql"] = postgres_module
+    sys.modules["sqlalchemy.orm"] = orm_module
+    sys.modules["sqlalchemy.engine"] = engine_module
     requests_module.adapters = adapters_module
 
     sys.modules["requests"] = requests_module

@@ -1,5 +1,77 @@
 [
     {
+        "name": "generate_doc_outline",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 8,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Parse a definition signature and return DocGenius docstring scaffolding.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "signature": {
+                    "type": "string",
+                    "description": "Function or class signature to analyze."
+                },
+                "language": {
+                    "type": "string",
+                    "default": "python",
+                    "description": "Language of the provided signature (python supported natively)."
+                }
+            },
+            "required": [
+                "signature"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "documentation",
+            "analysis"
+        ]
+    },
+    {
+        "name": "get_current_info",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "format_type": {
+                    "type": "string",
+                    "enum": [
+                        "time",
+                        "date",
+                        "day",
+                        "month_year",
+                        "timestamp"
+                    ],
+                    "default": "timestamp"
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "Optional IANA timezone identifier (e.g., \"America/New_York\"). Defaults to the configured timezone or UTC."
+                }
+            },
+            "required": []
+        },
+        "idempotency_key": false,
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "time_information",
+            "date_information"
+        ]
+    },
+    {
         "name": "google_search",
         "version": "1.0.0",
         "side_effects": "none",
@@ -54,45 +126,6 @@
                 "priority": 10,
                 "health_check_interval": 300
             }
-        ]
-    },
-    {
-        "name": "get_current_info",
-        "version": "1.0.0",
-        "side_effects": "none",
-        "default_timeout": 5,
-        "auth": {
-            "required": false
-        },
-        "allow_parallel": true,
-        "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "format_type": {
-                    "type": "string",
-                    "enum": [
-                        "time",
-                        "date",
-                        "day",
-                        "month_year",
-                        "timestamp"
-                    ],
-                    "default": "timestamp"
-                },
-                "timezone": {
-                    "type": "string",
-                    "description": "Optional IANA timezone identifier (e.g., \"America/New_York\"). Defaults to the configured timezone or UTC."
-                }
-            },
-            "required": []
-        },
-        "idempotency_key": false,
-        "cost_per_call": 0.0,
-        "cost_unit": "USD",
-        "capabilities": [
-            "time_information",
-            "date_information"
         ]
     }
 ]

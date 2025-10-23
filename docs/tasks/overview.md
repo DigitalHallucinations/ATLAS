@@ -43,6 +43,23 @@ The following manifest-backed tasks are now available to operators. Create a tas
 | `AdverseEventRapidReview` | MEDIC | `metadata.manifest_task="AdverseEventRapidReview"` | Rapid literature and policy check supporting urgent adverse event investigations. |
 | `ResumePipelineQualityReview` | ResumeGenius | `metadata.manifest_task="ResumePipelineQualityReview"` | Pipeline audit assessing ATS scores, systemic gaps, and remediation actions. |
 
+### Persona-specific tooling quick reference
+
+Routing and playbooks can now lean on purpose-built async helpers that live alongside each persona's toolbox:
+
+- **ATLAS** – `task_catalog_snapshot` surfaces filtered results from `AtlasServer.get_task_catalog`, making it easy to preview task availability before dispatching work (e.g., `{"persona": "DocGenius", "tags": ["clinical"]}`).
+- **Cleverbot** – `persona_backstory_sampler(style)` returns seeded openers/callbacks for `humor`, `sarcasm`, or `casual` banter so operators can warm up conversations with consistent tone.
+- **DocGenius** – `generate_doc_outline(signature, language="python")` parses function/class signatures and emits the standard DocGenius docstring scaffold (sections, parameter prompts, follow-ups).
+- **Einstein** – `relativity_scenario(topic)` provides curated thought experiments (`time_dilation`, `energy`, `gravity`) with prompts and variables to anchor physics explanations.
+- **Nikola Tesla** – `wireless_power_brief(goal, constraints)` assembles inventor-style briefs that map constraints to resonant coupling adaptations.
+- **Genius** – `metaphor_palette(theme, audience)` returns metaphor sets and delivery notes tuned to poetic storytelling for the specified audience.
+- **HealthCoach** – `habit_stack_planner(goal, schedule, blockers)` blends nutrition, stress, and sleep interventions from curated guidance tables to produce habit stacks with blocker mitigation.
+- **FitnessCoach** – `microcycle_plan(goal, equipment, days)` generates structured weekly programming with equipment notes and recovery guidance.
+- **LanguageTutor** – `dialogue_drill(topic, level, language)` produces conversational scripts, correction cues, and follow-up coaching suited to learner proficiency.
+- **MathTutor** – `stepwise_solution(problem, focus)` enumerates numbered reasoning steps and performs symbolic verification when SymPy is available.
+- **ComplianceOfficer** – `regulatory_gap_audit(domain, controls)` flags gaps against predefined checklists (GDPR, HIPAA, ISO 27001) to prioritize remediation.
+- **KnowledgeCurator** – `knowledge_card_builder(query, sources, review_cadence=None)` constructs standardized cards including findings, citations, and follow-up prompts.
+
 ### Operator workflow
 
 1. Resolve the correct persona for the request (for example, ATLAS for mission control reporting).
