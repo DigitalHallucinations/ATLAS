@@ -41,11 +41,11 @@ The following manifest-backed tasks are now available to operators. Create a tas
 | `ClinicalEvidenceSnapshot` | MEDIC, DocGenius | `metadata.manifest_task="ClinicalEvidenceSnapshot"` | Concise evidence digest summarizing current guidelines, key studies, and safety considerations. |
 | `ClinicalGuidelineUpdate` | MEDIC, DocGenius | `metadata.manifest_task="ClinicalGuidelineUpdate"` | Synthesizes new evidence into actionable guideline updates for care teams. |
 | `AdverseEventRapidReview` | MEDIC | `metadata.manifest_task="AdverseEventRapidReview"` | Rapid literature and policy check supporting urgent adverse event investigations. |
-| `ResumePipelineQualityReview` | ResumeGenius | `metadata.manifest_task="ResumePipelineQualityReview"` | Pipeline audit assessing ATS scores, systemic gaps, and remediation actions. |
+| `ResumePipelineQualityReview` | ResumeGenius | `metadata.manifest_task="ResumePipelineQualityReview"` | Persona-scoped pipeline audit assessing ATS scores, systemic gaps, and remediation actions. |
 
 ### Persona-specific tooling quick reference
 
-Routing and playbooks can now lean on purpose-built async helpers that live alongside each persona's toolbox:
+Routing and playbooks can now lean on purpose-built async helpers that live alongside each persona's toolbox. ATS-focused manifests now live solely in the ResumeGenius persona manifest (`modules/Personas/ResumeGenius/Tasks/tasks.json`):
 
 - **ATLAS** – `task_catalog_snapshot` surfaces filtered results from `AtlasServer.get_task_catalog`, making it easy to preview task availability before dispatching work (e.g., `{"persona": "DocGenius", "tags": ["clinical"]}`).
 - **Cleverbot** – `persona_backstory_sampler(style)` returns seeded openers/callbacks for `humor`, `sarcasm`, or `casual` banter so operators can warm up conversations with consistent tone.

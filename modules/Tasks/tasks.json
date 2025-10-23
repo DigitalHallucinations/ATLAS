@@ -498,42 +498,5 @@
       "adverse-events"
     ],
     "priority": "Critical"
-  },
-  {
-    "name": "ResumePipelineQualityReview",
-    "summary": "Audit resume generation pipelines for ATS alignment and policy compliance.",
-    "description": "Sample recent resume outputs to evaluate ATS scores, identify systemic gaps, and recommend iterative improvements.",
-    "required_skills": [
-      "ATSCompatibility"
-    ],
-    "required_tools": [
-      "ats_scoring_service",
-      "google_search",
-      "policy_reference"
-    ],
-    "acceptance_criteria": [
-      "Reports ATS scores across the sampled resumes with insight into the scoring rubric and variance.",
-      "Highlights recurring keyword or experience gaps that reduce interview conversion potential.",
-      "Documents remediation actions, including policy or privacy considerations for content updates."
-    ],
-    "escalation_policy": {
-      "level": "Resume QA Leads",
-      "contact": "resume-quality@atlas",
-      "timeframe": "Within 1 business day",
-      "triggers": [
-        "Pipeline regression detected",
-        "Compliance concern identified"
-      ],
-      "actions": [
-        "Notify QA lead",
-        "Schedule remediation review"
-      ]
-    },
-    "tags": [
-      "resume",
-      "ats",
-      "quality"
-    ],
-    "priority": "Medium"
   }
 ]
