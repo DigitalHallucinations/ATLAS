@@ -3461,6 +3461,34 @@ def test_medic_persona_exposes_pubmed_fetch(monkeypatch):
     assert callable(fetch_callable)
 
 
+def test_docgenius_persona_includes_medical_search_suite(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
+
+    persona_payload = {"name": "DocGenius"}
+
+    function_map = tool_manager.load_function_map_from_current_persona(
+        persona_payload, refresh=True
+    )
+
+    for tool_name in ("search_pubmed", "search_pmc", "fetch_pubmed_details"):
+        assert tool_name in function_map
+        entry = function_map[tool_name]
+        assert isinstance(entry, dict)
+        resolved = _resolve_callable(entry)
+        assert callable(resolved)
+
+
 def test_use_tool_resolves_google_search_with_default_map(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)

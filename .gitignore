@@ -42,3 +42,4 @@ __pycache__/
 
 /GCC.json
 GCC.json
+modules/analytics/persona_metrics.json

@@ -37,8 +37,11 @@
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
+| fetch_pubmed_details | 1.0.0 | medical_research, literature_retrieval | — | No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY) | Retrieve detailed PubMed records, including abstracts and metadata, via the Entrez EFetch API. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| search_pmc | 1.0.0 | medical_research, literature_search | — | No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY) | Search PubMed Central (PMC) for open access articles using the Entrez API. |
+| search_pubmed | 1.0.0 | medical_research, literature_search | — | No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY) | Search PubMed for biomedical literature using the NCBI Entrez API. |
 
 ## Persona: Einstein
 

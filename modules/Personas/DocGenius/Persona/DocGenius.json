@@ -97,6 +97,9 @@
             "voice": "jack",
             "allowed_tools": [
                 "google_search",
+                "search_pubmed",
+                "search_pmc",
+                "fetch_pubmed_details",
                 "get_current_info",
                 "policy_reference"
             ]
