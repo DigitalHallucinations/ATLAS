@@ -38,6 +38,7 @@ else:  # pragma: no cover - sanitize stubbed implementations
         sessionmaker = _Sessionmaker  # type: ignore[assignment]
 
 from modules.conversation_store.models import Conversation
+from modules.job_store import ensure_job_schema
 
 from .models import (
     Base,
@@ -210,6 +211,7 @@ class TaskStoreRepository:
             raise RuntimeError("Session factory must be bound to an engine")
         Base.metadata.create_all(engine)
         ensure_task_schema(engine)
+        ensure_job_schema(engine)
 
     # -- query helpers --------------------------------------------------
 

@@ -306,6 +306,61 @@ def _ensure_task_store(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "modules.task_store.models", models_stub)
 
+    job_status_enum = enum.Enum("JobStatus", {"DRAFT": "draft"})
+    job_assignment_enum = enum.Enum("JobAssignmentStatus", {"PENDING": "pending"})
+    job_event_enum = enum.Enum("JobEventType", {"CREATED": "created"})
+    job_run_status_enum = enum.Enum("JobRunStatus", {"SCHEDULED": "scheduled"})
+
+    job_models_stub = types.ModuleType("modules.job_store.models")
+    job_models_stub.Base = base_stub
+    job_models_stub.JobStatus = job_status_enum
+    job_models_stub.JobAssignmentStatus = job_assignment_enum
+    job_models_stub.JobEventType = job_event_enum
+    job_models_stub.JobRunStatus = job_run_status_enum
+    job_models_stub.Job = type("Job", (), {"__table__": _make_table("jobs")})
+    job_models_stub.JobRun = type("JobRun", (), {"__table__": _make_table("job_runs")})
+    job_models_stub.JobTaskLink = type(
+        "JobTaskLink", (), {"__table__": _make_table("job_task_links")}
+    )
+    job_models_stub.JobAssignment = type(
+        "JobAssignment", (), {"__table__": _make_table("job_assignments")}
+    )
+    job_models_stub.JobSchedule = type(
+        "JobSchedule", (), {"__table__": _make_table("job_schedules")}
+    )
+    job_models_stub.JobEvent = type(
+        "JobEvent", (), {"__table__": _make_table("job_events")}
+    )
+    job_models_stub._JOB_TABLES = (
+        job_models_stub.Job.__table__,
+        job_models_stub.JobRun.__table__,
+        job_models_stub.JobTaskLink.__table__,
+        job_models_stub.JobAssignment.__table__,
+        job_models_stub.JobSchedule.__table__,
+        job_models_stub.JobEvent.__table__,
+    )
+
+    def _ensure_job_schema(_engine):  # pragma: no cover - helper stub
+        return None
+
+    job_models_stub.ensure_job_schema = _ensure_job_schema
+    job_models_stub.__all__ = [
+        "Base",
+        "Job",
+        "JobStatus",
+        "JobRun",
+        "JobRunStatus",
+        "JobTaskLink",
+        "JobAssignment",
+        "JobAssignmentStatus",
+        "JobSchedule",
+        "JobEvent",
+        "JobEventType",
+        "ensure_job_schema",
+    ]
+
+    monkeypatch.setitem(sys.modules, "modules.job_store.models", job_models_stub)
+
     if "modules.task_store" not in sys.modules:
         task_store_stub = types.ModuleType("modules.task_store")
 
@@ -328,6 +383,16 @@ def _ensure_task_store(monkeypatch):
         ]
 
         monkeypatch.setitem(sys.modules, "modules.task_store", task_store_stub)
+
+    if "modules.job_store" not in sys.modules:
+        job_store_stub = types.ModuleType("modules.job_store")
+        job_store_stub.ensure_job_schema = _ensure_job_schema
+        job_store_stub.models = job_models_stub
+        job_store_stub.__all__ = [
+            "ensure_job_schema",
+        ]
+
+        monkeypatch.setitem(sys.modules, "modules.job_store", job_store_stub)
 
 def _ensure_pytz(monkeypatch):
     if "pytz" in sys.modules:
