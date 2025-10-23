@@ -1,0 +1,56 @@
+[
+  {
+    "name": "DailyBriefing",
+    "extends": "DailyBriefing",
+    "summary": "ResumeGenius-specific labour market pulse shared each morning.",
+    "personas": ["ResumeGenius"],
+    "required_skills": ["Summarization", "LaborMarketResearch"],
+    "required_tools": ["browser", "labor_market_feed"],
+    "acceptance_criteria": [
+      "Brief cites at least one hiring trend",
+      "Includes recommended resume optimizations"
+    ]
+  },
+  {
+    "name": "ResumePipelineNurture",
+    "summary": "Automate outreach cadence for prospects in the resume improvement pipeline.",
+    "description": "Sequences reminders, captures responses, and escalates stalled candidates to coaching staff.",
+    "personas": ["ResumeGenius"],
+    "required_skills": ["Engagement", "Copywriting"],
+    "required_tools": ["crm_service", "email_service"],
+    "task_graph": [
+      {
+        "task": "SegmentPipeline",
+        "description": "Identify cohorts requiring follow-up."
+      },
+      {
+        "task": "DraftTouchpoints",
+        "depends_on": ["SegmentPipeline"],
+        "description": "Author persona-aligned outreach messages."
+      },
+      {
+        "task": "ScheduleCampaign",
+        "depends_on": ["DraftTouchpoints"],
+        "metadata": {
+          "channel": "email"
+        }
+      }
+    ],
+    "recurrence": {
+      "frequency": "weekly",
+      "interval": 1,
+      "timezone": "America/New_York"
+    },
+    "acceptance_criteria": [
+      "All pipeline contacts receive touchpoint",
+      "Responses recorded within CRM",
+      "Escalate silent prospects after two attempts"
+    ],
+    "escalation_policy": {
+      "level": "tier1",
+      "contact": "resumegenius-oncall@example.com",
+      "actions": ["notify"],
+      "timeframe": "2h"
+    }
+  }
+]
