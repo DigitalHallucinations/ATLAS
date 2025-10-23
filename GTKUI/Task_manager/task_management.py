@@ -97,6 +97,9 @@ class TaskManagement:
         self._pending_focus_task: Optional[str] = None
         self._refresh_pending = False
         self._bus_subscriptions: List[Any] = []
+        self._catalog_entries: List[Mapping[str, Any]] = []
+        self._catalog_container: Optional[Gtk.Widget] = None
+        self._catalog_hint_label: Optional[Gtk.Label] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -240,6 +243,59 @@ class TaskManagement:
         self._acceptance_box = self._add_badge_section(detail_panel, "Acceptance criteria")
         self._dependencies_box = self._add_badge_section(detail_panel, "Dependencies")
 
+        detail_panel.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        expander_cls = getattr(Gtk, "Expander", None)
+        if expander_cls is not None:
+            catalog_wrapper = expander_cls(label="Reusable task catalog")
+            catalog_wrapper.set_hexpand(True)
+            catalog_wrapper.set_expanded(False)
+            detail_panel.append(catalog_wrapper)
+            catalog_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            for setter_name in (
+                "set_margin_top",
+                "set_margin_bottom",
+                "set_margin_start",
+                "set_margin_end",
+            ):
+                setter = getattr(catalog_box, setter_name, None)
+                if callable(setter):
+                    try:
+                        setter(6)
+                    except Exception:  # pragma: no cover - GTK fallback
+                        continue
+            setter = getattr(catalog_wrapper, "set_child", None)
+            if callable(setter):
+                setter(catalog_box)
+            else:  # pragma: no cover - GTK fallback
+                getattr(catalog_wrapper, "add", lambda *_args: None)(catalog_box)
+        else:
+            catalog_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            detail_panel.append(catalog_box)
+            header = Gtk.Label(label="Reusable task catalog")
+            header.set_xalign(0.0)
+            header.add_css_class("heading") if hasattr(header, "add_css_class") else None
+            catalog_box.append(header)
+
+        hint_label = Gtk.Label()
+        hint_label.set_xalign(0.0)
+        hint_label.set_wrap(True)
+        hint_label.add_css_class("dim-label") if hasattr(hint_label, "add_css_class") else None
+        catalog_box.append(hint_label)
+        self._catalog_hint_label = hint_label
+
+        catalog_scroller = Gtk.ScrolledWindow()
+        catalog_scroller.set_hexpand(True)
+        catalog_scroller.set_vexpand(False)
+        catalog_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        catalog_scroller.set_min_content_height(160)
+        catalog_box.append(catalog_scroller)
+
+        catalog_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        catalog_container.set_hexpand(True)
+        catalog_scroller.set_child(catalog_container)
+        self._catalog_container = catalog_container
+
         detail_panel.connect("destroy", lambda *_args: self._on_close_request())
         return root
 
@@ -306,6 +362,7 @@ class TaskManagement:
         self._entry_lookup = {entry.task_id: entry for entry in entries}
         self._populate_persona_filter_options()
         self._rebuild_task_list()
+        self._refresh_task_catalog()
 
     def _schedule_refresh(self) -> None:
         if self._refresh_pending:
@@ -357,6 +414,42 @@ class TaskManagement:
             if normalized is not None:
                 entries.append(normalized)
         return entries
+
+    def _load_task_catalog(self) -> List[Mapping[str, Any]]:
+        server = getattr(self.ATLAS, "server", None)
+        get_catalog = getattr(server, "get_task_catalog", None)
+        if not callable(get_catalog):
+            return []
+
+        persona_filter = self._persona_filter
+        persona_param: Optional[str]
+        if persona_filter == self._PERSONA_UNASSIGNED:
+            persona_param = "shared"
+        else:
+            persona_param = persona_filter
+
+        try:
+            response = get_catalog(persona=persona_param)
+        except Exception as exc:
+            logger.error("Failed to load task catalog: %s", exc, exc_info=True)
+            return []
+
+        items: List[Mapping[str, Any]] = []
+        if isinstance(response, Mapping):
+            payload = response.get("tasks") or response.get("items")
+        else:
+            payload = response
+
+        if isinstance(payload, Mapping):
+            iterator = payload.values()
+        else:
+            iterator = payload
+
+        if isinstance(iterator, Iterable) and not isinstance(iterator, (str, bytes)):
+            for entry in iterator:
+                if isinstance(entry, Mapping):
+                    items.append(dict(entry))
+        return items
 
     def _normalize_entry(self, payload: Any) -> Optional[_TaskEntry]:
         if not isinstance(payload, Mapping):
@@ -511,6 +604,7 @@ class TaskManagement:
         else:
             self._persona_filter = None
         self._rebuild_task_list()
+        self._refresh_task_catalog()
 
     def _on_status_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
         index = combo.get_active()
@@ -564,6 +658,147 @@ class TaskManagement:
         if status_filter and entry.status != status_filter:
             return False
         return True
+
+    def _refresh_task_catalog(self) -> None:
+        entries = self._load_task_catalog()
+        self._catalog_entries = entries
+        self._update_catalog_hint()
+        self._rebuild_task_catalog()
+
+    def _rebuild_task_catalog(self) -> None:
+        container = self._catalog_container
+        if container is None:
+            return
+        self._clear_container(container)
+
+        if not self._catalog_entries:
+            placeholder = Gtk.Label(
+                label="No reusable tasks were found in the manifest files."
+            )
+            placeholder.set_xalign(0.0)
+            placeholder.set_wrap(True)
+            container.append(placeholder)
+            return
+
+        for index, entry in enumerate(self._catalog_entries):
+            container.append(self._create_catalog_card(entry))
+            if index < len(self._catalog_entries) - 1:
+                container.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+    def _create_catalog_card(self, entry: Mapping[str, Any]) -> Gtk.Widget:
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        for setter_name in (
+            "set_margin_top",
+            "set_margin_bottom",
+            "set_margin_start",
+            "set_margin_end",
+        ):
+            setter = getattr(card, setter_name, None)
+            if callable(setter):
+                try:
+                    setter(4)
+                except Exception:  # pragma: no cover - GTK fallback
+                    continue
+
+        name = str(entry.get("name") or "Unnamed task").strip() or "Unnamed task"
+        title = Gtk.Label(label=name)
+        title.set_xalign(0.0)
+        title.set_wrap(True)
+        title.add_css_class("heading") if hasattr(title, "add_css_class") else None
+        card.append(title)
+
+        persona_text = str(entry.get("persona") or "Shared").strip() or "Shared"
+        priority = str(entry.get("priority") or "").strip()
+        metadata_tokens = [f"Persona: {persona_text}"]
+        if priority:
+            metadata_tokens.append(f"Priority: {priority}")
+        tags = entry.get("tags")
+        tag_tokens = [str(token).strip() for token in tags or [] if str(token).strip()]
+        if tag_tokens:
+            metadata_tokens.append("Tags: " + ", ".join(tag_tokens))
+        metadata_label = Gtk.Label(label=" • ".join(metadata_tokens))
+        metadata_label.set_xalign(0.0)
+        metadata_label.set_wrap(True)
+        metadata_label.add_css_class("dim-label") if hasattr(metadata_label, "add_css_class") else None
+        card.append(metadata_label)
+
+        summary = str(entry.get("summary") or entry.get("description") or "").strip()
+        if summary:
+            summary_label = Gtk.Label(label=summary)
+            summary_label.set_xalign(0.0)
+            summary_label.set_wrap(True)
+            card.append(summary_label)
+
+        skills = [str(token).strip() for token in entry.get("required_skills", []) if str(token).strip()]
+        if skills:
+            skills_label = Gtk.Label(label=f"Required skills: {', '.join(skills)}")
+            skills_label.set_xalign(0.0)
+            skills_label.set_wrap(True)
+            card.append(skills_label)
+
+        tools = [str(token).strip() for token in entry.get("required_tools", []) if str(token).strip()]
+        if tools:
+            tools_label = Gtk.Label(label=f"Required tools: {', '.join(tools)}")
+            tools_label.set_xalign(0.0)
+            tools_label.set_wrap(True)
+            card.append(tools_label)
+
+        acceptance = [
+            str(item).strip()
+            for item in entry.get("acceptance_criteria", [])
+            if str(item).strip()
+        ]
+        if acceptance:
+            bullets = "\n".join(f"• {item}" for item in acceptance)
+            acceptance_label = Gtk.Label(label=f"Acceptance criteria:\n{bullets}")
+            acceptance_label.set_xalign(0.0)
+            acceptance_label.set_wrap(True)
+            card.append(acceptance_label)
+
+        escalation = entry.get("escalation_policy")
+        if isinstance(escalation, Mapping):
+            level = str(escalation.get("level") or "").strip()
+            contact = str(escalation.get("contact") or "").strip()
+            timeframe = str(escalation.get("timeframe") or "").strip()
+            summary_parts = []
+            if level:
+                summary_parts.append(level)
+            if contact:
+                summary_parts.append(contact)
+            if timeframe:
+                summary_parts.append(timeframe)
+            if summary_parts:
+                escalation_label = Gtk.Label(
+                    label="Escalation: " + " • ".join(summary_parts)
+                )
+                escalation_label.set_xalign(0.0)
+                escalation_label.set_wrap(True)
+                escalation_label.add_css_class("dim-label") if hasattr(escalation_label, "add_css_class") else None
+                card.append(escalation_label)
+
+        source = str(entry.get("source") or "").strip()
+        if source:
+            source_label = Gtk.Label(label=f"Source: {source}")
+            source_label.set_xalign(0.0)
+            source_label.set_wrap(True)
+            source_label.add_css_class("dim-label") if hasattr(source_label, "add_css_class") else None
+            card.append(source_label)
+
+        return card
+
+    def _update_catalog_hint(self) -> None:
+        hint_label = self._catalog_hint_label
+        if hint_label is None:
+            return
+
+        persona_filter = self._persona_filter
+        if persona_filter == self._PERSONA_UNASSIGNED:
+            scope = "shared tasks"
+        elif persona_filter:
+            scope = f"tasks for {persona_filter}"
+        else:
+            scope = "all personas"
+        hint_label.set_text(f"Manifest-backed templates available for {scope}.")
 
     def _create_list_row(self, entry: _TaskEntry) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
