@@ -60,6 +60,7 @@ def test_task_management_workspace_loads_and_filters(monkeypatch):
     widget = manager.get_embeddable_widget()
     assert widget is not None
     assert atlas.task_fetches == 1
+    assert atlas.task_catalog_fetches == 1
     assert subscriptions, "Workspace should subscribe to task events"
 
     persona_combo = manager._persona_filter_combo
@@ -73,6 +74,11 @@ def test_task_management_workspace_loads_and_filters(monkeypatch):
     persona_combo.set_active(atlas_index)
     manager._on_persona_filter_changed(persona_combo)
     assert {entry.task_id for entry in manager._display_entries} == {"task-1"}
+    assert atlas.task_catalog_fetches > 1
+    assert all(
+        template.get("persona") in ("Atlas", None)
+        for template in manager._catalog_entries
+    )
 
     researcher_index = items.index("Researcher")
     persona_combo.set_active(researcher_index)
@@ -83,6 +89,9 @@ def test_task_management_workspace_loads_and_filters(monkeypatch):
     persona_combo.set_active(unassigned_index)
     manager._on_persona_filter_changed(persona_combo)
     assert {entry.task_id for entry in manager._display_entries} == {"task-3"}
+    assert all(
+        template.get("persona") is None for template in manager._catalog_entries
+    )
 
 
 def test_task_management_transition_updates_state(monkeypatch):
