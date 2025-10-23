@@ -102,6 +102,7 @@ class _AtlasStub:
         self.tool_fetches = 0
         self.skill_fetches = 0
         self.task_fetches = 0
+        self.task_catalog_fetches = 0
         self.tool_requests: list[Dict[str, Any]] = []
         self.skill_requests: list[Dict[str, Any]] = []
         self.task_requests: list[Dict[str, Any]] = []
@@ -110,6 +111,7 @@ class _AtlasStub:
         self.settings_updates: list[Dict[str, Any]] = []
         self.credential_updates: list[Dict[str, Any]] = []
         self.persona_manager = _PersonaManagerStub()
+        self.task_catalog_requests: list[Dict[str, Any]] = []
         self._tool_catalog: list[Dict[str, Any]] = [
             {
                 "name": "google_search",
@@ -154,6 +156,46 @@ class _AtlasStub:
                 "auth": {"required": False},
                 "settings": {"enabled": False},
                 "credentials": {"TOKEN": {"configured": True}},
+            },
+        ]
+        self._task_templates: list[Dict[str, Any]] = [
+            {
+                "name": "MissionControlWeeklyBrief",
+                "persona": "Atlas",
+                "summary": "Weekly mission control report.",
+                "description": "Aggregate updates and risks for mission control stakeholders.",
+                "required_skills": ["AtlasReporter", "RiskPulse"],
+                "required_tools": ["context_tracker", "priority_queue"],
+                "acceptance_criteria": [
+                    "Highlights completed, in-progress, and blocked items.",
+                    "Surfaces critical risks with mitigation steps.",
+                ],
+                "escalation_policy": {
+                    "level": "Mission Control Duty Lead",
+                    "contact": "mission-control@atlas",
+                    "timeframe": "Within 1 business day",
+                },
+                "tags": ["operations", "reporting"],
+                "priority": "High",
+                "source": "modules/Tasks/tasks.json",
+            },
+            {
+                "name": "AutomationPolicyPrecheck",
+                "persona": None,
+                "summary": "Compliance review for automation changes.",
+                "description": "Confirm automation updates meet governance requirements before deployment.",
+                "required_skills": ["SafetyScout"],
+                "required_tools": ["policy_reference"],
+                "acceptance_criteria": [
+                    "Confirms applicable automation policies.",
+                ],
+                "escalation_policy": {
+                    "level": "Automation Governance",
+                    "contact": "automation-governance@atlas",
+                },
+                "tags": ["automation", "compliance"],
+                "priority": "Medium",
+                "source": "modules/Tasks/tasks.json",
             },
         ]
         self._task_catalog: list[Dict[str, Any]] = [
@@ -338,6 +380,54 @@ class _AtlasStub:
         return {
             "items": items,
             "page": {"next_cursor": None, "page_size": len(items), "count": len(items)},
+        }
+
+    def get_task_catalog(
+        self,
+        *,
+        persona: Any | None = None,
+        tags: Any | None = None,
+        required_skills: Any | None = None,
+        required_tools: Any | None = None,
+    ) -> Dict[str, Any]:
+        request: Dict[str, Any] = {}
+        if persona is not None:
+            request["persona"] = persona
+        if tags is not None:
+            request["tags"] = tags
+        if required_skills is not None:
+            request["required_skills"] = required_skills
+        if required_tools is not None:
+            request["required_tools"] = required_tools
+        self.task_catalog_requests.append(request)
+        self.task_catalog_fetches += 1
+
+        if persona is None:
+            filtered = list(self._task_templates)
+        else:
+            if isinstance(persona, (list, tuple, set)):
+                tokens = {str(token).strip().lower() for token in persona}
+                persona_token = None
+                if tokens:
+                    persona_token = next(iter(tokens))
+            else:
+                persona_token = str(persona).strip().lower()
+
+            if persona_token in {None, "", "all"}:
+                filtered = list(self._task_templates)
+            elif persona_token == "shared":
+                filtered = [entry for entry in self._task_templates if entry.get("persona") is None]
+            else:
+                filtered = [
+                    entry
+                    for entry in self._task_templates
+                    if entry.get("persona") is None
+                    or str(entry.get("persona") or "").strip().lower() == persona_token
+                ]
+
+        return {
+            "count": len(filtered),
+            "tasks": [copy.deepcopy(entry) for entry in filtered],
         }
 
     def _get_task(

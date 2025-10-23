@@ -200,6 +200,18 @@ async def test_stream_task_events_polling(server, tenant_context):
     assert result["event_type"] == "updated"
 
 
+def test_task_catalog_includes_manifest_entries(server):
+    catalog = server.get_task_catalog()
+    assert catalog["count"] >= 4
+    names = {entry.get("name") for entry in catalog["tasks"]}
+    assert {
+        "MissionControlWeeklyBrief",
+        "WeatherOperationsSnapshot",
+        "ClinicalEvidenceSnapshot",
+        "AutomationPolicyPrecheck",
+    }.issubset(names)
+
+
 def test_list_tasks_handles_missing_service(caplog):
     class _ConfigManager:
         def get_task_service(self):
