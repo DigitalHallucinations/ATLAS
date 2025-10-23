@@ -41,7 +41,7 @@ The following manifest-backed tasks are now available to operators. Create a tas
 | `ClinicalEvidenceSnapshot` | MEDIC, DocGenius | `metadata.manifest_task="ClinicalEvidenceSnapshot"` | Concise evidence digest summarizing current guidelines, key studies, and safety considerations. |
 | `ClinicalGuidelineUpdate` | MEDIC, DocGenius | `metadata.manifest_task="ClinicalGuidelineUpdate"` | Synthesizes new evidence into actionable guideline updates for care teams. |
 | `AdverseEventRapidReview` | MEDIC | `metadata.manifest_task="AdverseEventRapidReview"` | Rapid literature and policy check supporting urgent adverse event investigations. |
-| `ResumePipelineQualityReview` | ResumeGenius | `metadata.manifest_task="ResumePipelineQualityReview"` | Persona-scoped pipeline audit assessing ATS scores, systemic gaps, and remediation actions. |
+| `ResumePipelineQualityReview` | ResumeGenius | `metadata.manifest_task="ResumePipelineQualityReview"` | Persona-scoped pipeline audit assessing ATS scores, systemic gaps, and remediation actions. (Source: `modules/Personas/ResumeGenius/Tasks/tasks.json`.) |
 
 ### Persona-specific tooling quick reference
 

@@ -189,3 +189,23 @@ def test_resume_genius_ats_task_surfaces_gap_analysis():
     assert any("score" in criterion.lower() for criterion in target.acceptance_criteria)
     assert any("gap" in criterion.lower() for criterion in target.acceptance_criteria)
     assert any("optimiz" in criterion.lower() for criterion in target.acceptance_criteria)
+
+
+def test_resume_pipeline_quality_review_is_persona_scoped():
+    from modules import Tasks as tasks_pkg
+
+    entries = tasks_pkg.manifest_loader.load_task_metadata()
+
+    resume_pipeline = next(
+        entry
+        for entry in entries
+        if entry.persona == "ResumeGenius" and entry.name == "ResumePipelineQualityReview"
+    )
+
+    assert resume_pipeline.source == "modules/Personas/ResumeGenius/Tasks/tasks.json"
+    assert "ats_scoring_service" in resume_pipeline.required_tools
+    assert "ATSCompatibility" in resume_pipeline.required_skills
+    assert not any(
+        entry.persona is None and entry.name == "ResumePipelineQualityReview"
+        for entry in entries
+    )
