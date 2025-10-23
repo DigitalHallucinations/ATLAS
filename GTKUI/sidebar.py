@@ -20,6 +20,7 @@ from GTKUI.Provider_manager.provider_management import ProviderManagement
 from GTKUI.Settings.Speech.speech_settings import SpeechSettings
 from GTKUI.Tool_manager import ToolManagement
 from GTKUI.Skill_manager import SkillManagement
+from GTKUI.Job_manager import JobManagement
 from GTKUI.Task_manager import TaskManagement
 from GTKUI.UserAccounts.account_dialog import AccountDialog
 from GTKUI.Utils.styled_window import AtlasWindow
@@ -46,6 +47,7 @@ class MainWindow(AtlasWindow):
         self.tool_management = ToolManagement(self.ATLAS, self)
         self.skill_management = SkillManagement(self.ATLAS, self)
         self.task_management = TaskManagement(self.ATLAS, self)
+        self.job_management = JobManagement(self.ATLAS, self)
         self.tool_management.on_open_in_persona = self._open_tool_in_persona
         self.skill_management.on_open_in_persona = self._open_skill_in_persona
 
@@ -130,6 +132,19 @@ class MainWindow(AtlasWindow):
             if task_id:
                 GLib.idle_add(self._focus_task_in_manager, task_id)
 
+    def show_job_workspace(self, job_id: str | None = None) -> None:
+        if not self._ensure_initialized():
+            return
+
+        def factory() -> Gtk.Widget:
+            return self.job_management.get_embeddable_widget()
+
+        page = self._open_or_focus_page("jobs", "Jobs", factory)
+        if page is not None:
+            self.sidebar.set_active_item("jobs")
+            if job_id:
+                GLib.idle_add(self._focus_job_in_manager, job_id)
+
     def show_skills_menu(self, skill_name: str | None = None) -> None:
         if not self._ensure_initialized():
             return
@@ -194,6 +209,63 @@ class MainWindow(AtlasWindow):
         except Exception:  # pragma: no cover - defensive logging only
             logger.debug("History logger hook failed", exc_info=True)
         self.show_conversation_history_page()
+
+    def _focus_job_in_manager(self, job_id: str) -> None:
+        focus = getattr(self.job_management, "focus_job", None)
+        if callable(focus):
+            focus(job_id)
+
+    def _transition_job(
+        self,
+        job_id: str,
+        target_status: str,
+        *,
+        updated_at: str | None = None,
+    ) -> Mapping[str, Any]:
+        server = getattr(self.ATLAS, "server", None)
+        transition = getattr(server, "transition_job", None)
+        if not callable(transition):
+            raise RuntimeError("Job transitions are unavailable.")
+
+        context = {"tenant_id": getattr(self.ATLAS, "tenant_id", "default")}
+        try:
+            payload = transition(
+                job_id,
+                target_status,
+                context=context,
+                expected_updated_at=updated_at,
+            )
+        except Exception:
+            logger.error("Failed to transition job %s to %s", job_id, target_status, exc_info=True)
+            raise
+
+        notifier = getattr(self, "show_success_toast", None)
+        if callable(notifier):
+            notifier(f"Job moved to {target_status.replace('_', ' ').title()}")
+        return payload
+
+    def start_job(
+        self, job_id: str, current_status: str, updated_at: str | None
+    ) -> Mapping[str, Any]:
+        target = "scheduled" if (current_status or "").lower() == "draft" else "running"
+        return self._transition_job(job_id, target, updated_at=updated_at)
+
+    def pause_job(
+        self, job_id: str, current_status: str, updated_at: str | None
+    ) -> Mapping[str, Any]:
+        status = (current_status or "").lower()
+        if status == "scheduled":
+            target = "cancelled"
+        elif status == "running":
+            target = "cancelled"
+        else:
+            target = "cancelled"
+        return self._transition_job(job_id, target, updated_at=updated_at)
+
+    def rerun_job(
+        self, job_id: str, current_status: str, updated_at: str | None
+    ) -> Mapping[str, Any]:
+        return self._transition_job(job_id, "running", updated_at=updated_at)
 
     def show_accounts_page(self) -> None:
         if not self._ensure_initialized():
@@ -469,6 +541,7 @@ class _NavigationSidebar(Gtk.Box):
         self.tool_management = main_window.tool_management
         self.skill_management = main_window.skill_management
         self.task_management = main_window.task_management
+        self.job_management = main_window.job_management
 
         self.set_margin_top(4)
         self.set_margin_bottom(4)
@@ -522,6 +595,12 @@ class _NavigationSidebar(Gtk.Box):
             "Tasks",
             self.main_window.show_task_workspace,
             tooltip="Tasks",
+        )
+        self._create_nav_item(
+            "jobs",
+            "Jobs",
+            self.main_window.show_job_workspace,
+            tooltip="Jobs",
         )
         self._create_nav_item(
             "skills",
