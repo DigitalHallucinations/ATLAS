@@ -136,13 +136,29 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
     sqlalchemy_stub.inspect = _noop
     sqlalchemy_stub.create_engine = _noop
 
+    event_module = types.ModuleType("sqlalchemy.event")
+
+    def _listen_decorator(*_args, **_kwargs):  # pragma: no cover - stub decorator
+        def _wrapper(func):
+            return func
+
+        return _wrapper
+
+    event_module.listens_for = _listen_decorator
+    sqlalchemy_stub.event = event_module
+
     dialects_module = types.ModuleType("sqlalchemy.dialects")
     postgres_module = types.ModuleType("sqlalchemy.dialects.postgresql")
     for attr in ["ARRAY", "JSONB", "UUID", "TSVECTOR"]:
         setattr(postgres_module, attr, _marker(attr))
 
     orm_module = types.ModuleType("sqlalchemy.orm")
-    orm_module.declarative_base = lambda: type("Base", (), {})
+
+    def _declarative_base():  # pragma: no cover - lightweight declarative base stub
+        metadata = types.SimpleNamespace(create_all=_noop)
+        return type("Base", (), {"metadata": metadata})
+
+    orm_module.declarative_base = _declarative_base
     orm_module.relationship = _noop
     orm_module.sessionmaker = lambda *args, **kwargs: _noop
 
@@ -156,6 +172,7 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
     sys.modules["sqlalchemy.dialects.postgresql"] = postgres_module
     sys.modules["sqlalchemy.orm"] = orm_module
     sys.modules["sqlalchemy.engine"] = engine_module
+    sys.modules["sqlalchemy.event"] = event_module
     requests_module.adapters = adapters_module
 
     sys.modules["requests"] = requests_module
@@ -186,6 +203,24 @@ if "jsonschema" not in sys.modules:
     jsonschema_module.ValidationError = _DummyValidationError
     jsonschema_module.exceptions = types.SimpleNamespace(ValidationError=_DummyValidationError)
     sys.modules["jsonschema"] = jsonschema_module
+
+if "yaml" not in sys.modules:
+    yaml_module = types.ModuleType("yaml")
+    yaml_module.safe_load = lambda *_args, **_kwargs: {}
+    yaml_module.safe_dump = lambda *_args, **_kwargs: ""
+    yaml_module.dump = yaml_module.safe_dump
+    sys.modules["yaml"] = yaml_module
+
+if "dotenv" not in sys.modules:
+    dotenv_module = types.ModuleType("dotenv")
+
+    def _noop(*_args, **_kwargs):  # pragma: no cover - dotenv stub
+        return None
+
+    dotenv_module.load_dotenv = _noop
+    dotenv_module.set_key = _noop
+    dotenv_module.find_dotenv = lambda *_args, **_kwargs: ""
+    sys.modules["dotenv"] = dotenv_module
 
 if "pytz" not in sys.modules:
     sys.modules["pytz"] = types.SimpleNamespace(timezone=lambda *_args, **_kwargs: None, utc=None)
