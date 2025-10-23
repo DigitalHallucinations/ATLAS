@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator as AsyncIteratorABC, Mapping
 from pathlib import Path
 import shutil
 import textwrap
+import enum
 
 import pytest
 
@@ -194,6 +195,127 @@ def _ensure_dotenv(monkeypatch):
     dotenv_stub.find_dotenv = _find_dotenv
     monkeypatch.setitem(sys.modules, "dotenv", dotenv_stub)
 
+
+def _ensure_task_store(monkeypatch):
+    if "modules.task_store.models" in sys.modules:
+        return
+
+    if "sqlalchemy" not in sys.modules:
+        sqlalchemy_stub = types.ModuleType("sqlalchemy")
+
+        def _create_engine(*args, **kwargs):  # pragma: no cover - helper stub
+            return None
+
+        sqlalchemy_stub.create_engine = _create_engine
+        monkeypatch.setitem(sys.modules, "sqlalchemy", sqlalchemy_stub)
+
+    if "sqlalchemy.engine" not in sys.modules:
+        engine_stub = types.ModuleType("sqlalchemy.engine")
+
+        class _Engine:  # pragma: no cover - helper stub
+            pass
+
+        engine_stub.Engine = _Engine
+        monkeypatch.setitem(sys.modules, "sqlalchemy.engine", engine_stub)
+
+    if "sqlalchemy.orm" not in sys.modules:
+        orm_stub = types.ModuleType("sqlalchemy.orm")
+
+        class _Sessionmaker:  # pragma: no cover - helper stub
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __call__(self, *args, **kwargs):
+                return None
+
+        orm_stub.sessionmaker = _Sessionmaker
+        orm_stub.Session = type("Session", (), {})
+        orm_stub.joinedload = lambda *args, **kwargs: None
+        orm_stub.relationship = lambda *args, **kwargs: None
+        orm_stub.declarative_base = lambda *args, **kwargs: type("Base", (), {})
+        monkeypatch.setitem(sys.modules, "sqlalchemy.orm", orm_stub)
+
+    table_stub = types.SimpleNamespace(indexes=[])
+
+    def _make_table(name):
+        return types.SimpleNamespace(name=name, indexes=list(table_stub.indexes))
+
+    base_stub = type(
+        "Base",
+        (),
+        {
+            "metadata": types.SimpleNamespace(
+                create_all=lambda *args, **kwargs: None,
+            )
+        },
+    )
+
+    status_enum = enum.Enum("TaskStatus", {"DRAFT": "draft"})
+    assignment_enum = enum.Enum("TaskAssignmentStatus", {"PENDING": "pending"})
+    event_enum = enum.Enum("TaskEventType", {"CREATED": "created"})
+
+    models_stub = types.ModuleType("modules.task_store.models")
+    models_stub.Base = base_stub
+    models_stub.TaskStatus = status_enum
+    models_stub.TaskAssignmentStatus = assignment_enum
+    models_stub.TaskEventType = event_enum
+    models_stub.Task = type("Task", (), {"__table__": _make_table("tasks")})
+    models_stub.TaskAssignment = type(
+        "TaskAssignment", (), {"__table__": _make_table("task_assignments")}
+    )
+    models_stub.TaskDependency = type(
+        "TaskDependency", (), {"__table__": _make_table("task_dependencies")}
+    )
+    models_stub.TaskEvent = type(
+        "TaskEvent", (), {"__table__": _make_table("task_events")}
+    )
+    models_stub._TASK_TABLES = (
+        models_stub.Task.__table__,
+        models_stub.TaskAssignment.__table__,
+        models_stub.TaskDependency.__table__,
+        models_stub.TaskEvent.__table__,
+    )
+
+    def _ensure_schema(_engine):  # pragma: no cover - helper stub
+        return None
+
+    models_stub.ensure_task_schema = _ensure_schema
+    models_stub.__all__ = [
+        "Base",
+        "Task",
+        "TaskStatus",
+        "TaskAssignment",
+        "TaskAssignmentStatus",
+        "TaskEvent",
+        "TaskEventType",
+        "ensure_task_schema",
+    ]
+
+    monkeypatch.setitem(sys.modules, "modules.task_store.models", models_stub)
+
+    if "modules.task_store" not in sys.modules:
+        task_store_stub = types.ModuleType("modules.task_store")
+
+        class _DummyRepository:  # pragma: no cover - helper stub
+            def __init__(self, *args, **kwargs):
+                pass
+
+        class _DummyService:  # pragma: no cover - helper stub
+            def __init__(self, *args, **kwargs):
+                pass
+
+        task_store_stub.TaskStoreRepository = _DummyRepository
+        task_store_stub.TaskService = _DummyService
+        task_store_stub.ensure_task_schema = _ensure_schema
+        task_store_stub.models = models_stub
+        task_store_stub.__all__ = [
+            "TaskStoreRepository",
+            "TaskService",
+            "ensure_task_schema",
+        ]
+
+        monkeypatch.setitem(sys.modules, "modules.task_store", task_store_stub)
+
 def _ensure_pytz(monkeypatch):
     if "pytz" in sys.modules:
         return
@@ -205,6 +327,11 @@ def _ensure_pytz(monkeypatch):
         utc=datetime.timezone.utc,
     )
     monkeypatch.setitem(sys.modules, "pytz", pytz_stub)
+
+
+@pytest.fixture(autouse=True)
+def _stub_task_store_modules(monkeypatch):
+    _ensure_task_store(monkeypatch)
 
 
 def test_default_function_map_vector_store_entries_dispatch(monkeypatch):
@@ -3284,6 +3411,8 @@ def test_load_function_map_falls_back_to_default(monkeypatch):
         assert isinstance(function_map, dict)
         assert "google_search" in function_map
         assert "policy_reference" in function_map
+        assert "search_pubmed" not in function_map
+        assert "search_pmc" not in function_map
         assert persona_name not in tool_manager._function_map_cache
         assert tool_manager._default_function_map_cache is not None
     finally:
@@ -3359,6 +3488,8 @@ def test_medic_persona_exposes_pubmed_fetch(monkeypatch):
         persona_payload, refresh=True
     )
 
+    assert "search_pubmed" in function_map
+    assert "search_pmc" in function_map
     assert "fetch_pubmed_details" in function_map
     fetch_entry = function_map["fetch_pubmed_details"]
     assert isinstance(fetch_entry, dict)

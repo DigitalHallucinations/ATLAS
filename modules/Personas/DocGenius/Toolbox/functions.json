@@ -127,5 +127,129 @@
                 "health_check_interval": 300
             }
         ]
+    },
+    {
+        "name": "search_pubmed",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 30,
+        "auth": {
+            "required": false,
+            "env": "NCBI_API_KEY",
+            "docs": "Optional Entrez API key for higher rate limits."
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "capabilities": [
+            "medical_research",
+            "literature_search"
+        ],
+        "providers": [
+            {
+                "name": "ncbi_entrez",
+                "priority": 0,
+                "health_check_interval": 300
+            }
+        ],
+        "description": "Search PubMed for biomedical literature using the NCBI Entrez API.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query."
+                },
+                "max_results": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "default": 20,
+                    "description": "The maximum number of PubMed IDs to return."
+                },
+                "page_size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Batch size to request from the Entrez API."
+                },
+                "sort": {
+                    "type": "string",
+                    "description": "Optional Entrez sort order (e.g., 'pub+date')."
+                },
+                "datetype": {
+                    "type": "string",
+                    "description": "Date field to filter on (e.g., PDAT)."
+                },
+                "mindate": {
+                    "type": "string",
+                    "description": "Earliest date to include (YYYY/MM/DD)."
+                },
+                "maxdate": {
+                    "type": "string",
+                    "description": "Latest date to include (YYYY/MM/DD)."
+                }
+            },
+            "required": [
+                "query"
+            ]
+        }
+    },
+    {
+        "name": "search_pmc",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 30,
+        "auth": {
+            "required": false,
+            "env": "NCBI_API_KEY",
+            "docs": "Optional Entrez API key for higher rate limits."
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "capabilities": [
+            "medical_research",
+            "literature_search"
+        ],
+        "providers": [
+            {
+                "name": "ncbi_entrez",
+                "priority": 0,
+                "health_check_interval": 300
+            }
+        ],
+        "description": "Search PubMed Central (PMC) for open access articles using the Entrez API.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query."
+                },
+                "max_results": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "default": 20,
+                    "description": "The maximum number of PMC IDs to return."
+                },
+                "page_size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Batch size to request from the Entrez API."
+                },
+                "article_type": {
+                    "type": "string",
+                    "description": "Optional PMC article type filter."
+                },
+                "has_abstract": {
+                    "type": "boolean",
+                    "description": "Limit results to articles with abstracts."
+                }
+            },
+            "required": [
+                "query"
+            ]
+        }
     }
 ]
