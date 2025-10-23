@@ -82,10 +82,14 @@ The task domain model defines the following lifecycle states (`modules/task_stor
 
 `modules/task_store/service.py` enforces the transition graph (`_ALLOWED_TRANSITIONS`) and emits `task.created`, `task.updated`, and `task.status_changed` events via the message bus. Invalid transitions raise `TaskTransitionError`, and dependency checks prevent advancing tasks with incomplete prerequisites.
 
-## Service APIs and metrics
+## Service APIs
 
-`TaskService` exposes `create_task`, `update_task`, and `transition_task`, delegating persistence to `TaskStoreRepository`. Each operation records lifecycle analytics using `modules.analytics.persona_metrics.record_task_lifecycle_event`, which persists metrics in `TaskLifecycleEvent` records and publishes `task_metrics.lifecycle` messages. Aggregated metrics—including success rates, latency, and reassignment counts—are available through `get_task_lifecycle_metrics`.
+`TaskService` exposes `create_task`, `update_task`, and `transition_task`, delegating persistence to `TaskStoreRepository`. Each operation records lifecycle analytics using `modules.analytics.persona_metrics.record_task_lifecycle_event`, which persists metrics in `TaskLifecycleEvent` records and publishes `task_metrics.lifecycle` messages.
+
+## Analytics and rollups
+
+Aggregated task metrics—including success rates, latency, reassignment counts, and recent activity—are available through `get_task_lifecycle_metrics`. The results surface in the `CapabilityRegistry.summary` payload alongside [job lifecycle analytics](../jobs/lifecycle.md). Operators can subscribe to both `task_metrics.lifecycle` and `jobs.metrics.lifecycle` to build composite funnels that track persona throughput from individual tasks up to recurring jobs.
 
 ## UI and dashboards
 
-The `CapabilityRegistry.summary` helper bundles tool, skill, and task catalogs (including compatibility flags and tool health) for persona-aware dashboards. Task lifecycle metrics published on the message bus feed monitoring widgets alongside persona tool analytics, enabling UI workflows such as task completion funnels and reassignment alerts.
+The `CapabilityRegistry.summary` helper bundles tool, skill, task, and job catalogs (including compatibility flags and tool health) for persona-aware dashboards. The new `analytics` section combines task and job lifecycle metrics so UI layers can visualize job throughput, SLA adherence, and task success rollups in a single workspace. See [job dashboards and UI workflows](../jobs/ui.md) for implementation guidance.

@@ -93,6 +93,17 @@ except Exception:
 if "jsonschema" not in sys.modules and jsonschema is None:
     jsonschema_stub = types.ModuleType("jsonschema")
     jsonschema_stub.__file__ = __file__
+    
+    class _Draft202012Validator:
+        """Lightweight stub matching jsonschema.Draft202012Validator."""
+
+        def __init__(self, *args, **kwargs):  # pragma: no cover - stub initialiser
+            self.schema = args[0] if args else None
+
+        def iter_errors(self, *_args, **_kwargs):  # pragma: no cover - stub helper
+            return iter(())
+
+    jsonschema_stub.Draft202012Validator = _Draft202012Validator
     sys.modules["jsonschema"] = jsonschema_stub
 
 
