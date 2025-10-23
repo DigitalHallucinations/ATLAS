@@ -9,7 +9,6 @@ from modules.Tools.Base_Tools.context_tracker import context_tracker
 from modules.Tools.Base_Tools.priority_queue import priority_queue
 from modules.Tools.Base_Tools.terminal_command import TerminalCommand
 from modules.Tools.Base_Tools.webpage_fetch import WebpageFetcher
-from modules.Tools.Base_Tools.geocode import geocode_location
 from modules.Tools.Base_Tools.current_location import get_current_location
 from modules.Tools.Base_Tools.browser_lite import BrowserLite
 from modules.Tools.Base_Tools.calculator import Calculator
@@ -90,7 +89,6 @@ function_map = {
     "terminal_command": TerminalCommand,
     "execute_python": python_interpreter.run,
     "execute_javascript": javascript_executor.run,
-    "geocode_location": geocode_location,
     "get_current_location": get_current_location,
     "debian12_calendar": _debian12_calendar_dispatch,
     "filesystem_read": read_file,

@@ -97,10 +97,7 @@ def _clear_provider_env(monkeypatch):
 
 
 def _ensure_jsonschema(monkeypatch):
-    if "jsonschema" in sys.modules:
-        return
-
-    jsonschema_stub = types.ModuleType("jsonschema")
+    jsonschema_stub = sys.modules.get("jsonschema")
 
     class _DummyValidationError(Exception):
         pass
@@ -115,9 +112,22 @@ def _ensure_jsonschema(monkeypatch):
         def iter_errors(self, *_args, **_kwargs):  # pragma: no cover - helper stub
             return iter(())
 
-    jsonschema_stub.ValidationError = _DummyValidationError
-    jsonschema_stub.Draft7Validator = _DummyValidator
-    monkeypatch.setitem(sys.modules, "jsonschema", jsonschema_stub)
+    if jsonschema_stub is None:
+        jsonschema_stub = types.ModuleType("jsonschema")
+        monkeypatch.setitem(sys.modules, "jsonschema", jsonschema_stub)
+
+    if not hasattr(jsonschema_stub, "ValidationError"):
+        jsonschema_stub.ValidationError = _DummyValidationError
+    if not hasattr(jsonschema_stub, "Draft7Validator"):
+        jsonschema_stub.Draft7Validator = _DummyValidator
+    if not hasattr(jsonschema_stub, "Draft202012Validator"):
+        jsonschema_stub.Draft202012Validator = _DummyValidator
+    exceptions_module = getattr(jsonschema_stub, "exceptions", None)
+    if exceptions_module is None:
+        exceptions_module = types.SimpleNamespace()
+        jsonschema_stub.exceptions = exceptions_module
+    if not hasattr(exceptions_module, "ValidationError"):
+        exceptions_module.ValidationError = _DummyValidationError
 
 
 def _ensure_aiohttp(monkeypatch):
@@ -344,6 +354,7 @@ def test_default_function_map_vector_store_entries_dispatch(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)
     _ensure_pytz(monkeypatch)
+    _ensure_jsonschema(monkeypatch)
 
     from modules.Tools.Base_Tools import vector_store as vector_store_module
     import modules.Tools.tool_maps.maps as maps_module
@@ -637,8 +648,26 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
         ],
     }
 
-    assert "geocode_location" in shared_map
-    geocode_entry = shared_map["geocode_location"]
+    assert "geocode_location" not in shared_map
+
+    tool_manager._function_map_cache.pop("WeatherGenius", None)
+    tool_manager._function_payload_cache.pop("WeatherGenius", None)
+
+    weather_payload = {
+        "name": "WeatherGenius",
+        "allowed_tools": [
+            "google_search",
+            "get_current_info",
+            "policy_reference",
+            "geocode_location",
+        ],
+    }
+
+    weather_map = tool_manager.load_function_map_from_current_persona(
+        weather_payload, refresh=True, config_manager=config_manager
+    )
+    assert "geocode_location" in weather_map
+    geocode_entry = weather_map["geocode_location"]
     assert isinstance(geocode_entry, dict)
     geocode_metadata = geocode_entry.get("metadata")
     assert geocode_metadata["capabilities"] == ["geolocation", "mapping"]
