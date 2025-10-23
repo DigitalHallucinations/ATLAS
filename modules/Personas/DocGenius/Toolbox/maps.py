@@ -3,7 +3,7 @@
 from modules.Tools.Base_Tools.time import get_current_info
 from modules.Tools.Base_Tools.Google_search import GoogleSearch
 from modules.Tools.Base_Tools.policy_reference import policy_reference
-from modules.Tools.Medical_Tools import search_pmc, search_pubmed
+from modules.Personas.MEDIC.Toolbox.medical_tools import search_pmc, search_pubmed
 
 from .documentation import generate_doc_outline
 

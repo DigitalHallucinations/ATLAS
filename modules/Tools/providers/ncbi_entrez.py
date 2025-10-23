@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, Dict
 
-from modules.Tools.Medical_Tools import search_pmc, search_pubmed
+from modules.Personas.MEDIC.Toolbox.medical_tools import search_pmc, search_pubmed
 
 from .base import ToolProvider
 from .registry import tool_provider_registry
