@@ -200,6 +200,9 @@ def _ensure_task_store(monkeypatch):
     if "modules.task_store.models" in sys.modules:
         return
 
+    sys.modules.pop("sqlalchemy", None)
+    sys.modules.pop("sqlalchemy.orm", None)
+
     if "sqlalchemy" not in sys.modules:
         sqlalchemy_stub = types.ModuleType("sqlalchemy")
 
@@ -574,7 +577,6 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
             "google_search",
             "get_current_info",
             "policy_reference",
-            "ats_scoring_service",
         ],
     }
 
@@ -668,6 +670,9 @@ def test_resume_genius_manifest_includes_ats_scoring(monkeypatch):
     _ensure_dotenv(monkeypatch)
     _ensure_pytz(monkeypatch)
 
+    sys.modules.pop("sqlalchemy", None)
+    sys.modules.pop("sqlalchemy.orm", None)
+
     if "sqlalchemy" not in sys.modules:
         sqlalchemy_stub = types.ModuleType("sqlalchemy")
         sqlalchemy_stub.create_engine = lambda *_args, **_kwargs: None
@@ -721,14 +726,21 @@ def test_resume_genius_manifest_includes_ats_scoring(monkeypatch):
     tool_manager._function_payload_cache.pop(persona_name, None)
 
     config_manager = tool_manager.ConfigManager()
+    persona_manifest_path = (
+        Path(__file__).resolve().parents[1]
+        / "modules"
+        / "Personas"
+        / persona_name
+        / "Persona"
+        / f"{persona_name}.json"
+    )
+    persona_manifest = json.loads(persona_manifest_path.read_text(encoding="utf-8"))
+    allowed_tools = persona_manifest["persona"][0]["allowed_tools"]
+    assert "ats_scoring_service" in allowed_tools
+
     persona_payload = {
         "name": persona_name,
-        "allowed_tools": [
-            "google_search",
-            "get_current_info",
-            "policy_reference",
-            "ats_scoring_service",
-        ],
+        "allowed_tools": allowed_tools,
     }
     functions = tool_manager.load_functions_from_json(
         persona_payload, refresh=True, config_manager=config_manager

@@ -117,6 +117,7 @@
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
+| ats_scoring_service | 1.0.0 | resume_analysis, ats_compliance | — | Yes (docs: Configure ATS_SCORING_SERVICE_API_KEY or ats_scoring_service.api_key for authenticated requests., env: ATS_SCORING_SERVICE_API_KEY, type: api_key) | Submit resume and job description text to the ATS scoring service and return compatibility insights and optimization suggestions. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 
@@ -124,7 +125,6 @@
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
-| ats_scoring_service | 1.0.0 | resume_analysis, ats_compliance | — | Yes (docs: Configure ATS_SCORING_SERVICE_API_KEY or ats_scoring_service.api_key for authenticated requests., env: ATS_SCORING_SERVICE_API_KEY, type: api_key) | Submit resume and job description text to the ATS scoring service and return compatibility insights and optimization suggestions. |
 | browser_lite | 1.0.0 | browser_automation | high | No | Navigate a limited number of allowlisted pages with robots.txt enforcement, throttling, and optional screenshots. |
 | calculator | 1.0.0 | calculator | low | No | Evaluate sanitized mathematical expressions with Decimal precision and optional unit conversions. |
 | context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
