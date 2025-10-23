@@ -1,5 +1,44 @@
 [
     {
+        "name": "get_current_info",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "format_type": {
+                    "type": "string",
+                    "enum": [
+                        "time",
+                        "date",
+                        "day",
+                        "month_year",
+                        "timestamp"
+                    ],
+                    "default": "timestamp"
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "Optional IANA timezone identifier (e.g., \"America/New_York\"). Defaults to the configured timezone or UTC."
+                }
+            },
+            "required": []
+        },
+        "idempotency_key": false,
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "time_information",
+            "date_information"
+        ]
+    },
+    {
         "name": "google_search",
         "version": "1.0.0",
         "side_effects": "none",
@@ -57,42 +96,36 @@
         ]
     },
     {
-        "name": "get_current_info",
+        "name": "relativity_scenario",
         "version": "1.0.0",
         "side_effects": "none",
-        "default_timeout": 5,
+        "default_timeout": 3,
         "auth": {
             "required": false
         },
         "allow_parallel": true,
-        "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
+        "description": "Surface curated relativity thought experiments aligned with Einstein's pedagogy.",
         "parameters": {
             "type": "object",
             "properties": {
-                "format_type": {
+                "topic": {
                     "type": "string",
                     "enum": [
-                        "time",
-                        "date",
-                        "day",
-                        "month_year",
-                        "timestamp"
+                        "time_dilation",
+                        "energy",
+                        "gravity"
                     ],
-                    "default": "timestamp"
-                },
-                "timezone": {
-                    "type": "string",
-                    "description": "Optional IANA timezone identifier (e.g., \"America/New_York\"). Defaults to the configured timezone or UTC."
+                    "description": "Scenario focus to explore."
                 }
             },
-            "required": []
+            "required": [
+                "topic"
+            ]
         },
         "idempotency_key": false,
-        "cost_per_call": 0.0,
-        "cost_unit": "USD",
         "capabilities": [
-            "time_information",
-            "date_information"
+            "education",
+            "physics_reasoning"
         ]
     }
 ]

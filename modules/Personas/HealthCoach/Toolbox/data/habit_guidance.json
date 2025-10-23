@@ -1,0 +1,38 @@
+{
+  "nutrition": [
+    {
+      "prompt": "Batch prep colorful vegetables for lunches",
+      "stack_with": "Evening meal planning",
+      "reminder": "Set a Sunday calendar block labeled 'prep rainbow boxes'."
+    },
+    {
+      "prompt": "Hydrate before morning caffeine",
+      "stack_with": "Alarm clock routine",
+      "reminder": "Place a full water bottle beside the coffee station."
+    }
+  ],
+  "stress": [
+    {
+      "prompt": "Two-minute box breathing between meetings",
+      "stack_with": "Calendar transition alerts",
+      "reminder": "Use wearable haptic reminders to cue breathing cycles."
+    },
+    {
+      "prompt": "Gratitude jot during lunch",
+      "stack_with": "Midday meal",
+      "reminder": "Keep a small notebook near the dining area."
+    }
+  ],
+  "sleep": [
+    {
+      "prompt": "Digital sunset 60 minutes before bed",
+      "stack_with": "Nightly charging routine",
+      "reminder": "Trigger smart lights to warm tones at the cutoff time."
+    },
+    {
+      "prompt": "Evening herbal tea ritual",
+      "stack_with": "Post-dinner wind-down",
+      "reminder": "Prep tea sachets in a visible countertop tray."
+    }
+  ]
+}

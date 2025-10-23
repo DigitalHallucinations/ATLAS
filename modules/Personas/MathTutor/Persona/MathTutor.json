@@ -66,7 +66,8 @@
             "allowed_tools": [
                 "google_search",
                 "get_current_info",
-                "policy_reference"
+                "policy_reference",
+                "stepwise_solution"
             ]
         }
     ]

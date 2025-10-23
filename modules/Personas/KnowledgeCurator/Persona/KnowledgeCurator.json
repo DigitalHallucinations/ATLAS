@@ -98,7 +98,8 @@
             "allowed_tools": [
                 "context_tracker",
                 "google_search",
-                "get_current_info"
+                "get_current_info",
+                "knowledge_card_builder"
             ],
             "allowed_skills": [
                 "KnowledgeArchiveDigest"

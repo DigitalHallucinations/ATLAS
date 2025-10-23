@@ -1,101 +1,5 @@
 [
     {
-        "name": "google_search",
-        "version": "1.0.0",
-        "side_effects": "none",
-        "default_timeout": 30,
-        "auth": {
-            "required": true,
-            "type": "api_key",
-            "env": "GOOGLE_API_KEY",
-            "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback."
-        },
-        "allow_parallel": true,
-        "description": "A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search content."
-                },
-                "k": {
-                    "type": "integer",
-                    "default": 10,
-                    "description": "Select the first k results in the search results as the response.",
-                    "minimum": 1
-                }
-            },
-            "required": [
-                "query"
-            ]
-        },
-        "idempotency_key": false,
-        "cost_per_call": 0.005,
-        "cost_unit": "USD",
-        "capabilities": [
-            "web_search",
-            "knowledge_lookup"
-        ],
-        "providers": [
-            {
-                "name": "google_cse",
-                "priority": 0,
-                "health_check_interval": 300,
-                "config": {
-                    "api_key_env": "GOOGLE_API_KEY",
-                    "api_key_config": "GOOGLE_API_KEY",
-                    "cse_id_env": "GOOGLE_CSE_ID",
-                    "cse_id_config": "GOOGLE_CSE_ID"
-                }
-            },
-            {
-                "name": "serpapi",
-                "priority": 10,
-                "health_check_interval": 300
-            }
-        ]
-    },
-    {
-        "name": "get_current_info",
-        "version": "1.0.0",
-        "side_effects": "none",
-        "default_timeout": 5,
-        "auth": {
-            "required": false
-        },
-        "allow_parallel": true,
-        "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "format_type": {
-                    "type": "string",
-                    "enum": [
-                        "time",
-                        "date",
-                        "day",
-                        "month_year",
-                        "timestamp"
-                    ],
-                    "default": "timestamp"
-                },
-                "timezone": {
-                    "type": "string",
-                    "description": "Optional IANA timezone identifier (e.g., \"America/New_York\"). Defaults to the configured timezone or UTC."
-                }
-            },
-            "required": []
-        },
-        "idempotency_key": false,
-        "cost_per_call": 0.0,
-        "cost_unit": "USD",
-        "capabilities": [
-            "time_information",
-            "date_information"
-        ]
-    },
-    {
         "name": "context_tracker",
         "version": "1.0.0",
         "side_effects": "none",
@@ -162,6 +66,102 @@
                 "name": "atlas_runtime",
                 "priority": 0,
                 "health_check_interval": 0
+            }
+        ]
+    },
+    {
+        "name": "get_current_info",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "format_type": {
+                    "type": "string",
+                    "enum": [
+                        "time",
+                        "date",
+                        "day",
+                        "month_year",
+                        "timestamp"
+                    ],
+                    "default": "timestamp"
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "Optional IANA timezone identifier (e.g., \"America/New_York\"). Defaults to the configured timezone or UTC."
+                }
+            },
+            "required": []
+        },
+        "idempotency_key": false,
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "time_information",
+            "date_information"
+        ]
+    },
+    {
+        "name": "google_search",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 30,
+        "auth": {
+            "required": true,
+            "type": "api_key",
+            "env": "GOOGLE_API_KEY",
+            "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback."
+        },
+        "allow_parallel": true,
+        "description": "A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search content."
+                },
+                "k": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Select the first k results in the search results as the response.",
+                    "minimum": 1
+                }
+            },
+            "required": [
+                "query"
+            ]
+        },
+        "idempotency_key": false,
+        "cost_per_call": 0.005,
+        "cost_unit": "USD",
+        "capabilities": [
+            "web_search",
+            "knowledge_lookup"
+        ],
+        "providers": [
+            {
+                "name": "google_cse",
+                "priority": 0,
+                "health_check_interval": 300,
+                "config": {
+                    "api_key_env": "GOOGLE_API_KEY",
+                    "api_key_config": "GOOGLE_API_KEY",
+                    "cse_id_env": "GOOGLE_CSE_ID",
+                    "cse_id_config": "GOOGLE_CSE_ID"
+                }
+            },
+            {
+                "name": "serpapi",
+                "priority": 10,
+                "health_check_interval": 300
             }
         ]
     },
@@ -243,6 +243,68 @@
                 "priority": 0,
                 "health_check_interval": 0
             }
+        ]
+    },
+    {
+        "name": "task_catalog_snapshot",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 10,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Retrieve a filtered snapshot of the runtime task manifest catalog.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "persona": {
+                    "type": [
+                        "string",
+                        "array"
+                    ],
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Restrict catalog entries to manifests targeting these personas."
+                },
+                "tags": {
+                    "type": [
+                        "string",
+                        "array"
+                    ],
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Return only tasks annotated with the supplied tags."
+                },
+                "required_skills": {
+                    "type": [
+                        "string",
+                        "array"
+                    ],
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Filter to manifests that require all listed skills."
+                },
+                "required_tools": {
+                    "type": [
+                        "string",
+                        "array"
+                    ],
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Filter to manifests that reference the provided tool identifiers."
+                }
+            },
+            "required": []
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "task_catalog",
+            "status_reporting"
         ]
     }
 ]

@@ -96,7 +96,8 @@
             "allowed_tools": [
                 "policy_reference",
                 "google_search",
-                "get_current_info"
+                "get_current_info",
+                "regulatory_gap_audit"
             ]
         }
     ]

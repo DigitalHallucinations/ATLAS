@@ -8,6 +8,7 @@
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 | priority_queue | 1.0.0 | task_management, status_reporting | — | No | Score and sort operational tasks to produce a prioritized execution list. |
+| task_catalog_snapshot | 1.0.0 | task_catalog, status_reporting | — | No | Retrieve a filtered snapshot of the runtime task manifest catalog. |
 
 ## Persona: Cleverbot
 
@@ -15,6 +16,7 @@
 | --- | --- | --- | --- | --- | --- |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| persona_backstory_sampler | 1.0.0 | conversation_design, persona_memory | — | No | Return seeded conversation hooks that reinforce Cleverbot's banter styles. |
 
 ## Persona: CodeGenius
 
@@ -25,10 +27,20 @@
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 | terminal_command | 1.0.0 | — | high | No | Execute a terminal command and return the output, error, and status code. |
 
+## Persona: ComplianceOfficer
+
+| Name | Version | Capabilities | Safety Level | Auth Required | Description |
+| --- | --- | --- | --- | --- | --- |
+| get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
+| google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| policy_reference | 1.0.0 | policy_lookup, risk_assessment_support | — | No | Retrieve internal safety and governance policy guidance relevant to a proposed action. |
+| regulatory_gap_audit | 1.0.0 | compliance, risk_assessment | — | No | Compare provided controls against compliance checklists and flag gaps. |
+
 ## Persona: DocGenius
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
+| generate_doc_outline | 1.0.0 | documentation, analysis | — | No | Parse a definition signature and return DocGenius docstring scaffolding. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 
@@ -36,6 +48,40 @@
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
+| get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
+| google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| relativity_scenario | 1.0.0 | education, physics_reasoning | — | No | Surface curated relativity thought experiments aligned with Einstein's pedagogy. |
+
+## Persona: FitnessCoach
+
+| Name | Version | Capabilities | Safety Level | Auth Required | Description |
+| --- | --- | --- | --- | --- | --- |
+| get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
+| google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| microcycle_plan | 1.0.0 | fitness_programming, planning | — | No | Compose a weekly microcycle plan tuned to the stated fitness goal. |
+
+## Persona: HealthCoach
+
+| Name | Version | Capabilities | Safety Level | Auth Required | Description |
+| --- | --- | --- | --- | --- | --- |
+| get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
+| google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| habit_stack_planner | 1.0.0 | wellness_planning, habit_design | — | No | Design habit stacks combining nutrition, stress, and sleep anchors. |
+
+## Persona: KnowledgeCurator
+
+| Name | Version | Capabilities | Safety Level | Auth Required | Description |
+| --- | --- | --- | --- | --- | --- |
+| context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
+| get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
+| google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| knowledge_card_builder | 1.0.0 | knowledge_management, summarization | — | No | Build standardized knowledge cards from curated sources. |
+
+## Persona: LanguageTutor
+
+| Name | Version | Capabilities | Safety Level | Auth Required | Description |
+| --- | --- | --- | --- | --- | --- |
+| dialogue_drill | 1.0.0 | language_instruction, conversation_design | — | No | Generate conversational practice drills with correction cues. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 
@@ -49,18 +95,26 @@
 | search_pmc | 1.0.0 | medical_research, literature_search | — | No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY) | Search PubMed Central (PMC) for open access articles using the Entrez API. |
 | search_pubmed | 1.0.0 | medical_research, literature_search | — | No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY) | Search PubMed for biomedical literature using the NCBI Entrez API. |
 
+## Persona: MathTutor
+
+| Name | Version | Capabilities | Safety Level | Auth Required | Description |
+| --- | --- | --- | --- | --- | --- |
+| get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
+| google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| stepwise_solution | 1.0.0 | education, mathematics | — | No | Produce numbered reasoning steps and optional symbolic verification. |
+
 ## Persona: Nikola Tesla
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| wireless_power_brief | 1.0.0 | innovation, concept_development | — | No | Draft Nikola Tesla styled wireless power solution briefs. |
 
 ## Persona: ResumeGenius
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
-| ats_scoring_service | 1.0.0 | resume_analysis, ats_compliance | — | Yes (docs: Configure ATS_SCORING_SERVICE_API_KEY or ats_scoring_service.api_key for authenticated requests., env: ATS_SCORING_SERVICE_API_KEY, type: api_key) | Submit resume and job description text to the ATS scoring service and return compatibility insights and optimization suggestions. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 
@@ -126,3 +180,4 @@
 | --- | --- | --- | --- | --- | --- |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| metaphor_palette | 1.0.0 | storytelling, rhetoric | — | No | Generate poetic metaphor sets tuned to the audience. |

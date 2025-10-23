@@ -1,0 +1,139 @@
+[
+    {
+        "name": "get_current_info",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "format_type": {
+                    "type": "string",
+                    "enum": [
+                        "time",
+                        "date",
+                        "day",
+                        "month_year",
+                        "timestamp"
+                    ],
+                    "default": "timestamp"
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "Optional IANA timezone identifier (e.g., \"America/New_York\"). Defaults to the configured timezone or UTC."
+                }
+            },
+            "required": []
+        },
+        "idempotency_key": false,
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "time_information",
+            "date_information"
+        ]
+    },
+    {
+        "name": "google_search",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 30,
+        "auth": {
+            "required": true,
+            "type": "api_key",
+            "env": "GOOGLE_API_KEY",
+            "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback."
+        },
+        "allow_parallel": true,
+        "description": "A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search content."
+                },
+                "k": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Select the first k results in the search results as the response.",
+                    "minimum": 1
+                }
+            },
+            "required": [
+                "query"
+            ]
+        },
+        "idempotency_key": false,
+        "cost_per_call": 0.005,
+        "cost_unit": "USD",
+        "capabilities": [
+            "web_search",
+            "knowledge_lookup"
+        ],
+        "providers": [
+            {
+                "name": "google_cse",
+                "priority": 0,
+                "health_check_interval": 300,
+                "config": {
+                    "api_key_env": "GOOGLE_API_KEY",
+                    "api_key_config": "GOOGLE_API_KEY",
+                    "cse_id_env": "GOOGLE_CSE_ID",
+                    "cse_id_config": "GOOGLE_CSE_ID"
+                }
+            },
+            {
+                "name": "serpapi",
+                "priority": 10,
+                "health_check_interval": 300
+            }
+        ]
+    },
+    {
+        "name": "habit_stack_planner",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 6,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Design habit stacks combining nutrition, stress, and sleep anchors.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": "Primary wellbeing objective."
+                },
+                "schedule": {
+                    "type": "string",
+                    "description": "When the habit stack should occur."
+                },
+                "blockers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Obstacles the plan should address."
+                }
+            },
+            "required": [
+                "goal",
+                "schedule",
+                "blockers"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "wellness_planning",
+            "habit_design"
+        ]
+    }
+]
