@@ -390,6 +390,26 @@ class JobStoreRepository:
                 "next_cursor": next_cursor,
             }
 
+    def get_job_by_name(
+        self,
+        name: Any,
+        *,
+        tenant_id: Any,
+    ) -> Dict[str, Any]:
+        tenant_key = _normalize_tenant_id(tenant_id)
+        name_text = _normalize_name(name)
+
+        with self._session_scope() as session:
+            stmt = (
+                select(Job)
+                .where(Job.tenant_id == tenant_key)
+                .where(Job.name == name_text)
+            )
+            record = session.execute(stmt).scalar_one_or_none()
+            if record is None:
+                raise JobNotFoundError("Job not found for tenant")
+            return _serialize_job(record)
+
     def get_job(
         self,
         job_id: Any,
