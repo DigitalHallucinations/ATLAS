@@ -1,0 +1,24 @@
+[
+  {
+    "name": "ATSCompatibility",
+    "version": "1.0.0",
+    "instruction_prompt": "Evaluate a resume against the target role using the ATS scoring service, highlight matched strengths, pinpoint gaps, and recommend optimizations backed by reputable references.",
+    "required_tools": [
+      "ats_scoring_service",
+      "google_search",
+      "policy_reference"
+    ],
+    "required_capabilities": [
+      "resume_analysis",
+      "ats_compliance"
+    ],
+    "safety_notes": "Clarify data freshness, avoid fabricating metrics, and protect any personal information contained in the resume or job description.",
+    "summary": "ATS compatibility analysis that surfaces gaps and provides targeted improvement guidance.",
+    "category": "Career Services",
+    "capability_tags": [
+      "ats",
+      "resume",
+      "analysis"
+    ]
+  }
+]

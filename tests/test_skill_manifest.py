@@ -14,17 +14,20 @@ def test_load_skill_metadata_includes_shared_and_persona():
     assert ordering == sorted(ordering), "Entries should be sorted by persona then name"
 
     shared_names = {entry.name for entry in entries if entry.persona is None}
-    persona_names = {entry.name for entry in entries if entry.persona == "ATLAS"}
+    atlas_persona_names = {entry.name for entry in entries if entry.persona == "ATLAS"}
+    resume_genius_names = {
+        entry.name for entry in entries if entry.persona == "ResumeGenius"
+    }
 
     assert {
         "ContextualSummarizer",
         "SafetyScout",
         "ResearchBrief",
-        "ATSCompatibility",
         "DailyDigest",
         "SevereWeatherAlert",
     }.issubset(shared_names)
-    assert "AtlasReporter" in persona_names
+    assert "AtlasReporter" in atlas_persona_names
+    assert "ATSCompatibility" in resume_genius_names
 
     research = next(entry for entry in entries if entry.name == "ResearchBrief")
     assert research.summary
@@ -40,6 +43,7 @@ def test_load_skill_metadata_includes_shared_and_persona():
     assert "weather" in severe.capability_tags
 
     ats = next(entry for entry in entries if entry.name == "ATSCompatibility")
+    assert ats.persona == "ResumeGenius"
     assert set(ats.required_tools) == {
         "ats_scoring_service",
         "google_search",
