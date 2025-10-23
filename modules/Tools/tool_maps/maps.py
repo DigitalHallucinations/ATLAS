@@ -34,7 +34,6 @@ from modules.Tools.Base_Tools.task_queue import (
 )
 from ATLAS.config import ConfigManager
 from modules.Tools.Code_Execution import JavaScriptExecutor, PythonInterpreter
-from modules.Tools.Medical_Tools import search_pmc, search_pubmed
 
 # Create an instance of GoogleSearch
 google_search_instance = GoogleSearch()
@@ -101,8 +100,6 @@ function_map = {
     "terminal_command": TerminalCommand,
     "execute_python": python_interpreter.run,
     "execute_javascript": javascript_executor.run,
-    "search_pubmed": search_pubmed,
-    "search_pmc": search_pmc,
     "geocode_location": geocode_location,
     "get_current_location": get_current_location,
     "debian12_calendar": _debian12_calendar_dispatch,

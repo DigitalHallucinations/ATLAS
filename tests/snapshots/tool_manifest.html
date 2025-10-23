@@ -64,6 +64,8 @@
       <tr><td>generate_doc_outline</td><td>1.0.0</td><td>documentation, analysis</td><td>—</td><td>No</td><td>Parse a definition signature and return DocGenius docstring scaffolding.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>search_pmc</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY)</td><td>Search PubMed Central (PMC) for open access articles using the Entrez API.</td></tr>
+      <tr><td>search_pubmed</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY)</td><td>Search PubMed for biomedical literature using the NCBI Entrez API.</td></tr>
     </tbody>
   </table>
   <h2>Persona: Einstein</h2>
@@ -195,8 +197,6 @@
       <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
       <tr><td>priority_queue</td><td>1.0.0</td><td>task_management, status_reporting</td><td>—</td><td>No</td><td>Score and sort operational tasks to produce a prioritized execution list.</td></tr>
       <tr><td>query_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Return the most similar vectors for the supplied query embedding from the configured namespace.</td></tr>
-      <tr><td>search_pmc</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY, type: api_key)</td><td>Search PubMed Central for open access biomedical literature and return PMC IDs.</td></tr>
-      <tr><td>search_pubmed</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY, type: api_key)</td><td>Search PubMed for biomedical literature and return a list of PubMed IDs.</td></tr>
       <tr><td>structured_parse</td><td>1.0.0</td><td>document_parsing, ocr</td><td>low</td><td>No</td><td>Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents.</td></tr>
       <tr><td>task_queue_cancel</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Cancel a queued or scheduled task.</td></tr>
       <tr><td>task_queue_enqueue</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Enqueue a one-off task into the durable task queue with optional execution delay.</td></tr>

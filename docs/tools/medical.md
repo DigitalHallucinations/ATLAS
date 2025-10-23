@@ -2,7 +2,8 @@
 
 The MEDIC persona relies on the NCBI Entrez Programming Utilities (E-utilities)
 for PubMed and PubMed Central searches. These tools are exposed as
-`search_pubmed` and `search_pmc`.
+`search_pubmed` and `search_pmc`, and are available through MEDIC's toolbox
+(along with DocGenius when assigned the same research tasks).
 
 ## Configuration
 
