@@ -37,9 +37,11 @@ from modules.orchestration.capability_registry import (
     SkillCapabilityView,
     get_capability_registry,
 )
+from modules.orchestration.job_manager import JobManager
 from modules.orchestration.message_bus import MessageBus
 
 if TYPE_CHECKING:
+    from modules.job_store.service import JobService
     from modules.task_store.service import TaskService
 from modules.persona_review import REVIEW_INTERVAL_DAYS, compute_review_status
 from .conversation_routes import (
@@ -47,6 +49,7 @@ from .conversation_routes import (
     ConversationRoutes,
     RequestContext,
 )
+from .job_routes import JobRoutes
 from .task_routes import TaskRoutes
 
 logger = setup_logger(__name__)
@@ -95,13 +98,18 @@ class AtlasServer:
         conversation_repository: ConversationStoreRepository | None = None,
         message_bus: Optional[MessageBus] = None,
         task_service: "TaskService" | None = None,
+        job_service: "JobService" | None = None,
+        job_manager: JobManager | None = None,
     ) -> None:
         self._config_manager = config_manager
         self._conversation_repository = conversation_repository
         self._message_bus = message_bus
         self._task_service: "TaskService" | None = task_service
+        self._job_service: "JobService" | None = job_service
+        self._job_manager: JobManager | None = job_manager
         self._conversation_routes: ConversationRoutes | None = None
         self._task_routes: TaskRoutes | None = None
+        self._job_routes: JobRoutes | None = None
 
     def _get_conversation_routes(self) -> ConversationRoutes:
         if self._conversation_routes is None:
@@ -180,6 +188,58 @@ class AtlasServer:
         routes = self._ensure_task_routes()
         if routes is None:
             raise RuntimeError("Task service is not configured")
+        return routes
+
+    def _build_job_service(self) -> "JobService" | None:
+        if self._config_manager is None:
+            return None
+        getter = getattr(self._config_manager, "get_job_service", None)
+        if not callable(getter):
+            return None
+        try:
+            return getter()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.warning("Failed to initialize job service: %s", exc)
+            return None
+
+    def _build_job_manager(self) -> JobManager | None:
+        if self._config_manager is None:
+            return None
+        getter = getattr(self._config_manager, "get_job_manager", None)
+        if not callable(getter):
+            return None
+        try:
+            return getter()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.warning("Failed to initialize job manager: %s", exc)
+            return None
+
+    def _ensure_job_routes(self) -> JobRoutes | None:
+        if self._job_routes is not None:
+            return self._job_routes
+
+        job_service = self._job_service or self._build_job_service()
+        if job_service is None:
+            logger.warning(
+                "Job service is not configured; job endpoints will be disabled"
+            )
+            return None
+
+        self._job_service = job_service
+        if self._job_manager is None:
+            self._job_manager = self._build_job_manager()
+
+        self._job_routes = JobRoutes(
+            job_service,
+            manager=self._job_manager,
+            message_bus=self._message_bus,
+        )
+        return self._job_routes
+
+    def _require_job_routes(self) -> JobRoutes:
+        routes = self._ensure_job_routes()
+        if routes is None:
+            raise RuntimeError("Job service is not configured")
         return routes
 
     @staticmethod
@@ -1055,6 +1115,140 @@ class AtlasServer:
             context=request_context,
             after=after,
         )
+
+    # -- job routes -------------------------------------------------------
+
+    def create_job(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        routes = self._require_job_routes()
+        request_context = self._coerce_context(context)
+        return routes.create_job(payload, context=request_context)
+
+    def update_job(
+        self,
+        job_id: str,
+        payload: Mapping[str, Any],
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        routes = self._require_job_routes()
+        request_context = self._coerce_context(context)
+        return routes.update_job(job_id, payload, context=request_context)
+
+    def transition_job(
+        self,
+        job_id: str,
+        target_status: Any,
+        *,
+        context: Any,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        routes = self._require_job_routes()
+        request_context = self._coerce_context(context)
+        return routes.transition_job(
+            job_id,
+            target_status,
+            context=request_context,
+            expected_updated_at=expected_updated_at,
+        )
+
+    def delete_job(
+        self,
+        job_id: str,
+        *,
+        context: Any,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        return self.transition_job(
+            job_id,
+            target_status="cancelled",
+            context=context,
+            expected_updated_at=expected_updated_at,
+        )
+
+    def get_job(
+        self,
+        job_id: str,
+        *,
+        context: Any,
+        include_schedule: bool = False,
+        include_runs: bool = False,
+        include_events: bool = False,
+    ) -> Dict[str, Any]:
+        routes = self._require_job_routes()
+        request_context = self._coerce_context(context)
+        return routes.get_job(
+            job_id,
+            context=request_context,
+            include_schedule=include_schedule,
+            include_runs=include_runs,
+            include_events=include_events,
+        )
+
+    def list_jobs(
+        self,
+        params: Optional[Mapping[str, Any]] = None,
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        routes = self._ensure_job_routes()
+        request_context = self._coerce_context(context)
+        if routes is None:
+            return {"items": []}
+        return routes.list_jobs(params, context=request_context)
+
+    def list_job_tasks(
+        self,
+        job_id: str,
+        *,
+        context: Any,
+    ) -> list[Dict[str, Any]]:
+        routes = self._require_job_routes()
+        request_context = self._coerce_context(context)
+        return routes.list_linked_tasks(job_id, context=request_context)
+
+    def link_job_task(
+        self,
+        job_id: str,
+        payload: Mapping[str, Any],
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        routes = self._require_job_routes()
+        request_context = self._coerce_context(context)
+        return routes.link_task(job_id, payload, context=request_context)
+
+    def unlink_job_task(
+        self,
+        job_id: str,
+        *,
+        context: Any,
+        link_id: Any | None = None,
+        task_id: Any | None = None,
+    ) -> Dict[str, Any]:
+        routes = self._require_job_routes()
+        request_context = self._coerce_context(context)
+        return routes.unlink_task(
+            job_id,
+            context=request_context,
+            link_id=link_id,
+            task_id=task_id,
+        )
+
+    def stream_job_events(
+        self,
+        job_id: str,
+        *,
+        context: Any,
+        after: Optional[str] = None,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        routes = self._require_job_routes()
+        request_context = self._coerce_context(context)
+        return routes.stream_job_events(job_id, context=request_context, after=after)
 
     # -- task routes -------------------------------------------------------
 
