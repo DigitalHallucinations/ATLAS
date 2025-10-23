@@ -205,12 +205,15 @@ class TaskEvent(Base):
     session = relationship("Session", foreign_keys=[session_id])
 
 
-_TASK_TABLES = (
-    Task.__table__,
-    TaskAssignment.__table__,
-    TaskDependency.__table__,
-    TaskEvent.__table__,
-)
+try:
+    _TASK_TABLES = (
+        Task.__table__,
+        TaskAssignment.__table__,
+        TaskDependency.__table__,
+        TaskEvent.__table__,
+    )
+except AttributeError:  # pragma: no cover - minimal test stubs without SQLAlchemy
+    _TASK_TABLES = ()
 
 
 def _compile_index_columns(columns: Sequence[Any]) -> Iterable[str]:

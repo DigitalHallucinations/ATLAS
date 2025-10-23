@@ -7,9 +7,29 @@ import shlex
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import sessionmaker
+try:  # pragma: no cover - optional dependency handling for test environments
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import Engine
+    from sqlalchemy.orm import sessionmaker
+except Exception:  # pragma: no cover - lightweight fallbacks when SQLAlchemy is absent
+    class Engine:  # type: ignore[assignment]
+        pass
+
+    def create_engine(*_args, **_kwargs):  # type: ignore[override]
+        raise RuntimeError("SQLAlchemy create_engine is unavailable in this environment")
+
+    class _Sessionmaker:  # pragma: no cover - placeholder mirroring SQLAlchemy API
+        def __init__(self, *_args, **_kwargs):
+            raise RuntimeError("SQLAlchemy sessionmaker is unavailable in this environment")
+
+    sessionmaker = _Sessionmaker  # type: ignore[assignment]
+else:  # pragma: no cover - sanitize stubbed implementations
+    if not isinstance(sessionmaker, type):  # pragma: no cover - compatibility with stubs
+        class _Sessionmaker:
+            def __init__(self, *_args, **_kwargs):
+                raise RuntimeError("SQLAlchemy sessionmaker is unavailable in this environment")
+
+        sessionmaker = _Sessionmaker  # type: ignore[assignment]
 
 from modules.orchestration.message_bus import (
     InMemoryQueueBackend,

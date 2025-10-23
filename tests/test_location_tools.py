@@ -41,7 +41,7 @@ def test_geocode_location_success(monkeypatch):
     )
 
     geocode_module = importlib.reload(
-        importlib.import_module("modules.Tools.Base_Tools.geocode")
+        importlib.import_module("modules.Personas.WeatherGenius.Toolbox.geocode")
     )
 
     result = asyncio.run(geocode_module.geocode_location("Paris, FR"))
@@ -53,7 +53,7 @@ def test_geocode_location_success(monkeypatch):
 def test_geocode_location_requires_location(monkeypatch):
     monkeypatch.setenv("OPENWEATHERMAP_API_KEY", "test-key")
     geocode_module = importlib.reload(
-        importlib.import_module("modules.Tools.Base_Tools.geocode")
+        importlib.import_module("modules.Personas.WeatherGenius.Toolbox.geocode")
     )
 
     result = asyncio.run(geocode_module.geocode_location("  "))
@@ -71,7 +71,7 @@ def test_geocode_location_missing_api_key(monkeypatch):
     )
 
     geocode_module = importlib.reload(
-        importlib.import_module("modules.Tools.Base_Tools.geocode")
+        importlib.import_module("modules.Personas.WeatherGenius.Toolbox.geocode")
     )
 
     result = asyncio.run(geocode_module.geocode_location("Berlin"))
@@ -90,7 +90,7 @@ def test_geocode_location_provider_error(monkeypatch):
     )
 
     geocode_module = importlib.reload(
-        importlib.import_module("modules.Tools.Base_Tools.geocode")
+        importlib.import_module("modules.Personas.WeatherGenius.Toolbox.geocode")
     )
 
     result = asyncio.run(geocode_module.geocode_location("Atlantis"))
@@ -108,7 +108,7 @@ def test_geocode_location_exception(monkeypatch):
     )
 
     geocode_module = importlib.reload(
-        importlib.import_module("modules.Tools.Base_Tools.geocode")
+        importlib.import_module("modules.Personas.WeatherGenius.Toolbox.geocode")
     )
 
     result = asyncio.run(geocode_module.geocode_location("Rome"))

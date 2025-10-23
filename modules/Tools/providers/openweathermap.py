@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from modules.Tools.Base_Tools import geocode as geocode_module
+from modules.Personas.WeatherGenius.Toolbox import geocode as geocode_module
 
 from .base import ToolProvider, ToolProviderSpec
 from .registry import tool_provider_registry
@@ -16,7 +16,7 @@ _require_api_key = getattr(geocode_module, "_require_api_key", None)
 
 
 class OpenWeatherMapProvider(ToolProvider):
-    """Adapter around :func:`modules.Tools.Base_Tools.geocode.geocode_location`."""
+    """Adapter around :func:`modules.Personas.WeatherGenius.Toolbox.geocode.geocode_location`."""
 
     async def call(self, **kwargs: Any) -> Any:
         location = kwargs.get("location")

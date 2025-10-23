@@ -1,4 +1,4 @@
-"""High-level geocoding tool wrapper."""
+"""Geocoding helper scoped to the WeatherGenius persona."""
 
 from __future__ import annotations
 
@@ -16,12 +16,14 @@ logger = setup_logger(__name__)
 
 def _error(message: str) -> Dict[str, str]:
     """Return a normalized error payload while logging the failure."""
+
     logger.error(message)
     return {"error": message}
 
 
 def _require_api_key() -> str:
     """Return the configured OpenWeatherMap API key or an empty string."""
+
     api_key = os.getenv("OPENWEATHERMAP_API_KEY", "").strip()
     return api_key
 
@@ -58,3 +60,4 @@ async def geocode_location(location: str) -> Dict[str, Any]:
 
 
 __all__ = ["geocode_location"]
+

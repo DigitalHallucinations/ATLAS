@@ -10,12 +10,68 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence
 
-from sqlalchemy import and_, create_engine, delete, func, inspect, or_, select, text
-from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload, sessionmaker
+try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
+    from sqlalchemy import and_, create_engine, delete, func, inspect, or_, select, text
+except Exception:  # pragma: no cover - lightweight fallbacks when SQLAlchemy is absent
+    def _raise_sqlalchemy(name: str):
+        return RuntimeError(f"SQLAlchemy function '{name}' is unavailable in this environment")
 
-from modules.task_store import ensure_task_schema
+    def create_engine(*_args, **_kwargs):  # type: ignore[override]
+        raise _raise_sqlalchemy("create_engine")
+
+    def delete(*_args, **_kwargs):  # type: ignore[override]
+        raise _raise_sqlalchemy("delete")
+
+    def func(*_args, **_kwargs):  # type: ignore[override]
+        raise _raise_sqlalchemy("func")
+
+    def inspect(*_args, **_kwargs):  # type: ignore[override]
+        raise _raise_sqlalchemy("inspect")
+
+    def select(*_args, **_kwargs):  # type: ignore[override]
+        raise _raise_sqlalchemy("select")
+
+    def text(*_args, **_kwargs):  # type: ignore[override]
+        raise _raise_sqlalchemy("text")
+
+    def and_(*_args, **_kwargs):  # type: ignore[override]
+        raise _raise_sqlalchemy("and_")
+
+    def or_(*_args, **_kwargs):  # type: ignore[override]
+        raise _raise_sqlalchemy("or_")
+try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
+    from sqlalchemy.engine import Engine
+except Exception:  # pragma: no cover - lightweight fallback when SQLAlchemy is absent
+    class Engine:  # type: ignore[assignment]
+        pass
+
+try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
+    from sqlalchemy.exc import IntegrityError
+except Exception:  # pragma: no cover - lightweight fallback when SQLAlchemy is absent
+    class IntegrityError(Exception):  # type: ignore[assignment]
+        pass
+
+try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
+    from sqlalchemy.orm import Session, joinedload, sessionmaker
+except Exception:  # pragma: no cover - lightweight fallbacks when SQLAlchemy is absent
+    class Session:  # type: ignore[assignment]
+        pass
+
+    class _Sessionmaker:
+        def __init__(self, *_args, **_kwargs):
+            raise _raise_sqlalchemy("sessionmaker")
+
+    def joinedload(*_args, **_kwargs):  # type: ignore[override]
+        raise _raise_sqlalchemy("joinedload")
+
+    sessionmaker = _Sessionmaker  # type: ignore[assignment]
+else:  # pragma: no cover - sanitize stubbed implementations
+    if not isinstance(sessionmaker, type):
+        class _Sessionmaker:
+            def __init__(self, *_args, **_kwargs):
+                raise _raise_sqlalchemy("sessionmaker")
+
+        sessionmaker = _Sessionmaker  # type: ignore[assignment]
 
 from .models import (
     Base,
@@ -303,6 +359,8 @@ class ConversationStoreRepository:
 
     def create_schema(self) -> None:
         """Create conversation store tables if they do not already exist."""
+
+        from modules.task_store import ensure_task_schema  # local import to avoid circular deps
 
         engine: Engine | None = getattr(self._session_factory, "bind", None)
         if engine is None:
