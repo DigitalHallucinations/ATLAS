@@ -142,5 +142,217 @@
       "research",
       "summaries"
     ]
+  },
+  {
+    "name": "Summarization",
+    "version": "1.0.0",
+    "instruction_prompt": "Synthesize information from recent research and contextual signals into a crisp summary with clear takeaways and next steps.",
+    "required_tools": [
+      "browser",
+      "notebook"
+    ],
+    "required_capabilities": [
+      "summarization",
+      "contextual_reasoning"
+    ],
+    "safety_notes": "Quote sources when referencing external material and flag uncertainty around unverified claims.",
+    "summary": "Creates concise digests that capture the most important points and pending actions.",
+    "category": "Knowledge Synthesis",
+    "capability_tags": [
+      "summaries",
+      "context",
+      "writing"
+    ]
+  },
+  {
+    "name": "Prioritization",
+    "version": "1.0.0",
+    "instruction_prompt": "Evaluate competing tasks or initiatives, weigh urgency and impact, and recommend an execution order with rationale.",
+    "required_tools": [
+      "priority_queue",
+      "roadmap_service"
+    ],
+    "required_capabilities": [
+      "prioritization",
+      "decision_support"
+    ],
+    "safety_notes": "Surface assumptions behind rankings and highlight dependencies that could change the ordering.",
+    "summary": "Produces a reasoned priority stack that balances urgency, impact, and sequencing.",
+    "category": "Planning & Prioritization",
+    "capability_tags": [
+      "prioritization",
+      "planning",
+      "execution"
+    ]
+  },
+  {
+    "name": "Research",
+    "version": "1.0.0",
+    "instruction_prompt": "Investigate a topic using trusted sources, capture key findings, and outline evidence-backed recommendations.",
+    "required_tools": [
+      "browser",
+      "labor_market_feed"
+    ],
+    "required_capabilities": [
+      "open_source_intelligence",
+      "analysis"
+    ],
+    "safety_notes": "Prefer primary or highly reputable sources and annotate any gaps or conflicting information.",
+    "summary": "Delivers research briefs grounded in corroborated evidence and cited sources.",
+    "category": "Research",
+    "capability_tags": [
+      "research",
+      "investigation",
+      "analysis"
+    ]
+  },
+  {
+    "name": "Analysis",
+    "version": "1.0.0",
+    "instruction_prompt": "Review quantitative and qualitative signals to diagnose trends, anomalies, and root causes.",
+    "required_tools": [
+      "dashboard_service",
+      "spreadsheet"
+    ],
+    "required_capabilities": [
+      "analytical_reasoning",
+      "metrics_review"
+    ],
+    "safety_notes": "Clarify data freshness and caveats, and avoid overfitting conclusions to limited samples.",
+    "summary": "Transforms raw metrics into actionable insights and explanatory commentary.",
+    "category": "Analytics",
+    "capability_tags": [
+      "analysis",
+      "metrics",
+      "insights"
+    ]
+  },
+  {
+    "name": "Reporting",
+    "version": "1.0.0",
+    "instruction_prompt": "Compose polished status updates tailored to stakeholders, emphasizing outcomes, blockers, and next actions.",
+    "required_tools": [
+      "notebook",
+      "email_service"
+    ],
+    "required_capabilities": [
+      "reporting",
+      "communication"
+    ],
+    "safety_notes": "Respect disclosure limits, anonymise sensitive data when required, and validate distribution lists before sending.",
+    "summary": "Produces stakeholder-ready reports that blend narrative clarity with operational detail.",
+    "category": "Communication",
+    "capability_tags": [
+      "reporting",
+      "communication",
+      "narrative"
+    ]
+  },
+  {
+    "name": "ProgramManagement",
+    "version": "1.0.0",
+    "instruction_prompt": "Coordinate initiatives by aligning milestones, owners, and risks into a coherent execution plan.",
+    "required_tools": [
+      "roadmap_service",
+      "ticketing_system",
+      "dashboard_service"
+    ],
+    "required_capabilities": [
+      "program_management",
+      "coordination"
+    ],
+    "safety_notes": "Flag resource constraints, call out escalations early, and document assumptions for leadership review.",
+    "summary": "Maintains cross-functional momentum through structured plans and clear accountability.",
+    "category": "Operations",
+    "capability_tags": [
+      "program_management",
+      "coordination",
+      "planning"
+    ]
+  },
+  {
+    "name": "RiskAssessment",
+    "version": "1.0.0",
+    "instruction_prompt": "Monitor operational signals for emerging risks, rate severity, and recommend mitigations or escalations.",
+    "required_tools": [
+      "atlas_dashboard",
+      "notification_service",
+      "policy_reference"
+    ],
+    "required_capabilities": [
+      "risk_assessment",
+      "monitoring"
+    ],
+    "safety_notes": "Escalate high-severity findings to human owners immediately and document evidence supporting the assessment.",
+    "summary": "Continuously evaluates risk posture and prescribes targeted responses.",
+    "category": "Governance",
+    "capability_tags": [
+      "risk",
+      "monitoring",
+      "alerts"
+    ]
+  },
+  {
+    "name": "LaborMarketResearch",
+    "version": "1.0.0",
+    "instruction_prompt": "Analyse labour market signals to highlight demand trends, talent gaps, and competitive insights.",
+    "required_tools": [
+      "labor_market_feed",
+      "browser"
+    ],
+    "required_capabilities": [
+      "labor_market_research",
+      "trend_analysis"
+    ],
+    "safety_notes": "Call out data currency, avoid unsupported projections, and document methodologies used to derive trends.",
+    "summary": "Generates labour market intelligence with region and skill-level granularity.",
+    "category": "Market Intelligence",
+    "capability_tags": [
+      "labor_market",
+      "research",
+      "analysis"
+    ]
+  },
+  {
+    "name": "Engagement",
+    "version": "1.0.0",
+    "instruction_prompt": "Plan and log proactive stakeholder outreach that sustains relationships and keeps commitments visible.",
+    "required_tools": [
+      "notification_service",
+      "crm_service"
+    ],
+    "required_capabilities": [
+      "engagement",
+      "relationship_management"
+    ],
+    "safety_notes": "Respect communication preferences and ensure records exclude sensitive information unless expressly permitted.",
+    "summary": "Tracks touchpoints and nudges to keep stakeholders informed and supported.",
+    "category": "Relationship Management",
+    "capability_tags": [
+      "engagement",
+      "communication",
+      "crm"
+    ]
+  },
+  {
+    "name": "Copywriting",
+    "version": "1.0.0",
+    "instruction_prompt": "Draft persuasive copy that matches the target audience's tone while reinforcing key messages.",
+    "required_tools": [
+      "notebook",
+      "email_service"
+    ],
+    "required_capabilities": [
+      "copywriting",
+      "tone_control"
+    ],
+    "safety_notes": "Avoid misleading claims, maintain brand guidelines, and cite sources when referencing external data.",
+    "summary": "Crafts audience-aware messaging ready for publication or distribution.",
+    "category": "Content Creation",
+    "capability_tags": [
+      "copywriting",
+      "tone",
+      "audience"
+    ]
   }
 ]

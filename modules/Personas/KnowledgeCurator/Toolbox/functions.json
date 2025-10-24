@@ -213,5 +213,549 @@
             "knowledge_management",
             "summarization"
         ]
+    },
+    {
+        "name": "browser",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Record a virtual browsing session including annotations and metadata for downstream summarisation.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "Starting URL or resource identifier."
+                },
+                "instructions": {
+                    "type": "string",
+                    "description": "Optional instructions describing the goal of the visit."
+                },
+                "annotations": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional notes or highlights captured during navigation."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Arbitrary metadata to retain with the visit."
+                }
+            },
+            "required": [
+                "url"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "web_navigation",
+            "research"
+        ]
+    },
+    {
+        "name": "notebook",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Capture a structured research note inside a collaborative notebook.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "notebook_id": {
+                    "type": "string",
+                    "description": "Logical notebook identifier."
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Markdown-compatible note contents."
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional tags describing the entry."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Arbitrary metadata stored with the entry."
+                },
+                "replace": {
+                    "type": "boolean",
+                    "description": "When true, replace existing entries for the notebook."
+                }
+            },
+            "required": [
+                "notebook_id",
+                "content"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "note_taking",
+            "knowledge_management"
+        ]
+    },
+    {
+        "name": "notification_service",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Send a notification message to the requested channel and recipients.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "description": "Delivery channel such as email, sms, or slack."
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Body of the notification."
+                },
+                "recipients": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional list of specific recipients."
+                },
+                "urgency": {
+                    "type": "string",
+                    "description": "Relative urgency level (low, normal, high)."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Structured metadata for audit trails."
+                }
+            },
+            "required": [
+                "channel",
+                "message"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "notification_delivery",
+            "engagement"
+        ]
+    },
+    {
+        "name": "dashboard_service",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Store a dashboard snapshot with numeric metrics and supporting commentary.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "dashboard_id": {
+                    "type": "string",
+                    "description": "Identifier of the dashboard being updated."
+                },
+                "metrics": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "number",
+                            "string"
+                        ]
+                    },
+                    "description": "Mapping of metric names to numeric values."
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Optional analyst notes."
+                },
+                "publish": {
+                    "type": "boolean",
+                    "description": "Flag indicating whether the snapshot is ready for stakeholders."
+                }
+            },
+            "required": [
+                "dashboard_id",
+                "metrics"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "metrics_reporting",
+            "analysis"
+        ]
+    },
+    {
+        "name": "spreadsheet",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Append or replace rows within a lightweight spreadsheet.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "sheet_id": {
+                    "type": "string",
+                    "description": "Identifier for the sheet being updated."
+                },
+                "rows": {
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    },
+                    "description": "Rows to append or replace in the sheet."
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": [
+                        "append",
+                        "update",
+                        "replace"
+                    ],
+                    "default": "append",
+                    "description": "How the provided rows should be applied."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Optional metadata describing the update."
+                }
+            },
+            "required": [
+                "sheet_id",
+                "rows"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "data_management",
+            "tabular_editing"
+        ]
+    },
+    {
+        "name": "atlas_dashboard",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Capture persona-specific initiative health updates for the ATLAS dashboard.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "initiative": {
+                    "type": "string",
+                    "description": "Initiative or workstream name."
+                },
+                "health": {
+                    "type": "string",
+                    "description": "Qualitative health rating (e.g. green, amber, red)."
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Concise update highlighting progress and risks."
+                },
+                "metrics": {
+                    "type": "object",
+                    "description": "Optional numeric metrics to include in the dashboard snapshot."
+                },
+                "stakeholders": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Stakeholders who should be notified about this change."
+                }
+            },
+            "required": [
+                "initiative",
+                "health",
+                "summary"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "atlas_operations",
+            "status_reporting"
+        ]
+    },
+    {
+        "name": "roadmap_service",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Update a roadmap initiative with owner, status, and upcoming milestones.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "initiative_id": {
+                    "type": "string",
+                    "description": "Unique identifier of the roadmap item."
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Display title for the initiative."
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Lifecycle status such as planned, in_progress, or blocked."
+                },
+                "owner": {
+                    "type": "string",
+                    "description": "Responsible owner for the initiative."
+                },
+                "milestones": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Key milestones or deliverables."
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Optional context or commentary."
+                }
+            },
+            "required": [
+                "initiative_id",
+                "title",
+                "owner"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "program_management",
+            "planning"
+        ]
+    },
+    {
+        "name": "ticketing_system",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Create a ticket for follow-up work with assignee and tag support.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Ticket title."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Detailed description of the work."
+                },
+                "priority": {
+                    "type": "string",
+                    "description": "Priority level such as low, medium, or high."
+                },
+                "assignees": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional list of assignees."
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional tags for filtering."
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Initial ticket status."
+                }
+            },
+            "required": [
+                "title",
+                "description"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "issue_tracking",
+            "escalations"
+        ]
+    },
+    {
+        "name": "labor_market_feed",
+        "version": "1.0.0",
+        "side_effects": "compute",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Generate a synthetic labour market snapshot for the requested regions and skills.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "regions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Regions or markets to analyse."
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Target skills or roles to include in the snapshot."
+                },
+                "timeframe": {
+                    "type": "string",
+                    "description": "Relative timeframe window such as 30d or 90d."
+                }
+            },
+            "required": [
+                "regions",
+                "skills"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "labor_market_research",
+            "trend_analysis"
+        ]
+    },
+    {
+        "name": "crm_service",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Log a structured customer interaction with optional tags and metadata.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "contact_id": {
+                    "type": "string",
+                    "description": "Unique identifier for the contact."
+                },
+                "interaction_type": {
+                    "type": "string",
+                    "description": "Type of engagement such as call, meeting, or email."
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Short narrative describing the interaction."
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional tags that categorise the interaction."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Free-form metadata captured alongside the log."
+                }
+            },
+            "required": [
+                "contact_id",
+                "interaction_type",
+                "summary"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "crm_logging",
+            "engagement_tracking"
+        ]
+    },
+    {
+        "name": "email_service",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Dispatch a structured email with support for CC and BCC recipients.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": "Email subject line."
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Email body rendered as plain text."
+                },
+                "to": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Primary recipients."
+                },
+                "cc": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Carbon copy recipients."
+                },
+                "bcc": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Blind carbon copy recipients."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Optional delivery metadata."
+                }
+            },
+            "required": [
+                "subject",
+                "body",
+                "to"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "email_delivery",
+            "communications"
+        ]
     }
 ]
