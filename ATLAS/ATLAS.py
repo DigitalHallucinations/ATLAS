@@ -1902,6 +1902,17 @@ class ATLAS:
             organization=organization,
         )
 
+    async def list_anthropic_models(
+        self,
+        *,
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch available Anthropic models through the provider manager facade."""
+
+        return await self._require_provider_manager().list_anthropic_models(
+            base_url=base_url,
+        )
+
     async def list_google_models(
         self,
         *,

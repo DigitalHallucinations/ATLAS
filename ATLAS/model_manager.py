@@ -3,6 +3,7 @@
 import json
 import os
 import threading
+from pathlib import Path
 from typing import Dict, List, Tuple
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
@@ -45,54 +46,106 @@ class ModelManager:
         """
         with self.lock:
             providers = ['OpenAI', 'Mistral', 'Google', 'HuggingFace', 'Anthropic', 'Grok']
-            
+
             atlas_root = self.config_manager.get_app_root()
-            # Corrected the path to point to the 'modules' directory
-            providers_path = os.path.join(atlas_root, "modules", "Providers")
+            providers_path = Path(atlas_root) / "modules" / "Providers"
 
             self.logger.debug(f"Atlas root directory: {atlas_root}")
             self.logger.debug(f"Providers path: {providers_path}")
 
             for provider in providers:
+                file_candidates: List[Path] = []
+                normalize = True
+
                 if provider == 'HuggingFace':
-                    # Use the installed_models.json file in the model cache directory for HuggingFace
-                    file_path = os.path.join(self.config_manager.get_model_cache_dir(), 'installed_models.json')
+                    cache_dir = Path(self.config_manager.get_model_cache_dir())
+                    file_candidates.append(cache_dir / 'installed_models.json')
+                    normalize = False
                 elif provider == 'Grok':
                     self.models[provider] = ["grok-2", "grok-2-mini"]
                     continue
                 elif provider == 'Google':
-                    # Google models are now discovered dynamically via the API helper.
+                    # Google models are discovered dynamically via the API helper.
                     self.logger.debug(
                         "Skipping static model list for Google; awaiting API-backed discovery."
                     )
                     self.models[provider] = self._normalize_models(self.models.get(provider, []))
                     continue
+                elif provider == 'Anthropic':
+                    try:
+                        app_root_path = Path(self.config_manager.get_app_root())
+                    except Exception:
+                        app_root_path = providers_path.parent
+
+                    file_candidates.extend(
+                        [
+                            app_root_path / "modules" / "Providers" / "Anthropic" / "anthropic_models.json",
+                            app_root_path / "modules" / "Providers" / "Anthropic" / "A_models.json",
+                            Path(__file__).resolve().parent.parent
+                            / "modules"
+                            / "Providers"
+                            / "Anthropic"
+                            / "anthropic_models.json",
+                        ]
+                    )
                 else:
                     file_name = f"{provider[0]}_models.json"  # e.g., 'O_models.json' for OpenAI
-                    # Corrected file path to point to the correct directory
-                    file_path = os.path.join(providers_path, provider, file_name)
-                
-                self.logger.debug(f"Attempting to load model file for {provider} from: {file_path}")
+                    file_candidates.append(providers_path / provider / file_name)
 
-                try:
-                    with open(file_path, 'r') as f:
-                        if provider == 'HuggingFace':
-                            provider_models = json.load(f)
-                        else:
-                            provider_models = json.load(f).get('models', [])
+                unique_candidates: List[Path] = []
+                for candidate in file_candidates:
+                    if candidate not in unique_candidates:
+                        unique_candidates.append(candidate)
+
+                loaded = False
+                for candidate in unique_candidates:
+                    self.logger.debug(
+                        f"Attempting to load model file for {provider} from: {candidate}"
+                    )
+                    try:
+                        with candidate.open('r', encoding='utf-8') as handle:
+                            payload = json.load(handle)
+                    except FileNotFoundError:
+                        continue
+                    except json.JSONDecodeError:
+                        self.logger.error(
+                            f"Error decoding JSON in model file for provider {provider} at {candidate}"
+                        )
+                        self.models[provider] = []
+                        loaded = True
+                        break
+                    except Exception as exc:
+                        self.logger.error(
+                            f"Unexpected error loading model file for provider {provider} at {candidate}: {str(exc)}"
+                        )
+                        self.models[provider] = []
+                        loaded = True
+                        break
+
                     if provider == 'HuggingFace':
-                        self.models[provider] = provider_models
+                        provider_models = payload if isinstance(payload, list) else []
                     else:
-                        self.models[provider] = self._normalize_models(provider_models)
-                    self.logger.info(f"Successfully loaded models for {provider}: {self.models[provider]}")
-                except FileNotFoundError:
-                    self.logger.warning(f"Model file not found for provider {provider} at {file_path}")
-                    self.models[provider] = []
-                except json.JSONDecodeError:
-                    self.logger.error(f"Error decoding JSON in model file for provider {provider} at {file_path}")
-                    self.models[provider] = []
-                except Exception as e:
-                    self.logger.error(f"Unexpected error loading model file for provider {provider}: {str(e)}")
+                        provider_models = payload.get('models', []) if isinstance(payload, dict) else []
+
+                    self.models[provider] = (
+                        provider_models if not normalize else self._normalize_models(provider_models)
+                    )
+                    self.logger.info(
+                        f"Successfully loaded models for {provider}: {self.models[provider]}"
+                    )
+                    loaded = True
+                    break
+
+                if not loaded:
+                    if provider == 'Anthropic':
+                        self.logger.info(
+                            "No cached Anthropic model list found; run discovery to populate it."
+                        )
+                    else:
+                        missing_path = unique_candidates[0] if unique_candidates else None
+                        self.logger.warning(
+                            f"Model file not found for provider {provider} at {missing_path}"
+                        )
                     self.models[provider] = []
 
     def set_model(self, model_name: str, provider: str) -> None:
