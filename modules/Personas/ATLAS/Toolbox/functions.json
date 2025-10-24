@@ -894,5 +894,204 @@
             "workspace_publishing",
             "brief_distribution"
         ]
+    },
+    {
+        "name": "policy_reference",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-query"
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "policy_lookup",
+            "risk_assessment_support"
+        ],
+        "providers": [
+            {
+                "name": "builtin_policy",
+                "priority": 0,
+                "health_check_interval": 60
+            }
+        ],
+        "description": "Retrieve internal safety and governance policy guidance relevant to a proposed action.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural language description of the planned action or request requiring review."
+                },
+                "policy_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional explicit policy identifiers to include in the response."
+                },
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional list of policy categories to filter by."
+                },
+                "include_full_text": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Whether to return full guidance text for each policy."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "default": 3,
+                    "description": "Maximum number of policy entries to return."
+                }
+            },
+            "required": [
+                "query"
+            ]
+        }
+    },
+    {
+        "name": "debian12_calendar",
+        "version": "1.1.0",
+        "side_effects": "filesystem",
+        "default_timeout": 15,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": false,
+            "guidance": "Provide a stable key for read operations when polling. Omit the key when issuing create, update, or delete requests."
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "calendar_read",
+            "calendar_write"
+        ],
+        "providers": [
+            {
+                "name": "debian12_local",
+                "priority": 0,
+                "health_check_interval": 300
+            }
+        ],
+        "requires_flags": {
+            "create": [
+                "type.personal_assistant.access_to_calendar",
+                "type.personal_assistant.calendar_write_enabled"
+            ],
+            "update": [
+                "type.personal_assistant.access_to_calendar",
+                "type.personal_assistant.calendar_write_enabled"
+            ],
+            "delete": [
+                "type.personal_assistant.access_to_calendar",
+                "type.personal_assistant.calendar_write_enabled"
+            ]
+        },
+        "description": "Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": [
+                        "list",
+                        "detail",
+                        "search",
+                        "create",
+                        "update",
+                        "delete"
+                    ],
+                    "description": "Calendar operation to perform."
+                },
+                "event_id": {
+                    "type": "string",
+                    "description": "Identifier of the event to fetch, update, or delete."
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Text used to search titles, descriptions, and locations when operation is 'search'."
+                },
+                "start": {
+                    "type": "string",
+                    "description": "ISO 8601 timestamp that bounds the window for list/search operations or sets the start of a created/updated event."
+                },
+                "end": {
+                    "type": "string",
+                    "description": "ISO 8601 timestamp that bounds the window for list/search operations or sets the end of a created/updated event."
+                },
+                "calendar": {
+                    "type": "string",
+                    "description": "Optional calendar identifier (e.g., ICS file stem or account id)."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Maximum number of events to return for list/search operations."
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Event title when creating or updating an entry.",
+                    "minLength": 1
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional event description for create/update operations."
+                },
+                "location": {
+                    "type": "string",
+                    "description": "Optional location for create/update operations."
+                },
+                "all_day": {
+                    "type": "boolean",
+                    "description": "Whether the created or updated event should be treated as an all-day entry."
+                },
+                "attendees": {
+                    "type": "array",
+                    "description": "List of attendees to include when creating or updating an event.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "email": {
+                                "type": "string",
+                                "description": "Email address of the attendee."
+                            },
+                            "name": {
+                                "type": "string",
+                                "description": "Display name of the attendee."
+                            },
+                            "role": {
+                                "type": "string",
+                                "description": "Optional participation role (e.g., REQ-PARTICIPANT)."
+                            },
+                            "status": {
+                                "type": "string",
+                                "description": "Optional participation status (e.g., ACCEPTED)."
+                            }
+                        },
+                        "required": [
+                            "email"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "operation"
+            ]
+        },
+        "idempotency_guidance": "Reads are idempotent and may use a stable key when polling. Create, update, and delete operations mutate the calendar and should not be retried automatically."
     }
 ]

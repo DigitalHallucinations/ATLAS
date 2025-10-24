@@ -695,5 +695,71 @@
             "email_delivery",
             "communications"
         ]
+    },
+    {
+        "name": "policy_reference",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-query"
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "policy_lookup",
+            "risk_assessment_support"
+        ],
+        "providers": [
+            {
+                "name": "builtin_policy",
+                "priority": 0,
+                "health_check_interval": 60
+            }
+        ],
+        "description": "Retrieve internal safety and governance policy guidance relevant to a proposed action.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural language description of the planned action or request requiring review."
+                },
+                "policy_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional explicit policy identifiers to include in the response."
+                },
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional list of policy categories to filter by."
+                },
+                "include_full_text": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Whether to return full guidance text for each policy."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "default": 3,
+                    "description": "Maximum number of policy entries to return."
+                }
+            },
+            "required": [
+                "query"
+            ]
+        }
     }
 ]

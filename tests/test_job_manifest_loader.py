@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from modules.Jobs.manifest_loader import JobManifestError, JobMetadata
+from modules.Jobs.manifest_loader import JobManifestError, JobMetadata, load_job_metadata
+from modules.Personas import load_persona_definition, load_tool_metadata
 
 
 @pytest.fixture()
@@ -172,3 +173,27 @@ def test_unknown_base_reference_raises(job_app_root: Path, monkeypatch: pytest.M
         jobs_pkg.manifest_loader.load_job_metadata()
 
     assert "references unknown base" in str(exc.value)
+
+
+def test_job_required_tools_are_enabled_for_personas() -> None:
+    jobs = load_job_metadata()
+    tool_order, tool_lookup = load_tool_metadata()
+    persona_cache: dict[str, dict] = {}
+
+    for job in jobs:
+        for persona_name in job.personas:
+            persona = persona_cache.get(persona_name)
+            if persona is None:
+                persona = load_persona_definition(
+                    persona_name,
+                    metadata_order=tool_order,
+                    metadata_lookup=tool_lookup,
+                )
+                assert persona is not None, f"Persona '{persona_name}' is missing"
+                persona_cache[persona_name] = persona
+
+            allowed = set(persona.get("allowed_tools") or [])
+            missing = set(job.required_tools) - allowed
+            assert not missing, (
+                f"Persona '{persona_name}' is missing tools {sorted(missing)} required by job '{job.name}'"
+            )

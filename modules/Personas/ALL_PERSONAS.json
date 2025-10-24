@@ -103,7 +103,20 @@ json
         "policy_reference",
         "context_tracker",
         "priority_queue",
-        "debian12_calendar"
+        "debian12_calendar",
+        "task_catalog_snapshot",
+        "browser",
+        "notebook",
+        "notification_service",
+        "dashboard_service",
+        "spreadsheet",
+        "atlas_dashboard",
+        "roadmap_service",
+        "ticketing_system",
+        "labor_market_feed",
+        "crm_service",
+        "email_service",
+        "workspace_publisher"
       ]
     }
   ]
@@ -208,7 +221,24 @@ json
         }
       },
       "Speech_provider": "11labs",
-      "voice": "jack"
+      "voice": "jack",
+      "allowed_tools": [
+        "policy_reference",
+        "google_search",
+        "get_current_info",
+        "ats_scoring_service",
+        "browser",
+        "notebook",
+        "notification_service",
+        "dashboard_service",
+        "spreadsheet",
+        "atlas_dashboard",
+        "labor_market_feed",
+        "roadmap_service",
+        "ticketing_system",
+        "crm_service",
+        "email_service"
+      ]
     }
   ]
 }
@@ -1879,7 +1909,19 @@ json
       "allowed_tools": [
         "policy_reference",
         "google_search",
-        "get_current_info"
+        "get_current_info",
+        "regulatory_gap_audit",
+        "browser",
+        "notebook",
+        "notification_service",
+        "dashboard_service",
+        "spreadsheet",
+        "atlas_dashboard",
+        "labor_market_feed",
+        "roadmap_service",
+        "ticketing_system",
+        "crm_service",
+        "email_service"
       ]
     }
   ]
@@ -1989,7 +2031,19 @@ json
       "allowed_tools": [
         "context_tracker",
         "google_search",
-        "get_current_info"
+        "get_current_info",
+        "knowledge_card_builder",
+        "browser",
+        "notebook",
+        "notification_service",
+        "dashboard_service",
+        "spreadsheet",
+        "atlas_dashboard",
+        "labor_market_feed",
+        "roadmap_service",
+        "ticketing_system",
+        "crm_service",
+        "email_service"
       ],
       "allowed_skills": [
         "KnowledgeArchiveDigest"
