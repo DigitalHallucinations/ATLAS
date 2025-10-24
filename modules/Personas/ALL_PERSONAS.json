@@ -1932,6 +1932,8 @@ json
         "policy_reference",
         "google_search",
         "get_current_info",
+        "context_tracker",
+        "priority_queue",
         "regulatory_gap_audit",
         "browser",
         "notebook",
