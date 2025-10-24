@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import gi
@@ -772,13 +772,71 @@ class _NavigationSidebar(Gtk.Box):
             return
 
         fetcher = getattr(self.ATLAS, "get_recent_conversations", None)
+        repository = getattr(self.ATLAS, "conversation_repository", None)
         records: List[Dict[str, Any]] = []
+        fetched_successfully = False
         if callable(fetcher):
             try:
                 records = fetcher(limit=self._history_limit)
+                fetched_successfully = True
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.debug("Failed to refresh history sidebar: %s", exc, exc_info=True)
+
+        needs_fallback = repository is None or not fetched_successfully or not records
+        if needs_fallback:
+            synthetic = self._build_session_history_record()
+            if synthetic:
+                records = [synthetic]
         self._populate_history_sidebar(records)
+
+    def _build_session_history_record(self) -> Optional[Dict[str, Any]]:
+        session = getattr(self.ATLAS, "chat_session", None)
+        if session is None:
+            return None
+
+        conversation_id: Optional[str] = None
+        getter = getattr(session, "get_conversation_id", None)
+        if callable(getter):
+            try:
+                conversation_id = getter()
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.debug("Failed to determine active conversation id: %s", exc, exc_info=True)
+        if not conversation_id and hasattr(session, "conversation_id"):
+            conversation_id = getattr(session, "conversation_id")
+
+        text_id = str(conversation_id).strip() if conversation_id else ""
+        if not text_id:
+            return None
+
+        created_at: Optional[str] = None
+        updated_at: Optional[str] = None
+        history = getattr(session, "conversation_history", None)
+        if isinstance(history, Sequence):
+            for entry in history:
+                if isinstance(entry, Mapping):
+                    timestamp = entry.get("timestamp")
+                    if timestamp:
+                        created_at = str(timestamp)
+                        break
+            for entry in reversed(history):
+                if isinstance(entry, Mapping):
+                    timestamp = entry.get("timestamp")
+                    if timestamp:
+                        updated_at = str(timestamp)
+                        break
+
+        if not created_at:
+            created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+        record: Dict[str, Any] = {
+            "id": text_id,
+            "title": "Current conversation",
+            "created_at": created_at,
+            "metadata": {"source": "session"},
+        }
+        if updated_at:
+            record["updated_at"] = updated_at
+        return record
 
     def _populate_history_sidebar(self, records: Sequence[Mapping[str, Any]]) -> None:
         listbox = getattr(self, "_history_listbox", None)
@@ -821,6 +879,9 @@ class _NavigationSidebar(Gtk.Box):
             return
 
         for record in records[: self._history_limit]:
+            if not isinstance(record, Mapping):
+                continue
+
             identifier = str(record.get("id") or "")
             row = Gtk.ListBoxRow()
             row.set_accessible_role(Gtk.AccessibleRole.LIST_ITEM)
@@ -838,7 +899,12 @@ class _NavigationSidebar(Gtk.Box):
             title_label.add_css_class("history-nav-label")
             box.append(title_label)
 
-            timestamp_text = self._format_history_timestamp(record.get("created_at"))
+            timestamp_value = record.get("created_at") or record.get("timestamp")
+            timestamp_text = self._format_history_timestamp(timestamp_value)
+            if not timestamp_text:
+                fallback_label = record.get("timestamp_label")
+                if isinstance(fallback_label, str) and fallback_label.strip():
+                    timestamp_text = fallback_label.strip()
             if timestamp_text:
                 subtitle = Gtk.Label(label=timestamp_text)
                 subtitle.set_xalign(0.0)
