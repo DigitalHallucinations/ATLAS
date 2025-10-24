@@ -249,6 +249,27 @@
     ]
   },
   {
+    "name": "Communication",
+    "version": "1.0.0",
+    "instruction_prompt": "Coordinate stakeholder communications across approved channels, draft distribution-ready messaging, and confirm delivery outcomes.",
+    "required_tools": [
+      "notification_service",
+      "workspace_publisher"
+    ],
+    "required_capabilities": [
+      "communication",
+      "stakeholder_management"
+    ],
+    "safety_notes": "Verify recipient permissions, respect message retention policies, and avoid transmitting sensitive data without the proper approvals.",
+    "summary": "Plans and dispatches stakeholder updates with channel-appropriate messaging and delivery tracking.",
+    "category": "Collaboration",
+    "capability_tags": [
+      "communication",
+      "outreach",
+      "announcements"
+    ]
+  },
+  {
     "name": "ProgramManagement",
     "version": "1.0.0",
     "instruction_prompt": "Coordinate initiatives by aligning milestones, owners, and risks into a coherent execution plan.",
@@ -311,6 +332,27 @@
       "labor_market",
       "research",
       "analysis"
+    ]
+  },
+  {
+    "name": "DataSourcing",
+    "version": "1.0.0",
+    "instruction_prompt": "Identify, collect, and stage authoritative datasets or dashboards needed for the task, documenting lineage and refresh cadence.",
+    "required_tools": [
+      "dashboard_service",
+      "spreadsheet"
+    ],
+    "required_capabilities": [
+      "data_collection",
+      "source_validation"
+    ],
+    "safety_notes": "Ensure data usage complies with governance policies, redact restricted fields, and flag stale or unverified sources before sharing.",
+    "summary": "Curates validated data sources and handoffs to unblock analysis or reporting workflows.",
+    "category": "Data Operations",
+    "capability_tags": [
+      "data_sourcing",
+      "integration",
+      "governance"
     ]
   },
   {
