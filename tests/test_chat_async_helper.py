@@ -2,8 +2,65 @@ import inspect
 import sys
 import types
 from concurrent.futures import Future
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
+
+if "ATLAS.config" not in sys.modules:
+    config_stub = types.ModuleType("ATLAS.config")
+
+    class _ConfigManager:
+        UNSET = object()
+
+        def __init__(self, *args, **kwargs):
+            return None
+
+        def __getattr__(self, _name):  # pragma: no cover - permissive stub
+            return lambda *_a, **_kw: None
+
+        def get_config(self, *_args, **_kwargs):  # pragma: no cover - config lookup shim
+            return None
+
+    config_stub.ConfigManager = _ConfigManager
+    sys.modules["ATLAS.config"] = config_stub
+
+if "sqlalchemy" not in sys.modules:
+    sqlalchemy_stub = types.ModuleType("sqlalchemy")
+    sqlalchemy_exc = types.ModuleType("sqlalchemy.exc")
+
+    class _IntegrityError(Exception):
+        pass
+
+    sqlalchemy_exc.IntegrityError = _IntegrityError
+    sys.modules["sqlalchemy"] = sqlalchemy_stub
+    sys.modules["sqlalchemy.exc"] = sqlalchemy_exc
+    sqlalchemy_stub.exc = sqlalchemy_exc
+    sqlalchemy_stub.__path__ = []
+
+if "modules.user_accounts.user_account_service" not in sys.modules:
+    user_service_stub = types.ModuleType("modules.user_accounts.user_account_service")
+
+    class PasswordRequirements:
+        def __init__(self, **kwargs):
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    class UserAccountService:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        def get_password_requirements(self):  # pragma: no cover - stub
+            return PasswordRequirements()
+
+        def describe_password_requirements(self):  # pragma: no cover - stub
+            return ""
+
+        def get_active_user(self):  # pragma: no cover - stub
+            return None
+
+    user_service_stub.PasswordRequirements = PasswordRequirements
+    user_service_stub.UserAccountService = UserAccountService
+    sys.modules["modules.user_accounts.user_account_service"] = user_service_stub
 
 import pytest
 import tests.test_speech_settings_facade  # noqa: F401 - ensure baseline GTK stubs
@@ -913,6 +970,29 @@ def test_chat_page_on_send_message_handles_errors(monkeypatch):
         "Helper", "Error: failure", audio=None, thinking=None
     )
     page._on_response_complete.assert_called()
+
+
+def test_add_message_bubble_uses_explicit_timestamp():
+    page = ChatPage.__new__(ChatPage)
+    page.chat_history = Gtk.Box()
+    page._update_terminal_thinking = Mock()
+
+    provided = datetime(2024, 1, 2, 3, 4, 5)
+
+    page.add_message_bubble(
+        "Tester",
+        "Hello",
+        is_user=True,
+        timestamp=provided,
+    )
+
+    assert page.chat_history.children, "bubble should be added to history"
+    bubble = page.chat_history.children[-1]
+    header = bubble.children[0]
+    timestamp_label = header.children[-1]
+
+    assert timestamp_label.label == "03:04"
+    assert timestamp_label._tooltip == "2024-01-02 03:04:05"
 
 
 def test_chat_page_updates_terminal_thinking_section():
