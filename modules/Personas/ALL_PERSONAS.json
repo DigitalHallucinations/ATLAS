@@ -2064,13 +2064,17 @@ json
         "spreadsheet",
         "atlas_dashboard",
         "labor_market_feed",
+        "priority_queue",
         "roadmap_service",
         "ticketing_system",
         "crm_service",
         "email_service"
       ],
       "allowed_skills": [
-        "KnowledgeArchiveDigest"
+        "KnowledgeArchiveDigest",
+        "Summarization",
+        "Prioritization",
+        "Research"
       ]
     }
   ]
