@@ -6,6 +6,7 @@
 | --- | --- | --- | --- | --- | --- |
 | atlas_dashboard | 1.0.0 | atlas_operations, status_reporting | — | No | Capture persona-specific initiative health updates for the ATLAS dashboard. |
 | browser | 1.0.0 | web_navigation, research | — | No | Record a virtual browsing session including annotations and metadata for downstream summarisation. |
+| calendar_service | 1.0.0 | calendar_read, calendar_write | — | No | Book lightweight calendar slots and retrieve existing reservations for personas without native calendar access. |
 | context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
 | crm_service | 1.0.0 | crm_logging, engagement_tracking | — | No | Log a structured customer interaction with optional tags and metadata. |
 | dashboard_service | 1.0.0 | metrics_reporting, analysis | — | No | Store a dashboard snapshot with numeric metrics and supporting commentary. |

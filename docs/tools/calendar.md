@@ -6,6 +6,12 @@ keyword, and now create or modify calendar entries.  The tool is
 intentionally lightweight and operates entirely on-device using the local
 Debian 12 calendar backends.
 
+For installations that are not connected to a Debian calendar backend,
+`calendar_service` offers an in-memory alternative so personas can still
+book lightweight slots or retrieve ad-hoc availability.  The helper follows
+the same manifest conventions, exposing `book`, `list`, and `get` style
+operations without persisting data to disk.
+
 ## Configuration
 
 The tool is disabled until calendar access has been configured.  Provide at

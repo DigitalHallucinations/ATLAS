@@ -116,7 +116,8 @@ json
         "labor_market_feed",
         "crm_service",
         "email_service",
-        "workspace_publisher"
+        "workspace_publisher",
+        "calendar_service"
       ]
     }
   ]

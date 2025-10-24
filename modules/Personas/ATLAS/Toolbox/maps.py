@@ -21,6 +21,7 @@ from modules.Tools.Base_Tools.labor_market_feed import fetch_labor_market_signal
 from modules.Tools.Base_Tools.crm_service import CRMService
 from modules.Tools.Base_Tools.email_service import send_email
 from modules.Tools.Base_Tools.workspace_publisher import WorkspacePublisher
+from modules.Tools.Base_Tools.calendar_service import CalendarService
 
 from .catalog import task_catalog_snapshot
 
@@ -35,6 +36,7 @@ roadmap_service_tool = RoadmapService()
 ticketing_system_tool = TicketingSystem()
 crm_service_tool = CRMService()
 workspace_publisher_tool = WorkspacePublisher()
+calendar_service_tool = CalendarService()
 
 
 # Debian calendar helper mirrors shared tool map behaviour.
@@ -71,4 +73,5 @@ function_map = {
     "crm_service": crm_service_tool.run,
     "email_service": send_email,
     "workspace_publisher": workspace_publisher_tool.run,
+    "calendar_service": calendar_service_tool.run,
 }

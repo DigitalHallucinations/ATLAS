@@ -2322,6 +2322,125 @@
         }
     },
     {
+        "name": "calendar_service",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "medium",
+        "capabilities": [
+            "calendar_read",
+            "calendar_write"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Book lightweight calendar slots and retrieve existing reservations for personas without native calendar access.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": [
+                        "book",
+                        "get",
+                        "retrieve",
+                        "list",
+                        "availability"
+                    ],
+                    "description": "Calendar action to perform."
+                },
+                "calendar_id": {
+                    "type": "string",
+                    "description": "Identifier for the logical calendar to access. Defaults to 'primary'."
+                },
+                "slot_id": {
+                    "type": "string",
+                    "description": "Identifier of the slot to retrieve. Required when operation is 'get' or 'retrieve'."
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Human-readable title for the slot. Required when booking."
+                },
+                "start": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO 8601 timestamp marking when the slot begins."
+                },
+                "end": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO 8601 timestamp marking when the slot ends."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional extended description for the slot."
+                },
+                "location": {
+                    "type": "string",
+                    "description": "Optional location string for the slot."
+                },
+                "attendees": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional attendee identifiers to associate with the slot."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Arbitrary metadata retained with the slot."
+                }
+            },
+            "required": [
+                "operation"
+            ],
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "operation": {
+                                "const": "book"
+                            }
+                        }
+                    },
+                    "then": {
+                        "required": [
+                            "title",
+                            "start",
+                            "end"
+                        ]
+                    }
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "operation": {
+                                "enum": [
+                                    "get",
+                                    "retrieve"
+                                ]
+                            }
+                        }
+                    },
+                    "then": {
+                        "required": [
+                            "slot_id"
+                        ]
+                    }
+                }
+            ]
+        }
+    },
+    {
         "name": "roadmap_service",
         "version": "1.0.0",
         "side_effects": "write",

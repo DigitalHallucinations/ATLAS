@@ -21,6 +21,7 @@ from .calculator import (
     UnitConversionError,
 )
 from .context_tracker import context_tracker, ConversationSnapshot
+from .calendar_service import CalendarService, CalendarSlot
 from .debian12_calendar import (
     CalendarBackend,
     CalendarBackendError,
@@ -123,6 +124,8 @@ __all__ = [
     "GoogleSearch",
     "PolicyReference",
     "PolicyRecord",
+    "CalendarService",
+    "CalendarSlot",
     "CalendarBackend",
     "CalendarBackendError",
     "CalendarEvent",

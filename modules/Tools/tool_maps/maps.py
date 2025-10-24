@@ -24,6 +24,7 @@ from modules.Tools.Base_Tools.labor_market_feed import fetch_labor_market_signal
 from modules.Tools.Base_Tools.crm_service import CRMService
 from modules.Tools.Base_Tools.email_service import send_email
 from modules.Tools.Base_Tools.workspace_publisher import WorkspacePublisher
+from modules.Tools.Base_Tools.calendar_service import CalendarService
 from modules.Tools.Base_Tools.debian12_calendar import (
     Debian12CalendarTool,
     debian12_calendar,
@@ -59,6 +60,7 @@ roadmap_service_tool = RoadmapService()
 ticketing_system_tool = TicketingSystem()
 crm_service_tool = CRMService()
 workspace_publisher_tool = WorkspacePublisher()
+calendar_service_tool = CalendarService()
 
 _config_manager = ConfigManager()
 javascript_executor = JavaScriptExecutor.from_config(
@@ -134,6 +136,7 @@ function_map = {
     "crm_service": crm_service_tool.run,
     "email_service": send_email,
     "workspace_publisher": workspace_publisher_tool.run,
+    "calendar_service": calendar_service_tool.run,
     "upsert_vectors": vector_upsert,
     "query_vectors": vector_query,
     "delete_namespace": vector_delete,

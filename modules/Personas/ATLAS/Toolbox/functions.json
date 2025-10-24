@@ -351,6 +351,117 @@
         ]
     },
     {
+        "name": "calendar_service",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Book lightweight calendar slots and retrieve existing reservations for personas without native calendar access.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": [
+                        "book",
+                        "get",
+                        "retrieve",
+                        "list",
+                        "availability"
+                    ],
+                    "description": "Calendar action to perform."
+                },
+                "calendar_id": {
+                    "type": "string",
+                    "description": "Identifier for the logical calendar to access. Defaults to 'primary'."
+                },
+                "slot_id": {
+                    "type": "string",
+                    "description": "Identifier of the slot to retrieve when using get/retrieve operations."
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Title for the slot when booking."
+                },
+                "start": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO 8601 timestamp marking the slot start."
+                },
+                "end": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO 8601 timestamp marking the slot end."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional extended description for the slot."
+                },
+                "location": {
+                    "type": "string",
+                    "description": "Optional location string for the slot."
+                },
+                "attendees": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional attendee identifiers to associate with the slot."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Arbitrary metadata retained with the slot."
+                }
+            },
+            "required": [
+                "operation"
+            ],
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "operation": {
+                                "const": "book"
+                            }
+                        }
+                    },
+                    "then": {
+                        "required": [
+                            "title",
+                            "start",
+                            "end"
+                        ]
+                    }
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "operation": {
+                                "enum": [
+                                    "get",
+                                    "retrieve"
+                                ]
+                            }
+                        }
+                    },
+                    "then": {
+                        "required": [
+                            "slot_id"
+                        ]
+                    }
+                }
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "calendar_read",
+            "calendar_write"
+        ]
+    },
+    {
         "name": "notebook",
         "version": "1.0.0",
         "side_effects": "write",
