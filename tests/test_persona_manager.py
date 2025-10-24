@@ -18,6 +18,41 @@ if 'dotenv' not in sys.modules:
     dotenv_stub.find_dotenv = lambda *_args, **_kwargs: ''
     sys.modules['dotenv'] = dotenv_stub
 
+# Stub out heavy tool modules that introduce circular imports during tests.
+if 'modules.Tools' not in sys.modules:
+    tools_stub = types.ModuleType('modules.Tools')
+    tools_stub.__path__ = []  # mark as package
+    sys.modules['modules.Tools'] = tools_stub
+
+if 'modules.Tools.Base_Tools' not in sys.modules:
+    base_tools_stub = types.ModuleType('modules.Tools.Base_Tools')
+    base_tools_stub.__path__ = []
+    sys.modules['modules.Tools.Base_Tools'] = base_tools_stub
+
+if 'modules.Tools.Base_Tools.Google_search' not in sys.modules:
+    google_search_stub = types.ModuleType('modules.Tools.Base_Tools.Google_search')
+
+    class _StubGoogleSearch:  # pragma: no cover - behavior not exercised
+        pass
+
+    google_search_stub.GoogleSearch = _StubGoogleSearch
+    sys.modules['modules.Tools.Base_Tools.Google_search'] = google_search_stub
+
+setattr(sys.modules['modules.Tools.Base_Tools'], 'GoogleSearch', getattr(sys.modules['modules.Tools.Base_Tools.Google_search'], 'GoogleSearch'))
+
+if 'ATLAS.config' not in sys.modules:
+    atlas_config_stub = types.ModuleType('ATLAS.config')
+
+    class _InitialStubConfigManager:
+        def __init__(self):
+            self._app_root = ''
+
+        def get_app_root(self):
+            return self._app_root
+
+    atlas_config_stub.ConfigManager = _InitialStubConfigManager
+    sys.modules['ATLAS.config'] = atlas_config_stub
+
 import ATLAS.persona_manager as persona_manager_module
 from ATLAS.persona_manager import PersonaManager
 
@@ -135,7 +170,27 @@ def _write_tool_metadata(root: Path, tool_names: list[str]) -> None:
 def _write_skill_metadata(root: Path, entries: list[dict]) -> None:
     manifest = root / 'modules' / 'Skills' / 'skills.json'
     manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text(json.dumps(entries, indent=4), encoding='utf-8')
+    normalized = []
+    for entry in entries:
+        normalized_entry = {
+            'name': entry['name'],
+            'version': entry.get('version', '1.0.0'),
+            'instruction_prompt': entry['instruction_prompt'],
+            'required_tools': entry.get('required_tools', []),
+            'required_capabilities': entry.get('required_capabilities', []),
+            'safety_notes': entry.get('safety_notes', 'Use responsibly.'),
+            'summary': entry.get('summary', entry['instruction_prompt']),
+            'category': entry.get('category', 'general'),
+            'capability_tags': entry.get('capability_tags', []),
+        }
+
+        collaboration = entry.get('collaboration')
+        if collaboration is not None:
+            normalized_entry['collaboration'] = collaboration
+
+        normalized.append(normalized_entry)
+
+    manifest.write_text(json.dumps(normalized, indent=4), encoding='utf-8')
 
 
 def _copy_schema(root: Path) -> None:
@@ -275,6 +330,41 @@ def test_set_user_refreshes_profile_for_same_user(persona_manager):
     refreshed_profile = manager.user_data_manager.get_profile_text()
     assert refreshed_profile == 'Updated profile text'
     assert stub_cls.invalidate_calls >= 1
+
+
+def test_load_persona_names_ignores_non_persona_directories(persona_manager):
+    manager, personas_dir = persona_manager
+
+    # Create valid and invalid persona directories
+    _write_persona(
+        personas_dir,
+        {
+            'name': 'Helper',
+            'meaning': 'Assistive persona',
+            'content': {
+                'start_locked': 'Intro',
+                'editable_content': 'Middle',
+                'end_locked': 'Outro',
+            },
+            'provider': 'openai',
+            'model': 'gpt-4o',
+            'sys_info_enabled': 'False',
+            'user_profile_enabled': 'False',
+            'type': {'Agent': {'enabled': 'False'}},
+            'Speech_provider': '11labs',
+            'voice': 'jack',
+        },
+    )
+
+    (personas_dir / '__pycache__').mkdir(exist_ok=True)
+    (personas_dir / 'Incomplete').mkdir(exist_ok=True)
+
+    persona_names = manager.load_persona_names(str(personas_dir))
+
+    assert 'Helper' in persona_names
+    assert 'ATLAS' in persona_names
+    assert '__pycache__' not in persona_names
+    assert 'Incomplete' not in persona_names
 
 
 def test_update_persona_from_form_disables_persona_and_clears_options(persona_manager):

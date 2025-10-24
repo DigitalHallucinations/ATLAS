@@ -76,7 +76,20 @@ class PersonaManager:
     def load_persona_names(self, persona_path: str) -> List[str]:
         """Get the list of persona directories."""
         try:
-            persona_names = [name for name in os.listdir(persona_path) if os.path.isdir(os.path.join(persona_path, name))]
+            persona_names: List[str] = []
+            for entry in os.scandir(persona_path):
+                if not entry.is_dir():
+                    continue
+
+                persona_marker = os.path.join(entry.path, "Persona")
+                if not os.path.isdir(persona_marker):
+                    self.logger.debug(
+                        "Skipping '%s' because it lacks a Persona directory", entry.name
+                    )
+                    continue
+
+                persona_names.append(entry.name)
+
             self.logger.debug("Persona names loaded: %s", persona_names)
             return persona_names
         except OSError as e:
