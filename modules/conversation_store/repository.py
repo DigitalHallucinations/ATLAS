@@ -115,10 +115,14 @@ def _coerce_dt(value: Any) -> datetime:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
     if isinstance(value, str):
+        text = value.strip()
+        normalised = text
+        if normalised.endswith("Z"):
+            normalised = normalised[:-1] + "+00:00"
         try:
-            parsed = datetime.fromisoformat(value)
+            parsed = datetime.fromisoformat(normalised)
         except ValueError:
-            parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+            parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed
