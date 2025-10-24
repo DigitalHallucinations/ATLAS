@@ -1,9 +1,6 @@
 # ATLAS/model_manager.py
 
-import json
-import os
 import threading
-from pathlib import Path
 from typing import Dict, List, Tuple
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
@@ -47,106 +44,50 @@ class ModelManager:
         with self.lock:
             providers = ['OpenAI', 'Mistral', 'Google', 'HuggingFace', 'Anthropic', 'Grok']
 
-            atlas_root = self.config_manager.get_app_root()
-            providers_path = Path(atlas_root) / "modules" / "Providers"
+            cached_models: Dict[str, List[str]] = {}
+            getter = getattr(self.config_manager, "get_cached_models", None)
+            if callable(getter):
+                try:
+                    cached_models = getter()
+                except Exception as exc:
+                    self.logger.warning(
+                        "Failed to load cached provider models from configuration: %s",
+                        exc,
+                        exc_info=True,
+                    )
+            else:
+                self.logger.debug(
+                    "Config manager does not expose cached model accessor; starting with empty cache."
+                )
 
-            self.logger.debug(f"Atlas root directory: {atlas_root}")
-            self.logger.debug(f"Providers path: {providers_path}")
+            self.models = {}
 
-            for provider in providers:
-                file_candidates: List[Path] = []
-                normalize = True
+            for provider, models in cached_models.items():
+                if isinstance(models, list):
+                    raw_models = list(models)
+                elif isinstance(models, (tuple, set)):
+                    raw_models = [str(entry) for entry in models]
+                else:
+                    raw_models = []
 
                 if provider == 'HuggingFace':
-                    cache_dir = Path(self.config_manager.get_model_cache_dir())
-                    file_candidates.append(cache_dir / 'installed_models.json')
-                    normalize = False
-                elif provider == 'Grok':
-                    self.models[provider] = ["grok-2", "grok-2-mini"]
-                    continue
-                elif provider == 'Google':
-                    # Google models are discovered dynamically via the API helper.
-                    self.logger.debug(
-                        "Skipping static model list for Google; awaiting API-backed discovery."
-                    )
-                    self.models[provider] = self._normalize_models(self.models.get(provider, []))
-                    continue
-                elif provider == 'Anthropic':
-                    try:
-                        app_root_path = Path(self.config_manager.get_app_root())
-                    except Exception:
-                        app_root_path = providers_path.parent
-
-                    file_candidates.extend(
-                        [
-                            app_root_path / "modules" / "Providers" / "Anthropic" / "anthropic_models.json",
-                            app_root_path / "modules" / "Providers" / "Anthropic" / "A_models.json",
-                            Path(__file__).resolve().parent.parent
-                            / "modules"
-                            / "Providers"
-                            / "Anthropic"
-                            / "anthropic_models.json",
-                        ]
-                    )
+                    normalized = [
+                        entry.strip()
+                        for entry in raw_models
+                        if isinstance(entry, str) and entry.strip()
+                    ]
                 else:
-                    file_name = f"{provider[0]}_models.json"  # e.g., 'O_models.json' for OpenAI
-                    file_candidates.append(providers_path / provider / file_name)
+                    normalized = self._normalize_models(raw_models)
 
-                unique_candidates: List[Path] = []
-                for candidate in file_candidates:
-                    if candidate not in unique_candidates:
-                        unique_candidates.append(candidate)
+                self.models[provider] = normalized
 
-                loaded = False
-                for candidate in unique_candidates:
-                    self.logger.debug(
-                        f"Attempting to load model file for {provider} from: {candidate}"
-                    )
-                    try:
-                        with candidate.open('r', encoding='utf-8') as handle:
-                            payload = json.load(handle)
-                    except FileNotFoundError:
-                        continue
-                    except json.JSONDecodeError:
-                        self.logger.error(
-                            f"Error decoding JSON in model file for provider {provider} at {candidate}"
-                        )
-                        self.models[provider] = []
-                        loaded = True
-                        break
-                    except Exception as exc:
-                        self.logger.error(
-                            f"Unexpected error loading model file for provider {provider} at {candidate}: {str(exc)}"
-                        )
-                        self.models[provider] = []
-                        loaded = True
-                        break
+            for provider in providers:
+                self.models.setdefault(provider, [])
 
-                    if provider == 'HuggingFace':
-                        provider_models = payload if isinstance(payload, list) else []
-                    else:
-                        provider_models = payload.get('models', []) if isinstance(payload, dict) else []
-
-                    self.models[provider] = (
-                        provider_models if not normalize else self._normalize_models(provider_models)
-                    )
-                    self.logger.info(
-                        f"Successfully loaded models for {provider}: {self.models[provider]}"
-                    )
-                    loaded = True
-                    break
-
-                if not loaded:
-                    if provider == 'Anthropic':
-                        self.logger.info(
-                            "No cached Anthropic model list found; run discovery to populate it."
-                        )
-                    else:
-                        missing_path = unique_candidates[0] if unique_candidates else None
-                        self.logger.warning(
-                            f"Model file not found for provider {provider} at {missing_path}"
-                        )
-                    self.models[provider] = []
+            self.logger.debug(
+                "Initialized provider model cache for: %s",
+                ", ".join(sorted(self.models.keys())),
+            )
 
     def set_model(self, model_name: str, provider: str) -> None:
         """
@@ -225,6 +166,19 @@ class ModelManager:
                     if trimmed and trimmed not in seen:
                         normalized.append(trimmed)
                         seen.add(trimmed)
+
+            persisted: List[str] | None = None
+            setter = getattr(self.config_manager, "set_cached_models", None)
+            if callable(setter):
+                try:
+                    persisted = setter(provider, normalized)
+                except Exception as exc:
+                    self.logger.warning(
+                        "Failed to persist cached models for %s: %s", provider, exc
+                    )
+
+            if persisted is not None:
+                normalized = list(persisted)
 
             self.models[provider] = normalized
             self.logger.info(

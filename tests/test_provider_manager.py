@@ -2062,7 +2062,7 @@ def test_fetch_mistral_models_requires_api_key(provider_manager, monkeypatch):
     assert "API key" in (result.get("error") or "")
 
 
-def test_fetch_mistral_models_updates_cache_and_file(provider_manager, monkeypatch, tmp_path):
+def test_fetch_mistral_models_updates_cache(provider_manager, monkeypatch):
     provider_manager.config_manager.update_api_key("Mistral", "mst-test")
     provider_manager.config_manager.set_mistral_llm_settings(
         model="mistral-large-latest",
@@ -2109,14 +2109,11 @@ def test_fetch_mistral_models_updates_cache_and_file(provider_manager, monkeypat
     forwarded = captured_kwargs.get("value", {})
     assert forwarded.get("server_url") == "https://api.alt-mistral/v1"
 
-    persisted = data.get("persisted_to")
-    assert persisted
-    path = Path(persisted)
-    assert path.exists()
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    assert payload["models"][0] == "mistral-large-latest"
+    cached_map = provider_manager.config_manager.get_cached_models("Mistral")
+    cached_list = cached_map.get("Mistral", [])
+    assert cached_list and cached_list[0] == "mistral-large-latest"
     assert data.get("base_url") == "https://api.alt-mistral/v1"
+    assert "persisted_to" not in data
 
 
 def test_fetch_mistral_models_handles_exception(provider_manager, monkeypatch):
