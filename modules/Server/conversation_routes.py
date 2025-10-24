@@ -78,7 +78,9 @@ class _JsonSchemaValidator:
 def _parse_datetime(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value.astimezone(timezone.utc)
-    text = str(value)
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
     try:
         parsed = datetime.fromisoformat(text)
     except ValueError:
