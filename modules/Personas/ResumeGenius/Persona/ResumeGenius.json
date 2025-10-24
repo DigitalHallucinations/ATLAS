@@ -98,6 +98,8 @@
             "allowed_tools": [
                 "google_search",
                 "get_current_info",
+                "context_tracker",
+                "priority_queue",
                 "policy_reference",
                 "ats_scoring_service",
                 "browser",
