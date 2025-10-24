@@ -77,5 +77,153 @@
       "compliance"
     ],
     "priority": "High"
+  },
+  {
+    "name": "AtlasSignalRouting",
+    "summary": "Map daily signals to Atlas workstreams and owners.",
+    "description": "Review the collected daily signals, align them to Atlas missions, and capture routing notes for downstream execution teams.",
+    "required_skills": [
+      "AtlasReporter",
+      "RiskPulse"
+    ],
+    "required_tools": [
+      "context_tracker",
+      "roadmap_service"
+    ],
+    "acceptance_criteria": [
+      "Associates each prioritized signal with an Atlas workstream and accountable owner.",
+      "Identifies blockers or dependencies requiring follow-up actions within the mission tracker.",
+      "Updates severity, confidence, and next-step fields in the shared routing workspace."
+    ],
+    "escalation_policy": {
+      "level": "Atlas Mission Control",
+      "contact": "atlas-mission@atlas",
+      "timeframe": "Immediate for critical blockers",
+      "triggers": [
+        "Critical workstream impact detected",
+        "No owner assigned for a high-severity signal"
+      ],
+      "actions": [
+        "Page duty lead",
+        "Open incident coordination thread"
+      ]
+    },
+    "tags": [
+      "atlas",
+      "routing",
+      "daily"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "PlanLaunchReview",
+    "summary": "Coordinate Atlas launch readiness review logistics.",
+    "description": "Schedule the review, confirm stakeholders, and assemble the latest launch artefacts for the session.",
+    "required_skills": [
+      "ProgramManagement",
+      "AtlasReporter"
+    ],
+    "required_tools": [
+      "calendar_service",
+      "roadmap_service"
+    ],
+    "acceptance_criteria": [
+      "Secures availability from required stakeholders and confirms the review agenda.",
+      "Collects the most recent launch plan, risk register, and validation artefacts for distribution.",
+      "Publishes the review objectives and logistics to participants at least 24 hours in advance."
+    ],
+    "escalation_policy": {
+      "level": "Launch PMO",
+      "contact": "launch-pmo@atlas",
+      "timeframe": "Within 1 business day",
+      "triggers": [
+        "Stakeholder availability gap",
+        "Launch milestone at risk"
+      ],
+      "actions": [
+        "Notify PMO lead",
+        "Request reschedule or alternate delegate"
+      ]
+    },
+    "tags": [
+      "atlas",
+      "launch",
+      "planning"
+    ],
+    "priority": "Medium"
+  },
+  {
+    "name": "AuditLaunchChecklist",
+    "summary": "Validate Atlas launch checklist completion and evidence.",
+    "description": "Review readiness checklist items, document outstanding tasks, and flag compliance or safety gaps before launch.",
+    "required_skills": [
+      "RiskPulse",
+      "SafetyScout"
+    ],
+    "required_tools": [
+      "roadmap_service",
+      "ticketing_system"
+    ],
+    "acceptance_criteria": [
+      "Verifies each checklist item includes evidence or rationale for completion.",
+      "Records outstanding tasks with accountable owners and target resolution dates.",
+      "Escalates compliance or safety gaps requiring executive approval prior to launch."
+    ],
+    "escalation_policy": {
+      "level": "Launch Readiness Captain",
+      "contact": "launch-readiness@atlas",
+      "timeframe": "Within 4 hours for critical gaps",
+      "triggers": [
+        "Critical checklist item missing evidence",
+        "Required approval not secured"
+      ],
+      "actions": [
+        "Escalate to readiness captain",
+        "Initiate remediation huddle"
+      ]
+    },
+    "tags": [
+      "atlas",
+      "launch",
+      "compliance"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "EscalateOpenRisks",
+    "summary": "Escalate unresolved Atlas launch risks to leadership channels.",
+    "description": "Compile the remaining launch risks, notify the incident channel, and capture responses for accountability.",
+    "required_skills": [
+      "RiskPulse",
+      "Communication"
+    ],
+    "required_tools": [
+      "notification_service",
+      "context_tracker"
+    ],
+    "acceptance_criteria": [
+      "Aggregates open risks with severity, owner, and mitigation status into the escalation message.",
+      "Delivers the escalation to the designated incident or leadership channel and confirms acknowledgement.",
+      "Captures follow-up actions or mitigation updates in the launch risk register."
+    ],
+    "escalation_policy": {
+      "level": "Atlas Incident Commander",
+      "contact": "incident@atlas",
+      "timeframe": "Immediate for critical risks",
+      "triggers": [
+        "Critical risk lacks owner",
+        "Mitigation past due"
+      ],
+      "actions": [
+        "Page incident commander",
+        "Initiate war-room coordination"
+      ]
+    },
+    "tags": [
+      "atlas",
+      "launch",
+      "risk"
+    ],
+    "priority": "High"
   }
 ]

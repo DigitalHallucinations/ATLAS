@@ -498,5 +498,229 @@
       "adverse-events"
     ],
     "priority": "Critical"
+  },
+  {
+    "name": "GatherDailySignals",
+    "summary": "Curate priority signals for the daily intelligence briefing.",
+    "description": "Collect high-signal updates from trusted sources, annotate their relevance, and prepare them for downstream synthesis.",
+    "required_skills": [
+      "DailyDigest",
+      "ResearchBrief"
+    ],
+    "required_tools": [
+      "google_search",
+      "context_tracker",
+      "priority_queue"
+    ],
+    "acceptance_criteria": [
+      "Identifies top developments across priority sources with timestamps and working links.",
+      "Explains why each signal matters for the intended audience or mission focus.",
+      "Surfaces at least three distinct sources and highlights any confidence gaps."
+    ],
+    "escalation_policy": {
+      "level": "Intelligence Duty Lead",
+      "contact": "intel-duty@atlas",
+      "timeframe": "Within 2 hours for blocking updates",
+      "triggers": [
+        "Critical incident surfaced",
+        "Primary source outage"
+      ],
+      "actions": [
+        "Notify duty lead",
+        "Request backup coverage"
+      ]
+    },
+    "tags": [
+      "briefing",
+      "signals",
+      "daily"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "SynthesizeBrief",
+    "summary": "Transform collected signals into an actionable daily brief.",
+    "description": "Analyze prioritized updates, connect themes, and draft the briefing narrative tailored to the stakeholder audience.",
+    "required_skills": [
+      "Summarization",
+      "DailyDigest"
+    ],
+    "required_tools": [
+      "notebook",
+      "google_search",
+      "context_tracker"
+    ],
+    "acceptance_criteria": [
+      "Organizes the draft by mission themes with clear prioritization.",
+      "Provides recommended actions or decisions for each major insight.",
+      "Calls out confidence gaps and required follow-ups before distribution."
+    ],
+    "escalation_policy": {
+      "level": "Briefing Editor",
+      "contact": "brief-editor@atlas",
+      "timeframe": "Before delivery deadline",
+      "triggers": [
+        "Critical signal missing context",
+        "Unclear ownership for next steps"
+      ],
+      "actions": [
+        "Review draft with editor",
+        "Escalate to mission control"
+      ]
+    },
+    "tags": [
+      "briefing",
+      "analysis",
+      "daily"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "DistributeBrief",
+    "summary": "Deliver the finalized brief to subscribed stakeholders.",
+    "description": "Publish the approved briefing to configured channels, confirm delivery status, and capture distribution telemetry.",
+    "required_skills": [
+      "AtlasReporter",
+      "Communication"
+    ],
+    "required_tools": [
+      "notification_service",
+      "workspace_publisher"
+    ],
+    "acceptance_criteria": [
+      "Routes the brief to all subscribed channels with delivery timestamps.",
+      "Confirms successful delivery or records remediation steps for failures.",
+      "Logs recipient summary and follow-up tasks for auditability."
+    ],
+    "escalation_policy": {
+      "level": "Communications Coordinator",
+      "contact": "comms@atlas",
+      "timeframe": "Within 30 minutes of delivery failure",
+      "triggers": [
+        "Delivery bounce detected",
+        "Primary channel outage"
+      ],
+      "actions": [
+        "Alert communications coordinator",
+        "Retry via backup channel"
+      ]
+    },
+    "tags": [
+      "briefing",
+      "distribution",
+      "operations"
+    ],
+    "priority": "Medium"
+  },
+  {
+    "name": "CollectKPIs",
+    "summary": "Gather the latest performance metrics for review.",
+    "description": "Extract authoritative KPI snapshots, capture freshness details, and prep data sets for analysis.",
+    "required_skills": [
+      "DailyDigest",
+      "DataSourcing"
+    ],
+    "required_tools": [
+      "dashboard_service",
+      "spreadsheet"
+    ],
+    "acceptance_criteria": [
+      "Retrieves current metrics from the approved source systems with timestamps.",
+      "Notes data quality concerns, anomalies, or missing dimensions for follow-up.",
+      "Packages exports and supporting context for downstream trend analysis."
+    ],
+    "escalation_policy": {
+      "level": "Analytics Lead",
+      "contact": "analytics-oncall@atlas",
+      "timeframe": "Within 4 hours when metrics are blocked",
+      "triggers": [
+        "Source system unavailable",
+        "Data integrity concern detected"
+      ],
+      "actions": [
+        "Notify analytics lead",
+        "Open data incident ticket"
+      ]
+    },
+    "tags": [
+      "metrics",
+      "operations",
+      "reporting"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "DiagnoseTrends",
+    "summary": "Analyze KPI movement and annotate trends for leadership.",
+    "description": "Review collected metrics, explain notable changes, and document risks or opportunities requiring attention.",
+    "required_skills": [
+      "Analysis",
+      "RiskPulse"
+    ],
+    "required_tools": [
+      "notebook",
+      "dashboard_service"
+    ],
+    "acceptance_criteria": [
+      "Highlights significant week-over-week movements with supporting context.",
+      "Explains suspected root causes, data caveats, and mitigation paths.",
+      "Flags risks or opportunities requiring leadership decisions."
+    ],
+    "escalation_policy": {
+      "level": "Performance Review Chair",
+      "contact": "performance-chair@atlas",
+      "timeframe": "Same business day",
+      "triggers": [
+        "Blocking data gap discovered",
+        "High-risk trend without owner"
+      ],
+      "actions": [
+        "Schedule analyst huddle",
+        "Escalate to leadership stand-up"
+      ]
+    },
+    "tags": [
+      "metrics",
+      "analysis",
+      "insights"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "PublishInsights",
+    "summary": "Share curated insights and recommendations with stakeholders.",
+    "description": "Publish the synthesized findings, link supporting artifacts, and capture follow-up actions for accountability.",
+    "required_skills": [
+      "AtlasReporter",
+      "Communication"
+    ],
+    "required_tools": [
+      "workspace_publisher",
+      "notification_service"
+    ],
+    "acceptance_criteria": [
+      "Publishes the insight summary to the designated workspace with owner and due dates.",
+      "Links supporting dashboards or notebooks for traceability.",
+      "Captures acknowledgements or outstanding questions for follow-up."
+    ],
+    "escalation_policy": {
+      "level": "Leadership Liaison",
+      "contact": "leadership@atlas",
+      "timeframe": "Within 1 hour when distribution fails",
+      "triggers": [
+        "Workspace publishing error",
+        "Audience notification gap"
+      ],
+      "actions": [
+        "Notify leadership liaison",
+        "Coordinate manual distribution"
+      ]
+    },
+    "tags": [
+      "reporting",
+      "distribution",
+      "insights"
+    ],
+    "priority": "Medium"
   }
 ]

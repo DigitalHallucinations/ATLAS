@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 
 from modules.Jobs import manifest_loader
 from modules.Jobs.manifest_loader import JobMetadata
+from modules.Tasks import manifest_loader as task_manifest_loader
 from modules.orchestration.blackboard import BlackboardClient
 from modules.orchestration.message_bus import MessageBus, MessagePriority, get_message_bus
 from modules.orchestration.planner import ExecutionPlan, PlanStep, PlanStepStatus
@@ -90,6 +91,81 @@ class _JobRuntimeState:
         }
 
 
+def build_task_manifest_resolver(*, config_manager=None) -> Callable[[str, Optional[str]], Optional[Mapping[str, Any]]]:
+    """Return a resolver that maps job step identifiers to task manifests."""
+
+    manifest_cache: Dict[Optional[str], Dict[str, Mapping[str, Any]]] | None = None
+    casefold_cache: Dict[Optional[str], Dict[str, Mapping[str, Any]]] | None = None
+
+    def _ensure_cache() -> tuple[Dict[Optional[str], Dict[str, Mapping[str, Any]]], Dict[Optional[str], Dict[str, Mapping[str, Any]]]]:
+        nonlocal manifest_cache, casefold_cache
+        if manifest_cache is None or casefold_cache is None:
+            manifest_cache = {}
+            casefold_cache = {}
+            entries = task_manifest_loader.load_task_metadata(config_manager=config_manager)
+            for entry in entries:
+                persona_key = _normalize_persona(entry.persona)
+                manifest = _manifest_from_metadata(entry)
+                manifest_cache.setdefault(persona_key, {})[entry.name] = manifest
+                casefold_cache.setdefault(persona_key, {})[entry.name.lower()] = manifest
+        return manifest_cache, casefold_cache
+
+    def _lookup(task_id: str, persona_key: Optional[str]) -> Optional[Mapping[str, Any]]:
+        cache, fallback = _ensure_cache()
+        explicit = cache.get(persona_key, {})
+        manifest = explicit.get(task_id)
+        if manifest is not None:
+            return manifest
+        lowered = task_id.lower()
+        persona_fallback = fallback.get(persona_key, {})
+        return persona_fallback.get(lowered)
+
+    def _resolver(task_id: str, persona: Optional[str] = None) -> Optional[Mapping[str, Any]]:
+        if not isinstance(task_id, str):
+            return None
+        normalized_id = task_id.strip()
+        if not normalized_id:
+            return None
+
+        persona_key = _normalize_persona(persona)
+        manifest = _lookup(normalized_id, persona_key)
+        if manifest is None and persona_key is not None:
+            manifest = _lookup(normalized_id, None)
+        if manifest is None:
+            return None
+        return dict(manifest)
+
+    return _resolver
+
+
+def _normalize_persona(persona: Optional[str]) -> Optional[str]:
+    if persona is None:
+        return None
+    text = str(persona).strip().lower()
+    return text or None
+
+
+def _manifest_from_metadata(metadata: task_manifest_loader.TaskMetadata) -> Dict[str, Any]:
+    manifest: Dict[str, Any] = {
+        "name": metadata.name,
+        "summary": metadata.summary,
+        "description": metadata.description,
+        "required_skills": list(metadata.required_skills),
+        "required_tools": list(metadata.required_tools),
+        "acceptance_criteria": list(metadata.acceptance_criteria),
+        "escalation_policy": dict(metadata.escalation_policy),
+    }
+    if metadata.tags:
+        manifest["tags"] = list(metadata.tags)
+    if metadata.priority:
+        manifest["priority"] = metadata.priority
+    if metadata.persona:
+        manifest["persona"] = metadata.persona
+    if metadata.source:
+        manifest["source"] = metadata.source
+    return manifest
+
+
 class JobManager:
     """Coordinate execution of job manifests across multiple tasks."""
 
@@ -99,12 +175,12 @@ class JobManager:
         *,
         message_bus: Optional[MessageBus] = None,
         job_loader: Optional[Callable[[], Iterable[JobMetadata]]] = None,
-        task_resolver: Optional[Callable[[str], Optional[Mapping[str, Any]]]] = None,
+        task_resolver: Optional[Callable[[str, Optional[str]], Optional[Mapping[str, Any]]]] = None,
     ) -> None:
         self._task_manager = task_manager
         self._bus = message_bus or get_message_bus()
         self._job_loader = job_loader or manifest_loader.load_job_metadata
-        self._task_resolver = task_resolver
+        self._task_resolver = task_resolver or build_task_manifest_resolver()
 
     async def run_job(
         self,
@@ -323,7 +399,7 @@ class JobManager:
             return node_manifest
 
         if self._task_resolver:
-            resolved = self._task_resolver(task_id)
+            resolved = self._task_resolver(task_id, state.metadata.persona)
             if resolved is not None:
                 return resolved
 
@@ -492,6 +568,7 @@ __all__ = [
     "JOB_COMPLETED_TOPIC",
     "JOB_CREATED_TOPIC",
     "JOB_UPDATED_TOPIC",
+    "build_task_manifest_resolver",
     "JobManager",
     "JobRunResult",
 ]
