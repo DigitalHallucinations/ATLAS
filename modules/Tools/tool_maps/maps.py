@@ -23,6 +23,7 @@ from modules.Tools.Base_Tools.ticketing_system import TicketingSystem
 from modules.Tools.Base_Tools.labor_market_feed import fetch_labor_market_signals
 from modules.Tools.Base_Tools.crm_service import CRMService
 from modules.Tools.Base_Tools.email_service import send_email
+from modules.Tools.Base_Tools.workspace_publisher import WorkspacePublisher
 from modules.Tools.Base_Tools.debian12_calendar import (
     Debian12CalendarTool,
     debian12_calendar,
@@ -57,6 +58,7 @@ atlas_dashboard_tool = AtlasDashboardClient()
 roadmap_service_tool = RoadmapService()
 ticketing_system_tool = TicketingSystem()
 crm_service_tool = CRMService()
+workspace_publisher_tool = WorkspacePublisher()
 
 _config_manager = ConfigManager()
 javascript_executor = JavaScriptExecutor.from_config(
@@ -131,6 +133,7 @@ function_map = {
     "labor_market_feed": fetch_labor_market_signals,
     "crm_service": crm_service_tool.run,
     "email_service": send_email,
+    "workspace_publisher": workspace_publisher_tool.run,
     "upsert_vectors": vector_upsert,
     "query_vectors": vector_query,
     "delete_namespace": vector_delete,

@@ -2269,6 +2269,59 @@
         }
     },
     {
+        "name": "workspace_publisher",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-workspace",
+            "guidance": "Use the combination of workspace and channel identifiers to deduplicate publishes."
+        },
+        "safety_level": "medium",
+        "capabilities": [
+            "workspace_publishing",
+            "brief_distribution"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Publish a structured brief payload into a collaborative workspace channel.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {
+                    "type": "string",
+                    "description": "Identifier for the target workspace or space."
+                },
+                "channel_id": {
+                    "type": "string",
+                    "description": "Optional channel or room identifier within the workspace."
+                },
+                "body": {
+                    "type": "object",
+                    "description": "Structured content payload to publish."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Additional audit metadata or delivery context."
+                }
+            },
+            "required": [
+                "workspace_id",
+                "body"
+            ]
+        }
+    },
+    {
         "name": "roadmap_service",
         "version": "1.0.0",
         "side_effects": "write",

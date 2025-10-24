@@ -34,6 +34,10 @@ except (ModuleNotFoundError, ImportError):
             self.message = message
             self.path = tuple(path or [])
 
+        @property
+        def absolute_path(self):  # pragma: no cover - compatibility shim
+            return self.path
+
 
     class Draft7Validator:
         """Very small subset of jsonschema.Draft7Validator used by ToolManager."""
@@ -43,6 +47,10 @@ except (ModuleNotFoundError, ImportError):
 
         def iter_errors(self, instance: Any):
             yield from _validate_with_schema(instance, self.schema, [])
+
+        def validate(self, instance: Any) -> None:
+            for error in self.iter_errors(instance):
+                raise error
 
 
     def _validate_with_schema(
