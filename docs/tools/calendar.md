@@ -40,9 +40,10 @@ Personas gain read-only access to the calendar tool when they have
 `allowed_tools` list includes `debian12_calendar`.  Enabling the companion
 `personal_assistant.calendar_write_enabled` flag elevates the permission so
 the persona may create, update, or delete events in addition to listing and
-inspecting them.  The default ATLAS persona, as well as the aggregate entry in
-`ALL_PERSONAS.json`, already exposes the read toggle so the tool appears in the
-Persona Tools tab; write access remains opt-in for installations that are
+inspecting them.  The default ATLAS persona definition
+(`modules/Personas/ATLAS/Persona/ATLAS.json`) already exposes the read toggle so
+the tool appears in the Persona Tools tab; write access remains opt-in for
+installations that are
 comfortable with automated edits.
 
 The tool manifest now declares a `requires_flags` map for the `create`,
