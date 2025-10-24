@@ -1,12 +1,16 @@
 # modules/weather/get_historical_weather.py
 
 import aiohttp
-import os
+
+from .weather_history import _require_openweather_api_key
 
 DEBUG_MODE = False  
 
 async def get_historical_weather(lat, lon, dt, units='imperial', lang=None):
-    OPENWEATHER_API_KEY = os.environ['OPENWEATHERMAP_API_KEY']
+    try:
+        OPENWEATHER_API_KEY = _require_openweather_api_key("fetch historical weather data")
+    except RuntimeError as exc:
+        return {"error": str(exc)}
     if DEBUG_MODE:
         print(f"Getting historical weather for location: lat={lat}, lon={lon}, dt={dt}, units={units}, lang={lang}")
 

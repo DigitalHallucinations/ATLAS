@@ -1,11 +1,15 @@
 # modules/weather/get_daily_weather_summary.py
 
 import aiohttp
-import os
+
+from .weather_history import _require_openweather_api_key
 
 DEBUG_MODE = False  
 async def get_daily_weather_summary(lat, lon, date, units='imperial', lang=None, tz=None):
-    OPENWEATHER_API_KEY = os.environ['OPENWEATHERMAP_API_KEY']
+    try:
+        OPENWEATHER_API_KEY = _require_openweather_api_key("fetch the daily weather summary")
+    except RuntimeError as exc:
+        return {"error": str(exc)}
     if DEBUG_MODE:
         print(f"Getting daily aggregated weather for location: lat={lat}, lon={lon}, date={date}, units={units}, lang={lang}, tz={tz}")
 
