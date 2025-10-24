@@ -65,7 +65,8 @@
                 "search_pubmed",
                 "search_pmc",
                 "get_current_info",
-                "policy_reference"
+                "policy_reference",
+                "fetch_pubmed_details"
             ]
         }
     ]
