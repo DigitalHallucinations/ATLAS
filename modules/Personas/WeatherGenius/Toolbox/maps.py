@@ -8,6 +8,9 @@ from modules.Personas.WeatherGenius.Toolbox.weather import get_current_weather
 from modules.Personas.WeatherGenius.Toolbox.historical_weather import get_historical_weather
 from modules.Personas.WeatherGenius.Toolbox.daily_summary import get_daily_weather_summary
 from modules.Personas.WeatherGenius.Toolbox.alerts import weather_alert_feed
+from modules.Personas.WeatherGenius.Toolbox.weather_vizualization import (
+    render_weather_visualization,
+)
 
 
 # Create an instance of GoogleSearch
@@ -23,4 +26,5 @@ function_map = {
     "policy_reference": policy_reference,
     "weather_alert_feed": weather_alert_feed,
     "geocode_location": geocode_location,
+    "render_weather_visualization": render_weather_visualization,
 }
