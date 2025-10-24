@@ -1944,6 +1944,12 @@ class ChatPage(Gtk.Box):
 
     def _apply_active_user_identity(self, username: str, display_name: str) -> bool:
         self._current_user_display_name = display_name or username
+        label = getattr(self, "user_title_label", None)
+        if label is not None:
+            text = f"Active user: {self._current_user_display_name or ''}".rstrip()
+            setter = getattr(label, "set_text", None)
+            if callable(setter):
+                setter(text)
         self.update_persona_label()
         self.update_status_bar()
         return False
@@ -1973,11 +1979,17 @@ class ChatPage(Gtk.Box):
 
             def update():
                 normalized = self._normalize_response_payload(response_payload)
+                bubble_kwargs = {
+                    "audio": normalized.get("audio"),
+                    "thinking": normalized.get("thinking"),
+                }
+                timestamp_value = normalized.get("timestamp")
+                if timestamp_value is not None:
+                    bubble_kwargs["timestamp"] = timestamp_value
                 self.add_message_bubble(
                     display_name,
                     normalized["text"],
-                    audio=normalized.get("audio"),
-                    thinking=normalized.get("thinking"),
+                    **bubble_kwargs,
                 )
                 self._on_response_complete()
                 self._refresh_terminal_tab()
@@ -2126,7 +2138,15 @@ class ChatPage(Gtk.Box):
         else:
             self.status_spinner.stop()
 
-    def add_message_bubble(self, sender, message, is_user=False, audio=None, thinking=None):
+    def add_message_bubble(
+        self,
+        sender,
+        message,
+        is_user=False,
+        audio=None,
+        thinking=None,
+        timestamp=None,
+    ):
         """
         Adds a message bubble to the conversation history area.
 
@@ -2146,9 +2166,9 @@ class ChatPage(Gtk.Box):
         header_row.append(sender_label)
         header_row.append(self._spacer())
         # timestamp-ish (lightweight)
-        now = datetime.now()
-        ts = Gtk.Label(label=now.strftime("%H:%M"))
-        ts.set_tooltip_text(now.strftime("%Y-%m-%d %H:%M:%S"))
+        display_time, tooltip_text = self._format_message_timestamp(timestamp)
+        ts = Gtk.Label(label=display_time)
+        ts.set_tooltip_text(tooltip_text)
         ts.add_css_class("dim-label")
         ts.set_halign(Gtk.Align.END)
         header_row.append(ts)
@@ -2266,6 +2286,45 @@ class ChatPage(Gtk.Box):
         s.set_hexpand(True)
         return s
 
+    def _format_message_timestamp(self, timestamp):
+        if timestamp is None:
+            dt_value = datetime.now()
+            formatted = dt_value.strftime("%Y-%m-%d %H:%M:%S")
+            return dt_value.strftime("%H:%M"), formatted
+
+        if isinstance(timestamp, datetime):
+            formatted = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            return timestamp.strftime("%H:%M"), formatted
+
+        if isinstance(timestamp, (int, float)):
+            try:
+                dt_value = datetime.fromtimestamp(timestamp)
+            except (TypeError, ValueError, OSError):
+                text = str(timestamp)
+                return text, text
+            formatted = dt_value.strftime("%Y-%m-%d %H:%M:%S")
+            return dt_value.strftime("%H:%M"), formatted
+
+        if isinstance(timestamp, str):
+            stripped = timestamp.strip()
+            if not stripped:
+                return "", ""
+            parsers = [
+                lambda value: datetime.fromisoformat(value),
+                lambda value: datetime.strptime(value, "%Y-%m-%d %H:%M:%S"),
+            ]
+            for parser in parsers:
+                try:
+                    dt_value = parser(stripped)
+                except ValueError:
+                    continue
+                else:
+                    return dt_value.strftime("%H:%M"), stripped
+            return stripped, stripped
+
+        text = str(timestamp)
+        return text, text
+
     def _normalize_response_payload(self, payload) -> dict:
         if isinstance(payload, dict):
             text = str(payload.get("text") or "")
@@ -2281,6 +2340,11 @@ class ChatPage(Gtk.Box):
             normalized = {"text": text, "audio": audio_payload}
             if payload.get("thinking") is not None:
                 normalized["thinking"] = str(payload.get("thinking") or "")
+            timestamp_value = payload.get("timestamp")
+            if timestamp_value is None:
+                timestamp_value = payload.get("created_at")
+            if timestamp_value is not None:
+                normalized["timestamp"] = timestamp_value
             return normalized
 
         return {"text": str(payload or ""), "audio": None}
