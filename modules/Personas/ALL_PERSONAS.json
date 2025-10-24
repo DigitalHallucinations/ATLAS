@@ -458,7 +458,17 @@ json
         }
       },
       "Speech_provider": "11labs",
-      "voice": "jack"
+      "voice": "jack",
+      "allowed_skills": [
+        "ATSCompatibility",
+        "Automation",
+        "Summarization",
+        "Prioritization",
+        "Research",
+        "DailyDigest",
+        "Engagement",
+        "Copywriting"
+      ]
     }
   ]
 }
