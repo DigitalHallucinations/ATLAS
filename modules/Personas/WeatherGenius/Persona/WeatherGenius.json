@@ -99,7 +99,12 @@
                 "google_search",
                 "get_current_info",
                 "geocode_location",
-                "policy_reference"
+                "policy_reference",
+                "context_tracker",
+                "weather_alert_feed",
+                "get_current_weather",
+                "get_daily_weather_summary",
+                "get_historical_weather"
             ]
         }
     ]
