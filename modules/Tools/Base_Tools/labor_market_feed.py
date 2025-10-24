@@ -6,6 +6,8 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Mapping, Optional, Sequence
 
+import hashlib
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,7 +27,17 @@ def _normalize_list(values: Optional[Sequence[str]]) -> tuple[str, ...]:
 
 
 def _score_signal(region: str, skill: str, timeframe: str) -> float:
-    base = abs(hash((region.lower(), skill.lower(), timeframe.lower()))) % 100
+    components = (
+        region.strip().lower(),
+        skill.strip().lower(),
+        timeframe.strip().lower(),
+    )
+    hasher = hashlib.sha256()
+    for component in components:
+        hasher.update(component.encode("utf-8"))
+        hasher.update(b"\0")
+    digest_value = int.from_bytes(hasher.digest(), "big")
+    base = digest_value % 100
     return round(50 + base / 2, 2)
 
 
