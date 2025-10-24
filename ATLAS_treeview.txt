@@ -54,7 +54,6 @@ ATLAS
 │   ├── Chat
 │   │   └── chat_session.py
 │   ├── Personas
-│   │   ├── ALL_PERSONAS.json
 │   │   ├── ATLAS
 │   │   │   ├── Memory
 │   │   │   │   └── .keep
