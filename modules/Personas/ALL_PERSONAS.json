@@ -459,6 +459,15 @@ json
       },
       "Speech_provider": "11labs",
       "voice": "jack",
+      "allowed_tools": [
+        "google_search",
+        "search_pubmed",
+        "search_pmc",
+        "get_current_info",
+        "webpage_fetch",
+        "policy_reference",
+        "generate_doc_outline"
+      ],
       "allowed_skills": [
         "ATSCompatibility",
         "Automation",
