@@ -106,11 +106,13 @@
                 "dashboard_service",
                 "spreadsheet",
                 "atlas_dashboard",
+                "analytics_dashboard",
                 "labor_market_feed",
                 "roadmap_service",
                 "ticketing_system",
                 "crm_service",
-                "email_service"
+                "email_service",
+                "content_repository"
             ],
             "allowed_skills": [
                 "ATSCompatibility"

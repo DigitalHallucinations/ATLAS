@@ -32,6 +32,10 @@ from .debian12_calendar import (
     debian12_calendar,
 )
 from .policy_reference import PolicyReference, PolicyRecord, policy_reference
+from .dashboard_service import DashboardService, DashboardSnapshot
+from .analytics_dashboard import AnalyticsDashboardClient, AnalyticsSnapshot
+from .atlas_dashboard import AtlasDashboardClient, AtlasDashboardUpdate
+from .content_repository import ContentRepository, ContentRecord
 from .time import get_current_info
 from .priority_queue import priority_queue, PrioritizedTask, PrioritizedTaskList
 from .current_location import get_current_location
@@ -124,6 +128,14 @@ __all__ = [
     "GoogleSearch",
     "PolicyReference",
     "PolicyRecord",
+    "DashboardService",
+    "DashboardSnapshot",
+    "AnalyticsDashboardClient",
+    "AnalyticsSnapshot",
+    "AtlasDashboardClient",
+    "AtlasDashboardUpdate",
+    "ContentRepository",
+    "ContentRecord",
     "CalendarService",
     "CalendarSlot",
     "CalendarBackend",

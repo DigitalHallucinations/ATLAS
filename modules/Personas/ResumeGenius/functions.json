@@ -17,7 +17,9 @@
                         "description": "Select first k results in the search results as response."
                     }
                 },
-                "required": ["query"]
+                "required": [
+                    "query"
+                ]
             }
         }
     },
@@ -31,7 +33,13 @@
                 "properties": {
                     "format_type": {
                         "type": "string",
-                        "enum": ["time", "date", "day", "month_year", "timestamp"],
+                        "enum": [
+                            "time",
+                            "date",
+                            "day",
+                            "month_year",
+                            "timestamp"
+                        ],
                         "default": "timestamp"
                     },
                     "timezone": {
@@ -79,7 +87,104 @@
                         "description": "Optional locale or region to account for geographic hiring nuances."
                     }
                 },
-                "required": ["resume_text", "job_description"]
+                "required": [
+                    "resume_text",
+                    "job_description"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analytics_dashboard",
+            "description": "Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dashboard_id": {
+                        "type": "string",
+                        "description": "Identifier for the analytics dashboard being updated."
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "High level narrative summarising the changes contained in the snapshot."
+                    },
+                    "metrics": {
+                        "type": "object",
+                        "description": "Numeric metrics to include in the refreshed dashboard snapshot."
+                    },
+                    "segments": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        },
+                        "description": "Optional cohort or segment breakdowns that accompany the metrics."
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Optional tags or labels used for filtering the analytics snapshot."
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "description": "Optional structured metadata that provides additional context."
+                    }
+                },
+                "required": [
+                    "dashboard_id",
+                    "summary",
+                    "metrics"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "content_repository",
+            "description": "Store or refresh reusable content blocks including metadata, tags, and attachments.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content_id": {
+                        "type": "string",
+                        "description": "Unique identifier for the content entry."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Title used to describe the content block."
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Primary body content, typically plain text or Markdown."
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Optional tags applied for classification or search."
+                    },
+                    "attachments": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Optional attachment references associated with the content."
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "description": "Optional structured metadata stored alongside the content."
+                    }
+                },
+                "required": [
+                    "content_id",
+                    "title",
+                    "body"
+                ]
             }
         }
     }
