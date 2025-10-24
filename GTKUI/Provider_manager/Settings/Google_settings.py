@@ -511,6 +511,7 @@ class GoogleSettingsWindow(AtlasWindow):
         self._load_models()
         self._load_settings()
         self._refresh_api_key_status()
+        self._refresh_models_async()
 
     # ------------------------------------------------------------------
     # Data loading helpers
@@ -525,23 +526,107 @@ class GoogleSettingsWindow(AtlasWindow):
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.warning("Unable to load Google models: %s", exc, exc_info=True)
 
+        preferred = str(self._defaults.get("model") or "").strip() or None
+        self._apply_model_options(models, preferred=preferred)
+
+    def _apply_model_options(
+        self,
+        models: Sequence[str],
+        *,
+        preferred: Optional[str] = None,
+    ) -> None:
         self.model_combo.remove_all()
         self._available_models = []
+
         seen: List[str] = []
         for name in models:
-            if isinstance(name, str) and name.strip():
-                cleaned = name.strip()
-                if cleaned not in seen:
-                    self.model_combo.append_text(cleaned)
-                    seen.append(cleaned)
+            if not isinstance(name, str):
+                continue
+            cleaned = name.strip()
+            if cleaned and cleaned not in seen:
+                seen.append(cleaned)
+
+        for entry in seen:
+            self.model_combo.append_text(entry)
+
         self._available_models = list(seen)
 
-        if seen:
-            self.model_combo.set_active(0)
+        if not self._available_models:
+            return
+
+        target = (preferred or "").strip()
+        if target and target in self._available_models:
+            index = self._available_models.index(target)
         else:
-            self.model_combo.append_text("gemini-1.5-pro-latest")
-            self.model_combo.set_active(0)
-            self._available_models = ["gemini-1.5-pro-latest"]
+            index = 0
+
+        try:
+            self.model_combo.set_active(index)
+        except Exception:  # pragma: no cover - GTK stubs
+            pass
+
+    def _refresh_models_async(self) -> None:
+        atlas = getattr(self, "ATLAS", None)
+        refresher = getattr(atlas, "run_in_background", None) if atlas else None
+        lister = getattr(atlas, "list_google_models", None) if atlas else None
+
+        if not callable(refresher) or not callable(lister):
+            return
+
+        def handle_success(result: Any) -> None:
+            GLib.idle_add(self._handle_model_refresh_result, result)
+
+        def handle_error(exc: Exception) -> None:
+            logger.warning("Google model refresh failed: %s", exc, exc_info=True)
+
+        try:
+            refresher(
+                lambda: lister(),
+                on_success=handle_success,
+                on_error=handle_error,
+                thread_name="google-model-refresh",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning("Unable to schedule Google model refresh: %s", exc, exc_info=True)
+
+    def _handle_model_refresh_result(self, payload: Any) -> bool:
+        models: Sequence[str] = []
+        error_text: Optional[str] = None
+
+        if isinstance(payload, dict):
+            models = payload.get("models") or []
+            error_text = payload.get("error")
+        elif isinstance(payload, (list, tuple)):
+            if payload:
+                models = payload[0] or []
+            if len(payload) > 1 and not error_text:
+                error_candidate = payload[1]
+                if isinstance(error_candidate, str):
+                    error_text = error_candidate
+        elif payload:
+            error_text = str(payload)
+
+        if error_text:
+            logger.warning("Google model refresh reported an error: %s", error_text)
+
+        preferred: Optional[str] = None
+        text_getter = getattr(self.model_combo, "get_active_text", None)
+        if callable(text_getter):
+            try:
+                preferred = text_getter() or None
+            except Exception:
+                preferred = None
+        if not preferred:
+            preferred = str(self._defaults.get("model") or "").strip() or None
+
+        sequence: Sequence[str]
+        if isinstance(models, Sequence) and not isinstance(models, (str, bytes)):
+            sequence = models
+        else:
+            sequence = []
+
+        self._apply_model_options(sequence, preferred=preferred)
+        return False
 
     def _load_settings(self) -> None:
         settings: Dict[str, Any] = {}

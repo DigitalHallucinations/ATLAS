@@ -9,6 +9,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Tuple, Union, AsyncIterator, Optional
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from huggingface_hub import HfApi
 from ATLAS.model_manager import ModelManager
@@ -972,6 +973,201 @@ class ProviderManager:
             "error": None,
             "base_url": effective_base_url,
             "organization": effective_org,
+        }
+
+    async def list_google_models(
+        self,
+        *,
+        base_url: Optional[str] = None,
+        timeout: float = 15.0,
+        page_size: int = 200,
+    ) -> Dict[str, Any]:
+        """Discover Google Gemini models using the configured credentials."""
+
+        settings = self.get_google_llm_settings()
+        configured_base_url: Optional[str] = None
+        if isinstance(settings, Mapping):
+            for key in ("api_endpoint", "endpoint", "base_url", "api_base"):
+                candidate = settings.get(key)  # type: ignore[arg-type]
+                if isinstance(candidate, str) and candidate.strip():
+                    configured_base_url = candidate.strip()
+                    break
+
+        effective_base_url = base_url if base_url is not None else configured_base_url
+        if not effective_base_url:
+            effective_base_url = "https://generativelanguage.googleapis.com"
+
+        getter = getattr(self.config_manager, "get_google_api_key", None)
+        if not callable(getter):
+            self.logger.error(
+                "Configuration backend does not expose a Google API key accessor."
+            )
+            return {
+                "models": [],
+                "error": "Google credentials are unavailable.",
+                "base_url": effective_base_url,
+            }
+
+        api_key = getter() or ""
+        if not api_key:
+            return {
+                "models": [],
+                "error": "Google API key is not configured.",
+                "base_url": effective_base_url,
+            }
+
+        endpoint = f"{effective_base_url.rstrip('/')}/v1beta/models"
+
+        def _fetch_all_models() -> List[Any]:
+            collected: List[Any] = []
+            next_token: Optional[str] = None
+
+            while True:
+                params: Dict[str, Any] = {"key": api_key}
+                if page_size > 0:
+                    params["pageSize"] = int(page_size)
+                if next_token:
+                    params["pageToken"] = next_token
+
+                request_url = f"{endpoint}?{urlencode(params)}"
+                request = Request(
+                    request_url,
+                    headers={"Accept": "application/json"},
+                    method="GET",
+                )
+
+                with urlopen(
+                    request, timeout=timeout
+                ) as response:  # noqa: S310 - trusted URL built from config
+                    encoding = response.headers.get_content_charset("utf-8")
+                    payload = response.read().decode(encoding)
+
+                decoded = json.loads(payload)
+                entries: List[Any] = []
+
+                if isinstance(decoded, dict):
+                    data = decoded.get("models") or decoded.get("data")
+                    if isinstance(data, list):
+                        entries = data
+                    next_token_value = (
+                        decoded.get("nextPageToken")
+                        or decoded.get("next_page_token")
+                    )
+                    if isinstance(next_token_value, str):
+                        next_token_value = next_token_value.strip()
+                    next_token = next_token_value or None
+                elif isinstance(decoded, list):
+                    entries = decoded
+                    next_token = None
+                else:
+                    next_token = None
+
+                if entries:
+                    collected.extend(entries)
+
+                if not next_token:
+                    break
+
+            return collected
+
+        try:
+            raw_entries = await asyncio.to_thread(_fetch_all_models)
+        except HTTPError as exc:
+            detail = f"HTTP {exc.code}: {exc.reason}"
+            try:
+                body = exc.read()
+                if body:
+                    detail = f"{detail} - {body.decode('utf-8', 'ignore')}"
+            except Exception:  # pragma: no cover - best effort logging
+                pass
+            self.logger.error(
+                "Google model listing failed with HTTP error: %s", detail, exc_info=True
+            )
+            return {
+                "models": [],
+                "error": detail,
+                "base_url": effective_base_url,
+            }
+        except URLError as exc:
+            detail = getattr(exc, "reason", None) or str(exc)
+            self.logger.error(
+                "Google model listing failed with network error: %s", detail, exc_info=True
+            )
+            return {
+                "models": [],
+                "error": str(detail),
+                "base_url": effective_base_url,
+            }
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error(
+                "Unexpected error while listing Google models: %s", exc, exc_info=True
+            )
+            return {
+                "models": [],
+                "error": str(exc),
+                "base_url": effective_base_url,
+            }
+
+        seen: set[str] = set()
+        discovered: List[str] = []
+
+        for entry in raw_entries:
+            model_id: Optional[str] = None
+            if isinstance(entry, str):
+                model_id = entry
+            elif isinstance(entry, Mapping):
+                candidate: Any = (
+                    entry.get("name")
+                    or entry.get("id")
+                    or entry.get("model")
+                    or entry.get("displayName")
+                )
+                if candidate is not None:
+                    model_id = str(candidate)
+            else:
+                for attr in ("name", "id", "model", "displayName"):
+                    value = getattr(entry, attr, None)
+                    if value is not None:
+                        model_id = str(value)
+                        break
+
+            if not model_id:
+                continue
+
+            normalized = model_id.strip()
+            if not normalized:
+                continue
+
+            if "/" in normalized:
+                normalized = normalized.split("/")[-1]
+
+            if normalized not in seen:
+                discovered.append(normalized)
+                seen.add(normalized)
+
+        cached_models = list(discovered)
+        try:
+            cached_models = self.model_manager.update_models_for_provider(
+                "Google", discovered
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.warning(
+                "Failed to update cached Google models after discovery: %s",
+                exc,
+                exc_info=True,
+            )
+
+        if cached_models:
+            self.logger.info(
+                "Retrieved %d Google model(s) via discovery.", len(cached_models)
+            )
+        else:
+            self.logger.info("Google model discovery returned no models.")
+
+        return {
+            "models": cached_models,
+            "error": None,
+            "base_url": effective_base_url,
         }
 
     async def fetch_mistral_models(

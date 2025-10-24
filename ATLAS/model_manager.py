@@ -60,6 +60,13 @@ class ModelManager:
                 elif provider == 'Grok':
                     self.models[provider] = ["grok-2", "grok-2-mini"]
                     continue
+                elif provider == 'Google':
+                    # Google models are now discovered dynamically via the API helper.
+                    self.logger.debug(
+                        "Skipping static model list for Google; awaiting API-backed discovery."
+                    )
+                    self.models[provider] = self._normalize_models(self.models.get(provider, []))
+                    continue
                 else:
                     file_name = f"{provider[0]}_models.json"  # e.g., 'O_models.json' for OpenAI
                     # Corrected file path to point to the correct directory
