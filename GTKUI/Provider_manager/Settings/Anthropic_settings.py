@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import gi
 
@@ -33,6 +33,7 @@ class AnthropicSettingsWindow(AtlasWindow):
         self.parent_window = parent_window
 
         self._last_message: Optional[Tuple[str, str, Gtk.MessageType]] = None
+        self._refresh_in_progress = False
 
         container = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=12)
         self.set_child(container)
@@ -114,11 +115,24 @@ class AnthropicSettingsWindow(AtlasWindow):
         model_label.set_xalign(0.0)
         general_grid.attach(model_label, 0, row, 1, 1)
 
+        model_row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        model_row_box.set_hexpand(True)
+        general_grid.attach(model_row_box, 1, row, 1, 1)
+
         self.model_combo = Gtk.ComboBoxText()
         self.model_combo.set_hexpand(True)
         if hasattr(self.model_combo, "connect"):
             self.model_combo.connect("changed", self._update_save_button_state)
-        general_grid.attach(self.model_combo, 1, row, 1, 1)
+        model_row_box.append(self.model_combo)
+
+        self.model_refresh_button = Gtk.Button(label="Refresh")
+        if hasattr(self.model_refresh_button, "set_tooltip_text"):
+            self.model_refresh_button.set_tooltip_text(
+                "Fetch the latest model list from Anthropic"
+            )
+        if hasattr(self.model_refresh_button, "connect"):
+            self.model_refresh_button.connect("clicked", self._on_refresh_models_clicked)
+        model_row_box.append(self.model_refresh_button)
 
         row += 1
         self.streaming_toggle = Gtk.CheckButton(label="Enable streaming responses")
@@ -367,6 +381,38 @@ class AnthropicSettingsWindow(AtlasWindow):
         self._load_models()
         self._load_settings()
 
+    def _set_model_options(self, models: List[str], *, preferred: Optional[str] = None) -> None:
+        cleaned: List[str] = []
+        seen: set[str] = set()
+        for entry in models:
+            if not isinstance(entry, str):
+                continue
+            text = entry.strip()
+            if not text or text in seen:
+                continue
+            cleaned.append(text)
+            seen.add(text)
+
+        self.model_combo.remove_all()
+        for option in cleaned:
+            self.model_combo.append_text(option)
+
+        self._available_models = list(cleaned)
+
+        if not cleaned:
+            if hasattr(self.model_combo, "set_active"):
+                self.model_combo.set_active(-1)
+            return
+
+        index = 0
+        if preferred and preferred in cleaned:
+            index = cleaned.index(preferred)
+
+        try:
+            self.model_combo.set_active(index)
+        except Exception:  # pragma: no cover - defensive fallback for stubs
+            pass
+
     def _load_models(self) -> None:
         models: List[str] = []
         fetcher = getattr(self.ATLAS, "get_models_for_provider", None)
@@ -375,14 +421,7 @@ class AnthropicSettingsWindow(AtlasWindow):
                 models = fetcher("Anthropic") or []
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.warning("Failed to fetch Anthropic models: %s", exc, exc_info=True)
-        self._available_models = []
-        self.model_combo.remove_all()
-        for name in models:
-            if isinstance(name, str) and name.strip():
-                cleaned = name.strip()
-                if cleaned not in self._available_models:
-                    self._available_models.append(cleaned)
-                    self.model_combo.append_text(cleaned)
+        self._set_model_options(models)
 
     def _load_settings(self) -> None:
         settings: Dict[str, object] = {}
@@ -617,6 +656,168 @@ class AnthropicSettingsWindow(AtlasWindow):
                 detail = str(result)
             self._show_message("Error", detail, Gtk.MessageType.ERROR)
 
+        return False
+
+    def _set_refresh_in_progress(self, active: bool) -> None:
+        self._refresh_in_progress = bool(active)
+
+        button = getattr(self, "model_refresh_button", None)
+        if button is not None:
+            label_text = "Refreshing…" if active else "Refresh"
+            if hasattr(button, "set_sensitive"):
+                button.set_sensitive(not active)
+            try:  # pragma: no cover - GTK stubs
+                button.sensitive = not active
+            except Exception:
+                pass
+            if hasattr(button, "set_label"):
+                button.set_label(label_text)
+            else:
+                try:
+                    button.label = label_text
+                except Exception:
+                    pass
+
+        combo = getattr(self, "model_combo", None)
+        if combo is not None and hasattr(combo, "set_sensitive"):
+            combo.set_sensitive(not active)
+
+    def _on_refresh_models_clicked(self, _button) -> None:
+        if self._refresh_in_progress:
+            return
+
+        atlas = getattr(self, "ATLAS", None)
+        refresher = getattr(atlas, "run_in_background", None) if atlas else None
+        lister = getattr(atlas, "list_anthropic_models", None) if atlas else None
+
+        if not callable(refresher) or not callable(lister):
+            self._show_message(
+                "Error",
+                "Model refresh is unavailable in this build.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
+        status_getter = getattr(atlas, "get_provider_api_key_status", None)
+        if callable(status_getter):
+            try:
+                status = status_getter("Anthropic") or {}
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.warning(
+                    "Unable to determine Anthropic API key status before refresh: %s",
+                    exc,
+                    exc_info=True,
+                )
+                status = {}
+            if not bool(status.get("has_key")):
+                self._show_message(
+                    "Error",
+                    "Save an Anthropic API key before refreshing the model list.",
+                    Gtk.MessageType.ERROR,
+                )
+                return
+
+        previous_models = list(self._available_models)
+        previous_active = (
+            self.model_combo.get_active_text()
+            if hasattr(self.model_combo, "get_active_text")
+            else None
+        )
+
+        self.model_combo.remove_all()
+        self.model_combo.append_text("Refreshing…")
+        if hasattr(self.model_combo, "set_active"):
+            self.model_combo.set_active(0)
+
+        def handle_success(result: Any) -> None:
+            GLib.idle_add(
+                self._handle_model_refresh_result,
+                result,
+                previous_models,
+                previous_active,
+            )
+
+        def handle_error(exc: Exception) -> None:
+            logger.error("Failed to refresh Anthropic models: %s", exc, exc_info=True)
+            GLib.idle_add(
+                self._handle_model_refresh_error,
+                exc,
+                previous_models,
+                previous_active,
+            )
+
+        self._set_refresh_in_progress(True)
+
+        try:
+            refresher(
+                lambda: lister(),
+                on_success=handle_success,
+                on_error=handle_error,
+                thread_name="anthropic-model-refresh",
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Unable to schedule Anthropic model refresh: %s", exc, exc_info=True)
+            self._set_refresh_in_progress(False)
+            self._set_model_options(previous_models, preferred=previous_active)
+            detail = str(exc) or "Unable to start refresh task."
+            self._show_message("Error", detail, Gtk.MessageType.ERROR)
+
+    def _handle_model_refresh_result(
+        self,
+        payload: Any,
+        previous_models: List[str],
+        previous_active: Optional[str],
+    ) -> bool:
+        self._set_refresh_in_progress(False)
+
+        models: List[str] = []
+        error_text: Optional[str] = None
+        message_text: Optional[str] = None
+
+        if isinstance(payload, dict):
+            raw_models = payload.get("models")
+            if isinstance(raw_models, list):
+                models = [str(item).strip() for item in raw_models if str(item).strip()]
+            error_value = payload.get("error")
+            if error_value:
+                error_text = str(error_value)
+            message = payload.get("message")
+            if isinstance(message, str) and message.strip():
+                message_text = message.strip()
+        elif payload is not None:
+            error_text = str(payload)
+
+        if error_text:
+            self._set_model_options(previous_models, preferred=previous_active)
+            self._show_message("Error", error_text, Gtk.MessageType.ERROR)
+        else:
+            preferred = previous_active if previous_active in models else None
+            self._set_model_options(models, preferred=preferred)
+            if models:
+                note = message_text or "Anthropic models refreshed."
+                self._show_message("Success", note, Gtk.MessageType.INFO)
+            else:
+                note = message_text or "No Anthropic models were returned."
+                self._show_message("Info", note, Gtk.MessageType.INFO)
+
+        self._update_save_button_state()
+        return False
+
+    def _handle_model_refresh_error(
+        self,
+        exc: Exception,
+        previous_models: List[str],
+        previous_active: Optional[str],
+    ) -> bool:
+        self._set_refresh_in_progress(False)
+        self._set_model_options(previous_models, preferred=previous_active)
+        detail = str(exc) or exc.__class__.__name__
+        self._show_message(
+            "Error",
+            f"Failed to refresh Anthropic models: {detail}",
+            Gtk.MessageType.ERROR,
+        )
+        self._update_save_button_state()
         return False
 
     def _set_save_key_button_sensitive(self, enabled: bool) -> None:
