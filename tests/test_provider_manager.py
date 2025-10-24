@@ -1388,6 +1388,9 @@ class DummyConfig:
     def get_mistral_api_key(self):
         return self._api_keys.get("Mistral", "")
 
+    def get_google_api_key(self):
+        return self._api_keys.get("Google", "")
+
     def set_huggingface_api_key(self, token):
         self.set_hf_token(token)
 
@@ -1987,6 +1990,63 @@ def test_list_openai_models_handles_network_error(provider_manager, monkeypatch)
     assert "network down" in (result["error"] or "")
     assert result["base_url"] == "https://alt.example/v1"
     assert result["organization"] == "org-1234"
+
+
+def test_list_google_models_requires_api_key(provider_manager):
+    result = asyncio.run(provider_manager.list_google_models())
+
+    assert result["models"] == []
+    assert "API key" in (result["error"] or "")
+
+
+def test_list_google_models_fetches_models(provider_manager, monkeypatch):
+    provider_manager.config_manager.update_api_key("Google", "go-key")
+
+    payload = [
+        {"name": "models/gemini-1.5-pro-latest"},
+        {"name": "models/gemini-1.5-flash"},
+        {"name": "tunedModels/custom-helper"},
+        {"name": "models/embedding-lite"},
+    ]
+
+    async def fake_to_thread(callable_, *args, **kwargs):  # pragma: no cover - test helper
+        return payload
+
+    monkeypatch.setattr(provider_manager_module.asyncio, "to_thread", fake_to_thread)
+
+    result = asyncio.run(provider_manager.list_google_models())
+
+    assert result["error"] is None
+    assert result["base_url"] == "https://generativelanguage.googleapis.com"
+    assert result["models"] == [
+        "gemini-1.5-pro-latest",
+        "gemini-1.5-flash",
+        "custom-helper",
+        "embedding-lite",
+    ]
+
+    cached = provider_manager.model_manager.models["Google"]
+    assert cached[0] == "gemini-1.5-pro-latest"
+    assert "custom-helper" in cached
+
+
+def test_list_google_models_handles_network_error(provider_manager, monkeypatch):
+    provider_manager.config_manager.update_api_key("Google", "go-key")
+
+    async def fake_to_thread(callable_, *args, **kwargs):  # pragma: no cover - test helper
+        raise URLError("dns failure")
+
+    monkeypatch.setattr(provider_manager_module.asyncio, "to_thread", fake_to_thread)
+
+    result = asyncio.run(
+        provider_manager.list_google_models(
+            base_url="https://sandbox.generativelanguage.googleapis.com"
+        )
+    )
+
+    assert result["models"] == []
+    assert "dns failure" in (result["error"] or "")
+    assert result["base_url"] == "https://sandbox.generativelanguage.googleapis.com"
 
 
 def test_fetch_mistral_models_requires_api_key(provider_manager, monkeypatch):

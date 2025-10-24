@@ -1902,6 +1902,17 @@ class ATLAS:
             organization=organization,
         )
 
+    async def list_google_models(
+        self,
+        *,
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch available Google Gemini models through the provider manager facade."""
+
+        return await self._require_provider_manager().list_google_models(
+            base_url=base_url,
+        )
+
     def set_openai_llm_settings(
         self,
         *,
