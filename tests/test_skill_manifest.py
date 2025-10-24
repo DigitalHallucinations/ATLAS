@@ -25,6 +25,8 @@ def test_load_skill_metadata_includes_shared_and_persona():
         "ResearchBrief",
         "DailyDigest",
         "SevereWeatherAlert",
+        "Communication",
+        "DataSourcing",
     }.issubset(shared_names)
     assert "ATSCompatibility" not in shared_names
     assert "AtlasReporter" in atlas_persona_names
@@ -42,6 +44,20 @@ def test_load_skill_metadata_includes_shared_and_persona():
         "get_daily_weather_summary",
     }
     assert "weather" in severe.capability_tags
+
+    communication = next(entry for entry in entries if entry.name == "Communication")
+    assert set(communication.required_tools) == {
+        "notification_service",
+        "workspace_publisher",
+    }
+    assert "communication" in communication.capability_tags
+
+    data_sourcing = next(entry for entry in entries if entry.name == "DataSourcing")
+    assert set(data_sourcing.required_tools) == {
+        "dashboard_service",
+        "spreadsheet",
+    }
+    assert "data_sourcing" in data_sourcing.capability_tags
 
     ats = next(entry for entry in entries if entry.name == "ATSCompatibility")
     assert ats.persona == "ResumeGenius"
