@@ -99,6 +99,23 @@ def test_idempotent_inserts(repository, engine):
         assert len(stored) == 1
 
 
+def test_iso_z_timestamp_is_normalised(repository):
+    conversation_id = _uuid()
+    repository.ensure_conversation(conversation_id, tenant_id=TENANT)
+
+    message = repository.add_message(
+        conversation_id,
+        tenant_id=TENANT,
+        role="assistant",
+        content={"text": "timestamp"},
+        metadata={},
+        timestamp=" 2024-05-21T09:00:00Z ",
+    )
+
+    assert message["created_at"] == "2024-05-21T09:00:00+00:00"
+    assert message["timestamp"] == "2024-05-21 09:00:00"
+
+
 def test_user_and_session_identity_reuse(repository, engine):
     conversation_id = _uuid()
     repository.ensure_conversation(conversation_id, tenant_id=TENANT)
