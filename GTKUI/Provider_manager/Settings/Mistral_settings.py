@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -1282,59 +1281,7 @@ class MistralSettingsWindow(AtlasWindow):
                         if isinstance(entry, str) and entry.strip()
                     ]
 
-        if models:
-            return self._deduplicate(models)
-
-        search_paths: List[str] = []
-        root_path = None
-        if hasattr(self.config_manager, "get_app_root"):
-            try:
-                root_path = self.config_manager.get_app_root()
-            except Exception:  # pragma: no cover - defensive fallback
-                root_path = None
-        if root_path:
-            search_paths.append(
-                os.path.join(
-                    root_path, "modules", "Providers", "Mistral", "M_models.json"
-                )
-            )
-
-        module_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-        search_paths.append(
-            os.path.join(module_root, "modules", "Providers", "Mistral", "M_models.json")
-        )
-
-        for path in search_paths:
-            if not path:
-                continue
-            try:
-                with open(path, "r", encoding="utf-8") as handle:
-                    payload = json.load(handle)
-            except FileNotFoundError:
-                continue
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.warning("Failed to read Mistral models from %s: %s", path, exc)
-                continue
-
-            entries = []
-            if isinstance(payload, dict):
-                entries = payload.get("models", [])
-            elif isinstance(payload, list):
-                entries = payload
-
-            if isinstance(entries, list):
-                models = [
-                    entry.strip()
-                    for entry in entries
-                    if isinstance(entry, str) and entry.strip()
-                ]
-            else:
-                models = []
-
-            if models:
-                return self._deduplicate(models)
-
-        return []
+        return self._deduplicate(models)
 
     def _deduplicate(self, models: List[str]) -> List[str]:
         seen: set[str] = set()

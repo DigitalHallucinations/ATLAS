@@ -90,6 +90,14 @@ class ConfigManager:
         # Merge configurations, with YAML config overriding env config if there's overlap
         self.config = {**self.env_config, **self.yaml_config}
 
+        # Normalize any persisted provider model cache to ensure predictable structure.
+        self._model_cache: Dict[str, List[str]] = self._normalize_model_cache(
+            self.yaml_config.get("MODEL_CACHE")
+        )
+        self.config["MODEL_CACHE"] = copy.deepcopy(self._model_cache)
+        if "MODEL_CACHE" not in self.yaml_config:
+            self.yaml_config["MODEL_CACHE"] = copy.deepcopy(self._model_cache)
+
         # Ensure configurable tool timeout/budget defaults are present
         tool_defaults = self.config.get('tool_defaults')
         if not isinstance(tool_defaults, Mapping):
@@ -294,6 +302,62 @@ class ConfigManager:
             return normalized or None
 
         return None
+
+    def _normalize_model_cache(self, value: Any) -> Dict[str, List[str]]:
+        """Normalize persisted provider model caches into a predictable mapping."""
+
+        normalized: Dict[str, List[str]] = {}
+
+        if isinstance(value, Mapping):
+            items = value.items()
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            # Support legacy list-of-tuples structures if encountered.
+            items = []
+            for entry in value:
+                if isinstance(entry, Sequence) and len(entry) == 2:
+                    items.append((entry[0], entry[1]))
+        else:
+            items = []
+
+        for provider, models in items:
+            if not isinstance(provider, str):
+                try:
+                    provider_key = str(provider)
+                except Exception:
+                    continue
+            else:
+                provider_key = provider
+
+            provider_key = provider_key.strip()
+            if not provider_key:
+                continue
+
+            seen: set[str] = set()
+            ordered: List[str] = []
+
+            candidate_iterable: Iterable[Any]
+            if isinstance(models, Mapping):
+                candidate_iterable = models.values()
+            elif isinstance(models, Sequence) and not isinstance(models, (str, bytes)):
+                candidate_iterable = models
+            else:
+                candidate_iterable = []
+
+            for entry in candidate_iterable:
+                if isinstance(entry, str):
+                    candidate = entry.strip()
+                else:
+                    candidate = str(entry).strip() if entry is not None else ""
+
+                if not candidate or candidate in seen:
+                    continue
+
+                ordered.append(candidate)
+                seen.add(candidate)
+
+            normalized[provider_key] = ordered
+
+        return normalized
 
     def get_conversation_database_config(self) -> Dict[str, Any]:
         """Return the merged configuration block for the conversation database."""
@@ -1567,6 +1631,46 @@ class ConfigManager:
             str: The path to the model cache directory.
         """
         return self.get_config('MODEL_CACHE_DIR')
+
+    def get_cached_models(self, provider: Optional[str] = None) -> Dict[str, List[str]]:
+        """Return cached provider models persisted via the configuration backend."""
+
+        cache = copy.deepcopy(self._model_cache)
+
+        if provider is not None:
+            key = provider.strip() if isinstance(provider, str) else str(provider)
+            return {key: cache.get(key, [])}
+
+        return cache
+
+    def set_cached_models(self, provider: str, models: Iterable[Any]) -> List[str]:
+        """Persist the cached model list for a provider to the YAML configuration."""
+
+        if not isinstance(provider, str) or not provider.strip():
+            raise ValueError("Provider name must be a non-empty string.")
+
+        provider_key = provider.strip()
+
+        seen: set[str] = set()
+        ordered: List[str] = []
+        for entry in models:
+            if isinstance(entry, str):
+                candidate = entry.strip()
+            else:
+                candidate = str(entry).strip() if entry is not None else ""
+
+            if not candidate or candidate in seen:
+                continue
+
+            ordered.append(candidate)
+            seen.add(candidate)
+
+        self._model_cache[provider_key] = list(ordered)
+        self.config["MODEL_CACHE"] = copy.deepcopy(self._model_cache)
+        self.yaml_config["MODEL_CACHE"] = copy.deepcopy(self._model_cache)
+        self._write_yaml_config()
+
+        return list(ordered)
 
     def get_speech_cache_dir(self) -> str:
         """Return the directory path used to cache generated speech files."""

@@ -6,7 +6,6 @@ import inspect
 import json
 import time
 import traceback
-from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Tuple, Union, AsyncIterator, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -972,8 +971,6 @@ class ProviderManager:
                 exc_info=True,
             )
 
-        persisted_path = self._persist_anthropic_model_cache(cached_models)
-
         if cached_models:
             self.logger.info(
                 "Retrieved %d Anthropic model(s) via discovery.", len(cached_models)
@@ -987,8 +984,6 @@ class ProviderManager:
             "base_url": effective_base_url,
             "source": "anthropic",
         }
-        if persisted_path is not None:
-            result["persisted_to"] = str(persisted_path)
 
         return result
 
@@ -1441,8 +1436,6 @@ class ProviderManager:
                 exc_info=True,
             )
 
-        persisted_path = self._persist_mistral_model_cache(cached_models)
-
         count = len(cached_models)
         message = (
             f"Retrieved {count} Mistral model{'s' if count != 1 else ''}."
@@ -1453,101 +1446,8 @@ class ProviderManager:
         data: Dict[str, Any] = {"models": cached_models, "source": "mistral"}
         if effective_base_url:
             data["base_url"] = effective_base_url
-        if persisted_path is not None:
-            data["persisted_to"] = str(persisted_path)
 
         return self._build_result(True, message=message, data=data)
-
-    def _persist_mistral_model_cache(self, models: List[str]) -> Optional[Path]:
-        """Write the cached model list to disk for offline usage."""
-
-        payload = {"models": models}
-
-        candidates: List[Path] = []
-        try:
-            root = self.config_manager.get_app_root()
-        except Exception:  # pragma: no cover - defensive logging
-            root = None
-
-        if root:
-            candidates.append(
-                Path(root)
-                / "modules"
-                / "Providers"
-                / "Mistral"
-                / "M_models.json"
-            )
-
-        candidates.append(
-            Path(__file__).resolve().parent.parent
-            / "modules"
-            / "Providers"
-            / "Mistral"
-            / "M_models.json"
-        )
-
-        for path in candidates:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with path.open("w", encoding="utf-8") as handle:
-                    json.dump(payload, handle, indent=2, sort_keys=True)
-                    handle.write("\n")
-            except Exception as exc:  # pragma: no cover - defensive logging
-                self.logger.warning(
-                    "Failed to persist Mistral model cache to %s: %s", path, exc
-                )
-                continue
-
-            return path
-
-        return None
-
-    def _persist_anthropic_model_cache(self, models: List[str]) -> Optional[Path]:
-        """Write Anthropic discovery results to disk for subsequent startups."""
-
-        payload = {"models": models, "updated_at": int(time.time())}
-
-        candidates: List[Path] = []
-
-        try:
-            root = self.config_manager.get_app_root()
-        except Exception:  # pragma: no cover - defensive logging
-            root = None
-
-        if root:
-            candidates.append(
-                Path(root)
-                / "modules"
-                / "Providers"
-                / "Anthropic"
-                / "anthropic_models.json"
-            )
-
-        repo_candidate = (
-            Path(__file__).resolve().parent.parent
-            / "modules"
-            / "Providers"
-            / "Anthropic"
-            / "anthropic_models.json"
-        )
-        if repo_candidate not in candidates:
-            candidates.append(repo_candidate)
-
-        for path in candidates:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with path.open("w", encoding="utf-8") as handle:
-                    json.dump(payload, handle, indent=2, sort_keys=True)
-                    handle.write("\n")
-            except Exception as exc:  # pragma: no cover - defensive logging
-                self.logger.warning(
-                    "Failed to persist Anthropic model cache to %s: %s", path, exc
-                )
-                continue
-
-            return path
-
-        return None
 
     @staticmethod
     def _mask_secret(secret: str) -> str:
