@@ -99,7 +99,18 @@
                 "google_search",
                 "get_current_info",
                 "policy_reference",
-                "ats_scoring_service"
+                "ats_scoring_service",
+                "browser",
+                "notebook",
+                "notification_service",
+                "dashboard_service",
+                "spreadsheet",
+                "atlas_dashboard",
+                "labor_market_feed",
+                "roadmap_service",
+                "ticketing_system",
+                "crm_service",
+                "email_service"
             ],
             "allowed_skills": [
                 "ATSCompatibility"

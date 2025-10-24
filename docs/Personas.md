@@ -28,13 +28,13 @@ additional persona fields remain opt-in and are still passed through unchanged.
 
 Each production persona exposes a curated task manifest under `modules/Personas/<Persona>/Tasks/tasks.json`. Operators should populate the `metadata.manifest_task` field when creating a task so routing logic can hydrate the correct capabilities.
 
-- **ATLAS** – Use `MissionControlWeeklyBrief` for the weekly leadership brief and `AutomationPolicyPrecheck` for governance reviews. Include the target sprint or change ticket identifiers in the task metadata to streamline follow-up.
+- **ATLAS** – Use `MissionControlWeeklyBrief` for the weekly leadership brief and `AutomationPolicyPrecheck` for governance reviews. ATLAS now has the full job toolkit (`browser`, `notebook`, `notification_service`, `dashboard_service`, `spreadsheet`, `atlas_dashboard`, `roadmap_service`, `ticketing_system`) so include sprint or change ticket identifiers in the task metadata to streamline follow-up.
 - **WeatherGenius** – Trigger `WeatherOperationsSnapshot` when a field team needs real-time weather posture guidance. Attach region codes or GPS coordinates in the metadata payload.
 - **MEDIC** – Trigger `ClinicalEvidenceSnapshot` to assemble bedside-ready evidence summaries. Record patient acuity and key symptoms to focus the literature search.
 - **DocGenius** – Reuse `ClinicalEvidenceSnapshot` for documentation handoffs and add preferred citation styles in metadata when necessary.
-- **KnowledgeCurator** – Dispatch `KnowledgeArchiveDigest` to transform ad-hoc updates into durable knowledge cards. The skill leans on `context_tracker`, `google_search`, and `get_current_info` so every entry is grounded in conversation history, cited to reputable sources, and timestamped for future audits.
-- **ResumeGenius** – Trigger `AutomationPolicyPrecheck` before enabling a new resume-generation automation. Note any consent or privacy exceptions so governance can weigh in quickly.
-- **ComplianceOfficer** – Partner with this persona whenever teams need policy interpretation, risk triage, or governance review. It leans on `policy_reference`, `google_search`, and `get_current_info` to cite current rules and recommend compliant next steps.
+- **KnowledgeCurator** – Dispatch `KnowledgeArchiveDigest` to transform ad-hoc updates into durable knowledge cards. Beyond `context_tracker`, `google_search`, and `get_current_info`, KnowledgeCurator now leans on shared job primitives like `browser`, `notebook`, `notification_service`, `dashboard_service`, and `spreadsheet` to capture, route, and broadcast archival updates.
+- **ResumeGenius** – Trigger `AutomationPolicyPrecheck` before enabling a new resume-generation automation. ResumeGenius now has direct access to `browser`, `labor_market_feed`, `crm_service`, and `email_service` (alongside `notebook` and `notification_service`) so capture consent or privacy exceptions up front for governance review.
+- **ComplianceOfficer** – Partner with this persona whenever teams need policy interpretation, risk triage, or governance review. In addition to `policy_reference`, `google_search`, and `get_current_info`, ComplianceOfficer can now synthesize dashboards and spreadsheets while coordinating escalations through `browser`, `notification_service`, `atlas_dashboard`, and `roadmap_service`.
 
 ### KnowledgeCurator workflow
 

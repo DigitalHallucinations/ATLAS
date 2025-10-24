@@ -99,7 +99,18 @@
                 "context_tracker",
                 "google_search",
                 "get_current_info",
-                "knowledge_card_builder"
+                "knowledge_card_builder",
+                "browser",
+                "notebook",
+                "notification_service",
+                "dashboard_service",
+                "spreadsheet",
+                "atlas_dashboard",
+                "labor_market_feed",
+                "roadmap_service",
+                "ticketing_system",
+                "crm_service",
+                "email_service"
             ],
             "allowed_skills": [
                 "KnowledgeArchiveDigest"

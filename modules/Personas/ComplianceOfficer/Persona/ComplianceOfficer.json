@@ -97,7 +97,18 @@
                 "policy_reference",
                 "google_search",
                 "get_current_info",
-                "regulatory_gap_audit"
+                "regulatory_gap_audit",
+                "browser",
+                "notebook",
+                "notification_service",
+                "dashboard_service",
+                "spreadsheet",
+                "atlas_dashboard",
+                "labor_market_feed",
+                "roadmap_service",
+                "ticketing_system",
+                "crm_service",
+                "email_service"
             ]
         }
     ]

@@ -102,7 +102,19 @@
                 "context_tracker",
                 "priority_queue",
                 "debian12_calendar",
-                "task_catalog_snapshot"
+                "task_catalog_snapshot",
+                "browser",
+                "notebook",
+                "notification_service",
+                "dashboard_service",
+                "spreadsheet",
+                "atlas_dashboard",
+                "roadmap_service",
+                "ticketing_system",
+                "labor_market_feed",
+                "crm_service",
+                "email_service",
+                "workspace_publisher"
             ]
         }
     ]
