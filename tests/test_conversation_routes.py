@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import timezone
 
 import pytest
 
@@ -10,7 +11,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from modules.Server import AtlasServer, RequestContext
-from modules.Server.conversation_routes import ConversationAuthorizationError
+from modules.Server.conversation_routes import (
+    ConversationAuthorizationError,
+    _decode_cursor,
+    _encode_cursor,
+)
 from modules.conversation_store import Base, ConversationStoreRepository
 from modules.conversation_store.models import Message, Session, User
 from modules.orchestration.message_bus import InMemoryQueueBackend, MessageBus
@@ -203,11 +208,22 @@ def test_search_supports_text_and_vector(server: AtlasServer, tenant_context: Re
     assert vector_results["count"] == 1
     assert vector_results["items"][0]["message"]["id"] == vector_message["id"]
 
+
     with pytest.raises(ConversationAuthorizationError):
         server.search_conversations(
             {"conversation_ids": [foreign_conversation], "text": "weather"},
             context=tenant_context,
         )
+
+
+def test_cursor_decoding_accepts_zulu_timestamp() -> None:
+    message_id = str(uuid.uuid4())
+    cursor = _encode_cursor("2024-01-01T09:00:00Z", message_id)
+
+    decoded_at, decoded_id = _decode_cursor(cursor)
+
+    assert decoded_id == uuid.UUID(message_id)
+    assert decoded_at.tzinfo == timezone.utc
 
 
 def test_search_scans_long_conversations(server: AtlasServer, tenant_context: RequestContext):
