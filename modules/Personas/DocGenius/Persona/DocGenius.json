@@ -100,6 +100,7 @@
                 "search_pubmed",
                 "search_pmc",
                 "get_current_info",
+                "webpage_fetch",
                 "policy_reference",
                 "generate_doc_outline"
             ]
