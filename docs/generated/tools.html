@@ -14,12 +14,14 @@
     </thead>
     <tbody>
       <tr><td>atlas_dashboard</td><td>1.0.0</td><td>atlas_operations, status_reporting</td><td>—</td><td>No</td><td>Capture persona-specific initiative health updates for the ATLAS dashboard.</td></tr>
+      <tr><td>analytics_dashboard</td><td>1.0.0</td><td>analytics_reporting, segment_tracking</td><td>—</td><td>No</td><td>Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata.</td></tr>
       <tr><td>browser</td><td>1.0.0</td><td>web_navigation, research</td><td>—</td><td>No</td><td>Record a virtual browsing session including annotations and metadata for downstream summarisation.</td></tr>
       <tr><td>calendar_service</td><td>1.0.0</td><td>calendar_read, calendar_write</td><td>—</td><td>No</td><td>Book lightweight calendar slots and retrieve existing reservations for personas without native calendar access.</td></tr>
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
       <tr><td>crm_service</td><td>1.0.0</td><td>crm_logging, engagement_tracking</td><td>—</td><td>No</td><td>Log a structured customer interaction with optional tags and metadata.</td></tr>
       <tr><td>dashboard_service</td><td>1.0.0</td><td>metrics_reporting, analysis</td><td>—</td><td>No</td><td>Store a dashboard snapshot with numeric metrics and supporting commentary.</td></tr>
       <tr><td>email_service</td><td>1.0.0</td><td>email_delivery, communications</td><td>—</td><td>No</td><td>Dispatch a structured email with support for CC and BCC recipients.</td></tr>
+      <tr><td>content_repository</td><td>1.0.0</td><td>content_management, knowledge_base</td><td>—</td><td>No</td><td>Store or refresh reusable content blocks including metadata, tags, and attachments.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
       <tr><td>labor_market_feed</td><td>1.0.0</td><td>labor_market_research, trend_analysis</td><td>—</td><td>No</td><td>Generate a synthetic labour market snapshot for the requested regions and skills.</td></tr>
@@ -229,6 +231,7 @@
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
       <tr><td>crm_service</td><td>1.0.0</td><td>crm_logging, engagement_tracking</td><td>medium</td><td>No</td><td>Log a structured customer interaction with optional tags and metadata.</td></tr>
       <tr><td>dashboard_service</td><td>1.0.0</td><td>metrics_reporting, analysis</td><td>medium</td><td>No</td><td>Store a dashboard snapshot with numeric metrics and supporting commentary.</td></tr>
+      <tr><td>analytics_dashboard</td><td>1.0.0</td><td>analytics_reporting, segment_tracking</td><td>medium</td><td>No</td><td>Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata.</td></tr>
       <tr><td>debian12_calendar</td><td>1.1.0</td><td>calendar_read, calendar_write</td><td>—</td><td>No</td><td>Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events.</td></tr>
       <tr><td>delete_namespace</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Remove all stored embeddings associated with the specified namespace.</td></tr>
       <tr><td>email_service</td><td>1.0.0</td><td>email_delivery, communications</td><td>medium</td><td>No</td><td>Dispatch a structured email with support for CC and BCC recipients.</td></tr>
@@ -245,6 +248,7 @@
       <tr><td>kv_increment</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Atomically increment an integer counter within the namespaced state store, creating it when missing.</td></tr>
       <tr><td>kv_set</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Persist a JSON-serializable value within the namespaced state store with optional TTL enforcement.</td></tr>
       <tr><td>labor_market_feed</td><td>1.0.0</td><td>labor_market_research, trend_analysis</td><td>low</td><td>No</td><td>Generate a synthetic labour market snapshot for the requested regions and skills.</td></tr>
+      <tr><td>content_repository</td><td>1.0.0</td><td>content_management, knowledge_base</td><td>medium</td><td>No</td><td>Store or refresh reusable content blocks including metadata, tags, and attachments.</td></tr>
       <tr><td>notebook</td><td>1.0.0</td><td>note_taking, knowledge_management</td><td>low</td><td>No</td><td>Capture a structured research note inside a collaborative notebook.</td></tr>
       <tr><td>notification_service</td><td>1.0.0</td><td>notification_delivery, engagement</td><td>medium</td><td>No</td><td>Send a notification message to the requested channel and recipients.</td></tr>
       <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>

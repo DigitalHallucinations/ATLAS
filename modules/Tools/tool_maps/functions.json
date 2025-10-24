@@ -1819,6 +1819,70 @@
         }
     },
     {
+        "name": "analytics_dashboard",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "medium",
+        "capabilities": [
+            "analytics_reporting",
+            "segment_tracking"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "dashboard_id": {
+                    "type": "string",
+                    "description": "Identifier for the analytics dashboard being updated."
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "High level narrative summarising the changes contained in the snapshot."
+                },
+                "metrics": {
+                    "type": "object",
+                    "description": "Numeric metrics to include in the refreshed dashboard snapshot."
+                },
+                "segments": {
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    },
+                    "description": "Optional cohort or segment breakdowns that accompany the metrics."
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional tags or labels used for filtering the analytics snapshot."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Optional structured metadata that provides additional context."
+                }
+            },
+            "required": [
+                "dashboard_id",
+                "summary",
+                "metrics"
+            ]
+        }
+    },
+    {
         "name": "atlas_dashboard",
         "version": "1.0.0",
         "side_effects": "write",
@@ -1872,6 +1936,70 @@
                 "initiative",
                 "health",
                 "summary"
+            ]
+        }
+    },
+    {
+        "name": "content_repository",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "medium",
+        "capabilities": [
+            "content_management",
+            "knowledge_base"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Store or refresh reusable content blocks including metadata, tags, and attachments.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "content_id": {
+                    "type": "string",
+                    "description": "Unique identifier for the content entry."
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Title used to describe the content block."
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Primary body content, typically plain text or Markdown."
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional tags applied for classification or search."
+                },
+                "attachments": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional attachment references associated with the content."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Optional structured metadata stored alongside the content."
+                }
+            },
+            "required": [
+                "content_id",
+                "title",
+                "body"
             ]
         }
     },

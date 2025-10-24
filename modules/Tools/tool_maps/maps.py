@@ -16,6 +16,7 @@ from modules.Tools.Base_Tools.browser import BrowserTool
 from modules.Tools.Base_Tools.notebook import NotebookTool
 from modules.Tools.Base_Tools.notification_service import send_notification
 from modules.Tools.Base_Tools.dashboard_service import DashboardService
+from modules.Tools.Base_Tools.analytics_dashboard import AnalyticsDashboardClient
 from modules.Tools.Base_Tools.spreadsheet import SpreadsheetTool
 from modules.Tools.Base_Tools.atlas_dashboard import AtlasDashboardClient
 from modules.Tools.Base_Tools.roadmap_service import RoadmapService
@@ -23,6 +24,7 @@ from modules.Tools.Base_Tools.ticketing_system import TicketingSystem
 from modules.Tools.Base_Tools.labor_market_feed import fetch_labor_market_signals
 from modules.Tools.Base_Tools.crm_service import CRMService
 from modules.Tools.Base_Tools.email_service import send_email
+from modules.Tools.Base_Tools.content_repository import ContentRepository
 from modules.Tools.Base_Tools.workspace_publisher import WorkspacePublisher
 from modules.Tools.Base_Tools.calendar_service import CalendarService
 from modules.Tools.Base_Tools.debian12_calendar import (
@@ -54,6 +56,7 @@ structured_parser = StructuredParser()
 browser_tool = BrowserTool()
 notebook_tool = NotebookTool()
 dashboard_service_tool = DashboardService()
+analytics_dashboard_tool = AnalyticsDashboardClient()
 spreadsheet_tool = SpreadsheetTool()
 atlas_dashboard_tool = AtlasDashboardClient()
 roadmap_service_tool = RoadmapService()
@@ -61,6 +64,7 @@ ticketing_system_tool = TicketingSystem()
 crm_service_tool = CRMService()
 workspace_publisher_tool = WorkspacePublisher()
 calendar_service_tool = CalendarService()
+content_repository_tool = ContentRepository()
 
 _config_manager = ConfigManager()
 javascript_executor = JavaScriptExecutor.from_config(
@@ -128,6 +132,7 @@ function_map = {
     "notebook": notebook_tool.run,
     "notification_service": send_notification,
     "dashboard_service": dashboard_service_tool.run,
+    "analytics_dashboard": analytics_dashboard_tool.run,
     "spreadsheet": spreadsheet_tool.run,
     "atlas_dashboard": atlas_dashboard_tool.run,
     "roadmap_service": roadmap_service_tool.run,
@@ -137,6 +142,7 @@ function_map = {
     "email_service": send_email,
     "workspace_publisher": workspace_publisher_tool.run,
     "calendar_service": calendar_service_tool.run,
+    "content_repository": content_repository_tool.run,
     "upsert_vectors": vector_upsert,
     "query_vectors": vector_query,
     "delete_namespace": vector_delete,
