@@ -328,11 +328,29 @@ class ChatSession:
         notifier = getattr(self.ATLAS, "notify_conversation_updated", None)
         if self._conversation_repository is not None:
             try:
-                self._conversation_repository.hard_delete_conversation(
-                    old_conversation_id, tenant_id=self._tenant_id
+                archived = False
+                archive_metadata = {
+                    "archived": True,
+                    "archived_reason": "reset",
+                }
+                archive_fn = getattr(
+                    self._conversation_repository, "archive_conversation", None
                 )
-                if callable(notifier):
-                    notifier(old_conversation_id, reason="deleted")
+                if callable(archive_fn):
+                    archived = archive_fn(
+                        old_conversation_id,
+                        tenant_id=self._tenant_id,
+                        metadata=archive_metadata,
+                    )
+                else:
+                    self._conversation_repository.ensure_conversation(
+                        old_conversation_id,
+                        tenant_id=self._tenant_id,
+                        metadata=archive_metadata,
+                    )
+                    archived = True
+                if callable(notifier) and archived:
+                    notifier(old_conversation_id, reason="archived")
                 self._conversation_repository.ensure_conversation(
                     self._conversation_id, tenant_id=self._tenant_id
                 )
