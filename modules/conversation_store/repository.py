@@ -1215,6 +1215,43 @@ class ConversationStoreRepository:
                 return
             session.delete(conversation)
 
+    def archive_conversation(
+        self,
+        conversation_id: Any,
+        *,
+        tenant_id: Any,
+        metadata: Optional[Mapping[str, Any]] = None,
+        archived_at: Optional[datetime] = None,
+    ) -> bool:
+        """Mark a conversation as archived without deleting it."""
+
+        conversation_uuid = _coerce_uuid(conversation_id)
+        tenant_key = _normalize_tenant_id(tenant_id)
+        metadata_payload = dict(metadata or {})
+        archived_moment = (
+            _coerce_dt(archived_at)
+            if archived_at is not None
+            else datetime.now(timezone.utc)
+        )
+
+        with self._session_scope() as session:
+            conversation = session.get(Conversation, conversation_uuid)
+            if conversation is None:
+                return False
+            if conversation.tenant_id and conversation.tenant_id != tenant_key:
+                raise ValueError("Conversation belongs to a different tenant")
+            if conversation.tenant_id != tenant_key:
+                conversation.tenant_id = tenant_key
+
+            conversation.archived_at = archived_moment
+            if metadata_payload:
+                merged = dict(conversation.meta or {})
+                merged.update(metadata_payload)
+                conversation.meta = merged
+
+            session.flush()
+            return True
+
     def reset_conversation(self, conversation_id: Any, *, tenant_id: Any) -> None:
         """Remove all messages but leave the conversation row intact."""
 
