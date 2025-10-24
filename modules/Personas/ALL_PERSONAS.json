@@ -1932,6 +1932,7 @@ json
         "policy_reference",
         "google_search",
         "get_current_info",
+        "fetch_pubmed_details",
         "context_tracker",
         "priority_queue",
         "regulatory_gap_audit",
