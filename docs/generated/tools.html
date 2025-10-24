@@ -13,11 +13,23 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>atlas_dashboard</td><td>1.0.0</td><td>atlas_operations, status_reporting</td><td>—</td><td>No</td><td>Capture persona-specific initiative health updates for the ATLAS dashboard.</td></tr>
+      <tr><td>browser</td><td>1.0.0</td><td>web_navigation, research</td><td>—</td><td>No</td><td>Record a virtual browsing session including annotations and metadata for downstream summarisation.</td></tr>
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
+      <tr><td>crm_service</td><td>1.0.0</td><td>crm_logging, engagement_tracking</td><td>—</td><td>No</td><td>Log a structured customer interaction with optional tags and metadata.</td></tr>
+      <tr><td>dashboard_service</td><td>1.0.0</td><td>metrics_reporting, analysis</td><td>—</td><td>No</td><td>Store a dashboard snapshot with numeric metrics and supporting commentary.</td></tr>
+      <tr><td>email_service</td><td>1.0.0</td><td>email_delivery, communications</td><td>—</td><td>No</td><td>Dispatch a structured email with support for CC and BCC recipients.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>labor_market_feed</td><td>1.0.0</td><td>labor_market_research, trend_analysis</td><td>—</td><td>No</td><td>Generate a synthetic labour market snapshot for the requested regions and skills.</td></tr>
+      <tr><td>notebook</td><td>1.0.0</td><td>note_taking, knowledge_management</td><td>—</td><td>No</td><td>Capture a structured research note inside a collaborative notebook.</td></tr>
+      <tr><td>notification_service</td><td>1.0.0</td><td>notification_delivery, engagement</td><td>—</td><td>No</td><td>Send a notification message to the requested channel and recipients.</td></tr>
       <tr><td>priority_queue</td><td>1.0.0</td><td>task_management, status_reporting</td><td>—</td><td>No</td><td>Score and sort operational tasks to produce a prioritized execution list.</td></tr>
+      <tr><td>roadmap_service</td><td>1.0.0</td><td>program_management, planning</td><td>—</td><td>No</td><td>Update a roadmap initiative with owner, status, and upcoming milestones.</td></tr>
+      <tr><td>spreadsheet</td><td>1.0.0</td><td>data_management, tabular_editing</td><td>—</td><td>No</td><td>Append or replace rows within a lightweight spreadsheet.</td></tr>
       <tr><td>task_catalog_snapshot</td><td>1.0.0</td><td>task_catalog, status_reporting</td><td>—</td><td>No</td><td>Retrieve a filtered snapshot of the runtime task manifest catalog.</td></tr>
+      <tr><td>ticketing_system</td><td>1.0.0</td><td>issue_tracking, escalations</td><td>—</td><td>No</td><td>Create a ticket for follow-up work with assignee and tag support.</td></tr>
+      <tr><td>workspace_publisher</td><td>1.0.0</td><td>workspace_publishing, brief_distribution</td><td>—</td><td>No</td><td>Publish a structured brief payload into a collaborative workspace channel.</td></tr>
     </tbody>
   </table>
   <h2>Persona: Cleverbot</h2>
@@ -49,10 +61,21 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>atlas_dashboard</td><td>1.0.0</td><td>atlas_operations, status_reporting</td><td>—</td><td>No</td><td>Capture persona-specific initiative health updates for the ATLAS dashboard.</td></tr>
+      <tr><td>browser</td><td>1.0.0</td><td>web_navigation, research</td><td>—</td><td>No</td><td>Record a virtual browsing session including annotations and metadata for downstream summarisation.</td></tr>
+      <tr><td>crm_service</td><td>1.0.0</td><td>crm_logging, engagement_tracking</td><td>—</td><td>No</td><td>Log a structured customer interaction with optional tags and metadata.</td></tr>
+      <tr><td>dashboard_service</td><td>1.0.0</td><td>metrics_reporting, analysis</td><td>—</td><td>No</td><td>Store a dashboard snapshot with numeric metrics and supporting commentary.</td></tr>
+      <tr><td>email_service</td><td>1.0.0</td><td>email_delivery, communications</td><td>—</td><td>No</td><td>Dispatch a structured email with support for CC and BCC recipients.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>labor_market_feed</td><td>1.0.0</td><td>labor_market_research, trend_analysis</td><td>—</td><td>No</td><td>Generate a synthetic labour market snapshot for the requested regions and skills.</td></tr>
+      <tr><td>notebook</td><td>1.0.0</td><td>note_taking, knowledge_management</td><td>—</td><td>No</td><td>Capture a structured research note inside a collaborative notebook.</td></tr>
+      <tr><td>notification_service</td><td>1.0.0</td><td>notification_delivery, engagement</td><td>—</td><td>No</td><td>Send a notification message to the requested channel and recipients.</td></tr>
       <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
       <tr><td>regulatory_gap_audit</td><td>1.0.0</td><td>compliance, risk_assessment</td><td>—</td><td>No</td><td>Compare provided controls against compliance checklists and flag gaps.</td></tr>
+      <tr><td>roadmap_service</td><td>1.0.0</td><td>program_management, planning</td><td>—</td><td>No</td><td>Update a roadmap initiative with owner, status, and upcoming milestones.</td></tr>
+      <tr><td>spreadsheet</td><td>1.0.0</td><td>data_management, tabular_editing</td><td>—</td><td>No</td><td>Append or replace rows within a lightweight spreadsheet.</td></tr>
+      <tr><td>ticketing_system</td><td>1.0.0</td><td>issue_tracking, escalations</td><td>—</td><td>No</td><td>Create a ticket for follow-up work with assignee and tag support.</td></tr>
     </tbody>
   </table>
   <h2>Persona: DocGenius</h2>
@@ -107,10 +130,21 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>atlas_dashboard</td><td>1.0.0</td><td>atlas_operations, status_reporting</td><td>—</td><td>No</td><td>Capture persona-specific initiative health updates for the ATLAS dashboard.</td></tr>
+      <tr><td>browser</td><td>1.0.0</td><td>web_navigation, research</td><td>—</td><td>No</td><td>Record a virtual browsing session including annotations and metadata for downstream summarisation.</td></tr>
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
+      <tr><td>crm_service</td><td>1.0.0</td><td>crm_logging, engagement_tracking</td><td>—</td><td>No</td><td>Log a structured customer interaction with optional tags and metadata.</td></tr>
+      <tr><td>dashboard_service</td><td>1.0.0</td><td>metrics_reporting, analysis</td><td>—</td><td>No</td><td>Store a dashboard snapshot with numeric metrics and supporting commentary.</td></tr>
+      <tr><td>email_service</td><td>1.0.0</td><td>email_delivery, communications</td><td>—</td><td>No</td><td>Dispatch a structured email with support for CC and BCC recipients.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
       <tr><td>knowledge_card_builder</td><td>1.0.0</td><td>knowledge_management, summarization</td><td>—</td><td>No</td><td>Build standardized knowledge cards from curated sources.</td></tr>
+      <tr><td>labor_market_feed</td><td>1.0.0</td><td>labor_market_research, trend_analysis</td><td>—</td><td>No</td><td>Generate a synthetic labour market snapshot for the requested regions and skills.</td></tr>
+      <tr><td>notebook</td><td>1.0.0</td><td>note_taking, knowledge_management</td><td>—</td><td>No</td><td>Capture a structured research note inside a collaborative notebook.</td></tr>
+      <tr><td>notification_service</td><td>1.0.0</td><td>notification_delivery, engagement</td><td>—</td><td>No</td><td>Send a notification message to the requested channel and recipients.</td></tr>
+      <tr><td>roadmap_service</td><td>1.0.0</td><td>program_management, planning</td><td>—</td><td>No</td><td>Update a roadmap initiative with owner, status, and upcoming milestones.</td></tr>
+      <tr><td>spreadsheet</td><td>1.0.0</td><td>data_management, tabular_editing</td><td>—</td><td>No</td><td>Append or replace rows within a lightweight spreadsheet.</td></tr>
+      <tr><td>ticketing_system</td><td>1.0.0</td><td>issue_tracking, escalations</td><td>—</td><td>No</td><td>Create a ticket for follow-up work with assignee and tag support.</td></tr>
     </tbody>
   </table>
   <h2>Persona: LanguageTutor</h2>
@@ -165,9 +199,20 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>atlas_dashboard</td><td>1.0.0</td><td>atlas_operations, status_reporting</td><td>—</td><td>No</td><td>Capture persona-specific initiative health updates for the ATLAS dashboard.</td></tr>
       <tr><td>ats_scoring_service</td><td>1.0.0</td><td>resume_analysis, ats_compliance</td><td>—</td><td>Yes (docs: Configure ATS_SCORING_SERVICE_API_KEY or ats_scoring_service.api_key for authenticated requests., env: ATS_SCORING_SERVICE_API_KEY, type: api_key)</td><td>Submit resume and job description text to the ATS scoring service and return compatibility insights and optimization suggestions.</td></tr>
+      <tr><td>browser</td><td>1.0.0</td><td>web_navigation, research</td><td>—</td><td>No</td><td>Record a virtual browsing session including annotations and metadata for downstream summarisation.</td></tr>
+      <tr><td>crm_service</td><td>1.0.0</td><td>crm_logging, engagement_tracking</td><td>—</td><td>No</td><td>Log a structured customer interaction with optional tags and metadata.</td></tr>
+      <tr><td>dashboard_service</td><td>1.0.0</td><td>metrics_reporting, analysis</td><td>—</td><td>No</td><td>Store a dashboard snapshot with numeric metrics and supporting commentary.</td></tr>
+      <tr><td>email_service</td><td>1.0.0</td><td>email_delivery, communications</td><td>—</td><td>No</td><td>Dispatch a structured email with support for CC and BCC recipients.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>labor_market_feed</td><td>1.0.0</td><td>labor_market_research, trend_analysis</td><td>—</td><td>No</td><td>Generate a synthetic labour market snapshot for the requested regions and skills.</td></tr>
+      <tr><td>notebook</td><td>1.0.0</td><td>note_taking, knowledge_management</td><td>—</td><td>No</td><td>Capture a structured research note inside a collaborative notebook.</td></tr>
+      <tr><td>notification_service</td><td>1.0.0</td><td>notification_delivery, engagement</td><td>—</td><td>No</td><td>Send a notification message to the requested channel and recipients.</td></tr>
+      <tr><td>roadmap_service</td><td>1.0.0</td><td>program_management, planning</td><td>—</td><td>No</td><td>Update a roadmap initiative with owner, status, and upcoming milestones.</td></tr>
+      <tr><td>spreadsheet</td><td>1.0.0</td><td>data_management, tabular_editing</td><td>—</td><td>No</td><td>Append or replace rows within a lightweight spreadsheet.</td></tr>
+      <tr><td>ticketing_system</td><td>1.0.0</td><td>issue_tracking, escalations</td><td>—</td><td>No</td><td>Create a ticket for follow-up work with assignee and tag support.</td></tr>
     </tbody>
   </table>
   <h2>Persona: Shared</h2>
@@ -176,11 +221,16 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>atlas_dashboard</td><td>1.0.0</td><td>atlas_operations, status_reporting</td><td>medium</td><td>No</td><td>Capture an initiative update for the ATLAS persona dashboard, including health, metrics, and stakeholders.</td></tr>
+      <tr><td>browser</td><td>1.0.0</td><td>web_navigation, research</td><td>medium</td><td>No</td><td>Record a virtual browsing session including annotations and metadata for downstream summarisation.</td></tr>
       <tr><td>browser_lite</td><td>1.0.0</td><td>browser_automation</td><td>high</td><td>No</td><td>Navigate a limited number of allowlisted pages with robots.txt enforcement, throttling, and optional screenshots.</td></tr>
       <tr><td>calculator</td><td>1.0.0</td><td>calculator</td><td>low</td><td>No</td><td>Evaluate sanitized mathematical expressions with Decimal precision and optional unit conversions.</td></tr>
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
+      <tr><td>crm_service</td><td>1.0.0</td><td>crm_logging, engagement_tracking</td><td>medium</td><td>No</td><td>Log a structured customer interaction with optional tags and metadata.</td></tr>
+      <tr><td>dashboard_service</td><td>1.0.0</td><td>metrics_reporting, analysis</td><td>medium</td><td>No</td><td>Store a dashboard snapshot with numeric metrics and supporting commentary.</td></tr>
       <tr><td>debian12_calendar</td><td>1.1.0</td><td>calendar_read, calendar_write</td><td>—</td><td>No</td><td>Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events.</td></tr>
       <tr><td>delete_namespace</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Remove all stored embeddings associated with the specified namespace.</td></tr>
+      <tr><td>email_service</td><td>1.0.0</td><td>email_delivery, communications</td><td>medium</td><td>No</td><td>Dispatch a structured email with support for CC and BCC recipients.</td></tr>
       <tr><td>execute_javascript</td><td>1.0.0</td><td>javascript_exec, code_execution</td><td>high</td><td>No</td><td>Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files.</td></tr>
       <tr><td>execute_python</td><td>1.0.0</td><td>code_execution, analysis</td><td>high</td><td>No</td><td>Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement.</td></tr>
       <tr><td>filesystem_list</td><td>1.0.0</td><td>—</td><td>low</td><td>No</td><td>List directory contents within the sandbox, returning metadata for each entry.</td></tr>
@@ -193,17 +243,24 @@
       <tr><td>kv_get</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Retrieve a JSON-serializable value from the namespaced state store, honoring key TTL.</td></tr>
       <tr><td>kv_increment</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Atomically increment an integer counter within the namespaced state store, creating it when missing.</td></tr>
       <tr><td>kv_set</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Persist a JSON-serializable value within the namespaced state store with optional TTL enforcement.</td></tr>
+      <tr><td>labor_market_feed</td><td>1.0.0</td><td>labor_market_research, trend_analysis</td><td>low</td><td>No</td><td>Generate a synthetic labour market snapshot for the requested regions and skills.</td></tr>
+      <tr><td>notebook</td><td>1.0.0</td><td>note_taking, knowledge_management</td><td>low</td><td>No</td><td>Capture a structured research note inside a collaborative notebook.</td></tr>
+      <tr><td>notification_service</td><td>1.0.0</td><td>notification_delivery, engagement</td><td>medium</td><td>No</td><td>Send a notification message to the requested channel and recipients.</td></tr>
       <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
       <tr><td>priority_queue</td><td>1.0.0</td><td>task_management, status_reporting</td><td>—</td><td>No</td><td>Score and sort operational tasks to produce a prioritized execution list.</td></tr>
       <tr><td>query_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Return the most similar vectors for the supplied query embedding from the configured namespace.</td></tr>
+      <tr><td>roadmap_service</td><td>1.0.0</td><td>program_management, planning</td><td>medium</td><td>No</td><td>Update a roadmap initiative with owner, status, and upcoming milestones.</td></tr>
+      <tr><td>spreadsheet</td><td>1.0.0</td><td>data_management, tabular_editing</td><td>low</td><td>No</td><td>Append or replace rows within a lightweight spreadsheet.</td></tr>
       <tr><td>structured_parse</td><td>1.0.0</td><td>document_parsing, ocr</td><td>low</td><td>No</td><td>Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents.</td></tr>
       <tr><td>task_queue_cancel</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Cancel a queued or scheduled task.</td></tr>
       <tr><td>task_queue_enqueue</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Enqueue a one-off task into the durable task queue with optional execution delay.</td></tr>
       <tr><td>task_queue_schedule</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Register or replace a cron-style recurring task in the durable queue.</td></tr>
       <tr><td>task_queue_status</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Retrieve the current state and retry metadata for a queued task.</td></tr>
       <tr><td>terminal_command</td><td>1.0.0</td><td>terminal_execution, system_inspection</td><td>high</td><td>No</td><td>Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status.</td></tr>
+      <tr><td>ticketing_system</td><td>1.0.0</td><td>issue_tracking, escalations</td><td>medium</td><td>No</td><td>Create a ticket for follow-up work with assignee and tag support.</td></tr>
       <tr><td>upsert_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Insert or update vector embeddings within the configured namespace of the active vector store backend.</td></tr>
       <tr><td>webpage_fetch</td><td>1.0.0</td><td>web_content, web_research, document_ingestion</td><td>—</td><td>No</td><td>Download an allowlisted webpage, strip scripts and ads, and return clean text with the resolved title and URL.</td></tr>
+      <tr><td>workspace_publisher</td><td>1.0.0</td><td>workspace_publishing, brief_distribution</td><td>medium</td><td>No</td><td>Publish a structured brief payload into a collaborative workspace channel.</td></tr>
     </tbody>
   </table>
   <h2>Persona: WeatherGenius</h2>

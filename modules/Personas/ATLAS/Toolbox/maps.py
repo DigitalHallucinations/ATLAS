@@ -16,6 +16,7 @@ from modules.Tools.Base_Tools.ticketing_system import TicketingSystem
 from modules.Tools.Base_Tools.labor_market_feed import fetch_labor_market_signals
 from modules.Tools.Base_Tools.crm_service import CRMService
 from modules.Tools.Base_Tools.email_service import send_email
+from modules.Tools.Base_Tools.workspace_publisher import WorkspacePublisher
 
 from .catalog import task_catalog_snapshot
 
@@ -29,6 +30,7 @@ atlas_dashboard_tool = AtlasDashboardClient()
 roadmap_service_tool = RoadmapService()
 ticketing_system_tool = TicketingSystem()
 crm_service_tool = CRMService()
+workspace_publisher_tool = WorkspacePublisher()
 
 
 # A dictionary to map function names to actual function objects
@@ -50,4 +52,5 @@ function_map = {
     "labor_market_feed": fetch_labor_market_signals,
     "crm_service": crm_service_tool.run,
     "email_service": send_email,
+    "workspace_publisher": workspace_publisher_tool.run,
 }

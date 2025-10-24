@@ -4,11 +4,23 @@
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
+| atlas_dashboard | 1.0.0 | atlas_operations, status_reporting | — | No | Capture persona-specific initiative health updates for the ATLAS dashboard. |
+| browser | 1.0.0 | web_navigation, research | — | No | Record a virtual browsing session including annotations and metadata for downstream summarisation. |
 | context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
+| crm_service | 1.0.0 | crm_logging, engagement_tracking | — | No | Log a structured customer interaction with optional tags and metadata. |
+| dashboard_service | 1.0.0 | metrics_reporting, analysis | — | No | Store a dashboard snapshot with numeric metrics and supporting commentary. |
+| email_service | 1.0.0 | email_delivery, communications | — | No | Dispatch a structured email with support for CC and BCC recipients. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| labor_market_feed | 1.0.0 | labor_market_research, trend_analysis | — | No | Generate a synthetic labour market snapshot for the requested regions and skills. |
+| notebook | 1.0.0 | note_taking, knowledge_management | — | No | Capture a structured research note inside a collaborative notebook. |
+| notification_service | 1.0.0 | notification_delivery, engagement | — | No | Send a notification message to the requested channel and recipients. |
 | priority_queue | 1.0.0 | task_management, status_reporting | — | No | Score and sort operational tasks to produce a prioritized execution list. |
+| roadmap_service | 1.0.0 | program_management, planning | — | No | Update a roadmap initiative with owner, status, and upcoming milestones. |
+| spreadsheet | 1.0.0 | data_management, tabular_editing | — | No | Append or replace rows within a lightweight spreadsheet. |
 | task_catalog_snapshot | 1.0.0 | task_catalog, status_reporting | — | No | Retrieve a filtered snapshot of the runtime task manifest catalog. |
+| ticketing_system | 1.0.0 | issue_tracking, escalations | — | No | Create a ticket for follow-up work with assignee and tag support. |
+| workspace_publisher | 1.0.0 | workspace_publishing, brief_distribution | — | No | Publish a structured brief payload into a collaborative workspace channel. |
 
 ## Persona: Cleverbot
 
@@ -31,10 +43,21 @@
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
+| atlas_dashboard | 1.0.0 | atlas_operations, status_reporting | — | No | Capture persona-specific initiative health updates for the ATLAS dashboard. |
+| browser | 1.0.0 | web_navigation, research | — | No | Record a virtual browsing session including annotations and metadata for downstream summarisation. |
+| crm_service | 1.0.0 | crm_logging, engagement_tracking | — | No | Log a structured customer interaction with optional tags and metadata. |
+| dashboard_service | 1.0.0 | metrics_reporting, analysis | — | No | Store a dashboard snapshot with numeric metrics and supporting commentary. |
+| email_service | 1.0.0 | email_delivery, communications | — | No | Dispatch a structured email with support for CC and BCC recipients. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| labor_market_feed | 1.0.0 | labor_market_research, trend_analysis | — | No | Generate a synthetic labour market snapshot for the requested regions and skills. |
+| notebook | 1.0.0 | note_taking, knowledge_management | — | No | Capture a structured research note inside a collaborative notebook. |
+| notification_service | 1.0.0 | notification_delivery, engagement | — | No | Send a notification message to the requested channel and recipients. |
 | policy_reference | 1.0.0 | policy_lookup, risk_assessment_support | — | No | Retrieve internal safety and governance policy guidance relevant to a proposed action. |
 | regulatory_gap_audit | 1.0.0 | compliance, risk_assessment | — | No | Compare provided controls against compliance checklists and flag gaps. |
+| roadmap_service | 1.0.0 | program_management, planning | — | No | Update a roadmap initiative with owner, status, and upcoming milestones. |
+| spreadsheet | 1.0.0 | data_management, tabular_editing | — | No | Append or replace rows within a lightweight spreadsheet. |
+| ticketing_system | 1.0.0 | issue_tracking, escalations | — | No | Create a ticket for follow-up work with assignee and tag support. |
 
 ## Persona: DocGenius
 
@@ -74,10 +97,21 @@
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
+| atlas_dashboard | 1.0.0 | atlas_operations, status_reporting | — | No | Capture persona-specific initiative health updates for the ATLAS dashboard. |
+| browser | 1.0.0 | web_navigation, research | — | No | Record a virtual browsing session including annotations and metadata for downstream summarisation. |
 | context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
+| crm_service | 1.0.0 | crm_logging, engagement_tracking | — | No | Log a structured customer interaction with optional tags and metadata. |
+| dashboard_service | 1.0.0 | metrics_reporting, analysis | — | No | Store a dashboard snapshot with numeric metrics and supporting commentary. |
+| email_service | 1.0.0 | email_delivery, communications | — | No | Dispatch a structured email with support for CC and BCC recipients. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 | knowledge_card_builder | 1.0.0 | knowledge_management, summarization | — | No | Build standardized knowledge cards from curated sources. |
+| labor_market_feed | 1.0.0 | labor_market_research, trend_analysis | — | No | Generate a synthetic labour market snapshot for the requested regions and skills. |
+| notebook | 1.0.0 | note_taking, knowledge_management | — | No | Capture a structured research note inside a collaborative notebook. |
+| notification_service | 1.0.0 | notification_delivery, engagement | — | No | Send a notification message to the requested channel and recipients. |
+| roadmap_service | 1.0.0 | program_management, planning | — | No | Update a roadmap initiative with owner, status, and upcoming milestones. |
+| spreadsheet | 1.0.0 | data_management, tabular_editing | — | No | Append or replace rows within a lightweight spreadsheet. |
+| ticketing_system | 1.0.0 | issue_tracking, escalations | — | No | Create a ticket for follow-up work with assignee and tag support. |
 
 ## Persona: LanguageTutor
 
@@ -117,19 +151,35 @@
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
+| atlas_dashboard | 1.0.0 | atlas_operations, status_reporting | — | No | Capture persona-specific initiative health updates for the ATLAS dashboard. |
 | ats_scoring_service | 1.0.0 | resume_analysis, ats_compliance | — | Yes (docs: Configure ATS_SCORING_SERVICE_API_KEY or ats_scoring_service.api_key for authenticated requests., env: ATS_SCORING_SERVICE_API_KEY, type: api_key) | Submit resume and job description text to the ATS scoring service and return compatibility insights and optimization suggestions. |
+| browser | 1.0.0 | web_navigation, research | — | No | Record a virtual browsing session including annotations and metadata for downstream summarisation. |
+| crm_service | 1.0.0 | crm_logging, engagement_tracking | — | No | Log a structured customer interaction with optional tags and metadata. |
+| dashboard_service | 1.0.0 | metrics_reporting, analysis | — | No | Store a dashboard snapshot with numeric metrics and supporting commentary. |
+| email_service | 1.0.0 | email_delivery, communications | — | No | Dispatch a structured email with support for CC and BCC recipients. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| labor_market_feed | 1.0.0 | labor_market_research, trend_analysis | — | No | Generate a synthetic labour market snapshot for the requested regions and skills. |
+| notebook | 1.0.0 | note_taking, knowledge_management | — | No | Capture a structured research note inside a collaborative notebook. |
+| notification_service | 1.0.0 | notification_delivery, engagement | — | No | Send a notification message to the requested channel and recipients. |
+| roadmap_service | 1.0.0 | program_management, planning | — | No | Update a roadmap initiative with owner, status, and upcoming milestones. |
+| spreadsheet | 1.0.0 | data_management, tabular_editing | — | No | Append or replace rows within a lightweight spreadsheet. |
+| ticketing_system | 1.0.0 | issue_tracking, escalations | — | No | Create a ticket for follow-up work with assignee and tag support. |
 
 ## Persona: Shared
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
+| atlas_dashboard | 1.0.0 | atlas_operations, status_reporting | medium | No | Capture an initiative update for the ATLAS persona dashboard, including health, metrics, and stakeholders. |
+| browser | 1.0.0 | web_navigation, research | medium | No | Record a virtual browsing session including annotations and metadata for downstream summarisation. |
 | browser_lite | 1.0.0 | browser_automation | high | No | Navigate a limited number of allowlisted pages with robots.txt enforcement, throttling, and optional screenshots. |
 | calculator | 1.0.0 | calculator | low | No | Evaluate sanitized mathematical expressions with Decimal precision and optional unit conversions. |
 | context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
+| crm_service | 1.0.0 | crm_logging, engagement_tracking | medium | No | Log a structured customer interaction with optional tags and metadata. |
+| dashboard_service | 1.0.0 | metrics_reporting, analysis | medium | No | Store a dashboard snapshot with numeric metrics and supporting commentary. |
 | debian12_calendar | 1.1.0 | calendar_read, calendar_write | — | No | Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events. |
 | delete_namespace | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Remove all stored embeddings associated with the specified namespace. |
+| email_service | 1.0.0 | email_delivery, communications | medium | No | Dispatch a structured email with support for CC and BCC recipients. |
 | execute_javascript | 1.0.0 | javascript_exec, code_execution | high | No | Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files. |
 | execute_python | 1.0.0 | code_execution, analysis | high | No | Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement. |
 | filesystem_list | 1.0.0 | — | low | No | List directory contents within the sandbox, returning metadata for each entry. |
@@ -142,17 +192,24 @@
 | kv_get | 1.0.0 | state_store | — | No | Retrieve a JSON-serializable value from the namespaced state store, honoring key TTL. |
 | kv_increment | 1.0.0 | state_store | — | No | Atomically increment an integer counter within the namespaced state store, creating it when missing. |
 | kv_set | 1.0.0 | state_store | — | No | Persist a JSON-serializable value within the namespaced state store with optional TTL enforcement. |
+| labor_market_feed | 1.0.0 | labor_market_research, trend_analysis | low | No | Generate a synthetic labour market snapshot for the requested regions and skills. |
+| notebook | 1.0.0 | note_taking, knowledge_management | low | No | Capture a structured research note inside a collaborative notebook. |
+| notification_service | 1.0.0 | notification_delivery, engagement | medium | No | Send a notification message to the requested channel and recipients. |
 | policy_reference | 1.0.0 | policy_lookup, risk_assessment_support | — | No | Retrieve internal safety and governance policy guidance relevant to a proposed action. |
 | priority_queue | 1.0.0 | task_management, status_reporting | — | No | Score and sort operational tasks to produce a prioritized execution list. |
 | query_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Return the most similar vectors for the supplied query embedding from the configured namespace. |
+| roadmap_service | 1.0.0 | program_management, planning | medium | No | Update a roadmap initiative with owner, status, and upcoming milestones. |
+| spreadsheet | 1.0.0 | data_management, tabular_editing | low | No | Append or replace rows within a lightweight spreadsheet. |
 | structured_parse | 1.0.0 | document_parsing, ocr | low | No | Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents. |
 | task_queue_cancel | 1.0.0 | task_queue | — | No | Cancel a queued or scheduled task. |
 | task_queue_enqueue | 1.0.0 | task_queue | — | No | Enqueue a one-off task into the durable task queue with optional execution delay. |
 | task_queue_schedule | 1.0.0 | task_queue | — | No | Register or replace a cron-style recurring task in the durable queue. |
 | task_queue_status | 1.0.0 | task_queue | — | No | Retrieve the current state and retry metadata for a queued task. |
 | terminal_command | 1.0.0 | terminal_execution, system_inspection | high | No | Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status. |
+| ticketing_system | 1.0.0 | issue_tracking, escalations | medium | No | Create a ticket for follow-up work with assignee and tag support. |
 | upsert_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Insert or update vector embeddings within the configured namespace of the active vector store backend. |
 | webpage_fetch | 1.0.0 | web_content, web_research, document_ingestion | — | No | Download an allowlisted webpage, strip scripts and ads, and return clean text with the resolved title and URL. |
+| workspace_publisher | 1.0.0 | workspace_publishing, brief_distribution | medium | No | Publish a structured brief payload into a collaborative workspace channel. |
 
 ## Persona: WeatherGenius
 

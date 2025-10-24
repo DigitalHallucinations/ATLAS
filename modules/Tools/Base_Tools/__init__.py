@@ -89,6 +89,7 @@ from .task_queue import (
     cancel_task,
     get_task_status,
 )
+from .workspace_publisher import WorkspacePublication, WorkspacePublisher
 from .structured_parser import (
     StructuredParser,
     StructuredParserDependencyError,
@@ -183,4 +184,6 @@ __all__ = [
     "schedule_cron_task",
     "cancel_task",
     "get_task_status",
+    "WorkspacePublisher",
+    "WorkspacePublication",
 ]
