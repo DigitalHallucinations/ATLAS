@@ -8,10 +8,16 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Iterator, Mapping, Optional, Sequence
 
 try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
-    from sqlalchemy import select
+    from sqlalchemy import and_, or_, select
 except Exception:  # pragma: no cover - fallback when SQLAlchemy is absent
     def select(*_args, **_kwargs):  # type: ignore[override]
         raise RuntimeError("SQLAlchemy select is unavailable in this environment")
+
+    def and_(*_args, **_kwargs):  # type: ignore[override]
+        raise RuntimeError("SQLAlchemy and_ is unavailable in this environment")
+
+    def or_(*_args, **_kwargs):  # type: ignore[override]
+        raise RuntimeError("SQLAlchemy or_ is unavailable in this environment")
 
 
 try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
@@ -222,6 +228,8 @@ class TaskStoreRepository:
         status: Any | Sequence[Any] | None = None,
         owner_id: Any | None = None,
         conversation_id: Any | None = None,
+        limit: int | None = None,
+        cursor: tuple[datetime, uuid.UUID] | None = None,
     ) -> list[Dict[str, Any]]:
         tenant_key = _normalize_tenant_id(tenant_id)
         status_filters: Iterable[TaskStatus]
@@ -234,6 +242,15 @@ class TaskStoreRepository:
 
         owner_uuid = _coerce_uuid(owner_id)
         conversation_uuid = _coerce_uuid(conversation_id)
+        cursor_moment: Optional[datetime]
+        cursor_task_id: Optional[uuid.UUID]
+        if cursor is None:
+            cursor_moment = None
+            cursor_task_id = None
+        else:
+            cutoff_time, cutoff_id = cursor
+            cursor_moment = _coerce_dt(cutoff_time)
+            cursor_task_id = _coerce_uuid(cutoff_id)
 
         with self._session_scope() as session:
             stmt = (
@@ -241,7 +258,7 @@ class TaskStoreRepository:
                 .join(Conversation, Task.conversation_id == Conversation.id)
                 .options(joinedload(Task.conversation))
                 .where(Conversation.tenant_id == tenant_key)
-                .order_by(Task.created_at.desc())
+                .order_by(Task.created_at.desc(), Task.id.desc())
             )
 
             if status_filters:
@@ -250,6 +267,15 @@ class TaskStoreRepository:
                 stmt = stmt.where(Task.owner_id == owner_uuid)
             if conversation_uuid is not None:
                 stmt = stmt.where(Task.conversation_id == conversation_uuid)
+            if cursor_moment is not None and cursor_task_id is not None:
+                stmt = stmt.where(
+                    or_(
+                        Task.created_at < cursor_moment,
+                        and_(Task.created_at == cursor_moment, Task.id < cursor_task_id),
+                    )
+                )
+            if limit is not None:
+                stmt = stmt.limit(int(limit))
 
             tasks = session.execute(stmt).scalars().all()
             return [_serialize_task(task) for task in tasks]

@@ -128,12 +128,16 @@ class TaskService:
         status: Any | Sequence[Any] | None = None,
         owner_id: Any | None = None,
         conversation_id: Any | None = None,
+        limit: int | None = None,
+        cursor: tuple[datetime, uuid.UUID] | None = None,
     ) -> list[Dict[str, Any]]:
         return self._repository.list_tasks(
             tenant_id=tenant_id,
             status=status,
             owner_id=owner_id,
             conversation_id=conversation_id,
+            limit=limit,
+            cursor=cursor,
         )
 
     def get_task(
