@@ -362,32 +362,15 @@ class TaskRoutes:
                 status=params.get("status"),
                 owner_id=params.get("owner_id"),
                 conversation_id=params.get("conversation_id"),
+                limit=page_size + 1,
+                cursor=cursor_marker,
             )
         except (ValueError, TypeError) as exc:
             raise TaskValidationError(str(exc)) from exc
 
-        sorted_items = sorted(
-            tasks,
-            key=lambda item: (
-                _parse_datetime(item.get("created_at")),
-                uuid.UUID(str(item.get("id"))),
-            ),
-            reverse=True,
-        )
-
-        if cursor_marker is not None:
-            cutoff_time, cutoff_id = cursor_marker
-            filtered: list[Dict[str, Any]] = []
-            for item in sorted_items:
-                created_at = _parse_datetime(item.get("created_at"))
-                item_id = uuid.UUID(str(item.get("id")))
-                if created_at < cutoff_time or (created_at == cutoff_time and item_id < cutoff_id):
-                    filtered.append(item)
-            sorted_items = filtered
-
-        page_items = sorted_items[:page_size]
+        page_items = tasks[:page_size]
         next_cursor: Optional[str] = None
-        if len(sorted_items) > page_size:
+        if len(tasks) > page_size and page_items:
             last = page_items[-1]
             next_cursor = _encode_cursor(last["created_at"], last["id"])
 
