@@ -377,6 +377,27 @@
     ]
   },
   {
+    "name": "Automation",
+    "version": "1.0.0",
+    "instruction_prompt": "Design, configure, and monitor multi-step outreach automations that align triggers, audience segments, and follow-up actions across CRM and email channels.",
+    "required_tools": [
+      "crm_service",
+      "email_service"
+    ],
+    "required_capabilities": [
+      "campaign_automation",
+      "workflow_execution"
+    ],
+    "safety_notes": "Verify opt-out status, consent requirements, and escalation rules before activating automation flows, and pause sequences when anomalies arise.",
+    "summary": "Orchestrates CRM and email automations with clear triggers, safeguards, and measurement points.",
+    "category": "Lifecycle Automation",
+    "capability_tags": [
+      "automation",
+      "campaigns",
+      "workflow"
+    ]
+  },
+  {
     "name": "Copywriting",
     "version": "1.0.0",
     "instruction_prompt": "Draft persuasive copy that matches the target audience's tone while reinforcing key messages.",
