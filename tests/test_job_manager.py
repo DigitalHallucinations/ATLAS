@@ -2,7 +2,7 @@ import asyncio
 from collections import defaultdict
 from types import MappingProxyType, SimpleNamespace
 
-from modules.Jobs.manifest_loader import JobMetadata
+from modules.Jobs.manifest_loader import JobMetadata, load_job_metadata
 from modules.orchestration.blackboard import BlackboardStore, configure_blackboard
 from modules.orchestration.job_manager import (
     JOB_COMPLETED_TOPIC,
@@ -30,6 +30,24 @@ class StubTaskManager:
             status=status,
             results=outcome.get("results", {"artifact": task_id}),
             errors=outcome.get("errors", {}),
+        )
+
+
+class RecordingTaskManager:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.manifests: dict[str, dict[str, object]] = {}
+
+    async def run_task(self, manifest, *, blackboard_client=None):
+        name = str(manifest.get("name") or manifest.get("id"))
+        self.calls.append(name)
+        self.manifests[name] = dict(manifest)
+        task_id = manifest.get("id") or name
+        return SimpleNamespace(
+            task_id=task_id,
+            status="succeeded",
+            results={},
+            errors={},
         )
 
 
@@ -220,6 +238,78 @@ def test_job_manager_propagates_failures_and_cancellations():
                 created_sub.cancel()
                 updated_sub.cancel()
                 completed_sub.cancel()
+        finally:
+            await message_bus.close()
+
+    asyncio.run(_run())
+
+
+def test_job_manager_resolves_shared_manifests():
+    async def _run() -> None:
+        loop = asyncio.get_running_loop()
+        message_bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop)
+        try:
+            tasks = RecordingTaskManager()
+            jobs = [
+                entry
+                for entry in load_job_metadata()
+                if entry.name == "DailyBriefing" and entry.persona is None
+            ]
+            assert jobs, "expected bundled DailyBriefing manifest"
+
+            manager = JobManager(
+                tasks,
+                message_bus=message_bus,
+                job_loader=lambda: jobs,
+            )
+
+            result = await manager.run_job("DailyBriefing", run_id="daily-shared")
+
+            assert result.status == "succeeded"
+            assert tasks.calls == [
+                "GatherDailySignals",
+                "SynthesizeBrief",
+                "DistributeBrief",
+            ]
+            gather_manifest = tasks.manifests["GatherDailySignals"]
+            assert gather_manifest["summary"]
+            assert gather_manifest["acceptance_criteria"]
+        finally:
+            await message_bus.close()
+
+    asyncio.run(_run())
+
+
+def test_job_manager_resolves_persona_specific_manifests():
+    async def _run() -> None:
+        loop = asyncio.get_running_loop()
+        message_bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop)
+        try:
+            tasks = RecordingTaskManager()
+            jobs = [
+                entry
+                for entry in load_job_metadata()
+                if entry.name == "DailyBriefing" and entry.persona == "ATLAS"
+            ]
+            assert jobs, "expected ATLAS DailyBriefing manifest"
+
+            manager = JobManager(
+                tasks,
+                message_bus=message_bus,
+                job_loader=lambda: jobs,
+            )
+
+            result = await manager.run_job(
+                "DailyBriefing",
+                persona="ATLAS",
+                run_id="daily-atlas",
+            )
+
+            assert result.status == "succeeded"
+            assert "AtlasSignalRouting" in tasks.calls
+            routing_manifest = tasks.manifests["AtlasSignalRouting"]
+            assert "atlas" in routing_manifest.get("tags", [])
+            assert routing_manifest["escalation_policy"]["contact"].endswith("@atlas")
         finally:
             await message_bus.close()
 

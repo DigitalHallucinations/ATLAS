@@ -112,5 +112,116 @@
       "quality"
     ],
     "priority": "Medium"
+  },
+  {
+    "name": "SegmentPipeline",
+    "summary": "Identify nurture cohorts that need outreach this cycle.",
+    "description": "Analyze the resume improvement pipeline to group prospects by engagement stage, risk of churn, and urgency.",
+    "required_skills": [
+      "Engagement",
+      "DailyDigest"
+    ],
+    "required_tools": [
+      "crm_service",
+      "analytics_dashboard"
+    ],
+    "acceptance_criteria": [
+      "Generates prioritized cohorts based on stage, inactivity, and conversion likelihood.",
+      "Validates contact permissions and readiness for outreach before exporting segments.",
+      "Documents rationale for each segment along with recommended cadence adjustments."
+    ],
+    "escalation_policy": {
+      "level": "Pipeline Operations Lead",
+      "contact": "pipeline-ops@atlas",
+      "timeframe": "Within 1 business day",
+      "triggers": [
+        "Segmentation rules return empty cohorts",
+        "CRM synchronization failure"
+      ],
+      "actions": [
+        "Notify pipeline operations lead",
+        "Open CRM support ticket"
+      ]
+    },
+    "tags": [
+      "resumegenius",
+      "pipeline",
+      "segmentation"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "DraftTouchpoints",
+    "summary": "Compose outreach sequences for prioritized pipeline segments.",
+    "description": "Author tailored messaging for each cohort, ensuring tone, compliance, and personalization guidance align with brand voice.",
+    "required_skills": [
+      "Engagement",
+      "Copywriting"
+    ],
+    "required_tools": [
+      "crm_service",
+      "content_repository"
+    ],
+    "acceptance_criteria": [
+      "Produces copy variants for each segment that reference relevant pain points and value props.",
+      "Includes required compliance language, unsubscribe information, and channel-specific constraints.",
+      "Captures personalization tokens and follow-up prompts for campaign automation."
+    ],
+    "escalation_policy": {
+      "level": "Content Editor",
+      "contact": "rg-content@atlas",
+      "timeframe": "Within 4 hours",
+      "triggers": [
+        "Message conflicts with brand or legal guidelines",
+        "Compliance language missing"
+      ],
+      "actions": [
+        "Escalate to content editor",
+        "Request legal review"
+      ]
+    },
+    "tags": [
+      "resumegenius",
+      "engagement",
+      "copywriting"
+    ],
+    "priority": "High"
+  },
+  {
+    "name": "ScheduleCampaign",
+    "summary": "Schedule and activate the nurture campaign across cohorts.",
+    "description": "Load drafted touchpoints into the outreach platform, configure send windows, and confirm monitoring hooks.",
+    "required_skills": [
+      "Engagement",
+      "Automation"
+    ],
+    "required_tools": [
+      "email_service",
+      "crm_service"
+    ],
+    "acceptance_criteria": [
+      "Schedules the cadence for each cohort with appropriate send windows and throttling.",
+      "Configures tracking for replies, conversions, and escalations back into the CRM.",
+      "Confirms successful scheduling and documents contingency steps if delivery fails."
+    ],
+    "escalation_policy": {
+      "level": "Lifecycle Marketing",
+      "contact": "lifecycle@atlas",
+      "timeframe": "Within 1 hour of scheduling failure",
+      "triggers": [
+        "Email platform error",
+        "Segment sync failure"
+      ],
+      "actions": [
+        "Notify lifecycle lead",
+        "Trigger rollback plan"
+      ]
+    },
+    "tags": [
+      "resumegenius",
+      "campaign",
+      "automation"
+    ],
+    "priority": "Medium"
   }
 ]

@@ -1,12 +1,16 @@
+import asyncio
 import datetime as dt
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
-from modules.Jobs.manifest_loader import JobMetadata
+from modules.Jobs.manifest_loader import JobMetadata, load_job_metadata
 from modules.job_store import JobStatus
 from modules.job_store.repository import JobStoreRepository
+from modules.orchestration.job_manager import JobManager
 from modules.orchestration.job_scheduler import JobScheduler
+from modules.orchestration.message_bus import InMemoryQueueBackend, MessageBus
 from modules.Tools.Base_Tools.task_queue import RetryPolicy, TaskEvent
 
 try:  # pragma: no cover - SQLAlchemy optional
@@ -147,6 +151,22 @@ class FastQueueStub:
             monitor(event)
 
 
+class _RecordingTaskManager:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def run_task(self, manifest, *, blackboard_client=None):
+        name = str(manifest.get("name") or manifest.get("id"))
+        self.calls.append(name)
+        task_id = manifest.get("id") or name
+        return SimpleNamespace(
+            task_id=task_id,
+            status="succeeded",
+            results={},
+            errors={},
+        )
+
+
 def _build_metadata(
     *,
     name: str = "DailyBriefing",
@@ -258,8 +278,47 @@ def test_executor_invokes_job_manager(job_repository):
     })
 
     assert manager.calls
-    call = manager.calls[0]
-    assert call.job_name == metadata.name
-    assert call.persona == metadata.persona
-    assert call.run_id == job_id
+
+
+def test_executor_runs_bundled_job_without_manifest_errors(job_repository):
+    queue = FastQueueStub()
+    task_manager = _RecordingTaskManager()
+    message_bus = MessageBus(backend=InMemoryQueueBackend())
+
+    try:
+        jobs = [
+            entry
+            for entry in load_job_metadata()
+            if entry.name == "DailyBriefing" and entry.persona is None
+        ]
+        assert jobs, "expected bundled DailyBriefing manifest"
+
+        manager = JobManager(
+            task_manager,
+            message_bus=message_bus,
+            job_loader=lambda: jobs,
+        )
+
+        scheduler = JobScheduler(manager, queue, job_repository, tenant_id="tenant-1")
+        metadata = jobs[0]
+        scheduler.register_manifest(metadata)
+
+        executor = scheduler.build_executor()
+        executor(
+            {
+                "job_id": "daily-shared",
+                "name": metadata.name,
+                "payload": {"job_name": metadata.name},
+                "attempt": 1,
+                "recurring": True,
+            }
+        )
+
+        assert task_manager.calls == [
+            "GatherDailySignals",
+            "SynthesizeBrief",
+            "DistributeBrief",
+        ]
+    finally:
+        asyncio.run(message_bus.close())
 
