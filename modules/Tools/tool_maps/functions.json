@@ -3836,5 +3836,64 @@
                 "tenant_id"
             ]
         }
+    },
+    {
+        "name": "planner.decompose",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "workflow_control",
+            "planning"
+        ],
+        "description": "Produce a dependency graph snapshot for a skill's execution plan without running any tools.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "skill_metadata": {
+                    "type": "object",
+                    "description": "Skill manifest entry including required tools and declarative plan instructions."
+                },
+                "available_tools": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "description": "Mapping of tool names to metadata describing available implementations."
+                        },
+                        {
+                            "type": "array",
+                            "items": {
+                                "oneOf": [
+                                    {"type": "string"},
+                                    {"type": "object"}
+                                ]
+                            },
+                            "description": "Iterable of tool names or metadata dictionaries describing available tools."
+                        }
+                    ],
+                    "description": "Collection of tools accessible to the planner."
+                },
+                "provided_inputs": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object"
+                    },
+                    "description": "Optional mapping of tool identifiers to keyword arguments that should be merged into the generated plan."
+                },
+                "persona_overrides": {
+                    "type": "object",
+                    "description": "Optional persona-specific overrides applied to the supplied skill metadata before planning."
+                }
+            },
+            "required": [
+                "skill_metadata"
+            ]
+        }
     }
 ]
