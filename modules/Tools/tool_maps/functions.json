@@ -3049,5 +3049,59 @@
                 "severity"
             ]
         }
+    },
+    {
+        "name": "trace.explain",
+        "version": "1.0.0",
+        "side_effects": "read",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "capabilities": [
+            "observability",
+            "diagnostics"
+        ],
+        "description": "Merge the tool activity log and recorded negotiation traces with optional filters for conversation, trace ID, and time range.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Only include events associated with this conversation identifier when present."
+                },
+                "trace_id": {
+                    "type": "string",
+                    "description": "Restrict negotiation output to a specific trace identifier."
+                },
+                "start_at": {
+                    "type": [
+                        "string",
+                        "number"
+                    ],
+                    "description": "Inclusive lower bound for event timestamps (ISO-8601 string or epoch seconds)."
+                },
+                "end_at": {
+                    "type": [
+                        "string",
+                        "number"
+                    ],
+                    "description": "Inclusive upper bound for event timestamps (ISO-8601 string or epoch seconds)."
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0,
+                    "description": "Skip the first N merged events after filtering."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Maximum number of merged events to return. Omit to receive the full result set."
+                }
+            }
+        }
     }
 ]
