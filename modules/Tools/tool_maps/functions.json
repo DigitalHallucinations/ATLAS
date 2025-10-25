@@ -3106,6 +3106,209 @@
     }
     ,
     {
+        "name": "eval.judge",
+        "version": "1.0.0",
+        "side_effects": "analytics",
+        "default_timeout": 30,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "capabilities": [
+            "evaluation",
+            "analytics"
+        ],
+        "description": "Run evaluator backends across candidate completions, apply configurable thresholds, and publish scoring analytics.",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "candidates": {
+                    "type": "array",
+                    "minItems": 1,
+                    "description": "Candidate outputs to score. Entries may be strings or structured objects exposing an output payload and metadata.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "properties": {
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "output": {
+                                        "type": [
+                                            "string",
+                                            "number",
+                                            "boolean",
+                                            "object",
+                                            "array",
+                                            "null"
+                                        ]
+                                    },
+                                    "metadata": {
+                                        "type": "object"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "references": {
+                    "type": "array",
+                    "description": "Reference answers or grounding documents made available to evaluators.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
+                        ]
+                    }
+                },
+                "rubrics": {
+                    "type": "array",
+                    "description": "Optional rubrics or scoring criteria forwarded to evaluators.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
+                        ]
+                    }
+                },
+                "evaluators": {
+                    "type": "array",
+                    "minItems": 1,
+                    "description": "Evaluator selection in execution order. Entries can be evaluator names or objects containing name, options, and optional thresholds.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "object",
+                                "required": [
+                                    "name"
+                                ],
+                                "additionalProperties": false,
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "options": {
+                                        "type": "object"
+                                    },
+                                    "threshold": {
+                                        "type": [
+                                            "number",
+                                            "null"
+                                        ]
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "thresholds": {
+                    "description": "Global and per-evaluator threshold configuration. Provide a single number for a global cutoff or an object with defaults and per evaluator overrides.",
+                    "oneOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": [
+                                    "number",
+                                    "null"
+                                ]
+                            },
+                            "properties": {
+                                "default": {
+                                    "type": [
+                                        "number",
+                                        "null"
+                                    ]
+                                },
+                                "global": {
+                                    "type": [
+                                        "number",
+                                        "null"
+                                    ]
+                                },
+                                "per_evaluator": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": [
+                                            "number",
+                                            "null"
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Arbitrary metadata forwarded to evaluators and included in the emitted analytics payload."
+                },
+                "analytics": {
+                    "description": "Optional analytics hooks provided by the runtime to receive the aggregated evaluation payload."
+                },
+                "context": {
+                    "type": "object",
+                    "description": "Runtime context used to supply evaluator overrides or shared dependencies."
+                },
+                "event_name": {
+                    "type": "string",
+                    "description": "Override the analytics event topic. Defaults to atlas.evaluation.judged."
+                }
+            },
+            "required": [
+                "candidates",
+                "evaluators"
+            ]
+        },
+        "returns": {
+            "type": "object",
+            "description": "Aggregated evaluator results with applied thresholds, pass/fail summary, and the message bus correlation identifier.",
+            "properties": {
+                "event": {
+                    "type": "string"
+                },
+                "correlation_id": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array"
+                },
+                "summary": {
+                    "type": "object"
+                },
+                "metadata": {
+                    "type": "object"
+                },
+                "passed": {
+                    "type": "boolean"
+                }
+            }
+        }
+    }
+    ,
+    {
         "name": "memory_episodic_store",
         "version": "1.0.0",
         "side_effects": "write",
