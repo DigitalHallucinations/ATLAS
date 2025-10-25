@@ -2749,5 +2749,80 @@
                 "description"
             ]
         }
+    },
+    {
+        "name": "vault.secrets",
+        "version": "1.0.0",
+        "side_effects": "filesystem",
+        "default_timeout": 10,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-tool",
+            "guidance": "Combine the target tool name and persona (if any) to keep credential operations idempotent."
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "credential_management",
+            "configuration_access"
+        ],
+        "description": "Inspect or update stored credentials for configured tools with masked previews of secret values.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": [
+                        "get_snapshot",
+                        "store_credentials",
+                        "clear_credentials"
+                    ],
+                    "description": "Action to perform on the credential vault."
+                },
+                "tool_name": {
+                    "type": "string",
+                    "description": "Target tool name when storing or clearing credentials."
+                },
+                "tool_names": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional list of tool names to include when requesting a snapshot."
+                },
+                "credentials": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "description": "Credential payload to persist. Values are sanitized and never echoed in responses."
+                },
+                "manifest_auth": {
+                    "type": "object",
+                    "description": "Optional manifest auth block describing expected credential keys."
+                },
+                "env_keys": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Explicit environment keys to clear when removing credentials."
+                },
+                "persona": {
+                    "type": "string",
+                    "description": "Optional persona scope to include in audit logs."
+                }
+            },
+            "required": [
+                "operation"
+            ]
+        }
     }
 ]
