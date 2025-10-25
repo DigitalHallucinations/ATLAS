@@ -3309,6 +3309,178 @@
     }
     ,
     {
+        "name": "eval.regression",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 30,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "capabilities": [
+            "evaluation",
+            "analytics"
+        ],
+        "description": "Compare baseline and candidate artifacts, compute diffs and regression metrics, and publish structured analytics.",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "baseline": {
+                    "description": "Baseline artifact for comparison. Accepts a string identifier or inline artifact mapping.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                },
+                                "artifact_id": {
+                                    "type": "string"
+                                },
+                                "content": {
+                                    "type": "string"
+                                },
+                                "text": {
+                                    "type": "string"
+                                },
+                                "label": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "candidate": {
+                    "description": "Candidate artifact under evaluation. Accepts a string identifier or inline artifact mapping.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                },
+                                "artifact_id": {
+                                    "type": "string"
+                                },
+                                "content": {
+                                    "type": "string"
+                                },
+                                "text": {
+                                    "type": "string"
+                                },
+                                "label": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "artifact_store": {
+                    "type": "object",
+                    "description": "Lookup table for artifact identifiers when baseline or candidate are provided as strings.",
+                    "additionalProperties": true
+                },
+                "diff": {
+                    "description": "Diff configuration controlling output format and context lines.",
+                    "anyOf": [
+                        {
+                            "type": "integer",
+                            "minimum": 0
+                        },
+                        {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "context": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                },
+                                "format": {
+                                    "type": "string",
+                                    "enum": [
+                                        "unified"
+                                    ]
+                                }
+                            }
+                        }
+                    ]
+                },
+                "metrics": {
+                    "type": "object",
+                    "description": "Metrics configuration controlling included metrics and threshold checks.",
+                    "additionalProperties": true
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Optional metadata forwarded to the emitted analytics payload.",
+                    "additionalProperties": true
+                },
+                "event_name": {
+                    "type": "string",
+                    "description": "Override the analytics event topic emitted by the tool."
+                }
+            },
+            "required": [
+                "baseline",
+                "candidate"
+            ]
+        },
+        "returns": {
+            "type": "object",
+            "description": "Structured diff output, computed metrics, and regression summary with the event correlation identifier.",
+            "properties": {
+                "event": {
+                    "type": "string"
+                },
+                "correlation_id": {
+                    "type": "string"
+                },
+                "baseline": {
+                    "type": "object"
+                },
+                "candidate": {
+                    "type": "object"
+                },
+                "metrics": {
+                    "type": "object"
+                },
+                "diff": {
+                    "type": "object"
+                },
+                "summary": {
+                    "type": "object"
+                },
+                "metadata": {
+                    "type": "object"
+                }
+            },
+            "required": [
+                "event",
+                "correlation_id",
+                "metrics",
+                "diff",
+                "summary"
+            ]
+        }
+    }
+    ,
+    {
         "name": "memory_episodic_store",
         "version": "1.0.0",
         "side_effects": "write",
