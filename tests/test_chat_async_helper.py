@@ -5,6 +5,7 @@ from concurrent.futures import Future
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
+from typing import Callable
 
 if "ATLAS.config" not in sys.modules:
     config_stub = types.ModuleType("ATLAS.config")
@@ -283,6 +284,8 @@ class _ComboBoxText(_DummyWidget):
         super().__init__()
         self._items: list[str] = []
         self._active = -1
+        self._handlers: dict[int, tuple[str, Callable[["_ComboBoxText"], None]]] = {}
+        self._next_handler_id = 1
 
     def append_text(self, text: str):
         self._items.append(text)
@@ -292,13 +295,29 @@ class _ComboBoxText(_DummyWidget):
         self._active = -1
 
     def set_active(self, index: int):
+        previous = self._active
         if 0 <= index < len(self._items):
             self._active = index
+        else:
+            self._active = -1
+        if self._active != previous:
+            self._emit("changed")
 
     def get_active_text(self):
         if 0 <= self._active < len(self._items):
             return self._items[self._active]
         return None
+
+    def connect(self, signal: str, callback):
+        handler_id = self._next_handler_id
+        self._next_handler_id += 1
+        self._handlers[handler_id] = (signal, callback)
+        return handler_id
+
+    def _emit(self, signal: str):
+        for stored_signal, callback in list(self._handlers.values()):
+            if stored_signal == signal:
+                callback(self)
 
 
 class _Adjustment:
