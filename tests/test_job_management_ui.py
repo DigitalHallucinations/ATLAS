@@ -96,7 +96,10 @@ class _JobServerStub:
                 "owner_id": None,
                 "conversation_id": None,
                 "tenant_id": atlas.tenant_id,
-                "metadata": {},
+                "metadata": {
+                    "schedule": {"metadata": {"state": "scheduled"}},
+                    "schedule_state": "scheduled",
+                },
                 "created_at": "2024-01-03T11:00:00Z",
                 "updated_at": "2024-01-03T11:00:00Z",
             },
@@ -107,8 +110,10 @@ class _JobServerStub:
                 "expression": "0 9 * * 1",
                 "timezone": "UTC",
                 "next_run_at": "2024-01-08T09:00:00Z",
+                "metadata": {"state": "scheduled"},
             }
         }
+        self.schedule_actions: list[tuple[str, str]] = []
         self.linked_tasks = {
             "job-1": [
                 {
@@ -157,6 +162,53 @@ class _JobServerStub:
     def list_job_tasks(self, job_id: str, *, context):
         tasks = self.linked_tasks.get(job_id, [])
         return [copy.deepcopy(entry) for entry in tasks]
+
+    def pause_job_schedule(self, job_id: str, *, context, expected_updated_at: str | None = None):
+        for job in self.jobs:
+            if job["id"] == job_id:
+                metadata = job.setdefault("metadata", {})
+                schedule = metadata.setdefault("schedule", {"metadata": {}})
+                schedule_meta = schedule.setdefault("metadata", {})
+                schedule_meta["state"] = "paused"
+                metadata["schedule_state"] = "paused"
+                job["updated_at"] = f"{job_id}-paused"
+                schedule_record = self.schedules.setdefault(job_id, {"metadata": {}})
+                schedule_record = dict(schedule_record)
+                schedule_record.setdefault("schedule_type", "cron")
+                schedule_record.setdefault("expression", "0 9 * * 1")
+                schedule_record.setdefault("timezone", "UTC")
+                schedule_record.setdefault("next_run_at", "2024-01-08T09:00:00Z")
+                schedule_record.setdefault("metadata", {})["state"] = "paused"
+                self.schedules[job_id] = schedule_record
+                self.schedule_actions.append(("pause", job_id))
+                payload = copy.deepcopy(job)
+                payload["schedule"] = copy.deepcopy(schedule_record)
+                return payload
+        raise RuntimeError("Job not found")
+
+    def resume_job_schedule(self, job_id: str, *, context, expected_updated_at: str | None = None):
+        for job in self.jobs:
+            if job["id"] == job_id:
+                metadata = job.setdefault("metadata", {})
+                schedule = metadata.setdefault("schedule", {"metadata": {}})
+                schedule_meta = schedule.setdefault("metadata", {})
+                schedule_meta["state"] = "scheduled"
+                metadata["schedule_state"] = "scheduled"
+                job["status"] = "scheduled"
+                job["updated_at"] = f"{job_id}-resumed"
+                schedule_record = self.schedules.setdefault(job_id, {"metadata": {}})
+                schedule_record = dict(schedule_record)
+                schedule_record.setdefault("schedule_type", "cron")
+                schedule_record.setdefault("expression", "0 9 * * 1")
+                schedule_record.setdefault("timezone", "UTC")
+                schedule_record.setdefault("next_run_at", "2024-01-08T09:00:00Z")
+                schedule_record.setdefault("metadata", {})["state"] = "scheduled"
+                self.schedules[job_id] = schedule_record
+                self.schedule_actions.append(("resume", job_id))
+                payload = copy.deepcopy(job)
+                payload["schedule"] = copy.deepcopy(schedule_record)
+                return payload
+        raise RuntimeError("Job not found")
 
     def transition_job(
         self,
@@ -229,11 +281,29 @@ class _ParentWindowStub:
         return payload
 
     def resume_job(self, job_id: str, current_status: str, updated_at: str | None):
+        resume_schedule = getattr(self.ATLAS.server, "resume_job_schedule", None)
+        if callable(resume_schedule):
+            payload = resume_schedule(
+                job_id,
+                context={"tenant_id": self.ATLAS.tenant_id},
+                expected_updated_at=updated_at,
+            )
+            self.show_success_toast("Job schedule resumed")
+            return payload
         payload = self._transition_job(job_id, "scheduled", updated_at)
         self.show_success_toast("Job moved to Scheduled")
         return payload
 
     def pause_job(self, job_id: str, current_status: str, updated_at: str | None):
+        pause_schedule = getattr(self.ATLAS.server, "pause_job_schedule", None)
+        if callable(pause_schedule):
+            payload = pause_schedule(
+                job_id,
+                context={"tenant_id": self.ATLAS.tenant_id},
+                expected_updated_at=updated_at,
+            )
+            self.show_success_toast("Job schedule paused")
+            return payload
         payload = self._transition_job(job_id, "cancelled", updated_at)
         self.show_success_toast("Job moved to Cancelled")
         return payload
@@ -348,13 +418,13 @@ def test_job_management_filters_and_actions(monkeypatch):
     pause_button = manager._pause_button
     assert pause_button is not None and pause_button.visible
     _click(pause_button)
-    assert atlas.server.transitions[-1]["target"] == "cancelled"
+    assert atlas.server.schedule_actions[-1] == ("pause", "job-1")
+    paused_job = next(job for job in atlas.server.jobs if job["id"] == "job-1")
+    assert paused_job["metadata"].get("schedule_state") == "paused"
 
     manager._select_job("job-1")
     rerun_button = manager._rerun_button
-    assert rerun_button is not None and rerun_button.visible
-    _click(rerun_button)
-    assert atlas.server.transitions[-1]["target"] == "running"
+    assert rerun_button is not None and not rerun_button.visible
 
     manager._select_job("job-3")
     start_button = manager._start_button
@@ -368,17 +438,18 @@ def test_job_management_filters_and_actions(monkeypatch):
     assert atlas.server.transitions[-1]["target"] == "running"
     assert not manager._start_confirmation_choices
 
-    job_record = next(job for job in atlas.server.jobs if job["id"] == "job-3")
-    job_record["status"] = "cancelled"
-    job_record.setdefault("metadata", {})["schedule_state"] = "paused"
-    job_record["updated_at"] = "paused-timestamp"
+    atlas.server.pause_job_schedule(
+        "job-3", context={"tenant_id": atlas.tenant_id}, expected_updated_at=None
+    )
     manager._refresh_state()
     manager._select_job("job-3")
     _click(start_button)
     paused_choices = dict(manager._start_confirmation_choices)
     assert "resume" in paused_choices
     paused_choices["resume"]()
-    assert atlas.server.transitions[-1]["target"] == "scheduled"
+    assert atlas.server.schedule_actions[-1] == ("resume", "job-3")
+    resumed_job = next(job for job in atlas.server.jobs if job["id"] == "job-3")
+    assert resumed_job["metadata"].get("schedule_state") == "scheduled"
 
 
 def test_status_filter_set_active_triggers_single_refresh(monkeypatch):

@@ -366,6 +366,15 @@ class JobManagement:
         else:
             metadata = {}
 
+        schedule_detail = payload.get("schedule")
+        if isinstance(schedule_detail, Mapping):
+            metadata["schedule"] = dict(schedule_detail)
+            schedule_meta = schedule_detail.get("metadata")
+            if isinstance(schedule_meta, Mapping):
+                state = schedule_meta.get("state")
+                if state is not None:
+                    metadata["schedule_state"] = state
+
         personas = self._extract_personas(metadata)
         recurrence = self._extract_recurrence(metadata)
 
@@ -817,6 +826,15 @@ class JobManagement:
         metadata = detail.get("metadata") if isinstance(detail, Mapping) else entry.metadata
         if not isinstance(metadata, Mapping):
             metadata = entry.metadata
+        elif isinstance(detail, Mapping):
+            normalized = self._normalize_entry(detail)
+            if normalized is not None:
+                entry.status = normalized.status
+                entry.metadata = normalized.metadata
+                entry.updated_at = normalized.updated_at
+                entry.personas = normalized.personas
+                entry.recurrence = normalized.recurrence
+                metadata = entry.metadata
         escalation = metadata.get("escalation_policy") if isinstance(metadata, Mapping) else None
         escalation_badges: List[Tuple[str, Sequence[str]]] = []
         if isinstance(escalation, Mapping):
@@ -951,8 +969,16 @@ class JobManagement:
 
         metadata = entry.metadata or {}
         schedule_info = metadata.get("schedule") if isinstance(metadata.get("schedule"), Mapping) else {}
+        schedule_meta = schedule_info.get("metadata") if isinstance(schedule_info.get("metadata"), Mapping) else {}
         schedule_state = (
-            str(schedule_info.get("status") or schedule_info.get("state") or metadata.get("schedule_state") or metadata.get("schedule_status") or "")
+            str(
+                schedule_meta.get("state")
+                or schedule_info.get("state")
+                or schedule_info.get("status")
+                or metadata.get("schedule_state")
+                or metadata.get("schedule_status")
+                or ""
+            )
             .strip()
             .lower()
         )

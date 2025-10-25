@@ -11,7 +11,11 @@ from modules.job_store.repository import JobStoreRepository
 from modules.orchestration.job_manager import JobManager
 from modules.orchestration.job_scheduler import JobScheduler
 from modules.orchestration.message_bus import InMemoryQueueBackend, MessageBus
-from modules.Tools.Base_Tools.task_queue import RetryPolicy, TaskEvent
+from modules.Tools.Base_Tools.task_queue import (
+    RetryPolicy,
+    TaskEvent,
+    JobNotFoundError as QueueJobNotFoundError,
+)
 
 try:  # pragma: no cover - SQLAlchemy optional
     import sqlalchemy
@@ -78,6 +82,7 @@ class FastQueueStub:
         self.monitors: list = []
         self.jobs: dict[str, dict[str, object]] = {}
         self._counter = 0
+        self.cancelled: set[str] = set()
 
     def add_monitor(self, callback) -> None:
         self.monitors.append(callback)
@@ -95,8 +100,22 @@ class FastQueueStub:
         idempotency_key=None,
         retry_policy=None,
     ):
-        self._counter += 1
-        job_id = f"stub-{self._counter}"
+        if idempotency_key:
+            job_id = f"idemp-{idempotency_key}"
+        else:
+            self._counter += 1
+            job_id = f"stub-{self._counter}"
+        if job_id in self.jobs:
+            job = self.jobs[job_id]
+            return {
+                "job_id": job_id,
+                "name": job.get("name"),
+                "state": job.get("state", "scheduled"),
+                "attempts": int(job.get("attempt", 0)),
+                "next_run_time": job.get("next_run"),
+                "retry_policy": (job.get("policy") or self.retry_policy).to_dict(),
+                "recurring": True,
+            }
         policy = retry_policy or self.retry_policy
         next_run = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1)
         self.jobs[job_id] = {
@@ -106,6 +125,7 @@ class FastQueueStub:
             "attempt": 0,
             "next_run": next_run,
             "cron": cron_fields or cron_schedule,
+            "state": "scheduled",
         }
         return {
             "job_id": job_id,
@@ -116,6 +136,13 @@ class FastQueueStub:
             "retry_policy": policy.to_dict(),
             "recurring": True,
         }
+
+    def cancel(self, job_id: str):
+        if job_id not in self.jobs:
+            raise QueueJobNotFoundError("job not found")
+        self.jobs.pop(job_id, None)
+        self.cancelled.add(job_id)
+        return {"job_id": job_id, "state": "cancelled"}
 
     def emit(
         self,
@@ -258,6 +285,45 @@ def test_manual_override_updates_schedule(job_repository):
     assert updated["next_run_at"] == next_run
     assert updated["metadata"]["retry_policy"]["max_attempts"] == 5
     assert updated["metadata"]["state"] == "manual"
+
+
+def test_pause_manifest_updates_metadata(job_repository):
+    queue = FastQueueStub()
+    scheduler = JobScheduler(JobManagerStub(), queue, job_repository, tenant_id="tenant-1")
+    metadata = _build_metadata()
+
+    record = scheduler.register_manifest(metadata)
+    queue_job_id = record["metadata"]["task_queue_job_id"]
+    assert queue_job_id in queue.jobs
+
+    paused = scheduler.pause_manifest(metadata.name, persona=metadata.persona)
+    assert paused["metadata"].get("state") == "paused"
+    assert "task_queue_job_id" not in paused["metadata"]
+    assert queue_job_id not in queue.jobs
+
+    snapshot = job_repository.get_job(paused["job_id"], tenant_id="tenant-1", with_schedule=True)
+    assert snapshot["schedule"]["metadata"].get("state") == "paused"
+
+
+def test_resume_manifest_reschedules_job(job_repository):
+    queue = FastQueueStub()
+    scheduler = JobScheduler(JobManagerStub(), queue, job_repository, tenant_id="tenant-1")
+    metadata = _build_metadata()
+
+    record = scheduler.register_manifest(metadata)
+    original_job_id = record["metadata"]["task_queue_job_id"]
+    scheduler.pause_manifest(metadata.name, persona=metadata.persona)
+    assert original_job_id not in queue.jobs
+
+    resumed = scheduler.resume_manifest(metadata.name, persona=metadata.persona)
+    resumed_job_id = resumed["metadata"].get("task_queue_job_id")
+    assert resumed_job_id
+    assert resumed["metadata"].get("state") == "scheduled"
+    assert resumed_job_id in queue.jobs
+    assert queue.jobs[resumed_job_id]["cron"]
+
+    snapshot = job_repository.get_job(resumed["job_id"], tenant_id="tenant-1", with_schedule=True)
+    assert snapshot["schedule"]["metadata"].get("state") == "scheduled"
 
 
 def test_executor_invokes_job_manager(job_repository):
