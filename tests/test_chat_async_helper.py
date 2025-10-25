@@ -283,6 +283,10 @@ class _ComboBoxText(_DummyWidget):
         super().__init__()
         self._items: list[str] = []
         self._active = -1
+        self._signal_handlers: dict[str, list[int]] = {}
+        self._handler_lookup: dict[int, tuple[str, object]] = {}
+        self._blocked_handlers: set[int] = set()
+        self._next_handler_id = 1
 
     def append_text(self, text: str):
         self._items.append(text)
@@ -293,12 +297,41 @@ class _ComboBoxText(_DummyWidget):
 
     def set_active(self, index: int):
         if 0 <= index < len(self._items):
-            self._active = index
+            if index != self._active:
+                self._active = index
+                self._emit("changed")
+        else:
+            if self._active != -1:
+                self._active = -1
+                self._emit("changed")
 
     def get_active_text(self):
         if 0 <= self._active < len(self._items):
             return self._items[self._active]
         return None
+
+    def connect(self, signal: str, callback):  # pragma: no cover - signal helper
+        handler_id = self._next_handler_id
+        self._next_handler_id += 1
+        handlers = self._signal_handlers.setdefault(signal, [])
+        handlers.append(handler_id)
+        self._handler_lookup[handler_id] = (signal, callback)
+        return handler_id
+
+    def handler_block(self, handler_id: int):  # pragma: no cover - signal helper
+        self._blocked_handlers.add(handler_id)
+
+    def handler_unblock(self, handler_id: int):  # pragma: no cover - signal helper
+        self._blocked_handlers.discard(handler_id)
+
+    def _emit(self, signal: str):
+        for handler_id in list(self._signal_handlers.get(signal, [])):
+            if handler_id in self._blocked_handlers:
+                continue
+            _signal, callback = self._handler_lookup.get(handler_id, (None, None))
+            if callback is None:
+                continue
+            callback(self)
 
 
 class _Adjustment:

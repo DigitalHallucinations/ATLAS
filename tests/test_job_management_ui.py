@@ -274,12 +274,10 @@ def test_job_management_filters_and_actions(monkeypatch):
 
     atlas_index = persona_items.index("Atlas")
     persona_combo.set_active(atlas_index)
-    manager._on_persona_filter_changed(persona_combo)
     assert {entry.job_id for entry in manager._display_entries} == {"job-1"}
 
     unassigned_index = persona_items.index("Unassigned")
     persona_combo.set_active(unassigned_index)
-    manager._on_persona_filter_changed(persona_combo)
     assert {entry.job_id for entry in manager._display_entries} == {"job-3"}
 
     status_combo = manager._status_filter_combo
@@ -287,7 +285,7 @@ def test_job_management_filters_and_actions(monkeypatch):
     status_items = list(getattr(status_combo, "_items", []))
     running_index = status_items.index("Running")
     status_combo.set_active(running_index)
-    manager._on_status_filter_changed(status_combo)
+    assert manager._status_filter == "running"
     assert {entry.job_id for entry in manager._display_entries} == {"job-2"}
 
     recurrence_combo = manager._recurrence_filter_combo
@@ -296,7 +294,6 @@ def test_job_management_filters_and_actions(monkeypatch):
     assert "Recurring" in recurrence_items
     recurring_index = recurrence_items.index("Recurring")
     recurrence_combo.set_active(recurring_index)
-    manager._on_recurrence_filter_changed(recurrence_combo)
     assert {entry.job_id for entry in manager._display_entries} == {"job-1"}
 
     manager._select_job("job-1")
@@ -323,6 +320,27 @@ def test_job_management_filters_and_actions(monkeypatch):
     assert rerun_button is not None and rerun_button.visible
     _click(rerun_button)
     assert atlas.server.transitions[-1]["target"] == "running"
+
+
+def test_status_filter_set_active_triggers_single_refresh(monkeypatch):
+    _register_bus_stub(monkeypatch)
+    atlas = _AtlasStub()
+    parent = _ParentWindowStub(atlas)
+
+    manager = JobManagement(atlas, parent)
+    manager.get_embeddable_widget()
+
+    initial_fetches = atlas.job_fetches
+
+    status_combo = manager._status_filter_combo
+    assert status_combo is not None
+    status_items = list(getattr(status_combo, "_items", []))
+    assert "Running" in status_items
+
+    running_index = status_items.index("Running")
+    status_combo.set_active(running_index)
+
+    assert atlas.job_fetches == initial_fetches + 1
 
 
 def test_job_management_bus_refresh(monkeypatch):

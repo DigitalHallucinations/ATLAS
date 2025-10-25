@@ -96,6 +96,7 @@ class JobManagement:
         self._pending_focus_job: Optional[str] = None
         self._refresh_pending = False
         self._bus_subscriptions: List[Any] = []
+        self._suppress_filter_signals = False
 
         # Cached detail data for tests and scripted validation
         self._current_schedule_badges: List[str] = []
@@ -174,13 +175,21 @@ class JobManagement:
         status_combo.connect("changed", self._on_status_filter_changed)
         filter_box.append(status_combo)
         self._status_filter_combo = status_combo
-        self._populate_status_filter_options()
+        self._suppress_filter_signals = True
+        try:
+            self._populate_status_filter_options()
+        finally:
+            self._suppress_filter_signals = False
 
         recurrence_combo = Gtk.ComboBoxText()
         recurrence_combo.connect("changed", self._on_recurrence_filter_changed)
         filter_box.append(recurrence_combo)
         self._recurrence_filter_combo = recurrence_combo
-        self._populate_recurrence_filter_options()
+        self._suppress_filter_signals = True
+        try:
+            self._populate_recurrence_filter_options()
+        finally:
+            self._suppress_filter_signals = False
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_hexpand(False)
@@ -285,13 +294,20 @@ class JobManagement:
     # Data loading and synchronization
     # ------------------------------------------------------------------
     def _refresh_state(self) -> None:
-        entries = self._load_job_entries()
-        self._entries = entries
-        self._entry_lookup = {entry.job_id: entry for entry in entries}
-        self._populate_persona_filter_options()
-        self._populate_status_filter_options()
-        self._populate_recurrence_filter_options()
-        self._rebuild_job_list()
+        if self._suppress_filter_signals:
+            return
+
+        self._suppress_filter_signals = True
+        try:
+            entries = self._load_job_entries()
+            self._entries = entries
+            self._entry_lookup = {entry.job_id: entry for entry in entries}
+            self._populate_persona_filter_options()
+            self._populate_status_filter_options()
+            self._populate_recurrence_filter_options()
+            self._rebuild_job_list()
+        finally:
+            self._suppress_filter_signals = False
 
     def _schedule_refresh(self) -> None:
         if self._refresh_pending:
@@ -458,9 +474,15 @@ class JobManagement:
             if value == self._status_filter:
                 combo.set_active(index)
 
-        if combo.get_active_text() is None:
-            combo.set_active(0)
-            self._status_filter = None
+        active_text = combo.get_active_text()
+        if active_text is None:
+            if self._status_filter is not None and self._status_filter in self._status_option_lookup:
+                target_index = self._status_option_lookup.index(self._status_filter)
+                combo.set_active(target_index)
+            else:
+                combo.set_active(0)
+                if not self._suppress_filter_signals:
+                    self._status_filter = None
 
     def _populate_recurrence_filter_options(self) -> None:
         combo = self._recurrence_filter_combo
@@ -498,12 +520,27 @@ class JobManagement:
         self._rebuild_job_list()
 
     def _on_status_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_filter_signals:
+            return
+
         index = self._combo_active_index(combo)
         if 0 <= index < len(self._status_option_lookup):
-            self._status_filter = self._status_option_lookup[index]
+            selected_filter = self._status_option_lookup[index]
+            self._status_filter = selected_filter
         else:
+            selected_filter = None
             self._status_filter = None
         self._refresh_state()
+        if selected_filter is not None:
+            self._status_filter = selected_filter
+        if selected_filter is not None and selected_filter in self._status_option_lookup:
+            status_combo = self._status_filter_combo
+            if status_combo is not None:
+                self._suppress_filter_signals = True
+                try:
+                    status_combo.set_active(self._status_option_lookup.index(selected_filter))
+                finally:
+                    self._suppress_filter_signals = False
         persona_combo = self._persona_filter_combo
         if persona_combo is not None:
             self._persona_filter = None
@@ -905,6 +942,9 @@ class JobManagement:
         self._trigger_action("rerun")
 
     def _trigger_action(self, action: str) -> None:
+        if self._suppress_filter_signals:
+            return
+
         if not self._active_job or self._active_job not in self._entry_lookup:
             return
         entry = self._entry_lookup[self._active_job]
