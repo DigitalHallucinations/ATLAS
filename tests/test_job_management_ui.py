@@ -103,6 +103,21 @@ class _JobServerStub:
                 "created_at": "2024-01-03T11:00:00Z",
                 "updated_at": "2024-01-03T11:00:00Z",
             },
+            {
+                "id": "job-4",
+                "name": "Incident Review",
+                "description": "Post-incident analysis",
+                "status": "succeeded",
+                "owner_id": "owner-3",
+                "conversation_id": None,
+                "tenant_id": atlas.tenant_id,
+                "metadata": {
+                    "personas": ["Atlas"],
+                    "manifest": {"name": "Incident Review", "persona": "Atlas"},
+                },
+                "created_at": "2024-01-04T12:00:00Z",
+                "updated_at": "2024-01-04T12:00:00Z",
+            },
         ]
         self.schedules = {
             "job-1": {
@@ -114,6 +129,7 @@ class _JobServerStub:
             }
         }
         self.schedule_actions: list[tuple[str, str]] = []
+        self.reruns: list[dict[str, object]] = []
         self.linked_tasks = {
             "job-1": [
                 {
@@ -231,6 +247,31 @@ class _JobServerStub:
                 return copy.deepcopy(job)
         raise RuntimeError("Job not found")
 
+    def rerun_job(
+        self,
+        job_id: str,
+        *,
+        context,
+        expected_updated_at: str | None = None,
+    ):
+        for job in self.jobs:
+            if job["id"] == job_id:
+                job["status"] = "running"
+                job["updated_at"] = f"{job_id}-rerun"
+                runs = job.setdefault("runs", [])
+                run_record = {
+                    "id": f"run-{len(self.reruns) + 1}",
+                    "status": "running",
+                }
+                runs.append(run_record)
+                record = {
+                    "job_id": job_id,
+                    "expected": expected_updated_at,
+                }
+                self.reruns.append(record)
+                return copy.deepcopy(job)
+        raise RuntimeError("Job not found")
+
 
 class _AtlasStub:
     def __init__(self) -> None:
@@ -309,8 +350,16 @@ class _ParentWindowStub:
         return payload
 
     def rerun_job(self, job_id: str, current_status: str, updated_at: str | None):
-        payload = self._transition_job(job_id, "running", updated_at)
-        self.show_success_toast("Job moved to Running")
+        rerun_job = getattr(self.ATLAS.server, "rerun_job", None)
+        if callable(rerun_job):
+            payload = rerun_job(
+                job_id,
+                context={"tenant_id": self.ATLAS.tenant_id},
+                expected_updated_at=updated_at,
+            )
+        else:
+            payload = self._transition_job(job_id, "running", updated_at)
+        self.show_success_toast("Job rerun queued")
         return payload
 
 
@@ -377,7 +426,7 @@ def test_job_management_filters_and_actions(monkeypatch):
     atlas_index = persona_items.index("Atlas")
     persona_combo.set_active(atlas_index)
     manager._on_persona_filter_changed(persona_combo)
-    assert {entry.job_id for entry in manager._display_entries} == {"job-1"}
+    assert {entry.job_id for entry in manager._display_entries} == {"job-1", "job-4"}
 
     unassigned_index = persona_items.index("Unassigned")
     persona_combo.set_active(unassigned_index)
@@ -425,6 +474,15 @@ def test_job_management_filters_and_actions(monkeypatch):
     manager._select_job("job-1")
     rerun_button = manager._rerun_button
     assert rerun_button is not None and not rerun_button.visible
+
+    manager._select_job("job-4")
+    rerun_button = manager._rerun_button
+    assert rerun_button is not None and rerun_button.visible
+    rerun_before = list(atlas.server.reruns)
+    _click(rerun_button)
+    assert atlas.server.reruns != rerun_before
+    assert atlas.server.reruns[-1]["job_id"] == "job-4"
+    assert any("Job rerun queued" in toast for toast in parent.toasts)
 
     manager._select_job("job-3")
     start_button = manager._start_button

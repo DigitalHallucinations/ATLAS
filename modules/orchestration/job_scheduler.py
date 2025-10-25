@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import threading
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Mapping, Optional, Tuple
 
@@ -23,6 +24,7 @@ from modules.Tools.Base_Tools.task_queue import (
 @dataclass
 class _Registration:
     job_id: str
+    job_name: str
     manifest_name: str
     persona: Optional[str]
     schedule_type: str
@@ -136,6 +138,7 @@ class JobScheduler:
 
         registration = _Registration(
             job_id=job_record["id"],
+            job_name=job_name,
             manifest_name=metadata.name,
             persona=metadata.persona,
             schedule_type=schedule_type,
@@ -311,6 +314,53 @@ class JobScheduler:
 
         return record
 
+    def trigger_run(
+        self,
+        job_id: str,
+        *,
+        manifest_name: Optional[str] = None,
+        persona: Optional[str] = None,
+        run_id: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+    ) -> Mapping[str, Any]:
+        """Queue an immediate run for *job_id* using manifest metadata."""
+
+        with self._lock:
+            registration = self._registrations_by_job_id.get(job_id)
+
+        if registration is None:
+            if not manifest_name:
+                raise JobNotFoundError("Manifest has not been scheduled")
+            persona = persona or None
+            job_name = self._compose_job_name(manifest_name, persona)
+            manifest_value = manifest_name
+        else:
+            job_name = registration.job_name
+            manifest_value = registration.manifest_name
+            persona = registration.persona
+
+        payload: Dict[str, Any] = {
+            "job_name": manifest_value,
+            "persona": persona,
+        }
+        if metadata:
+            for key, value in metadata.items():
+                payload.setdefault(str(key), value)
+
+        retry_policy = _coerce_retry_policy(
+            registration.metadata.get("retry_policy") if registration else None
+        )
+
+        idempotency_key = f"job-run::{job_id}::{run_id or uuid.uuid4().hex}"
+
+        status = self._task_queue.enqueue_task(
+            name=job_name,
+            payload=payload,
+            idempotency_key=idempotency_key,
+            retry_policy=retry_policy,
+        )
+        return status
+
     # ------------------------------------------------------------------
     # Executor
     # ------------------------------------------------------------------
@@ -438,7 +488,7 @@ class JobScheduler:
         self, registration: _Registration, queue_job_id: Optional[str]
     ) -> None:
         for existing_id, current in list(self._registrations.items()):
-            if current is registration or existing_id == queue_job_id:
+            if existing_id == queue_job_id:
                 self._registrations.pop(existing_id, None)
         if queue_job_id:
             identifier = str(queue_job_id).strip()
@@ -449,6 +499,11 @@ class JobScheduler:
     def _resolve_job_name(metadata: JobMetadata) -> str:
         persona_key = metadata.persona or "default"
         return f"{metadata.name}::{persona_key}"
+
+    @staticmethod
+    def _compose_job_name(manifest_name: str, persona: Optional[str]) -> str:
+        persona_key = persona or "default"
+        return f"{manifest_name}::{persona_key}"
 
 
 def _resolve_schedule(recurrence: Mapping[str, Any]) -> Tuple[str, str, Optional[Mapping[str, Any]], str]:

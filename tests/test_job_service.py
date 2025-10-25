@@ -15,7 +15,7 @@ else:  # pragma: no cover - skip when stubbed module detected
 
 from modules.conversation_store import Base
 from modules.conversation_store.models import Conversation, Session as ConversationSession, User
-from modules.job_store import JobStatus
+from modules.job_store import JobRunStatus, JobStatus
 from modules.job_store.repository import JobStoreRepository
 from modules.job_store.service import (
     JobDependencyError,
@@ -106,7 +106,10 @@ def _create_job(job_service, identity, job_repository):
         tenant_id=identity["tenant_id"],
         conversation_id=identity["conversation_id"],
         owner_id=identity["user_id"],
-        metadata={"personas": ["Navigator"]},
+        metadata={
+            "personas": ["Navigator"],
+            "manifest": {"name": "Lifecycle Job", "persona": "Navigator"},
+        },
     )
     job_repository.upsert_schedule(
         record["id"],
@@ -205,6 +208,61 @@ def test_job_dependencies_gate_progress(job_service, job_repository, task_servic
     assert svc.dependencies_complete(job_record["id"], tenant_id=identity["tenant_id"])
 
 
+def test_rerun_job_creates_new_run(job_service, job_repository, identity, monkeypatch):
+    svc, events = job_service
+    metrics: list[dict] = []
+
+    def capture_metric(**payload):
+        metrics.append(payload)
+
+    monkeypatch.setattr(
+        "modules.job_store.service.record_job_lifecycle_event",
+        capture_metric,
+    )
+
+    record = _create_job(job_service, identity, job_repository)
+
+    svc.transition_job(
+        record["id"], tenant_id=identity["tenant_id"], target_status=JobStatus.SCHEDULED
+    )
+    svc.transition_job(
+        record["id"], tenant_id=identity["tenant_id"], target_status=JobStatus.RUNNING
+    )
+    svc.transition_job(
+        record["id"], tenant_id=identity["tenant_id"], target_status=JobStatus.SUCCEEDED
+    )
+
+    scheduler_calls: list[dict] = []
+
+    class _SchedulerStub:
+        def trigger_run(self, job_id, *, manifest_name, persona, run_id, metadata=None):
+            scheduler_calls.append(
+                {
+                    "job_id": job_id,
+                    "manifest": manifest_name,
+                    "persona": persona,
+                    "run_id": run_id,
+                    "metadata": dict(metadata or {}),
+                }
+            )
+            return {"job_id": f"queue-{run_id}", "state": "scheduled"}
+
+    result = svc.rerun_job(
+        record["id"],
+        tenant_id=identity["tenant_id"],
+        scheduler=_SchedulerStub(),
+    )
+
+    assert result["status"] == JobStatus.RUNNING.value
+    assert scheduler_calls and scheduler_calls[0]["run_id"]
+    assert events and events[-1][0] == "job.status_changed"
+    assert metrics and metrics[-1]["metadata"]["trigger"] == "manual_rerun"
+
+    runs = result.get("runs") or []
+    assert runs, "Rerun should create a job run record"
+    run_payload = runs[-1]
+    assert run_payload["status"] == JobRunStatus.RUNNING.value
+    assert run_payload["id"] == scheduler_calls[0]["run_id"]
 def test_update_job_no_op_owner_does_not_emit(job_service, identity, monkeypatch):
     svc, events = job_service
     record = svc.create_job(

@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 from modules.Tools.tool_event_system import publish_bus_event
 from modules.analytics.persona_metrics import record_job_lifecycle_event
 from modules.task_store import TaskStatus
 
-from .models import JobStatus
+from .models import JobRunStatus, JobStatus
 from .repository import (
     JobConcurrencyError,
     JobNotFoundError,
     JobStoreRepository,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - for static type checking only
+    from modules.orchestration.job_scheduler import JobScheduler
 
 
 class JobServiceError(RuntimeError):
@@ -130,6 +133,33 @@ def _extract_persona_roster(payload: Mapping[str, Any]) -> list[str]:
 def _primary_persona(payload: Mapping[str, Any]) -> Optional[str]:
     roster = _extract_persona_roster(payload)
     return roster[0] if roster else None
+
+
+def _resolve_manifest_identity(job_record: Mapping[str, Any]) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    metadata = job_record.get("metadata") if isinstance(job_record.get("metadata"), Mapping) else {}
+    manifest_info = metadata.get("manifest") if isinstance(metadata.get("manifest"), Mapping) else {}
+    manifest_name = str(manifest_info.get("name") or "").strip() or None
+    persona_value = manifest_info.get("persona")
+    if persona_value is not None:
+        persona_text = str(persona_value).strip()
+        persona_value = persona_text or None
+    source_value = manifest_info.get("source")
+    if source_value is not None:
+        source_text = str(source_value).strip()
+        source_value = source_text or None
+
+    if manifest_name is None:
+        raw_name = str(job_record.get("name") or "").strip()
+        if raw_name:
+            if "::" in raw_name:
+                base, persona_hint = raw_name.split("::", 1)
+                manifest_name = base.strip() or None
+                if persona_value is None and persona_hint:
+                    persona_value = persona_hint.strip() or None
+            else:
+                manifest_name = raw_name
+
+    return manifest_name, persona_value, source_value
 
 
 def _normalize_task_status(value: Any) -> Optional[TaskStatus]:
@@ -444,6 +474,162 @@ class JobService:
             metadata={"requested_status": desired_status.value},
         )
         return updated
+
+    def rerun_job(
+        self,
+        job_id: Any,
+        *,
+        tenant_id: Any,
+        scheduler: "JobScheduler",
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        snapshot = self._repository.get_job(
+            job_id,
+            tenant_id=tenant_id,
+            with_schedule=True,
+        )
+        current_status = _coerce_status(snapshot["status"])
+        manifest_name, persona, source = _resolve_manifest_identity(snapshot)
+        if manifest_name is None:
+            raise JobTransitionError("Job manifest metadata is unavailable for rerun")
+
+        roster = _extract_persona_roster(snapshot)
+        if not roster:
+            raise JobTransitionError("Job must define a persona roster before rerun")
+
+        linked_tasks = []
+        if current_status != JobStatus.RUNNING:
+            linked_tasks = self._repository.list_linked_tasks(job_id, tenant_id=tenant_id)
+            incomplete = []
+            for link in linked_tasks:
+                task = link.get("task") if isinstance(link, Mapping) else None
+                status_value = None
+                if isinstance(task, Mapping):
+                    status_value = task.get("status")
+                normalized = _normalize_task_status(status_value)
+                if normalized is not None and normalized not in _TASK_COMPLETE_STATUSES:
+                    incomplete.append(link)
+            if incomplete:
+                raise JobDependencyError(
+                    "Cannot rerun job because linked tasks are incomplete",
+                )
+
+        reference_timestamp = expected_updated_at or snapshot.get("updated_at")
+
+        metadata_payload = {
+            "trigger": "manual_rerun",
+            "requested_status": JobStatus.RUNNING.value,
+        }
+        run_record = self._repository.create_run(
+            job_id,
+            tenant_id=tenant_id,
+            status=JobRunStatus.SCHEDULED,
+            metadata=metadata_payload,
+        )
+
+        queue_metadata = {"source": source} if source else {}
+        queue_metadata.update({"run_id": run_record["id"], "trigger": "manual_rerun"})
+
+        try:
+            queue_status = scheduler.trigger_run(
+                str(snapshot["id"]),
+                manifest_name=manifest_name,
+                persona=persona,
+                run_id=str(run_record["id"]),
+                metadata=queue_metadata,
+            )
+        except JobNotFoundError:
+            self._repository.update_run(
+                run_record["id"],
+                tenant_id=tenant_id,
+                changes={
+                    "status": JobRunStatus.FAILED,
+                    "metadata": dict(metadata_payload, error="manifest_not_registered"),
+                    "finished_at": datetime.now(timezone.utc),
+                },
+            )
+            raise
+        except Exception as exc:
+            self._repository.update_run(
+                run_record["id"],
+                tenant_id=tenant_id,
+                changes={
+                    "status": JobRunStatus.FAILED,
+                    "metadata": dict(metadata_payload, error=str(exc)),
+                    "finished_at": datetime.now(timezone.utc),
+                },
+            )
+            raise JobServiceError("Failed to enqueue job rerun") from exc
+
+        queue_snapshot = dict(queue_status) if isinstance(queue_status, Mapping) else {"status": queue_status}
+        now = datetime.now(timezone.utc)
+
+        try:
+            updated = self._repository.update_job(
+                job_id,
+                tenant_id=tenant_id,
+                changes={"status": JobStatus.RUNNING},
+                expected_updated_at=reference_timestamp,
+            )
+        except JobConcurrencyError:
+            self._repository.update_run(
+                run_record["id"],
+                tenant_id=tenant_id,
+                changes={
+                    "status": JobRunStatus.CANCELLED,
+                    "metadata": dict(
+                        metadata_payload,
+                        queue_status=queue_snapshot,
+                        error="job_concurrency_conflict",
+                    ),
+                    "finished_at": now,
+                },
+            )
+            raise
+        run_changes = {
+            "status": JobRunStatus.RUNNING,
+            "started_at": now,
+            "metadata": dict(metadata_payload, queue_status=queue_snapshot),
+        }
+        self._repository.update_run(
+            run_record["id"],
+            tenant_id=tenant_id,
+            changes=run_changes,
+        )
+
+        self._emit(
+            "job.status_changed",
+            {
+                "job_id": updated["id"],
+                "tenant_id": updated.get("tenant_id"),
+                "from": current_status.value,
+                "to": JobStatus.RUNNING.value,
+            },
+        )
+
+        record_job_lifecycle_event(
+            job_id=updated.get("id"),
+            event="status_changed",
+            persona=_primary_persona(updated),
+            tenant_id=updated.get("tenant_id"),
+            from_status=current_status.value,
+            to_status=JobStatus.RUNNING.value,
+            success=None,
+            timestamp=now,
+            metadata={
+                "requested_status": JobStatus.RUNNING.value,
+                "run_id": run_record["id"],
+                "trigger": "manual_rerun",
+            },
+        )
+
+        refreshed = self._repository.get_job(
+            job_id,
+            tenant_id=tenant_id,
+            with_schedule=True,
+            with_runs=True,
+        )
+        return refreshed
 
     def dependencies_complete(self, job_id: Any, *, tenant_id: Any) -> bool:
         linked_tasks = self._repository.list_linked_tasks(job_id, tenant_id=tenant_id)
