@@ -1218,6 +1218,21 @@ class AtlasServer:
             expected_updated_at=expected_updated_at,
         )
 
+    def run_job_now(
+        self,
+        job_id: str,
+        *,
+        context: Any,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        routes = self._require_job_routes()
+        request_context = self._coerce_context(context)
+        return routes.run_now(
+            job_id,
+            context=request_context,
+            expected_updated_at=expected_updated_at,
+        )
+
     def delete_job(
         self,
         job_id: str,

@@ -314,6 +314,76 @@ class JobScheduler:
 
         return record
 
+    def run_now(
+        self,
+        manifest_name: str,
+        *,
+        persona: Optional[str] = None,
+    ) -> Mapping[str, Any]:
+        """Enqueue an immediate run for a manifest while preserving its schedule."""
+
+        registration = self._lookup_registration(manifest_name, persona)
+        if registration is None:
+            raise JobNotFoundError("Manifest has not been scheduled")
+
+        job_record = self._repository.get_job(
+            registration.job_id,
+            tenant_id=self._tenant_id,
+            with_schedule=True,
+        )
+
+        schedule_snapshot = job_record.get("schedule") if isinstance(job_record, Mapping) else None
+        schedule_record = schedule_snapshot if isinstance(schedule_snapshot, Mapping) else {}
+
+        metadata_payload = job_record.get("metadata") if isinstance(job_record.get("metadata"), Mapping) else {}
+        manifest_info = metadata_payload.get("manifest") if isinstance(metadata_payload.get("manifest"), Mapping) else {}
+
+        manifest_key = str(manifest_info.get("name") or manifest_name).strip() or manifest_name
+        persona_value = persona if persona is not None else manifest_info.get("persona") or registration.persona
+        if isinstance(persona_value, str):
+            persona_value = persona_value.strip() or None
+
+        queue_payload: Dict[str, Any] = {"job_name": manifest_key}
+        if persona_value is not None:
+            queue_payload["persona"] = persona_value
+        source_value = manifest_info.get("source")
+        if source_value is not None:
+            queue_payload["source"] = source_value
+
+        retry_policy = _coerce_retry_policy(registration.metadata.get("retry_policy"))
+
+        queue_status = self._task_queue.enqueue_task(
+            name=registration.job_name,
+            payload=queue_payload,
+            idempotency_key=f"manifest-run::{registration.job_name}::{uuid.uuid4().hex}",
+            retry_policy=retry_policy,
+        )
+
+        if isinstance(queue_status, Mapping):
+            queue_snapshot = dict(queue_status)
+            if "retry_policy" in queue_snapshot:
+                queue_snapshot["retry_policy"] = _serialize_retry_policy(queue_snapshot["retry_policy"])
+        else:
+            queue_snapshot = {"status": queue_status}
+
+        metadata_copy = dict(registration.metadata)
+        metadata_copy["last_run"] = queue_snapshot
+
+        record = self._repository.upsert_schedule(
+            registration.job_id,
+            tenant_id=self._tenant_id,
+            schedule_type=registration.schedule_type,
+            expression=registration.expression,
+            timezone_name=registration.timezone,
+            next_run_at=schedule_record.get("next_run_at"),
+            metadata=metadata_copy,
+        )
+
+        with self._lock:
+            registration.metadata = metadata_copy
+
+        return {"queue_status": queue_snapshot, "schedule": record}
+
     def trigger_run(
         self,
         job_id: str,

@@ -328,6 +328,56 @@ class JobRoutes:
         except JobServiceError as exc:
             raise JobRouteError(str(exc)) from exc
 
+    def run_now(
+        self,
+        job_id: str,
+        *,
+        context: RequestContext,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        self._require_context(context)
+        scheduler = self._require_scheduler()
+
+        try:
+            job_record = self._service.get_job(
+                job_id,
+                tenant_id=context.tenant_id,
+                with_schedule=True,
+            )
+        except JobNotFoundError as exc:
+            raise JobNotFoundRouteError(str(exc)) from exc
+
+        if expected_updated_at is not None:
+            current = job_record.get("updated_at")
+            if current is not None and str(current) != str(expected_updated_at):
+                raise JobConflictError("Job has been modified since it was last refreshed")
+
+        schedule = job_record.get("schedule")
+        if not isinstance(schedule, Mapping):
+            raise JobRouteError("Job does not have a configured schedule", status_code=409)
+
+        manifest_name, persona = self._resolve_manifest_identity(job_record)
+        if not manifest_name:
+            raise JobRouteError("Job manifest metadata is unavailable", status_code=409)
+
+        try:
+            queue_result = scheduler.run_now(manifest_name, persona=persona)
+        except JobNotFoundError as exc:
+            raise JobNotFoundRouteError(str(exc)) from exc
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.error("Failed to enqueue immediate run for %s: %s", job_id, exc, exc_info=True)
+            raise JobRouteError("Failed to enqueue job run") from exc
+
+        updated = self._service.get_job(
+            job_id,
+            tenant_id=context.tenant_id,
+            with_schedule=True,
+        )
+        merged = self._merge_schedule_metadata(updated)
+        if isinstance(queue_result, Mapping) and "queue_status" in queue_result:
+            merged["queue_status"] = queue_result["queue_status"]
+        return merged
+
     def resume_schedule(
         self,
         job_id: str,
