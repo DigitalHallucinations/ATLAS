@@ -1150,7 +1150,14 @@ class JobManagement:
     def _subscribe_to_bus(self) -> None:
         if self._bus_subscriptions:
             return
-        events = ("jobs.created", "jobs.updated", "jobs.completed", "job.status_changed")
+        events = (
+            "jobs.created",
+            "jobs.updated",
+            "jobs.completed",
+            "job.created",
+            "job.updated",
+            "job.status_changed",
+        )
         for event_name in events:
             try:
                 handle = subscribe_bus_event(event_name, self._handle_bus_event)
