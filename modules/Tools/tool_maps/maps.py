@@ -28,6 +28,7 @@ from modules.Tools.Base_Tools.content_repository import ContentRepository
 from modules.Tools.Base_Tools.workspace_publisher import WorkspacePublisher
 from modules.Tools.Base_Tools.calendar_service import CalendarService
 from modules.Tools.Base_Tools.memory_episodic import EpisodicMemoryTool
+from modules.Tools.Base_Tools.memory_graph import MemoryGraphTool
 from modules.Tools.Base_Tools.debian12_calendar import (
     Debian12CalendarTool,
     debian12_calendar,
@@ -54,6 +55,8 @@ from modules.Tools.Base_Tools.task_queue import (
 from ATLAS.config import ConfigManager
 from modules.Tools.Code_Execution import JavaScriptExecutor, PythonInterpreter
 
+_config_manager = ConfigManager()
+
 # Create an instance of GoogleSearch
 google_search_instance = GoogleSearch()
 webpage_fetcher = WebpageFetcher()
@@ -72,8 +75,7 @@ workspace_publisher_tool = WorkspacePublisher()
 calendar_service_tool = CalendarService()
 content_repository_tool = ContentRepository()
 episodic_memory_tool = EpisodicMemoryTool(config_manager=_config_manager)
-
-_config_manager = ConfigManager()
+memory_graph_tool = MemoryGraphTool(config_manager=_config_manager)
 javascript_executor = JavaScriptExecutor.from_config(
     _config_manager.get_javascript_executor_settings()
 )
@@ -156,6 +158,7 @@ function_map = {
     "memory_episodic_store": episodic_memory_tool.store,
     "memory_episodic_query": episodic_memory_tool.query,
     "memory_episodic_prune": episodic_memory_tool.prune,
+    "memory.graph": memory_graph_tool.run,
     "vault.secrets": vault_secrets_tool.run,
     "budget.limiter": budget_limiter_tool.run,
     "upsert_vectors": vector_upsert,
