@@ -107,6 +107,7 @@ from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system, publish_bus_event
 from modules.orchestration.capability_registry import get_capability_registry
 from modules.orchestration.message_bus import MessagePriority
+from modules.orchestration import budget_tracker
 from modules.Tools.providers.router import ToolProviderRouter
 
 from ATLAS.config import ConfigManager
@@ -197,10 +198,7 @@ _SECRET_JSON_PATTERN = re.compile(
 )
 
 _DEFAULT_TOOL_TIMEOUT_SECONDS = 30.0
-_DEFAULT_CONVERSATION_TOOL_BUDGET_MS = 120000.0
 
-_conversation_tool_runtime_ms: Dict[str, float] = {}
-_conversation_runtime_lock = threading.Lock()
 
 _SANDBOX_ENV_FLAG = "ATLAS_SANDBOX_ACTIVE"
 _SANDBOX_JAIL_ENV = "ATLAS_TERMINAL_JAIL"
@@ -1324,46 +1322,6 @@ def _resolve_tool_timeout_seconds(config_manager, metadata_timeout: Optional[Any
     return _DEFAULT_TOOL_TIMEOUT_SECONDS
 
 
-def _get_conversation_tool_budget_ms(config_manager) -> Optional[float]:
-    """Return the configured per-conversation tool runtime budget in milliseconds."""
-
-    section = _get_config_section(config_manager, "conversation")
-    if isinstance(section, Mapping):
-        candidate = section.get("max_tool_duration_ms")
-        if isinstance(candidate, (int, float)):
-            if candidate <= 0:
-                return None
-            return float(candidate)
-
-    return _DEFAULT_CONVERSATION_TOOL_BUDGET_MS
-
-
-def _get_conversation_runtime_ms(conversation_id: Optional[str]) -> float:
-    """Return the accumulated runtime for ``conversation_id`` in milliseconds."""
-
-    if not conversation_id:
-        return 0.0
-
-    with _conversation_runtime_lock:
-        return _conversation_tool_runtime_ms.get(conversation_id, 0.0)
-
-
-def _increment_conversation_runtime_ms(conversation_id: Optional[str], duration_ms: float) -> None:
-    """Add ``duration_ms`` to the tracked runtime for ``conversation_id``."""
-
-    if not conversation_id:
-        return
-
-    try:
-        increment = float(duration_ms)
-    except (TypeError, ValueError):  # pragma: no cover - defensive
-        return
-
-    with _conversation_runtime_lock:
-        previous = _conversation_tool_runtime_ms.get(conversation_id, 0.0)
-        _conversation_tool_runtime_ms[conversation_id] = previous + increment
-
-
 def _generate_idempotency_key() -> str:
     """Return a unique key suitable for idempotent tool invocations."""
 
@@ -2392,7 +2350,9 @@ async def use_tool(
     if not tool_call_entries:
         return None
 
-    conversation_budget_ms = _get_conversation_tool_budget_ms(config_manager)
+    conversation_budget_ms = budget_tracker.resolve_conversation_budget_ms(
+        config_manager
+    )
 
     executed_calls: List[Dict[str, Any]] = []
 
@@ -2404,7 +2364,9 @@ async def use_tool(
         logger.debug(f"Function arguments (JSON): {function_args_json}")
 
         if conversation_budget_ms is not None:
-            consumed_ms = _get_conversation_runtime_ms(conversation_id)
+            consumed_ms = await budget_tracker.get_consumed_runtime_ms(
+                conversation_id
+            )
             if consumed_ms >= conversation_budget_ms:
                 budget_message = (
                     "Tool runtime budget exceeded for conversation "
@@ -2748,7 +2710,7 @@ async def use_tool(
                 completed_at = datetime.utcnow()
                 final_completed_at = completed_at
                 duration_ms = (completed_at - started_at).total_seconds() * 1000
-                _increment_conversation_runtime_ms(conversation_id, duration_ms)
+                await budget_tracker.reserve_runtime_ms(conversation_id, duration_ms)
                 log_entry = {
                     "tool_name": function_name,
                     "tool_call_id": tool_call_id,

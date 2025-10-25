@@ -35,6 +35,7 @@ from modules.Tools.Base_Tools.filesystem_io import read_file, write_file, list_d
 from modules.Tools.Base_Tools.structured_parser import StructuredParser
 from modules.Tools.Base_Tools.kv_store import kv_delete, kv_get, kv_increment, kv_set
 from modules.Tools.Base_Tools.vault_secrets import VaultSecretsTool
+from modules.Tools.Base_Tools.budget_limiter import BudgetLimiterTool
 from modules.Tools.Base_Tools.vector_store import (
     delete_namespace as _vector_delete_namespace,
     query_vectors as _vector_query_vectors,
@@ -86,6 +87,7 @@ browser_lite = BrowserLite.from_config(
 )
 calculator_tool = Calculator.from_config(calculator_settings)
 vault_secrets_tool = VaultSecretsTool(config_manager=_config_manager)
+budget_limiter_tool = BudgetLimiterTool(config_manager=_config_manager)
 
 vector_upsert = partial(_vector_upsert_vectors, config_manager=_config_manager)
 vector_query = partial(_vector_query_vectors, config_manager=_config_manager)
@@ -146,6 +148,7 @@ function_map = {
     "calendar_service": calendar_service_tool.run,
     "content_repository": content_repository_tool.run,
     "vault.secrets": vault_secrets_tool.run,
+    "budget.limiter": budget_limiter_tool.run,
     "upsert_vectors": vector_upsert,
     "query_vectors": vector_query,
     "delete_namespace": vector_delete,
