@@ -76,6 +76,7 @@ else:  # pragma: no cover - sanitize stubbed implementations
 from .models import (
     Base,
     Conversation,
+    EpisodicMemory,
     Message,
     MessageAsset,
     MessageEvent,
@@ -154,6 +155,33 @@ def _normalize_status(value: Any) -> str:
         return _DEFAULT_STATUS
     text = str(value).strip()
     return text or _DEFAULT_STATUS
+
+
+def _normalize_episode_tags(tags: Optional[Sequence[Any]]) -> List[str]:
+    normalized: List[str] = []
+    seen: set[str] = set()
+    if not tags:
+        return normalized
+    for tag in tags:
+        if tag is None:
+            continue
+        text = str(tag).strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(text)
+    return normalized
+
+
+def _normalize_json_like(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _normalize_json_like(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_normalize_json_like(item) for item in value]
+    return value
 
 
 def _extract_text_content(payload: Any) -> str:
@@ -1265,6 +1293,175 @@ class ConversationStoreRepository:
                 )
             )
 
+    # -- episodic memory helpers --------------------------------------------
+
+    def append_episodic_memory(
+        self,
+        *,
+        tenant_id: Any,
+        content: Any,
+        tags: Optional[Sequence[Any]] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+        occurred_at: Any | None = None,
+        expires_at: Any | None = None,
+        conversation_id: Any | None = None,
+        message_id: Any | None = None,
+        user_id: Any | None = None,
+        title: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist an episodic memory entry and return the stored payload."""
+
+        if content is None:
+            raise ValueError("Episode content must not be None")
+
+        tenant_key = _normalize_tenant_id(tenant_id)
+        conversation_uuid = _coerce_uuid(conversation_id) if conversation_id is not None else None
+        message_uuid = _coerce_uuid(message_id) if message_id is not None else None
+        user_uuid = _coerce_uuid(user_id) if user_id is not None else None
+
+        tags_payload = _normalize_episode_tags(tags)
+        metadata_payload = dict(metadata or {})
+        content_payload = _normalize_json_like(content)
+
+        occurred_dt = _coerce_dt(occurred_at) if occurred_at is not None else datetime.now(timezone.utc)
+        expires_dt = _coerce_dt(expires_at) if expires_at is not None else None
+
+        title_value = title.strip() if isinstance(title, str) else None
+        if title_value == "":
+            title_value = None
+
+        if conversation_uuid is not None:
+            self.ensure_conversation(conversation_uuid, tenant_id=tenant_key)
+
+        with self._session_scope() as session:
+            record = EpisodicMemory(
+                tenant_id=tenant_key,
+                conversation_id=conversation_uuid,
+                message_id=message_uuid,
+                user_id=user_uuid,
+                title=title_value,
+                content=content_payload,
+                tags=tags_payload,
+                meta=metadata_payload,
+                occurred_at=occurred_dt,
+                expires_at=expires_dt,
+            )
+            session.add(record)
+            session.flush()
+            return self._serialize_episode(record)
+
+    def query_episodic_memories(
+        self,
+        *,
+        tenant_id: Any,
+        tags_all: Optional[Sequence[Any]] = None,
+        tags_any: Optional[Sequence[Any]] = None,
+        from_time: Any | None = None,
+        to_time: Any | None = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        conversation_id: Any | None = None,
+        include_expired: bool = False,
+        order: str = "desc",
+    ) -> List[Dict[str, Any]]:
+        """Query episodic memories for a tenant with optional filters."""
+
+        tenant_key = _normalize_tenant_id(tenant_id)
+        from_dt = _coerce_dt(from_time) if from_time is not None else None
+        to_dt = _coerce_dt(to_time) if to_time is not None else None
+        order_value = str(order or "desc").lower()
+        order_desc = order_value not in {"asc", "ascending"}
+        offset_value = max(int(offset), 0)
+        limit_value = None if limit is None else max(int(limit), 0)
+
+        required_tags = {tag.lower() for tag in _normalize_episode_tags(tags_all)}
+        any_tags = {tag.lower() for tag in _normalize_episode_tags(tags_any)}
+
+        now = datetime.now(timezone.utc)
+
+        with self._session_scope() as session:
+            stmt = select(EpisodicMemory).where(EpisodicMemory.tenant_id == tenant_key)
+            if conversation_id is not None:
+                stmt = stmt.where(EpisodicMemory.conversation_id == _coerce_uuid(conversation_id))
+            if from_dt is not None:
+                stmt = stmt.where(EpisodicMemory.occurred_at >= from_dt)
+            if to_dt is not None:
+                stmt = stmt.where(EpisodicMemory.occurred_at <= to_dt)
+            if not include_expired:
+                stmt = stmt.where(
+                    or_(
+                        EpisodicMemory.expires_at.is_(None),
+                        EpisodicMemory.expires_at > now,
+                    )
+                )
+            if order_desc:
+                stmt = stmt.order_by(EpisodicMemory.occurred_at.desc(), EpisodicMemory.id.desc())
+            else:
+                stmt = stmt.order_by(EpisodicMemory.occurred_at.asc(), EpisodicMemory.id.asc())
+
+            serialized_rows = [
+                self._serialize_episode(record) for record in session.execute(stmt).scalars().all()
+            ]
+
+        episodes: List[Dict[str, Any]] = []
+        for payload in serialized_rows:
+            tags_lower = {
+                str(tag).strip().lower()
+                for tag in payload.get("tags", [])
+                if isinstance(tag, str) and tag.strip()
+            }
+            if required_tags and not required_tags.issubset(tags_lower):
+                continue
+            if any_tags and not tags_lower.intersection(any_tags):
+                continue
+            episodes.append(payload)
+
+        if offset_value:
+            if offset_value >= len(episodes):
+                return []
+            episodes = episodes[offset_value:]
+        if limit_value is not None:
+            episodes = episodes[:limit_value]
+        return episodes
+
+    def prune_episodic_memories(
+        self,
+        *,
+        tenant_id: Any,
+        before: Any | None = None,
+        expired_only: bool = False,
+        limit: Optional[int] = None,
+        conversation_id: Any | None = None,
+    ) -> int:
+        """Delete episodic memories matching filters and return the number removed."""
+
+        tenant_key = _normalize_tenant_id(tenant_id)
+        cutoff = _coerce_dt(before) if before is not None else None
+        now = datetime.now(timezone.utc)
+        limit_value = None if limit is None else max(int(limit), 0)
+
+        with self._session_scope() as session:
+            stmt = select(EpisodicMemory.id).where(EpisodicMemory.tenant_id == tenant_key)
+            if conversation_id is not None:
+                stmt = stmt.where(EpisodicMemory.conversation_id == _coerce_uuid(conversation_id))
+            if cutoff is not None:
+                stmt = stmt.where(EpisodicMemory.occurred_at < cutoff)
+            if expired_only:
+                stmt = stmt.where(EpisodicMemory.expires_at.is_not(None))
+                stmt = stmt.where(EpisodicMemory.expires_at <= now)
+
+            stmt = stmt.order_by(EpisodicMemory.occurred_at.asc(), EpisodicMemory.id.asc())
+            if limit_value is not None:
+                if limit_value == 0:
+                    return 0
+                stmt = stmt.limit(limit_value)
+
+            ids = session.execute(stmt).scalars().all()
+            if not ids:
+                return 0
+            session.execute(delete(EpisodicMemory).where(EpisodicMemory.id.in_(ids)))
+            return len(ids)
+
     # -- inspection helpers --------------------------------------------------
 
     def get_conversation(
@@ -2004,6 +2201,29 @@ class ConversationStoreRepository:
             payload["message_id"] = message.client_message_id
         if message.deleted_at is not None:
             payload["deleted_at"] = message.deleted_at.astimezone(timezone.utc).isoformat()
+        return payload
+
+    def _serialize_episode(self, episode: EpisodicMemory) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "id": str(episode.id),
+            "tenant_id": episode.tenant_id,
+            "content": episode.content,
+            "tags": list(episode.tags or []),
+            "metadata": dict(episode.meta or {}),
+            "occurred_at": episode.occurred_at.astimezone(timezone.utc).isoformat(),
+            "created_at": episode.created_at.astimezone(timezone.utc).isoformat(),
+            "updated_at": episode.updated_at.astimezone(timezone.utc).isoformat(),
+        }
+        if episode.title:
+            payload["title"] = episode.title
+        if episode.conversation_id:
+            payload["conversation_id"] = str(episode.conversation_id)
+        if episode.message_id:
+            payload["message_id"] = str(episode.message_id)
+        if episode.user_id:
+            payload["user_id"] = str(episode.user_id)
+        if episode.expires_at is not None:
+            payload["expires_at"] = episode.expires_at.astimezone(timezone.utc).isoformat()
         return payload
 
     def _upsert_vector_record(

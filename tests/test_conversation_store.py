@@ -45,6 +45,7 @@ def test_schema_contains_expected_tables(engine):
         "message_assets",
         "message_vectors",
         "message_events",
+        "episodic_memories",
     }.issubset(tables)
 
 
