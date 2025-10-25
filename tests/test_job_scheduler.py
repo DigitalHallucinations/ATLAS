@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
+from typing import Any, Mapping
 
 from modules.Jobs.manifest_loader import JobMetadata, load_job_metadata
 from modules.job_store import JobStatus
@@ -83,6 +84,7 @@ class FastQueueStub:
         self.jobs: dict[str, dict[str, object]] = {}
         self._counter = 0
         self.cancelled: set[str] = set()
+        self.immediate: dict[str, dict[str, object]] = {}
 
     def add_monitor(self, callback) -> None:
         self.monitors.append(callback)
@@ -143,6 +145,42 @@ class FastQueueStub:
         self.jobs.pop(job_id, None)
         self.cancelled.add(job_id)
         return {"job_id": job_id, "state": "cancelled"}
+
+    def enqueue_task(
+        self,
+        *,
+        name: str,
+        payload: Mapping[str, Any],
+        idempotency_key: str | None = None,
+        retry_policy: RetryPolicy | None = None,
+    ) -> Mapping[str, Any]:
+        if idempotency_key:
+            job_id = f"immediate-{idempotency_key}"
+        else:
+            self._counter += 1
+            job_id = f"immediate-{self._counter}"
+        policy = retry_policy or self.retry_policy
+        snapshot = {
+            "job_id": job_id,
+            "name": name,
+            "state": "queued",
+            "payload": dict(payload),
+            "retry_policy": policy.to_dict(),
+            "recurring": False,
+        }
+        self.jobs[job_id] = snapshot
+        self.immediate[job_id] = snapshot
+        return snapshot
+
+    def dequeue_immediate(self, job_id: str) -> Mapping[str, Any]:
+        job = self.immediate.pop(job_id)
+        return {
+            "job_id": job_id,
+            "name": job.get("name"),
+            "payload": dict(job.get("payload", {})),
+            "attempt": 1,
+            "recurring": False,
+        }
 
     def emit(
         self,
@@ -324,6 +362,32 @@ def test_resume_manifest_reschedules_job(job_repository):
 
     snapshot = job_repository.get_job(resumed["job_id"], tenant_id="tenant-1", with_schedule=True)
     assert snapshot["schedule"]["metadata"].get("state") == "scheduled"
+
+
+def test_run_now_enqueues_immediate_execution(job_repository):
+    queue = FastQueueStub()
+    manager = JobManagerStub()
+    scheduler = JobScheduler(manager, queue, job_repository, tenant_id="tenant-1")
+    metadata = _build_metadata()
+    registration = scheduler.register_manifest(metadata)
+    assert registration["metadata"].get("task_queue_job_id")
+
+    result = scheduler.run_now(metadata.name, persona=metadata.persona)
+    queue_status = result.get("queue_status")
+    assert queue_status and queue_status.get("state") == "queued"
+
+    executor = scheduler.build_executor()
+    context = queue.dequeue_immediate(queue_status["job_id"])
+    executor(context)
+    assert manager.calls and manager.calls[-1].job_name == metadata.name
+
+    snapshot = job_repository.get_job(
+        registration["job_id"],
+        tenant_id="tenant-1",
+        with_schedule=True,
+    )
+    schedule_meta = snapshot["schedule"]["metadata"]
+    assert schedule_meta.get("last_run", {}).get("job_id") == queue_status["job_id"]
 
 
 def test_executor_invokes_job_manager(job_repository):

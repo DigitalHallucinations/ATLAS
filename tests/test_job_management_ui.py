@@ -2,6 +2,7 @@ import asyncio
 import copy
 import sys
 import types
+from typing import Mapping
 
 sys.modules.setdefault("tests.test_provider_manager", types.ModuleType("tests.test_provider_manager"))
 sys.modules.setdefault("tests.test_speech_settings_facade", types.ModuleType("tests.test_speech_settings_facade"))
@@ -130,6 +131,7 @@ class _JobServerStub:
         }
         self.schedule_actions: list[tuple[str, str]] = []
         self.reruns: list[dict[str, object]] = []
+        self.run_now_requests: list[dict[str, object]] = []
         self.linked_tasks = {
             "job-1": [
                 {
@@ -226,6 +228,37 @@ class _JobServerStub:
                 return payload
         raise RuntimeError("Job not found")
 
+    def run_job_now(
+        self,
+        job_id: str,
+        *,
+        context,
+        expected_updated_at: str | None = None,
+    ):
+        for job in self.jobs:
+            if job["id"] == job_id:
+                metadata = job.setdefault("metadata", {})
+                schedule = metadata.setdefault("schedule", {"metadata": {}})
+                schedule_meta = schedule.setdefault("metadata", {})
+                queue_status = {
+                    "job_id": f"queue-{len(self.run_now_requests) + 1}",
+                    "state": "queued",
+                }
+                schedule_meta["last_run"] = dict(queue_status)
+                job["updated_at"] = f"{job_id}-run-now"
+                record = {
+                    "job_id": job_id,
+                    "expected": expected_updated_at,
+                    "tenant": context.get("tenant_id") if isinstance(context, Mapping) else None,
+                }
+                self.run_now_requests.append(record)
+                payload = copy.deepcopy(job)
+                payload.setdefault("metadata", {})
+                payload["metadata"].setdefault("schedule", copy.deepcopy(schedule))
+                payload["queue_status"] = dict(queue_status)
+                return payload
+        raise RuntimeError("Job not found")
+
     def transition_job(
         self,
         job_id: str,
@@ -311,7 +344,25 @@ class _ParentWindowStub:
     ):
         status = (current_status or "").lower()
         normalized_mode = (mode or "auto").lower()
-        if status == "draft" and normalized_mode != "run_now":
+        if normalized_mode == "run_now":
+            scheduled_payload = None
+            if status == "draft":
+                scheduled_payload = self._transition_job(job_id, "scheduled", updated_at)
+                if isinstance(scheduled_payload, Mapping):
+                    updated_at = scheduled_payload.get("updated_at")
+            run_now = getattr(self.ATLAS.server, "run_job_now", None)
+            if callable(run_now):
+                payload = run_now(
+                    job_id,
+                    context={"tenant_id": self.ATLAS.tenant_id},
+                    expected_updated_at=updated_at,
+                )
+                self.show_success_toast("Job run queued")
+                return payload
+            if scheduled_payload is not None:
+                return scheduled_payload
+            target = "running"
+        elif status == "draft":
             target = "scheduled"
         elif normalized_mode == "resume":
             return self.resume_job(job_id, current_status, updated_at)
@@ -493,7 +544,10 @@ def test_job_management_filters_and_actions(monkeypatch):
     choices = dict(manager._start_confirmation_choices)
     assert "run_now" in choices and "resume" in choices
     choices["run_now"]()
-    assert atlas.server.transitions[-1]["target"] == "running"
+    assert atlas.server.run_now_requests and atlas.server.run_now_requests[-1]["job_id"] == "job-3"
+    assert atlas.server.transitions == before
+    entry = manager._entry_lookup["job-3"]
+    assert entry.metadata.get("schedule", {}).get("metadata", {}).get("last_run", {}).get("state") == "queued"
     assert not manager._start_confirmation_choices
 
     atlas.server.pause_job_schedule(

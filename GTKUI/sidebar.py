@@ -254,12 +254,46 @@ class MainWindow(AtlasWindow):
     ) -> Mapping[str, Any]:
         status = (current_status or "").lower()
         normalized_mode = (mode or "auto").lower()
-        if status == "draft" and normalized_mode != "run_now":
+        server = getattr(self.ATLAS, "server", None)
+        if normalized_mode == "run_now":
+            scheduled_payload: Mapping[str, Any] | None = None
+            if status == "draft":
+                scheduled_payload = self._transition_job(
+                    job_id,
+                    "scheduled",
+                    updated_at=updated_at,
+                )
+                if isinstance(scheduled_payload, Mapping):
+                    updated_at = scheduled_payload.get("updated_at")  # type: ignore[assignment]
+            run_now = getattr(server, "run_job_now", None)
+            if callable(run_now):
+                context = {"tenant_id": getattr(self.ATLAS, "tenant_id", "default")}
+                try:
+                    payload = run_now(
+                        job_id,
+                        context=context,
+                        expected_updated_at=updated_at,
+                    )
+                except Exception:
+                    logger.error("Failed to enqueue immediate run for job %s", job_id, exc_info=True)
+                    raise
+
+                notifier = getattr(self, "show_success_toast", None)
+                if callable(notifier):
+                    notifier("Job run queued")
+                return payload
+
+            if scheduled_payload is not None:
+                return scheduled_payload
+
+            target = "running"
+        elif status == "draft":
             target = "scheduled"
         elif normalized_mode == "resume":
             return self.resume_job(job_id, current_status, updated_at)
         else:
             target = "running"
+
         return self._transition_job(job_id, target, updated_at=updated_at)
 
     def resume_job(
