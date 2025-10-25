@@ -2874,5 +2874,98 @@
                 "operation"
             ]
         }
+    },
+    {
+        "name": "log.event",
+        "version": "1.0.0",
+        "side_effects": "logging",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "telemetry",
+            "observability"
+        ],
+        "description": "Validate and emit structured telemetry events with optional message bus persistence hints.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "event_name": {
+                    "type": "string",
+                    "description": "Fully-qualified event topic name routed on the message bus."
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": [
+                        "debug",
+                        "info",
+                        "notice",
+                        "warning",
+                        "error",
+                        "critical",
+                        "alert",
+                        "emergency"
+                    ],
+                    "description": "Severity level controls logger output and message bus priority mapping."
+                },
+                "payload": {
+                    "type": "object",
+                    "default": {},
+                    "description": "JSON-serializable event payload. Sensitive keys are redacted before publication."
+                },
+                "correlation_id": {
+                    "type": "string",
+                    "description": "Optional correlation identifier to reuse when emitting the message."
+                },
+                "parent_correlation_id": {
+                    "type": "string",
+                    "description": "Optional causation identifier recorded alongside the emitted event."
+                },
+                "logger": {
+                    "type": "string",
+                    "description": "Override the default structured logger that mirrors the sanitized payload."
+                },
+                "persistence": {
+                    "type": "object",
+                    "description": "Hints that control message bus persistence, metadata, and tracing behavior.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "priority": {
+                            "type": [
+                                "string",
+                                "integer"
+                            ],
+                            "description": "Override the inferred message bus priority (high, normal, low or numeric)."
+                        },
+                        "emit_legacy": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Toggle legacy event system fan-out for compatibility subscribers."
+                        },
+                        "metadata": {
+                            "type": "object",
+                            "description": "Arbitrary metadata forwarded to the bus backend only."
+                        },
+                        "tracing": {
+                            "type": "object",
+                            "description": "Structured tracing payload appended to the message envelope."
+                        },
+                        "logger": {
+                            "type": "string",
+                            "description": "Alternate logger name used when mirroring the sanitized event payload."
+                        }
+                    }
+                }
+            },
+            "required": [
+                "event_name",
+                "severity"
+            ]
+        }
     }
 ]

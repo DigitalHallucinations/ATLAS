@@ -103,6 +103,7 @@ from .structured_parser import (
     UnsupportedFormatError,
     InvalidInputError,
 )
+from .log_event import log_event
 
 __all__ = [
     "TerminalCommand",
@@ -201,4 +202,5 @@ __all__ = [
     "get_task_status",
     "WorkspacePublisher",
     "WorkspacePublication",
+    "log_event",
 ]

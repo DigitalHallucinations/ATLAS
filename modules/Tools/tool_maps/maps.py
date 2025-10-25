@@ -36,6 +36,7 @@ from modules.Tools.Base_Tools.structured_parser import StructuredParser
 from modules.Tools.Base_Tools.kv_store import kv_delete, kv_get, kv_increment, kv_set
 from modules.Tools.Base_Tools.vault_secrets import VaultSecretsTool
 from modules.Tools.Base_Tools.budget_limiter import BudgetLimiterTool
+from modules.Tools.Base_Tools.log_event import log_event
 from modules.Tools.Base_Tools.vector_store import (
     delete_namespace as _vector_delete_namespace,
     query_vectors as _vector_query_vectors,
@@ -156,4 +157,5 @@ function_map = {
     "task_queue_schedule": task_queue_schedule,
     "task_queue_cancel": task_queue_cancel,
     "task_queue_status": task_queue_status,
+    "log.event": log_event,
 }
