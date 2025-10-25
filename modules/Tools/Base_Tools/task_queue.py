@@ -351,6 +351,15 @@ class TaskQueueService:
         with self._monitor_lock:
             self._monitor_callbacks.append(callback)
 
+    def set_executor(self, executor: TaskExecutor) -> None:
+        """Replace the callable invoked when jobs are executed."""
+
+        if not callable(executor):
+            raise TypeError("Executor must be callable")
+
+        with self._lock:
+            self._executor = executor
+
     def remove_monitor(self, callback: TaskMonitor) -> None:
         with self._monitor_lock:
             try:

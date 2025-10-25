@@ -37,7 +37,13 @@ from modules.orchestration.message_bus import (
     RedisStreamBackend,
     configure_message_bus,
 )
+from modules.job_store import JobService
+from modules.job_store.repository import JobStoreRepository
 from modules.task_store import TaskService, TaskStoreRepository
+from modules.Tools.Base_Tools.task_queue import (
+    TaskQueueService,
+    get_default_task_queue_service,
+)
 from urllib.parse import urlparse
 
 _UNSET = object()
@@ -282,6 +288,9 @@ class ConfigManager:
         self._task_session_factory: sessionmaker | None = None
         self._task_repository: TaskStoreRepository | None = None
         self._task_service: TaskService | None = None
+        self._job_repository: JobStoreRepository | None = None
+        self._job_service: JobService | None = None
+        self._task_queue_service: TaskQueueService | None = None
 
     def _normalize_network_allowlist(self, value):
         """Return a sanitized allowlist for sandboxed tool networking."""
@@ -437,6 +446,53 @@ class ConfigManager:
 
         service = TaskService(repository)
         self._task_service = service
+        return service
+
+    def get_job_repository(self) -> JobStoreRepository | None:
+        """Return a configured repository for scheduled job persistence."""
+
+        if self._job_repository is not None:
+            return self._job_repository
+
+        factory = self.get_task_store_session_factory()
+        if factory is None:
+            return None
+
+        repository = JobStoreRepository(factory)
+        try:
+            repository.create_schema()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.warning("Failed to initialize job store schema: %s", exc)
+        self._job_repository = repository
+        return repository
+
+    def get_job_service(self) -> JobService | None:
+        """Return the job orchestration service backed by the repository."""
+
+        if self._job_service is not None:
+            return self._job_service
+
+        repository = self.get_job_repository()
+        if repository is None:
+            return None
+
+        service = JobService(repository)
+        self._job_service = service
+        return service
+
+    def get_default_task_queue_service(self) -> TaskQueueService | None:
+        """Return the shared task queue service used for scheduled jobs."""
+
+        if self._task_queue_service is not None:
+            return self._task_queue_service
+
+        try:
+            service = get_default_task_queue_service(config_manager=self)
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.warning("Failed to initialize task queue service: %s", exc)
+            return None
+
+        self._task_queue_service = service
         return service
 
     def _build_conversation_store_session_factory(
