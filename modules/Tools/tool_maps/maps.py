@@ -42,6 +42,7 @@ from modules.Tools.Base_Tools.log_event import log_event
 from modules.Tools.Base_Tools.hitl_approval import HITLApprovalTool
 from modules.Tools.Base_Tools.trace_explain import trace_explain
 from modules.Tools.Base_Tools.eval_judge import eval_judge
+from modules.Tools.Base_Tools.eval_regression import eval_regression
 from modules.Tools.Base_Tools.vector_store import (
     delete_namespace as _vector_delete_namespace,
     query_vectors as _vector_query_vectors,
@@ -173,4 +174,5 @@ function_map = {
     "hitl.approval": hitl_approval_tool.run,
     "trace.explain": trace_explain,
     "eval.judge": eval_judge,
+    "eval.regression": eval_regression,
 }
