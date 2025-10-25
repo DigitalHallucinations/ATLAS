@@ -100,6 +100,7 @@ class JobManagement:
         self._start_confirmation_widget: Optional[Gtk.Widget] = None
         self._start_confirmation_handler: Optional[Callable[[str], None]] = None
         self._start_confirmation_choices: Dict[str, Callable[[], None]] = {}
+        self._suppress_filter_refresh = False
 
         # Cached detail data for tests and scripted validation
         self._current_schedule_badges: List[str] = []
@@ -292,9 +293,13 @@ class JobManagement:
         entries = self._load_job_entries()
         self._entries = entries
         self._entry_lookup = {entry.job_id: entry for entry in entries}
-        self._populate_persona_filter_options()
-        self._populate_status_filter_options()
-        self._populate_recurrence_filter_options()
+        self._suppress_filter_refresh = True
+        try:
+            self._populate_persona_filter_options()
+            self._populate_status_filter_options()
+            self._populate_recurrence_filter_options()
+        finally:
+            self._suppress_filter_refresh = False
         self._rebuild_job_list()
 
     def _schedule_refresh(self) -> None:
@@ -423,77 +428,94 @@ class JobManagement:
         combo = self._persona_filter_combo
         if combo is None:
             return
-        if hasattr(combo, "remove_all"):
-            combo.remove_all()
+        previous_guard = self._suppress_filter_refresh
+        self._suppress_filter_refresh = True
+        try:
+            if hasattr(combo, "remove_all"):
+                combo.remove_all()
 
-        personas = sorted({persona for entry in self._entries for persona in entry.personas})
-        has_unassigned = any(not entry.personas for entry in self._entries)
+            personas = sorted({persona for entry in self._entries for persona in entry.personas})
+            has_unassigned = any(not entry.personas for entry in self._entries)
 
-        options: List[Tuple[Optional[str], str]] = [(None, "All personas")]
-        options.extend((name, name) for name in personas)
-        if has_unassigned:
-            options.append((self._PERSONA_UNASSIGNED, "Unassigned"))
+            options: List[Tuple[Optional[str], str]] = [(None, "All personas")]
+            options.extend((name, name) for name in personas)
+            if has_unassigned:
+                options.append((self._PERSONA_UNASSIGNED, "Unassigned"))
 
-        self._persona_option_lookup = []
-        for index, (value, label) in enumerate(options):
-            combo.append_text(label)
-            self._persona_option_lookup.append(value)
-            if value == self._persona_filter:
-                combo.set_active(index)
+            self._persona_option_lookup = []
+            for index, (value, label) in enumerate(options):
+                combo.append_text(label)
+                self._persona_option_lookup.append(value)
+                if value == self._persona_filter:
+                    combo.set_active(index)
 
-        if combo.get_active_text() is None:
-            combo.set_active(0)
-            self._persona_filter = None
+            if combo.get_active_text() is None:
+                combo.set_active(0)
+                self._persona_filter = None
+        finally:
+            self._suppress_filter_refresh = previous_guard
 
     def _populate_status_filter_options(self) -> None:
         combo = self._status_filter_combo
         if combo is None:
             return
-        if hasattr(combo, "remove_all"):
-            combo.remove_all()
+        previous_guard = self._suppress_filter_refresh
+        self._suppress_filter_refresh = True
+        try:
+            if hasattr(combo, "remove_all"):
+                combo.remove_all()
 
-        options: List[Tuple[Optional[str], str]] = [(None, "All statuses")]
-        options.extend((status, self._format_status(status)) for status in self._STATUS_SEQUENCE)
+            options: List[Tuple[Optional[str], str]] = [(None, "All statuses")]
+            options.extend((status, self._format_status(status)) for status in self._STATUS_SEQUENCE)
 
-        self._status_option_lookup = []
-        for index, (value, label) in enumerate(options):
-            combo.append_text(label)
-            self._status_option_lookup.append(value)
-            if value == self._status_filter:
-                combo.set_active(index)
+            self._status_option_lookup = []
+            for index, (value, label) in enumerate(options):
+                combo.append_text(label)
+                self._status_option_lookup.append(value)
+                if value == self._status_filter:
+                    combo.set_active(index)
 
-        if combo.get_active_text() is None:
-            combo.set_active(0)
-            self._status_filter = None
+            if combo.get_active_text() is None:
+                combo.set_active(0)
+                self._status_filter = None
+        finally:
+            self._suppress_filter_refresh = previous_guard
 
     def _populate_recurrence_filter_options(self) -> None:
         combo = self._recurrence_filter_combo
         if combo is None:
             return
-        if hasattr(combo, "remove_all"):
-            combo.remove_all()
+        previous_guard = self._suppress_filter_refresh
+        self._suppress_filter_refresh = True
+        try:
+            if hasattr(combo, "remove_all"):
+                combo.remove_all()
 
-        options: List[Tuple[Optional[str], str]] = [(None, "All recurrence patterns")]
-        if any(self._entry_is_recurring(entry) for entry in self._entries):
-            options.append((self._RECURRENCE_RECURRING, "Recurring"))
-        if any(not self._entry_is_recurring(entry) for entry in self._entries):
-            options.append((self._RECURRENCE_ONE_OFF, "One-off"))
+            options: List[Tuple[Optional[str], str]] = [(None, "All recurrence patterns")]
+            if any(self._entry_is_recurring(entry) for entry in self._entries):
+                options.append((self._RECURRENCE_RECURRING, "Recurring"))
+            if any(not self._entry_is_recurring(entry) for entry in self._entries):
+                options.append((self._RECURRENCE_ONE_OFF, "One-off"))
 
-        self._recurrence_option_lookup = []
-        for index, (value, label) in enumerate(options):
-            combo.append_text(label)
-            self._recurrence_option_lookup.append(value)
-            if value == self._recurrence_filter:
-                combo.set_active(index)
+            self._recurrence_option_lookup = []
+            for index, (value, label) in enumerate(options):
+                combo.append_text(label)
+                self._recurrence_option_lookup.append(value)
+                if value == self._recurrence_filter:
+                    combo.set_active(index)
 
-        if combo.get_active_text() is None:
-            combo.set_active(0)
-            self._recurrence_filter = None
+            if combo.get_active_text() is None:
+                combo.set_active(0)
+                self._recurrence_filter = None
+        finally:
+            self._suppress_filter_refresh = previous_guard
 
     def _entry_is_recurring(self, entry: _JobEntry) -> bool:
         return bool(entry.recurrence)
 
     def _on_persona_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_filter_refresh:
+            return
         index = self._combo_active_index(combo)
         if 0 <= index < len(self._persona_option_lookup):
             self._persona_filter = self._persona_option_lookup[index]
@@ -502,6 +524,8 @@ class JobManagement:
         self._rebuild_job_list()
 
     def _on_status_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_filter_refresh:
+            return
         index = self._combo_active_index(combo)
         if 0 <= index < len(self._status_option_lookup):
             self._status_filter = self._status_option_lookup[index]
@@ -515,6 +539,8 @@ class JobManagement:
             self._on_persona_filter_changed(persona_combo)
 
     def _on_recurrence_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_filter_refresh:
+            return
         index = self._combo_active_index(combo)
         if 0 <= index < len(self._recurrence_option_lookup):
             self._recurrence_filter = self._recurrence_option_lookup[index]

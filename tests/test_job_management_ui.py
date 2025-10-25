@@ -368,6 +368,28 @@ def test_job_management_filters_and_actions(monkeypatch):
     assert atlas.server.transitions[-1]["target"] == "scheduled"
 
 
+def test_status_filter_set_active_triggers_single_refresh(monkeypatch):
+    _register_bus_stub(monkeypatch)
+    atlas = _AtlasStub()
+    parent = _ParentWindowStub(atlas)
+
+    manager = JobManagement(atlas, parent)
+    manager.get_embeddable_widget()
+
+    status_combo = manager._status_filter_combo
+    assert status_combo is not None
+    status_items = list(getattr(status_combo, "_items", []))
+    assert "Running" in status_items
+    running_index = status_items.index("Running")
+
+    initial_fetches = atlas.job_fetches
+    status_combo.set_active(running_index)
+
+    assert atlas.job_fetches == initial_fetches + 1
+    assert manager._status_filter == "running"
+    assert {entry.job_id for entry in manager._display_entries} == {"job-2"}
+
+
 def test_job_management_bus_refresh(monkeypatch):
     subscriptions = _register_bus_stub(monkeypatch)
     atlas = _AtlasStub()
