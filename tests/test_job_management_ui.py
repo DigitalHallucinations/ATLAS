@@ -208,10 +208,29 @@ class _ParentWindowStub:
             expected_updated_at=updated_at,
         )
 
-    def start_job(self, job_id: str, current_status: str, updated_at: str | None):
-        target = "scheduled" if (current_status or "").lower() == "draft" else "running"
+    def start_job(
+        self,
+        job_id: str,
+        current_status: str,
+        updated_at: str | None,
+        *,
+        mode: str = "auto",
+    ):
+        status = (current_status or "").lower()
+        normalized_mode = (mode or "auto").lower()
+        if status == "draft" and normalized_mode != "run_now":
+            target = "scheduled"
+        elif normalized_mode == "resume":
+            return self.resume_job(job_id, current_status, updated_at)
+        else:
+            target = "running"
         payload = self._transition_job(job_id, target, updated_at)
         self.show_success_toast(f"Job moved to {target.title()}")
+        return payload
+
+    def resume_job(self, job_id: str, current_status: str, updated_at: str | None):
+        payload = self._transition_job(job_id, "scheduled", updated_at)
+        self.show_success_toast("Job moved to Scheduled")
         return payload
 
     def pause_job(self, job_id: str, current_status: str, updated_at: str | None):
@@ -323,6 +342,30 @@ def test_job_management_filters_and_actions(monkeypatch):
     assert rerun_button is not None and rerun_button.visible
     _click(rerun_button)
     assert atlas.server.transitions[-1]["target"] == "running"
+
+    manager._select_job("job-3")
+    start_button = manager._start_button
+    assert start_button is not None and start_button.visible
+    before = list(atlas.server.transitions)
+    _click(start_button)
+    assert atlas.server.transitions == before, "No transition should occur without confirmation"
+    choices = dict(manager._start_confirmation_choices)
+    assert "run_now" in choices and "resume" in choices
+    choices["run_now"]()
+    assert atlas.server.transitions[-1]["target"] == "running"
+    assert not manager._start_confirmation_choices
+
+    job_record = next(job for job in atlas.server.jobs if job["id"] == "job-3")
+    job_record["status"] = "cancelled"
+    job_record.setdefault("metadata", {})["schedule_state"] = "paused"
+    job_record["updated_at"] = "paused-timestamp"
+    manager._refresh_state()
+    manager._select_job("job-3")
+    _click(start_button)
+    paused_choices = dict(manager._start_confirmation_choices)
+    assert "resume" in paused_choices
+    paused_choices["resume"]()
+    assert atlas.server.transitions[-1]["target"] == "scheduled"
 
 
 def test_job_management_bus_refresh(monkeypatch):
