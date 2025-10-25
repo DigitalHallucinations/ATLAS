@@ -265,11 +265,49 @@ class MainWindow(AtlasWindow):
     def resume_job(
         self, job_id: str, current_status: str, updated_at: str | None
     ) -> Mapping[str, Any]:
+        server = getattr(self.ATLAS, "server", None)
+        resume_schedule = getattr(server, "resume_job_schedule", None)
+        if callable(resume_schedule):
+            context = {"tenant_id": getattr(self.ATLAS, "tenant_id", "default")}
+            try:
+                payload = resume_schedule(
+                    job_id,
+                    context=context,
+                    expected_updated_at=updated_at,
+                )
+            except Exception:
+                logger.error("Failed to resume job schedule %s", job_id, exc_info=True)
+                raise
+
+            notifier = getattr(self, "show_success_toast", None)
+            if callable(notifier):
+                notifier("Job schedule resumed")
+            return payload
+
         return self._transition_job(job_id, "scheduled", updated_at=updated_at)
 
     def pause_job(
         self, job_id: str, current_status: str, updated_at: str | None
     ) -> Mapping[str, Any]:
+        server = getattr(self.ATLAS, "server", None)
+        pause_schedule = getattr(server, "pause_job_schedule", None)
+        if callable(pause_schedule):
+            context = {"tenant_id": getattr(self.ATLAS, "tenant_id", "default")}
+            try:
+                payload = pause_schedule(
+                    job_id,
+                    context=context,
+                    expected_updated_at=updated_at,
+                )
+            except Exception:
+                logger.error("Failed to pause job schedule %s", job_id, exc_info=True)
+                raise
+
+            notifier = getattr(self, "show_success_toast", None)
+            if callable(notifier):
+                notifier("Job schedule paused")
+            return payload
+
         status = (current_status or "").lower()
         if status == "scheduled":
             target = "cancelled"

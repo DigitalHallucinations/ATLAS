@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict, Iterable, Mapping, Optional
+from typing import Any, AsyncIterator, Dict, Iterable, Mapping, Optional, Tuple
 
 from jsonschema import Draft202012Validator
 
 from modules.logging.logger import setup_logger
 from modules.orchestration.job_manager import JobManager
+from modules.orchestration.job_scheduler import JobScheduler
 from modules.orchestration.message_bus import MessageBus
 from modules.job_store.repository import JobConcurrencyError, JobNotFoundError
 from modules.job_store.service import (
@@ -96,12 +97,14 @@ class JobRoutes:
         service: JobService,
         *,
         manager: JobManager | None = None,
+        scheduler: JobScheduler | None = None,
         message_bus: MessageBus | None = None,
         page_size_limit: int = 100,
         poll_interval: float = 0.5,
     ) -> None:
         self._service = service
         self._manager = manager
+        self._scheduler = scheduler
         self._bus = message_bus
         self._page_size_limit = max(int(page_size_limit), 1)
         self._poll_interval = max(float(poll_interval), 0.05)
@@ -252,6 +255,94 @@ class JobRoutes:
             raise JobConflictError(str(exc)) from exc
         except (ValueError, TypeError) as exc:
             raise JobValidationError(str(exc)) from exc
+
+    def pause_schedule(
+        self,
+        job_id: str,
+        *,
+        context: RequestContext,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        self._require_context(context)
+        scheduler = self._require_scheduler()
+
+        try:
+            job_record = self._service.get_job(
+                job_id,
+                tenant_id=context.tenant_id,
+                with_schedule=True,
+            )
+        except JobNotFoundError as exc:
+            raise JobNotFoundRouteError(str(exc)) from exc
+
+        if expected_updated_at is not None:
+            current = job_record.get("updated_at")
+            if current is not None and str(current) != str(expected_updated_at):
+                raise JobConflictError("Job has been modified since it was last refreshed")
+
+        schedule = job_record.get("schedule")
+        if not isinstance(schedule, Mapping):
+            raise JobRouteError("Job does not have a configured schedule", status_code=409)
+
+        manifest_name, persona = self._resolve_manifest_identity(job_record)
+        if not manifest_name:
+            raise JobRouteError("Job manifest metadata is unavailable", status_code=409)
+
+        try:
+            scheduler.pause_manifest(manifest_name, persona=persona)
+        except JobNotFoundError as exc:
+            raise JobNotFoundRouteError(str(exc)) from exc
+
+        updated = self._service.get_job(
+            job_id,
+            tenant_id=context.tenant_id,
+            with_schedule=True,
+        )
+        return self._merge_schedule_metadata(updated)
+
+    def resume_schedule(
+        self,
+        job_id: str,
+        *,
+        context: RequestContext,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        self._require_context(context)
+        scheduler = self._require_scheduler()
+
+        try:
+            job_record = self._service.get_job(
+                job_id,
+                tenant_id=context.tenant_id,
+                with_schedule=True,
+            )
+        except JobNotFoundError as exc:
+            raise JobNotFoundRouteError(str(exc)) from exc
+
+        if expected_updated_at is not None:
+            current = job_record.get("updated_at")
+            if current is not None and str(current) != str(expected_updated_at):
+                raise JobConflictError("Job has been modified since it was last refreshed")
+
+        schedule = job_record.get("schedule")
+        if not isinstance(schedule, Mapping):
+            raise JobRouteError("Job does not have a configured schedule", status_code=409)
+
+        manifest_name, persona = self._resolve_manifest_identity(job_record)
+        if not manifest_name:
+            raise JobRouteError("Job manifest metadata is unavailable", status_code=409)
+
+        try:
+            scheduler.resume_manifest(manifest_name, persona=persona)
+        except JobNotFoundError as exc:
+            raise JobNotFoundRouteError(str(exc)) from exc
+
+        updated = self._service.get_job(
+            job_id,
+            tenant_id=context.tenant_id,
+            with_schedule=True,
+        )
+        return self._merge_schedule_metadata(updated)
 
     def get_job(
         self,
@@ -461,6 +552,11 @@ class JobRoutes:
         if context is None or not context.tenant_id:
             raise JobAuthorizationError("A tenant scoped context is required")
 
+    def _require_scheduler(self) -> JobScheduler:
+        if self._scheduler is None:
+            raise JobRouteError("Job scheduler is not configured", status_code=503)
+        return self._scheduler
+
     def _event_topics(self) -> Iterable[str]:
         return (
             "jobs.created",
@@ -519,6 +615,44 @@ class JobRoutes:
             payload.setdefault("job_id", event.get("job_id"))
         if "event_type" not in payload and "event" in payload:
             payload["event_type"] = str(payload["event"])
+        return payload
+
+    def _resolve_manifest_identity(
+        self, job_record: Mapping[str, Any]
+    ) -> Tuple[str, Optional[str]]:
+        metadata = job_record.get("metadata") if isinstance(job_record.get("metadata"), Mapping) else {}
+        manifest_info = metadata.get("manifest") if isinstance(metadata.get("manifest"), Mapping) else {}
+        manifest_name = str(manifest_info.get("name") or "").strip()
+        persona_value = manifest_info.get("persona")
+        if persona_value is not None:
+            persona_value = str(persona_value).strip() or None
+
+        if not manifest_name:
+            raw_name = str(job_record.get("name") or "").strip()
+            if raw_name:
+                if "::" in raw_name:
+                    base, persona_hint = raw_name.split("::", 1)
+                    manifest_name = base.strip()
+                    if persona_value is None and persona_hint:
+                        persona_value = persona_hint.strip() or None
+                else:
+                    manifest_name = raw_name
+
+        return manifest_name, persona_value
+
+    def _merge_schedule_metadata(self, job_record: Mapping[str, Any]) -> Dict[str, Any]:
+        payload = dict(job_record)
+        schedule = payload.get("schedule")
+        if isinstance(schedule, Mapping):
+            metadata = payload.get("metadata")
+            metadata_payload = dict(metadata) if isinstance(metadata, Mapping) else {}
+            metadata_payload["schedule"] = dict(schedule)
+            schedule_meta = schedule.get("metadata")
+            if isinstance(schedule_meta, Mapping):
+                state = schedule_meta.get("state")
+                if state is not None:
+                    metadata_payload["schedule_state"] = state
+            payload["metadata"] = metadata_payload
         return payload
 
 

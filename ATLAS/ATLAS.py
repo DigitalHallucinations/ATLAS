@@ -374,8 +374,14 @@ class ATLAS:
 
         repository = self.config_manager.get_job_repository()
         queue_service = self.config_manager.get_default_task_queue_service()
+        manager_setter = getattr(self.config_manager, "set_job_manager", None)
+        scheduler_setter = getattr(self.config_manager, "set_job_scheduler", None)
 
         if repository is None or queue_service is None:
+            if callable(manager_setter):
+                manager_setter(None)
+            if callable(scheduler_setter):
+                scheduler_setter(None)
             self.logger.debug(
                 "Job scheduling unavailable (repository=%s, queue=%s)",
                 bool(repository),
@@ -387,6 +393,11 @@ class ATLAS:
         task_manager = TaskManager(runners, message_bus=self.message_bus)
         job_manager = JobManager(task_manager, message_bus=self.message_bus)
         scheduler = JobScheduler(job_manager, queue_service, repository, tenant_id=self.tenant_id)
+
+        if callable(manager_setter):
+            manager_setter(job_manager)
+        if callable(scheduler_setter):
+            scheduler_setter(scheduler)
 
         executor = scheduler.build_executor()
         try:

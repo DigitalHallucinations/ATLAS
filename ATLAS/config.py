@@ -1,11 +1,13 @@
 # ATLAS/config.py
 
+from __future__ import annotations
+
 import copy
 import json
 import os
 import shlex
 from collections.abc import Mapping, Sequence
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 try:  # pragma: no cover - optional dependency handling for test environments
     from sqlalchemy import create_engine
@@ -53,6 +55,11 @@ from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
 from modules.logging.logger import setup_logger
 from dotenv import load_dotenv, set_key, find_dotenv
 import yaml
+
+
+if TYPE_CHECKING:
+    from modules.orchestration.job_manager import JobManager
+    from modules.orchestration.job_scheduler import JobScheduler
 
 class ConfigManager:
     UNSET = _UNSET
@@ -291,6 +298,8 @@ class ConfigManager:
         self._job_repository: JobStoreRepository | None = None
         self._job_service: JobService | None = None
         self._task_queue_service: TaskQueueService | None = None
+        self._job_manager: "JobManager" | None = None
+        self._job_scheduler: "JobScheduler" | None = None
 
     def _normalize_network_allowlist(self, value):
         """Return a sanitized allowlist for sandboxed tool networking."""
@@ -479,6 +488,26 @@ class ConfigManager:
         service = JobService(repository)
         self._job_service = service
         return service
+
+    def get_job_manager(self) -> "JobManager" | None:
+        """Return the active job manager registered with the configuration."""
+
+        return self._job_manager
+
+    def set_job_manager(self, manager: "JobManager" | None) -> None:
+        """Record the active job manager for downstream consumers."""
+
+        self._job_manager = manager
+
+    def get_job_scheduler(self) -> "JobScheduler" | None:
+        """Return the active job scheduler registered with the configuration."""
+
+        return self._job_scheduler
+
+    def set_job_scheduler(self, scheduler: "JobScheduler" | None) -> None:
+        """Record the active job scheduler for downstream consumers."""
+
+        self._job_scheduler = scheduler
 
     def get_default_task_queue_service(self) -> TaskQueueService | None:
         """Return the shared task queue service used for scheduled jobs."""

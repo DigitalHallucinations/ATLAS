@@ -38,6 +38,7 @@ from modules.orchestration.capability_registry import (
     get_capability_registry,
 )
 from modules.orchestration.job_manager import JobManager
+from modules.orchestration.job_scheduler import JobScheduler
 from modules.orchestration.message_bus import MessageBus
 
 if TYPE_CHECKING:
@@ -107,6 +108,7 @@ class AtlasServer:
         self._task_service: "TaskService" | None = task_service
         self._job_service: "JobService" | None = job_service
         self._job_manager: JobManager | None = job_manager
+        self._job_scheduler: JobScheduler | None = None
         self._conversation_routes: ConversationRoutes | None = None
         self._task_routes: TaskRoutes | None = None
         self._job_routes: JobRoutes | None = None
@@ -214,6 +216,18 @@ class AtlasServer:
             logger.warning("Failed to initialize job manager: %s", exc)
             return None
 
+    def _build_job_scheduler(self) -> JobScheduler | None:
+        if self._config_manager is None:
+            return None
+        getter = getattr(self._config_manager, "get_job_scheduler", None)
+        if not callable(getter):
+            return None
+        try:
+            return getter()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.warning("Failed to initialize job scheduler: %s", exc)
+            return None
+
     def _ensure_job_routes(self) -> JobRoutes | None:
         if self._job_routes is not None:
             return self._job_routes
@@ -228,10 +242,13 @@ class AtlasServer:
         self._job_service = job_service
         if self._job_manager is None:
             self._job_manager = self._build_job_manager()
+        if self._job_scheduler is None:
+            self._job_scheduler = self._build_job_scheduler()
 
         self._job_routes = JobRoutes(
             job_service,
             manager=self._job_manager,
+            scheduler=self._job_scheduler,
             message_bus=self._message_bus,
         )
         return self._job_routes
@@ -1152,6 +1169,36 @@ class AtlasServer:
         return routes.transition_job(
             job_id,
             target_status,
+            context=request_context,
+            expected_updated_at=expected_updated_at,
+        )
+
+    def pause_job_schedule(
+        self,
+        job_id: str,
+        *,
+        context: Any,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        routes = self._require_job_routes()
+        request_context = self._coerce_context(context)
+        return routes.pause_schedule(
+            job_id,
+            context=request_context,
+            expected_updated_at=expected_updated_at,
+        )
+
+    def resume_job_schedule(
+        self,
+        job_id: str,
+        *,
+        context: Any,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        routes = self._require_job_routes()
+        request_context = self._coerce_context(context)
+        return routes.resume_schedule(
+            job_id,
             context=request_context,
             expected_updated_at=expected_updated_at,
         )
