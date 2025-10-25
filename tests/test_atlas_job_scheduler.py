@@ -1,0 +1,31 @@
+import pytest
+
+pytest.importorskip(
+    "sqlalchemy",
+    reason="SQLAlchemy is required to initialize the job scheduler",
+)
+pytest.importorskip(
+    "sqlalchemy.exc",
+    reason="SQLAlchemy exception helpers are required for job scheduler tests",
+)
+
+from ATLAS.ATLAS import ATLAS
+
+
+@pytest.mark.asyncio
+async def test_initialize_registers_job_manifests(tmp_path, monkeypatch):
+    db_path = tmp_path / "atlas.sqlite"
+    monkeypatch.setenv("CONVERSATION_DATABASE_URL", f"sqlite:///{db_path}")
+
+    atlas = ATLAS()
+    try:
+        await atlas.initialize()
+        assert atlas.job_scheduler is not None
+
+        repository = atlas.config_manager.get_job_repository()
+        assert repository is not None
+
+        jobs = repository.list_jobs(tenant_id=atlas.tenant_id)
+        assert jobs["items"], "Expected at least one scheduled job manifest"
+    finally:
+        await atlas.close()

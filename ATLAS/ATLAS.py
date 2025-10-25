@@ -4,6 +4,7 @@ import base64
 import binascii
 import copy
 import getpass
+import inspect
 import json
 from datetime import datetime
 from collections.abc import AsyncIterator as AbcAsyncIterator, Mapping, Sequence as AbcSequence
@@ -31,8 +32,12 @@ from modules.Speech_Services.speech_manager import SpeechManager
 from modules.background_tasks import run_async_in_thread
 from modules.user_accounts.user_account_service import PasswordRequirements
 from modules.Server import AtlasServer
-from modules.orchestration.capability_registry import get_capability_registry
 from modules.Skills import load_skill_metadata
+from modules.orchestration.capability_registry import get_capability_registry
+from modules.orchestration.job_manager import JobManager
+from modules.orchestration.job_scheduler import JobScheduler
+from modules.orchestration.task_manager import TaskManager
+from modules.Jobs.manifest_loader import load_job_metadata
 
 class ATLAS:
     """
@@ -65,6 +70,12 @@ class ATLAS:
         self.server = AtlasServer(config_manager=self.config_manager)
         self.conversation_repository: ConversationStoreRepository | None = None
         self._conversation_history_listeners: List[Callable[[Dict[str, Any]], None]] = []
+        self.task_manager: TaskManager | None = None
+        self.job_manager: JobManager | None = None
+        self.job_scheduler: JobScheduler | None = None
+        self.job_repository = None
+        self.job_service = None
+        self._task_queue_service = None
 
         tenant_value = self.config_manager.config.get("tenant_id")
         if tenant_value is None:
@@ -354,6 +365,168 @@ class ATLAS:
                     manager._skill_metadata_cache = None
             except Exception as exc:  # pragma: no cover - defensive guard
                 self.logger.debug("Failed to reset persona skill metadata cache: %s", exc)
+
+    def _initialize_job_scheduling(self) -> None:
+        """Bootstrap job orchestration services and register manifests."""
+
+        if self.job_scheduler is not None:
+            return
+
+        repository = self.config_manager.get_job_repository()
+        queue_service = self.config_manager.get_default_task_queue_service()
+
+        if repository is None or queue_service is None:
+            self.logger.debug(
+                "Job scheduling unavailable (repository=%s, queue=%s)",
+                bool(repository),
+                bool(queue_service),
+            )
+            return
+
+        runners = self._build_task_runners()
+        task_manager = TaskManager(runners, message_bus=self.message_bus)
+        job_manager = JobManager(task_manager, message_bus=self.message_bus)
+        scheduler = JobScheduler(job_manager, queue_service, repository, tenant_id=self.tenant_id)
+
+        executor = scheduler.build_executor()
+        try:
+            queue_service.set_executor(executor)
+        except AttributeError:  # pragma: no cover - compatibility with legacy queue
+            queue_service._executor = executor  # type: ignore[attr-defined]
+
+        manifests = load_job_metadata(config_manager=self.config_manager)
+        registered = 0
+        for metadata in manifests:
+            try:
+                scheduler.register_manifest(metadata)
+            except Exception as exc:  # pragma: no cover - defensive guard during bootstrap
+                self.logger.warning(
+                    "Failed to register job manifest '%s': %s",
+                    metadata.name,
+                    exc,
+                )
+            else:
+                registered += 1
+
+        self.logger.info("Registered %s job manifest(s) for scheduling.", registered)
+
+        self.task_manager = task_manager
+        self.job_manager = job_manager
+        self.job_scheduler = scheduler
+        self.job_repository = repository
+        self.job_service = self.config_manager.get_job_service()
+        self._task_queue_service = queue_service
+
+    def _build_task_runners(self) -> Dict[str, Callable]:
+        """Construct step runners backed by the tool function maps."""
+
+        runners: Dict[str, Callable] = {}
+
+        def _register(function_map: Mapping[str, Any] | None) -> None:
+            if not isinstance(function_map, Mapping):
+                return
+            for name, entry in function_map.items():
+                try:
+                    callable_obj = ToolManagerModule._resolve_function_callable(entry)
+                except Exception as exc:  # pragma: no cover - defensive guard
+                    self.logger.debug("Failed to resolve callable for tool '%s': %s", name, exc)
+                    continue
+                if not callable(callable_obj):
+                    continue
+                runners[name] = self._wrap_tool_callable(callable_obj)
+
+        try:
+            shared_map = ToolManagerModule.load_default_function_map(
+                config_manager=self.config_manager
+            )
+        except Exception as exc:  # pragma: no cover - defensive guard
+            self.logger.warning("Failed to load shared tool map: %s", exc)
+            shared_map = {}
+
+        _register(shared_map)
+
+        manager = getattr(self, "persona_manager", None)
+        persona_names = getattr(manager, "persona_names", []) if manager is not None else []
+        for persona_name in persona_names or []:
+            persona_payload = {"name": persona_name}
+            try:
+                persona_map = ToolManagerModule.load_function_map_from_current_persona(
+                    persona_payload,
+                    config_manager=self.config_manager,
+                )
+            except Exception as exc:  # pragma: no cover - persona-specific loaders may fail
+                self.logger.debug(
+                    "Failed to load tool map for persona '%s': %s", persona_name, exc
+                )
+                continue
+            _register(persona_map)
+
+        return runners
+
+    def _wrap_tool_callable(self, func: Callable[..., Any]) -> Callable:
+        """Adapt a tool callable for use as a task step runner."""
+
+        try:
+            signature = inspect.signature(func)
+        except (TypeError, ValueError):  # pragma: no cover - builtins without signatures
+            signature = None
+
+        async def _runner(step, context):
+            inputs = dict(getattr(step, "inputs", {}) or {})
+            call_kwargs = self._prepare_tool_kwargs(signature, inputs, step, context)
+            try:
+                if call_kwargs:
+                    result = func(**call_kwargs)
+                else:
+                    result = func()
+            except TypeError:
+                result = func(**inputs)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+
+        return _runner
+
+    @staticmethod
+    def _prepare_tool_kwargs(signature, inputs: Dict[str, Any], step, context) -> Dict[str, Any]:
+        """Return keyword arguments aligned to ``signature`` for a tool call."""
+
+        if signature is None:
+            return dict(inputs)
+
+        prepared: Dict[str, Any] = {}
+        accepts_kwargs = False
+
+        for name, parameter in signature.parameters.items():
+            if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+                accepts_kwargs = True
+                continue
+            if name in inputs:
+                prepared[name] = inputs[name]
+                continue
+            if name in {"context", "task_context"}:
+                prepared[name] = context
+                continue
+            if name in {"step", "plan_step"}:
+                prepared[name] = step
+                continue
+            if name in {"shared_state", "state"}:
+                prepared[name] = context.shared_state
+                continue
+            if name in {"results", "previous_results"}:
+                prepared[name] = context.results
+                continue
+            if name == "inputs":
+                prepared[name] = dict(inputs)
+
+        if accepts_kwargs:
+            for key, value in inputs.items():
+                prepared.setdefault(key, value)
+
+        if not prepared:
+            return dict(inputs)
+
+        return prepared
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """Return merged tool metadata with persisted configuration state."""
@@ -807,6 +980,11 @@ class ATLAS:
         if default_tts_provider:
             self.speech_manager.set_default_tts_provider(default_tts_provider)
             self.logger.debug("Default TTS provider set to: %s", default_tts_provider)
+
+        try:
+            self._initialize_job_scheduling()
+        except Exception as exc:  # pragma: no cover - defensive guard for early adoption
+            self.logger.warning("Job scheduling initialization failed: %s", exc, exc_info=True)
 
         self._initialized = True
         self._notify_persona_change_listeners()
@@ -2311,6 +2489,17 @@ class ATLAS:
                 self._user_account_service.close()
             except Exception:  # pragma: no cover - best effort cleanup
                 pass
+        if self._task_queue_service is not None:
+            try:
+                self._task_queue_service.shutdown(wait=False)
+            except Exception:  # pragma: no cover - defensive guard around shutdown
+                self.logger.debug("Task queue shutdown encountered an error", exc_info=True)
+            self._task_queue_service = None
+        self.job_scheduler = None
+        self.job_manager = None
+        self.task_manager = None
+        self.job_repository = None
+        self.job_service = None
         self.logger.info("ATLAS closed and all providers unloaded.")
 
     async def maybe_text_to_speech(self, response_text: Any) -> None:
