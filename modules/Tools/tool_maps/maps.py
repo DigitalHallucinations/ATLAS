@@ -44,6 +44,7 @@ from modules.Tools.Base_Tools.trace_explain import trace_explain
 from modules.Tools.Base_Tools.planner_decompose import planner_decompose
 from modules.Tools.Base_Tools.eval_judge import eval_judge
 from modules.Tools.Base_Tools.eval_regression import eval_regression
+from modules.Tools.Base_Tools.registry_capability import registry_capability
 from modules.Tools.Base_Tools.vector_store import (
     delete_namespace as _vector_delete_namespace,
     query_vectors as _vector_query_vectors,
@@ -99,6 +100,9 @@ calculator_tool = Calculator.from_config(calculator_settings)
 vault_secrets_tool = VaultSecretsTool(config_manager=_config_manager)
 budget_limiter_tool = BudgetLimiterTool(config_manager=_config_manager)
 hitl_approval_tool = HITLApprovalTool(config_manager=_config_manager)
+registry_capability_tool = partial(
+    registry_capability, config_manager=_config_manager
+)
 
 vector_upsert = partial(_vector_upsert_vectors, config_manager=_config_manager)
 vector_query = partial(_vector_query_vectors, config_manager=_config_manager)
@@ -177,4 +181,5 @@ function_map = {
     "eval.judge": eval_judge,
     "eval.regression": eval_regression,
     "planner.decompose": planner_decompose,
+    "registry.capability": registry_capability_tool,
 }

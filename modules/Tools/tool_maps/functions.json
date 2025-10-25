@@ -3895,5 +3895,122 @@
                 "skill_metadata"
             ]
         }
+    },
+    {
+        "name": "registry.capability",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "orchestration",
+            "introspection"
+        ],
+        "description": "Inspect cached capability metadata, apply persona-aware filters, and optionally refresh the shared registry snapshot.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "persona": {
+                    "type": "string",
+                    "description": "Primary persona scope used when fetching registry summaries."
+                },
+                "persona_filters": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Additional persona tokens applied to capability queries (e.g. ['atlas', '-shared'])."
+                },
+                "capability_types": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "summary",
+                            "tools",
+                            "skills",
+                            "tasks",
+                            "jobs",
+                            "all"
+                        ]
+                    },
+                    "description": "Capability collections to include in the response. Defaults to ['summary'] when omitted."
+                },
+                "capability_filters": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Capability or tag filters applied to tool and skill lookups."
+                },
+                "provider_filters": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Provider identifiers required when selecting tools."
+                },
+                "version_constraint": {
+                    "type": "string",
+                    "description": "Optional semver constraint applied to tool and skill manifests (e.g. '>=1.0,<2.0')."
+                },
+                "min_success_rate": {
+                    "type": "number",
+                    "description": "Minimum success rate (0.0-1.0) required when returning tool entries with health metrics."
+                },
+                "task_required_skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Required skills that must be present on returned task definitions."
+                },
+                "task_required_tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Required tools that must be present on returned task definitions."
+                },
+                "task_tag_filters": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Tag filters applied to task lookups."
+                },
+                "job_required_capabilities": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Capability requirements applied when querying job manifests."
+                },
+                "job_required_skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Required skills applied when querying job manifests."
+                },
+                "refresh": {
+                    "type": "boolean",
+                    "description": "Refresh the registry if manifests are stale before returning data."
+                },
+                "force_refresh": {
+                    "type": "boolean",
+                    "description": "Force a manifest reload regardless of detected changes."
+                },
+                "include_summary": {
+                    "type": "boolean",
+                    "description": "Explicitly include or omit the registry summary payload."
+                }
+            }
+        }
     }
 ]
