@@ -320,7 +320,26 @@ class MainWindow(AtlasWindow):
     def rerun_job(
         self, job_id: str, current_status: str, updated_at: str | None
     ) -> Mapping[str, Any]:
-        return self._transition_job(job_id, "running", updated_at=updated_at)
+        server = getattr(self.ATLAS, "server", None)
+        rerun = getattr(server, "rerun_job", None)
+        if not callable(rerun):
+            return self._transition_job(job_id, "running", updated_at=updated_at)
+
+        context = {"tenant_id": getattr(self.ATLAS, "tenant_id", "default")}
+        try:
+            payload = rerun(
+                job_id,
+                context=context,
+                expected_updated_at=updated_at,
+            )
+        except Exception:
+            logger.error("Failed to rerun job %s", job_id, exc_info=True)
+            raise
+
+        notifier = getattr(self, "show_success_toast", None)
+        if callable(notifier):
+            notifier("Job rerun queued")
+        return payload
 
     def show_accounts_page(self) -> None:
         if not self._ensure_initialized():

@@ -300,6 +300,34 @@ class JobRoutes:
         )
         return self._merge_schedule_metadata(updated)
 
+    def rerun_job(
+        self,
+        job_id: str,
+        *,
+        context: RequestContext,
+        expected_updated_at: Any | None = None,
+    ) -> Dict[str, Any]:
+        self._require_context(context)
+        scheduler = self._require_scheduler()
+
+        try:
+            return self._service.rerun_job(
+                job_id,
+                tenant_id=context.tenant_id,
+                scheduler=scheduler,
+                expected_updated_at=expected_updated_at,
+            )
+        except JobNotFoundError as exc:
+            raise JobNotFoundRouteError(str(exc)) from exc
+        except JobDependencyError as exc:
+            raise JobConflictError(str(exc)) from exc
+        except JobTransitionError as exc:
+            raise JobConflictError(str(exc)) from exc
+        except JobConcurrencyError as exc:
+            raise JobConflictError(str(exc)) from exc
+        except JobServiceError as exc:
+            raise JobRouteError(str(exc)) from exc
+
     def resume_schedule(
         self,
         job_id: str,
