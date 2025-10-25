@@ -14,6 +14,8 @@ import enum
 
 import pytest
 
+from modules.orchestration import budget_tracker
+
 
 @pytest.fixture(autouse=True)
 def _stub_tool_event_bus(monkeypatch):
@@ -2392,7 +2394,7 @@ def test_use_tool_enforces_timeout(monkeypatch):
     tool_manager = importlib.import_module("ATLAS.ToolManager")
     tool_manager = importlib.reload(tool_manager)
     tool_manager._tool_activity_log.clear()
-    tool_manager._conversation_tool_runtime_ms.clear()
+    asyncio.run(budget_tracker.reset_runtime())
 
     class DummyConversationHistory:
         def __init__(self):
@@ -2472,7 +2474,7 @@ def test_use_tool_enforces_timeout(monkeypatch):
         assert metadata.get("error_type") == "timeout"
         assert recorded_entry["tool_call_id"] == "call-timeout"
 
-        runtime = tool_manager._conversation_tool_runtime_ms.get("conversation", 0)
+        runtime = await budget_tracker.get_consumed_runtime_ms("conversation")
         assert runtime > 0
 
         activity_entry = tool_manager.get_tool_activity_log()[-1]
@@ -2489,7 +2491,7 @@ def test_use_tool_respects_conversation_runtime_budget(monkeypatch):
     tool_manager = importlib.import_module("ATLAS.ToolManager")
     tool_manager = importlib.reload(tool_manager)
     tool_manager._tool_activity_log.clear()
-    tool_manager._conversation_tool_runtime_ms.clear()
+    asyncio.run(budget_tracker.reset_runtime())
 
     class DummyConversationHistory:
         def __init__(self):
@@ -2622,7 +2624,7 @@ def test_use_tool_respects_conversation_runtime_budget(monkeypatch):
         failure_entry = conversation_history.messages[-1]
         assert failure_entry["metadata"]["error_type"] == "tool_runtime_budget_exceeded"
 
-        runtime = tool_manager._conversation_tool_runtime_ms.get("conversation", 0)
+        runtime = await budget_tracker.get_consumed_runtime_ms("conversation")
         assert runtime >= 50, "Tracked runtime should accumulate across calls"
 
     asyncio.run(run_test())

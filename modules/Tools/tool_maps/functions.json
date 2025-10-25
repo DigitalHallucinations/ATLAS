@@ -2751,6 +2751,56 @@
         }
     },
     {
+        "name": "budget.limiter",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": false,
+        "safety_level": "medium",
+        "capabilities": [
+            "runtime_management",
+            "conversation_budgeting"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Inspect or adjust tracked tool runtime budgets for a conversation.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": [
+                        "inspect",
+                        "reserve",
+                        "release",
+                        "reset"
+                    ],
+                    "description": "Budget operation to perform."
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Conversation identifier for targeted operations."
+                },
+                "duration_ms": {
+                    "type": "number",
+                    "description": "Milliseconds to reserve or release when adjusting the budget."
+                }
+            },
+            "required": [
+                "operation"
+            ]
+        }
+    },
+    {
         "name": "vault.secrets",
         "version": "1.0.0",
         "side_effects": "filesystem",
