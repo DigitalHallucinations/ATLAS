@@ -232,6 +232,40 @@ class Message(Base):
 
 
 
+class EpisodicMemory(Base):
+    __tablename__ = "episodic_memories"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    tenant_id = Column(String(255), nullable=False, index=True)
+    conversation_id = Column(
+        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
+    )
+    message_id = Column(
+        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+    )
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(255), nullable=True)
+    content = Column(JSONB, nullable=False)
+    tags = Column(JSONB, nullable=False, default=list)
+    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    occurred_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+    conversation = relationship("Conversation")
+    message = relationship("Message")
+    user = relationship("User")
+
+    __table_args__ = (
+        Index("ix_episodic_memories_tenant_occurred_at", "tenant_id", "occurred_at"),
+        Index("ix_episodic_memories_conversation_occurred_at", "conversation_id", "occurred_at"),
+    )
+
+
+
 class MessageAsset(Base):
     __tablename__ = "message_assets"
 
@@ -369,6 +403,15 @@ def _attach_metadata_property(model_cls):
     setattr(model_cls, "metadata", property(_get, _set))
 
 
-for _model in (User, Session, Conversation, Message, MessageAsset, MessageVector, MessageEvent):
+for _model in (
+    User,
+    Session,
+    Conversation,
+    Message,
+    EpisodicMemory,
+    MessageAsset,
+    MessageVector,
+    MessageEvent,
+):
     _attach_metadata_property(_model)
 

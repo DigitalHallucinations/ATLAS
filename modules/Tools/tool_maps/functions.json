@@ -3104,4 +3104,221 @@
             }
         }
     }
+    ,
+    {
+        "name": "memory_episodic_store",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": false,
+        "capabilities": [
+            "episodic_memory",
+            "conversation_context"
+        ],
+        "description": "Persist an episodic memory snapshot tied to a tenant, optionally linked to a conversation message.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier that owns the episodic memory."
+                },
+                "content": {
+                    "type": [
+                        "object",
+                        "array",
+                        "string",
+                        "number",
+                        "boolean"
+                    ],
+                    "description": "Structured payload describing the episode."
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional labels used to categorize the episode."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Additional metadata persisted alongside the episode."
+                },
+                "occurred_at": {
+                    "type": [
+                        "string",
+                        "number"
+                    ],
+                    "description": "Timestamp for when the episode occurred (ISO-8601 string or epoch seconds)."
+                },
+                "expires_at": {
+                    "type": [
+                        "string",
+                        "number"
+                    ],
+                    "description": "Optional expiry timestamp after which the episode is ignored."
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Conversation identifier associated with the episode, when applicable."
+                },
+                "message_id": {
+                    "type": "string",
+                    "description": "Message identifier associated with the episode, when applicable."
+                },
+                "user_id": {
+                    "type": "string",
+                    "description": "User identifier linked to the episode, if relevant."
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Optional short title summarizing the episode."
+                }
+            },
+            "required": [
+                "tenant_id",
+                "content"
+            ]
+        }
+    }
+    ,
+    {
+        "name": "memory_episodic_query",
+        "version": "1.0.0",
+        "side_effects": "read",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "capabilities": [
+            "episodic_memory",
+            "conversation_context"
+        ],
+        "description": "Retrieve episodic memories for a tenant filtered by tags, time bounds, and conversation scope.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier that owns the episodic memories."
+                },
+                "tags_all": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Only return episodes containing all of these tags."
+                },
+                "tags_any": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Return episodes containing any of these tags."
+                },
+                "from_time": {
+                    "type": [
+                        "string",
+                        "number"
+                    ],
+                    "description": "Inclusive lower bound for episode occurrence timestamps."
+                },
+                "to_time": {
+                    "type": [
+                        "string",
+                        "number"
+                    ],
+                    "description": "Inclusive upper bound for episode occurrence timestamps."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Maximum number of episodes to return."
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0,
+                    "description": "Number of matching episodes to skip from the start of the ordered results."
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Restrict results to a specific conversation identifier."
+                },
+                "include_expired": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Include episodes whose expiry timestamp has elapsed."
+                },
+                "order": {
+                    "type": "string",
+                    "enum": [
+                        "asc",
+                        "desc"
+                    ],
+                    "default": "desc",
+                    "description": "Sort order for occurrence timestamps."
+                }
+            },
+            "required": [
+                "tenant_id"
+            ]
+        }
+    }
+    ,
+    {
+        "name": "memory_episodic_prune",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": false,
+        "capabilities": [
+            "episodic_memory",
+            "conversation_context"
+        ],
+        "description": "Delete episodic memories for a tenant using occurrence and expiration filters.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier whose episodic memories should be pruned."
+                },
+                "before": {
+                    "type": [
+                        "string",
+                        "number"
+                    ],
+                    "description": "Remove episodes that occurred before this timestamp."
+                },
+                "expired_only": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Only remove episodes whose expiry has elapsed."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Maximum number of episodes to remove in this call."
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Only prune episodes linked to this conversation identifier."
+                }
+            },
+            "required": [
+                "tenant_id"
+            ]
+        }
+    }
 ]

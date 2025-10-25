@@ -27,6 +27,7 @@ from modules.Tools.Base_Tools.email_service import send_email
 from modules.Tools.Base_Tools.content_repository import ContentRepository
 from modules.Tools.Base_Tools.workspace_publisher import WorkspacePublisher
 from modules.Tools.Base_Tools.calendar_service import CalendarService
+from modules.Tools.Base_Tools.memory_episodic import EpisodicMemoryTool
 from modules.Tools.Base_Tools.debian12_calendar import (
     Debian12CalendarTool,
     debian12_calendar,
@@ -70,6 +71,7 @@ crm_service_tool = CRMService()
 workspace_publisher_tool = WorkspacePublisher()
 calendar_service_tool = CalendarService()
 content_repository_tool = ContentRepository()
+episodic_memory_tool = EpisodicMemoryTool(config_manager=_config_manager)
 
 _config_manager = ConfigManager()
 javascript_executor = JavaScriptExecutor.from_config(
@@ -151,6 +153,9 @@ function_map = {
     "workspace_publisher": workspace_publisher_tool.run,
     "calendar_service": calendar_service_tool.run,
     "content_repository": content_repository_tool.run,
+    "memory_episodic_store": episodic_memory_tool.store,
+    "memory_episodic_query": episodic_memory_tool.query,
+    "memory_episodic_prune": episodic_memory_tool.prune,
     "vault.secrets": vault_secrets_tool.run,
     "budget.limiter": budget_limiter_tool.run,
     "upsert_vectors": vector_upsert,
