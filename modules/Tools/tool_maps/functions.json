@@ -3321,4 +3321,145 @@
             ]
         }
     }
+    ,
+    {
+        "name": "memory.graph",
+        "version": "1.0.0",
+        "side_effects": "database",
+        "default_timeout": 10,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": false,
+        "capabilities": [
+            "graph_memory",
+            "conversation_context"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ],
+        "description": "Manage tenant-scoped memory graph nodes and edges stored in the conversation repository.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": [
+                        "upsert_nodes",
+                        "upsert_edges",
+                        "query",
+                        "remove"
+                    ],
+                    "description": "Graph action to perform: upsert nodes, upsert edges, query a subgraph, or remove entries."
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier that owns the graph resources."
+                },
+                "nodes": {
+                    "type": "array",
+                    "description": "Node definitions used with the upsert_nodes operation.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "key": {
+                                "type": "string",
+                                "description": "Stable node key unique within the tenant."
+                            },
+                            "label": {
+                                "type": "string",
+                                "description": "Human readable node label."
+                            },
+                            "type": {
+                                "type": "string",
+                                "description": "Optional classifier describing the node category."
+                            },
+                            "metadata": {
+                                "type": "object",
+                                "description": "Arbitrary metadata stored with the node."
+                            }
+                        },
+                        "required": [
+                            "key"
+                        ]
+                    }
+                },
+                "edges": {
+                    "type": "array",
+                    "description": "Edge definitions used with the upsert_edges operation.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "source": {
+                                "type": "string",
+                                "description": "Source node key for the edge."
+                            },
+                            "target": {
+                                "type": "string",
+                                "description": "Target node key for the edge."
+                            },
+                            "edge_key": {
+                                "type": "string",
+                                "description": "Optional stable identifier for the edge."
+                            },
+                            "edge_type": {
+                                "type": "string",
+                                "description": "Edge type or relationship label."
+                            },
+                            "weight": {
+                                "type": "number",
+                                "description": "Optional numeric weight associated with the edge."
+                            },
+                            "metadata": {
+                                "type": "object",
+                                "description": "Arbitrary metadata stored with the edge."
+                            }
+                        },
+                        "required": [
+                            "source",
+                            "target"
+                        ]
+                    }
+                },
+                "node_keys": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Node keys used for query filtering or deletions."
+                },
+                "edge_keys": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Edge keys targeted when removing edges."
+                },
+                "edge_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "description": "Edge identifiers targeted when removing edges."
+                },
+                "edge_types": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Edge types used to filter results during query operations."
+                }
+            },
+            "required": [
+                "operation",
+                "tenant_id"
+            ]
+        }
+    }
 ]

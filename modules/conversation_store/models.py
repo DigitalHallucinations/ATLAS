@@ -389,6 +389,104 @@ class MessageEvent(Base):
     )
 
 
+class GraphNode(Base):
+    __tablename__ = "memory_graph_nodes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    tenant_id = Column(String(255), nullable=False, index=True)
+    node_key = Column(String(255), nullable=False)
+    label = Column(String(255), nullable=True)
+    node_type = Column(String(64), nullable=True)
+    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+    outgoing_edges = relationship(
+        "GraphEdge",
+        back_populates="source",
+        cascade="all, delete-orphan",
+        foreign_keys="GraphEdge.source_id",
+    )
+    incoming_edges = relationship(
+        "GraphEdge",
+        back_populates="target",
+        cascade="all, delete-orphan",
+        foreign_keys="GraphEdge.target_id",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "node_key",
+            name="uq_memory_graph_nodes_tenant_key",
+        ),
+        Index(
+            "ix_memory_graph_nodes_tenant_key",
+            "tenant_id",
+            "node_key",
+        ),
+    )
+
+
+class GraphEdge(Base):
+    __tablename__ = "memory_graph_edges"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    tenant_id = Column(String(255), nullable=False, index=True)
+    edge_key = Column(String(255), nullable=True)
+    source_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("memory_graph_nodes.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    target_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("memory_graph_nodes.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    edge_type = Column(String(64), nullable=True)
+    weight = Column(Float, nullable=True)
+    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+    source = relationship(
+        "GraphNode",
+        back_populates="outgoing_edges",
+        foreign_keys=[source_id],
+    )
+    target = relationship(
+        "GraphNode",
+        back_populates="incoming_edges",
+        foreign_keys=[target_id],
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "edge_key",
+            name="uq_memory_graph_edges_tenant_key",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "source_id",
+            "target_id",
+            "edge_type",
+            name="uq_memory_graph_edges_relation",
+        ),
+        Index(
+            "ix_memory_graph_edges_tenant_relation",
+            "tenant_id",
+            "source_id",
+            "target_id",
+        ),
+    )
+
+
 def _attach_metadata_property(model_cls):
     def _get(instance):
         value = getattr(instance, "meta")
@@ -412,6 +510,8 @@ for _model in (
     MessageAsset,
     MessageVector,
     MessageEvent,
+    GraphNode,
+    GraphEdge,
 ):
     _attach_metadata_property(_model)
 
