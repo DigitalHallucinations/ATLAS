@@ -245,7 +245,8 @@ class _ParentWindowStub:
 
 
 class _SubscriptionStub:
-    def __init__(self, callback):
+    def __init__(self, event_name: str, callback):
+        self.event_name = event_name
         self.callback = callback
         self.cancelled = False
 
@@ -253,11 +254,18 @@ class _SubscriptionStub:
         self.cancelled = True
 
 
+class _SubscriptionStore(list[_SubscriptionStub]):
+    def __init__(self) -> None:
+        super().__init__()
+        self.requested_events: list[str] = []
+
+
 def _register_bus_stub(monkeypatch):
-    subscriptions: list[_SubscriptionStub] = []
+    subscriptions = _SubscriptionStore()
 
     def fake_subscribe(event_name: str, callback, **_kwargs):
-        subscription = _SubscriptionStub(callback)
+        subscriptions.requested_events.append(event_name)
+        subscription = _SubscriptionStub(event_name, callback)
         subscriptions.append(subscription)
         return subscription
 
@@ -284,6 +292,11 @@ def test_job_management_filters_and_actions(monkeypatch):
     assert widget is not None
     assert atlas.job_fetches == 1
     assert subscriptions, "Workspace should subscribe to job events"
+    assert {
+        "job.created",
+        "job.updated",
+        "job.status_changed",
+    }.issubset(set(subscriptions.requested_events))
 
     persona_combo = manager._persona_filter_combo
     assert persona_combo is not None
@@ -422,3 +435,36 @@ def test_job_management_bus_refresh(monkeypatch):
 
     manager._on_close_request()
     assert all(sub.cancelled for sub in subscriptions)
+
+
+def test_job_management_job_created_event(monkeypatch):
+    subscriptions = _register_bus_stub(monkeypatch)
+    atlas = _AtlasStub()
+    parent = _ParentWindowStub(atlas)
+
+    manager = JobManagement(atlas, parent)
+    manager.get_embeddable_widget()
+
+    initial_fetches = atlas.job_fetches
+    job_created = [sub for sub in subscriptions if sub.event_name == "job.created"]
+    assert job_created, "job.created subscription should be registered"
+
+    callback = job_created[0].callback
+    payload = {"id": "job-new"}
+
+    if asyncio.iscoroutinefunction(callback):
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(callback(payload))
+        finally:
+            loop.close()
+    else:
+        result = callback(payload)
+        if asyncio.iscoroutine(result):
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(result)
+            finally:
+                loop.close()
+
+    assert atlas.job_fetches > initial_fetches, "job.created should trigger refresh"
