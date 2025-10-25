@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import types
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import gi
 
@@ -96,6 +97,9 @@ class JobManagement:
         self._pending_focus_job: Optional[str] = None
         self._refresh_pending = False
         self._bus_subscriptions: List[Any] = []
+        self._start_confirmation_widget: Optional[Gtk.Widget] = None
+        self._start_confirmation_handler: Optional[Callable[[str], None]] = None
+        self._start_confirmation_choices: Dict[str, Callable[[], None]] = {}
 
         # Cached detail data for tests and scripted validation
         self._current_schedule_badges: List[str] = []
@@ -895,7 +899,17 @@ class JobManagement:
             rerun.set_visible(True)
             rerun.set_sensitive(True)
 
-    def _on_start_clicked(self, _button: Gtk.Button) -> None:
+    def _on_start_clicked(self, button: Gtk.Button) -> None:
+        entry = None
+        if self._active_job and self._active_job in self._entry_lookup:
+            entry = self._entry_lookup[self._active_job]
+        if entry is None:
+            return
+
+        if self._should_offer_resume(entry):
+            self._present_start_confirmation(button, entry)
+            return
+
         self._trigger_action("start")
 
     def _on_pause_clicked(self, _button: Gtk.Button) -> None:
@@ -904,7 +918,167 @@ class JobManagement:
     def _on_rerun_clicked(self, _button: Gtk.Button) -> None:
         self._trigger_action("rerun")
 
-    def _trigger_action(self, action: str) -> None:
+    def _should_offer_resume(self, entry: _JobEntry) -> bool:
+        status = (entry.status or "").strip().lower()
+        if status == "scheduled":
+            return True
+
+        metadata = entry.metadata or {}
+        schedule_info = metadata.get("schedule") if isinstance(metadata.get("schedule"), Mapping) else {}
+        schedule_state = (
+            str(schedule_info.get("status") or schedule_info.get("state") or metadata.get("schedule_state") or metadata.get("schedule_status") or "")
+            .strip()
+            .lower()
+        )
+        if schedule_state in {"paused", "suspended"}:
+            return True
+
+        paused_flag = schedule_info.get("paused")
+        if paused_flag is None:
+            paused_flag = metadata.get("schedule_paused")
+        if isinstance(paused_flag, bool):
+            return paused_flag
+        if isinstance(paused_flag, str):
+            return paused_flag.strip().lower() in {"true", "1", "yes", "paused"}
+        return False
+
+    def _present_start_confirmation(self, anchor: Gtk.Widget, entry: _JobEntry) -> None:
+        self._dismiss_start_confirmation()
+
+        def handler(choice: str) -> None:
+            if choice == "resume":
+                self._trigger_action("start", variant="resume")
+            elif choice == "run_now":
+                self._trigger_action("start", variant="run_now")
+            else:
+                self._trigger_action("start")
+
+        self._start_confirmation_handler = handler
+        self._start_confirmation_choices = {
+            "resume": lambda: self._confirm_start_choice("resume"),
+            "run_now": lambda: self._confirm_start_choice("run_now"),
+        }
+        widget = self._build_start_confirmation_widget(anchor, entry)
+        self._start_confirmation_widget = widget
+        if widget is not None:
+            presenter = getattr(widget, "present", None)
+            if callable(presenter):
+                try:
+                    presenter()
+                except Exception:  # pragma: no cover - GTK fallback
+                    logger.debug("Failed to present start confirmation widget", exc_info=True)
+
+    def _build_start_confirmation_widget(
+        self, anchor: Gtk.Widget, entry: _JobEntry
+    ) -> Optional[Gtk.Widget]:
+        message = "This job already has a schedule."
+        if self._should_offer_resume(entry):
+            message = (
+                "This job is scheduled. Resume the schedule or run immediately?"
+            )
+
+        popover: Optional[Gtk.Widget] = None
+        popover_class = getattr(Gtk, "Popover", None)
+        if callable(popover_class):
+            try:
+                popover = popover_class()
+            except Exception:  # pragma: no cover - GTK fallback
+                popover = None
+        if popover is not None:
+            try:
+                popover.set_autohide(True)
+            except Exception:  # pragma: no cover - GTK compatibility
+                pass
+            try:
+                popover.set_parent(anchor)
+            except Exception:  # pragma: no cover - GTK compatibility
+                pass
+            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            text = Gtk.Label(label=message)
+            text.set_wrap(True)
+            text.set_xalign(0.0)
+            content.append(text)
+            resume_btn = Gtk.Button(label="Resume schedule")
+            resume_btn.connect("clicked", lambda *_: self._confirm_start_choice("resume"))
+            run_btn = Gtk.Button(label="Run now")
+            run_btn.connect("clicked", lambda *_: self._confirm_start_choice("run_now"))
+            content.append(resume_btn)
+            content.append(run_btn)
+            try:
+                popover.set_child(content)
+            except Exception:  # pragma: no cover - GTK compatibility
+                pass
+            return popover
+
+        dialog_class = getattr(Gtk, "MessageDialog", None)
+        if callable(dialog_class):
+            transient_parent = getattr(self.parent_window, "get_root", None)
+            if callable(transient_parent):
+                try:
+                    parent_widget = transient_parent()
+                except Exception:  # pragma: no cover - GTK fallback
+                    parent_widget = None
+            else:
+                parent_widget = self.parent_window if isinstance(self.parent_window, Gtk.Widget) else None
+            message_type = getattr(Gtk, "MessageType", types.SimpleNamespace(INFO=None))
+            buttons_type = getattr(Gtk, "ButtonsType", types.SimpleNamespace(NONE=None, OK=None))
+            try:
+                dialog = dialog_class(
+                    transient_for=parent_widget,
+                    modal=True,
+                    message_type=getattr(message_type, "INFO", None),
+                    buttons=getattr(buttons_type, "NONE", None),
+                    text=message,
+                )
+            except Exception:  # pragma: no cover - GTK fallback
+                dialog = None
+            if dialog is not None:
+                resume_response = getattr(Gtk, "ResponseType", types.SimpleNamespace(YES=1, ACCEPT=1)).YES
+                run_response = getattr(Gtk, "ResponseType", types.SimpleNamespace(APPLY=2, OK=2)).APPLY
+                add_button = getattr(dialog, "add_button", None)
+                if callable(add_button):
+                    try:
+                        add_button("Resume schedule", resume_response)
+                        add_button("Run now", run_response)
+                    except Exception:  # pragma: no cover - GTK fallback
+                        pass
+                connect = getattr(dialog, "connect", None)
+                if callable(connect):
+                    try:
+                        connect(
+                            "response",
+                            lambda _dlg, response: self._confirm_start_choice(
+                                "resume" if response == resume_response else "run_now"
+                            ),
+                        )
+                    except Exception:  # pragma: no cover - GTK fallback
+                        pass
+                return dialog
+
+        return None
+
+    def _confirm_start_choice(self, choice: str) -> None:
+        handler = self._start_confirmation_handler
+        self._dismiss_start_confirmation()
+        if callable(handler):
+            handler(choice)
+
+    def _dismiss_start_confirmation(self) -> None:
+        widget = self._start_confirmation_widget
+        self._start_confirmation_widget = None
+        self._start_confirmation_handler = None
+        self._start_confirmation_choices = {}
+        if widget is None:
+            return
+        for method_name in ("popdown", "hide", "close"):
+            closer = getattr(widget, method_name, None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:  # pragma: no cover - GTK fallback
+                    continue
+
+    def _trigger_action(self, action: str, *, variant: Optional[str] = None) -> None:
         if not self._active_job or self._active_job not in self._entry_lookup:
             return
         entry = self._entry_lookup[self._active_job]
@@ -913,6 +1087,8 @@ class JobManagement:
             "pause": "pause_job",
             "rerun": "rerun_job",
         }.get(action)
+        if action == "start" and variant == "resume":
+            handler_name = "resume_job"
         if not handler_name:
             return
 
@@ -922,7 +1098,10 @@ class JobManagement:
             return
 
         try:
-            payload = handler(entry.job_id, entry.status, entry.updated_at)
+            if action == "start" and variant == "run_now":
+                payload = handler(entry.job_id, entry.status, entry.updated_at, mode="run_now")
+            else:
+                payload = handler(entry.job_id, entry.status, entry.updated_at)
         except Exception as exc:
             logger.error(
                 "Failed to invoke job action %s for %s: %s", action, entry.job_id, exc, exc_info=True
@@ -934,6 +1113,8 @@ class JobManagement:
             normalized = self._normalize_entry(payload)
             if normalized is not None:
                 self._entry_lookup[normalized.job_id] = normalized
+                if normalized.job_id == self._active_job:
+                    entry = normalized
         self._pending_focus_job = entry.job_id
         self._refresh_state()
 

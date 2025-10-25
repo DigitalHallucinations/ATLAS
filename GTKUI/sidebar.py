@@ -245,10 +245,27 @@ class MainWindow(AtlasWindow):
         return payload
 
     def start_job(
+        self,
+        job_id: str,
+        current_status: str,
+        updated_at: str | None,
+        *,
+        mode: str = "auto",
+    ) -> Mapping[str, Any]:
+        status = (current_status or "").lower()
+        normalized_mode = (mode or "auto").lower()
+        if status == "draft" and normalized_mode != "run_now":
+            target = "scheduled"
+        elif normalized_mode == "resume":
+            return self.resume_job(job_id, current_status, updated_at)
+        else:
+            target = "running"
+        return self._transition_job(job_id, target, updated_at=updated_at)
+
+    def resume_job(
         self, job_id: str, current_status: str, updated_at: str | None
     ) -> Mapping[str, Any]:
-        target = "scheduled" if (current_status or "").lower() == "draft" else "running"
-        return self._transition_job(job_id, target, updated_at=updated_at)
+        return self._transition_job(job_id, "scheduled", updated_at=updated_at)
 
     def pause_job(
         self, job_id: str, current_status: str, updated_at: str | None
