@@ -38,6 +38,7 @@ from modules.Tools.Base_Tools.vault_secrets import VaultSecretsTool
 from modules.Tools.Base_Tools.budget_limiter import BudgetLimiterTool
 from modules.Tools.Base_Tools.log_event import log_event
 from modules.Tools.Base_Tools.hitl_approval import HITLApprovalTool
+from modules.Tools.Base_Tools.trace_explain import trace_explain
 from modules.Tools.Base_Tools.vector_store import (
     delete_namespace as _vector_delete_namespace,
     query_vectors as _vector_query_vectors,
@@ -161,4 +162,5 @@ function_map = {
     "task_queue_status": task_queue_status,
     "log.event": log_event,
     "hitl.approval": hitl_approval_tool.run,
+    "trace.explain": trace_explain,
 }

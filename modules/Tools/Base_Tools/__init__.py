@@ -105,6 +105,7 @@ from .structured_parser import (
 )
 from .log_event import log_event
 from .hitl_approval import HITLApprovalTool, HITLApprovalError, hitl_approval
+from .trace_explain import trace_explain
 
 __all__ = [
     "TerminalCommand",
@@ -207,4 +208,5 @@ __all__ = [
     "HITLApprovalTool",
     "HITLApprovalError",
     "hitl_approval",
+    "trace_explain",
 ]
