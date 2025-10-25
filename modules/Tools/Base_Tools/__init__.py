@@ -106,6 +106,7 @@ from .structured_parser import (
 from .log_event import log_event
 from .hitl_approval import HITLApprovalTool, HITLApprovalError, hitl_approval
 from .trace_explain import trace_explain
+from .eval_judge import eval_judge, register_evaluator, EvaluatorNotFoundError
 
 __all__ = [
     "TerminalCommand",
@@ -209,4 +210,7 @@ __all__ = [
     "HITLApprovalError",
     "hitl_approval",
     "trace_explain",
+    "eval_judge",
+    "register_evaluator",
+    "EvaluatorNotFoundError",
 ]
