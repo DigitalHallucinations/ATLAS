@@ -37,6 +37,7 @@ from modules.Tools.Base_Tools.kv_store import kv_delete, kv_get, kv_increment, k
 from modules.Tools.Base_Tools.vault_secrets import VaultSecretsTool
 from modules.Tools.Base_Tools.budget_limiter import BudgetLimiterTool
 from modules.Tools.Base_Tools.log_event import log_event
+from modules.Tools.Base_Tools.hitl_approval import HITLApprovalTool
 from modules.Tools.Base_Tools.vector_store import (
     delete_namespace as _vector_delete_namespace,
     query_vectors as _vector_query_vectors,
@@ -89,6 +90,7 @@ browser_lite = BrowserLite.from_config(
 calculator_tool = Calculator.from_config(calculator_settings)
 vault_secrets_tool = VaultSecretsTool(config_manager=_config_manager)
 budget_limiter_tool = BudgetLimiterTool(config_manager=_config_manager)
+hitl_approval_tool = HITLApprovalTool(config_manager=_config_manager)
 
 vector_upsert = partial(_vector_upsert_vectors, config_manager=_config_manager)
 vector_query = partial(_vector_query_vectors, config_manager=_config_manager)
@@ -158,4 +160,5 @@ function_map = {
     "task_queue_cancel": task_queue_cancel,
     "task_queue_status": task_queue_status,
     "log.event": log_event,
+    "hitl.approval": hitl_approval_tool.run,
 }

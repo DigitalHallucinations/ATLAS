@@ -2876,6 +2876,88 @@
         }
     },
     {
+        "name": "hitl.approval",
+        "version": "1.0.0",
+        "side_effects": "write",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": false,
+        "safety_level": "high",
+        "capabilities": [
+            "workflow_control",
+            "human_approval"
+        ],
+        "description": "Request human-in-the-loop approvals, poll for status, and resolve HITL review tasks.",
+        "parameters": {
+            "type": "object",
+            "required": [
+                "operation",
+                "tenant_id"
+            ],
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": [
+                        "request",
+                        "status",
+                        "resolve"
+                    ],
+                    "description": "Action to perform: request a new approval, fetch status, or resolve an approval."
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier used to scope the approval task."
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Conversation identifier associated with the approval request."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Summary of why human approval is required."
+                },
+                "context": {
+                    "type": "object",
+                    "description": "Structured metadata describing the approval context."
+                },
+                "assignees": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Suggested approvers to notify."
+                },
+                "escalation_policy": {
+                    "type": "object",
+                    "description": "Optional escalation rules for overdue approvals."
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Identifier of an existing approval task when polling or resolving."
+                },
+                "resolution": {
+                    "type": "object",
+                    "description": "Outcome metadata captured when resolving an approval."
+                },
+                "target_status": {
+                    "type": "string",
+                    "enum": [
+                        "done",
+                        "cancelled",
+                        "canceled",
+                        "approved",
+                        "rejected",
+                        "declined"
+                    ],
+                    "description": "Desired terminal status when resolving an approval."
+                }
+            }
+        }
+    },
+    {
         "name": "log.event",
         "version": "1.0.0",
         "side_effects": "logging",

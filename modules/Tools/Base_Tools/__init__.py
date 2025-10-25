@@ -104,6 +104,7 @@ from .structured_parser import (
     InvalidInputError,
 )
 from .log_event import log_event
+from .hitl_approval import HITLApprovalTool, HITLApprovalError, hitl_approval
 
 __all__ = [
     "TerminalCommand",
@@ -203,4 +204,7 @@ __all__ = [
     "WorkspacePublisher",
     "WorkspacePublication",
     "log_event",
+    "HITLApprovalTool",
+    "HITLApprovalError",
+    "hitl_approval",
 ]
