@@ -106,6 +106,7 @@ from .structured_parser import (
 from .log_event import log_event
 from .hitl_approval import HITLApprovalTool, HITLApprovalError, hitl_approval
 from .trace_explain import trace_explain
+from .consensus_vote import consensus_vote
 from .eval_judge import eval_judge, register_evaluator, EvaluatorNotFoundError
 from .registry_capability import registry_capability
 
@@ -212,6 +213,7 @@ __all__ = [
     "hitl_approval",
     "registry_capability",
     "trace_explain",
+    "consensus_vote",
     "eval_judge",
     "register_evaluator",
     "EvaluatorNotFoundError",

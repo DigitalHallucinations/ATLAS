@@ -4012,5 +4012,82 @@
                 }
             }
         }
+    },
+    {
+        "name": "consensus.vote",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 10,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "orchestration",
+            "coordination"
+        ],
+        "description": "Run the negotiation vote protocol across a set of participants and return the serialized trace and decision.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "participants": {
+                    "description": "Collection describing each participant. Each entry should supply an identifier and a callable that yields a proposal when invoked.",
+                    "oneOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "oneOf": [
+                                    {"type": "object"},
+                                    {"type": "array"}
+                                ]
+                            }
+                        },
+                        {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    ]
+                },
+                "quorum_threshold": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Fraction of participants that must respond for quorum to be met."
+                },
+                "timeout": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Per-participant timeout, in seconds, applied while collecting proposals."
+                },
+                "context": {
+                    "type": "object",
+                    "description": "Optional shared context mapping provided to every participant."
+                },
+                "participant_contexts": {
+                    "description": "Optional per-participant context overrides merged into the shared context before invoking a callable.",
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "object"
+                            }
+                        },
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object"
+                            }
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "participants",
+                "quorum_threshold",
+                "timeout"
+            ]
+        }
     }
 ]

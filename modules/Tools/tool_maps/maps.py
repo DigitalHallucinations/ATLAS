@@ -41,6 +41,7 @@ from modules.Tools.Base_Tools.budget_limiter import BudgetLimiterTool
 from modules.Tools.Base_Tools.log_event import log_event
 from modules.Tools.Base_Tools.hitl_approval import HITLApprovalTool
 from modules.Tools.Base_Tools.trace_explain import trace_explain
+from modules.Tools.Base_Tools.consensus_vote import consensus_vote
 from modules.Tools.Base_Tools.planner_decompose import planner_decompose
 from modules.Tools.Base_Tools.eval_judge import eval_judge
 from modules.Tools.Base_Tools.eval_regression import eval_regression
@@ -178,6 +179,7 @@ function_map = {
     "log.event": log_event,
     "hitl.approval": hitl_approval_tool.run,
     "trace.explain": trace_explain,
+    "consensus.vote": consensus_vote,
     "eval.judge": eval_judge,
     "eval.regression": eval_regression,
     "planner.decompose": planner_decompose,
