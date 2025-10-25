@@ -107,6 +107,7 @@ from .log_event import log_event
 from .hitl_approval import HITLApprovalTool, HITLApprovalError, hitl_approval
 from .trace_explain import trace_explain
 from .eval_judge import eval_judge, register_evaluator, EvaluatorNotFoundError
+from .registry_capability import registry_capability
 
 __all__ = [
     "TerminalCommand",
@@ -209,6 +210,7 @@ __all__ = [
     "HITLApprovalTool",
     "HITLApprovalError",
     "hitl_approval",
+    "registry_capability",
     "trace_explain",
     "eval_judge",
     "register_evaluator",
