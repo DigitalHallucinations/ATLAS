@@ -1,77 +1,45 @@
-# ATLAS First-Run Setup Wizard
+# ATLAS Standalone Setup Utility
 
-The GTK desktop experience now includes a guided assistant that walks operators
-through the essential configuration required to bootstrap ATLAS. The wizard is
-presented automatically when the application cannot complete its normal start
-up sequence.
+The first-run experience for ATLAS is now driven by the standalone CLI located
+at `scripts/setup_atlas.py`. Operators should execute the setup utility before
+launching `main.py`; the GTK desktop shell will refuse to start until the setup
+sentinel is written.
 
-## Launching the wizard
+## Running the utility
 
-The `FirstRunCoordinator` attempts to construct and initialise the main ATLAS
-application. When those steps raise an error, a `SetupWizardWindow` window is
-presented instead. Completing the wizard re-runs the same bootstrap path and
-returns the user to the main interface.
+```bash
+python3 scripts/setup_atlas.py
+```
 
-## Step overview
+The utility performs the following tasks:
 
-1. **Conversation database** – Pre-fills the PostgreSQL credentials from the
-   `_DEFAULT_CONVERSATION_STORE_DSN`. Operators can adjust the host, port,
-   database, username, and password. The wizard composes a DSN, validates it
-   with `bootstrap_conversation_store`, and persists the confirmed value via
-   `ConfigManager._persist_conversation_database_url`.
+1. **Python environment** – Creates/updates a `.venv` inside the repository and
+   installs dependencies from `requirements.txt`.
+2. **PostgreSQL provisioning** – Offers platform-specific commands to install
+   PostgreSQL, then uses the existing bootstrap helpers to create the database
+   and role. The confirmed DSN is persisted to `config.yaml`.
+3. **Messaging and services** – Collects configuration for the key-value store,
+   durable scheduling, and the message bus, reusing the same validation logic as
+   the former GTK wizard.
+4. **Providers & speech** – Prompts for API keys, default model/provider
+   selections, and text/speech services.
+5. **Administrator user** – Registers the first user through
+   `UserAccountService` once the conversation store is reachable.
+6. **Optional tuning** – Captures tenant identifiers, retention policies, and
+   HTTP auto-start preferences.
 
-2. **Key-value store** – Allows choosing whether the KV adapter reuses the
-   conversation store engine or connects to a dedicated PostgreSQL database.
-   When a dedicated DSN is provided it is saved with
-   `ConfigManager.set_kv_store_settings`.
+After applying the collected settings, the utility writes
+`ATLAS/setup/config/setup_complete.json`. `main.py` verifies the sentinel before
+initialising the GTK UI.
 
-3. **Job scheduling** – Provides a toggle for durable scheduling, a job-store
-   DSN, worker concurrency, and retry policy defaults. When enabled, the
-   settings are stored in both the `job_scheduling` and `task_queue` blocks
-   through `ConfigManager.set_job_scheduling_settings`. The global
-   `_initialize_job_scheduling` routine honours the toggle.
+## GTK front-end
 
-4. **Message bus** – Allows choosing between the in-memory backend or Redis.
-   Redis configuration captures the URL and stream prefix, persisting them with
-   `ConfigManager.set_messaging_settings`.
-
-5. **Providers & defaults** – Lists known LLM providers, surfaces their API key
-   environment variables, and records any submitted credentials with
-   `ConfigManager.update_api_key`. Operators can pick the default provider and
-   model, saved using `set_default_provider` and `set_default_model`.
-
-6. **Speech** – Enables or disables TTS/STT, chooses providers, and captures
-   credentials for ElevenLabs, OpenAI, or Google. Speech options are persisted
-   using `set_tts_enabled`, `set_default_speech_providers`,
-   `set_elevenlabs_api_key`, `set_openai_speech_config`, and
-   `set_google_credentials`.
-
-7. **User account** – Collects an administrator username, email, password, and
-   display name. The wizard calls `UserAccountService.register_user` and marks
-   the created account active via `ConfigManager.set_active_user`.
-
-   User profiles are now persisted directly in the PostgreSQL conversation
-   store. When the wizard provisions the administrator account it also seeds
-   the corresponding `User.meta` payload through the
-   `ConversationStoreRepository`. Downstream services, such as
-   `UserDataManager`, resolve profile metadata and EMR/history text from the
-   same PostgreSQL database instead of the legacy `user_profiles/` filesystem
-   directory.
-
-8. **Optional adjustments** – Exposes tenant identifiers, conversation
-   retention, scheduler timezone/queue limits, and an option to auto-start the
-   HTTP server. These are stored using `set_tenant_id`,
-   `set_conversation_retention`, `set_job_scheduling_settings`, and
-   `set_http_server_autostart`.
-
-9. **Summary** – Presents a consolidated view of the captured settings before
-   applying changes. Activating *Apply* runs the configured persistence helpers
-   and closes the wizard, allowing the coordinator to retry the normal
-   initialisation flow.
+A lightweight GTK window remains available for desktop environments. It simply
+launches the standalone utility and surfaces the exit status, keeping the UI in
+sync with the CLI workflow.
 
 ## Testing
 
-Integration-oriented tests in `tests/test_setup_wizard.py` mock the bootstrap
-helpers and assert that each step writes through to the configuration manager.
-These tests ensure that every persistence method is invoked with the expected
-payload and that configuration blocks receive the new values.
+Unit tests covering the CLI helpers live in `tests/test_setup_cli.py`. They mock
+subprocess and network calls to assert DSN persistence, user registration, and
+sentinel writing behaviour.
