@@ -34,6 +34,19 @@ def _uuid() -> uuid.UUID:
     return uuid.uuid4()
 
 
+def test_create_schema_recovers_engine_from_sessionmaker(postgresql):
+    engine = create_engine(postgresql.dsn(), future=True)
+    try:
+        factory = sessionmaker(future=True)
+        factory.configure(bind=engine)
+        assert getattr(factory, "bind", None) is None
+
+        repo = ConversationStoreRepository(factory)
+        repo.create_schema()
+    finally:
+        engine.dispose()
+
+
 def test_schema_contains_expected_tables(engine):
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())

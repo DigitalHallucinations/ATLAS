@@ -578,6 +578,13 @@ class ConversationStoreRepository:
 
         engine: Engine | None = getattr(self._session_factory, "bind", None)
         if engine is None:
+            with contextlib.ExitStack() as stack:
+                try:
+                    session = stack.enter_context(self._session_factory())
+                except Exception as exc:  # pragma: no cover - defensive fallback
+                    raise RuntimeError("Session factory is not bound to an engine") from exc
+                engine = session.get_bind()
+        if engine is None:
             raise RuntimeError("Session factory is not bound to an engine")
         Base.metadata.create_all(engine)
         ensure_task_schema(engine)
