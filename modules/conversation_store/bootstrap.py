@@ -9,7 +9,7 @@ import subprocess
 import time
 from typing import Callable, Iterable
 
-from sqlalchemy.engine.url import make_url
+from sqlalchemy.engine.url import URL, make_url
 
 try:  # pragma: no cover - import guards for optional dependency environments
     from psycopg import OperationalError, connect, sql
@@ -21,6 +21,14 @@ except Exception as exc:  # pragma: no cover - fail fast when psycopg is unavail
 
 class BootstrapError(RuntimeError):
     """Raised when the PostgreSQL bootstrap process fails."""
+
+
+def _render_psycopg_conninfo(url: URL) -> str:
+    """Render a psycopg-compatible connection string for the given URL."""
+
+    backend_name = url.get_backend_name()
+    sanitized_url = url.set(drivername=backend_name)
+    return sanitized_url.render_as_string(hide_password=False)
 
 
 def _install_postgres_client(
@@ -214,9 +222,7 @@ def bootstrap_conversation_store(
     for candidate in candidate_databases:
         try:
             candidate_url = url.set(database=candidate)
-            maintenance_conn = connector(
-                candidate_url.render_as_string(hide_password=False)
-            )
+            maintenance_conn = connector(_render_psycopg_conninfo(candidate_url))
         except OperationalError as exc:  # pragma: no cover - error handling path
             last_error = exc
             continue
@@ -255,7 +261,7 @@ def bootstrap_conversation_store(
     connection_dsn = url.render_as_string(hide_password=False)
 
     try:
-        verification_conn = connector(connection_dsn)
+        verification_conn = connector(_render_psycopg_conninfo(url))
     except OperationalError as exc:
         raise BootstrapError(
             f"Unable to connect to the conversation store database '{database}': {exc}"
