@@ -242,6 +242,5 @@ ATLAS
 │   │   └── logger.py
 │   └── user_accounts
 │       ├── user_account_db.py
-│       ├── user_data_manager.py
-│       └── user_template
+│       └── user_data_manager.py
 └── requirements.txt

@@ -1,25 +1,16 @@
-# modules/user_accounts/user_data_manager.py
+"""User profile helpers backed by the conversation store."""
 
-import json
-import os
+from __future__ import annotations
+
 import platform
 import re
 import subprocess
-import tempfile
-from pathlib import Path
 from threading import Lock
-from typing import Optional
+from typing import Any, Dict, Mapping, Optional
 
 from ATLAS.config import ConfigManager
+from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
-
-try:
-    from platformdirs import user_data_dir as _user_data_dir
-except ImportError:  # pragma: no cover - optional dependency
-    try:
-        from appdirs import user_data_dir as _user_data_dir  # type: ignore
-    except ImportError:  # pragma: no cover - optional dependency
-        _user_data_dir = None
 
 
 class SystemInfo:
@@ -57,9 +48,9 @@ class SystemInfo:
                     result.stderr.strip(),
                 )
             return result.stdout
-        except Exception as e:
+        except Exception as exc:
             if SystemInfo.logger:
-                SystemInfo.logger.warning(f"Error running command '{command}': {e}")
+                SystemInfo.logger.warning("Error running command '%s': %s", command, exc)
             return ""
 
     @staticmethod
@@ -75,7 +66,9 @@ class SystemInfo:
     def get_cpu_info():
         """Gets CPU information based on the OS."""
         if platform.system() == "Windows":
-            output = SystemInfo.run_command("wmic cpu get name,NumberOfCores,NumberOfLogicalProcessors /format:list")
+            output = SystemInfo.run_command(
+                "wmic cpu get name,NumberOfCores,NumberOfLogicalProcessors /format:list"
+            )
         else:
             output = SystemInfo.run_command("lscpu")
         return output
@@ -140,24 +133,29 @@ class UserDataManager:
     _system_info_cache = None
     _system_info_cache_lock = Lock()
 
-    def __init__(self, user, base_dir: Optional[str] = None):
-        """
-        Initializes the UserDataManager with the given user.
+    def __init__(
+        self,
+        user: str,
+        *,
+        repository: Optional[ConversationStoreRepository] = None,
+        config_manager: Optional[ConfigManager] = None,
+    ) -> None:
+        """Initialise the manager with a username and backing repository."""
 
-        Args:
-            user (str): The username of the user.
-            base_dir (Optional[str]): Optional base directory override for user data.
-        """
-        self.config_manager = ConfigManager()
+        self.config_manager = config_manager or ConfigManager()
         self.logger = setup_logger(__name__)
         SystemInfo.set_logger(self.logger)
+
         self.user = user
-        self.profile = None
-        self.emr = None
-        self._profile_data = None
-        self._system_info = None
-        self._base_directory = self._determine_base_directory(base_dir)
-        self._profiles_dir = self._base_directory / 'user_profiles'
+        self.profile: Optional[str] = None
+        self.emr: Optional[str] = None
+
+        self._profile_data: Optional[Dict[str, Any]] = None
+        self._documents: Optional[Dict[str, Any]] = None
+        self._system_info: Optional[str] = None
+
+        self._repository = repository
+        self._repository_lock = Lock()
 
     @classmethod
     def invalidate_system_info_cache(cls):
@@ -166,174 +164,117 @@ class UserDataManager:
         with cls._system_info_cache_lock:
             cls._system_info_cache = None
 
+    def _resolve_repository(self) -> ConversationStoreRepository:
+        if self._repository is not None:
+            return self._repository
 
-    def _determine_base_directory(self, override_dir: Optional[str]) -> Path:
-        if override_dir is not None:
-            override_path = Path(override_dir).expanduser().resolve()
-            ensured = self._ensure_writable_directory(override_path)
-            if ensured:
-                self.logger.debug(
-                    "Using provided base directory for user data: %s",
-                    ensured,
-                )
-                return ensured
-            self.logger.warning(
-                "Provided base directory for user data is not writable: %s",
-                override_path,
-            )
+        with self._repository_lock:
+            if self._repository is not None:
+                return self._repository
 
-        if _user_data_dir:
-            os_data_dir = Path(_user_data_dir("ATLAS", "ATLAS"))
-            ensured = self._ensure_writable_directory(os_data_dir)
-            if ensured:
-                self.logger.debug(
-                    "Using OS user data directory for user data: %s",
-                    ensured,
-                )
-                return ensured
-            self.logger.warning(
-                "OS user data directory for user data is not writable: %s",
-                os_data_dir,
-            )
-
-        app_root = self._get_app_root()
-        if app_root:
-            resolved = Path(app_root).expanduser().resolve() / 'modules' / 'user_accounts'
-            ensured = self._ensure_writable_directory(resolved)
-            if ensured:
-                self.logger.debug("Using app root directory for user data: %s", ensured)
-                return ensured
-            self.logger.warning(
-                "App root directory for user data is not writable: %s",
-                resolved,
-            )
-
-        fallback_base = Path.home() / '.atlas'
-        ensured = self._ensure_writable_directory(fallback_base)
-        if ensured:
-            self.logger.debug(
-                "Falling back to home directory for user data: %s",
-                ensured,
-            )
-            return ensured
-
-        raise RuntimeError("No writable base directory available for user data")
-
-    def _ensure_writable_directory(self, path: Path) -> Optional[Path]:
-        try:
-            path.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            self.logger.warning("Failed to create base directory %s: %s", path, exc)
-            return None
-
-        try:
-            fd, tmp_path = tempfile.mkstemp(dir=str(path))
-        except OSError as exc:
-            self.logger.warning("Base directory %s is not writable: %s", path, exc)
-            return None
-        else:
-            os.close(fd)
             try:
-                os.unlink(tmp_path)
-            except OSError:
-                self.logger.debug("Failed to remove temporary test file: %s", tmp_path)
-            return path
+                factory = self.config_manager.get_conversation_store_session_factory()
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.error("Failed to resolve conversation store session factory: %s", exc)
+                raise
 
-    def _get_app_root(self) -> Optional[str]:
-        get_app_root = getattr(self.config_manager, 'get_app_root', None)
-        if not callable(get_app_root):
-            return None
+            if factory is None:
+                try:
+                    self.config_manager.ensure_postgres_conversation_store()
+                    factory = self.config_manager.get_conversation_store_session_factory()
+                except Exception as exc:  # pragma: no cover - bootstrap failures
+                    self.logger.error("Conversation store unavailable: %s", exc)
+                    raise
 
-        try:
-            return get_app_root()
-        except Exception as exc:  # pragma: no cover - defensive
-            self.logger.warning(
-                "Failed to retrieve app root from ConfigManager: %s",
-                exc,
+            if factory is None:
+                raise RuntimeError("Conversation store session factory is not configured.")
+
+            retention = self.config_manager.get_conversation_retention_policies()
+            repository = ConversationStoreRepository(factory, retention=retention)
+            try:
+                repository.create_schema()
+            except Exception as exc:  # pragma: no cover - schema already exists
+                self.logger.debug("Profile schema initialisation skipped: %s", exc)
+            self._repository = repository
+            return repository
+
+    def _default_profile(self) -> Dict[str, Any]:
+        return {"Username": self.user}
+
+    def _derive_display_name(self, profile: Mapping[str, Any]) -> Optional[str]:
+        for key in ("Full Name", "full_name", "Display Name", "display_name", "name"):
+            value = profile.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    def _ensure_profile_state(self) -> Dict[str, Any]:
+        if self._profile_data is not None and self._documents is not None:
+            return {
+                "profile": dict(self._profile_data),
+                "documents": dict(self._documents),
+            }
+
+        repository = self._resolve_repository()
+        record = repository.get_user_profile(self.user)
+
+        if not record or not isinstance(record.get("profile"), Mapping) or not record.get("profile"):
+            profile_payload = self._default_profile()
+            display_name = self._derive_display_name(profile_payload)
+            record = repository.upsert_user_profile(
+                self.user,
+                profile_payload,
+                display_name=display_name,
+                documents={},
             )
-            return None
 
-    def _load_profile_template(self):
-        """Load the default profile template from disk."""
+        profile_section = dict(record.get("profile") or {})
+        if not profile_section.get("Username"):
+            profile_section["Username"] = self.user
 
-        template_path = Path(__file__).resolve().with_name('user_template')
-        try:
-            with template_path.open('r', encoding='utf-8') as file:
-                return json.load(file)
-        except Exception as exc:  # pragma: no cover - defensive fallback
-            self.logger.error(f"Failed to load profile template: {exc}")
-            return {"Username": self.user}
+        documents_section = dict(record.get("documents") or {})
 
-    def get_profile(self):
-        """
-        Retrieves the user's profile from a JSON file.
+        self._profile_data = profile_section
+        self._documents = documents_section
+        self.profile = None
+        self.emr = None
 
-        Returns:
-            dict: The user's profile as a dictionary.
-        """
+        return {
+            "profile": profile_section,
+            "documents": documents_section,
+            "display_name": record.get("display_name"),
+        }
+
+    def get_profile(self) -> Dict[str, Any]:
+        """Retrieve the user's profile data from the repository."""
+        if self._profile_data is not None:
+            return dict(self._profile_data)
+
         self.logger.info("Entering get_profile() method")
-
         try:
-            profile_path = self._profiles_dir / f"{self.user}.json"
+            bundle = self._ensure_profile_state()
+        except Exception as exc:
+            self.logger.error("Error loading profile metadata: %s", exc)
+            fallback = self._default_profile()
+            self._profile_data = fallback
+            self._documents = {}
+            return dict(fallback)
 
-            cached_profile = self._profile_data or {}
+        profile_section = dict(bundle.get("profile") or {})
+        self._profile_data = profile_section
+        return dict(profile_section)
 
-            if not profile_path.exists():
-                self.logger.error(f"Profile file does not exist: {profile_path}")
-                profile_path.parent.mkdir(parents=True, exist_ok=True)
-                profile = self._load_profile_template()
-                profile['Username'] = self.user
-
-                for key in ('Email', 'Full Name'):
-                    value = cached_profile.get(key)
-                    if value:
-                        profile[key] = value
-
-                with profile_path.open('w', encoding='utf-8') as file:
-                    json.dump(profile, file, indent=4)
-
-                self._profile_data = profile
-                self.profile = None
-                return dict(self._profile_data)
-
-            if self._profile_data is not None:
-                return dict(self._profile_data)
-
-            with profile_path.open('r', encoding='utf-8') as file:
-                profile = json.load(file)
-                self.logger.info("Profile found")
-                self._profile_data = profile
-                self.profile = None
-                return dict(self._profile_data)
-
-        except Exception as e:
-            self.logger.error(f"Error loading profile: {e}")
-            return {}
-        
-    def format_profile_as_text(self, profile_json):
-        """
-        Formats the user's profile as a string.
-
-        Args:
-            profile_json (dict): The user's profile as a dictionary.
-
-        Returns:
-            str: The formatted profile as a string.
-        """
+    def format_profile_as_text(self, profile_json: Mapping[str, Any]) -> str:
+        """Formats the user's profile as a string."""
         self.logger.info("Formatting profile.")
         profile_lines = []
         for key, value in profile_json.items():
             line = f"{key}: {value}"
             profile_lines.append(line)
-        return '\n'.join(profile_lines)
-    
-    def get_profile_text(self):
-        """
-        Retrieves the user's profile as a formatted string.
+        return "\n".join(profile_lines)
 
-        Returns:
-            str: The user's profile as a formatted string.
-        """
+    def get_profile_text(self) -> str:
+        """Retrieves the user's profile as a formatted string."""
         if self.profile is not None:
             return self.profile
 
@@ -341,46 +282,41 @@ class UserDataManager:
         profile_json = self.get_profile()
         self.profile = self.format_profile_as_text(profile_json)
         return self.profile
-    
-    def get_emr(self):
-        """
-        Retrieves the user's EMR (Electronic Medical Record) from a text file.
 
-        Returns:
-            str: The user's EMR as a string.
-        """
+    def get_emr(self) -> str:
+        """Retrieve the stored EMR text for the user."""
         if self.emr is not None:
             return self.emr
 
         self.logger.info("Getting EMR.")
-        EMR_path = self._profiles_dir / f"{self.user}_emr.txt"
-
-        self.logger.info(f"EMR path: {EMR_path}")
-
-        if not EMR_path.exists():
-            self.logger.error(f"EMR file does not exist: {EMR_path}")
-            self.emr = ""
-            return self.emr
-
         try:
-            with EMR_path.open('r', encoding='utf-8') as file:
-                EMR = file.read()
-                EMR = EMR.replace("\n", " ")
-                EMR = re.sub(r'\s+', ' ', EMR)
-                self.emr = EMR.strip()
-                return self.emr
-        except Exception as e:
-            self.logger.error(f"Error loading EMR: {e}")
+            if self._documents is None:
+                bundle = self._ensure_profile_state()
+                documents = bundle.get("documents", {})
+            else:
+                documents = self._documents
+        except Exception as exc:
+            self.logger.error("Error loading EMR metadata: %s", exc)
             self.emr = ""
             return self.emr
 
-    def get_system_info(self):
-        """
-        Retrieves and formats detailed system information for persona personalization.
+        emr_payload = ""
+        if isinstance(documents, Mapping):
+            raw_emr = documents.get("emr")
+            if raw_emr:
+                emr_payload = str(raw_emr)
 
-        Returns:
-            str: The formatted system information as a string.
-        """
+        if not emr_payload:
+            self.emr = ""
+            return self.emr
+
+        normalised = emr_payload.replace("\n", " ")
+        normalised = re.sub(r"\s+", " ", normalised).strip()
+        self.emr = normalised
+        return self.emr
+
+    def get_system_info(self) -> str:
+        """Retrieves and formats detailed system information for persona personalisation."""
         if self._system_info is not None:
             return self._system_info
 
@@ -393,7 +329,7 @@ class UserDataManager:
             detailed_info = SystemInfo.get_detailed_system_info()
             formatted_info = ""
             for category, info in detailed_info.items():
-                self.logger.debug(f"Retrieving {category} information:")
+                self.logger.debug("Retrieving %s information:", category)
                 self.logger.debug(info)
                 formatted_info += f"--- {category} ---\n{info}\n"
             self.logger.info("System information retrieved successfully.")
@@ -405,7 +341,7 @@ class UserDataManager:
                 self._system_info = self.__class__._system_info_cache
 
             return self._system_info
-        except Exception as e:
-            self.logger.warning(f"Error retrieving system information: {e}")
+        except Exception as exc:
+            self.logger.warning("Error retrieving system information: %s", exc)
             self._system_info = "System information not available"
             return self._system_info

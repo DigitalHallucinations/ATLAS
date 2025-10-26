@@ -143,43 +143,48 @@ class ATLAS:
             except Exception as exc:  # pragma: no cover - defensive logging only
                 self.logger.debug("User account lookup failed: %s", exc)
 
-        app_root = Path(self.config_manager.get_app_root())
-        profiles_dir = app_root / "modules" / "user_accounts" / "user_profiles"
-        profile_candidates = []
-
-        if username:
-            profile_candidates.append(profiles_dir / f"{username}.json")
-
-        if profiles_dir.exists():
+        repository = self.conversation_repository
+        if repository is not None:
             try:
-                for path in sorted(profiles_dir.glob("*.json")):
-                    if path not in profile_candidates:
-                        profile_candidates.append(path)
-            except Exception as exc:  # pragma: no cover - directory listing issues
-                self.logger.debug("Failed to enumerate user profiles: %s", exc)
-
-        for profile_path in profile_candidates:
-            if not profile_path.exists():
-                continue
-            try:
-                data = json.loads(profile_path.read_text(encoding="utf-8"))
-            except Exception as exc:  # pragma: no cover - malformed profile data
-                self.logger.debug("Failed to load user profile %s: %s", profile_path, exc)
-                continue
-
-            candidate_name = (
-                data.get("name")
-                or data.get("display_name")
-                or data.get("full_name")
-                or data.get("username")
-            )
-
-            if not username:
-                username = profile_path.stem
-
-            if candidate_name:
-                display_name = str(candidate_name)
-                break
+                if username:
+                    record = repository.get_user_profile(username)
+                    if record:
+                        stored_username = record.get("username")
+                        if stored_username:
+                            username = stored_username
+                        profile_data = record.get("profile") or {}
+                        candidate_name = (
+                            record.get("display_name")
+                            or profile_data.get("Full Name")
+                            or profile_data.get("full_name")
+                            or profile_data.get("Display Name")
+                            or profile_data.get("display_name")
+                            or profile_data.get("name")
+                            or profile_data.get("Username")
+                        )
+                        if candidate_name:
+                            display_name = str(candidate_name)
+                elif not prefer_generic:
+                    profiles = repository.list_user_profiles()
+                    for record in profiles:
+                        profile_data = record.get("profile") or {}
+                        stored_username = record.get("username")
+                        candidate_name = (
+                            record.get("display_name")
+                            or profile_data.get("Full Name")
+                            or profile_data.get("full_name")
+                            or profile_data.get("Display Name")
+                            or profile_data.get("display_name")
+                            or profile_data.get("name")
+                            or profile_data.get("Username")
+                        )
+                        if stored_username and not username:
+                            username = stored_username
+                        if candidate_name:
+                            display_name = str(candidate_name)
+                            break
+            except Exception as exc:  # pragma: no cover - repository lookup issues
+                self.logger.debug("User profile lookup failed: %s", exc)
 
         if not username:
             try:

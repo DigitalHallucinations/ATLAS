@@ -50,6 +50,14 @@ returns the user to the main interface.
    display name. The wizard calls `UserAccountService.register_user` and marks
    the created account active via `ConfigManager.set_active_user`.
 
+   User profiles are now persisted directly in the PostgreSQL conversation
+   store. When the wizard provisions the administrator account it also seeds
+   the corresponding `User.meta` payload through the
+   `ConversationStoreRepository`. Downstream services, such as
+   `UserDataManager`, resolve profile metadata and EMR/history text from the
+   same PostgreSQL database instead of the legacy `user_profiles/` filesystem
+   directory.
+
 8. **Optional adjustments** – Exposes tenant identifiers, conversation
    retention, scheduler timezone/queue limits, and an option to auto-start the
    HTTP server. These are stored using `set_tenant_id`,
