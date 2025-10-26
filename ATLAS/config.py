@@ -389,6 +389,45 @@ class ConfigManager:
             return {}
         return dict(block)
 
+    def ensure_postgres_conversation_store(self) -> str:
+        """Ensure the configured PostgreSQL conversation store is initialised."""
+
+        config = self.get_conversation_database_config()
+        url = config.get("url")
+        if not url:
+            message = (
+                "Conversation database URL is required. Set CONVERSATION_DATABASE_URL "
+                "or configure conversation_database.url with a PostgreSQL DSN."
+            )
+            self.logger.error(message)
+            raise RuntimeError(message)
+
+        from modules.conversation_store.bootstrap import (
+            BootstrapError,
+            bootstrap_conversation_store,
+        )
+
+        try:
+            ensured_url = bootstrap_conversation_store(url)
+        except BootstrapError as exc:
+            message = f"Failed to bootstrap conversation store: {exc}"
+            self.logger.error(message)
+            raise RuntimeError(message) from exc
+
+        if ensured_url != url:
+            conversation_block = self.config.setdefault("conversation_database", {})
+            conversation_block["url"] = ensured_url
+
+            yaml_block = self.yaml_config.get("conversation_database")
+            if isinstance(yaml_block, Mapping):
+                updated_block = dict(yaml_block)
+                updated_block["url"] = ensured_url
+            else:
+                updated_block = {"url": ensured_url}
+            self.yaml_config["conversation_database"] = updated_block
+
+        return ensured_url
+
     def get_conversation_retention_policies(self) -> Dict[str, Any]:
         """Return configured retention policies for the conversation store."""
 
@@ -531,15 +570,10 @@ class ConfigManager:
     def _build_conversation_store_session_factory(
         self,
     ) -> Tuple[Engine | None, sessionmaker | None]:
+        ensured_url = self.ensure_postgres_conversation_store()
+
         config = self.get_conversation_database_config()
-        url = config.get("url")
-        if not url:
-            message = (
-                "Conversation database URL is required. Set CONVERSATION_DATABASE_URL "
-                "or configure conversation_database.url with a PostgreSQL DSN."
-            )
-            self.logger.error(message)
-            raise RuntimeError(message)
+        url = ensured_url
 
         try:
             parsed_url = make_url(url)
