@@ -10,4 +10,15 @@ DEFAULT_STT_PROVIDER: "whisper"
 # User Accounts
 ACTIVE_USER: null
 
+# Conversation store configuration
+conversation_database:
+  url: sqlite:///atlas_conversations.db
+  pool:
+    size: 5
+    max_overflow: 10
+    timeout: 30
+  retention:
+    days: 30
+    history_message_limit: 500
+
 
