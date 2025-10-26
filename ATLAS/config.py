@@ -467,6 +467,42 @@ class ConfigManager:
             return dict(retention)
         return {}
 
+    def set_conversation_retention(
+        self,
+        *,
+        days: Optional[int] = None,
+        history_limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Persist conversation retention settings under the conversation block."""
+
+        block = dict(self.get_conversation_database_config())
+        retention = dict(block.get('retention') or {})
+
+        if days is None:
+            retention.pop('days', None)
+            retention.pop('max_days', None)
+        else:
+            retention['days'] = int(days)
+
+        if history_limit is None:
+            retention.pop('history_message_limit', None)
+        else:
+            retention['history_message_limit'] = int(history_limit)
+
+        if retention:
+            block['retention'] = dict(retention)
+        else:
+            block.pop('retention', None)
+
+        conversation_block = dict(block)
+        self.yaml_config.setdefault('conversation_database', {})
+        yaml_block = dict(self.yaml_config['conversation_database'])
+        yaml_block.update(conversation_block)
+        self.yaml_config['conversation_database'] = yaml_block
+        self.config['conversation_database'] = dict(yaml_block)
+        self._write_yaml_config()
+        return dict(yaml_block.get('retention', {}))
+
     def get_conversation_store_engine(self) -> Engine | None:
         """Return a configured SQLAlchemy engine for the conversation store."""
 
@@ -588,6 +624,10 @@ class ConfigManager:
         if self._task_queue_service is not None:
             return self._task_queue_service
 
+        if not self.is_job_scheduling_enabled():
+            self.logger.debug("Job scheduling disabled; skipping task queue initialisation")
+            return None
+
         try:
             service = get_default_task_queue_service(config_manager=self)
         except Exception as exc:  # pragma: no cover - defensive logging only
@@ -696,6 +736,181 @@ class ConfigManager:
         if isinstance(configured, Mapping):
             return dict(configured)
         return {'backend': 'in_memory'}
+
+    def set_messaging_settings(
+        self,
+        *,
+        backend: str,
+        redis_url: Optional[str] = None,
+        stream_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist messaging backend preferences and clear cached bus instances."""
+
+        sanitized_backend = str(backend or 'in_memory').strip().lower()
+        if sanitized_backend not in {'in_memory', 'redis'}:
+            sanitized_backend = 'in_memory'
+
+        block: Dict[str, Any] = {'backend': sanitized_backend}
+        if sanitized_backend == 'redis':
+            if redis_url:
+                block['redis_url'] = str(redis_url).strip()
+            if stream_prefix:
+                block['stream_prefix'] = str(stream_prefix).strip()
+
+        self.yaml_config['messaging'] = dict(block)
+        self.config['messaging'] = dict(block)
+        self._message_bus = None
+        self._write_yaml_config()
+        return dict(block)
+
+    def get_job_scheduling_settings(self) -> Dict[str, Any]:
+        """Return the merged configuration for job scheduling defaults."""
+
+        settings: Dict[str, Any] = {}
+        stored = self.config.get('job_scheduling')
+        if isinstance(stored, Mapping):
+            settings.update(stored)
+
+        queue_block = self.config.get('task_queue')
+        if isinstance(queue_block, Mapping):
+            if 'job_store_url' not in settings and queue_block.get('jobstore_url'):
+                settings['job_store_url'] = queue_block.get('jobstore_url')
+            if 'max_workers' not in settings and queue_block.get('max_workers') is not None:
+                settings['max_workers'] = queue_block.get('max_workers')
+            if 'timezone' not in settings and queue_block.get('timezone'):
+                settings['timezone'] = queue_block.get('timezone')
+            if 'queue_size' not in settings and queue_block.get('queue_size') is not None:
+                settings['queue_size'] = queue_block.get('queue_size')
+            if 'retry_policy' not in settings and queue_block.get('retry_policy'):
+                settings['retry_policy'] = queue_block.get('retry_policy')
+
+        settings['enabled'] = bool(settings.get('enabled'))
+
+        if settings.get('max_workers') is not None:
+            try:
+                settings['max_workers'] = int(settings['max_workers'])
+            except (TypeError, ValueError):
+                settings.pop('max_workers', None)
+
+        if settings.get('queue_size') is not None:
+            try:
+                settings['queue_size'] = int(settings['queue_size'])
+            except (TypeError, ValueError):
+                settings.pop('queue_size', None)
+
+        retry = settings.get('retry_policy')
+        if isinstance(retry, Mapping):
+            settings['retry_policy'] = {
+                'max_attempts': int(retry.get('max_attempts', 3) or 3),
+                'backoff_seconds': float(retry.get('backoff_seconds', 30.0) or 30.0),
+                'jitter_seconds': float(retry.get('jitter_seconds', 5.0) or 5.0),
+                'backoff_multiplier': float(retry.get('backoff_multiplier', 2.0) or 2.0),
+            }
+        else:
+            settings['retry_policy'] = {
+                'max_attempts': 3,
+                'backoff_seconds': 30.0,
+                'jitter_seconds': 5.0,
+                'backoff_multiplier': 2.0,
+            }
+
+        return settings
+
+    def set_job_scheduling_settings(
+        self,
+        *,
+        enabled: Optional[bool] = None,
+        job_store_url: Any = _UNSET,
+        max_workers: Any = _UNSET,
+        retry_policy: Optional[Mapping[str, Any]] = None,
+        timezone: Any = _UNSET,
+        queue_size: Any = _UNSET,
+    ) -> Dict[str, Any]:
+        """Persist job scheduling defaults and mirror them to task queue settings."""
+
+        existing = self.get_job_scheduling_settings()
+        updated = dict(existing)
+
+        if enabled is not None:
+            updated['enabled'] = bool(enabled)
+
+        if job_store_url is not _UNSET:
+            text = str(job_store_url).strip() if isinstance(job_store_url, str) else str(job_store_url or '')
+            if text:
+                updated['job_store_url'] = text
+            else:
+                updated.pop('job_store_url', None)
+
+        if max_workers is not _UNSET:
+            if max_workers in (None, ''):
+                updated.pop('max_workers', None)
+            else:
+                updated['max_workers'] = int(max_workers)
+
+        if timezone is not _UNSET:
+            if timezone in (None, ''):
+                updated.pop('timezone', None)
+            else:
+                updated['timezone'] = str(timezone).strip()
+
+        if queue_size is not _UNSET:
+            if queue_size in (None, ''):
+                updated.pop('queue_size', None)
+            else:
+                updated['queue_size'] = int(queue_size)
+
+        if retry_policy is not None:
+            normalized_retry = {}
+            normalized_retry['max_attempts'] = int(retry_policy.get('max_attempts', 3) or 3)
+            normalized_retry['backoff_seconds'] = float(retry_policy.get('backoff_seconds', 30.0) or 30.0)
+            normalized_retry['jitter_seconds'] = float(retry_policy.get('jitter_seconds', 5.0) or 5.0)
+            normalized_retry['backoff_multiplier'] = float(retry_policy.get('backoff_multiplier', 2.0) or 2.0)
+            updated['retry_policy'] = normalized_retry
+
+        self.yaml_config['job_scheduling'] = dict(updated)
+        self.config['job_scheduling'] = dict(updated)
+
+        queue_block = dict(self.yaml_config.get('task_queue', {}))
+        if updated.get('job_store_url'):
+            queue_block['jobstore_url'] = updated['job_store_url']
+        else:
+            queue_block.pop('jobstore_url', None)
+
+        if updated.get('max_workers') is not None:
+            queue_block['max_workers'] = updated['max_workers']
+        else:
+            queue_block.pop('max_workers', None)
+
+        if updated.get('timezone'):
+            queue_block['timezone'] = updated['timezone']
+        else:
+            queue_block.pop('timezone', None)
+
+        if updated.get('queue_size') is not None:
+            queue_block['queue_size'] = updated['queue_size']
+        else:
+            queue_block.pop('queue_size', None)
+
+        if updated.get('retry_policy'):
+            queue_block['retry_policy'] = dict(updated['retry_policy'])
+        else:
+            queue_block.pop('retry_policy', None)
+
+        if queue_block:
+            self.yaml_config['task_queue'] = dict(queue_block)
+            self.config['task_queue'] = dict(queue_block)
+        else:
+            self.yaml_config.pop('task_queue', None)
+            self.config.pop('task_queue', None)
+
+        self._write_yaml_config()
+        return dict(updated)
+
+    def is_job_scheduling_enabled(self) -> bool:
+        """Return True when job scheduling should be initialised."""
+
+        settings = self.get_job_scheduling_settings()
+        return bool(settings.get('enabled'))
 
     def configure_message_bus(self) -> MessageBus:
         """Instantiate and configure the global message bus."""
@@ -1876,6 +2091,43 @@ class ConfigManager:
             str: The name of the default model.
         """
         return self.get_config('DEFAULT_MODEL')
+
+    def set_default_provider(self, provider: Optional[str]) -> Optional[str]:
+        """Persist the default LLM provider across configuration sources."""
+
+        normalized = provider.strip() if isinstance(provider, str) else None
+        if not normalized:
+            normalized = None
+
+        if normalized is None:
+            self.yaml_config.pop('DEFAULT_PROVIDER', None)
+            self.config.pop('DEFAULT_PROVIDER', None)
+        else:
+            self.yaml_config['DEFAULT_PROVIDER'] = normalized
+            self.config['DEFAULT_PROVIDER'] = normalized
+        self._persist_env_value('DEFAULT_PROVIDER', normalized)
+        self.env_config['DEFAULT_PROVIDER'] = normalized
+        self._write_yaml_config()
+        return normalized
+
+    def set_default_model(self, model: Optional[str]) -> Optional[str]:
+        """Persist the default LLM model selection."""
+
+        normalized = model.strip() if isinstance(model, str) else None
+        if not normalized:
+            normalized = None
+
+        if normalized is None:
+            self.yaml_config.pop('DEFAULT_MODEL', None)
+            self.config.pop('DEFAULT_MODEL', None)
+        else:
+            self.yaml_config['DEFAULT_MODEL'] = normalized
+            self.config['DEFAULT_MODEL'] = normalized
+
+        self._persist_env_value('DEFAULT_MODEL', normalized)
+        self.env_config['DEFAULT_MODEL'] = normalized
+        self._write_yaml_config()
+        return normalized
 
     def get_active_user(self) -> Optional[str]:
         """Return the username persisted as the active account."""
@@ -3213,6 +3465,33 @@ class ConfigManager:
         """
         return self.get_config('APP_ROOT')
 
+    def set_tenant_id(self, tenant_id: Optional[str]) -> Optional[str]:
+        """Persist the active tenant identifier."""
+
+        normalized = tenant_id.strip() if isinstance(tenant_id, str) else None
+        if not normalized:
+            normalized = None
+
+        if normalized is None:
+            self.yaml_config.pop('tenant_id', None)
+            self.config.pop('tenant_id', None)
+        else:
+            self.yaml_config['tenant_id'] = normalized
+            self.config['tenant_id'] = normalized
+
+        self._write_yaml_config()
+        return normalized
+
+    def set_http_server_autostart(self, enabled: bool) -> bool:
+        """Persist whether the embedded HTTP server should start automatically."""
+
+        block = dict(self.yaml_config.get('http_server', {}))
+        block['auto_start'] = bool(enabled)
+        self.yaml_config['http_server'] = dict(block)
+        self.config['http_server'] = dict(block)
+        self._write_yaml_config()
+        return bool(enabled)
+
     def update_api_key(self, provider_name: str, new_api_key: str):
         """
         Updates the API key for a specified provider in the .env file and reloads
@@ -3722,6 +4001,54 @@ class ConfigManager:
         self.logger.debug("TTS_ENABLED set to %s", value)
         # Optionally, write back to config.yaml if persistence is required
         self._write_yaml_config()
+
+    def set_default_tts_provider(self, provider: Optional[str]) -> Optional[str]:
+        """Persist the default TTS provider selection."""
+
+        normalized = provider.strip() if isinstance(provider, str) else None
+        if not normalized:
+            normalized = None
+
+        if normalized is None:
+            self.yaml_config.pop('DEFAULT_TTS_PROVIDER', None)
+            self.config.pop('DEFAULT_TTS_PROVIDER', None)
+        else:
+            self.yaml_config['DEFAULT_TTS_PROVIDER'] = normalized
+            self.config['DEFAULT_TTS_PROVIDER'] = normalized
+
+        self._write_yaml_config()
+        return normalized
+
+    def set_default_stt_provider(self, provider: Optional[str]) -> Optional[str]:
+        """Persist the default STT provider selection."""
+
+        normalized = provider.strip() if isinstance(provider, str) else None
+        if not normalized:
+            normalized = None
+
+        if normalized is None:
+            self.yaml_config.pop('DEFAULT_STT_PROVIDER', None)
+            self.config.pop('DEFAULT_STT_PROVIDER', None)
+        else:
+            self.yaml_config['DEFAULT_STT_PROVIDER'] = normalized
+            self.config['DEFAULT_STT_PROVIDER'] = normalized
+
+        self._write_yaml_config()
+        return normalized
+
+    def set_default_speech_providers(
+        self,
+        *,
+        tts_provider: Optional[str] = None,
+        stt_provider: Optional[str] = None,
+    ) -> Dict[str, Optional[str]]:
+        """Persist TTS/STT provider defaults in a single operation."""
+
+        result = {
+            'tts_provider': self.set_default_tts_provider(tts_provider),
+            'stt_provider': self.set_default_stt_provider(stt_provider),
+        }
+        return result
 
     def set_ui_debug_log_max_lines(self, max_lines: Optional[int]) -> Optional[int]:
         """Persist the maximum number of UI debug log lines retained."""

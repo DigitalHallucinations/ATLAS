@@ -382,6 +382,16 @@ class ATLAS:
         if self.job_scheduler is not None:
             return
 
+        if hasattr(self.config_manager, "is_job_scheduling_enabled") and not self.config_manager.is_job_scheduling_enabled():
+            manager_setter = getattr(self.config_manager, "set_job_manager", None)
+            scheduler_setter = getattr(self.config_manager, "set_job_scheduler", None)
+            if callable(manager_setter):
+                manager_setter(None)
+            if callable(scheduler_setter):
+                scheduler_setter(None)
+            self.logger.info("Job scheduling disabled by configuration; skipping scheduler setup")
+            return
+
         repository = self.config_manager.get_job_repository()
         queue_service = self.config_manager.get_default_task_queue_service()
         manager_setter = getattr(self.config_manager, "set_job_manager", None)
