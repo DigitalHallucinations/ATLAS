@@ -28,10 +28,32 @@ if "dotenv" not in sys.modules:
 
 import pytest
 
+sqlalchemy_mod = pytest.importorskip(
+    "sqlalchemy",
+    reason="SQLAlchemy is required for ATLAS tool configuration tests",
+)
+if getattr(getattr(sqlalchemy_mod, "create_engine", None), "__module__", "").startswith(
+    "tests.conftest"
+):
+    pytest.skip(
+        "SQLAlchemy runtime is unavailable for ATLAS tool configuration tests",
+        allow_module_level=True,
+    )
+
+pytest.importorskip(
+    "pytest_postgresql",
+    reason="PostgreSQL fixture is required for ATLAS tool configuration tests",
+)
+
 from ATLAS.ATLAS import ATLAS
 from ATLAS.config import ConfigManager
 from modules.orchestration.capability_registry import reset_capability_registry
 from ATLAS import ToolManager as ToolManagerModule
+
+
+@pytest.fixture(autouse=True)
+def configure_conversation_store(monkeypatch, postgresql):
+    monkeypatch.setenv("CONVERSATION_DATABASE_URL", postgresql.dsn())
 
 
 @pytest.fixture

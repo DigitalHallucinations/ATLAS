@@ -12,7 +12,10 @@ ACTIVE_USER: null
 
 # Conversation store configuration
 conversation_database:
-  url: sqlite:///atlas_conversations.db
+  # PostgreSQL is required for the conversation store. Provide a DSN via
+  # CONVERSATION_DATABASE_URL or override this field. Example:
+  # postgresql+psycopg://atlas:atlas@localhost:5432/atlas
+  url:
   pool:
     size: 5
     max_overflow: 10
