@@ -10,6 +10,8 @@ import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
 
+from .setup_wizard import SetupWizardWindow
+
 AtlasFactory = Callable[[], Any]
 LoopRunner = Callable[[Any], Any]
 
@@ -127,83 +129,3 @@ class FirstRunCoordinator:
 
     def _handle_setup_error(self, error: BaseException) -> None:
         self._present_setup(error=error)
-
-
-class SetupWizardWindow(Gtk.Window):
-    """A minimal GTK window guiding users through the first-run setup."""
-
-    def __init__(
-        self,
-        *,
-        application: Gtk.Application,
-        atlas: Any | None,
-        on_success: Callable[[], None],
-        on_error: Callable[[BaseException], None],
-        error: BaseException | None = None,
-    ) -> None:
-        super().__init__(title="ATLAS Setup")
-        self._on_success = on_success
-        self._on_error = on_error
-        self._atlas = atlas
-        self.set_application(application)
-
-        self.set_default_size(480, 320)
-
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        root.set_margin_top(24)
-        root.set_margin_bottom(24)
-        root.set_margin_start(24)
-        root.set_margin_end(24)
-        self.set_child(root)
-
-        intro = Gtk.Label(label="Complete the setup steps to finish configuring ATLAS.")
-        intro.set_wrap(True)
-        intro.set_justify(Gtk.Justification.FILL)
-        root.append(intro)
-
-        self._error_label = Gtk.Label()
-        self._error_label.set_wrap(True)
-        self._error_label.set_visible(False)
-        self._error_label.set_css_classes(["error-label"])
-        root.append(self._error_label)
-
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        root.append(button_box)
-
-        continue_button = Gtk.Button(label="Finish Setup")
-        continue_button.connect("clicked", self._on_continue_clicked)
-        button_box.append(continue_button)
-
-        retry_button = Gtk.Button(label="Report Problem")
-        retry_button.connect("clicked", self._on_report_problem)
-        button_box.append(retry_button)
-
-        if error is not None:
-            self.display_error(error)
-
-    # -- GTK callbacks ---------------------------------------------------
-
-    def _on_continue_clicked(self, _button: Gtk.Button) -> None:
-        self._on_success()
-
-    def _on_report_problem(self, _button: Gtk.Button) -> None:
-        self._on_error(RuntimeError("Setup workflow reported a problem."))
-
-    # -- public helpers --------------------------------------------------
-
-    def display_error(self, error: BaseException) -> None:
-        message = str(error) or error.__class__.__name__
-        self._error_label.set_text(message)
-        self._error_label.set_visible(True)
-
-    # Convenience hooks for tests and other automation layers ------------
-
-    def emit_success(self) -> None:
-        """Programmatically trigger the success callback."""
-
-        self._on_success()
-
-    def emit_error(self, error: BaseException) -> None:
-        """Programmatically trigger the error callback with ``error``."""
-
-        self._on_error(error)
