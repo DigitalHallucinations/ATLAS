@@ -12,6 +12,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
 from ATLAS.config import ConfigManager, _DEFAULT_CONVERSATION_STORE_DSN
+from ATLAS.setup_marker import write_setup_marker
 from modules.conversation_store.bootstrap import BootstrapError, bootstrap_conversation_store
 from modules.conversation_store.repository import ConversationStoreRepository
 from modules.user_accounts.user_account_service import UserAccountService
@@ -800,6 +801,8 @@ class SetupWizardWindow(AssistantBase):
             return
 
         self.display_error(None)
+        summary = self.controller.build_summary()
+        write_setup_marker({"setup_complete": True, "summary": summary})
         self._on_success()
 
     # -- public API --------------------------------------------------------
