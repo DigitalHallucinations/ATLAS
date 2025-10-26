@@ -4,8 +4,30 @@ from types import SimpleNamespace
 
 import pytest
 
+sqlalchemy_mod = pytest.importorskip(
+    "sqlalchemy",
+    reason="SQLAlchemy is required for ATLAS active user tests",
+)
+if getattr(getattr(sqlalchemy_mod, "create_engine", None), "__module__", "").startswith(
+    "tests.conftest"
+):
+    pytest.skip(
+        "SQLAlchemy runtime is unavailable for ATLAS active user tests",
+        allow_module_level=True,
+    )
+
+pytest.importorskip(
+    "pytest_postgresql",
+    reason="PostgreSQL fixture is required for ATLAS active user tests",
+)
+
 from ATLAS import ATLAS as atlas_module
 from ATLAS.ATLAS import ATLAS
+
+
+@pytest.fixture(autouse=True)
+def configure_conversation_store(monkeypatch, postgresql):
+    monkeypatch.setenv("CONVERSATION_DATABASE_URL", postgresql.dsn())
 
 
 @pytest.fixture(autouse=True)

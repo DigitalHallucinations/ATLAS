@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CH
 try:  # pragma: no cover - optional dependency handling for test environments
     from sqlalchemy import create_engine
     from sqlalchemy.engine import Engine
+    from sqlalchemy.engine.url import make_url
     from sqlalchemy.orm import sessionmaker
 except Exception:  # pragma: no cover - lightweight fallbacks when SQLAlchemy is absent
     class Engine:  # type: ignore[assignment]
@@ -19,6 +20,9 @@ except Exception:  # pragma: no cover - lightweight fallbacks when SQLAlchemy is
 
     def create_engine(*_args, **_kwargs):  # type: ignore[override]
         raise RuntimeError("SQLAlchemy create_engine is unavailable in this environment")
+
+    def make_url(*_args, **_kwargs):  # type: ignore[override]
+        raise RuntimeError("SQLAlchemy make_url is unavailable in this environment")
 
     class _Sessionmaker:  # pragma: no cover - placeholder mirroring SQLAlchemy API
         def __init__(self, *_args, **_kwargs):
@@ -530,7 +534,29 @@ class ConfigManager:
         config = self.get_conversation_database_config()
         url = config.get("url")
         if not url:
-            return None, None
+            message = (
+                "Conversation database URL is required. Set CONVERSATION_DATABASE_URL "
+                "or configure conversation_database.url with a PostgreSQL DSN."
+            )
+            self.logger.error(message)
+            raise RuntimeError(message)
+
+        try:
+            parsed_url = make_url(url)
+        except Exception as exc:
+            message = f"Invalid conversation database URL {url!r}: {exc}"
+            self.logger.error(message)
+            raise RuntimeError(message) from exc
+
+        drivername = (parsed_url.drivername or "").lower()
+        dialect = drivername.split("+", 1)[0]
+        if dialect != "postgresql":
+            message = (
+                "Conversation database URL must use the 'postgresql' dialect; "
+                f"received '{parsed_url.drivername}'."
+            )
+            self.logger.error(message)
+            raise RuntimeError(message)
 
         pool_config = config.get("pool") or {}
         engine_kwargs: Dict[str, Any] = {}

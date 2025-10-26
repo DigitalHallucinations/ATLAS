@@ -1,15 +1,46 @@
 import logging
-
 import pytest
 
 
 pytest.importorskip("sqlalchemy")
+pytest.importorskip(
+    "pytest_postgresql",
+    reason="PostgreSQL fixture is required for chat session persistence tests",
+)
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+try:
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+except ImportError as exc:  # pragma: no cover - skip when SQLAlchemy helpers missing
+    pytest.skip(
+        f"SQLAlchemy runtime helpers unavailable: {exc}", allow_module_level=True
+    )
+
+if getattr(create_engine, "__module__", "").startswith("tests.conftest"):
+    pytest.skip(
+        "SQLAlchemy runtime is unavailable for chat session persistence tests",
+        allow_module_level=True,
+    )
 
 from modules.Chat.chat_session import ChatSession
-from modules.conversation_store import ConversationStoreRepository
+from modules.conversation_store import Base, ConversationStoreRepository
+
+
+@pytest.fixture
+def repository(postgresql):
+    engine = create_engine(postgresql.dsn(), future=True)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, future=True)
+    repo = ConversationStoreRepository(factory)
+    try:
+        repo.create_schema()
+    except RuntimeError as exc:  # pragma: no cover - optional dependency guard
+        engine.dispose()
+        pytest.skip(f"Conversation store unavailable: {exc}")
+    try:
+        yield repo
+    finally:
+        engine.dispose()
 
 
 class _ConfigManagerStub:
@@ -55,47 +86,35 @@ class _ChatSessionAtlasStub:
         self.notifications.append((conversation_id, reason))
 
 
-def test_reset_conversation_archives_existing_session_and_creates_new_one():
-    engine = create_engine("sqlite:///:memory:", future=True)
-    try:
-        factory = sessionmaker(bind=engine, future=True)
-        repository = ConversationStoreRepository(factory)
-        try:
-            repository.create_schema()
-        except RuntimeError as exc:  # pragma: no cover - skip when optional deps missing
-            pytest.skip(f"Conversation store unavailable: {exc}")
+def test_reset_conversation_archives_existing_session_and_creates_new_one(repository):
+    atlas = _ChatSessionAtlasStub(repository)
+    session = ChatSession(atlas)
 
-        atlas = _ChatSessionAtlasStub(repository)
-        session = ChatSession(atlas)
+    original_id = session.conversation_id
+    assert repository.get_conversation(original_id, tenant_id=atlas.tenant_id)
 
-        original_id = session.conversation_id
-        assert repository.get_conversation(original_id, tenant_id=atlas.tenant_id)
+    session.reset_conversation()
 
-        session.reset_conversation()
+    replacement_id = session.conversation_id
+    assert replacement_id != original_id
 
-        replacement_id = session.conversation_id
-        assert replacement_id != original_id
+    all_conversations = repository.list_conversations_for_tenant(atlas.tenant_id)
+    identifiers = {item["id"] for item in all_conversations}
+    assert {str(original_id), str(replacement_id)} <= identifiers
 
-        all_conversations = repository.list_conversations_for_tenant(atlas.tenant_id)
-        identifiers = {item["id"] for item in all_conversations}
-        assert {str(original_id), str(replacement_id)} <= identifiers
+    archived_conversation = repository.get_conversation(
+        original_id, tenant_id=atlas.tenant_id
+    )
+    assert archived_conversation is not None
+    assert archived_conversation.get("archived_at") is not None
+    assert archived_conversation.get("metadata", {}).get("archived_reason") == "reset"
 
-        archived_conversation = repository.get_conversation(
-            original_id, tenant_id=atlas.tenant_id
-        )
-        assert archived_conversation is not None
-        assert archived_conversation.get("archived_at") is not None
-        assert archived_conversation.get("metadata", {}).get("archived_reason") == "reset"
+    new_conversation = repository.get_conversation(
+        replacement_id, tenant_id=atlas.tenant_id
+    )
+    assert new_conversation is not None
+    assert new_conversation.get("archived_at") is None
 
-        new_conversation = repository.get_conversation(
-            replacement_id, tenant_id=atlas.tenant_id
-        )
-        assert new_conversation is not None
-        assert new_conversation.get("archived_at") is None
-
-        assert (str(original_id), "archived") in atlas.notifications
-        assert (str(replacement_id), "created") in atlas.notifications
-    finally:
-        if engine is not None:  # pragma: no branch - defensive cleanup
-            engine.dispose()
+    assert (str(original_id), "archived") in atlas.notifications
+    assert (str(replacement_id), "created") in atlas.notifications
 

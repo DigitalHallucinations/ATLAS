@@ -1,21 +1,31 @@
 import pytest
 
-pytest.importorskip(
+sqlalchemy_mod = pytest.importorskip(
     "sqlalchemy",
     reason="SQLAlchemy is required to initialize the job scheduler",
 )
+if getattr(getattr(sqlalchemy_mod, "create_engine", None), "__module__", "").startswith(
+    "tests.conftest"
+):
+    pytest.skip(
+        "SQLAlchemy runtime is unavailable for job scheduler tests",
+        allow_module_level=True,
+    )
 pytest.importorskip(
     "sqlalchemy.exc",
     reason="SQLAlchemy exception helpers are required for job scheduler tests",
+)
+pytest.importorskip(
+    "pytest_postgresql",
+    reason="PostgreSQL fixture is required for job scheduler persistence tests",
 )
 
 from ATLAS.ATLAS import ATLAS
 
 
 @pytest.mark.asyncio
-async def test_initialize_registers_job_manifests(tmp_path, monkeypatch):
-    db_path = tmp_path / "atlas.sqlite"
-    monkeypatch.setenv("CONVERSATION_DATABASE_URL", f"sqlite:///{db_path}")
+async def test_initialize_registers_job_manifests(tmp_path, monkeypatch, postgresql):
+    monkeypatch.setenv("CONVERSATION_DATABASE_URL", postgresql.dsn())
 
     atlas = ATLAS()
     try:

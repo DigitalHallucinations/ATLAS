@@ -178,15 +178,43 @@ def _install_gtk_stubs() -> None:
 _install_gtk_stubs()
 
 pytest.importorskip("sqlalchemy")
+pytest.importorskip(
+    "pytest_postgresql",
+    reason="PostgreSQL fixture is required for conversation history tests",
+)
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+try:
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+except ImportError as exc:  # pragma: no cover - skip when SQLAlchemy helpers missing
+    pytest.skip(
+        f"SQLAlchemy runtime helpers unavailable: {exc}", allow_module_level=True
+    )
+
+if getattr(create_engine, "__module__", "").startswith("tests.conftest"):
+    pytest.skip(
+        "SQLAlchemy runtime is unavailable for conversation history tests",
+        allow_module_level=True,
+    )
 
 from ATLAS.ATLAS import ATLAS
 from GTKUI.Chat.conversation_history_page import ConversationHistoryPage
-from modules.conversation_store import ConversationStoreRepository
+from modules.conversation_store import Base, ConversationStoreRepository
 
 from gi.repository import Gtk
+
+
+@pytest.fixture
+def repository(postgresql):
+    engine = create_engine(postgresql.dsn(), future=True)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, future=True)
+    repo = ConversationStoreRepository(factory)
+    repo.create_schema()
+    try:
+        yield repo
+    finally:
+        engine.dispose()
 
 
 class _HistoryAtlasStub:
@@ -209,45 +237,37 @@ class _HistoryAtlasStub:
         )
 
 
-def test_history_page_renders_entire_conversation():
-    engine = create_engine("sqlite:///:memory:", future=True)
-    try:
-        factory = sessionmaker(bind=engine, future=True)
-        repository = ConversationStoreRepository(factory)
-        repository.create_schema()
+def test_history_page_renders_entire_conversation(repository):
+    conversation_id = uuid.uuid4()
+    repository.ensure_conversation(
+        conversation_id,
+        tenant_id="tenant",
+        title="Integration conversation",
+    )
 
-        conversation_id = uuid.uuid4()
-        repository.ensure_conversation(
+    base_time = datetime.now(timezone.utc)
+    total_messages = 550
+    for idx in range(total_messages):
+        repository.add_message(
             conversation_id,
             tenant_id="tenant",
-            title="Integration conversation",
+            role="assistant" if idx % 2 else "user",
+            content={"text": f"message-{idx}"},
+            metadata={"idx": idx},
+            timestamp=(base_time + timedelta(seconds=idx)).isoformat(),
         )
 
-        base_time = datetime.now(timezone.utc)
-        total_messages = 550
-        for idx in range(total_messages):
-            repository.add_message(
-                conversation_id,
-                tenant_id="tenant",
-                role="assistant" if idx % 2 else "user",
-                content={"text": f"message-{idx}"},
-                metadata={"idx": idx},
-                timestamp=(base_time + timedelta(seconds=idx)).isoformat(),
-            )
+    atlas = _HistoryAtlasStub(repository)
 
-        atlas = _HistoryAtlasStub(repository)
+    all_messages = atlas.get_conversation_messages(conversation_id)
+    assert len(all_messages) == total_messages
+    assert all_messages[-1]["metadata"]["idx"] == total_messages - 1
 
-        all_messages = atlas.get_conversation_messages(conversation_id)
-        assert len(all_messages) == total_messages
-        assert all_messages[-1]["metadata"]["idx"] == total_messages - 1
+    limited_messages = atlas.get_conversation_messages(conversation_id, limit=500)
+    assert len(limited_messages) == 500
 
-        limited_messages = atlas.get_conversation_messages(conversation_id, limit=500)
-        assert len(limited_messages) == 500
+    page = ConversationHistoryPage(atlas)
+    page._load_messages(str(conversation_id))
 
-        page = ConversationHistoryPage(atlas)
-        page._load_messages(str(conversation_id))
-
-        rendered_children = getattr(page.message_box, "children", [])
-        assert len(rendered_children) == total_messages
-    finally:
-        engine.dispose()
+    rendered_children = getattr(page.message_box, "children", [])
+    assert len(rendered_children) == total_messages

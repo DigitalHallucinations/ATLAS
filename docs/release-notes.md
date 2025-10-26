@@ -18,4 +18,7 @@
 - Configuration helpers now depend on `platformdirs` (with `appdirs` remaining
   an optional fallback). Ensure local environments install it with the other
   runtime requirements in `requirements.txt`.
+- The conversation store now requires a PostgreSQL DSN. Startup fails fast when
+  `CONVERSATION_DATABASE_URL` is unset or uses a non-PostgreSQL dialect, and
+  the sample configuration has been updated accordingly.
 
