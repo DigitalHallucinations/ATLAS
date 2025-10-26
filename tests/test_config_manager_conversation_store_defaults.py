@@ -155,7 +155,7 @@ def test_ensure_postgres_conversation_store_defaults_and_persists(config_manager
         ),
     )
 
-    def fake_bootstrap(url):
+    def fake_bootstrap(url, **kwargs):
         return url
 
     _install_dummy_conversation_bootstrap(monkeypatch, fake_bootstrap)
@@ -190,7 +190,7 @@ def test_ensure_postgres_conversation_store_updates_persisted_url(config_manager
         "postgresql+psycopg://existing:newpass@db.example.com:5432/atlas"
     )
 
-    def fake_bootstrap(url):
+    def fake_bootstrap(url, **kwargs):
         assert url == initial_block["url"]
         return updated_url
 

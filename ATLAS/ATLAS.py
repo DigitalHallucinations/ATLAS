@@ -44,7 +44,11 @@ class ATLAS:
     The main ATLAS application class that manages configurations, providers, personas, and speech services.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        request_privileged_password: Optional[Callable[[], str | None]] = None,
+    ):
         """
         Initialize the ATLAS instance with synchronous initialization.
         """
@@ -85,7 +89,9 @@ class ATLAS:
 
         session_factory = None
         try:
-            self.config_manager.ensure_postgres_conversation_store()
+            self.config_manager.ensure_postgres_conversation_store(
+                request_privileged_password=request_privileged_password
+            )
             session_factory = (
                 self.config_manager.get_conversation_store_session_factory()
             )

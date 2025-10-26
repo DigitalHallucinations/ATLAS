@@ -12,7 +12,7 @@ from gi.repository import Gtk
 
 from .setup_wizard import SetupWizardWindow
 
-AtlasFactory = Callable[[], Any]
+AtlasFactory = Callable[..., Any]
 LoopRunner = Callable[[Any], Any]
 
 
@@ -53,7 +53,7 @@ class FirstRunCoordinator:
 
     def _ensure_atlas(self) -> Any:
         if self.atlas is None:
-            self.atlas = self._atlas_factory()
+            self.atlas = self._create_atlas()
         return self.atlas
 
     def _initialize_or_present_setup(self) -> None:
@@ -114,7 +114,7 @@ class FirstRunCoordinator:
     def _handle_setup_success(self) -> None:
         try:
             if self.atlas is None:
-                self.atlas = self._atlas_factory()
+                self.atlas = self._create_atlas()
         except RuntimeError as exc:
             self._present_setup(error=exc)
             return
@@ -129,3 +129,39 @@ class FirstRunCoordinator:
 
     def _handle_setup_error(self, error: BaseException) -> None:
         self._present_setup(error=error)
+
+    def _create_atlas(self) -> Any:
+        password_callback = self._resolve_privileged_password_callback()
+        kwargs: dict[str, Any] = {}
+        if password_callback is not None:
+            kwargs["request_privileged_password"] = password_callback
+
+        if kwargs:
+            try:
+                return self._atlas_factory(**kwargs)
+            except TypeError as exc:
+                if "request_privileged_password" not in str(exc):
+                    raise
+        return self._atlas_factory()
+
+    def _resolve_privileged_password_callback(
+        self,
+    ) -> Callable[[], str | None] | None:
+        if self.setup_window is not None:
+            prompt = getattr(self.setup_window, "_request_privileged_password", None)
+            if callable(prompt):
+                return prompt
+
+        prompt_factory = getattr(
+            self._setup_window_cls,
+            "prompt_for_privileged_password",
+            None,
+        )
+        if callable(prompt_factory):
+            def _prompt() -> str | None:
+                parent = self.setup_window if hasattr(self.setup_window, "present") else None
+                return prompt_factory(parent=parent)
+
+            return _prompt
+
+        return None

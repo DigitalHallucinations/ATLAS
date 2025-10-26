@@ -44,7 +44,7 @@ class _StubConfigManager:
     def get_conversation_store_session_factory(self):
         return self._factory
 
-    def ensure_postgres_conversation_store(self):
+    def ensure_postgres_conversation_store(self, **_kwargs):
         return None
 
     def get_conversation_retention_policies(self) -> Dict[str, object]:

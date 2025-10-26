@@ -87,8 +87,8 @@ def test_bootstrap_installs_postgres_client_when_psql_missing(base_dsn, monkeypa
     commands = []
     readiness_results = iter([1, 0])
 
-    def fake_run(command, check):
-        commands.append((command, check))
+    def fake_run(command, check=True, input=None, text=None):
+        commands.append((command, check, input, text))
         if command[0] == "pg_isready":
             return types.SimpleNamespace(returncode=next(readiness_results))
         return types.SimpleNamespace(returncode=0)
@@ -110,6 +110,8 @@ def test_bootstrap_installs_postgres_client_when_psql_missing(base_dsn, monkeypa
         run=fake_run,
         platform_system=lambda: "Linux",
         connector=connector,
+        request_privileged_password=lambda: "secret",
+        geteuid=lambda: 1000,
     )
 
     result_url = sa_make_url(result)
@@ -120,17 +122,54 @@ def test_bootstrap_installs_postgres_client_when_psql_missing(base_dsn, monkeypa
     assert result_url.host == expected_url.host
     assert result_url.port == expected_url.port
     assert commands == [
-        (["apt-get", "update"], True),
-        (["apt-get", "install", "-y", "postgresql", "postgresql-client"], True),
-        (["pg_isready", "-q"], False),
-        (["systemctl", "start", "postgresql"], True),
-        (["pg_isready", "-q"], False),
+        (["sudo", "-S", "apt-get", "update"], True, "secret\n", True),
+        (
+            ["sudo", "-S", "apt-get", "install", "-y", "postgresql", "postgresql-client"],
+            True,
+            "secret\n",
+            True,
+        ),
+        (["pg_isready", "-q"], False, None, None),
+        (["systemctl", "start", "postgresql"], True, None, None),
+        (["pg_isready", "-q"], False, None, None),
     ]
     assert which_calls == ["psql", "psql"]
     assert maintenance.autocommit is True
     assert maintenance.closed is True
     assert verification.closed is True
 
+
+
+
+def test_bootstrap_requires_password_when_prompt_cancelled(base_dsn):
+    which_calls = []
+
+    def fake_which(command):
+        which_calls.append(command)
+        return None if len(which_calls) == 1 else "/usr/bin/psql"
+
+    def fake_run(*_args, **_kwargs):  # pragma: no cover - should not be invoked
+        raise AssertionError("run should not be called when prompt is cancelled")
+
+    prompt_calls: list[None] = []
+
+    def prompt() -> None:
+        prompt_calls.append(None)
+        return None
+
+    with pytest.raises(BootstrapError) as excinfo:
+        bootstrap_conversation_store(
+            base_dsn,
+            which=fake_which,
+            run=fake_run,
+            platform_system=lambda: "Linux",
+            connector=lambda *_args, **_kwargs: None,
+            request_privileged_password=prompt,
+            geteuid=lambda: 1000,
+        )
+
+    assert prompt_calls == [None]
+    assert "administrator" in str(excinfo.value).lower()
 
 def test_bootstrap_creates_missing_database(base_dsn):
     maintenance = RecordingConnection(
@@ -175,7 +214,7 @@ def test_bootstrap_noop_when_already_provisioned(base_dsn):
     result = bootstrap_conversation_store(
         base_dsn,
         which=lambda *_: "/usr/bin/psql",
-        run=lambda command, check: commands.append(command),
+        run=lambda command, check, **kwargs: commands.append(command),
         platform_system=lambda: "Linux",
         connector=connector,
     )
@@ -200,8 +239,8 @@ def test_bootstrap_raises_when_postgres_service_cannot_start(base_dsn, monkeypat
 
     commands = []
 
-    def fake_run(command, check):
-        commands.append((command, check))
+    def fake_run(command, check=True, input=None, text=None):
+        commands.append((command, check, input, text))
         if command[0] == "pg_isready":
             return types.SimpleNamespace(returncode=1)
         return types.SimpleNamespace(returncode=0)
@@ -223,11 +262,18 @@ def test_bootstrap_raises_when_postgres_service_cannot_start(base_dsn, monkeypat
             run=fake_run,
             platform_system=lambda: "Linux",
             connector=connector,
+            request_privileged_password=lambda: "secret",
+            geteuid=lambda: 1000,
         )
 
     assert commands[:2] == [
-        (["apt-get", "update"], True),
-        (["apt-get", "install", "-y", "postgresql", "postgresql-client"], True),
+        (["sudo", "-S", "apt-get", "update"], True, "secret\n", True),
+        (
+            ["sudo", "-S", "apt-get", "install", "-y", "postgresql", "postgresql-client"],
+            True,
+            "secret\n",
+            True,
+        ),
     ]
     assert any(cmd[0][0] == "systemctl" for cmd in commands)
     assert which_calls == ["psql", "psql"]

@@ -536,22 +536,22 @@ class SetupWizardWindow(AssistantBase):
 
     # -- UI construction ---------------------------------------------------
 
-    def _request_privileged_password(self) -> str | None:
-        if self._password_prompt_callback is not None:
-            return self._password_prompt_callback()
-
+    @staticmethod
+    def prompt_for_privileged_password(*, parent: Gtk.Window | None = None) -> str | None:
         dialog_cls = getattr(Gtk, "Dialog", None)
         if dialog_cls is None:
             return None
 
         if hasattr(Gtk, "ResponseType"):
-            response_accept = getattr(Gtk.ResponseType, "ACCEPT", getattr(Gtk.ResponseType, "OK", 0))
+            response_accept = getattr(
+                Gtk.ResponseType, "ACCEPT", getattr(Gtk.ResponseType, "OK", 0)
+            )
             response_cancel = getattr(Gtk.ResponseType, "CANCEL", 1)
         else:  # pragma: no cover - GTK fallback
             response_accept = 0
             response_cancel = 1
 
-        dialog = dialog_cls(transient_for=self, modal=True)
+        dialog = dialog_cls(transient_for=parent, modal=True)
         if hasattr(dialog, "set_title"):
             dialog.set_title("Administrator privileges required")
 
@@ -621,6 +621,12 @@ class SetupWizardWindow(AssistantBase):
         if response == response_accept:
             return password_text
         return None
+
+    def _request_privileged_password(self) -> str | None:
+        if self._password_prompt_callback is not None:
+            return self._password_prompt_callback()
+
+        return self.prompt_for_privileged_password(parent=self)
 
     def _build_pages(self) -> None:
         builders: Iterable[tuple[str, Callable[[], Gtk.Widget]]] = [

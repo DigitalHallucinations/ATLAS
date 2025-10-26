@@ -101,8 +101,9 @@ from GTKUI.Setup.first_run import FirstRunCoordinator
 
 
 class DummyAtlas:
-    def __init__(self):
+    def __init__(self, *, request_privileged_password=None):
         self.initialize_calls = 0
+        self.request_privileged_password = request_privileged_password
 
     async def initialize(self):
         self.initialize_calls += 1
@@ -152,6 +153,10 @@ class RecordingSetupWindow:
         if error is not None:
             self.display_error(error)
 
+    @staticmethod
+    def prompt_for_privileged_password(*, parent=None):
+        return "secret"
+
     def set_application(self, application):
         self.application = application
 
@@ -176,6 +181,10 @@ class NoopSetupWindow:
 
     def __init__(self, **_kwargs):
         NoopSetupWindow.created = True
+
+    @staticmethod
+    def prompt_for_privileged_password(*, parent=None):
+        return None
 
 
 def test_coordinator_launches_main_window_on_success():
@@ -211,7 +220,7 @@ def test_coordinator_shows_setup_when_initialize_fails():
     runner = FailingRunner()
     coordinator = FirstRunCoordinator(
         application=object(),
-        atlas_factory=lambda: atlas,
+        atlas_factory=lambda **_kwargs: atlas,
         main_window_cls=RecordingMainWindow,
         setup_window_cls=RecordingSetupWindow,
         loop_runner=runner,
@@ -243,7 +252,7 @@ def test_setup_retry_closes_wizard_after_success():
     runner = ToggleRunner()
     coordinator = FirstRunCoordinator(
         application=object(),
-        atlas_factory=lambda: atlas,
+        atlas_factory=lambda **_kwargs: atlas,
         main_window_cls=RecordingMainWindow,
         setup_window_cls=RecordingSetupWindow,
         loop_runner=runner,
@@ -268,18 +277,18 @@ def test_setup_retry_recreates_atlas_on_factory_failure():
         def __init__(self):
             self.calls = 0
 
-        def __call__(self):
+        def __call__(self, **kwargs):
             self.calls += 1
             if self.calls == 1:
                 raise RuntimeError("factory broke")
-            atlas = DummyAtlas()
+            atlas = DummyAtlas(**kwargs)
             created.append(atlas)
             return atlas
 
     factory = Factory()
     coordinator = FirstRunCoordinator(
         application=object(),
-        atlas_factory=factory,
+        atlas_factory=lambda **kwargs: factory(**kwargs),
         main_window_cls=RecordingMainWindow,
         setup_window_cls=RecordingSetupWindow,
         loop_runner=run_coroutine,

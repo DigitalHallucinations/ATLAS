@@ -7,7 +7,7 @@ import json
 import os
 import shlex
 from collections.abc import Mapping, Sequence
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 try:  # pragma: no cover - optional dependency handling for test environments
     from sqlalchemy import create_engine
@@ -551,7 +551,10 @@ class ConfigManager:
             return {}
         return dict(block)
 
-    def ensure_postgres_conversation_store(self) -> str:
+    def ensure_postgres_conversation_store(
+        self,
+        request_privileged_password: Callable[[], str | None] | None = None,
+    ) -> str:
         """Ensure the configured PostgreSQL conversation store is initialised."""
 
         config = self.get_conversation_database_config()
@@ -576,7 +579,10 @@ class ConfigManager:
         )
 
         try:
-            ensured_url = bootstrap_conversation_store(url)
+            ensured_url = bootstrap_conversation_store(
+                url,
+                request_privileged_password=request_privileged_password,
+            )
         except BootstrapError as exc:
             message = f"Failed to bootstrap conversation store: {exc}"
             self.logger.error(message)
