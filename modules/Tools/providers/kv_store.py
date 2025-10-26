@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
+from ATLAS.config import ConfigManager
 from modules.Tools.Base_Tools.kv_store import build_kv_store_service
 from modules.Tools.providers.base import ToolProvider, ToolProviderSpec
 from modules.Tools.providers.registry import tool_provider_registry
@@ -15,7 +16,8 @@ class KeyValueStoreProvider(ToolProvider):
 
     def __init__(self, spec: ToolProviderSpec, *, tool_name: str, fallback_callable=None) -> None:
         super().__init__(spec, tool_name=tool_name, fallback_callable=fallback_callable)
-        adapter_name = str(self.config.get("adapter", "sqlite")).strip() or "sqlite"
+        self._config_manager = ConfigManager()
+        adapter_name = str(self.config.get("adapter", "postgres")).strip() or "postgres"
         adapter_config: Optional[Mapping[str, Any]]
         raw_config = self.config.get("adapter_config")
         if isinstance(raw_config, Mapping):
@@ -25,7 +27,7 @@ class KeyValueStoreProvider(ToolProvider):
         self._service = build_kv_store_service(
             adapter_name=adapter_name,
             adapter_config=adapter_config,
-            config_manager=None,
+            config_manager=self._config_manager,
         )
 
     async def call(self, **kwargs: Any) -> Mapping[str, Any]:
@@ -59,7 +61,7 @@ class KeyValueStoreProvider(ToolProvider):
         raise RuntimeError(f"Unsupported KV store operation '{self.tool_name}'")
 
 
-tool_provider_registry.register("kv_store_sqlite", KeyValueStoreProvider)
+tool_provider_registry.register("kv_store_postgres", KeyValueStoreProvider)
 
 
 __all__ = ["KeyValueStoreProvider"]

@@ -2,6 +2,8 @@ import sys
 import types
 
 
+pytest_plugins = ("pytest_postgresql",)
+
 if "pygame" not in sys.modules:
     music = types.SimpleNamespace(
         load=lambda *_args, **_kwargs: None,
@@ -184,6 +186,29 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
     sys.modules["sqlalchemy.orm"] = orm_module
     sys.modules["sqlalchemy.engine"] = engine_module
     sys.modules["sqlalchemy.event"] = event_module
+    types_module = types.ModuleType("sqlalchemy.types")
+    types_module.JSON = _marker("JSON")
+    types_module.TypeDecorator = _marker("TypeDecorator")
+    sys.modules["sqlalchemy.types"] = types_module
+    engine_url_module = types.ModuleType("sqlalchemy.engine.url")
+
+    class _StubURL:
+        def __init__(self, url: str):
+            self._url = url
+            self.drivername = url.split(":", 1)[0]
+
+        def set(self, *, drivername: str):
+            self.drivername = drivername
+            return self
+
+        def __str__(self) -> str:  # pragma: no cover - deterministic repr
+            return self._url
+
+    def _stub_make_url(url: str):  # pragma: no cover - lightweight helper
+        return _StubURL(url)
+
+    engine_url_module.make_url = _stub_make_url
+    sys.modules["sqlalchemy.engine.url"] = engine_url_module
     requests_module.adapters = adapters_module
 
     sys.modules["requests"] = requests_module

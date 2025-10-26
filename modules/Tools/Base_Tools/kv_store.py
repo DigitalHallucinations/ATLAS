@@ -1,23 +1,37 @@
 """Namespaced key-value store with TTL and quota enforcement.
 
 This module exposes asynchronous helper functions around a pluggable adapter
-layer.  The default adapter is backed by an embedded SQLite database which makes
-it suitable for sandboxed deployments while still supporting concurrency,
-per-namespace quotas, and key expiry semantics.
+layer.  The default adapter persists state in PostgreSQL using SQLAlchemy and
+psycopg which aligns the KV store with the rest of ATLAS' persistence layer
+while preserving concurrency, per-namespace quotas, and key expiry semantics.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import os
-import sqlite3
-import threading
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol
+
+from sqlalchemy import (
+    Column,
+    Float,
+    Index,
+    Integer,
+    MetaData,
+    Table,
+    Text,
+    create_engine,
+    delete,
+    func,
+    select,
+)
+from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
+from sqlalchemy.engine import Engine
+from sqlalchemy.engine.url import make_url
+from sqlalchemy.sql import Select
 
 from modules.logging.logger import setup_logger
 
@@ -275,7 +289,7 @@ def build_kv_store_service(
     adapter_config: Optional[Mapping[str, Any]] = None,
     config_manager: Optional[ConfigManager] = None,
 ) -> KeyValueStoreService:
-    default_adapter = "sqlite"
+    default_adapter = "postgres"
     default_config: Mapping[str, Any] = MappingProxyType({})
 
     if config_manager is not None:
@@ -310,112 +324,114 @@ def _coerce_positive_int(value: Any, *, minimum: int, env_name: str) -> int:
     return parsed
 
 
-class SQLiteKeyValueStoreAdapter:
-    """Embedded SQLite adapter implementing the key-value operations."""
+class PostgresKeyValueStoreAdapter:
+    """PostgreSQL-backed adapter implementing the key-value operations."""
+
+    _METADATA = MetaData()
+    _TABLE = Table(
+        "kv_entries",
+        _METADATA,
+        Column("namespace", Text, primary_key=True, nullable=False),
+        Column("key", Text, primary_key=True, nullable=False),
+        Column("value", JSONB, nullable=False),
+        Column("expires_at", Float, nullable=True),
+        Column("size_bytes", Integer, nullable=False),
+        comment="Namespaced key-value entries",
+    )
+    Index("idx_kv_entries_expires", _TABLE.c.expires_at)
 
     def __init__(
         self,
         *,
-        path: Path,
+        engine: Engine,
         namespace_quota_bytes: int,
         global_quota_bytes: Optional[int],
-        busy_timeout_ms: int = 5000,
     ) -> None:
-        self._path = path
+        self._engine = engine
         self._namespace_quota_bytes = namespace_quota_bytes
         self._global_quota_bytes = global_quota_bytes
-        self._lock = threading.RLock()
+        self._ensure_schema()
 
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._connection = sqlite3.connect(
-            str(path),
-            check_same_thread=False,
-            isolation_level=None,
-        )
-        self._connection.execute("PRAGMA journal_mode=WAL")
-        self._connection.execute("PRAGMA synchronous=NORMAL")
-        self._connection.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
-        self._initialize_schema()
+    def _ensure_schema(self) -> None:
+        try:
+            self._METADATA.create_all(self._engine, tables=[self._TABLE])
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            raise KeyValueStoreError("Failed to initialize KV store schema") from exc
 
-    def _initialize_schema(self) -> None:
-        with self._connection:
-            self._connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS kv_entries (
-                    namespace TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    expires_at REAL,
-                    size_bytes INTEGER NOT NULL,
-                    PRIMARY KEY(namespace, key)
-                )
-                """
-            )
-            self._connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_kv_expires ON kv_entries(expires_at)"
-            )
-
-    def _purge_expired(self, *, cursor: sqlite3.Cursor, now: Optional[float] = None) -> None:
+    def _purge_expired(self, connection, *, now: Optional[float] = None) -> None:
         now = now if now is not None else time.time()
-        cursor.execute(
-            "DELETE FROM kv_entries WHERE expires_at IS NOT NULL AND expires_at <= ?",
-            (now,),
+        connection.execute(
+            delete(self._TABLE).where(
+                self._TABLE.c.expires_at.is_not(None),
+                self._TABLE.c.expires_at <= now,
+            )
         )
 
-    def _load_row(self, cursor: sqlite3.Cursor, namespace: str, key: str, *, now: Optional[float]) -> Optional[_StoreRecord]:
-        row = cursor.execute(
-            "SELECT value, expires_at FROM kv_entries WHERE namespace = ? AND key = ?",
-            (namespace, key),
-        ).fetchone()
+    def _load_row(
+        self,
+        connection,
+        namespace: str,
+        key: str,
+        *,
+        now: Optional[float],
+        for_update: bool = False,
+    ) -> Optional[_StoreRecord]:
+        query: Select = select(
+            self._TABLE.c.value,
+            self._TABLE.c.expires_at,
+        ).where(
+            self._TABLE.c.namespace == namespace,
+            self._TABLE.c.key == key,
+        )
+        if for_update:
+            query = query.with_for_update()
+        row = connection.execute(query).first()
         if row is None:
             return None
-        raw_value, expires_at = row
-        if expires_at is not None and expires_at <= (now if now is not None else time.time()):
-            cursor.execute(
-                "DELETE FROM kv_entries WHERE namespace = ? AND key = ?",
-                (namespace, key),
+        value, expires_at = row
+        now_value = now if now is not None else time.time()
+        if expires_at is not None and expires_at <= now_value:
+            connection.execute(
+                delete(self._TABLE).where(
+                    self._TABLE.c.namespace == namespace,
+                    self._TABLE.c.key == key,
+                )
             )
             return None
-        value = json.loads(raw_value)
         return _StoreRecord(namespace=namespace, key=key, value=value, expires_at=expires_at)
 
-    def _compute_usage(self, cursor: sqlite3.Cursor, namespace: Optional[str]) -> int:
-        if namespace is None:
-            query = "SELECT COALESCE(SUM(size_bytes), 0) FROM kv_entries"
-            params = ()
-        else:
-            query = "SELECT COALESCE(SUM(size_bytes), 0) FROM kv_entries WHERE namespace = ?"
-            params = (namespace,)
-        result = cursor.execute(query, params).fetchone()
-        return int(result[0]) if result else 0
+    def _compute_usage(self, connection, namespace: Optional[str]) -> int:
+        stmt = select(func.coalesce(func.sum(self._TABLE.c.size_bytes), 0))
+        if namespace is not None:
+            stmt = stmt.where(self._TABLE.c.namespace == namespace)
+        result = connection.execute(stmt).scalar_one()
+        return int(result)
 
     def _enforce_quotas(
         self,
-        cursor: sqlite3.Cursor,
+        connection,
         *,
         namespace: str,
         new_size: int,
         previous_size: int,
     ) -> None:
-        namespace_usage = self._compute_usage(cursor, namespace) - previous_size
+        namespace_usage = self._compute_usage(connection, namespace) - previous_size
         if namespace_usage + new_size > self._namespace_quota_bytes:
             raise NamespaceQuotaExceededError(
                 f"Storing '{namespace}:{new_size}' would exceed namespace quota of {self._namespace_quota_bytes} bytes."
             )
         if self._global_quota_bytes is not None:
-            global_usage = self._compute_usage(cursor, None) - previous_size
+            global_usage = self._compute_usage(connection, None) - previous_size
             if global_usage + new_size > self._global_quota_bytes:
-                raise GlobalQuotaExceededError(
-                    "Global key-value store quota exceeded."
-                )
+                raise GlobalQuotaExceededError("Global key-value store quota exceeded.")
 
-    def _serialize_value(self, value: Any) -> tuple[str, int]:
+    def _serialize_value(self, value: Any) -> tuple[Any, int]:
         try:
             encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
         except (TypeError, ValueError) as exc:
             raise ValueSerializationError("Values must be JSON serializable.") from exc
         size = len(encoded.encode("utf-8"))
-        return encoded, size
+        return json.loads(encoded), size
 
     def _normalize_ttl(self, ttl_seconds: Optional[float]) -> Optional[float]:
         if ttl_seconds is None:
@@ -429,52 +445,59 @@ class SQLiteKeyValueStoreAdapter:
         return ttl
 
     def get(self, namespace: str, key: str) -> _GetResult:
-        with self._lock, self._connection:  # type: ignore[call-arg]
-            cursor = self._connection.cursor()
+        with self._engine.begin() as connection:
             now = time.time()
-            self._purge_expired(cursor=cursor, now=now)
-            record = self._load_row(cursor, namespace, key, now=now)
+            self._purge_expired(connection, now=now)
+            record = self._load_row(connection, namespace, key, now=now)
             return _GetResult(namespace=namespace, key=key, found=record is not None, record=record)
 
     def set(self, namespace: str, key: str, value: Any, *, ttl_seconds: Optional[float]) -> _WriteResult:
         ttl = self._normalize_ttl(ttl_seconds)
-        encoded, size = self._serialize_value(value)
+        serialized, size = self._serialize_value(value)
         expires_at = (time.time() + ttl) if ttl is not None else None
 
-        with self._lock, self._connection:  # type: ignore[call-arg]
-            cursor = self._connection.cursor()
+        with self._engine.begin() as connection:
             now = time.time()
-            self._purge_expired(cursor=cursor, now=now)
-            existing = cursor.execute(
-                "SELECT size_bytes FROM kv_entries WHERE namespace = ? AND key = ?",
-                (namespace, key),
-            ).fetchone()
-            previous_size = int(existing[0]) if existing else 0
-            self._enforce_quotas(cursor, namespace=namespace, new_size=size, previous_size=previous_size)
-            cursor.execute(
-                """
-                INSERT INTO kv_entries(namespace, key, value, expires_at, size_bytes)
-                VALUES(?, ?, ?, ?, ?)
-                ON CONFLICT(namespace, key) DO UPDATE SET
-                    value = excluded.value,
-                    expires_at = excluded.expires_at,
-                    size_bytes = excluded.size_bytes
-                """,
-                (namespace, key, encoded, expires_at, size),
+            self._purge_expired(connection, now=now)
+            existing_size = connection.execute(
+                select(self._TABLE.c.size_bytes).where(
+                    self._TABLE.c.namespace == namespace,
+                    self._TABLE.c.key == key,
+                )
+            ).scalar_one_or_none()
+            previous_size = int(existing_size or 0)
+            self._enforce_quotas(connection, namespace=namespace, new_size=size, previous_size=previous_size)
+            statement = pg_insert(self._TABLE).values(
+                namespace=namespace,
+                key=key,
+                value=serialized,
+                expires_at=expires_at,
+                size_bytes=size,
+            )
+            connection.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[self._TABLE.c.namespace, self._TABLE.c.key],
+                    set_={
+                        "value": serialized,
+                        "expires_at": expires_at,
+                        "size_bytes": size,
+                    },
+                )
             )
             record = _StoreRecord(namespace=namespace, key=key, value=value, expires_at=expires_at)
             return _WriteResult(namespace=namespace, key=key, record=record)
 
     def delete(self, namespace: str, key: str) -> _DeleteResult:
-        with self._lock, self._connection:  # type: ignore[call-arg]
-            cursor = self._connection.cursor()
+        with self._engine.begin() as connection:
             now = time.time()
-            self._purge_expired(cursor=cursor, now=now)
-            cursor.execute(
-                "DELETE FROM kv_entries WHERE namespace = ? AND key = ?",
-                (namespace, key),
+            self._purge_expired(connection, now=now)
+            result = connection.execute(
+                delete(self._TABLE).where(
+                    self._TABLE.c.namespace == namespace,
+                    self._TABLE.c.key == key,
+                )
             )
-            deleted = cursor.rowcount > 0
+            deleted = result.rowcount is not None and result.rowcount > 0
             return _DeleteResult(namespace=namespace, key=key, deleted=deleted)
 
     def increment(
@@ -492,85 +515,182 @@ class SQLiteKeyValueStoreAdapter:
         if not isinstance(initial_value, int):
             raise InvalidValueTypeError("initial_value must be an integer")
 
-        with self._lock, self._connection:  # type: ignore[call-arg]
-            cursor = self._connection.cursor()
+        with self._engine.begin() as connection:
             now = time.time()
-            self._purge_expired(cursor=cursor, now=now)
-            record = self._load_row(cursor, namespace, key, now=now)
+            self._purge_expired(connection, now=now)
+            record = self._load_row(
+                connection,
+                namespace,
+                key,
+                now=now,
+                for_update=True,
+            )
             if record is None:
                 current_value = initial_value
+                existing_size = 0
             else:
                 if not isinstance(record.value, int):
                     raise InvalidValueTypeError("Stored value is not an integer")
                 current_value = record.value
+                stored_size = connection.execute(
+                    select(self._TABLE.c.size_bytes).where(
+                        self._TABLE.c.namespace == namespace,
+                        self._TABLE.c.key == key,
+                    )
+                ).scalar_one_or_none()
+                existing_size = int(stored_size or 0)
+
             new_value = current_value + delta
             ttl_to_use = ttl if ttl is not None else (record.ttl_seconds(now=now) if record else None)
-            encoded, size = self._serialize_value(new_value)
+            serialized, size = self._serialize_value(new_value)
             expires_at = (time.time() + ttl_to_use) if ttl_to_use is not None else None
 
-            existing_size = 0
-            if record is not None:
-                stored = cursor.execute(
-                    "SELECT size_bytes FROM kv_entries WHERE namespace = ? AND key = ?",
-                    (namespace, key),
-                ).fetchone()
-                existing_size = int(stored[0]) if stored else 0
-            self._enforce_quotas(cursor, namespace=namespace, new_size=size, previous_size=existing_size)
-            cursor.execute(
-                """
-                INSERT INTO kv_entries(namespace, key, value, expires_at, size_bytes)
-                VALUES(?, ?, ?, ?, ?)
-                ON CONFLICT(namespace, key) DO UPDATE SET
-                    value = excluded.value,
-                    expires_at = excluded.expires_at,
-                    size_bytes = excluded.size_bytes
-                """,
-                (namespace, key, encoded, expires_at, size),
+            self._enforce_quotas(connection, namespace=namespace, new_size=size, previous_size=existing_size)
+            statement = pg_insert(self._TABLE).values(
+                namespace=namespace,
+                key=key,
+                value=serialized,
+                expires_at=expires_at,
+                size_bytes=size,
+            )
+            connection.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[self._TABLE.c.namespace, self._TABLE.c.key],
+                    set_={
+                        "value": serialized,
+                        "expires_at": expires_at,
+                        "size_bytes": size,
+                    },
+                )
             )
             stored_record = _StoreRecord(namespace=namespace, key=key, value=new_value, expires_at=expires_at)
             return _WriteResult(namespace=namespace, key=key, record=stored_record)
 
 
-def _sqlite_adapter_factory(
-    _config_manager: Optional[ConfigManager], config: Mapping[str, Any]
-) -> SQLiteKeyValueStoreAdapter:
-    path_setting = config.get("path") or os.environ.get("ATLAS_KV_STORE_PATH")
-    if path_setting:
-        path = Path(str(path_setting)).expanduser()
-    else:
-        default_root = Path.home() / ".atlas"
-        default_root.mkdir(parents=True, exist_ok=True)
-        path = default_root / "kv_store.sqlite"
+def _normalize_bool(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
 
-    namespace_quota = config.get("namespace_quota_bytes") or os.environ.get(
-        "ATLAS_KV_NAMESPACE_QUOTA_BYTES",
-        1_048_576,
+
+def _normalize_postgres_url(url: str) -> str:
+    try:
+        parsed = make_url(url)
+    except Exception:
+        return url
+    if parsed.drivername == "postgresql":
+        parsed = parsed.set(drivername="postgresql+psycopg")
+    return str(parsed)
+
+
+def _build_engine_from_config(
+    config_manager: Optional[ConfigManager],
+    config: Mapping[str, Any],
+) -> Engine:
+    if config_manager is not None and hasattr(config_manager, "get_kv_store_engine"):
+        try:
+            engine = config_manager.get_kv_store_engine(adapter_config=config)
+        except Exception as exc:  # pragma: no cover - fallback on manual construction
+            logger.debug("Falling back to manual KV engine construction: %s", exc)
+        else:
+            if engine is not None:
+                return engine
+
+    reuse_conversation = _normalize_bool(
+        config.get("reuse_conversation_store"),
+        default=False,
     )
-    global_quota = config.get("global_quota_bytes") or os.environ.get("ATLAS_KV_GLOBAL_QUOTA_BYTES")
+
+    if reuse_conversation and config_manager is not None and hasattr(config_manager, "get_conversation_store_engine"):
+        engine = config_manager.get_conversation_store_engine()
+        if engine is not None:
+            return engine
+
+    url_value = config.get("url")
+    if not isinstance(url_value, str) or not url_value.strip():
+        raise KeyValueStoreError("PostgreSQL adapter requires a configured DSN")
+
+    normalized_url = _normalize_postgres_url(url_value.strip())
+
+    pool_config: Dict[str, Any] = {}
+    raw_pool_override = config.get("pool")
+    if isinstance(raw_pool_override, Mapping):
+        pool_config.update(dict(raw_pool_override))
+
+    engine_kwargs: Dict[str, Any] = {"future": True}
+    if pool_config.get("size") is not None:
+        engine_kwargs["pool_size"] = int(pool_config["size"])
+    if pool_config.get("max_overflow") is not None:
+        engine_kwargs["max_overflow"] = int(pool_config["max_overflow"])
+    if pool_config.get("timeout") is not None:
+        engine_kwargs["pool_timeout"] = float(pool_config["timeout"])
+
+    return create_engine(normalized_url, **engine_kwargs)
+
+
+def _postgres_adapter_factory(
+    config_manager: Optional[ConfigManager],
+    config: Mapping[str, Any],
+) -> PostgresKeyValueStoreAdapter:
+    namespace_quota = config.get("namespace_quota_bytes")
+    if namespace_quota is None and config_manager is not None:
+        try:
+            kv_settings = config_manager.get_kv_store_settings()
+        except AttributeError:
+            kv_settings = {}
+        if isinstance(kv_settings, Mapping):
+            adapters = kv_settings.get("adapters")
+            if isinstance(adapters, Mapping):
+                postgres_settings = adapters.get("postgres")
+                if isinstance(postgres_settings, Mapping):
+                    namespace_quota = postgres_settings.get("namespace_quota_bytes")
 
     namespace_quota_bytes = _coerce_positive_int(
-        namespace_quota,
+        namespace_quota if namespace_quota is not None else 1_048_576,
         minimum=1,
         env_name="namespace_quota_bytes",
     )
-    global_quota_bytes: Optional[int]
-    if global_quota is None or global_quota == "":
-        global_quota_bytes = None
+
+    global_quota = config.get("global_quota_bytes")
+    if global_quota is None and config_manager is not None:
+        try:
+            kv_settings = config_manager.get_kv_store_settings()
+        except AttributeError:
+            kv_settings = {}
+        if isinstance(kv_settings, Mapping):
+            adapters = kv_settings.get("adapters")
+            if isinstance(adapters, Mapping):
+                postgres_settings = adapters.get("postgres")
+                if isinstance(postgres_settings, Mapping):
+                    global_quota = postgres_settings.get("global_quota_bytes")
+
+    if global_quota in (None, ""):
+        global_quota_bytes: Optional[int] = None
     else:
-        global_quota_bytes = _coerce_positive_int(global_quota, minimum=1, env_name="global_quota_bytes")
+        global_quota_bytes = _coerce_positive_int(
+            global_quota,
+            minimum=1,
+            env_name="global_quota_bytes",
+        )
 
-    busy_timeout = config.get("busy_timeout_ms") or 5000
-    busy_timeout_ms = _coerce_positive_int(busy_timeout, minimum=1, env_name="busy_timeout_ms")
+    engine = _build_engine_from_config(config_manager, config)
 
-    return SQLiteKeyValueStoreAdapter(
-        path=path,
+    return PostgresKeyValueStoreAdapter(
+        engine=engine,
         namespace_quota_bytes=namespace_quota_bytes,
         global_quota_bytes=global_quota_bytes,
-        busy_timeout_ms=busy_timeout_ms,
     )
 
 
-register_kv_store_adapter("sqlite", _sqlite_adapter_factory)
+register_kv_store_adapter("postgres", _postgres_adapter_factory)
 
 
 async def kv_get(

@@ -143,6 +143,7 @@ from GTKUI.Setup.setup_wizard import (
     DatabaseState,
     JobSchedulingState,
     MessageBusState,
+    KvStoreState,
     ProviderState,
     RetryPolicyState,
     SetupWizardController,
@@ -251,6 +252,21 @@ def test_controller_message_bus_settings(config_manager):
     messaging = config_manager.get_messaging_settings()
     assert messaging['backend'] == 'redis'
     assert messaging['redis_url'] == 'redis://localhost:6379/0'
+
+
+def test_controller_kv_store_settings(config_manager):
+    controller = SetupWizardController(config_manager=config_manager, bootstrap=lambda url: url)
+    state = KvStoreState(
+        reuse_conversation_store=False,
+        url='postgresql+psycopg://atlas:atlas@localhost:5432/atlas_kv',
+    )
+
+    controller.apply_kv_store_settings(state)
+
+    settings = config_manager.get_kv_store_settings()
+    postgres = settings['adapters']['postgres']
+    assert postgres['url'] == 'postgresql+psycopg://atlas:atlas@localhost:5432/atlas_kv'
+    assert postgres['reuse_conversation_store'] is False
 
 
 def test_controller_provider_settings_persist_keys_and_defaults(config_manager):

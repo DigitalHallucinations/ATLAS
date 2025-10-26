@@ -136,6 +136,12 @@ class MessageBusState:
 
 
 @dataclass
+class KvStoreState:
+    reuse_conversation_store: bool = True
+    url: Optional[str] = None
+
+
+@dataclass
 class ProviderState:
     default_provider: Optional[str] = None
     default_model: Optional[str] = None
@@ -176,6 +182,7 @@ class WizardState:
     database: DatabaseState = field(default_factory=DatabaseState)
     job_scheduling: JobSchedulingState = field(default_factory=JobSchedulingState)
     message_bus: MessageBusState = field(default_factory=MessageBusState)
+    kv_store: KvStoreState = field(default_factory=KvStoreState)
     providers: ProviderState = field(default_factory=ProviderState)
     speech: SpeechState = field(default_factory=SpeechState)
     user: UserState = field(default_factory=UserState)
@@ -250,6 +257,13 @@ class SetupWizardController:
             backend=backend,
             redis_url=messaging.get("redis_url"),
             stream_prefix=messaging.get("stream_prefix"),
+        )
+
+        kv_settings = self.config_manager.get_kv_store_settings()
+        postgres_settings = kv_settings.get("adapters", {}).get("postgres", {})
+        self.state.kv_store = KvStoreState(
+            reuse_conversation_store=bool(postgres_settings.get("reuse_conversation_store", True)),
+            url=postgres_settings.get("url"),
         )
 
         provider_keys = self.config_manager._get_provider_env_keys()
@@ -329,6 +343,15 @@ class SetupWizardController:
             stream_prefix=state.stream_prefix,
         )
         self.state.message_bus = dataclasses.replace(state)
+        return settings
+
+    def apply_kv_store_settings(self, state: KvStoreState) -> Mapping[str, Any]:
+        url_value = state.url if state.url else ConfigManager.UNSET
+        settings = self.config_manager.set_kv_store_settings(
+            url=url_value,
+            reuse_conversation_store=state.reuse_conversation_store,
+        )
+        self.state.kv_store = dataclasses.replace(state)
         return settings
 
     # -- providers ---------------------------------------------------------
