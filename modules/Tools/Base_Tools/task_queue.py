@@ -7,11 +7,10 @@ inspected for their most recent execution details.  A retry policy with
 configurable backoff is applied for one-off jobs and can be observed through
 monitoring callbacks.
 
-The default configuration stores jobs in a SQLite database located relative to
-the application's ``APP_ROOT`` (as provided by :class:`ATLAS.config.ConfigManager`).
-Deployments may override this behaviour by providing a different job store URL
-in the ``task_queue`` configuration block or the ``TASK_QUEUE_JOBSTORE_URL``
-environment variable.
+The task queue **requires** a PostgreSQL job store.  The default configuration
+derives its DSN from :class:`ATLAS.config.ConfigManager`, sharing the
+conversation store connection unless a dedicated ``task_queue.jobstore_url`` (or
+``job_scheduling.job_store_url``) is defined.
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ import random
 import threading
 import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional
 
 try:  # pragma: no cover - exercised implicitly via import side effects
@@ -318,11 +316,15 @@ class TaskQueueService:
         max_instances_value = int(resolved.get("max_instances", 1) or 1)
 
         jobstore = resolved.get("jobstore_url")
-        if not isinstance(jobstore, str) or not jobstore.strip():
-            jobstore = self._default_sqlite_jobstore_url()
+        if isinstance(jobstore, str) and jobstore.strip():
+            jobstore_url = jobstore.strip()
+        else:
+            jobstore_url = self._resolve_default_jobstore_url()
+
+        self._ensure_postgresql_jobstore(jobstore_url)
 
         return {
-            "jobstore_url": jobstore,
+            "jobstore_url": jobstore_url,
             "timezone": tzinfo,
             "max_workers": workers,
             "misfire_grace_time": misfire,
@@ -331,16 +333,43 @@ class TaskQueueService:
             "retry_policy": retry,
         }
 
-    def _default_sqlite_jobstore_url(self) -> str:
-        app_root = "."
-        if self._config_manager is not None:
-            candidate = self._config_manager.get_config("APP_ROOT", ".")
-            if isinstance(candidate, str) and candidate.strip():
-                app_root = candidate
+    def _resolve_default_jobstore_url(self) -> str:
+        if self._config_manager is None:
+            raise TaskQueueError(
+                "Task queue requires a PostgreSQL job store URL. Provide one via the "
+                "`jobstore_url` argument or configure ConfigManager with a "
+                "`task_queue.jobstore_url`/`job_scheduling.job_store_url`."
+            )
 
-        db_path = Path(app_root).expanduser().resolve() / "data" / "task_queue.sqlite"
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        return f"sqlite:///{db_path}"
+        getter = getattr(self._config_manager, "get_job_store_url", None)
+        if getter is None:
+            raise TaskQueueError(
+                "ConfigManager does not expose `get_job_store_url`; update the "
+                "configuration subsystem or pass a job store URL explicitly."
+            )
+
+        jobstore_url = getter()
+        if not isinstance(jobstore_url, str) or not jobstore_url.strip():
+            raise TaskQueueError(
+                "Task queue requires a configured PostgreSQL job store URL. "
+                "Set `job_scheduling.job_store_url` in your configuration or "
+                "provide a `task_queue.jobstore_url`."
+            )
+
+        return jobstore_url.strip()
+
+    @staticmethod
+    def _ensure_postgresql_jobstore(url: str) -> None:
+        if not isinstance(url, str) or not url.strip():
+            raise TaskQueueError("Job store URL must be a non-empty string.")
+
+        normalized = url.strip()
+        scheme = normalized.split(":", 1)[0].lower()
+        if not scheme.startswith("postgresql"):
+            raise TaskQueueError(
+                "The task queue only supports PostgreSQL-backed job stores. "
+                f"Received URL with scheme '{scheme}'."
+            )
 
     # ------------------------------------------------------------------
     # Monitoring hooks
