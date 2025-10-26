@@ -18,6 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID, TSVECTOR
+from sqlalchemy.types import JSON, TypeDecorator
 
 try:  # pragma: no cover - optional dependency for pgvector support
     from pgvector.sqlalchemy import Vector as PGVector  # type: ignore
@@ -27,6 +28,21 @@ from sqlalchemy.orm import declarative_base, relationship
 
 
 Base = declarative_base()
+
+
+class PortableJSON(TypeDecorator):
+    """Dialect-aware JSON type that prefers JSONB when available."""
+
+    impl = JSON
+    cache_ok = True
+
+    _json_impl = JSON()
+    _jsonb_impl = JSONB()
+
+    def load_dialect_impl(self, dialect):  # type: ignore[override]
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(self._jsonb_impl)
+        return dialect.type_descriptor(self._json_impl)
 
 
 def _uuid() -> uuid.UUID:
@@ -43,7 +59,7 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     external_id = Column(String(255), unique=True, nullable=True)
     display_name = Column(String(255), nullable=True)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
@@ -69,7 +85,7 @@ class UserCredential(Base):
     name = Column(String(255), nullable=True)
     dob = Column(String(32), nullable=True)
     last_login = Column(DateTime(timezone=True), nullable=True)
-    failed_attempts = Column(JSONB, nullable=False, default=list)
+    failed_attempts = Column(PortableJSON(), nullable=False, default=list)
     lockout_until = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
@@ -131,7 +147,7 @@ class Session(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     external_id = Column(String(255), unique=True, nullable=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     expires_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -149,7 +165,7 @@ class Conversation(Base):
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
     title = Column(String(255), nullable=True)
     tenant_id = Column(String(255), nullable=False, index=True)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     archived_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -186,9 +202,9 @@ class Message(Base):
         default="sent",
         server_default="sent",
     )
-    content = Column(JSONB, nullable=False)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
-    extra = Column(JSONB, nullable=False, default=dict)
+    content = Column(PortableJSON(), nullable=False)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
+    extra = Column(PortableJSON(), nullable=False, default=dict)
     client_message_id = Column(String(255), nullable=True)
     message_text_tsv = Column(TSVECTOR, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -245,9 +261,9 @@ class EpisodicMemory(Base):
     )
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     title = Column(String(255), nullable=True)
-    content = Column(JSONB, nullable=False)
-    tags = Column(JSONB, nullable=False, default=list)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    content = Column(PortableJSON(), nullable=False)
+    tags = Column(PortableJSON(), nullable=False, default=list)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     occurred_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -279,7 +295,7 @@ class MessageAsset(Base):
     tenant_id = Column(String(255), nullable=False, index=True)
     asset_type = Column(String(64), nullable=False)
     uri = Column(Text, nullable=True)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     message = relationship("Message", back_populates="assets")
@@ -323,7 +339,7 @@ class MessageVector(Base):
     embedding_model_version = Column(String(64), nullable=True)
     embedding_checksum = Column(String(128), nullable=True)
     dimensions = Column(Integer, nullable=True)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
@@ -370,7 +386,7 @@ class MessageEvent(Base):
     )
     tenant_id = Column(String(255), nullable=False, index=True)
     event_type = Column(String(64), nullable=False)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     message = relationship("Message", back_populates="events")
@@ -397,7 +413,7 @@ class GraphNode(Base):
     node_key = Column(String(255), nullable=False)
     label = Column(String(255), nullable=True)
     node_type = Column(String(64), nullable=True)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
@@ -448,7 +464,7 @@ class GraphEdge(Base):
     )
     edge_type = Column(String(64), nullable=True)
     weight = Column(Float, nullable=True)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
