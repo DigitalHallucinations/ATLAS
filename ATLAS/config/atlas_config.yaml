@@ -13,9 +13,9 @@ ACTIVE_USER: null
 # Conversation store configuration
 conversation_database:
   # PostgreSQL is required for the conversation store. Provide a DSN via
-  # CONVERSATION_DATABASE_URL or override this field. Example:
-  # postgresql+psycopg://atlas:atlas@localhost:5432/atlas
-  url:
+  # CONVERSATION_DATABASE_URL or override this field. If left unset, ATLAS
+  # will default to the following credentials on first launch.
+  url: postgresql+psycopg://atlas:atlas@localhost:5432/atlas
   pool:
     size: 5
     max_overflow: 10

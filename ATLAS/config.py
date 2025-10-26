@@ -55,6 +55,10 @@ from urllib.parse import urlparse
 _UNSET = object()
 
 _SUPPORTED_MISTRAL_PROMPT_MODES = {"reasoning"}
+
+_DEFAULT_CONVERSATION_STORE_DSN = (
+    "postgresql+psycopg://atlas:atlas@localhost:5432/atlas"
+)
 from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
 from modules.logging.logger import setup_logger
 from dotenv import load_dotenv, set_key, find_dotenv
@@ -393,14 +397,20 @@ class ConfigManager:
         """Ensure the configured PostgreSQL conversation store is initialised."""
 
         config = self.get_conversation_database_config()
-        url = config.get("url")
+        url_value = config.get("url")
+        if isinstance(url_value, str):
+            url = url_value.strip()
+        else:
+            url = url_value or ""
+
+        generated_default = False
         if not url:
-            message = (
-                "Conversation database URL is required. Set CONVERSATION_DATABASE_URL "
-                "or configure conversation_database.url with a PostgreSQL DSN."
+            url = _DEFAULT_CONVERSATION_STORE_DSN
+            generated_default = True
+            self.logger.info(
+                "No conversation database URL configured; defaulting to %s",
+                url,
             )
-            self.logger.error(message)
-            raise RuntimeError(message)
 
         from modules.conversation_store.bootstrap import (
             BootstrapError,
@@ -414,19 +424,39 @@ class ConfigManager:
             self.logger.error(message)
             raise RuntimeError(message) from exc
 
-        if ensured_url != url:
-            conversation_block = self.config.setdefault("conversation_database", {})
-            conversation_block["url"] = ensured_url
+        self._persist_conversation_database_url(ensured_url)
 
-            yaml_block = self.yaml_config.get("conversation_database")
-            if isinstance(yaml_block, Mapping):
-                updated_block = dict(yaml_block)
-                updated_block["url"] = ensured_url
-            else:
-                updated_block = {"url": ensured_url}
-            self.yaml_config["conversation_database"] = updated_block
+        if generated_default or ensured_url != url:
+            self._write_yaml_config()
 
         return ensured_url
+
+    def _persist_conversation_database_url(self, url: str) -> None:
+        """Synchronize the conversation database URL across config sources."""
+
+        if not isinstance(url, str) or not url:
+            return
+
+        config_block = self.config.get("conversation_database")
+        yaml_block = self.yaml_config.get("conversation_database")
+
+        if isinstance(config_block, Mapping):
+            updated_config_block = dict(config_block)
+        elif isinstance(yaml_block, Mapping):
+            updated_config_block = dict(yaml_block)
+        else:
+            updated_config_block = {}
+        updated_config_block["url"] = url
+        self.config["conversation_database"] = updated_config_block
+
+        if isinstance(yaml_block, Mapping):
+            updated_yaml_block = dict(yaml_block)
+        elif isinstance(config_block, Mapping):
+            updated_yaml_block = dict(config_block)
+        else:
+            updated_yaml_block = {}
+        updated_yaml_block["url"] = url
+        self.yaml_config["conversation_database"] = updated_yaml_block
 
     def get_conversation_retention_policies(self) -> Dict[str, Any]:
         """Return configured retention policies for the conversation store."""
