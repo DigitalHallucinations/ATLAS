@@ -222,7 +222,7 @@ def test_controller_job_scheduling_persists_settings(config_manager):
     controller = SetupWizardController(config_manager=config_manager, bootstrap=lambda url: url)
     state = JobSchedulingState(
         enabled=True,
-        job_store_url='sqlite:///jobs.sqlite',
+        job_store_url='postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs',
         max_workers=8,
         retry_policy=RetryPolicyState(max_attempts=5, backoff_seconds=20.0, jitter_seconds=2.0, backoff_multiplier=1.5),
         timezone='UTC',
@@ -233,10 +233,13 @@ def test_controller_job_scheduling_persists_settings(config_manager):
 
     settings = config_manager.get_job_scheduling_settings()
     assert settings['enabled'] is True
-    assert settings['job_store_url'] == 'sqlite:///jobs.sqlite'
+    assert settings['job_store_url'] == 'postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs'
     assert settings['max_workers'] == 8
     assert settings['retry_policy']['max_attempts'] == 5
-    assert config_manager.config['task_queue']['jobstore_url'] == 'sqlite:///jobs.sqlite'
+    assert (
+        config_manager.config['task_queue']['jobstore_url']
+        == 'postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs'
+    )
 
 
 def test_controller_message_bus_settings(config_manager):

@@ -179,6 +179,36 @@ class ConfigManager:
         tools_block['javascript_executor'] = js_block
         self.config['tools'] = tools_block
 
+        queue_block = self.config.get('task_queue')
+        if not isinstance(queue_block, Mapping):
+            queue_block = {}
+        else:
+            queue_block = dict(queue_block)
+
+        job_store_candidate = queue_block.get('jobstore_url')
+        if isinstance(job_store_candidate, str) and job_store_candidate.strip():
+            try:
+                queue_block['jobstore_url'] = self._normalize_job_store_url(
+                    job_store_candidate,
+                    'task_queue.jobstore_url',
+                )
+            except ValueError as exc:
+                self.logger.warning("Ignoring invalid task queue job store URL: %s", exc)
+                queue_block.pop('jobstore_url', None)
+
+        if 'jobstore_url' not in queue_block:
+            try:
+                default_job_store = self.get_job_store_url(require=False)
+            except RuntimeError:
+                default_job_store = ''
+            if default_job_store:
+                queue_block['jobstore_url'] = default_job_store
+
+        if queue_block:
+            self.config['task_queue'] = queue_block
+        else:
+            self.config.pop('task_queue', None)
+
         tool_safety_block = self.config.get('tool_safety')
         if not isinstance(tool_safety_block, Mapping):
             tool_safety_block = {}
@@ -771,6 +801,17 @@ class ConfigManager:
         if isinstance(stored, Mapping):
             settings.update(stored)
 
+        job_store_value = settings.get('job_store_url')
+        if isinstance(job_store_value, str) and job_store_value.strip():
+            try:
+                settings['job_store_url'] = self._normalize_job_store_url(
+                    job_store_value,
+                    'job_scheduling.job_store_url',
+                )
+            except ValueError as exc:
+                self.logger.warning("Ignoring invalid job scheduling job store URL: %s", exc)
+                settings.pop('job_store_url', None)
+
         queue_block = self.config.get('task_queue')
         if isinstance(queue_block, Mapping):
             if 'job_store_url' not in settings and queue_block.get('jobstore_url'):
@@ -783,6 +824,14 @@ class ConfigManager:
                 settings['queue_size'] = queue_block.get('queue_size')
             if 'retry_policy' not in settings and queue_block.get('retry_policy'):
                 settings['retry_policy'] = queue_block.get('retry_policy')
+
+        if 'job_store_url' not in settings or not settings['job_store_url']:
+            try:
+                default_job_store = self.get_job_store_url(require=False)
+            except RuntimeError:
+                default_job_store = ''
+            if default_job_store:
+                settings['job_store_url'] = default_job_store
 
         settings['enabled'] = bool(settings.get('enabled'))
 
@@ -837,7 +886,8 @@ class ConfigManager:
         if job_store_url is not _UNSET:
             text = str(job_store_url).strip() if isinstance(job_store_url, str) else str(job_store_url or '')
             if text:
-                updated['job_store_url'] = text
+                normalized = self._normalize_job_store_url(text, 'job_scheduling.job_store_url')
+                updated['job_store_url'] = normalized
             else:
                 updated.pop('job_store_url', None)
 
@@ -912,6 +962,54 @@ class ConfigManager:
         settings = self.get_job_scheduling_settings()
         return bool(settings.get('enabled'))
 
+    def get_job_store_url(self, require: bool = True) -> str:
+        """Return the configured PostgreSQL job store URL for the task queue."""
+
+        candidates: list[tuple[str, Any]] = []
+
+        stored = self.config.get('job_scheduling')
+        if isinstance(stored, Mapping):
+            candidates.append(('job_scheduling.job_store_url', stored.get('job_store_url')))
+
+        queue_block = self.config.get('task_queue')
+        if isinstance(queue_block, Mapping):
+            candidates.append(('task_queue.jobstore_url', queue_block.get('jobstore_url')))
+
+        env_url = self.env_config.get('TASK_QUEUE_JOBSTORE_URL')
+        if env_url is None:
+            env_url = self.config.get('TASK_QUEUE_JOBSTORE_URL')
+        candidates.append(('TASK_QUEUE_JOBSTORE_URL', env_url))
+
+        for source, value in candidates:
+            if value is None:
+                continue
+            try:
+                return self._normalize_job_store_url(value, source)
+            except ValueError as exc:
+                self.logger.debug("Skipping %s for job store URL: %s", source, exc)
+
+        conversation_config = self.get_conversation_database_config()
+        conversation_url = conversation_config.get('url')
+        if conversation_url:
+            try:
+                return self._normalize_job_store_url(conversation_url, 'conversation_database.url')
+            except ValueError as exc:
+                self.logger.debug("Conversation store URL unsuitable for job store: %s", exc)
+
+        try:
+            return self._normalize_job_store_url(
+                _DEFAULT_CONVERSATION_STORE_DSN,
+                'default conversation store DSN',
+            )
+        except ValueError:
+            if require:
+                raise RuntimeError(
+                    "Task queue requires a PostgreSQL job store URL. "
+                    "Set `job_scheduling.job_store_url` or `task_queue.jobstore_url` "
+                    "to a PostgreSQL DSN."
+                )
+            return ''
+
     def configure_message_bus(self) -> MessageBus:
         """Instantiate and configure the global message bus."""
 
@@ -937,6 +1035,26 @@ class ConfigManager:
 
         self._message_bus = configure_message_bus(backend)
         return self._message_bus
+
+    @staticmethod
+    def _normalize_job_store_url(url: Any, source: str) -> str:
+        """Validate and normalize PostgreSQL job store URLs."""
+
+        if not isinstance(url, str):
+            raise ValueError(f"{source} must be a string")
+
+        candidate = url.strip()
+        if not candidate:
+            raise ValueError(f"{source} must not be empty")
+
+        parsed = urlparse(candidate)
+        scheme = (parsed.scheme or '').lower()
+        if not scheme.startswith('postgresql'):
+            raise ValueError(
+                f"{source} must use the 'postgresql' dialect; received '{parsed.scheme or 'missing'}'"
+            )
+
+        return candidate
 
     def _get_provider_env_keys(self) -> Dict[str, str]:
         """Return the mapping between provider display names and environment keys."""

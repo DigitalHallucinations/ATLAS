@@ -1,10 +1,10 @@
 # Task Queue Tool
 
 The task queue base tool provides a durable scheduling surface for ATLAS agents.
-It is backed by [APScheduler](https://apscheduler.readthedocs.io/) and persists
-jobs using a SQLite database by default.  Deployments may reconfigure the
-storage backend to point at any SQLAlchemy-compatible database or Redis
-instance supported by APScheduler.
+It is backed by [APScheduler](https://apscheduler.readthedocs.io/) and **requires
+a PostgreSQL job store**. By default the queue shares the conversation-store
+connection managed by `ConfigManager`, but it can be pointed at a dedicated
+PostgreSQL database when needed.
 
 ## Features
 
@@ -22,22 +22,30 @@ instance supported by APScheduler.
 
 ## Configuration
 
-The queue reads its configuration through `ConfigManager`.  The following keys
-are recognised:
+The queue reads its configuration through `ConfigManager`. All job-store sources
+must be PostgreSQL DSNs (for example,
+`postgresql+psycopg://atlas:atlas@localhost:5432/atlas`). Configuration keys are
+resolved in the following priority order:
 
 | Key | Type | Description |
 | --- | ---- | ----------- |
-| `task_queue.jobstore_url` | string | SQLAlchemy-style URL for the APScheduler job store. Defaults to `sqlite:///<APP_ROOT>/data/task_queue.sqlite`. |
+| `job_scheduling.job_store_url` | string | Primary knob for the scheduler job store. Must be a PostgreSQL DSN. |
+| `task_queue.jobstore_url` | string | Legacy/dedicated task-queue override. Also must be PostgreSQL. |
+| `TASK_QUEUE_JOBSTORE_URL` | string | Environment override for the job store URL. |
+
+When no explicit URL is provided the queue falls back to the conversation-store
+database (which defaults to
+`postgresql+psycopg://atlas:atlas@localhost:5432/atlas`).
+
+Additional keys continue to control runtime behaviour:
+
+| Key | Type | Description |
+| --- | ---- | ----------- |
 | `task_queue.max_workers` / `TASK_QUEUE_MAX_WORKERS` | int | Number of executor threads used for dispatching tasks (default: `4`). |
 | `task_queue.misfire_grace_time` | float | Seconds a job is allowed to run late before being considered missed (default: `60`). |
 | `task_queue.coalesce` | bool | Whether to coalesce missed runs for recurring jobs (default: `false`). |
 | `task_queue.max_instances` | int | Maximum concurrent executions per job (default: `1`). |
 | `task_queue.retry_policy` | object | Mapping with `max_attempts`, `backoff_seconds`, `backoff_multiplier`, and `jitter_seconds` fields. |
-| `TASK_QUEUE_JOBSTORE_URL` | string | Environment override for the job store URL. |
-
-Additional custom keys are forwarded to the APScheduler job defaults.  When
-`APP_ROOT` is defined the default SQLite database is created under the
-`data/` directory automatically.
 
 ## Manifest Operations
 
@@ -58,23 +66,21 @@ All write operations declare `side_effects: "write"` and surface an
 
 ## Deployment Notes
 
-* Ensure the APScheduler dependencies (`APScheduler`, `SQLAlchemy`) are
-  installed in the runtime environment.  A SQLite database is provisioned
-  automatically; production deployments may substitute PostgreSQL, MySQL, or a
-  Redis job store by updating the job store URL.
-* APScheduler spawns worker threads.  Shut down services cleanly via
+* Ensure the APScheduler dependencies (`APScheduler`, `SQLAlchemy`, `psycopg`)
+  are installed in the runtime environment.
+* Provision a PostgreSQL database (or schema) that the queue can use. The
+  scheduler validates the DSN and refuses to start without a PostgreSQL URL.
+* APScheduler spawns worker threads. Shut down services cleanly via
   `TaskQueueService.shutdown()` during teardown to avoid lingering threads.
 * The queue does not perform payload validation beyond requiring JSON-compatible
-  values.  Downstream task executors must validate inputs before running
+  values. Downstream task executors must validate inputs before running
   side-effecting operations.
 
 ## Limitations
 
-* Recurring jobs share a single retry policy.  Per-job retry configuration can
-  be injected programmatically by overriding the `retry_policy` argument at
+* Recurring jobs share a single retry policy. Per-job retry configuration can be
+  injected programmatically by overriding the `retry_policy` argument at
   enqueue/schedule time.
-* APScheduler's SQLite job store serialises jobs using pickle.  Payloads must be
-  pickle-friendly; prefer simple primitives and JSON-serialisable structures.
-* The built-in executor is synchronous and runs tasks in a thread pool.  If long
+* The built-in executor is synchronous and runs tasks in a thread pool. If long
   running jobs are expected, consider integrating a dedicated worker process or
   asynchronous executor.
