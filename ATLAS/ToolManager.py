@@ -7,6 +7,7 @@ import copy
 import io
 import json
 import inspect
+import importlib.machinery
 import importlib.util
 import sys
 import os
@@ -156,6 +157,33 @@ _default_config_manager: Optional[ConfigManager] = None
 _DEFAULT_FUNCTIONS_CACHE_KEY = "__default__"
 _tool_manifest_validator = None
 _tool_manifest_validator_lock = threading.Lock()
+
+
+
+def _ensure_namespace_package(package_name: str, package_path: str) -> None:
+    """Ensure a namespace package exists for persona toolboxes."""
+
+    if not package_path:
+        return
+
+    module = sys.modules.get(package_name)
+    if module is None:
+        spec = importlib.machinery.ModuleSpec(
+            package_name,
+            loader=None,
+            is_package=True,
+        )
+        spec.submodule_search_locations = [package_path]
+        module = importlib.util.module_from_spec(spec)
+        module.__path__ = [package_path]
+        sys.modules[package_name] = module
+        return
+
+    existing_path = getattr(module, "__path__", None)
+    if existing_path is None:
+        module.__path__ = [package_path]
+    elif package_path not in existing_path:
+        module.__path__ = list(existing_path) + [package_path]
 
 _KNOWN_METADATA_FIELDS = (
     "version",
@@ -1999,7 +2027,8 @@ def load_function_map_from_current_persona(
 
     toolbox_root = os.path.join(app_root, "modules", "Personas", persona_name, "Toolbox")
     maps_path = os.path.join(toolbox_root, "maps.py")
-    module_name = f'persona_{persona_name}_maps'
+    toolbox_package = f"modules.Personas.{persona_name}.Toolbox"
+    module_name = f"{toolbox_package}.maps"
     try:
         if refresh:
             logger.debug(
@@ -2052,6 +2081,16 @@ def load_function_map_from_current_persona(
                 module_name,
                 maps_path,
             )
+            for package_name, package_path in [
+                ("modules.Personas", os.path.join(app_root, "modules", "Personas")),
+                (
+                    f"modules.Personas.{persona_name}",
+                    os.path.join(app_root, "modules", "Personas", persona_name),
+                ),
+                (toolbox_package, toolbox_root),
+            ]:
+                _ensure_namespace_package(package_name, package_path)
+
             spec = importlib.util.spec_from_file_location(module_name, maps_path)
             if spec is None or spec.loader is None:
                 raise ImportError(
