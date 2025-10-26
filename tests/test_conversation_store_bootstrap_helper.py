@@ -231,3 +231,48 @@ def test_bootstrap_raises_when_postgres_service_cannot_start(base_dsn, monkeypat
     ]
     assert any(cmd[0][0] == "systemctl" for cmd in commands)
     assert which_calls == ["psql", "psql"]
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        "postgresql+psycopg://atlas:secret@localhost:5432/atlas",
+        "postgresql+asyncpg://atlas:secret@localhost:5432/atlas",
+    ],
+)
+def test_bootstrap_sanitises_driver_specific_urls(dsn):
+    maintenance = RecordingConnection(
+        responses={
+            ("SELECT 1 FROM pg_roles WHERE rolname = %s", ("atlas",)): (1,),
+            ("SELECT 1 FROM pg_database WHERE datname = %s", ("atlas",)): (1,),
+        }
+    )
+    verification = RecordingConnection()
+    connections = iter([maintenance, verification])
+    connector_calls = []
+
+    def recording_connector(conninfo):
+        connector_calls.append(conninfo)
+        try:
+            return next(connections)
+        except StopIteration:  # pragma: no cover - defensive guard
+            raise AssertionError("Unexpected connection attempt")
+
+    result = bootstrap_conversation_store(
+        dsn,
+        which=lambda *_: "/usr/bin/psql",
+        run=lambda *args, **kwargs: types.SimpleNamespace(returncode=0),
+        platform_system=lambda: "Linux",
+        connector=recording_connector,
+    )
+
+    parsed_url = sa_make_url(dsn)
+    expected_conninfo = (
+        parsed_url
+        .set(drivername=parsed_url.get_backend_name())
+        .render_as_string(hide_password=False)
+    )
+    assert result == dsn
+    assert connector_calls == [expected_conninfo, expected_conninfo]
+    assert maintenance.closed is True
+    assert verification.closed is True
