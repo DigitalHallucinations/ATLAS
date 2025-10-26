@@ -64,7 +64,7 @@ _config_manager = ConfigManager()
 
 # Create an instance of GoogleSearch
 google_search_instance = GoogleSearch()
-webpage_fetcher = WebpageFetcher()
+webpage_fetcher = WebpageFetcher(config_manager=_config_manager)
 python_interpreter = PythonInterpreter()
 structured_parser = StructuredParser()
 browser_tool = BrowserTool()
