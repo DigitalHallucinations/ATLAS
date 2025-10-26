@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from modules.conversation_store import Base
@@ -8,15 +8,8 @@ from modules.task_store.repository import TaskStoreRepository
 from modules.task_store.service import TaskService
 
 
-def test_task_repository_contract(tmp_path):
-    db_path = tmp_path / "tasks.db"
-    engine = create_engine(f"sqlite:///{db_path}", future=True)
-
-    @event.listens_for(engine, "connect")
-    def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):  # pragma: no cover - event wiring
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+def test_task_repository_contract(postgresql):
+    engine = create_engine(postgresql.dsn(), future=True)
 
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, future=True)
@@ -44,15 +37,8 @@ def test_task_repository_contract(tmp_path):
     engine.dispose()
 
 
-def test_task_service_contract(tmp_path):
-    db_path = tmp_path / "service_tasks.db"
-    engine = create_engine(f"sqlite:///{db_path}", future=True)
-
-    @event.listens_for(engine, "connect")
-    def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):  # pragma: no cover - event wiring
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+def test_task_service_contract(postgresql):
+    engine = create_engine(postgresql.dsn(), future=True)
 
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, future=True)

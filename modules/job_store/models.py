@@ -5,7 +5,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from sqlalchemy import (
     Column,
@@ -271,13 +271,6 @@ except AttributeError:  # pragma: no cover - minimal test stubs without SQLAlche
     _JOB_TABLES = ()
 
 
-def _compile_index_columns(columns: Sequence[Any]) -> Iterable[str]:
-    for column in columns:
-        name = getattr(column, "name", None) or getattr(column, "key", None)
-        if name:
-            yield name
-
-
 def ensure_job_schema(engine: Engine) -> None:
     """Create job-related tables and indexes if they do not exist."""
 
@@ -293,20 +286,9 @@ def ensure_job_schema(engine: Engine) -> None:
         )
 
     with engine.begin() as connection:
-        dialect = connection.dialect.name
         for table in _JOB_TABLES:
             for index in table.indexes:
-                if dialect == "sqlite":
-                    columns = ", ".join(_compile_index_columns(index.expressions))
-                    if not columns:
-                        continue
-                    statement = (
-                        f"CREATE INDEX IF NOT EXISTS {index.name} "
-                        f"ON {table.name} ({columns})"
-                    )
-                    connection.exec_driver_sql(statement)
-                else:
-                    index.create(bind=connection, checkfirst=True)
+                index.create(bind=connection, checkfirst=True)
 
 
 __all__ = [

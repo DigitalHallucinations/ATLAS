@@ -73,19 +73,18 @@ class _StubConfigManager:
         return self._config.get(key, default)
 
 
-def _build_service(tmp_path: Path, executor) -> TaskQueueService:
-    db_url = f"sqlite:///{tmp_path / 'queue.sqlite'}"
+def _build_service(jobstore_url: str, tmp_path: Path, executor) -> TaskQueueService:
     config_manager = _StubConfigManager(tmp_path)
     retry_policy = RetryPolicy(max_attempts=3, backoff_seconds=0.25, jitter_seconds=0.0, backoff_multiplier=1.0)
     return build_task_queue_service(
         config_manager=config_manager,
-        jobstore_url=db_url,
+        jobstore_url=jobstore_url,
         executor=executor,
         retry_policy=retry_policy,
     )
 
 
-def test_enqueue_executes_task(tmp_path: Path) -> None:
+def test_enqueue_executes_task(tmp_path: Path, postgresql) -> None:
     events = deque()
     completed = threading.Event()
 
@@ -93,7 +92,7 @@ def test_enqueue_executes_task(tmp_path: Path) -> None:
         events.append((payload["attempt"], payload["payload"]))
         completed.set()
 
-    service = _build_service(tmp_path, executor)
+    service = _build_service(postgresql.dsn(), tmp_path, executor)
     try:
         result = service.enqueue_task(
             name="example",
@@ -116,7 +115,7 @@ def test_enqueue_executes_task(tmp_path: Path) -> None:
         service.shutdown(wait=True)
 
 
-def test_enqueue_respects_idempotency(tmp_path: Path) -> None:
+def test_enqueue_respects_idempotency(tmp_path: Path, postgresql) -> None:
     executed = threading.Event()
     attempts = []
 
@@ -124,7 +123,7 @@ def test_enqueue_respects_idempotency(tmp_path: Path) -> None:
         attempts.append(payload["attempt"])
         executed.set()
 
-    service = _build_service(tmp_path, executor)
+    service = _build_service(postgresql.dsn(), tmp_path, executor)
     try:
         key = "same-task"
         first = service.enqueue_task(name="repeat", payload={}, delay_seconds=0.05, idempotency_key=key)
@@ -139,7 +138,7 @@ def test_enqueue_respects_idempotency(tmp_path: Path) -> None:
         service.shutdown(wait=True)
 
 
-def test_retry_with_backoff(tmp_path: Path) -> None:
+def test_retry_with_backoff(tmp_path: Path, postgresql) -> None:
     attempts: list[tuple[int, float]] = []
     completion = threading.Event()
 
@@ -149,7 +148,7 @@ def test_retry_with_backoff(tmp_path: Path) -> None:
             raise RuntimeError("first attempt fails")
         completion.set()
 
-    service = _build_service(tmp_path, executor)
+    service = _build_service(postgresql.dsn(), tmp_path, executor)
     try:
         result = service.enqueue_task(name="flaky", payload={}, delay_seconds=0.05, idempotency_key="flaky-task")
 
@@ -165,7 +164,7 @@ def test_retry_with_backoff(tmp_path: Path) -> None:
         service.shutdown(wait=True)
 
 
-def test_cron_schedule_executes_multiple_times(tmp_path: Path) -> None:
+def test_cron_schedule_executes_multiple_times(tmp_path: Path, postgresql) -> None:
     runs: list[int] = []
     completion = threading.Event()
 
@@ -174,7 +173,7 @@ def test_cron_schedule_executes_multiple_times(tmp_path: Path) -> None:
         if len(runs) >= 2:
             completion.set()
 
-    service = _build_service(tmp_path, executor)
+    service = _build_service(postgresql.dsn(), tmp_path, executor)
     try:
         result = service.schedule_cron(
             name="cron",
@@ -193,13 +192,13 @@ def test_cron_schedule_executes_multiple_times(tmp_path: Path) -> None:
         service.shutdown(wait=True)
 
 
-def test_cancel_updates_status(tmp_path: Path) -> None:
+def test_cancel_updates_status(tmp_path: Path, postgresql) -> None:
     blocked = threading.Event()
 
     def executor(_: Mapping[str, Any]) -> None:  # pragma: no cover - this task never executes
         blocked.set()
 
-    service = _build_service(tmp_path, executor)
+    service = _build_service(postgresql.dsn(), tmp_path, executor)
     try:
         result = service.enqueue_task(
             name="cancel-me",
