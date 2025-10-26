@@ -1,9 +1,7 @@
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine, event
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
-from sqlalchemy.ext.compiler import compiles
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from modules.conversation_store import Base
@@ -18,14 +16,8 @@ from modules.task_store.repository import TaskStoreRepository
 
 
 @pytest.fixture()
-def engine():
-    engine = create_engine("sqlite:///:memory:", future=True)
-
-    @event.listens_for(engine, "connect")
-    def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):  # pragma: no cover - event wiring
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+def engine(postgresql):
+    engine = create_engine(postgresql.dsn(), future=True)
 
     Base.metadata.create_all(engine)
     yield engine
@@ -291,18 +283,4 @@ def test_run_transition_rules(job_repository, identity):
             expected_updated_at=finished["updated_at"],
         )
 
-
-@compiles(JSONB, "sqlite")
-def _compile_jsonb_sqlite(_type, compiler, **_kwargs):  # pragma: no cover - dialect shim
-    return "JSON"
-
-
-@compiles(TSVECTOR, "sqlite")
-def _compile_tsvector_sqlite(_type, compiler, **_kwargs):  # pragma: no cover - dialect shim
-    return "TEXT"
-
-
-@compiles(ARRAY, "sqlite")
-def _compile_array_sqlite(_type, compiler, **_kwargs):  # pragma: no cover - dialect shim
-    return "BLOB"
 

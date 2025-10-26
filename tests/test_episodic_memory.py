@@ -6,8 +6,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID
-from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 
 from modules.conversation_store import Base, ConversationStoreRepository
@@ -16,29 +14,9 @@ from modules.Tools.Base_Tools.memory_episodic import EpisodicMemoryTool
 TENANT = "episodic-test"
 
 
-@compiles(JSONB, "sqlite")
-def _compile_jsonb(_type, compiler, **_kwargs):
-    return "JSON"
-
-
-@compiles(UUID, "sqlite")
-def _compile_uuid(_type, compiler, **_kwargs):
-    return "CHAR(36)"
-
-
-@compiles(ARRAY, "sqlite")
-def _compile_array(_type, compiler, **_kwargs):
-    return "BLOB"
-
-
-@compiles(TSVECTOR, "sqlite")
-def _compile_tsvector(_type, compiler, **_kwargs):
-    return "TEXT"
-
-
 @pytest.fixture
-def repository(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'episodic.sqlite'}", future=True)
+def repository(postgresql):
+    engine = create_engine(postgresql.dsn(), future=True)
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, future=True)
     if getattr(factory, "bind", None) is None:  # SQLAlchemy 2.x compatibility

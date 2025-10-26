@@ -1,8 +1,6 @@
 import pytest
-from sqlalchemy import create_engine, event, select
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
+from sqlalchemy import create_engine, select
 from sqlalchemy.exc import StatementError
-from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 
 from modules.conversation_store import Base
@@ -15,20 +13,16 @@ from modules.task_store.models import (
     TaskEvent,
     TaskEventType,
     TaskStatus,
+    ensure_task_schema,
 )
 
 
 @pytest.fixture
-def engine():
-    engine = create_engine("sqlite:///:memory:", future=True)
-
-    @event.listens_for(engine, "connect")
-    def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):  # pragma: no cover - event wiring
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+def engine(postgresql):
+    engine = create_engine(postgresql.dsn(), future=True)
 
     Base.metadata.create_all(engine)
+    ensure_task_schema(engine)
     yield engine
     engine.dispose()
 
@@ -128,17 +122,3 @@ def test_dependency_cascade(session, identity):
 
     remaining_task = session.execute(select(Task).where(Task.title == "Write report")).scalar_one()
     assert remaining_task.status == TaskStatus.READY
-@compiles(JSONB, "sqlite")
-def _compile_sqlite_jsonb(element, compiler, **kw):
-    return "TEXT"
-
-
-@compiles(TSVECTOR, "sqlite")
-def _compile_sqlite_tsvector(element, compiler, **kw):
-    return "TEXT"
-
-
-@compiles(ARRAY, "sqlite")
-def _compile_sqlite_array(element, compiler, **kw):
-    return "TEXT"
-

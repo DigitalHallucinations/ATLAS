@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine, select, event
+from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, sessionmaker
 
 from modules.conversation_store.models import Conversation, Session as ConversationSession, User, Base
@@ -25,14 +23,8 @@ from modules.task_store.models import Task, ensure_task_schema
 
 
 @pytest.fixture()
-def in_memory_session_factory() -> sessionmaker:
-    engine = create_engine("sqlite:///:memory:", future=True)
-
-    @event.listens_for(engine, "connect")
-    def _enable_foreign_keys(dbapi_connection, _connection_record):  # pragma: no cover - sqlite shim
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+def session_factory(postgresql) -> sessionmaker:
+    engine = create_engine(postgresql.dsn(), future=True)
 
     Base.metadata.create_all(
         engine,
@@ -73,8 +65,8 @@ def _create_task(session: Session, conversation: Conversation) -> Task:
     return task
 
 
-def test_job_relationship_cascades(in_memory_session_factory: sessionmaker) -> None:
-    factory = in_memory_session_factory
+def test_job_relationship_cascades(session_factory: sessionmaker) -> None:
+    factory = session_factory
     with factory() as session:
         user = _create_user(session)
         conversation = _create_conversation(session, tenant_id="tenant")
@@ -133,8 +125,8 @@ def test_job_relationship_cascades(in_memory_session_factory: sessionmaker) -> N
         )
 
 
-def test_job_task_link_unique_constraint(in_memory_session_factory: sessionmaker) -> None:
-    factory = in_memory_session_factory
+def test_job_task_link_unique_constraint(session_factory: sessionmaker) -> None:
+    factory = session_factory
     with factory() as session:
         conversation = _create_conversation(session, tenant_id="tenant")
         task = _create_task(session, conversation)
@@ -150,8 +142,8 @@ def test_job_task_link_unique_constraint(in_memory_session_factory: sessionmaker
             session.flush()
 
 
-def test_job_enum_round_trip(in_memory_session_factory: sessionmaker) -> None:
-    factory = in_memory_session_factory
+def test_job_enum_round_trip(session_factory: sessionmaker) -> None:
+    factory = session_factory
     with factory() as session:
         user = _create_user(session)
         job = Job(name="Enum Job", tenant_id="tenant", status=JobStatus.RUNNING)
@@ -181,7 +173,3 @@ def test_job_enum_round_trip(in_memory_session_factory: sessionmaker) -> None:
         stored_event = session.execute(select(JobEvent).where(JobEvent.job_id == job.id)).scalar_one()
         assert isinstance(stored_event.event_type, JobEventType)
         assert stored_event.event_type is JobEventType.STATUS_CHANGED
-@compiles(JSONB, "sqlite")
-def _compile_jsonb(_element, _compiler, **_kw):  # pragma: no cover - sqlite shim
-    return "TEXT"
-

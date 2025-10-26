@@ -4,7 +4,7 @@ import pytest
 
 try:  # pragma: no cover - optional dependency gate
     import sqlalchemy
-    from sqlalchemy import create_engine, event
+    from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 except Exception:  # pragma: no cover - skip when SQLAlchemy unavailable
     sqlalchemy = None
@@ -28,14 +28,8 @@ from modules.task_store.service import TaskService
 
 
 @pytest.fixture()
-def engine():
-    engine = create_engine("sqlite:///:memory:", future=True)
-
-    @event.listens_for(engine, "connect")
-    def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):  # pragma: no cover - event wiring
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+def engine(postgresql):
+    engine = create_engine(postgresql.dsn(), future=True)
 
     Base.metadata.create_all(engine)
     yield engine
