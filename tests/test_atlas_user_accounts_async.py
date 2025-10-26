@@ -18,10 +18,23 @@ pytest.importorskip(
     reason="PostgreSQL fixture is required for ATLAS user account tests",
 )
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from modules.conversation_store import ConversationStoreRepository
+
 
 @pytest.fixture(autouse=True)
 def configure_conversation_store(monkeypatch, postgresql):
-    monkeypatch.setenv("CONVERSATION_DATABASE_URL", postgresql.dsn())
+    dsn = postgresql.dsn()
+    monkeypatch.setenv("CONVERSATION_DATABASE_URL", dsn)
+
+    engine = create_engine(dsn, future=True)
+    try:
+        factory = sessionmaker(bind=engine, future=True)
+        ConversationStoreRepository(factory).create_schema()
+    finally:
+        engine.dispose()
 
 
 from ATLAS.ATLAS import ATLAS

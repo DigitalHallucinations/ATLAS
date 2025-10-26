@@ -20,12 +20,25 @@ pytest.importorskip(
     reason="PostgreSQL fixture is required for job scheduler persistence tests",
 )
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from modules.conversation_store import ConversationStoreRepository
+
 from ATLAS.ATLAS import ATLAS
 
 
 @pytest.mark.asyncio
 async def test_initialize_registers_job_manifests(tmp_path, monkeypatch, postgresql):
-    monkeypatch.setenv("CONVERSATION_DATABASE_URL", postgresql.dsn())
+    dsn = postgresql.dsn()
+    monkeypatch.setenv("CONVERSATION_DATABASE_URL", dsn)
+
+    engine = create_engine(dsn, future=True)
+    try:
+        factory = sessionmaker(bind=engine, future=True)
+        ConversationStoreRepository(factory).create_schema()
+    finally:
+        engine.dispose()
 
     atlas = ATLAS()
     try:
