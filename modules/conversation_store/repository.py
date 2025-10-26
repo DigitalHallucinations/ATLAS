@@ -1002,6 +1002,41 @@ class ConversationStoreRepository:
 
     # -- CRUD operations ----------------------------------------------------
 
+    def _lookup_user_by_username(
+        self, session: Session, username: str
+    ) -> Optional[User]:
+        cleaned = str(username).strip()
+        if not cleaned:
+            return None
+
+        credential = session.execute(
+            select(UserCredential)
+            .options(joinedload(UserCredential.user))
+            .where(UserCredential.username == cleaned)
+        ).scalar_one_or_none()
+
+        if credential and credential.user is not None:
+            return credential.user
+
+        user = session.execute(
+            select(User).where(User.external_id == cleaned)
+        ).scalar_one_or_none()
+
+        if user is not None:
+            if credential and credential.user_id != user.id:
+                credential.user_id = user.id
+                session.flush()
+            return user
+
+        if credential and credential.user_id is not None:
+            user = session.execute(
+                select(User).where(User.id == credential.user_id)
+            ).scalar_one_or_none()
+            if user is not None:
+                return user
+
+        return None
+
     def ensure_user(
         self,
         external_id: Any,
@@ -1052,6 +1087,167 @@ class ConversationStoreRepository:
                     session.flush()
 
             return record.id
+
+    def get_user_profile(self, username: str) -> Optional[Dict[str, Any]]:
+        cleaned = str(username).strip()
+        if not cleaned:
+            return None
+
+        with self._session_scope() as session:
+            user_record = self._lookup_user_by_username(session, cleaned)
+            if user_record is None:
+                return None
+
+            meta = user_record.meta or {}
+            profile_section = meta.get("profile") if isinstance(meta, Mapping) else None
+            profile_payload = (
+                {str(key): _normalize_json_like(value) for key, value in profile_section.items()}
+                if isinstance(profile_section, Mapping)
+                else {}
+            )
+            documents_section = meta.get("documents") if isinstance(meta, Mapping) else None
+            documents_payload = (
+                {str(key): value for key, value in dict(documents_section).items()}
+                if isinstance(documents_section, Mapping)
+                else {}
+            )
+
+            credential_username = None
+            if getattr(user_record, "credentials", None) is not None:
+                credential_username = user_record.credentials.username
+
+            return {
+                "username": user_record.external_id or credential_username or cleaned,
+                "display_name": user_record.display_name,
+                "profile": profile_payload,
+                "documents": documents_payload,
+                "user_id": str(user_record.id),
+            }
+
+    def list_user_profiles(self) -> List[Dict[str, Any]]:
+        with self._session_scope() as session:
+            rows = session.execute(
+                select(User).options(joinedload(User.credentials))
+            ).scalars().all()
+
+            results: List[Dict[str, Any]] = []
+            for row in rows:
+                meta = row.meta or {}
+                profile_section = meta.get("profile") if isinstance(meta, Mapping) else None
+                documents_section = meta.get("documents") if isinstance(meta, Mapping) else None
+
+                if not isinstance(profile_section, Mapping) and not isinstance(
+                    documents_section, Mapping
+                ):
+                    continue
+
+                profile_payload = (
+                    {str(key): _normalize_json_like(value) for key, value in profile_section.items()}
+                    if isinstance(profile_section, Mapping)
+                    else {}
+                )
+                documents_payload = (
+                    {str(key): value for key, value in dict(documents_section).items()}
+                    if isinstance(documents_section, Mapping)
+                    else {}
+                )
+
+                username = row.external_id
+                if not username and getattr(row, "credentials", None) is not None:
+                    username = row.credentials.username
+
+                results.append(
+                    {
+                        "username": username,
+                        "display_name": row.display_name,
+                        "profile": profile_payload,
+                        "documents": documents_payload,
+                        "user_id": str(row.id),
+                    }
+                )
+
+            return results
+
+    def upsert_user_profile(
+        self,
+        username: str,
+        profile: Optional[Mapping[str, Any]] = None,
+        *,
+        display_name: Optional[str] = None,
+        documents: Optional[Mapping[str, Any]] = None,
+        merge_documents: bool = True,
+    ) -> Dict[str, Any]:
+        cleaned = str(username).strip()
+        if not cleaned:
+            raise ValueError("Username must not be empty when storing user profile metadata")
+
+        normalized_profile = (
+            _normalize_json_like(profile) if isinstance(profile, Mapping) else None
+        )
+        normalized_documents = (
+            _normalize_json_like(documents) if isinstance(documents, Mapping) else None
+        )
+
+        metadata_payload: Dict[str, Any] = {}
+        if normalized_profile is not None:
+            metadata_payload["profile"] = normalized_profile
+        if normalized_documents is not None:
+            metadata_payload["documents"] = normalized_documents
+
+        user_uuid = self.ensure_user(
+            cleaned,
+            display_name=display_name,
+            metadata=metadata_payload or None,
+        )
+
+        with self._session_scope() as session:
+            user_record = session.execute(
+                select(User).where(User.id == user_uuid)
+            ).scalar_one()
+
+            current_meta = dict(user_record.meta or {})
+
+            if normalized_profile is not None:
+                current_meta["profile"] = normalized_profile
+
+            if normalized_documents is not None:
+                existing_documents = {}
+                if merge_documents:
+                    stored_documents = current_meta.get("documents")
+                    if isinstance(stored_documents, Mapping):
+                        existing_documents = dict(stored_documents)
+                existing_documents.update(
+                    dict(normalized_documents) if isinstance(normalized_documents, Mapping) else {}
+                )
+                current_meta["documents"] = existing_documents
+
+            user_record.meta = current_meta
+
+            if display_name:
+                cleaned_display = display_name.strip()
+                if cleaned_display and user_record.display_name != cleaned_display:
+                    user_record.display_name = cleaned_display
+
+            session.flush()
+
+            profile_payload = (
+                dict(current_meta.get("profile"))
+                if isinstance(current_meta.get("profile"), Mapping)
+                else {}
+            )
+            documents_payload = (
+                dict(current_meta.get("documents"))
+                if isinstance(current_meta.get("documents"), Mapping)
+                else {}
+            )
+
+            return {
+                "username": user_record.external_id or cleaned,
+                "display_name": user_record.display_name,
+                "profile": profile_payload,
+                "documents": documents_payload,
+                "user_id": str(user_record.id),
+            }
 
     def ensure_session(
         self,
