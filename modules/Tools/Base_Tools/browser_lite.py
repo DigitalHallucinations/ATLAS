@@ -8,7 +8,7 @@ import logging
 import time
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Any, Awaitable, Callable, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence
 from urllib.parse import urljoin, urlparse, urlencode
 
 import requests
@@ -19,10 +19,10 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - playwright is optional during testing
     async_playwright = None  # type: ignore
 
-from ATLAS.config import ConfigManager
-
-
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:  # pragma: no cover - import for type checking only
+    from ATLAS.config import ConfigManager
 
 
 class BrowserLiteError(RuntimeError):
@@ -206,9 +206,9 @@ class BrowserLite:
         fetcher: Optional[Callable[..., Awaitable[_HTTPResult]]] = None,
         screenshotter: Optional[Callable[[str, bytes], Awaitable[Optional[bytes]]]] = None,
         robots_cache: Optional[RobotsCache] = None,
-        config_manager: Optional[ConfigManager] = None,
+        config_manager: Optional["ConfigManager"] = None,
     ) -> None:
-        self._config_manager = config_manager or ConfigManager()
+        self._config_manager = self._resolve_config_manager(config_manager)
         self._allowed_domains = self._build_allowlist(allowed_domains)
         self._max_pages = max(1, int(max_pages_per_session))
         self._throttle_seconds = max(0.0, float(throttle_seconds))
@@ -239,7 +239,7 @@ class BrowserLite:
         cls,
         config: Optional[Mapping[str, Any]],
         *,
-        config_manager: Optional[ConfigManager] = None,
+        config_manager: Optional["ConfigManager"] = None,
     ) -> "BrowserLite":
         config = dict(config or {})
         allowed = config.get("allowed_domains")
@@ -255,6 +255,26 @@ class BrowserLite:
             user_agent=user_agent,
             config_manager=config_manager,
         )
+
+    def _resolve_config_manager(
+        self, provided: Optional["ConfigManager"]
+    ) -> "ConfigManager":
+        if provided is not None:
+            return provided
+
+        try:
+            from ATLAS.config import ConfigManager
+        except Exception as exc:  # pragma: no cover - configuration import failure
+            raise BrowserLiteError(
+                "BrowserLite requires 'ATLAS.config.ConfigManager' but the module could not be imported."
+            ) from exc
+
+        try:
+            return ConfigManager()
+        except Exception as exc:  # pragma: no cover - configuration instantiation failure
+            raise BrowserLiteError(
+                "BrowserLite could not instantiate the configuration manager."
+            ) from exc
 
     def _build_allowlist(self, provided: Optional[Sequence[str]]) -> tuple[str, ...]:
         configured = self._config_manager.get_config("tool_safety", {})
