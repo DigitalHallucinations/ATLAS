@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Mapping, MutableMapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, MutableMapping, Optional, Sequence
 
-from ATLAS.config import ConfigManager
 from modules.Tools.tool_event_system import publish_bus_event
 from modules.task_store import TaskService, TaskStatus
 
 __all__ = ["HITLApprovalError", "HITLApprovalTool", "hitl_approval"]
+
+
+if TYPE_CHECKING:
+    from ATLAS.config import ConfigManager
 
 
 class HITLApprovalError(RuntimeError):
@@ -142,11 +145,11 @@ class HITLApprovalTool:
     def __init__(
         self,
         *,
-        config_manager: Optional[ConfigManager] = None,
+        config_manager: Optional["ConfigManager"] = None,
         task_service: Optional[TaskService] = None,
     ) -> None:
-        self._config_manager = config_manager
-        self._task_service = task_service
+        self._config_manager: Optional["ConfigManager"] = config_manager
+        self._task_service: Optional[TaskService] = task_service
 
     def _resolve_task_service(self) -> TaskService:
         if self._task_service is not None:
@@ -154,7 +157,9 @@ class HITLApprovalTool:
 
         manager = self._config_manager
         if manager is None:
-            manager = ConfigManager()
+            from ATLAS.config import ConfigManager as _ConfigManager
+
+            manager = _ConfigManager()
             self._config_manager = manager
 
         getter = getattr(manager, "get_task_service", None)
