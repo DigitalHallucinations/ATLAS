@@ -83,21 +83,31 @@ class ATLAS:
         tenant_text = str(tenant_value).strip() if tenant_value else "default"
         self.tenant_id = tenant_text or "default"
 
-        session_factory = self.config_manager.get_conversation_store_session_factory()
-        if session_factory is not None:
-            retention = self.config_manager.get_conversation_retention_policies()
-            try:
-                repository = ConversationStoreRepository(
-                    session_factory,
-                    retention=retention,
-                )
-                repository.create_schema()
-            except Exception as exc:  # pragma: no cover - database bootstrap issues
-                self.logger.warning(
-                    "Conversation store unavailable: %s", exc, exc_info=True
-                )
-            else:
-                self.conversation_repository = repository
+        session_factory = None
+        try:
+            self.config_manager.ensure_postgres_conversation_store()
+            session_factory = (
+                self.config_manager.get_conversation_store_session_factory()
+            )
+        except Exception as exc:  # pragma: no cover - bootstrap issues during startup
+            self.logger.warning(
+                "Conversation store unavailable: %s", exc, exc_info=True
+            )
+        else:
+            if session_factory is not None:
+                retention = self.config_manager.get_conversation_retention_policies()
+                try:
+                    repository = ConversationStoreRepository(
+                        session_factory,
+                        retention=retention,
+                    )
+                    repository.create_schema()
+                except Exception as exc:  # pragma: no cover - database bootstrap issues
+                    self.logger.warning(
+                        "Conversation store unavailable: %s", exc, exc_info=True
+                    )
+                else:
+                    self.conversation_repository = repository
 
     def _resolve_user_identity(self, *, prefer_generic: bool = False) -> Tuple[str, str]:
         """Return best-effort user identifier and display name."""
