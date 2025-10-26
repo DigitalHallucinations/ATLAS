@@ -18,6 +18,7 @@ bootstrap_module = importlib.util.module_from_spec(_BOOTSTRAP_SPEC)
 _BOOTSTRAP_SPEC.loader.exec_module(bootstrap_module)
 
 bootstrap_conversation_store = bootstrap_module.bootstrap_conversation_store
+BootstrapError = bootstrap_module.BootstrapError
 
 
 class RecordingCursor:
@@ -76,7 +77,7 @@ def base_dsn():
     return "postgresql+psycopg://atlas:secret@localhost:5432/atlas"
 
 
-def test_bootstrap_installs_postgres_client_when_psql_missing(base_dsn):
+def test_bootstrap_installs_postgres_client_when_psql_missing(base_dsn, monkeypatch):
     which_calls = []
 
     def fake_which(command):
@@ -84,10 +85,15 @@ def test_bootstrap_installs_postgres_client_when_psql_missing(base_dsn):
         return None if len(which_calls) == 1 else "/usr/bin/psql"
 
     commands = []
+    readiness_results = iter([1, 0])
 
     def fake_run(command, check):
-        commands.append(command)
+        commands.append((command, check))
+        if command[0] == "pg_isready":
+            return types.SimpleNamespace(returncode=next(readiness_results))
         return types.SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(bootstrap_module.time, "sleep", lambda _: None)
 
     maintenance = RecordingConnection(
         responses={
@@ -113,7 +119,13 @@ def test_bootstrap_installs_postgres_client_when_psql_missing(base_dsn):
     assert result_url.database == expected_url.database
     assert result_url.host == expected_url.host
     assert result_url.port == expected_url.port
-    assert commands == [["apt-get", "update"], ["apt-get", "install", "-y", "postgresql-client"]]
+    assert commands == [
+        (["apt-get", "update"], True),
+        (["apt-get", "install", "-y", "postgresql", "postgresql-client"], True),
+        (["pg_isready", "-q"], False),
+        (["systemctl", "start", "postgresql"], True),
+        (["pg_isready", "-q"], False),
+    ]
     assert which_calls == ["psql", "psql"]
     assert maintenance.autocommit is True
     assert maintenance.closed is True
@@ -177,3 +189,45 @@ def test_bootstrap_noop_when_already_provisioned(base_dsn):
     assert result_url.port == expected_url.port
     assert not any("CREATE" in stmt for stmt, _ in maintenance.executed)
     assert commands == []
+
+
+def test_bootstrap_raises_when_postgres_service_cannot_start(base_dsn, monkeypatch):
+    which_calls = []
+
+    def fake_which(command):
+        which_calls.append(command)
+        return None if len(which_calls) == 1 else "/usr/bin/psql"
+
+    commands = []
+
+    def fake_run(command, check):
+        commands.append((command, check))
+        if command[0] == "pg_isready":
+            return types.SimpleNamespace(returncode=1)
+        return types.SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(bootstrap_module.time, "sleep", lambda _: None)
+
+    maintenance = RecordingConnection(
+        responses={
+            ("SELECT 1 FROM pg_roles WHERE rolname = %s", ("atlas",)): (1,),
+            ("SELECT 1 FROM pg_database WHERE datname = %s", ("atlas",)): (1,),
+        }
+    )
+    connector = make_connector(maintenance)
+
+    with pytest.raises(BootstrapError):
+        bootstrap_conversation_store(
+            base_dsn,
+            which=fake_which,
+            run=fake_run,
+            platform_system=lambda: "Linux",
+            connector=connector,
+        )
+
+    assert commands[:2] == [
+        (["apt-get", "update"], True),
+        (["apt-get", "install", "-y", "postgresql", "postgresql-client"], True),
+    ]
+    assert any(cmd[0][0] == "systemctl" for cmd in commands)
+    assert which_calls == ["psql", "psql"]

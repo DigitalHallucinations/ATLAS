@@ -6,6 +6,7 @@ import platform
 import secrets
 import shutil
 import subprocess
+import time
 from typing import Callable, Iterable
 
 from sqlalchemy.engine.url import make_url
@@ -30,37 +31,97 @@ def _install_postgres_client(
 ) -> None:
     """Ensure the PostgreSQL client utilities are available."""
 
-    if which("psql") is not None:
-        return
-
     system = platform_system().lower()
     commands: Iterable[list[str]]
-
-    if system == "linux":
-        commands = [
-            ["apt-get", "update"],
-            ["apt-get", "install", "-y", "postgresql-client"],
-        ]
-    elif system == "darwin":
-        commands = [["brew", "update"], ["brew", "install", "postgresql"]]
-    elif system.startswith("win"):
-        raise BootstrapError(
-            "PostgreSQL client utilities are not installed. "
-            "Please install them from https://www.postgresql.org/download/windows/."
-        )
-    else:
-        raise BootstrapError(
-            "PostgreSQL client utilities are not installed and cannot be "
-            f"automatically provisioned on platform '{system}'."
-        )
-
-    for command in commands:
-        run(command, check=True)
+    start_commands: Iterable[list[str]] = []
 
     if which("psql") is None:
+        if system == "linux":
+            commands = [
+                ["apt-get", "update"],
+                ["apt-get", "install", "-y", "postgresql", "postgresql-client"],
+            ]
+        elif system == "darwin":
+            # Homebrew installs typically expose versioned packages; 14 is a stable default.
+            brew_package = "postgresql@14"
+            commands = [
+                ["brew", "update"],
+                ["brew", "install", brew_package],
+            ]
+        elif system.startswith("win"):
+            raise BootstrapError(
+                "PostgreSQL client utilities are not installed. "
+                "Please install the PostgreSQL server manually and ensure it is running. "
+                "Visit https://www.postgresql.org/download/windows/ for installation instructions."
+            )
+        else:
+            raise BootstrapError(
+                "PostgreSQL client utilities are not installed and cannot be "
+                f"automatically provisioned on platform '{system}'."
+            )
+
+        for command in commands:
+            run(command, check=True)
+
+        if which("psql") is None:
+            raise BootstrapError(
+                "Attempted to install PostgreSQL client utilities but 'psql' is still unavailable."
+            )
+    if system == "linux":
+        start_commands = [
+            ["systemctl", "start", "postgresql"],
+            ["service", "postgresql", "start"],
+        ]
+    elif system == "darwin":
+        brew_package = "postgresql@14"
+        start_commands = [["brew", "services", "start", brew_package]]
+    elif system.startswith("win"):
+        start_commands = []
+
+    readiness_command = ["pg_isready", "-q"]
+
+    def _is_ready() -> bool:
+        try:
+            result = run(readiness_command, check=False)
+        except FileNotFoundError as exc:  # pragma: no cover - defensive guard
+            raise BootstrapError(
+                "Unable to locate 'pg_isready' after installing PostgreSQL."
+            ) from exc
+        return result.returncode == 0
+
+    if _is_ready():
+        return
+
+    started = False
+    for command in start_commands:
+        try:
+            run(command, check=True)
+        except Exception:  # pragma: no cover - start command best effort
+            continue
+        else:
+            started = True
+            break
+
+    if not start_commands:
         raise BootstrapError(
-            "Attempted to install PostgreSQL client utilities but 'psql' is still unavailable."
+            "PostgreSQL server is not running. "
+            "Please start the PostgreSQL service manually by following the platform-specific documentation."
         )
+
+    if not started:
+        raise BootstrapError(
+            "Unable to start the PostgreSQL server automatically. "
+            "Please start it manually and retry."
+        )
+
+    for _ in range(10):
+        if _is_ready():
+            return
+        time.sleep(1)
+
+    raise BootstrapError(
+        "PostgreSQL server did not become ready after installation/start attempts."
+    )
 
 
 def _ensure_role(
