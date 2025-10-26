@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import importlib
+import os
 import platform
 import secrets
 import shutil
@@ -197,6 +198,8 @@ def _install_postgres_client(
     run: Callable[..., subprocess.CompletedProcess],
     which: Callable[[str], str | None],
     platform_system: Callable[[], str],
+    request_privileged_password: Callable[[], str | None] | None = None,
+    geteuid: Callable[[], int] | None = None,
 ) -> None:
     """Ensure the PostgreSQL client utilities are available."""
 
@@ -229,8 +232,41 @@ def _install_postgres_client(
                 f"automatically provisioned on platform '{system}'."
             )
 
+        sudo_password: str | None = None
+        if system == "linux":
+            geteuid_func = geteuid or getattr(os, "geteuid", None)
+            is_non_root = False
+            if callable(geteuid_func):
+                try:
+                    is_non_root = bool(geteuid_func() != 0)
+                except Exception:  # pragma: no cover - defensive guard
+                    is_non_root = False
+            else:
+                is_non_root = False
+
+            if is_non_root:
+                if request_privileged_password is None:
+                    raise BootstrapError(
+                        "PostgreSQL client utilities are not installed and elevated privileges are required. "
+                        "Retry with administrator credentials."
+                    )
+                sudo_password = request_privileged_password()
+                if sudo_password is None:
+                    raise BootstrapError(
+                        "PostgreSQL client installation cancelled before acquiring administrator credentials."
+                    )
+
         for command in commands:
-            run(command, check=True)
+            if system == "linux" and sudo_password is not None:
+                sudo_command = ["sudo", "-S", *command]
+                run(
+                    sudo_command,
+                    check=True,
+                    input=f"{sudo_password}\n",
+                    text=True,
+                )
+            else:
+                run(command, check=True)
 
         if which("psql") is None:
             raise BootstrapError(
@@ -353,6 +389,8 @@ def bootstrap_conversation_store(
     run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     platform_system: Callable[[], str] = platform.system,
     connector: Callable[[str], object] | None = None,
+    request_privileged_password: Callable[[], str | None] | None = None,
+    geteuid: Callable[[], int] | None = None,
 ) -> str:
     """Bootstrap the configured PostgreSQL conversation store."""
 
@@ -374,6 +412,8 @@ def bootstrap_conversation_store(
         run=run,
         which=which,
         platform_system=platform_system,
+        request_privileged_password=request_privileged_password,
+        geteuid=geteuid,
     )
 
     database = url.database
