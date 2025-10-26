@@ -1,8 +1,17 @@
 import asyncio
+import importlib.util
+import logging
+import os
 import sys
 import types
+from pathlib import Path
 
 import pytest
+
+
+MODULE_ROOT = Path(__file__).resolve().parents[1] / "modules"
+BASE_TOOLS_PATH = MODULE_ROOT / "Tools" / "Base_Tools"
+PROVIDERS_PATH = MODULE_ROOT / "Tools" / "providers"
 
 if "yaml" not in sys.modules:
     yaml_module = types.ModuleType("yaml")
@@ -17,8 +26,126 @@ if "dotenv" not in sys.modules:
     dotenv_module.find_dotenv = lambda *_args, **_kwargs: ""
     sys.modules["dotenv"] = dotenv_module
 
-from modules.Tools.Base_Tools.Google_search import GoogleSearch
-from modules.Tools.providers.router import ToolProviderRouter
+if "modules" not in sys.modules:
+    modules_pkg = types.ModuleType("modules")
+    modules_pkg.__path__ = [str(MODULE_ROOT)]
+    sys.modules["modules"] = modules_pkg
+else:
+    modules_pkg = sys.modules["modules"]
+
+if "modules.Tools" not in sys.modules:
+    tools_pkg = types.ModuleType("modules.Tools")
+    tools_pkg.__path__ = [str(MODULE_ROOT / "Tools")]
+    sys.modules["modules.Tools"] = tools_pkg
+else:
+    tools_pkg = sys.modules["modules.Tools"]
+
+setattr(modules_pkg, "Tools", tools_pkg)
+
+if "modules.Tools.Base_Tools" not in sys.modules:
+    base_tools_pkg = types.ModuleType("modules.Tools.Base_Tools")
+    base_tools_pkg.__path__ = [str(BASE_TOOLS_PATH)]
+    sys.modules["modules.Tools.Base_Tools"] = base_tools_pkg
+else:
+    base_tools_pkg = sys.modules["modules.Tools.Base_Tools"]
+
+setattr(tools_pkg, "Base_Tools", base_tools_pkg)
+
+if "modules.Tools.providers" not in sys.modules:
+    providers_pkg = types.ModuleType("modules.Tools.providers")
+    providers_pkg.__path__ = [str(PROVIDERS_PATH)]
+    sys.modules["modules.Tools.providers"] = providers_pkg
+else:
+    providers_pkg = sys.modules["modules.Tools.providers"]
+
+setattr(tools_pkg, "providers", providers_pkg)
+
+if "modules.logging" not in sys.modules:
+    logging_pkg = types.ModuleType("modules.logging")
+    logging_pkg.__path__ = []
+    sys.modules["modules.logging"] = logging_pkg
+else:
+    logging_pkg = sys.modules["modules.logging"]
+
+if "modules.logging.logger" not in sys.modules:
+    logger_module = types.ModuleType("modules.logging.logger")
+
+    def _setup_logger(name):
+        return logging.getLogger(name)
+
+    logger_module.setup_logger = _setup_logger
+    sys.modules["modules.logging.logger"] = logger_module
+else:
+    logger_module = sys.modules["modules.logging.logger"]
+
+setattr(logging_pkg, "logger", logger_module)
+
+if "ATLAS" not in sys.modules:
+    atlas_pkg = types.ModuleType("ATLAS")
+    atlas_pkg.__path__ = []
+    sys.modules["ATLAS"] = atlas_pkg
+else:
+    atlas_pkg = sys.modules["ATLAS"]
+
+if "ATLAS.config" not in sys.modules:
+    atlas_config_module = types.ModuleType("ATLAS.config")
+
+    class _StubConfigManager:
+        def __init__(self):
+            self.config = {}
+
+        def get_config(self, key):
+            return self.config.get(key)
+
+    atlas_config_module.ConfigManager = _StubConfigManager
+    sys.modules["ATLAS.config"] = atlas_config_module
+else:
+    atlas_config_module = sys.modules["ATLAS.config"]
+
+setattr(atlas_pkg, "config", atlas_config_module)
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+google_search_module = _load_module(
+    "modules.Tools.Base_Tools.Google_search", BASE_TOOLS_PATH / "Google_search.py"
+)
+setattr(base_tools_pkg, "Google_search", google_search_module)
+
+providers_base_module = _load_module(
+    "modules.Tools.providers.base", PROVIDERS_PATH / "base.py"
+)
+setattr(providers_pkg, "base", providers_base_module)
+
+providers_registry_module = _load_module(
+    "modules.Tools.providers.registry", PROVIDERS_PATH / "registry.py"
+)
+setattr(providers_pkg, "registry", providers_registry_module)
+
+providers_router_module = _load_module(
+    "modules.Tools.providers.router", PROVIDERS_PATH / "router.py"
+)
+setattr(providers_pkg, "router", providers_router_module)
+
+providers_serpapi_module = _load_module(
+    "modules.Tools.providers.serpapi", PROVIDERS_PATH / "serpapi.py"
+)
+setattr(providers_pkg, "serpapi", providers_serpapi_module)
+
+providers_google_cse_module = _load_module(
+    "modules.Tools.providers.google_cse", PROVIDERS_PATH / "google_cse.py"
+)
+setattr(providers_pkg, "google_cse", providers_google_cse_module)
+
+
+GoogleSearch = google_search_module.GoogleSearch
+ToolProviderRouter = providers_router_module.ToolProviderRouter
 
 
 GOOGLE_PROVIDER_SPEC = {
