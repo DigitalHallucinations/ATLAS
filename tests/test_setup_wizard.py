@@ -5,6 +5,12 @@ import dataclasses
 
 import pytest
 
+from modules.conversation_store import bootstrap as bootstrap_module
+from tests.test_conversation_store_bootstrap_helper import (
+    RecordingConnection,
+    make_connector,
+)
+
 
 if 'gi' not in sys.modules:
     gi = types.ModuleType('gi')
@@ -151,6 +157,30 @@ from GTKUI.Setup.setup_wizard import (
     OptionalState,
     UserState,
 )
+
+
+class _FakeSqlModule:
+    class _Template:
+        def __init__(self, template: str):
+            self._template = template
+
+        def format(self, *args):
+            formatted = self._template
+            for arg in args:
+                replacement = getattr(arg, "value", str(arg))
+                formatted = formatted.replace("{}", replacement, 1)
+            return _FakeSqlModule._Template(formatted)
+
+        def __str__(self) -> str:
+            return self._template
+
+    @staticmethod
+    def SQL(template: str) -> "_FakeSqlModule._Template":
+        return _FakeSqlModule._Template(template)
+
+    @staticmethod
+    def Identifier(value: str) -> types.SimpleNamespace:
+        return types.SimpleNamespace(value=value)
 
 
 @pytest.fixture
@@ -358,3 +388,137 @@ def test_controller_optional_settings(config_manager):
     assert job_settings['timezone'] == 'US/Eastern'
     assert job_settings['queue_size'] == 256
     assert config_manager.config['http_server']['auto_start'] is True
+
+
+def test_psycopg_helper_attempts_pip_install(monkeypatch):
+    fake_sql = _FakeSqlModule()
+    import_calls = {"count": 0}
+
+    def fake_import_module(name):
+        if name == "psycopg":
+            import_calls["count"] += 1
+            if import_calls["count"] == 1:
+                raise ImportError("libpq: missing client library")
+            return types.SimpleNamespace(
+                connect=lambda dsn: ("connected", dsn),
+                OperationalError=RuntimeError,
+                sql=fake_sql,
+            )
+        if name == "psycopg.sql":
+            return fake_sql
+        raise ImportError(name)
+
+    commands = []
+
+    def fake_run(command, check=False):
+        commands.append((command, check))
+        return types.SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(bootstrap_module, "connect", None, raising=False)
+    monkeypatch.setattr(bootstrap_module, "OperationalError", None, raising=False)
+    monkeypatch.setattr(bootstrap_module, "sql", None, raising=False)
+    monkeypatch.setattr(bootstrap_module.importlib, "import_module", fake_import_module)
+    monkeypatch.setattr(bootstrap_module.sys, "executable", "/venv/bin/python")
+
+    bootstrap_module._ensure_psycopg_loaded(
+        run=fake_run,
+        which=lambda _: None,
+        platform_system=lambda: "Linux",
+    )
+
+    assert commands == [(["/venv/bin/python", "-m", "pip", "install", "psycopg[binary]"], False)]
+    assert callable(bootstrap_module.connect)
+    assert bootstrap_module.sql is fake_sql
+
+
+def test_psycopg_helper_error_message_includes_guidance(monkeypatch):
+    fake_sql = _FakeSqlModule()
+
+    def fake_import_module(name):
+        if name == "psycopg":
+            raise ImportError("libpq: cannot locate shared object")
+        if name == "psycopg.sql":
+            return fake_sql
+        raise ImportError(name)
+
+    commands = []
+
+    def fake_run(command, check=False):
+        commands.append(" ".join(command))
+        return types.SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(bootstrap_module, "connect", None, raising=False)
+    monkeypatch.setattr(bootstrap_module, "OperationalError", None, raising=False)
+    monkeypatch.setattr(bootstrap_module, "sql", None, raising=False)
+    monkeypatch.setattr(bootstrap_module.importlib, "import_module", fake_import_module)
+    monkeypatch.setattr(bootstrap_module.sys, "executable", "/venv/bin/python")
+
+    with pytest.raises(bootstrap_module.BootstrapError) as excinfo:
+        bootstrap_module._ensure_psycopg_loaded(
+            run=fake_run,
+            which=lambda _: None,
+            platform_system=lambda: "Darwin",
+        )
+
+    message = str(excinfo.value)
+    assert "brew install libpq" in message
+    assert "https://www.postgresql.org/download/windows/" in message
+    assert commands == ["/venv/bin/python -m pip install psycopg[binary]"]
+
+
+def test_psycopg_helper_success_bootstrap_flow(monkeypatch):
+    fake_sql = _FakeSqlModule()
+    import_calls = {"count": 0}
+
+    def fake_import_module(name):
+        if name == "psycopg":
+            import_calls["count"] += 1
+            if import_calls["count"] == 1:
+                raise ImportError("libpq: not found")
+            return types.SimpleNamespace(
+                connect=lambda dsn: RecordingConnection(),
+                OperationalError=RuntimeError,
+                sql=fake_sql,
+            )
+        if name == "psycopg.sql":
+            return fake_sql
+        raise ImportError(name)
+
+    commands = []
+
+    def fake_run(command, check=False):
+        if command[0] == "/venv/bin/python":
+            commands.append((command, check))
+            return types.SimpleNamespace(returncode=0)
+        if command[0] == "pg_isready":
+            return types.SimpleNamespace(returncode=0)
+        return types.SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(bootstrap_module, "connect", None, raising=False)
+    monkeypatch.setattr(bootstrap_module, "OperationalError", None, raising=False)
+    monkeypatch.setattr(bootstrap_module, "sql", None, raising=False)
+    monkeypatch.setattr(bootstrap_module.importlib, "import_module", fake_import_module)
+    monkeypatch.setattr(bootstrap_module.sys, "executable", "/venv/bin/python")
+
+    maintenance = RecordingConnection(
+        responses={
+            ("SELECT 1 FROM pg_roles WHERE rolname = %s", ("atlas",)): (1,),
+            ("SELECT 1 FROM pg_database WHERE datname = %s", ("atlas",)): (1,),
+        }
+    )
+    verification = RecordingConnection()
+    connector = make_connector(maintenance, verification)
+
+    result = bootstrap_module.bootstrap_conversation_store(
+        "postgresql+psycopg://atlas:secret@localhost:5432/atlas",
+        which=lambda _: "/usr/bin/psql",
+        run=fake_run,
+        platform_system=lambda: "Linux",
+        connector=connector,
+    )
+
+    assert result == "postgresql+psycopg://atlas:secret@localhost:5432/atlas"
+    assert commands == [(["/venv/bin/python", "-m", "pip", "install", "psycopg[binary]"], False)]
+    assert maintenance.autocommit is True
+    assert maintenance.closed is True
+    assert verification.closed is True

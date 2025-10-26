@@ -1,26 +1,187 @@
 """Helpers for bootstrapping the PostgreSQL conversation store."""
 
 from __future__ import annotations
-
+import importlib
 import platform
 import secrets
 import shutil
 import subprocess
+import sys
 import time
 from typing import Callable, Iterable
 
 from sqlalchemy.engine.url import URL, make_url
 
-try:  # pragma: no cover - import guards for optional dependency environments
-    from psycopg import OperationalError, connect, sql
-except Exception as exc:  # pragma: no cover - fail fast when psycopg is unavailable
-    raise RuntimeError(
-        "psycopg is required to bootstrap the conversation store"
-    ) from exc
-
 
 class BootstrapError(RuntimeError):
     """Raised when the PostgreSQL bootstrap process fails."""
+
+
+connect = None
+OperationalError = None
+sql = None
+
+
+def _is_psycopg_import_error(exc: Exception) -> bool:
+    """Return ``True`` when *exc* stems from psycopg import failures."""
+
+    if isinstance(exc, ImportError):
+        return True
+    return exc.__class__.__name__ == "ProgrammingError" and "psycopg" in exc.__class__.__module__
+
+
+def _compose_psycopg_guidance(system: str, apt_available: bool) -> str:
+    """Build remediation guidance for missing libpq installations."""
+
+    instructions: list[str] = []
+    system_lower = system.lower()
+
+    if system_lower == "linux":
+        if apt_available:
+            instructions.append(
+                "Linux: ensure the libpq development headers are installed (e.g. `apt-get install -y libpq-dev`)."
+            )
+        else:
+            instructions.append(
+                "Linux: install the libpq development headers using your distribution's package manager (for Debian/Ubuntu: `apt-get install -y libpq-dev`)."
+            )
+    elif system_lower == "darwin":
+        instructions.append(
+            "macOS: install libpq via Homebrew: `brew install libpq` and ensure it is available on your PATH."
+        )
+    elif system_lower.startswith("win"):
+        instructions.append(
+            "Windows: install the PostgreSQL client libraries from https://www.postgresql.org/download/windows/ and ensure `libpq.dll` is on your PATH."
+        )
+    else:
+        instructions.append(
+            f"{system}: install the PostgreSQL client libraries for your platform and retry."
+        )
+
+    if system_lower != "darwin":
+        instructions.append(
+            "macOS users can install libpq via Homebrew: `brew install libpq`."
+        )
+    if not system_lower.startswith("win"):
+        instructions.append(
+            "Windows users should install the PostgreSQL client libraries from https://www.postgresql.org/download/windows/ and ensure `libpq.dll` is on the PATH."
+        )
+
+    return " ".join(instructions)
+
+
+def _raise_psycopg_bootstrap_error(
+    *,
+    exc: Exception,
+    commands: list[list[str]],
+    system: str,
+    apt_available: bool,
+) -> None:
+    """Raise a :class:`BootstrapError` with actionable remediation guidance."""
+
+    commands_text = ", ".join(" ".join(command) for command in commands) if commands else "none"
+    details = [
+        "Unable to import psycopg because libpq could not be loaded even after attempting automatic installation.",
+        f"Commands tried: {commands_text}.",
+        f"Last error: {exc}.",
+    ]
+
+    if system.lower() == "linux" and not apt_available:
+        details.append("Automatic apt-based installation was skipped because 'apt-get' was not found.")
+
+    details.append(_compose_psycopg_guidance(system, apt_available))
+
+    raise BootstrapError(" ".join(details)) from exc
+
+
+def _recover_psycopg_import(
+    *,
+    exc: Exception,
+    attempt_import: Callable[[], tuple[object, object]],
+    run: Callable[..., subprocess.CompletedProcess],
+    which: Callable[[str], str | None],
+    system: str,
+    executable: str,
+) -> tuple[object, object]:
+    """Attempt to install libpq dependencies before retrying the import."""
+
+    if "libpq" not in str(exc).lower():
+        raise BootstrapError(f"Unable to import psycopg: {exc}") from exc
+
+    commands: list[list[str]] = []
+    pip_command = [executable, "-m", "pip", "install", "psycopg[binary]"]
+    commands.append(pip_command)
+
+    pip_failed = True
+    try:
+        result = run(pip_command, check=False)
+    except Exception:
+        pass
+    else:
+        pip_failed = getattr(result, "returncode", 1) != 0
+
+    apt_available = which("apt-get") is not None
+    if system == "linux" and pip_failed and apt_available:
+        apt_command = ["apt-get", "install", "-y", "libpq-dev"]
+        commands.append(apt_command)
+        try:
+            run(apt_command, check=False)
+        except Exception:
+            pass
+
+    try:
+        return attempt_import()
+    except Exception as final_exc:
+        if _is_psycopg_import_error(final_exc):
+            _raise_psycopg_bootstrap_error(
+                exc=final_exc,
+                commands=commands,
+                system=system,
+                apt_available=apt_available,
+            )
+        raise
+
+
+def _ensure_psycopg_loaded(
+    *,
+    run: Callable[..., subprocess.CompletedProcess],
+    which: Callable[[str], str | None],
+    platform_system: Callable[[], str],
+    executable: str | None = None,
+) -> None:
+    """Lazily import psycopg, attempting automatic remediation when required."""
+
+    global OperationalError, connect, sql
+
+    if connect is not None and OperationalError is not None and sql is not None:
+        return
+
+    executable = executable or sys.executable
+    system_name = platform_system()
+    system = system_name.lower()
+
+    def attempt_import() -> tuple[object, object]:
+        psycopg_module = importlib.import_module("psycopg")
+        sql_module = importlib.import_module("psycopg.sql")
+        return psycopg_module, sql_module
+
+    try:
+        psycopg_module, sql_module = attempt_import()
+    except Exception as exc:  # pragma: no cover - exercised via explicit tests
+        if not _is_psycopg_import_error(exc):
+            raise
+        psycopg_module, sql_module = _recover_psycopg_import(
+            exc=exc,
+            attempt_import=attempt_import,
+            run=run,
+            which=which,
+            system=system,
+            executable=executable,
+        )
+
+    connect = getattr(psycopg_module, "connect")
+    OperationalError = getattr(psycopg_module, "OperationalError")
+    sql = sql_module
 
 
 def _render_psycopg_conninfo(url: URL) -> str:
@@ -191,9 +352,17 @@ def bootstrap_conversation_store(
     which: Callable[[str], str | None] = shutil.which,
     run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     platform_system: Callable[[], str] = platform.system,
-    connector: Callable[[str], object] = connect,
+    connector: Callable[[str], object] | None = None,
 ) -> str:
     """Bootstrap the configured PostgreSQL conversation store."""
+
+    _ensure_psycopg_loaded(
+        run=run,
+        which=which,
+        platform_system=platform_system,
+    )
+
+    active_connector = connector or connect
 
     url = make_url(dsn)
     if url.get_dialect().name != "postgresql":
@@ -222,7 +391,7 @@ def bootstrap_conversation_store(
     for candidate in candidate_databases:
         try:
             candidate_url = url.set(database=candidate)
-            maintenance_conn = connector(_render_psycopg_conninfo(candidate_url))
+            maintenance_conn = active_connector(_render_psycopg_conninfo(candidate_url))
         except OperationalError as exc:  # pragma: no cover - error handling path
             last_error = exc
             continue
@@ -261,7 +430,7 @@ def bootstrap_conversation_store(
     connection_dsn = url.render_as_string(hide_password=False)
 
     try:
-        verification_conn = connector(_render_psycopg_conninfo(url))
+        verification_conn = active_connector(_render_psycopg_conninfo(url))
     except OperationalError as exc:
         raise BootstrapError(
             f"Unable to connect to the conversation store database '{database}': {exc}"
