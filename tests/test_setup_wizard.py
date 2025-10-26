@@ -228,7 +228,7 @@ def config_manager(tmp_path, monkeypatch):
 def test_controller_database_step_persists_dsn(config_manager):
     seen = []
 
-    def fake_bootstrap(url):
+    def fake_bootstrap(url, **_):
         seen.append(url)
         return url + '?ensured'
 
@@ -250,7 +250,9 @@ def test_controller_database_step_persists_dsn(config_manager):
 
 
 def test_controller_job_scheduling_persists_settings(config_manager):
-    controller = SetupWizardController(config_manager=config_manager, bootstrap=lambda url: url)
+    controller = SetupWizardController(
+        config_manager=config_manager, bootstrap=lambda url, **_: url
+    )
     state = JobSchedulingState(
         enabled=True,
         job_store_url='postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs',
@@ -274,7 +276,9 @@ def test_controller_job_scheduling_persists_settings(config_manager):
 
 
 def test_controller_message_bus_settings(config_manager):
-    controller = SetupWizardController(config_manager=config_manager, bootstrap=lambda url: url)
+    controller = SetupWizardController(
+        config_manager=config_manager, bootstrap=lambda url, **_: url
+    )
     state = MessageBusState(backend='redis', redis_url='redis://localhost:6379/0', stream_prefix='atlas')
 
     controller.apply_message_bus(state)
@@ -285,7 +289,9 @@ def test_controller_message_bus_settings(config_manager):
 
 
 def test_controller_kv_store_settings(config_manager):
-    controller = SetupWizardController(config_manager=config_manager, bootstrap=lambda url: url)
+    controller = SetupWizardController(
+        config_manager=config_manager, bootstrap=lambda url, **_: url
+    )
     state = KvStoreState(
         reuse_conversation_store=False,
         url='postgresql+psycopg://atlas:atlas@localhost:5432/atlas_kv',
@@ -300,7 +306,9 @@ def test_controller_kv_store_settings(config_manager):
 
 
 def test_controller_provider_settings_persist_keys_and_defaults(config_manager):
-    controller = SetupWizardController(config_manager=config_manager, bootstrap=lambda url: url)
+    controller = SetupWizardController(
+        config_manager=config_manager, bootstrap=lambda url, **_: url
+    )
     state = ProviderState(
         default_provider='OpenAI',
         default_model='gpt-4o-mini',
@@ -316,7 +324,9 @@ def test_controller_provider_settings_persist_keys_and_defaults(config_manager):
 
 
 def test_controller_speech_settings(config_manager, monkeypatch):
-    controller = SetupWizardController(config_manager=config_manager, bootstrap=lambda url: url)
+    controller = SetupWizardController(
+        config_manager=config_manager, bootstrap=lambda url, **_: url
+    )
 
     state = SpeechState(
         tts_enabled=True,
@@ -336,7 +346,9 @@ def test_controller_speech_settings(config_manager, monkeypatch):
 
 
 def test_controller_user_registration(config_manager, monkeypatch):
-    controller = SetupWizardController(config_manager=config_manager, bootstrap=lambda url: url)
+    controller = SetupWizardController(
+        config_manager=config_manager, bootstrap=lambda url, **_: url
+    )
 
     class DummyRepository:
         def create_schema(self):

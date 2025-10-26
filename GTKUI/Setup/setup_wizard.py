@@ -12,7 +12,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
 from ATLAS.config import ConfigManager, _DEFAULT_CONVERSATION_STORE_DSN
-from modules.conversation_store.bootstrap import bootstrap_conversation_store
+from modules.conversation_store.bootstrap import BootstrapError, bootstrap_conversation_store
 from modules.conversation_store.repository import ConversationStoreRepository
 from modules.user_accounts.user_account_service import UserAccountService
 
@@ -219,10 +219,12 @@ class SetupWizardController:
         config_manager: Optional[ConfigManager] = None,
         atlas: Any | None = None,
         bootstrap: Callable[[str], str] = bootstrap_conversation_store,
+        request_privileged_password: Callable[[], str | None] | None = None,
     ) -> None:
         self.config_manager = config_manager or ConfigManager()
         self.atlas = atlas
         self._bootstrap = bootstrap
+        self._request_privileged_password = request_privileged_password
         self.state = WizardState()
         self._load_defaults()
 
@@ -308,7 +310,10 @@ class SetupWizardController:
 
     def apply_database_settings(self, state: DatabaseState) -> str:
         dsn = _compose_dsn(state)
-        ensured = self._bootstrap(dsn)
+        kwargs: dict[str, Any] = {}
+        if self._request_privileged_password is not None:
+            kwargs["request_privileged_password"] = self._request_privileged_password
+        ensured = self._bootstrap(dsn, **kwargs)
         self.config_manager._persist_conversation_database_url(ensured)
         self.config_manager._write_yaml_config()
         self.state.database = dataclasses.replace(state, dsn=ensured)
@@ -480,9 +485,13 @@ class SetupWizardWindow(AssistantBase):
         self._error_label = Gtk.Label()
         self._error_label.set_wrap(True)
         self._error_label.set_visible(False)
+        self._password_prompt_callback: Callable[[], str | None] | None = None
 
         self.atlas = atlas
-        self.controller = SetupWizardController(atlas=atlas)
+        self.controller = SetupWizardController(
+            atlas=atlas,
+            request_privileged_password=self._request_privileged_password,
+        )
 
         if hasattr(self, "set_default_size"):
             self.set_default_size(720, 520)
@@ -526,6 +535,92 @@ class SetupWizardWindow(AssistantBase):
             self.display_error(error)
 
     # -- UI construction ---------------------------------------------------
+
+    def _request_privileged_password(self) -> str | None:
+        if self._password_prompt_callback is not None:
+            return self._password_prompt_callback()
+
+        dialog_cls = getattr(Gtk, "Dialog", None)
+        if dialog_cls is None:
+            return None
+
+        if hasattr(Gtk, "ResponseType"):
+            response_accept = getattr(Gtk.ResponseType, "ACCEPT", getattr(Gtk.ResponseType, "OK", 0))
+            response_cancel = getattr(Gtk.ResponseType, "CANCEL", 1)
+        else:  # pragma: no cover - GTK fallback
+            response_accept = 0
+            response_cancel = 1
+
+        dialog = dialog_cls(transient_for=self, modal=True)
+        if hasattr(dialog, "set_title"):
+            dialog.set_title("Administrator privileges required")
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        if hasattr(content, "set_margin_top"):
+            content.set_margin_top(12)
+            content.set_margin_bottom(12)
+            content.set_margin_start(12)
+            content.set_margin_end(12)
+        message = Gtk.Label(
+            label=(
+                "ATLAS needs administrator credentials to install PostgreSQL client utilities. "
+                "Enter the password for sudo to continue."
+            )
+        )
+        message.set_wrap(True)
+        if hasattr(message, "set_xalign"):
+            message.set_xalign(0.0)
+        content.append(message)
+
+        password_entry_cls = getattr(Gtk, "PasswordEntry", None)
+        if password_entry_cls is None:
+            entry: Gtk.Widget = Entry()
+            if hasattr(entry, "set_visibility"):
+                entry.set_visibility(False)
+        else:
+            entry = password_entry_cls()
+        if hasattr(entry, "set_hexpand"):
+            entry.set_hexpand(True)
+        content.append(entry)
+
+        if hasattr(dialog, "set_child"):
+            dialog.set_child(content)
+        elif hasattr(dialog, "get_content_area"):
+            dialog.get_content_area().add(content)  # type: ignore[call-arg]
+
+        add_button = getattr(dialog, "add_button", None)
+        if callable(add_button):
+            add_button("Cancel", response_cancel)
+            add_button("Authenticate", response_accept)
+        elif hasattr(dialog, "add_buttons"):
+            dialog.add_buttons("Cancel", response_cancel, "Authenticate", response_accept)
+
+        if hasattr(dialog, "set_default_response"):
+            dialog.set_default_response(response_accept)
+
+        response: int | None = None
+
+        if hasattr(dialog, "run"):
+            response = dialog.run()
+        elif hasattr(dialog, "wait_for_response"):
+            if hasattr(dialog, "present"):
+                dialog.present()
+            response = dialog.wait_for_response()
+        else:  # pragma: no cover - GTK fallback
+            if hasattr(dialog, "show"):
+                dialog.show()
+            return None
+
+        password_text = ""
+        if hasattr(entry, "get_text"):
+            password_text = entry.get_text()
+
+        if hasattr(dialog, "destroy"):
+            dialog.destroy()
+
+        if response == response_accept:
+            return password_text
+        return None
 
     def _build_pages(self) -> None:
         builders: Iterable[tuple[str, Callable[[], Gtk.Widget]]] = [
@@ -696,6 +791,9 @@ class SetupWizardWindow(AssistantBase):
             if self.controller.state.user.username:
                 self.controller.register_user(self.controller.state.user)
             self.controller.apply_optional_settings(self.controller.state.optional)
+        except BootstrapError as exc:
+            self.display_error(exc)
+            return
         except Exception as exc:  # pragma: no cover - surfaced through display_error
             self.display_error(exc)
             self._on_error(exc)
@@ -758,6 +856,9 @@ class SetupWizardWindow(AssistantBase):
             self.controller.state.optional,
             **updates,
         )
+
+    def set_password_prompt_callback(self, callback: Callable[[], str | None] | None) -> None:
+        self._password_prompt_callback = callback
 
 
 __all__ = ["SetupWizardWindow", "SetupWizardController"]
