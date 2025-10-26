@@ -2,14 +2,44 @@
 
 import asyncio
 import os
-from typing import Tuple, Union
+from typing import Tuple, Union, TYPE_CHECKING
 
 import requests
-from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 
-config_manager = ConfigManager()
+if TYPE_CHECKING:  # pragma: no cover - import for type checking only
+    from ATLAS.config import ConfigManager  # pylint: disable=ungrouped-imports
+
 logger = setup_logger(__name__)
+
+
+class _LazyConfigManagerAccessor:
+    """Lazily instantiate and proxy access to :class:`ConfigManager`."""
+
+    __slots__ = ("_manager",)
+
+    def __init__(self) -> None:
+        self._manager = None
+
+    def _ensure_manager(self):
+        if self._manager is None:
+            from ATLAS.config import ConfigManager  # Local import avoids circulars
+
+            self._manager = ConfigManager()
+        return self._manager
+
+    def set_manager(self, manager) -> None:
+        self._manager = manager
+
+    def get_manager(self):
+        return self._ensure_manager()
+
+    def __getattr__(self, item):  # pragma: no cover - exercised indirectly
+        manager = self._ensure_manager()
+        return getattr(manager, item)
+
+
+config_manager = _LazyConfigManagerAccessor()
 
 DEFAULT_RESULTS_COUNT = 10
 
@@ -17,8 +47,9 @@ DEFAULT_RESULTS_COUNT = 10
 class GoogleSearch:
     _KEY_PREFERENCE = ("GOOGLE_API_KEY", "SERPAPI_KEY")
 
-    def __init__(self, api_key: Union[str, None] = None):
+    def __init__(self, api_key: Union[str, None] = None, config_manager=None):
         self.timeout = 10
+        self._config_source = config_manager
         if api_key is not None:
             resolved_key = api_key
         else:
@@ -27,14 +58,29 @@ class GoogleSearch:
         self.api_key = (resolved_key or "").strip()
 
     def _resolve_configured_key(self) -> Union[str, None]:
+        manager = self._resolve_config_manager()
+        getter = getattr(manager, "get_config", None)
         for key_name in self._KEY_PREFERENCE:
-            candidate = config_manager.get_config(key_name)
+            candidate = getter(key_name) if getter else None
             if not candidate:
                 candidate = os.getenv(key_name)
             if candidate:
                 logger.debug("Resolved Google Search key from %s", key_name)
                 return candidate
         return None
+
+    def _resolve_config_manager(self):
+        source = self._config_source
+        if source is None:
+            source = config_manager
+
+        if isinstance(source, _LazyConfigManagerAccessor):
+            manager = source.get_manager()
+        else:
+            manager = source
+
+        self._config_source = manager
+        return manager
 
 
     async def _search(
