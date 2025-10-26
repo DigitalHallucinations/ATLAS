@@ -19,11 +19,11 @@ from sqlalchemy import (
     UniqueConstraint,
     inspect,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import relationship
 
-from modules.conversation_store.models import Base as ConversationBase
+from modules.conversation_store.models import Base as ConversationBase, PortableJSON
 
 try:  # pragma: no cover - optional dependency for task relationships
     from modules.task_store.models import Task as _Task  # noqa: F401
@@ -102,7 +102,7 @@ class Job(Base):
         UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL")
     )
     tenant_id = Column(String(255), nullable=False, index=True)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
@@ -160,7 +160,7 @@ class JobRun(Base):
     )
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
@@ -180,7 +180,7 @@ class JobTaskLink(Base):
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"))
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"))
     relationship_type = Column(String(64), nullable=False, default="relates_to")
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     job = relationship("Job", back_populates="tasks", foreign_keys=[job_id])
@@ -205,7 +205,7 @@ class JobAssignment(Base):
         nullable=False,
         default=JobAssignmentStatus.PENDING,
     )
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
@@ -227,7 +227,7 @@ class JobSchedule(Base):
     expression = Column(String(255), nullable=False)
     timezone = Column(String(64), nullable=False, default="UTC")
     next_run_at = Column(DateTime(timezone=True), nullable=True)
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
@@ -250,7 +250,7 @@ class JobEvent(Base):
     )
     triggered_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
-    payload = Column(JSONB, nullable=False, default=dict)
+    payload = Column(PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     job = relationship("Job", back_populates="events", foreign_keys=[job_id])

@@ -19,11 +19,11 @@ from sqlalchemy import (
     UniqueConstraint,
     inspect,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import relationship
 
-from modules.conversation_store.models import Base as ConversationBase
+from modules.conversation_store.models import Base as ConversationBase, PortableJSON
 
 
 Base = ConversationBase
@@ -88,7 +88,7 @@ class Task(Base):
     conversation_id = Column(
         UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL")
     )
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     due_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
@@ -144,7 +144,7 @@ class TaskAssignment(Base):
         nullable=False,
         default=TaskAssignmentStatus.PENDING,
     )
-    meta = Column("metadata", JSONB, nullable=False, default=dict)
+    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
@@ -197,7 +197,7 @@ class TaskEvent(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
-    payload = Column(JSONB, nullable=False, default=dict)
+    payload = Column(PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     task = relationship("Task", back_populates="events", foreign_keys=[task_id])
