@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import shutil
 import sys
 import types
 from pathlib import Path
@@ -84,27 +85,36 @@ NamespaceQuotaExceededError = kv_store_module.NamespaceQuotaExceededError
 ToolProviderRouter = router_module.ToolProviderRouter
 
 
-@pytest.fixture()
-def temp_kv_path(tmp_path: Path) -> Path:
-    return tmp_path / "kv.sqlite"
+def _normalize_dsn(dsn: str) -> str:
+    if dsn.startswith("postgresql+psycopg://"):
+        return dsn
+    if dsn.startswith("postgresql://"):
+        return "postgresql+psycopg://" + dsn[len("postgresql://"):]
+    return dsn
 
 
-def _build_service(path: Path, *, namespace_quota: int = 4096, global_quota: int = 8192) -> KeyValueStoreService:
+def _build_service(
+    dsn: str,
+    *,
+    namespace_quota: int = 4096,
+    global_quota: int = 8192,
+) -> KeyValueStoreService:
     adapter_config = {
-        "path": str(path),
+        "url": _normalize_dsn(dsn),
+        "reuse_conversation_store": False,
         "namespace_quota_bytes": namespace_quota,
         "global_quota_bytes": global_quota,
     }
     return kv_store_module.build_kv_store_service(
-        adapter_name="sqlite",
+        adapter_name="postgres",
         adapter_config=adapter_config,
         config_manager=None,
     )
 
 
-def test_concurrent_increments_are_atomic(temp_kv_path: Path) -> None:
+def test_concurrent_increments_are_atomic(postgresql) -> None:
     async def _run() -> None:
-        service = _build_service(temp_kv_path)
+        service = _build_service(postgresql.dsn())
 
         async def _worker(count: int) -> None:
             for _ in range(count):
@@ -117,9 +127,9 @@ def test_concurrent_increments_are_atomic(temp_kv_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_ttl_expiry_removes_values(temp_kv_path: Path) -> None:
+def test_ttl_expiry_removes_values(postgresql) -> None:
     async def _run() -> None:
-        service = _build_service(temp_kv_path)
+        service = _build_service(postgresql.dsn())
         await service.set_value("session", "token", {"scopes": ["a", "b"]}, ttl_seconds=0.2)
         first = await service.get_value("session", "token")
         assert first["found"] is True
@@ -131,9 +141,9 @@ def test_ttl_expiry_removes_values(temp_kv_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_quota_enforcement(temp_kv_path: Path) -> None:
+def test_quota_enforcement(postgresql) -> None:
     async def _run() -> None:
-        service = _build_service(temp_kv_path, namespace_quota=128, global_quota=256)
+        service = _build_service(postgresql.dsn(), namespace_quota=128, global_quota=256)
         small_payload = "x" * 32
         await service.set_value("caps", "small", small_payload)
         large_payload = "x" * 512
@@ -143,9 +153,9 @@ def test_quota_enforcement(temp_kv_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_namespace_isolation(temp_kv_path: Path) -> None:
+def test_namespace_isolation(postgresql) -> None:
     async def _run() -> None:
-        service = _build_service(temp_kv_path)
+        service = _build_service(postgresql.dsn())
         await service.set_value("alpha", "shared", "first")
         await service.set_value("beta", "shared", "second")
 
@@ -156,3 +166,8 @@ def test_namespace_isolation(temp_kv_path: Path) -> None:
         assert beta["value"] == "second"
 
     asyncio.run(_run())
+PG_CTL = shutil.which("pg_ctl")
+
+if PG_CTL is None:
+    pytestmark = pytest.mark.skip(reason="pg_ctl executable not available")
+

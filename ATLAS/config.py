@@ -177,6 +177,133 @@ class ConfigManager:
         js_block.setdefault('max_files', 32)
 
         tools_block['javascript_executor'] = js_block
+
+        kv_block = tools_block.get('kv_store')
+        if not isinstance(kv_block, Mapping):
+            kv_block = {}
+        else:
+            kv_block = dict(kv_block)
+
+        default_adapter = kv_block.get('default_adapter')
+        if isinstance(default_adapter, str) and default_adapter.strip():
+            kv_block['default_adapter'] = default_adapter.strip().lower()
+        else:
+            kv_block['default_adapter'] = 'postgres'
+
+        adapters_block = kv_block.get('adapters')
+        if not isinstance(adapters_block, Mapping):
+            adapters_block = {}
+        else:
+            adapters_block = dict(adapters_block)
+
+        postgres_block = adapters_block.get('postgres')
+        if not isinstance(postgres_block, Mapping):
+            postgres_block = {}
+        else:
+            postgres_block = dict(postgres_block)
+
+        env_kv_url = self.env_config.get('ATLAS_KV_STORE_URL')
+        if env_kv_url and not postgres_block.get('url'):
+            postgres_block['url'] = env_kv_url
+
+        namespace_quota_value = postgres_block.get('namespace_quota_bytes')
+        if namespace_quota_value is None:
+            env_namespace_quota = self.env_config.get('ATLAS_KV_NAMESPACE_QUOTA_BYTES')
+            if env_namespace_quota is not None:
+                try:
+                    postgres_block['namespace_quota_bytes'] = int(env_namespace_quota)
+                except (TypeError, ValueError):
+                    self.logger.warning(
+                        "Invalid ATLAS_KV_NAMESPACE_QUOTA_BYTES value %r; expected integer",
+                        env_namespace_quota,
+                    )
+        else:
+            try:
+                postgres_block['namespace_quota_bytes'] = int(namespace_quota_value)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid namespace_quota_bytes value %r; expected integer",
+                    namespace_quota_value,
+                )
+                postgres_block.pop('namespace_quota_bytes', None)
+
+        if 'namespace_quota_bytes' not in postgres_block:
+            postgres_block['namespace_quota_bytes'] = 1_048_576
+
+        global_quota_value = postgres_block.get('global_quota_bytes')
+        if global_quota_value not in (None, ''):
+            try:
+                postgres_block['global_quota_bytes'] = int(global_quota_value)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid global_quota_bytes value %r; expected integer",
+                    global_quota_value,
+                )
+                postgres_block.pop('global_quota_bytes', None)
+        else:
+            env_global_quota = self.env_config.get('ATLAS_KV_GLOBAL_QUOTA_BYTES')
+            if env_global_quota not in (None, ''):
+                try:
+                    postgres_block['global_quota_bytes'] = int(env_global_quota)
+                except (TypeError, ValueError):
+                    self.logger.warning(
+                        "Invalid ATLAS_KV_GLOBAL_QUOTA_BYTES value %r; expected integer",
+                        env_global_quota,
+                    )
+                else:
+                    if postgres_block['global_quota_bytes'] <= 0:
+                        postgres_block.pop('global_quota_bytes', None)
+
+        reuse_value = postgres_block.get('reuse_conversation_store')
+        if reuse_value is None:
+            env_reuse = self.env_config.get('ATLAS_KV_REUSE_CONVERSATION')
+            if env_reuse is not None:
+                postgres_block['reuse_conversation_store'] = str(env_reuse).strip().lower() in {
+                    '1', 'true', 'yes', 'on'
+                }
+            else:
+                postgres_block['reuse_conversation_store'] = True
+        else:
+            if isinstance(reuse_value, str):
+                normalized_reuse = reuse_value.strip().lower()
+                if normalized_reuse in {'1', 'true', 'yes', 'on'}:
+                    postgres_block['reuse_conversation_store'] = True
+                elif normalized_reuse in {'0', 'false', 'no', 'off'}:
+                    postgres_block['reuse_conversation_store'] = False
+                else:
+                    postgres_block['reuse_conversation_store'] = bool(reuse_value)
+            else:
+                postgres_block['reuse_conversation_store'] = bool(reuse_value)
+
+        pool_block = postgres_block.get('pool')
+        if not isinstance(pool_block, Mapping):
+            pool_block = {}
+        else:
+            pool_block = dict(pool_block)
+
+        for env_key, setting_key in (
+            ('ATLAS_KV_POOL_SIZE', 'size'),
+            ('ATLAS_KV_MAX_OVERFLOW', 'max_overflow'),
+            ('ATLAS_KV_POOL_TIMEOUT', 'timeout'),
+        ):
+            value = self.env_config.get(env_key)
+            if value is None or pool_block.get(setting_key) not in (None, ''):
+                continue
+            try:
+                if setting_key == 'timeout':
+                    pool_block[setting_key] = float(value)
+                else:
+                    pool_block[setting_key] = int(value)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid %s value %r; expected numeric", env_key, value
+                )
+
+        postgres_block['pool'] = pool_block
+        adapters_block['postgres'] = postgres_block
+        kv_block['adapters'] = adapters_block
+        tools_block['kv_store'] = kv_block
+
         self.config['tools'] = tools_block
 
         queue_block = self.config.get('task_queue')
@@ -338,6 +465,7 @@ class ConfigManager:
         self._task_queue_service: TaskQueueService | None = None
         self._job_manager: "JobManager" | None = None
         self._job_scheduler: "JobScheduler" | None = None
+        self._kv_engine_cache: Dict[tuple[Any, ...], Engine] = {}
 
     def _normalize_network_allowlist(self, value):
         """Return a sanitized allowlist for sandboxed tool networking."""
@@ -793,6 +921,262 @@ class ConfigManager:
         self._write_yaml_config()
         return dict(block)
 
+    def get_kv_store_settings(self) -> Dict[str, Any]:
+        """Return normalized configuration for the key-value store adapter."""
+
+        tools_block = self.get_config('tools', {})
+        normalized: Dict[str, Any] = {
+            'default_adapter': 'postgres',
+            'adapters': {},
+        }
+
+        if isinstance(tools_block, Mapping):
+            kv_block = tools_block.get('kv_store')
+            if isinstance(kv_block, Mapping):
+                default_adapter = kv_block.get('default_adapter')
+                if isinstance(default_adapter, str) and default_adapter.strip():
+                    normalized['default_adapter'] = default_adapter.strip().lower()
+                adapters = kv_block.get('adapters')
+                if isinstance(adapters, Mapping):
+                    postgres = adapters.get('postgres')
+                    if isinstance(postgres, Mapping):
+                        normalized['adapters']['postgres'] = self._normalize_kv_postgres_settings(postgres)
+
+        if 'postgres' not in normalized['adapters']:
+            normalized['adapters']['postgres'] = self._normalize_kv_postgres_settings({})
+
+        return copy.deepcopy(normalized)
+
+    def set_kv_store_settings(
+        self,
+        *,
+        url: Any = _UNSET,
+        reuse_conversation_store: Optional[bool] = None,
+        namespace_quota_bytes: Any = _UNSET,
+        global_quota_bytes: Any = _UNSET,
+        pool: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Persist configuration for the PostgreSQL-backed key-value store."""
+
+        settings = self.get_kv_store_settings()
+        postgres = dict(settings['adapters'].get('postgres', {}))
+
+        if url is not _UNSET:
+            if url in (None, ''):
+                postgres.pop('url', None)
+            else:
+                postgres['url'] = self._normalize_kv_store_url(url, 'tools.kv_store.adapters.postgres.url')
+
+        if reuse_conversation_store is not None:
+            postgres['reuse_conversation_store'] = bool(reuse_conversation_store)
+
+        if namespace_quota_bytes is not _UNSET:
+            if namespace_quota_bytes in (None, ''):
+                postgres.pop('namespace_quota_bytes', None)
+            else:
+                postgres['namespace_quota_bytes'] = int(namespace_quota_bytes)
+
+        if global_quota_bytes is not _UNSET:
+            if global_quota_bytes in (None, ''):
+                postgres['global_quota_bytes'] = None
+            else:
+                value = int(global_quota_bytes)
+                postgres['global_quota_bytes'] = value if value > 0 else None
+
+        if pool is not None:
+            normalized_pool: Dict[str, Any] = {}
+            if isinstance(pool, Mapping):
+                size_value = pool.get('size')
+                if size_value not in (None, ''):
+                    normalized_pool['size'] = int(size_value)
+                overflow_value = pool.get('max_overflow')
+                if overflow_value not in (None, ''):
+                    normalized_pool['max_overflow'] = int(overflow_value)
+                timeout_value = pool.get('timeout')
+                if timeout_value not in (None, ''):
+                    normalized_pool['timeout'] = float(timeout_value)
+            if normalized_pool:
+                postgres['pool'] = normalized_pool
+            else:
+                postgres.pop('pool', None)
+
+        adapters = dict(settings.get('adapters', {}))
+        adapters['postgres'] = postgres
+        updated = {
+            'default_adapter': settings.get('default_adapter', 'postgres'),
+            'adapters': adapters,
+        }
+
+        tools_yaml = self.yaml_config.get('tools')
+        if isinstance(tools_yaml, Mapping):
+            new_tools_yaml = dict(tools_yaml)
+        else:
+            new_tools_yaml = {}
+        new_tools_yaml['kv_store'] = copy.deepcopy(updated)
+        self.yaml_config['tools'] = new_tools_yaml
+
+        tools_config = self.config.get('tools')
+        if isinstance(tools_config, Mapping):
+            new_tools_config = dict(tools_config)
+        else:
+            new_tools_config = {}
+        new_tools_config['kv_store'] = copy.deepcopy(updated)
+        self.config['tools'] = new_tools_config
+
+        self._kv_engine_cache.clear()
+        self._write_yaml_config()
+        return copy.deepcopy(updated)
+
+    def _normalize_kv_store_url(self, url: Any, source: str) -> str:
+        normalized = self._normalize_job_store_url(url, source)
+        try:
+            parsed = make_url(normalized)
+        except Exception:
+            return normalized
+        if parsed.drivername == 'postgresql':
+            parsed = parsed.set(drivername='postgresql+psycopg')
+        try:
+            return parsed.render_as_string(hide_password=False)
+        except AttributeError:  # pragma: no cover - SQLAlchemy < 1.4 compatibility
+            return str(parsed)
+
+    def _normalize_kv_postgres_settings(self, raw: Mapping[str, Any]) -> Dict[str, Any]:
+        settings: Dict[str, Any] = {
+            'reuse_conversation_store': True,
+            'namespace_quota_bytes': 1_048_576,
+            'global_quota_bytes': None,
+            'pool': {},
+        }
+
+        url_value = raw.get('url')
+        if isinstance(url_value, str) and url_value.strip():
+            settings['url'] = url_value.strip()
+
+        settings['reuse_conversation_store'] = self._coerce_bool_flag(
+            raw.get('reuse_conversation_store'),
+            True,
+        )
+
+        namespace_value = raw.get('namespace_quota_bytes')
+        if namespace_value not in (None, ''):
+            try:
+                settings['namespace_quota_bytes'] = int(namespace_value)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid namespace_quota_bytes value %r; expected integer",
+                    namespace_value,
+                )
+
+        global_value = raw.get('global_quota_bytes')
+        if global_value in (None, ''):
+            settings['global_quota_bytes'] = None
+        else:
+            try:
+                parsed_global = int(global_value)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid global_quota_bytes value %r; expected integer",
+                    global_value,
+                )
+                settings['global_quota_bytes'] = None
+            else:
+                settings['global_quota_bytes'] = parsed_global if parsed_global > 0 else None
+
+        pool_raw = raw.get('pool')
+        normalized_pool: Dict[str, Any] = {}
+        if isinstance(pool_raw, Mapping):
+            size_value = pool_raw.get('size')
+            if size_value not in (None, ''):
+                try:
+                    normalized_pool['size'] = int(size_value)
+                except (TypeError, ValueError):
+                    self.logger.warning(
+                        "Invalid pool size value %r; expected integer",
+                        size_value,
+                    )
+            overflow_value = pool_raw.get('max_overflow')
+            if overflow_value not in (None, ''):
+                try:
+                    normalized_pool['max_overflow'] = int(overflow_value)
+                except (TypeError, ValueError):
+                    self.logger.warning(
+                        "Invalid pool max_overflow value %r; expected integer",
+                        overflow_value,
+                    )
+            timeout_value = pool_raw.get('timeout')
+            if timeout_value not in (None, ''):
+                try:
+                    normalized_pool['timeout'] = float(timeout_value)
+                except (TypeError, ValueError):
+                    self.logger.warning(
+                        "Invalid pool timeout value %r; expected numeric",
+                        timeout_value,
+                    )
+
+        settings['pool'] = normalized_pool
+        return settings
+
+    def get_kv_store_engine(self, *, adapter_config: Optional[Mapping[str, Any]] = None) -> Engine | None:
+        """Return a SQLAlchemy engine configured for the KV store."""
+
+        override_config: Dict[str, Any] = {}
+        if isinstance(adapter_config, Mapping):
+            override_config = dict(adapter_config)
+
+        settings = self.get_kv_store_settings()
+        postgres = settings['adapters'].get('postgres', {})
+
+        reuse = self._coerce_bool_flag(
+            override_config.get('reuse_conversation_store'),
+            postgres.get('reuse_conversation_store', True),
+        )
+
+        url_override = override_config.get('url')
+        if reuse and not url_override:
+            engine = self.get_conversation_store_engine()
+            if engine is None:
+                return None
+            return engine
+
+        pool_settings: Dict[str, Any] = {}
+        base_pool = postgres.get('pool')
+        if isinstance(base_pool, Mapping):
+            pool_settings.update(base_pool)
+        override_pool = override_config.get('pool')
+        if isinstance(override_pool, Mapping):
+            for key, value in override_pool.items():
+                if value in (None, ''):
+                    continue
+                pool_settings[key] = value
+
+        url_value = url_override or postgres.get('url')
+        if not url_value:
+            raise RuntimeError('KV store PostgreSQL URL is not configured')
+
+        normalized_url = self._normalize_kv_store_url(url_value, 'tools.kv_store.adapters.postgres.url')
+        cache_key = (
+            normalized_url,
+            pool_settings.get('size'),
+            pool_settings.get('max_overflow'),
+            pool_settings.get('timeout'),
+        )
+
+        engine = self._kv_engine_cache.get(cache_key)
+        if engine is not None:
+            return engine
+
+        engine_kwargs: Dict[str, Any] = {'future': True}
+        if pool_settings.get('size') is not None:
+            engine_kwargs['pool_size'] = int(pool_settings['size'])
+        if pool_settings.get('max_overflow') is not None:
+            engine_kwargs['max_overflow'] = int(pool_settings['max_overflow'])
+        if pool_settings.get('timeout') is not None:
+            engine_kwargs['pool_timeout'] = float(pool_settings['timeout'])
+
+        engine = create_engine(normalized_url, **engine_kwargs)
+        self._kv_engine_cache[cache_key] = engine
+        return engine
+
     def get_job_scheduling_settings(self) -> Dict[str, Any]:
         """Return the merged configuration for job scheduling defaults."""
 
@@ -1055,6 +1439,20 @@ class ConfigManager:
             )
 
         return candidate
+
+    @staticmethod
+    def _coerce_bool_flag(value: Any, default: bool) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {'1', 'true', 'yes', 'on'}:
+                return True
+            if lowered in {'0', 'false', 'no', 'off'}:
+                return False
+        return bool(value)
 
     def _get_provider_env_keys(self) -> Dict[str, str]:
         """Return the mapping between provider display names and environment keys."""

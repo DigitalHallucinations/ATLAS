@@ -20,38 +20,43 @@ returns the user to the main interface.
    with `bootstrap_conversation_store`, and persists the confirmed value via
    `ConfigManager._persist_conversation_database_url`.
 
-2. **Job scheduling** – Provides a toggle for durable scheduling, a job-store
+2. **Key-value store** – Allows choosing whether the KV adapter reuses the
+   conversation store engine or connects to a dedicated PostgreSQL database.
+   When a dedicated DSN is provided it is saved with
+   `ConfigManager.set_kv_store_settings`.
+
+3. **Job scheduling** – Provides a toggle for durable scheduling, a job-store
    DSN, worker concurrency, and retry policy defaults. When enabled, the
    settings are stored in both the `job_scheduling` and `task_queue` blocks
    through `ConfigManager.set_job_scheduling_settings`. The global
    `_initialize_job_scheduling` routine honours the toggle.
 
-3. **Message bus** – Allows choosing between the in-memory backend or Redis.
+4. **Message bus** – Allows choosing between the in-memory backend or Redis.
    Redis configuration captures the URL and stream prefix, persisting them with
    `ConfigManager.set_messaging_settings`.
 
-4. **Providers & defaults** – Lists known LLM providers, surfaces their API key
+5. **Providers & defaults** – Lists known LLM providers, surfaces their API key
    environment variables, and records any submitted credentials with
    `ConfigManager.update_api_key`. Operators can pick the default provider and
    model, saved using `set_default_provider` and `set_default_model`.
 
-5. **Speech** – Enables or disables TTS/STT, chooses providers, and captures
+6. **Speech** – Enables or disables TTS/STT, chooses providers, and captures
    credentials for ElevenLabs, OpenAI, or Google. Speech options are persisted
    using `set_tts_enabled`, `set_default_speech_providers`,
    `set_elevenlabs_api_key`, `set_openai_speech_config`, and
    `set_google_credentials`.
 
-6. **User account** – Collects an administrator username, email, password, and
+7. **User account** – Collects an administrator username, email, password, and
    display name. The wizard calls `UserAccountService.register_user` and marks
    the created account active via `ConfigManager.set_active_user`.
 
-7. **Optional adjustments** – Exposes tenant identifiers, conversation
+8. **Optional adjustments** – Exposes tenant identifiers, conversation
    retention, scheduler timezone/queue limits, and an option to auto-start the
    HTTP server. These are stored using `set_tenant_id`,
    `set_conversation_retention`, `set_job_scheduling_settings`, and
    `set_http_server_autostart`.
 
-8. **Summary** – Presents a consolidated view of the captured settings before
+9. **Summary** – Presents a consolidated view of the captured settings before
    applying changes. Activating *Apply* runs the configured persistence helpers
    and closes the wizard, allowing the coordinator to retry the normal
    initialisation flow.

@@ -1016,11 +1016,14 @@
         },
         "providers": [
             {
-                "name": "kv_store_sqlite",
+                "name": "kv_store_postgres",
                 "priority": 0,
                 "health_check_interval": 0,
                 "config": {
-                    "adapter": "sqlite"
+                    "adapter": "postgres",
+                    "adapter_config": {
+                        "reuse_conversation_store": true
+                    }
                 }
             }
         ],
@@ -1073,11 +1076,14 @@
         },
         "providers": [
             {
-                "name": "kv_store_sqlite",
+                "name": "kv_store_postgres",
                 "priority": 0,
                 "health_check_interval": 0,
                 "config": {
-                    "adapter": "sqlite"
+                    "adapter": "postgres",
+                    "adapter_config": {
+                        "reuse_conversation_store": true
+                    }
                 }
             }
         ],
@@ -1147,11 +1153,14 @@
         },
         "providers": [
             {
-                "name": "kv_store_sqlite",
+                "name": "kv_store_postgres",
                 "priority": 0,
                 "health_check_interval": 0,
                 "config": {
-                    "adapter": "sqlite"
+                    "adapter": "postgres",
+                    "adapter_config": {
+                        "reuse_conversation_store": true
+                    }
                 }
             }
         ],
@@ -1204,11 +1213,14 @@
         },
         "providers": [
             {
-                "name": "kv_store_sqlite",
+                "name": "kv_store_postgres",
                 "priority": 0,
                 "health_check_interval": 0,
                 "config": {
-                    "adapter": "sqlite"
+                    "adapter": "postgres",
+                    "adapter_config": {
+                        "reuse_conversation_store": true
+                    }
                 }
             }
         ],
