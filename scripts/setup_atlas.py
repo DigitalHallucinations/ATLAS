@@ -5,8 +5,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
-from ATLAS.setup.cli import SetupUtility
+try:
+    from ATLAS.setup.cli import SetupUtility
+except ModuleNotFoundError:  # pragma: no cover - exercised by smoke test
+    repo_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(repo_root))
+    from ATLAS.setup.cli import SetupUtility
 
 
 def main(argv: list[str] | None = None) -> int:
