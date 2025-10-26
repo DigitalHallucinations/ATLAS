@@ -10,7 +10,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 try:  # pragma: no cover - optional dependency handling for test environments
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, inspect
     from sqlalchemy.engine import Engine
     from sqlalchemy.engine.url import make_url
     from sqlalchemy.orm import sessionmaker
@@ -20,6 +20,9 @@ except Exception:  # pragma: no cover - lightweight fallbacks when SQLAlchemy is
 
     def create_engine(*_args, **_kwargs):  # type: ignore[override]
         raise RuntimeError("SQLAlchemy create_engine is unavailable in this environment")
+
+    def inspect(*_args, **_kwargs):  # type: ignore[override]
+        raise RuntimeError("SQLAlchemy inspect is unavailable in this environment")
 
     def make_url(*_args, **_kwargs):  # type: ignore[override]
         raise RuntimeError("SQLAlchemy make_url is unavailable in this environment")
@@ -118,6 +121,9 @@ class ConfigManager:
         self.config["MODEL_CACHE"] = copy.deepcopy(self._model_cache)
         if "MODEL_CACHE" not in self.yaml_config:
             self.yaml_config["MODEL_CACHE"] = copy.deepcopy(self._model_cache)
+
+        # Track whether the conversation store connection has been verified during startup.
+        self._conversation_store_verified = False
 
         # Ensure configurable tool timeout/budget defaults are present
         tool_defaults = self.config.get('tool_defaults')
@@ -552,7 +558,9 @@ class ConfigManager:
         return dict(block)
 
     def ensure_postgres_conversation_store(self) -> str:
-        """Ensure the configured PostgreSQL conversation store is initialised."""
+        """Verify the configured PostgreSQL conversation store without provisioning it."""
+
+        self._conversation_store_verified = False
 
         config = self.get_conversation_database_config()
         url_value = config.get("url")
@@ -570,24 +578,65 @@ class ConfigManager:
                 url,
             )
 
-        from modules.conversation_store.bootstrap import (
-            BootstrapError,
-            bootstrap_conversation_store,
-        )
-
         try:
-            ensured_url = bootstrap_conversation_store(url)
-        except BootstrapError as exc:
-            message = f"Failed to bootstrap conversation store: {exc}"
+            parsed_url = make_url(url)
+        except Exception as exc:
+            message = f"Invalid conversation database URL {url!r}: {exc}"
             self.logger.error(message)
             raise RuntimeError(message) from exc
 
-        self._persist_conversation_database_url(ensured_url)
+        drivername = (parsed_url.drivername or "").lower()
+        dialect = drivername.split("+", 1)[0]
+        if dialect != "postgresql":
+            message = (
+                "Conversation database URL must use the 'postgresql' dialect; "
+                f"received '{parsed_url.drivername}'."
+            )
+            self.logger.error(message)
+            raise RuntimeError(message)
 
-        if generated_default or ensured_url != url:
+        try:
+            engine = create_engine(url, future=True)
+        except Exception as exc:
+            message = (
+                "Conversation store verification failed: unable to initialise the SQLAlchemy engine. "
+                "Run the standalone setup utility to provision the database."
+            )
+            self.logger.error(message, exc_info=True)
+            raise RuntimeError(message) from exc
+
+        try:
+            inspector = inspect(engine)
+            existing_tables = {name for name in inspector.get_table_names()}
+        except Exception as exc:
+            engine.dispose()
+            message = (
+                "Conversation store verification failed: unable to connect to the configured database. "
+                "Run the standalone setup utility to provision the database."
+            )
+            self.logger.error(message, exc_info=True)
+            raise RuntimeError(f"{message} (original error: {exc})") from exc
+
+        required_tables = self._conversation_store_required_tables()
+        missing_tables = required_tables.difference(existing_tables)
+        engine.dispose()
+
+        if missing_tables:
+            missing_list = ", ".join(sorted(missing_tables)) or "unknown"
+            message = (
+                "Conversation store verification failed: missing required tables "
+                f"[{missing_list}]. Run the standalone setup utility to provision the database."
+            )
+            self.logger.error(message)
+            raise RuntimeError(message)
+
+        self._persist_conversation_database_url(url)
+
+        if generated_default:
             self._write_yaml_config()
 
-        return ensured_url
+        self._conversation_store_verified = True
+        return url
 
     def _persist_conversation_database_url(self, url: str) -> None:
         """Synchronize the conversation database URL across config sources."""
@@ -615,6 +664,18 @@ class ConfigManager:
             updated_yaml_block = {}
         updated_yaml_block["url"] = url
         self.yaml_config["conversation_database"] = updated_yaml_block
+
+    def _conversation_store_required_tables(self) -> set[str]:
+        """Return the set of tables that must exist in the conversation database."""
+
+        from modules.conversation_store.models import Base as ConversationBase
+
+        return {table.name for table in ConversationBase.metadata.tables.values()}
+
+    def is_conversation_store_verified(self) -> bool:
+        """Return ``True`` if the conversation store connection has been verified."""
+
+        return bool(getattr(self, "_conversation_store_verified", False))
 
     def get_conversation_retention_policies(self) -> Dict[str, Any]:
         """Return configured retention policies for the conversation store."""

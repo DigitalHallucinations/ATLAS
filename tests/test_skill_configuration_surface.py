@@ -46,6 +46,11 @@ pytest.importorskip(
     reason="PostgreSQL fixture is required for ATLAS skill configuration tests",
 )
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from modules.conversation_store import ConversationStoreRepository
+
 from ATLAS.ATLAS import ATLAS
 from ATLAS.config import ConfigManager
 from ATLAS.persona_manager import PersonaManager
@@ -68,7 +73,15 @@ def _patch_persist_env(monkeypatch, calls):
 
 @pytest.fixture(autouse=True)
 def configure_conversation_store(monkeypatch, postgresql):
-    monkeypatch.setenv("CONVERSATION_DATABASE_URL", postgresql.dsn())
+    dsn = postgresql.dsn()
+    monkeypatch.setenv("CONVERSATION_DATABASE_URL", dsn)
+
+    engine = create_engine(dsn, future=True)
+    try:
+        factory = sessionmaker(bind=engine, future=True)
+        ConversationStoreRepository(factory).create_schema()
+    finally:
+        engine.dispose()
 
 
 @pytest.fixture

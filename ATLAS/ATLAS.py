@@ -83,31 +83,35 @@ class ATLAS:
         tenant_text = str(tenant_value).strip() if tenant_value else "default"
         self.tenant_id = tenant_text or "default"
 
-        session_factory = None
         try:
-            self.config_manager.ensure_postgres_conversation_store()
-            session_factory = (
-                self.config_manager.get_conversation_store_session_factory()
+            session_factory = self.config_manager.get_conversation_store_session_factory()
+        except Exception as exc:  # pragma: no cover - verification issues during startup
+            self.logger.error(
+                "Conversation store verification failed: %s", exc, exc_info=True
             )
-        except Exception as exc:  # pragma: no cover - bootstrap issues during startup
-            self.logger.warning(
+            raise
+
+        if session_factory is None or not self.config_manager.is_conversation_store_verified():
+            message = (
+                "Conversation store verification sentinel missing; run the standalone setup utility "
+                "before launching ATLAS."
+            )
+            self.logger.error(message)
+            raise RuntimeError(message)
+
+        retention = self.config_manager.get_conversation_retention_policies()
+        try:
+            repository = ConversationStoreRepository(
+                session_factory,
+                retention=retention,
+            )
+        except Exception as exc:  # pragma: no cover - repository initialisation issues
+            self.logger.error(
                 "Conversation store unavailable: %s", exc, exc_info=True
             )
+            raise
         else:
-            if session_factory is not None:
-                retention = self.config_manager.get_conversation_retention_policies()
-                try:
-                    repository = ConversationStoreRepository(
-                        session_factory,
-                        retention=retention,
-                    )
-                    repository.create_schema()
-                except Exception as exc:  # pragma: no cover - database bootstrap issues
-                    self.logger.warning(
-                        "Conversation store unavailable: %s", exc, exc_info=True
-                    )
-                else:
-                    self.conversation_repository = repository
+            self.conversation_repository = repository
 
     def _resolve_user_identity(self, *, prefer_generic: bool = False) -> Tuple[str, str]:
         """Return best-effort user identifier and display name."""
