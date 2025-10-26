@@ -7,12 +7,13 @@ import html
 import logging
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Optional, Sequence
+from typing import Optional, Sequence, TYPE_CHECKING
 from urllib.parse import urlparse
 
 import aiohttp
 
-from ATLAS.config import ConfigManager
+if TYPE_CHECKING:  # pragma: no cover
+    from ATLAS.config import ConfigManager
 
 
 logger = logging.getLogger(__name__)
@@ -124,7 +125,10 @@ class WebpageFetcher:
         allowed_domains: Optional[Sequence[str]] = None,
         timeout_seconds: float = 15.0,
         max_content_length: int = 2 * 1024 * 1024,
+        config_manager: "ConfigManager | None" = None,
     ) -> None:
+        self._config_manager = config_manager
+
         config_allowlist = self._resolve_config_allowlist()
         merged_allowlist = self._merge_allowlists(allowed_domains, config_allowlist)
 
@@ -138,7 +142,12 @@ class WebpageFetcher:
             )
 
     def _resolve_config_allowlist(self) -> tuple[str, ...]:
-        manager = ConfigManager()
+        manager = self._config_manager
+        if manager is None:
+            from ATLAS.config import ConfigManager
+
+            manager = ConfigManager()
+            self._config_manager = manager
         safety_block = manager.get_config("tool_safety", {})
         configured = safety_block.get("network_allowlist")
         if not configured:
