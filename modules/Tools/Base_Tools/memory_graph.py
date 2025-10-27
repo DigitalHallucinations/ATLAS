@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence, TYPE_CHECKING
 
 from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
 
-try:  # pragma: no cover - ConfigManager may be unavailable in tests
+if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
     from ATLAS.config import ConfigManager
-except Exception:  # pragma: no cover - fallback when ConfigManager import fails
-    ConfigManager = None  # type: ignore
 
 __all__ = [
     "MemoryGraphTool",
@@ -40,35 +38,26 @@ class MemoryGraphTool:
     def __init__(
         self,
         *,
-        config_manager: Optional[ConfigManager] = None,
+        config_manager: Optional["ConfigManager"] = None,
         repository: Optional[ConversationStoreRepository] = None,
     ) -> None:
-        if repository is not None:
-            self._repository = repository
-        else:
-            self._repository = None
-        if repository is None:
-            if config_manager is not None:
-                self._config_manager = config_manager
-            elif ConfigManager is not None:
-                self._config_manager = ConfigManager()
-            else:  # pragma: no cover - fallback when config unavailable
-                self._config_manager = None
-        else:
-            self._config_manager = config_manager
+        self._repository = repository
+        self._config_manager = config_manager
+        self._config_manager_import_failed = False
         self._lock = threading.Lock()
 
     def _resolve_repository(self) -> ConversationStoreRepository:
         if self._repository is not None:
             return self._repository
-        if self._config_manager is None:
+        config_manager = self._ensure_config_manager()
+        if config_manager is None:
             raise RuntimeError(
                 "ConfigManager is required to resolve the memory graph conversation store repository."
             )
-        factory = self._config_manager.get_conversation_store_session_factory()
+        factory = config_manager.get_conversation_store_session_factory()
         if factory is None:
             raise RuntimeError("Conversation store session factory is not configured.")
-        retention = self._config_manager.get_conversation_retention_policies()
+        retention = config_manager.get_conversation_retention_policies()
         repository = ConversationStoreRepository(factory, retention=retention)
         with self._lock:
             if self._repository is None:
@@ -78,6 +67,24 @@ class MemoryGraphTool:
                 except Exception as exc:  # pragma: no cover - defensive logging
                     logger.debug("Memory graph schema initialisation skipped: %s", exc)
         return self._repository
+
+    def _ensure_config_manager(self) -> Optional["ConfigManager"]:
+        if self._config_manager is not None or self._repository is not None:
+            return self._config_manager
+        if self._config_manager_import_failed:
+            return None
+        with self._lock:
+            if self._config_manager is not None:
+                return self._config_manager
+            if self._config_manager_import_failed:
+                return None
+            try:  # pragma: no cover - import guarded for optional dependency
+                from ATLAS.config import ConfigManager as _ConfigManager
+            except Exception:  # pragma: no cover - fallback when config unavailable
+                self._config_manager_import_failed = True
+                return None
+            self._config_manager = _ConfigManager()
+            return self._config_manager
 
     async def upsert_nodes(
         self,
@@ -199,7 +206,7 @@ async def run_memory_graph(
     edge_keys: Optional[Sequence[Any]] = None,
     edge_ids: Optional[Sequence[Any]] = None,
     edge_types: Optional[Sequence[Any]] = None,
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
 ) -> Mapping[str, Any]:
     tool = MemoryGraphTool(config_manager=config_manager)
     return await tool.run(
@@ -218,7 +225,7 @@ async def upsert_graph_nodes(
     *,
     tenant_id: Any,
     nodes: Sequence[Mapping[str, Any]],
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
 ) -> Mapping[str, Any]:
     tool = MemoryGraphTool(config_manager=config_manager)
     return await tool.upsert_nodes(tenant_id=tenant_id, nodes=nodes)
@@ -228,7 +235,7 @@ async def upsert_graph_edges(
     *,
     tenant_id: Any,
     edges: Sequence[Mapping[str, Any]],
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
 ) -> Mapping[str, Any]:
     tool = MemoryGraphTool(config_manager=config_manager)
     return await tool.upsert_edges(tenant_id=tenant_id, edges=edges)
@@ -239,7 +246,7 @@ async def query_graph(
     tenant_id: Any,
     node_keys: Optional[Sequence[Any]] = None,
     edge_types: Optional[Sequence[Any]] = None,
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
 ) -> Mapping[str, Any]:
     tool = MemoryGraphTool(config_manager=config_manager)
     return await tool.query(
