@@ -40,17 +40,43 @@ from typing import (
     Optional,
     Sequence,
     Tuple,
+    TYPE_CHECKING,
 )
 from uuid import uuid4
-
-try:  # ConfigManager is optional in some test contexts
-    from ATLAS.config import ConfigManager
-except Exception:  # pragma: no cover - exercised in environments without the manager
-    ConfigManager = None  # type: ignore
 
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
+
+
+if TYPE_CHECKING:  # pragma: no cover - imported for static analysis only
+    from ATLAS.config import ConfigManager
+
+
+_CONFIG_MANAGER_SINGLETON: Optional["ConfigManager"] = None
+_CONFIG_MANAGER_IMPORT_ERROR: Optional[BaseException] = None
+
+
+def _resolve_config_manager() -> "ConfigManager":
+    """Lazily import and instantiate :class:`ConfigManager`."""
+
+    global _CONFIG_MANAGER_SINGLETON, _CONFIG_MANAGER_IMPORT_ERROR
+
+    if _CONFIG_MANAGER_SINGLETON is not None:
+        return _CONFIG_MANAGER_SINGLETON
+
+    if _CONFIG_MANAGER_IMPORT_ERROR is not None:
+        raise RuntimeError("ConfigManager is unavailable in this environment") from _CONFIG_MANAGER_IMPORT_ERROR
+
+    try:  # pragma: no cover - exercised when ConfigManager import is unavailable
+        from ATLAS.config import ConfigManager as _ConfigManager
+    except Exception as exc:  # pragma: no cover - exercised in environments without the manager
+        _CONFIG_MANAGER_IMPORT_ERROR = exc
+        raise RuntimeError("ConfigManager is unavailable in this environment") from exc
+
+    manager = _ConfigManager()
+    _CONFIG_MANAGER_SINGLETON = manager
+    return manager
 
 
 # ---------------------------------------------------------------------------
@@ -915,13 +941,11 @@ class Debian12CalendarTool:
 
     def __init__(
         self,
-        config_manager: Optional[ConfigManager] = None,
+        config_manager: Optional["ConfigManager"] = None,
         backend: Optional[CalendarBackend] = None,
     ) -> None:
         if config_manager is None:
-            if ConfigManager is None:
-                raise RuntimeError("ConfigManager is unavailable in this environment")
-            config_manager = ConfigManager()
+            config_manager = _resolve_config_manager()
 
         self.config_manager = config_manager
         self._unset = getattr(config_manager, "UNSET", object())
