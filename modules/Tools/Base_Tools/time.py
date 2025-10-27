@@ -18,24 +18,39 @@ from typing import Optional
 
 import pytz
 
-try:  # ConfigManager is optional in certain test contexts
-    from ATLAS.config import ConfigManager
-except Exception:  # pragma: no cover - exercised when configuration is unavailable
-    ConfigManager = None  # type: ignore
-
 
 _DEFAULT_TZ_NAME = "UTC"
 _CONFIG_TZ_KEYS = ("TIME_TOOL_DEFAULT_TZ", "TIME_TOOL_DEFAULT_TIMEZONE")
+_CONFIG_MANAGER_NOT_LOADED = object()
+_CONFIG_MANAGER_CACHE: object = _CONFIG_MANAGER_NOT_LOADED
+
+
+def _load_config_manager() -> Optional[type[object]]:
+    """Load and cache :class:`ConfigManager` lazily."""
+
+    global _CONFIG_MANAGER_CACHE
+
+    if _CONFIG_MANAGER_CACHE is _CONFIG_MANAGER_NOT_LOADED:
+        try:  # ConfigManager is optional in certain test contexts
+            from ATLAS.config import ConfigManager as _ConfigManager
+        except Exception:  # pragma: no cover - exercised when configuration is unavailable
+            _CONFIG_MANAGER_CACHE = None
+        else:
+            _CONFIG_MANAGER_CACHE = _ConfigManager
+
+    return _CONFIG_MANAGER_CACHE if isinstance(_CONFIG_MANAGER_CACHE, type) else None
 
 
 def _get_configured_timezone_name() -> Optional[str]:
     """Return a configured default timezone identifier if available."""
 
-    if ConfigManager is None:
+    config_manager_cls = _load_config_manager()
+
+    if config_manager_cls is None:
         return None
 
     try:
-        manager = ConfigManager()
+        manager = config_manager_cls()  # type: ignore[call-arg]
     except Exception:  # pragma: no cover - defensive guard around config bootstrap
         return None
 

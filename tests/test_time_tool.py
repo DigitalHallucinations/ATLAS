@@ -75,6 +75,23 @@ importlib.reload(time_tool)
 pytz = pytz_stub
 
 
+@pytest.fixture(autouse=True)
+def _reset_config_manager_cache(monkeypatch):
+    monkeypatch.setattr(
+        time_tool,
+        "_CONFIG_MANAGER_CACHE",
+        time_tool._CONFIG_MANAGER_NOT_LOADED,
+        raising=False,
+    )
+    yield
+    monkeypatch.setattr(
+        time_tool,
+        "_CONFIG_MANAGER_CACHE",
+        time_tool._CONFIG_MANAGER_NOT_LOADED,
+        raising=False,
+    )
+
+
 def test_resolve_timezone_prefers_user_override(monkeypatch):
     monkeypatch.setattr(time_tool, "_get_configured_timezone_name", lambda: "Europe/Berlin")
     monkeypatch.setattr(time_tool, "_get_system_timezone_name", lambda: "America/Los_Angeles")
@@ -114,3 +131,35 @@ def test_get_current_info_passes_through_timezone(monkeypatch):
     asyncio.run(time_tool.get_current_info(timezone="Asia/Tokyo"))
 
     assert captured["value"] == "Asia/Tokyo"
+
+
+def test_get_configured_timezone_name_uses_config_manager(monkeypatch):
+    class _Config:
+        def __init__(self):
+            self._data = {
+                "TIME_TOOL_DEFAULT_TZ": "Europe/Berlin",
+            }
+
+        def get_config(self, key):
+            return self._data.get(key)
+
+    monkeypatch.setattr(time_tool, "_CONFIG_MANAGER_CACHE", _Config)
+
+    assert time_tool._get_configured_timezone_name() == "Europe/Berlin"
+
+
+def test_resolve_timezone_reads_nested_config(monkeypatch):
+    class _Config:
+        def get_config(self, key):
+            if key in {"TIME_TOOL_DEFAULT_TZ", "TIME_TOOL_DEFAULT_TIMEZONE"}:
+                return None
+            if key == "tools":
+                return {"time": {"default_timezone": "America/Los_Angeles"}}
+            return None
+
+    monkeypatch.setattr(time_tool, "_CONFIG_MANAGER_CACHE", _Config)
+    monkeypatch.setattr(time_tool, "_get_system_timezone_name", lambda: None)
+
+    tz = time_tool._resolve_timezone(None)
+
+    assert getattr(tz, "zone", None) == "America/Los_Angeles"
