@@ -236,11 +236,18 @@ class SetupWizardController:
 
     # -- database -----------------------------------------------------------
 
-    def apply_database_settings(self, state: DatabaseState) -> str:
+    def apply_database_settings(
+        self,
+        state: DatabaseState,
+        *,
+        privileged_credentials: tuple[str | None, str | None] | None = None,
+    ) -> str:
         dsn = _compose_dsn(state)
         kwargs: dict[str, Any] = {}
         if self._request_privileged_password is not None:
             kwargs["request_privileged_password"] = self._request_privileged_password
+        if privileged_credentials is not None:
+            kwargs["privileged_credentials"] = privileged_credentials
         ensured = self._bootstrap(dsn, **kwargs)
         self.config_manager._persist_conversation_database_url(ensured)
         self.config_manager._write_yaml_config()

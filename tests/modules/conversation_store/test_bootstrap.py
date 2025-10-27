@@ -75,3 +75,90 @@ def test_install_postgres_client_cancelled_prompt_raises_bootstrap_error():
         )
 
     assert "cancelled" in str(excinfo.value).lower()
+
+
+def test_bootstrap_creates_role_using_privileged_credentials(monkeypatch):
+    class DummyOperationalError(Exception):
+        pass
+
+    class _Identifier:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+    class _SQLWrapper:
+        def __init__(self, template: str) -> None:
+            self.template = template
+
+        def format(self, *args: _Identifier) -> str:
+            replacements = [getattr(arg, "value", str(arg)) for arg in args]
+            return self.template.format(*replacements)
+
+    monkeypatch.setattr(bootstrap_module, "OperationalError", DummyOperationalError)
+    monkeypatch.setattr(bootstrap_module, "_ensure_psycopg_loaded", lambda **_kwargs: None)
+    monkeypatch.setattr(bootstrap_module, "_install_postgres_client", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        bootstrap_module,
+        "sql",
+        types.SimpleNamespace(
+            SQL=lambda template: _SQLWrapper(template),
+            Identifier=lambda value: _Identifier(value),
+        ),
+    )
+
+    queries: list[tuple[str, tuple | None]] = []
+    provisioning_active = {"value": False}
+
+    class DummyCursor:
+        def __init__(self) -> None:
+            self._last_query: str | None = None
+
+        def __enter__(self) -> "DummyCursor":
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            return None
+
+        def execute(self, query, params=None) -> None:
+            rendered = str(query)
+            queries.append((rendered, params))
+            self._last_query = rendered
+
+        def fetchone(self):
+            if not self._last_query:
+                return None
+            if "pg_roles" in self._last_query:
+                return None
+            if "pg_database" in self._last_query:
+                return None
+            return None
+
+    class DummyConnection:
+        def __init__(self) -> None:
+            self.autocommit = False
+
+        def cursor(self):
+            return DummyCursor()
+
+        def close(self) -> None:
+            return None
+
+    def fake_connector(conninfo: str):
+        if conninfo.startswith("postgresql://postgres"):
+            provisioning_active["value"] = True
+            return DummyConnection()
+        if conninfo.startswith("postgresql://atlas"):
+            if not provisioning_active["value"]:
+                raise DummyOperationalError('role "atlas" does not exist')
+            return DummyConnection()
+        raise AssertionError(f"Unexpected connection string: {conninfo}")
+
+    result = bootstrap_module.bootstrap_conversation_store(
+        "postgresql://atlas@localhost:5432/atlas",
+        connector=fake_connector,
+        privileged_credentials=("postgres", "secret"),
+    )
+
+    assert provisioning_active["value"] is True
+    assert any("CREATE ROLE" in query for query, _ in queries)
+    assert any("CREATE DATABASE" in query for query, _ in queries)
+    assert result.startswith("postgresql://atlas")
