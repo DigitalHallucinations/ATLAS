@@ -4,15 +4,42 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING, Union
 
 import requests
 
-from ATLAS.config import ConfigManager
 from modules.Tools.Base_Tools.Google_search import DEFAULT_RESULTS_COUNT
 
 from .base import ToolProvider, ToolProviderSpec
 from .registry import tool_provider_registry
+
+
+if TYPE_CHECKING:  # pragma: no cover - import used only for typing
+    from ATLAS.config import ConfigManager
+
+
+class _LazyConfigManagerAccessor:
+    """Lazily instantiate and proxy access to :class:`ConfigManager`."""
+
+    __slots__ = ("_manager",)
+
+    def __init__(self) -> None:
+        self._manager: Optional["ConfigManager"] = None
+
+    def get_manager(self) -> "ConfigManager":
+        if self._manager is None:
+            from ATLAS.config import ConfigManager  # Local import avoids circular deps
+
+            self._manager = ConfigManager()
+        return self._manager
+
+    def set_manager(self, manager: "ConfigManager") -> None:
+        self._manager = manager
+
+
+_CONFIG_MANAGER_ACCESSOR = _LazyConfigManagerAccessor()
+
+ConfigManagerSource = Union["ConfigManager", _LazyConfigManagerAccessor]
 
 
 class GoogleCseToolProvider(ToolProvider):
@@ -20,9 +47,20 @@ class GoogleCseToolProvider(ToolProvider):
 
     _API_ENDPOINT = "https://customsearch.googleapis.com/customsearch/v1"
 
-    def __init__(self, spec: ToolProviderSpec, *, tool_name: str, fallback_callable=None) -> None:
+    def __init__(
+        self,
+        spec: ToolProviderSpec,
+        *,
+        tool_name: str,
+        fallback_callable=None,
+        config_manager: Optional["ConfigManager"] = None,
+    ) -> None:
         super().__init__(spec, tool_name=tool_name, fallback_callable=fallback_callable)
-        self._config_manager = ConfigManager()
+        if config_manager is None:
+            source: ConfigManagerSource = _CONFIG_MANAGER_ACCESSOR
+        else:
+            source = config_manager
+        self._config_manager_source: ConfigManagerSource = source
         self._api_key_env = str(self.config.get("api_key_env") or "GOOGLE_API_KEY")
         self._api_key_config = str(self.config.get("api_key_config") or self._api_key_env)
         self._cse_id_env = str(self.config.get("cse_id_env") or "GOOGLE_CSE_ID")
@@ -34,13 +72,25 @@ class GoogleCseToolProvider(ToolProvider):
         self._api_key: str = self._resolve_secret(self._api_key_env, self._api_key_config)
         self._cse_id: str = self._resolve_secret(self._cse_id_env, self._cse_id_config)
 
+    def _resolve_config_manager(self) -> Optional["ConfigManager"]:
+        source = self._config_manager_source
+        if isinstance(source, _LazyConfigManagerAccessor):
+            manager = source.get_manager()
+        else:
+            manager = source
+        self._config_manager_source = manager
+        return manager
+
     def _resolve_secret(self, env_name: Optional[str], config_key: Optional[str]) -> str:
         candidate: Optional[str] = None
-        if config_key:
-            try:
-                candidate = self._config_manager.get_config(config_key)
-            except Exception:  # pragma: no cover - defensive guard
-                candidate = None
+        manager = self._resolve_config_manager() if config_key else None
+        if manager and config_key:
+            getter = getattr(manager, "get_config", None)
+            if getter:
+                try:
+                    candidate = getter(config_key)
+                except Exception:  # pragma: no cover - defensive guard
+                    candidate = None
         if not candidate and env_name:
             candidate = os.getenv(env_name)
         return (candidate or "").strip()
