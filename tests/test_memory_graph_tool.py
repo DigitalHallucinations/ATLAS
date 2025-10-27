@@ -75,6 +75,36 @@ def test_graph_repository_operations(repository):
     assert repository.query_graph(tenant_id=TENANT)["nodes"] == []
 
 
+def test_memory_graph_tool_initialises_repository(postgresql):
+    engine = create_engine(postgresql.dsn(), future=True)
+    factory = sessionmaker(bind=engine, future=True)
+    if getattr(factory, "bind", None) is None:  # SQLAlchemy 2.x compatibility
+        factory.bind = engine  # type: ignore[attr-defined]
+
+    class DummyConfigManager:
+        def __init__(self) -> None:
+            self.factory_calls = 0
+
+        def get_conversation_store_session_factory(self):
+            self.factory_calls += 1
+            return factory
+
+        def get_conversation_retention_policies(self):
+            return {}
+
+    config_manager = DummyConfigManager()
+
+    try:
+        tool = MemoryGraphTool(config_manager=config_manager)
+        repository = tool._resolve_repository()
+        assert isinstance(repository, ConversationStoreRepository)
+        assert config_manager.factory_calls == 1
+        assert tool._resolve_repository() is repository
+        assert config_manager.factory_calls == 1
+    finally:
+        engine.dispose()
+
+
 def test_memory_graph_tool_roundtrip(repository):
     async def _exercise() -> None:
         tool = MemoryGraphTool(repository=repository)
