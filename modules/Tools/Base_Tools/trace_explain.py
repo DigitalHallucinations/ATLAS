@@ -4,11 +4,35 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timezone
-from typing import Any, Iterable, Mapping, MutableMapping, Optional, Sequence
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, MutableMapping, Optional, Sequence
 
-from ATLAS import ToolManager as ToolManagerModule
+if TYPE_CHECKING:  # pragma: no cover - used for type checking only
+    from ATLAS import ToolManager as ToolManagerModule
 
 __all__ = ["trace_explain"]
+
+
+_TOOL_MANAGER_SENTINEL = SimpleNamespace()
+ToolManagerModule: Any = _TOOL_MANAGER_SENTINEL
+
+
+def _get_tool_manager() -> Any | None:
+    global ToolManagerModule
+
+    if ToolManagerModule is _TOOL_MANAGER_SENTINEL:
+        # Allow tests or callers to provide a stub before the real import occurs.
+        if hasattr(ToolManagerModule, "get_tool_activity_log"):
+            return ToolManagerModule
+
+        try:
+            from ATLAS import ToolManager as ToolManagerModuleImport
+        except Exception:
+            ToolManagerModule = None
+        else:
+            ToolManagerModule = ToolManagerModuleImport
+
+    return ToolManagerModule
 
 
 def trace_explain(
@@ -134,7 +158,11 @@ def _resolve_chat_session(context: Mapping[str, Any]) -> Any:
 
 
 def _safe_get_tool_activity_log() -> Sequence[Mapping[str, Any]]:
-    getter = getattr(ToolManagerModule, "get_tool_activity_log", None)
+    tool_manager = _get_tool_manager()
+    if tool_manager is None:
+        return []
+
+    getter = getattr(tool_manager, "get_tool_activity_log", None)
     if not callable(getter):
         return []
     try:
