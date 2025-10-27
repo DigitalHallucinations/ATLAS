@@ -21,7 +21,7 @@ import random
 import threading
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional
 
 try:  # pragma: no cover - exercised implicitly via import side effects
     from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MISSED, JobEvent
@@ -76,10 +76,8 @@ except (ModuleNotFoundError, ImportError) as exc:  # pragma: no cover - exercise
 
 from modules.logging.logger import setup_logger
 
-try:  # ConfigManager is optional in some test environments
+if TYPE_CHECKING:  # pragma: no cover - import solely for type checking
     from ATLAS.config import ConfigManager
-except Exception:  # pragma: no cover - fallback when ConfigManager unavailable
-    ConfigManager = None  # type: ignore
 
 
 __all__ = [
@@ -99,6 +97,27 @@ __all__ = [
 
 
 logger = setup_logger(__name__)
+
+
+def _resolve_config_manager(config_manager: "ConfigManager | None") -> "ConfigManager | None":
+    """Return a ConfigManager instance when available."""
+
+    if config_manager is not None:
+        return config_manager
+
+    try:  # pragma: no cover - exercised indirectly via startup/import paths
+        from ATLAS.config import ConfigManager as _ConfigManager
+    except ModuleNotFoundError:  # pragma: no cover - missing configuration subsystem
+        logger.debug("ConfigManager module not found; proceeding without configuration", exc_info=True)
+        return None
+    except ImportError:  # pragma: no cover - circular/partial imports during startup
+        logger.debug(
+            "ConfigManager import failed during task queue initialization; proceeding without configuration",
+            exc_info=True,
+        )
+        return None
+
+    return _ConfigManager()
 
 
 class TaskQueueError(RuntimeError):
@@ -182,7 +201,7 @@ class TaskQueueService:
         retry_policy: Optional[RetryPolicy] = None,
         start_paused: bool = False,
     ) -> None:
-        self._config_manager = config_manager or (ConfigManager() if ConfigManager is not None else None)
+        self._config_manager = _resolve_config_manager(config_manager)
         settings = self._load_settings(
             jobstore_url=jobstore_url,
             timezone=timezone,
