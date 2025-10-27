@@ -2,7 +2,7 @@ import dataclasses
 import types
 from pathlib import Path
 
-from ATLAS.setup import OptionalState, UserState
+from ATLAS.setup import BootstrapError, OptionalState, UserState
 from ATLAS.setup.cli import SetupUtility
 from ATLAS.setup.controller import (
     DatabaseState,
@@ -27,10 +27,21 @@ class DummyController:
             optional=OptionalState(),
         )
         self.applied_database_states: list[DatabaseState] = []
+        self.privileged_credentials: list[tuple[str | None, str | None] | None] = []
+        self.bootstrap_error_sequence: list[Exception] = []
         self.registered_users: list[UserState] = []
 
-    def apply_database_settings(self, state: DatabaseState) -> str:
-        self.applied_database_states.append(state)
+    def apply_database_settings(
+        self,
+        state: DatabaseState,
+        *,
+        privileged_credentials: tuple[str | None, str | None] | None = None,
+    ) -> str:
+        self.applied_database_states.append(dataclasses.replace(state))
+        self.privileged_credentials.append(privileged_credentials)
+        if self.bootstrap_error_sequence:
+            exc = self.bootstrap_error_sequence.pop(0)
+            raise exc
         ensured = (
             f"postgresql+psycopg://{state.user}:{state.password}@{state.host}:{state.port}/{state.database}"
         )
@@ -93,6 +104,29 @@ def test_configure_database_persists_dsn():
     assert applied.port == 6543
     assert controller.state.database.dsn == dsn
     assert dsn.endswith("@db.internal:6543/atlas_prod")
+
+
+def test_configure_database_handles_missing_role_with_privileged_credentials():
+    controller = DummyController()
+    controller.state.database = dataclasses.replace(controller.state.database, password="stored")
+    controller.bootstrap_error_sequence = [BootstrapError('role "atlas" does not exist')]
+
+    responses = iter(["", "", "", "", "y", "postgres"])
+    passwords = iter(["!clear!", "supersecret"])
+
+    utility = SetupUtility(
+        controller=controller,
+        input_func=lambda prompt: next(responses),
+        getpass_func=lambda prompt: next(passwords),
+        print_func=lambda message: None,
+    )
+
+    dsn = utility.configure_database()
+
+    assert controller.privileged_credentials == [None, ("postgres", "supersecret")]
+    assert controller.applied_database_states[-1].password == ""
+    assert controller.state.database.password == ""
+    assert dsn.endswith("@localhost:5432/atlas")
 
 
 def test_configure_user_registers_admin():

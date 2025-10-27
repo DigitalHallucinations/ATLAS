@@ -23,6 +23,9 @@ OperationalError = None
 sql = None
 
 
+_MISSING = object()
+
+
 def _is_psycopg_import_error(exc: Exception) -> bool:
     """Return ``True`` when *exc* stems from psycopg import failures."""
 
@@ -191,6 +194,41 @@ def _render_psycopg_conninfo(url: URL) -> str:
     backend_name = url.get_backend_name()
     sanitized_url = url.set(drivername=backend_name)
     return sanitized_url.render_as_string(hide_password=False)
+
+
+def _error_indicates_missing_role(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "role" in message and "does not exist" in message
+
+
+def _attempt_candidate_connection(
+    *,
+    connector: Callable[[str], object],
+    base_url: URL,
+    candidate_databases: Iterable[str],
+    username=_MISSING,
+    password=_MISSING,
+):
+    last_error: Exception | None = None
+    missing_role_error: Exception | None = None
+
+    for candidate in candidate_databases:
+        candidate_url = base_url.set(database=candidate)
+        if username is not _MISSING:
+            candidate_url = candidate_url.set(username=username)
+        if password is not _MISSING:
+            candidate_url = candidate_url.set(password=password)
+        try:
+            connection = connector(_render_psycopg_conninfo(candidate_url))
+        except OperationalError as exc:  # type: ignore[misc]
+            last_error = exc
+            if _error_indicates_missing_role(exc):
+                missing_role_error = exc
+            continue
+        else:
+            return connection, None, None
+
+    return None, last_error, missing_role_error
 
 
 def _install_postgres_client(
@@ -390,6 +428,7 @@ def bootstrap_conversation_store(
     platform_system: Callable[[], str] = platform.system,
     connector: Callable[[str], object] | None = None,
     request_privileged_password: Callable[[], str | None] | None = None,
+    privileged_credentials: tuple[str | None, str | None] | None = None,
     geteuid: Callable[[], int] | None = None,
 ) -> str:
     """Bootstrap the configured PostgreSQL conversation store."""
@@ -420,49 +459,69 @@ def bootstrap_conversation_store(
     username = url.username
     password = url.password
 
-    maintenance_conn = None
-    last_error: Exception | None = None
-
     candidate_databases: list[str] = []
     if database:
         candidate_databases.append(database)
     candidate_databases.extend(["postgres", "template1"])
 
-    for candidate in candidate_databases:
-        try:
-            candidate_url = url.set(database=candidate)
-            maintenance_conn = active_connector(_render_psycopg_conninfo(candidate_url))
-        except OperationalError as exc:  # pragma: no cover - error handling path
-            last_error = exc
-            continue
-        else:
-            break
-
-    if maintenance_conn is None:
-        host = url.host or "localhost"
-        port = url.port or 5432
-        raise BootstrapError(
-            f"Unable to connect to PostgreSQL server at {host}:{port}: {last_error}"
-        )
-
     ensured_username = username
     ensured_password = password
 
-    try:
-        maintenance_conn.autocommit = True  # type: ignore[attr-defined]
-        with maintenance_conn.cursor() as cursor:  # type: ignore[attr-defined]
-            ensured_username, ensured_password = _ensure_role(
-                cursor,
-                username=username,
-                password=password,
+    maintenance_conn, last_error, missing_role_error = _attempt_candidate_connection(
+        connector=active_connector,
+        base_url=url,
+        candidate_databases=candidate_databases,
+    )
+
+    def _provision(connection) -> None:
+        nonlocal ensured_username, ensured_password
+        try:
+            connection.autocommit = True  # type: ignore[attr-defined]
+            with connection.cursor() as cursor:  # type: ignore[attr-defined]
+                ensured_username, ensured_password = _ensure_role(
+                    cursor,
+                    username=username,
+                    password=password,
+                )
+                _ensure_database(
+                    cursor,
+                    database=database,
+                    owner=ensured_username,
+                )
+        finally:
+            connection.close()  # type: ignore[attr-defined]
+
+    if maintenance_conn is not None:
+        _provision(maintenance_conn)
+    else:
+        if missing_role_error is not None:
+            if not privileged_credentials or not (privileged_credentials[0] or "").strip():
+                raise BootstrapError(
+                    "Unable to connect using the configured PostgreSQL user because the role does not exist. "
+                    "Provide privileged credentials so the setup wizard can create the role and database automatically.",
+                ) from missing_role_error
+
+            privileged_username, privileged_password = privileged_credentials
+            privileged_conn, privileged_error, _ = _attempt_candidate_connection(
+                connector=active_connector,
+                base_url=url,
+                candidate_databases=candidate_databases,
+                username=privileged_username,
+                password=privileged_password,
             )
-            _ensure_database(
-                cursor,
-                database=database,
-                owner=ensured_username,
+            if privileged_conn is None:
+                raise BootstrapError(
+                    "Unable to connect using the provided privileged PostgreSQL credentials: "
+                    f"{privileged_error}",
+                ) from privileged_error
+
+            _provision(privileged_conn)
+        else:
+            host = url.host or "localhost"
+            port = url.port or 5432
+            raise BootstrapError(
+                f"Unable to connect to PostgreSQL server at {host}:{port}: {last_error}"
             )
-    finally:
-        maintenance_conn.close()  # type: ignore[attr-defined]
 
     if ensured_username and ensured_password and ensured_password != password:
         url = url.set(password=ensured_password)

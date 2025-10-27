@@ -133,12 +133,15 @@ class SetupUtility:
         """Prompt for PostgreSQL connection settings and persist them."""
 
         state = self.controller.state.database
+        privileged_credentials: tuple[str | None, str | None] | None = None
         while True:
             host = self._ask("PostgreSQL host", state.host)
             port = self._ask_int("PostgreSQL port", state.port)
             database = self._ask("Database name", state.database)
             user = self._ask("Database user", state.user)
-            password_prompt = "Database password" + (" (leave blank to keep existing)" if state.password else "")
+            password_prompt = "Database password"
+            if state.password:
+                password_prompt += " (leave blank to keep existing, type !clear! to remove)"
             password = self._ask_password(password_prompt, state.password)
             new_state = dataclasses.replace(
                 state,
@@ -149,9 +152,25 @@ class SetupUtility:
                 password=password,
             )
             try:
-                return self.controller.apply_database_settings(new_state)
+                return self.controller.apply_database_settings(
+                    new_state,
+                    privileged_credentials=privileged_credentials,
+                )
             except BootstrapError as exc:
                 self._print(f"Failed to connect: {exc}")
+                collected = self._maybe_collect_privileged_credentials(
+                    existing=privileged_credentials
+                )
+                if collected is not None:
+                    privileged_credentials = collected
+                if privileged_credentials is not None:
+                    try:
+                        return self.controller.apply_database_settings(
+                            new_state,
+                            privileged_credentials=privileged_credentials,
+                        )
+                    except BootstrapError as privileged_exc:
+                        self._print(f"Failed to connect with privileged provisioning: {privileged_exc}")
                 if not self._confirm("Try again? [Y/n]: ", default=True):
                     raise
 
@@ -337,9 +356,47 @@ class SetupUtility:
 
     def _ask_password(self, prompt: str, default: str) -> str:
         value = self._getpass(f"{prompt}: ")
-        if value.strip():
-            return value.strip()
-        return default
+        normalized = value.strip()
+        if not normalized:
+            return default
+        if normalized == "!clear!":
+            return ""
+        return normalized
+
+    def _maybe_collect_privileged_credentials(
+        self,
+        *,
+        existing: tuple[str | None, str | None] | None = None,
+    ) -> tuple[str | None, str | None] | None:
+        if existing is None:
+            wants_credentials = self._confirm(
+                "Provide privileged PostgreSQL credentials for automatic provisioning? [Y/n]: ",
+                default=True,
+            )
+            if not wants_credentials:
+                return None
+            username_default = ""
+            password_default = ""
+        else:
+            wants_credentials = self._confirm(
+                "Update privileged PostgreSQL credentials? [y/N]: ",
+                default=False,
+            )
+            if not wants_credentials:
+                return None
+            username_default = existing[0] or ""
+            password_default = existing[1] or ""
+
+        username = self._ask("Privileged PostgreSQL user", username_default).strip()
+        if not username:
+            self._print("Skipping privileged provisioning; no username provided.")
+            return None
+
+        password_prompt = "Privileged user password"
+        if password_default:
+            password_prompt += " (leave blank to keep existing, type !clear! to remove)"
+        password = self._ask_password(password_prompt, password_default)
+        return username, password
 
     def _ask_int(self, prompt: str, default: int) -> int:
         while True:
