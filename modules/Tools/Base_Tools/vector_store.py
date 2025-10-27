@@ -23,14 +23,12 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Sequence, TYPE_CHECKING
 
 from modules.logging.logger import setup_logger
 
-try:  # ConfigManager is optional in certain test contexts
+if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from ATLAS.config import ConfigManager
-except Exception:  # pragma: no cover - fallback when ConfigManager unavailable
-    ConfigManager = None  # type: ignore
 
 logger = setup_logger(__name__)
 
@@ -183,7 +181,7 @@ class PersistentVectorCatalog(Protocol):
         ...
 
 
-AdapterFactory = Callable[[Optional[ConfigManager], Mapping[str, Any]], VectorStoreAdapter]
+AdapterFactory = Callable[[Optional["ConfigManager"], Mapping[str, Any]], VectorStoreAdapter]
 
 _ADAPTER_REGISTRY: Dict[str, AdapterFactory] = {}
 
@@ -212,7 +210,7 @@ def available_vector_store_adapters() -> tuple[str, ...]:
 def create_vector_store_adapter(
     name: str,
     *,
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
     config: Optional[Mapping[str, Any]] = None,
 ) -> VectorStoreAdapter:
     """Instantiate an adapter registered under ``name``."""
@@ -231,44 +229,58 @@ def create_vector_store_adapter(
     return factory(config_manager, adapter_config)
 
 
+def _ensure_config_manager(
+    config_manager: Optional["ConfigManager"],
+) -> "ConfigManager":
+    if config_manager is not None:
+        return config_manager
+
+    try:
+        from ATLAS.config import ConfigManager as _ConfigManager
+    except Exception as exc:  # pragma: no cover - defensive guard
+        raise VectorStoreConfigurationError("ConfigManager import failed.") from exc
+
+    try:
+        return _ConfigManager()
+    except Exception as exc:  # pragma: no cover - defensive guard
+        raise VectorStoreConfigurationError("Unable to instantiate ConfigManager.") from exc
+
+
 def _load_vector_store_settings(
-    config_manager: Optional[ConfigManager],
-) -> Mapping[str, Any]:
-    if ConfigManager is None:
-        return MappingProxyType({})
+    config_manager: Optional["ConfigManager"],
+) -> tuple[Mapping[str, Any], "ConfigManager"]:
+    manager = _ensure_config_manager(config_manager)
 
-    manager = config_manager
-    if manager is None:
-        try:
-            manager = ConfigManager()  # type: ignore[operator]
-        except Exception as exc:  # pragma: no cover - defensive guard
-            logger.debug("Unable to instantiate ConfigManager: %s", exc)
-            return MappingProxyType({})
+    try:
+        settings = manager.get_config("tools", {})
+    except Exception as exc:  # pragma: no cover - defensive guard
+        raise VectorStoreConfigurationError("Failed to read tools configuration.") from exc
 
-    if manager is None:  # pragma: no cover - defensive guard
-        return MappingProxyType({})
-
-    settings = manager.get_config("tools", {})
     if not isinstance(settings, Mapping):
-        return MappingProxyType({})
+        raise VectorStoreConfigurationError("`tools` configuration must be a mapping.")
 
     vector_settings = settings.get("vector_store", {})
     if not isinstance(vector_settings, Mapping):
-        return MappingProxyType({})
+        raise VectorStoreConfigurationError("`tools.vector_store` configuration must be a mapping.")
 
-    return MappingProxyType(dict(vector_settings))
+    return MappingProxyType(dict(vector_settings)), manager
 
 
 def build_vector_store_service(
     *,
     adapter_name: Optional[str] = None,
     adapter_config: Optional[Mapping[str, Any]] = None,
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
     catalog: Optional[PersistentVectorCatalog] = None,
 ) -> "VectorStoreService":
     """Construct a :class:`VectorStoreService` from configuration."""
 
-    settings = _load_vector_store_settings(config_manager)
+    resolved_manager = config_manager
+    settings: Mapping[str, Any] = MappingProxyType({})
+
+    requires_settings = adapter_name is None or not isinstance(adapter_config, Mapping)
+    if requires_settings:
+        settings, resolved_manager = _load_vector_store_settings(config_manager)
 
     resolved_adapter = adapter_name or settings.get("default_adapter")
     if not isinstance(resolved_adapter, str) or not resolved_adapter.strip():
@@ -293,7 +305,7 @@ def build_vector_store_service(
 
     adapter = create_vector_store_adapter(
         resolved_adapter,
-        config_manager=config_manager,
+        config_manager=resolved_manager,
         config=resolved_config,
     )
     return VectorStoreService(adapter, catalog=catalog)
@@ -537,7 +549,7 @@ def _resolve_service(
     adapter: Optional[VectorStoreAdapter],
     adapter_name: Optional[str],
     adapter_config: Optional[Mapping[str, Any]],
-    config_manager: Optional[ConfigManager],
+    config_manager: Optional["ConfigManager"],
     catalog: Optional[PersistentVectorCatalog],
 ) -> VectorStoreService:
     if adapter is not None:
@@ -558,7 +570,7 @@ async def upsert_vectors(
     adapter: Optional[VectorStoreAdapter] = None,
     adapter_name: Optional[str] = None,
     adapter_config: Optional[Mapping[str, Any]] = None,
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
     catalog: Optional[PersistentVectorCatalog] = None,
 ) -> Mapping[str, Any]:
     """Insert or update embeddings within ``namespace``."""
@@ -583,7 +595,7 @@ async def query_vectors(
     adapter: Optional[VectorStoreAdapter] = None,
     adapter_name: Optional[str] = None,
     adapter_config: Optional[Mapping[str, Any]] = None,
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
     catalog: Optional[PersistentVectorCatalog] = None,
 ) -> Mapping[str, Any]:
     """Return the most similar embeddings for ``query`` within ``namespace``."""
@@ -610,7 +622,7 @@ async def delete_namespace(
     adapter: Optional[VectorStoreAdapter] = None,
     adapter_name: Optional[str] = None,
     adapter_config: Optional[Mapping[str, Any]] = None,
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
     catalog: Optional[PersistentVectorCatalog] = None,
 ) -> Mapping[str, Any]:
     """Delete all embeddings stored within ``namespace``."""
