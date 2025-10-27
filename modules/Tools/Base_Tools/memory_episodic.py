@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from typing import Any, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 
 from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
 
-try:  # ConfigManager may be unavailable in some test environments
+if TYPE_CHECKING:  # pragma: no cover - import for typing only
     from ATLAS.config import ConfigManager
-except Exception:  # pragma: no cover - fallback when ConfigManager unavailable
-    ConfigManager = None  # type: ignore
 
 __all__ = [
     "EpisodicMemoryTool",
@@ -31,28 +29,40 @@ class EpisodicMemoryTool:
     def __init__(
         self,
         *,
-        config_manager: Optional[ConfigManager] = None,
+        config_manager: Optional["ConfigManager"] = None,
         repository: Optional[ConversationStoreRepository] = None,
     ) -> None:
-        self._config_manager = config_manager or (
-            ConfigManager() if ConfigManager is not None and config_manager is None else config_manager
-        )
+        self._config_manager = config_manager
         self._repository = repository
-        self._lock = threading.Lock()
+        self._config_lock = threading.Lock()
+        self._repository_lock = threading.Lock()
+
+    def _get_config_manager(self) -> "ConfigManager":
+        if self._config_manager is not None:
+            return self._config_manager
+        with self._config_lock:
+            if self._config_manager is not None:
+                return self._config_manager
+            try:
+                from ATLAS.config import ConfigManager as _ConfigManager
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                logger.error("Failed to import ConfigManager for episodic memory: %s", exc)
+                raise RuntimeError(
+                    "ConfigManager is required to resolve the conversation store repository for episodic memory."
+                ) from exc
+            self._config_manager = _ConfigManager()
+            return self._config_manager
 
     def _resolve_repository(self) -> ConversationStoreRepository:
         if self._repository is not None:
             return self._repository
-        if self._config_manager is None:
-            raise RuntimeError(
-                "ConfigManager is required to resolve the conversation store repository for episodic memory."
-            )
-        factory = self._config_manager.get_conversation_store_session_factory()
+        config_manager = self._get_config_manager()
+        factory = config_manager.get_conversation_store_session_factory()
         if factory is None:
             raise RuntimeError("Conversation store session factory is not configured.")
-        retention = self._config_manager.get_conversation_retention_policies()
+        retention = config_manager.get_conversation_retention_policies()
         repository = ConversationStoreRepository(factory, retention=retention)
-        with self._lock:
+        with self._repository_lock:
             if self._repository is None:
                 self._repository = repository
                 try:
@@ -153,7 +163,7 @@ async def store_episode(
     message_id: Any | None = None,
     user_id: Any | None = None,
     title: Optional[str] = None,
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
 ) -> Mapping[str, Any]:
     tool = EpisodicMemoryTool(config_manager=config_manager)
     return await tool.store(
@@ -182,7 +192,7 @@ async def query_episodes(
     conversation_id: Any | None = None,
     include_expired: bool = False,
     order: str = "desc",
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
 ) -> Mapping[str, Any]:
     tool = EpisodicMemoryTool(config_manager=config_manager)
     return await tool.query(
@@ -206,7 +216,7 @@ async def prune_episodes(
     expired_only: bool = False,
     limit: Optional[int] = None,
     conversation_id: Any | None = None,
-    config_manager: Optional[ConfigManager] = None,
+    config_manager: Optional["ConfigManager"] = None,
 ) -> Mapping[str, Any]:
     tool = EpisodicMemoryTool(config_manager=config_manager)
     return await tool.prune(
