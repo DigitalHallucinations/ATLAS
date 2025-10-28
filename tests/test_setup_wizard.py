@@ -9,6 +9,7 @@ from gi.repository import Gtk
 
 from GTKUI.Setup.setup_wizard import SetupWizardWindow
 from ATLAS.setup import DatabaseState, ProviderState, UserState
+from modules.conversation_store.bootstrap import BootstrapError
 
 
 class FakeController:
@@ -138,5 +139,56 @@ def test_setup_wizard_validation_error_surfaces_in_ui():
     assert "Port must be a valid integer" in window._status_label.get_text()
     if hasattr(window._status_label, "get_css_classes"):
         assert "error-text" in window._status_label.get_css_classes()
+
+    window.close()
+
+
+def test_setup_wizard_requests_privileged_credentials(monkeypatch):
+    application = Gtk.Application()
+    controller = FakeController()
+    on_success = _CallbackRecorder()
+    on_error = _CallbackRecorder()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=on_success,
+        on_error=on_error,
+        controller=controller,
+    )
+
+    window._database_entries["host"].set_text("db.example.com")
+    window._database_entries["port"].set_text("5432")
+    window._database_entries["database"].set_text("atlas")
+    window._database_entries["user"].set_text("atlas")
+    window._database_entries["password"].set_text("secret")
+
+    calls = []
+
+    def _apply_with_privileged(state, *, privileged_credentials=None):
+        calls.append(privileged_credentials)
+        controller.calls.append(("database", state, privileged_credentials))
+        if privileged_credentials != ("postgres", "supersecret"):
+            raise BootstrapError("superuser access required")
+        controller.state.database = state
+        return "dsn"
+
+    controller.apply_database_settings = _apply_with_privileged
+
+    prompts = []
+
+    def _fake_prompt(self, *, existing=None, error=None):
+        prompts.append((existing, str(error)))
+        return ("postgres", "supersecret")
+
+    window._prompt_privileged_credentials = types.MethodType(_fake_prompt, window)
+
+    window._on_next_clicked(None)
+
+    assert calls == [None, ("postgres", "supersecret")]
+    assert window._privileged_credentials == ("postgres", "supersecret")
+    assert window._current_index == 1
+    assert prompts == [(None, "superuser access required")]
+    assert not on_error.calls
 
     window.close()

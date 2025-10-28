@@ -37,6 +37,11 @@ When the final step succeeds the wizard now writes the completion marker and
 returns you to the shell immediately, so there's no longer a need to restart
 ATLAS before signing in with the administrator account.
 
+If the wizard cannot connect to PostgreSQL it now mirrors the CLI utility by
+prompting for a privileged username and password. Supplying credentials lets
+ATLAS create the database and role automatically; leave the fields blank to
+retry without privileged provisioning.
+
 ## Standalone CLI utility
 
 The original CLI workflow remains available at `scripts/setup_atlas.py`. It
