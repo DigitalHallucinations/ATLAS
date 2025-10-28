@@ -19,6 +19,7 @@ class FakeController:
             user=UserState(),
         )
         self.calls = []
+        self.summary = {"status": "ok"}
 
     def apply_database_settings(self, state):
         self.calls.append(("database", state))
@@ -35,6 +36,9 @@ class FakeController:
         self.state.user = state
         return {"username": state.username}
 
+    def build_summary(self):
+        return self.summary
+
 
 class _CallbackRecorder:
     def __init__(self):
@@ -44,11 +48,21 @@ class _CallbackRecorder:
         self.calls.append(args)
 
 
-def test_setup_wizard_happy_path():
+def test_setup_wizard_happy_path(monkeypatch):
     application = Gtk.Application()
     controller = FakeController()
     on_success = _CallbackRecorder()
     on_error = _CallbackRecorder()
+    marker_calls = []
+
+    def _fake_write_setup_marker(summary):
+        marker_calls.append(summary)
+        return None
+
+    monkeypatch.setattr(
+        "GTKUI.Setup.setup_wizard.write_setup_marker",
+        _fake_write_setup_marker,
+    )
 
     window = SetupWizardWindow(
         application=application,
@@ -91,8 +105,10 @@ def test_setup_wizard_happy_path():
 
     assert controller.calls[2][0] == "user"
     assert on_success.calls
-    assert window._status_label.get_text().startswith(
-        "Administrator account created. Restart ATLAS"
+    assert marker_calls == [controller.summary]
+    assert (
+        window._status_label.get_text()
+        == "Administrator account created. You can now sign in with the new administrator account."
     )
 
     window.close()

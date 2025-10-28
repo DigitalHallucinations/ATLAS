@@ -33,6 +33,10 @@ Launching `main.py` without an existing configuration automatically presents the
 GTK wizard. You can also start it manually by running the desktop shell and
 choosing **Run setup wizard** from the application menu.
 
+When the final step succeeds the wizard now writes the completion marker and
+returns you to the shell immediately, so there's no longer a need to restart
+ATLAS before signing in with the administrator account.
+
 ## Standalone CLI utility
 
 The original CLI workflow remains available at `scripts/setup_atlas.py`. It
