@@ -17,6 +17,7 @@ from ATLAS.setup import (
     SetupWizardController as CoreSetupWizardController,
     UserState,
 )
+from ATLAS.setup_marker import write_setup_marker
 
 Callback = Callable[[], None]
 ErrorCallback = Callable[[BaseException], None]
@@ -96,6 +97,7 @@ class SetupWizardWindow(Gtk.Window):
         self._provider_entries: Dict[str, Gtk.Entry] = {}
         self._provider_buffer: Optional[Gtk.TextBuffer] = None
         self._user_entries: Dict[str, Gtk.Entry] = {}
+        self._setup_persisted = False
 
         self._build_steps()
         if error is not None:
@@ -284,8 +286,18 @@ class SetupWizardWindow(Gtk.Window):
 
         if self._current_index == len(self._steps) - 1:
             final_message = message or "Setup complete."
+            if not self._setup_persisted:
+                try:
+                    summary = self.controller.build_summary()
+                    write_setup_marker(summary)
+                except IOError as exc:  # pragma: no cover - defensive
+                    self.display_error(exc)
+                    self._on_error(exc)
+                    return
+                else:
+                    self._setup_persisted = True
             self._set_status(
-                f"{final_message} Restart ATLAS to sign in with the new administrator account."
+                f"{final_message} You can now sign in with the new administrator account."
             )
             self._on_success()
         else:
