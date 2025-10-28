@@ -13,8 +13,14 @@ from gi.repository import GLib, Gtk
 
 from ATLAS.setup import (
     DatabaseState,
+    JobSchedulingState,
+    KvStoreState,
+    MessageBusState,
+    OptionalState,
     ProviderState,
+    RetryPolicyState,
     SetupWizardController as CoreSetupWizardController,
+    SpeechState,
     UserState,
 )
 from ATLAS.setup_marker import write_setup_marker
@@ -98,6 +104,11 @@ class SetupWizardWindow(Gtk.Window):
         self._provider_entries: Dict[str, Gtk.Entry] = {}
         self._provider_buffer: Optional[Gtk.TextBuffer] = None
         self._user_entries: Dict[str, Gtk.Entry] = {}
+        self._kv_widgets: Dict[str, Gtk.Widget] = {}
+        self._job_widgets: Dict[str, Gtk.Widget] = {}
+        self._message_widgets: Dict[str, Gtk.Widget] = {}
+        self._speech_widgets: Dict[str, Gtk.Widget] = {}
+        self._optional_widgets: Dict[str, Gtk.Widget] = {}
         self._setup_persisted = False
         self._privileged_credentials: Optional[Tuple[Optional[str], Optional[str]]] = None
 
@@ -129,9 +140,34 @@ class SetupWizardWindow(Gtk.Window):
                 apply=self._apply_database,
             ),
             WizardStep(
+                name="Job Scheduling",
+                widget=self._build_job_scheduling_page(),
+                apply=self._apply_job_scheduling,
+            ),
+            WizardStep(
+                name="Message Bus",
+                widget=self._build_message_bus_page(),
+                apply=self._apply_message_bus,
+            ),
+            WizardStep(
+                name="Key-Value Store",
+                widget=self._build_kv_store_page(),
+                apply=self._apply_kv_store,
+            ),
+            WizardStep(
                 name="Providers",
                 widget=self._build_provider_page(),
                 apply=self._apply_providers,
+            ),
+            WizardStep(
+                name="Speech",
+                widget=self._build_speech_page(),
+                apply=self._apply_speech,
+            ),
+            WizardStep(
+                name="Optional",
+                widget=self._build_optional_page(),
+                apply=self._apply_optional,
             ),
             WizardStep(
                 name="Administrator",
@@ -201,6 +237,187 @@ class SetupWizardWindow(Gtk.Window):
 
         return box
 
+    def _build_kv_store_page(self) -> Gtk.Widget:
+        state = self.controller.state.kv_store
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+
+        reuse_toggle = Gtk.CheckButton(label="Reuse conversation store for key-value storage")
+        reuse_toggle.set_active(state.reuse_conversation_store)
+        self._kv_widgets["reuse"] = reuse_toggle
+        box.append(reuse_toggle)
+
+        url_entry = Gtk.Entry()
+        url_entry.set_placeholder_text("Key-value store DSN (leave blank to skip)")
+        url_entry.set_text(state.url or "")
+        url_entry.set_hexpand(True)
+        self._kv_widgets["url"] = url_entry
+        box.append(url_entry)
+
+        hint = Gtk.Label(
+            label=(
+                "If reuse is disabled, provide a SQLAlchemy-compatible DSN for the key-value store."
+            )
+        )
+        hint.set_wrap(True)
+        hint.set_xalign(0.0)
+        box.append(hint)
+
+        return box
+
+    def _build_job_scheduling_page(self) -> Gtk.Widget:
+        state = self.controller.state.job_scheduling
+        retry = state.retry_policy
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+
+        enable_toggle = Gtk.CheckButton(label="Enable durable job scheduling")
+        enable_toggle.set_active(state.enabled)
+        enable_toggle.set_hexpand(False)
+        self._job_widgets["enabled"] = enable_toggle
+        grid.attach(enable_toggle, 0, 0, 2, 1)
+
+        row = 1
+        self._job_widgets["job_store_url"] = self._create_labeled_entry(
+            grid, row, "Job store DSN", state.job_store_url or ""
+        )
+        row += 1
+        self._job_widgets["max_workers"] = self._create_labeled_entry(
+            grid, row, "Max workers", self._optional_to_text(state.max_workers)
+        )
+        row += 1
+        self._job_widgets["timezone"] = self._create_labeled_entry(
+            grid, row, "Scheduler timezone", state.timezone or ""
+        )
+        row += 1
+        self._job_widgets["queue_size"] = self._create_labeled_entry(
+            grid, row, "Queue size", self._optional_to_text(state.queue_size)
+        )
+        row += 1
+
+        retry_label = Gtk.Label(label="Retry policy")
+        retry_label.set_xalign(0.0)
+        if hasattr(retry_label, "add_css_class"):
+            retry_label.add_css_class("heading")
+        grid.attach(retry_label, 0, row, 2, 1)
+        row += 1
+
+        self._job_widgets["retry_max_attempts"] = self._create_labeled_entry(
+            grid, row, "Max attempts", str(retry.max_attempts)
+        )
+        row += 1
+        self._job_widgets["retry_backoff_seconds"] = self._create_labeled_entry(
+            grid, row, "Backoff seconds", self._format_float(retry.backoff_seconds)
+        )
+        row += 1
+        self._job_widgets["retry_jitter_seconds"] = self._create_labeled_entry(
+            grid, row, "Jitter seconds", self._format_float(retry.jitter_seconds)
+        )
+        row += 1
+        self._job_widgets["retry_backoff_multiplier"] = self._create_labeled_entry(
+            grid, row, "Backoff multiplier", self._format_float(retry.backoff_multiplier)
+        )
+
+        return grid
+
+    def _build_message_bus_page(self) -> Gtk.Widget:
+        state = self.controller.state.message_bus
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+
+        backend_label = Gtk.Label(label="Backend")
+        backend_label.set_xalign(0.0)
+        grid.attach(backend_label, 0, 0, 1, 1)
+
+        backend_combo = Gtk.ComboBoxText()
+        backend_combo.append("in_memory", "In-memory")
+        backend_combo.append("redis", "Redis")
+        backend_combo.set_active_id(state.backend or "in_memory")
+        backend_combo.set_hexpand(True)
+        grid.attach(backend_combo, 1, 0, 1, 1)
+        self._message_widgets["backend"] = backend_combo
+
+        self._message_widgets["redis_url"] = self._create_labeled_entry(
+            grid, 1, "Redis URL", state.redis_url or ""
+        )
+        self._message_widgets["stream_prefix"] = self._create_labeled_entry(
+            grid, 2, "Stream prefix", state.stream_prefix or ""
+        )
+
+        hint = Gtk.Label(
+            label=(
+                "Use the Redis backend to enable distributed task processing. The in-memory "
+                "backend is suitable for single-instance deployments."
+            )
+        )
+        hint.set_wrap(True)
+        hint.set_xalign(0.0)
+        grid.attach(hint, 0, 3, 2, 1)
+
+        return grid
+
+    def _build_speech_page(self) -> Gtk.Widget:
+        state = self.controller.state.speech
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+
+        tts_toggle = Gtk.CheckButton(label="Enable text-to-speech")
+        tts_toggle.set_active(state.tts_enabled)
+        self._speech_widgets["tts_enabled"] = tts_toggle
+        grid.attach(tts_toggle, 0, 0, 2, 1)
+
+        stt_toggle = Gtk.CheckButton(label="Enable speech-to-text")
+        stt_toggle.set_active(state.stt_enabled)
+        self._speech_widgets["stt_enabled"] = stt_toggle
+        grid.attach(stt_toggle, 0, 1, 2, 1)
+
+        self._speech_widgets["default_tts"] = self._create_labeled_entry(
+            grid, 2, "Default TTS provider", state.default_tts_provider or ""
+        )
+        self._speech_widgets["default_stt"] = self._create_labeled_entry(
+            grid, 3, "Default STT provider", state.default_stt_provider or ""
+        )
+        self._speech_widgets["elevenlabs_key"] = self._create_labeled_entry(
+            grid, 4, "ElevenLabs API key", state.elevenlabs_key or ""
+        )
+        self._speech_widgets["openai_key"] = self._create_labeled_entry(
+            grid, 5, "OpenAI speech API key", state.openai_key or ""
+        )
+        self._speech_widgets["google_credentials"] = self._create_labeled_entry(
+            grid, 6, "Google speech credentials path", state.google_credentials or ""
+        )
+
+        return grid
+
+    def _build_optional_page(self) -> Gtk.Widget:
+        state = self.controller.state.optional
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+
+        self._optional_widgets["tenant_id"] = self._create_labeled_entry(
+            grid, 0, "Tenant ID", state.tenant_id or ""
+        )
+        self._optional_widgets["retention_days"] = self._create_labeled_entry(
+            grid, 1, "Conversation retention days", self._optional_to_text(state.retention_days)
+        )
+        self._optional_widgets["retention_history_limit"] = self._create_labeled_entry(
+            grid,
+            2,
+            "Conversation history limit",
+            self._optional_to_text(state.retention_history_limit),
+        )
+        self._optional_widgets["scheduler_timezone"] = self._create_labeled_entry(
+            grid, 3, "Scheduler timezone", state.scheduler_timezone or ""
+        )
+        self._optional_widgets["scheduler_queue_size"] = self._create_labeled_entry(
+            grid,
+            4,
+            "Scheduler queue size",
+            self._optional_to_text(state.scheduler_queue_size),
+        )
+
+        http_toggle = Gtk.CheckButton(label="Auto-start HTTP server")
+        http_toggle.set_active(state.http_auto_start)
+        self._optional_widgets["http_auto_start"] = http_toggle
+        grid.attach(http_toggle, 0, 5, 2, 1)
+
+        return grid
+
     def _build_user_page(self) -> Gtk.Widget:
         state = self.controller.state.user
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
@@ -256,6 +473,39 @@ class SetupWizardWindow(Gtk.Window):
     def _format_api_keys(self, mapping: Dict[str, str]) -> str:
         lines = [f"{provider}={key}" for provider, key in sorted(mapping.items())]
         return "\n".join(lines)
+
+    def _optional_to_text(self, value: Optional[int]) -> str:
+        return "" if value is None else str(value)
+
+    def _format_float(self, value: float) -> str:
+        return f"{value}".rstrip("0").rstrip(".") if isinstance(value, float) else str(value)
+
+    def _parse_required_int(self, entry: Gtk.Entry, field: str) -> int:
+        text = entry.get_text().strip()
+        if not text:
+            raise ValueError(f"{field} is required")
+        try:
+            return int(text)
+        except ValueError as exc:
+            raise ValueError(f"{field} must be an integer") from exc
+
+    def _parse_optional_int(self, entry: Gtk.Entry, field: str) -> Optional[int]:
+        text = entry.get_text().strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError as exc:
+            raise ValueError(f"{field} must be an integer") from exc
+
+    def _parse_required_float(self, entry: Gtk.Entry, field: str) -> float:
+        text = entry.get_text().strip()
+        if not text:
+            raise ValueError(f"{field} is required")
+        try:
+            return float(text)
+        except ValueError as exc:
+            raise ValueError(f"{field} must be a number") from exc
 
     # -- navigation -----------------------------------------------------
 
@@ -435,6 +685,219 @@ class SetupWizardWindow(Gtk.Window):
         if username is None:
             return None
         return (username, password)
+
+    def _apply_job_scheduling(self) -> str:
+        enabled_widget = self._job_widgets.get("enabled")
+        if not isinstance(enabled_widget, Gtk.CheckButton):  # pragma: no cover - defensive
+            raise RuntimeError("Job scheduling toggle is missing")
+        enabled = enabled_widget.get_active()
+
+        job_store_entry = self._job_widgets.get("job_store_url")
+        max_workers_entry = self._job_widgets.get("max_workers")
+        timezone_entry = self._job_widgets.get("timezone")
+        queue_size_entry = self._job_widgets.get("queue_size")
+        retry_max_entry = self._job_widgets.get("retry_max_attempts")
+        backoff_entry = self._job_widgets.get("retry_backoff_seconds")
+        jitter_entry = self._job_widgets.get("retry_jitter_seconds")
+        multiplier_entry = self._job_widgets.get("retry_backoff_multiplier")
+
+        if not all(
+            isinstance(widget, Gtk.Entry)
+            for widget in (
+                job_store_entry,
+                max_workers_entry,
+                timezone_entry,
+                queue_size_entry,
+                retry_max_entry,
+                backoff_entry,
+                jitter_entry,
+                multiplier_entry,
+            )
+        ):
+            raise RuntimeError("Job scheduling inputs are not configured correctly")
+
+        assert isinstance(job_store_entry, Gtk.Entry)
+        job_store_url = job_store_entry.get_text().strip() or None
+        assert isinstance(max_workers_entry, Gtk.Entry)
+        max_workers = self._parse_optional_int(max_workers_entry, "Max workers")
+        assert isinstance(timezone_entry, Gtk.Entry)
+        timezone = timezone_entry.get_text().strip() or None
+        assert isinstance(queue_size_entry, Gtk.Entry)
+        queue_size = self._parse_optional_int(queue_size_entry, "Queue size")
+
+        assert isinstance(retry_max_entry, Gtk.Entry)
+        max_attempts = self._parse_required_int(retry_max_entry, "Max attempts")
+        assert isinstance(backoff_entry, Gtk.Entry)
+        backoff_seconds = self._parse_required_float(backoff_entry, "Backoff seconds")
+        assert isinstance(jitter_entry, Gtk.Entry)
+        jitter_seconds = self._parse_required_float(jitter_entry, "Jitter seconds")
+        assert isinstance(multiplier_entry, Gtk.Entry)
+        backoff_multiplier = self._parse_required_float(multiplier_entry, "Backoff multiplier")
+
+        if not enabled:
+            job_store_url = None
+            max_workers = None
+            timezone = None
+            queue_size = None
+
+        state = JobSchedulingState(
+            enabled=enabled,
+            job_store_url=job_store_url,
+            max_workers=max_workers,
+            retry_policy=RetryPolicyState(
+                max_attempts=max_attempts,
+                backoff_seconds=backoff_seconds,
+                jitter_seconds=jitter_seconds,
+                backoff_multiplier=backoff_multiplier,
+            ),
+            timezone=timezone,
+            queue_size=queue_size,
+        )
+
+        self.controller.apply_job_scheduling(state)
+        return "Job scheduling settings saved."
+
+    def _apply_message_bus(self) -> str:
+        backend_widget = self._message_widgets.get("backend")
+        redis_entry = self._message_widgets.get("redis_url")
+        stream_entry = self._message_widgets.get("stream_prefix")
+
+        if not isinstance(backend_widget, Gtk.ComboBoxText) or not isinstance(
+            redis_entry, Gtk.Entry
+        ) or not isinstance(stream_entry, Gtk.Entry):
+            raise RuntimeError("Message bus widgets are not configured correctly")
+
+        backend = backend_widget.get_active_id() or ""
+        backend = backend.strip().lower()
+        if backend not in {"in_memory", "redis"}:
+            raise ValueError("Backend must be 'in_memory' or 'redis'")
+
+        redis_url = redis_entry.get_text().strip() or None
+        stream_prefix = stream_entry.get_text().strip() or None
+
+        if backend != "redis":
+            backend = "in_memory"
+            redis_url = None
+            stream_prefix = None
+
+        state = MessageBusState(
+            backend=backend,
+            redis_url=redis_url,
+            stream_prefix=stream_prefix,
+        )
+
+        self.controller.apply_message_bus(state)
+        return "Message bus settings saved."
+
+    def _apply_kv_store(self) -> str:
+        reuse_widget = self._kv_widgets.get("reuse")
+        url_widget = self._kv_widgets.get("url")
+        if not isinstance(reuse_widget, Gtk.CheckButton) or not isinstance(url_widget, Gtk.Entry):
+            raise RuntimeError("Key-value store widgets are not configured correctly")
+
+        reuse = reuse_widget.get_active()
+        url = url_widget.get_text().strip() or None
+        if reuse:
+            url = None
+
+        state = KvStoreState(
+            reuse_conversation_store=reuse,
+            url=url,
+        )
+
+        self.controller.apply_kv_store_settings(state)
+        return "Key-value store settings saved."
+
+    def _apply_speech(self) -> str:
+        tts_widget = self._speech_widgets.get("tts_enabled")
+        stt_widget = self._speech_widgets.get("stt_enabled")
+        default_tts_entry = self._speech_widgets.get("default_tts")
+        default_stt_entry = self._speech_widgets.get("default_stt")
+        elevenlabs_entry = self._speech_widgets.get("elevenlabs_key")
+        openai_entry = self._speech_widgets.get("openai_key")
+        google_entry = self._speech_widgets.get("google_credentials")
+
+        if not all(
+            isinstance(widget, Gtk.Entry)
+            for widget in (
+                default_tts_entry,
+                default_stt_entry,
+                elevenlabs_entry,
+                openai_entry,
+                google_entry,
+            )
+        ) or not isinstance(tts_widget, Gtk.CheckButton) or not isinstance(
+            stt_widget, Gtk.CheckButton
+        ):
+            raise RuntimeError("Speech widgets are not configured correctly")
+
+        assert isinstance(tts_widget, Gtk.CheckButton)
+        assert isinstance(stt_widget, Gtk.CheckButton)
+        assert isinstance(default_tts_entry, Gtk.Entry)
+        assert isinstance(default_stt_entry, Gtk.Entry)
+        assert isinstance(elevenlabs_entry, Gtk.Entry)
+        assert isinstance(openai_entry, Gtk.Entry)
+        assert isinstance(google_entry, Gtk.Entry)
+
+        state = SpeechState(
+            tts_enabled=tts_widget.get_active(),
+            stt_enabled=stt_widget.get_active(),
+            default_tts_provider=default_tts_entry.get_text().strip() or None,
+            default_stt_provider=default_stt_entry.get_text().strip() or None,
+            elevenlabs_key=elevenlabs_entry.get_text().strip() or None,
+            openai_key=openai_entry.get_text().strip() or None,
+            google_credentials=google_entry.get_text().strip() or None,
+        )
+
+        self.controller.apply_speech_settings(state)
+        return "Speech settings saved."
+
+    def _apply_optional(self) -> str:
+        tenant_entry = self._optional_widgets.get("tenant_id")
+        retention_days_entry = self._optional_widgets.get("retention_days")
+        retention_history_entry = self._optional_widgets.get("retention_history_limit")
+        scheduler_timezone_entry = self._optional_widgets.get("scheduler_timezone")
+        scheduler_queue_entry = self._optional_widgets.get("scheduler_queue_size")
+        http_toggle = self._optional_widgets.get("http_auto_start")
+
+        if not all(
+            isinstance(widget, Gtk.Entry)
+            for widget in (
+                tenant_entry,
+                retention_days_entry,
+                retention_history_entry,
+                scheduler_timezone_entry,
+                scheduler_queue_entry,
+            )
+        ) or not isinstance(http_toggle, Gtk.CheckButton):
+            raise RuntimeError("Optional settings widgets are not configured correctly")
+
+        assert isinstance(tenant_entry, Gtk.Entry)
+        assert isinstance(retention_days_entry, Gtk.Entry)
+        assert isinstance(retention_history_entry, Gtk.Entry)
+        assert isinstance(scheduler_timezone_entry, Gtk.Entry)
+        assert isinstance(scheduler_queue_entry, Gtk.Entry)
+        assert isinstance(http_toggle, Gtk.CheckButton)
+
+        retention_days = self._parse_optional_int(retention_days_entry, "Conversation retention days")
+        retention_history = self._parse_optional_int(
+            retention_history_entry, "Conversation history limit"
+        )
+        scheduler_queue_size = self._parse_optional_int(
+            scheduler_queue_entry, "Scheduler queue size"
+        )
+
+        state = OptionalState(
+            tenant_id=tenant_entry.get_text().strip() or None,
+            retention_days=retention_days,
+            retention_history_limit=retention_history,
+            scheduler_timezone=scheduler_timezone_entry.get_text().strip() or None,
+            scheduler_queue_size=scheduler_queue_size,
+            http_auto_start=http_toggle.get_active(),
+        )
+
+        self.controller.apply_optional_settings(state)
+        return "Optional settings saved."
 
     def _apply_providers(self) -> str:
         default_provider = self._provider_entries["default_provider"].get_text().strip() or None

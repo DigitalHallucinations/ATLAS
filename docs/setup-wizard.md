@@ -6,13 +6,39 @@ required to bring the platform online:
 
 1. **Database** – Collect PostgreSQL connection details and run the conversation
    store bootstrap helpers.
-2. **Providers** – Store default model/provider selections along with any API
+2. **Job scheduling** – Enable durable scheduling, configure retry policy, and
+   provide job store details when needed.
+3. **Message bus** – Choose between the in-memory or Redis backends and supply
+   any Redis connection details.
+4. **Key-value store** – Decide whether to reuse the conversation store and set
+   an alternate DSN when required.
+5. **Providers** – Store default model/provider selections along with any API
    keys that should be written to the configuration.
-3. **Administrator** – Register the first user account so you can sign in after
+6. **Speech** – Toggle text-to-speech and speech-to-text integrations and record
+   provider defaults and API keys.
+7. **Optional settings** – Capture tenancy, retention, scheduler overrides, and
+   whether the HTTP server should auto-start.
+8. **Administrator** – Register the first user account so you can sign in after
    the wizard finishes.
 
 Progress and any validation errors are surfaced inline, and the wizard invokes
 the same controller methods used by the CLI to persist settings.
+
+### Step details
+
+Each step mirrors the questions asked by the CLI setup utility:
+
+* **Job scheduling** presents toggles and numeric inputs for retry attempts,
+  backoff values, worker counts, queue size, and timezone. Invalid numeric
+  entries are rejected just as they are at the command line.
+* **Message bus** exposes a backend selector. Choosing Redis enables fields for
+  the Redis DSN and stream prefix, while the in-memory option clears them.
+* **Key-value store** allows you to reuse the conversation database or provide
+  a dedicated SQLAlchemy-compatible DSN.
+* **Speech** collects provider defaults and API keys for ElevenLabs, OpenAI, and
+  Google, along with toggles for TTS and STT support.
+* **Optional settings** records tenant IDs, conversation retention limits,
+  scheduler overrides, and the HTTP auto-start flag.
 
 ## Preparing the Python environment
 
@@ -40,7 +66,8 @@ ATLAS before signing in with the administrator account.
 If the wizard cannot connect to PostgreSQL it now mirrors the CLI utility by
 prompting for a privileged username and password. Supplying credentials lets
 ATLAS create the database and role automatically; leave the fields blank to
-retry without privileged provisioning.
+retry without privileged provisioning. Validation failures in any step keep you
+on the current page so you can fix the input without losing progress.
 
 ## Standalone CLI utility
 
@@ -55,5 +82,5 @@ python3 scripts/setup_atlas.py
 ## Testing
 
 Unit tests covering the GTK wizard live in `tests/test_setup_wizard.py`. They
-exercise the happy path and validation rules by faking the controller layer.
-The CLI helpers remain covered by `tests/test_setup_cli.py`.
+exercise the happy path and validation rules for every step by faking the
+controller layer. The CLI helpers remain covered by `tests/test_setup_cli.py`.
