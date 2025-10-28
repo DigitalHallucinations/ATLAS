@@ -51,11 +51,6 @@ class SetupUtility:
     def run(self) -> Path:
         """Execute the full setup workflow."""
 
-        project_root = Path(__file__).resolve().parents[2]
-        self._print("Preparing Python environment…")
-        venv_path = self.ensure_virtualenv(project_root)
-        self._print(f"Virtual environment ready at {venv_path}.")
-
         self.install_postgresql()
 
         dsn = self.configure_database()
