@@ -1,9 +1,6 @@
 import importlib
-import logging
 import sys
 import types
-
-import pytest
 
 
 if 'gi' not in sys.modules:
@@ -18,14 +15,20 @@ if 'gi' not in sys.modules:
     Gtk = types.ModuleType('Gtk')
 
     class Application:
-        def __init__(self, *args, **kwargs):
-            pass
+        last_instance = None
 
-        def connect(self, *args, **kwargs):
-            pass
+        def __init__(self, *args, **kwargs):
+            self._signals = {}
+            Application.last_instance = self
+
+        def connect(self, signal, handler):
+            self._signals[signal] = handler
 
         def run(self, *args, **kwargs):
-            pass
+            handler = self._signals.get('activate')
+            if handler is None:
+                raise AssertionError('activate handler not connected')
+            handler(self)
 
     Gtk.Application = Application
 
@@ -37,48 +40,80 @@ if 'gi' not in sys.modules:
     sys.modules['gi.repository.Gtk'] = Gtk
 
 
-def test_main_exits_when_setup_incomplete(monkeypatch, caplog):
+def test_main_launches_setup_when_incomplete(monkeypatch):
     stub_sidebar = types.ModuleType('GTKUI.sidebar')
 
     class DummyMainWindow:
         def __init__(self, atlas):
             self.atlas = atlas
 
-        def set_application(self, application):
-            self.application = application
-
-        def present(self):
-            self.presented = True
-
     stub_sidebar.MainWindow = DummyMainWindow
     monkeypatch.setitem(sys.modules, 'GTKUI.sidebar', stub_sidebar)
 
-    stub_atlas = types.ModuleType('ATLAS.ATLAS')
+    stub_atlas_module = types.ModuleType('ATLAS.ATLAS')
 
     class DummyAtlas:
         async def initialize(self):
             return None
 
-    stub_atlas.ATLAS = DummyAtlas
-    monkeypatch.setitem(sys.modules, 'ATLAS.ATLAS', stub_atlas)
+    stub_atlas_module.ATLAS = DummyAtlas
+    monkeypatch.setitem(sys.modules, 'ATLAS.ATLAS', stub_atlas_module)
 
     sys.modules.pop('main', None)
     module = importlib.import_module('main')
 
-    def fail_is_setup_complete():
+    class DummyCoordinator:
+        instance = None
+
+        def __init__(self, *, application, atlas_factory, main_window_cls, **kwargs):
+            DummyCoordinator.instance = self
+            self.application = application
+            self.atlas_factory = atlas_factory
+            self.main_window_cls = main_window_cls
+            self.kwargs = kwargs
+            self.atlas = None
+            self.main_window = None
+            self.setup_window = None
+
+        def activate(self):
+            try:
+                self.atlas = self.atlas_factory()
+            except RuntimeError:
+                self.setup_window = object()
+            else:
+                self.main_window = self.main_window_cls(self.atlas)
+
+    monkeypatch.setattr(module, 'FirstRunCoordinator', DummyCoordinator)
+
+    setup_checks = []
+
+    def fake_is_setup_complete():
+        setup_checks.append(True)
         return False
 
-    monkeypatch.setattr(module, 'is_setup_complete', fail_is_setup_complete)
+    monkeypatch.setattr(module, 'is_setup_complete', fake_is_setup_complete)
 
-    class FailingApplication:
-        def __init__(self, *args, **kwargs):
-            raise AssertionError('GTK application should not be created when setup is incomplete.')
+    module.Gtk.Application.last_instance = None
 
-    monkeypatch.setattr(module.Gtk, 'Application', FailingApplication)
+    module.main()
 
-    with caplog.at_level(logging.ERROR):
-        with pytest.raises(SystemExit) as excinfo:
-            module.main()
+    app = module.Gtk.Application.last_instance
+    assert app is not None
 
-    assert excinfo.value.code == 1
-    assert 'setup' in caplog.text.lower()
+    coordinator = getattr(app, '_first_run_coordinator', None)
+    assert coordinator is DummyCoordinator.instance
+    assert coordinator.application is app
+    assert coordinator.main_window is None
+    assert coordinator.setup_window is not None
+
+    assert getattr(app, '_setup_window', None) is coordinator.setup_window
+    assert getattr(app, '_atlas_instance', None) is None
+    assert getattr(app, '_main_window', None) is None
+    assert setup_checks
+
+    try:
+        DummyCoordinator.instance.atlas_factory()
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError('atlas_factory should raise when setup is incomplete')
