@@ -1,6 +1,7 @@
 import dataclasses
 import types
 from pathlib import Path
+from unittest.mock import Mock
 
 from ATLAS.setup import BootstrapError, OptionalState, UserState
 from ATLAS.setup.cli import SetupUtility
@@ -175,3 +176,52 @@ def test_finalize_writes_marker(monkeypatch, tmp_path: Path):
     assert captured["setup_complete"] is True
     assert captured["summary"] == summary
     assert result == marker_path
+
+
+def test_run_skips_virtualenv_and_focuses_on_configuration(monkeypatch):
+    controller = DummyController()
+    utility = SetupUtility(
+        controller=controller,
+        input_func=lambda prompt: "",
+        getpass_func=lambda prompt: "",
+        print_func=lambda message: None,
+    )
+
+    order: list[str] = []
+
+    def recorder(name: str, return_value):
+        def _(*args, **kwargs):
+            order.append(name)
+            return return_value
+
+        return _
+
+    monkeypatch.setattr(utility, "ensure_virtualenv", Mock(side_effect=AssertionError("should not be called")))
+    monkeypatch.setattr(utility, "install_postgresql", recorder("install_postgresql", None))
+    monkeypatch.setattr(utility, "configure_database", recorder("configure_database", "dsn"))
+    monkeypatch.setattr(utility, "configure_kv_store", recorder("configure_kv_store", {}))
+    monkeypatch.setattr(utility, "configure_job_scheduling", recorder("configure_job_scheduling", {}))
+    monkeypatch.setattr(utility, "configure_message_bus", recorder("configure_message_bus", {}))
+    monkeypatch.setattr(utility, "configure_providers", recorder("configure_providers", {}))
+    monkeypatch.setattr(utility, "configure_speech", recorder("configure_speech", {}))
+    monkeypatch.setattr(utility, "configure_user", recorder("configure_user", {}))
+    monkeypatch.setattr(utility, "configure_optional_settings", recorder("configure_optional_settings", {}))
+
+    sentinel = Path("/tmp/setup.json")
+    monkeypatch.setattr(utility, "finalize", recorder("finalize", sentinel))
+
+    result = utility.run()
+
+    assert result == sentinel
+    assert order == [
+        "install_postgresql",
+        "configure_database",
+        "configure_kv_store",
+        "configure_job_scheduling",
+        "configure_message_bus",
+        "configure_providers",
+        "configure_speech",
+        "configure_user",
+        "configure_optional_settings",
+        "finalize",
+    ]
