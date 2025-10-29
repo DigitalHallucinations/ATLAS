@@ -76,28 +76,50 @@ class SetupWizardWindow(AtlasWindow):
         scroller.set_propagate_natural_height(False)
         root.append(scroller)
 
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+        content.set_hexpand(True)
+        content.set_vexpand(True)
         scroller.set_child(content)
+
+        self._form_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self._form_column.set_hexpand(True)
+        self._form_column.set_vexpand(True)
+        content.append(self._form_column)
+
+        guidance_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        guidance_column.set_hexpand(True)
+        guidance_column.set_vexpand(True)
+        content.append(guidance_column)
 
         header = Gtk.Label(label="Complete the following steps to finish configuring ATLAS.")
         header.set_wrap(True)
         header.set_xalign(0.0)
-        content.append(header)
+        header.set_hexpand(True)
+        guidance_column.append(header)
 
         self._status_label = Gtk.Label()
         self._status_label.set_wrap(True)
         self._status_label.set_xalign(0.0)
-        content.append(self._status_label)
+        self._status_label.set_hexpand(True)
+        guidance_column.append(self._status_label)
+
+        self._instructions_label = Gtk.Label()
+        self._instructions_label.set_wrap(True)
+        self._instructions_label.set_xalign(0.0)
+        self._instructions_label.set_hexpand(True)
+        self._instructions_label.set_vexpand(True)
+        self._instructions_label.set_visible(False)
+        guidance_column.append(self._instructions_label)
 
         self._stack = Gtk.Stack()
         self._stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         self._stack.set_vexpand(True)
-        content.append(self._stack)
+        self._form_column.append(self._stack)
 
         self._switcher = Gtk.StackSwitcher()
         self._switcher.set_stack(self._stack)
         self._stack.connect("notify::visible-child", self._on_stack_visible_child_changed)
-        content.append(self._switcher)
+        self._form_column.append(self._switcher)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         controls.set_halign(Gtk.Align.END)
@@ -113,6 +135,8 @@ class SetupWizardWindow(AtlasWindow):
 
         self._steps: List[WizardStep] = []
         self._current_index = 0
+
+        self._instructions_by_widget: Dict[Gtk.Widget, str] = {}
 
         self._database_entries: Dict[str, Gtk.Entry] = {}
         self._provider_entries: Dict[str, Gtk.Entry] = {}
@@ -194,26 +218,24 @@ class SetupWizardWindow(AtlasWindow):
         for step in self._steps:
             self._stack.add_titled(step.widget, step.name.lower(), step.name)
 
-    def _wrap_with_instructions(self, form: Gtk.Widget, instructions: str) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
-        box.set_hexpand(True)
+    def _register_instructions(self, widget: Gtk.Widget, instructions: str) -> None:
+        self._instructions_by_widget[widget] = instructions
 
+    def _wrap_with_instructions(self, form: Gtk.Widget, instructions: str) -> Gtk.Widget:
         form.set_halign(Gtk.Align.START)
         form.set_hexpand(False)
-        box.append(form)
+        self._register_instructions(form, instructions)
+        return form
 
-        instruction_label = Gtk.Label(label=instructions)
-        instruction_label.set_wrap(True)
-        instruction_label.set_xalign(0.0)
-        instruction_label.set_hexpand(True)
-        instruction_label.set_valign(Gtk.Align.START)
-        instruction_label.set_margin_start(12)
-        instruction_label.set_margin_end(12)
-        instruction_label.set_margin_top(6)
-        instruction_label.set_margin_bottom(6)
-        box.append(instruction_label)
+    def _update_guidance_for_widget(self, widget: Gtk.Widget | None) -> None:
+        if widget is None:
+            self._instructions_label.set_text("")
+            self._instructions_label.set_visible(False)
+            return
 
-        return box
+        instructions = self._instructions_by_widget.get(widget, "")
+        self._instructions_label.set_text(instructions)
+        self._instructions_label.set_visible(bool(instructions))
 
     def _build_database_page(self) -> Gtk.Widget:
         state = self.controller.state.database
@@ -266,6 +288,12 @@ class SetupWizardWindow(AtlasWindow):
         self._provider_buffer.set_text(self._format_api_keys(state.api_keys))
         box.append(view)
 
+        instructions = (
+            "Set the default provider and model used for conversations, then supply any API"
+            " keys the assistant needs. Add keys one per line in provider=key format."
+        )
+
+        self._register_instructions(box, instructions)
         return box
 
     def _build_kv_store_page(self) -> Gtk.Widget:
@@ -284,15 +312,12 @@ class SetupWizardWindow(AtlasWindow):
         self._kv_widgets["url"] = url_entry
         box.append(url_entry)
 
-        hint = Gtk.Label(
-            label=(
-                "If reuse is disabled, provide a SQLAlchemy-compatible DSN for the key-value store."
-            )
+        instructions = (
+            "Reuse the existing conversation store for key-value storage, or provide a dedicated"
+            " DSN when you need an external database."
         )
-        hint.set_wrap(True)
-        hint.set_xalign(0.0)
-        box.append(hint)
 
+        self._register_instructions(box, instructions)
         return box
 
     def _build_job_scheduling_page(self) -> Gtk.Widget:
@@ -347,6 +372,12 @@ class SetupWizardWindow(AtlasWindow):
             grid, row, "Backoff multiplier", self._format_float(retry.backoff_multiplier)
         )
 
+        instructions = (
+            "Enable durable job scheduling and configure the worker pool, timezone,"
+            " and retry policy used for queued jobs."
+        )
+
+        self._register_instructions(grid, instructions)
         return grid
 
     def _build_message_bus_page(self) -> Gtk.Widget:
@@ -374,16 +405,13 @@ class SetupWizardWindow(AtlasWindow):
             grid, 2, "Stream prefix", state.stream_prefix or ""
         )
 
-        hint = Gtk.Label(
-            label=(
-                "Use the Redis backend to enable distributed task processing. The in-memory "
-                "backend is suitable for single-instance deployments."
-            )
+        instructions = (
+            "Choose the message bus backend used for inter-process communication."
+            " Select Redis to coordinate multiple workers or keep the in-memory backend for"
+            " single-instance deployments."
         )
-        hint.set_wrap(True)
-        hint.set_xalign(0.0)
-        grid.attach(hint, 0, 3, 2, 1)
 
+        self._register_instructions(grid, instructions)
         return grid
 
     def _build_speech_page(self) -> Gtk.Widget:
@@ -416,6 +444,12 @@ class SetupWizardWindow(AtlasWindow):
             grid, 6, "Google speech credentials path", state.google_credentials or ""
         )
 
+        instructions = (
+            "Enable text-to-speech or speech-to-text features and provide credentials for the"
+            " services you plan to use."
+        )
+
+        self._register_instructions(grid, instructions)
         return grid
 
     def _build_optional_page(self) -> Gtk.Widget:
@@ -449,6 +483,12 @@ class SetupWizardWindow(AtlasWindow):
         self._optional_widgets["http_auto_start"] = http_toggle
         grid.attach(http_toggle, 0, 5, 2, 1)
 
+        instructions = (
+            "Configure optional tuning parameters such as tenant scoping, retention policies,"
+            " and scheduler defaults."
+        )
+
+        self._register_instructions(grid, instructions)
         return grid
 
     def _build_user_page(self) -> Gtk.Widget:
@@ -557,6 +597,7 @@ class SetupWizardWindow(AtlasWindow):
         step = self._steps[self._current_index]
         self._stack.set_visible_child(step.widget)
         self._update_navigation()
+        self._update_guidance_for_widget(step.widget)
 
     def _on_stack_visible_child_changed(
         self, stack: Gtk.Stack, _param_spec: object
@@ -579,6 +620,7 @@ class SetupWizardWindow(AtlasWindow):
 
         self._current_index = index
         self._update_navigation()
+        self._update_guidance_for_widget(child)
 
     def _update_navigation(self) -> None:
         if hasattr(self._back_button, "set_sensitive"):
