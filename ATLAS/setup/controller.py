@@ -388,6 +388,7 @@ class SetupWizardController:
             "database": dataclasses.asdict(self.state.database),
             "job_scheduling": dataclasses.asdict(self.state.job_scheduling),
             "message_bus": dataclasses.asdict(self.state.message_bus),
+            "kv_store": dataclasses.asdict(self.state.kv_store),
             "providers": {
                 "default_provider": self.state.providers.default_provider,
                 "default_model": self.state.providers.default_model,
