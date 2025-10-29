@@ -64,6 +64,8 @@ ATLAS centralises runtime configuration in `ConfigManager`, which merges `.env` 
 | `retention.days` | Optional integer retention window. `.env` `CONVERSATION_DATABASE_RETENTION_DAYS` overrides YAML when present.【F:ATLAS/config.py†L392-L408】 | `CONVERSATION_DATABASE_RETENTION_DAYS`. | Background workers and APIs honour retention policies; see [conversation retention](conversation_retention.md).【F:docs/conversation_retention.md†L1-L34】 |
 | `retention.history_message_limit` | Integer; defaults to `500` messages when unset.【F:ATLAS/config.py†L392-L408】 | None. | Conversation trimming routines; see [conversation retention](conversation_retention.md).【F:docs/conversation_retention.md†L1-L34】 |
 
+Review the [conversation store data model](conversation-store.md) for table-level context and repository helpers that consume these settings.【F:docs/conversation-store.md†L1-L88】
+
 ### `messaging`
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |

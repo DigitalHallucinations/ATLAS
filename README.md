@@ -35,6 +35,7 @@ The application will initialize the ATLAS runtime and present the primary window
 - [Tool manifest metadata](docs/tool-manifest.md) and the [generated tool catalog](docs/generated/tools.md) – Schema, discovery endpoints, and persona-scoped tool inventories.【F:docs/tool-manifest.md†L1-L156】【F:docs/generated/tools.md†L1-L61】
 - [Task queue](docs/tools/task_queue.md) and [key-value store](docs/tools/kv_store.md) tools – PostgreSQL-backed automation primitives with configuration and deployment guidance.【F:docs/tools/task_queue.md†L1-L77】【F:docs/tools/kv_store.md†L1-L70】
 - [Conversation retention](docs/conversation_retention.md) – Policy knobs and background workers that manage store retention windows.【F:docs/conversation_retention.md†L1-L34】
+- [Conversation store data model](docs/conversation-store.md) – PostgreSQL schema, repository helpers, and subsystem integration points for conversations, memories, assets, and accounts.【F:docs/conversation-store.md†L1-L88】
 - [User account management](docs/user-accounts.md) – Credential storage, password policies, lockout handling, and operator workflows for managing local accounts.【F:docs/user-accounts.md†L1-L45】
 - [Shared blackboard](docs/blackboard.md) – Collaboration surface for skills and external agents with REST and streaming APIs.【F:docs/blackboard.md†L1-L58】
 - [AtlasServer API reference](docs/server/api.md) – Conversation, task, job, persona, and blackboard endpoints with pagination, filtering, and error semantics.【F:docs/server/api.md†L1-L189】
