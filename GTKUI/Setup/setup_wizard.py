@@ -24,6 +24,7 @@ from ATLAS.setup import (
     UserState,
 )
 from ATLAS.setup_marker import write_setup_marker
+from GTKUI.Utils.styled_window import AtlasWindow
 from modules.conversation_store.bootstrap import BootstrapError
 
 Callback = Callable[[], None]
@@ -37,7 +38,7 @@ class WizardStep:
     apply: Callable[[], str]
 
 
-class SetupWizardWindow(Gtk.Window):
+class SetupWizardWindow(AtlasWindow):
     """A small multi-step wizard bound to :class:`SetupWizardController`."""
 
     def __init__(
@@ -50,9 +51,11 @@ class SetupWizardWindow(Gtk.Window):
         error: BaseException | None = None,
         controller: CoreSetupWizardController | None = None,
     ) -> None:
-        super().__init__()
-        if hasattr(self, "set_title"):
-            self.set_title("ATLAS Setup Utility")
+        desired_width, desired_height = 960, 720
+        super().__init__(
+            title="ATLAS Setup Utility",
+            default_size=(desired_width, desired_height),
+        )
         self.set_application(application)
         self._on_success = on_success
         self._on_error = on_error
@@ -66,20 +69,29 @@ class SetupWizardWindow(Gtk.Window):
         root.set_margin_end(18)
         self.set_child(root)
 
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_vexpand(True)
+        scroller.set_hexpand(True)
+        root.append(scroller)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        scroller.set_child(content)
+
         header = Gtk.Label(label="Complete the following steps to finish configuring ATLAS.")
         header.set_wrap(True)
         header.set_xalign(0.0)
-        root.append(header)
+        content.append(header)
 
         self._status_label = Gtk.Label()
         self._status_label.set_wrap(True)
         self._status_label.set_xalign(0.0)
-        root.append(self._status_label)
+        content.append(self._status_label)
 
         self._stack = Gtk.Stack()
         self._stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         self._stack.set_vexpand(True)
-        root.append(self._stack)
+        content.append(self._stack)
 
         self._switcher = Gtk.StackSwitcher()
         self._switcher.set_stack(self._stack)
