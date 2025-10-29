@@ -9,7 +9,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("GLib", "2.0")
-from gi.repository import GLib, Gtk
+from gi.repository import GLib, Gdk, Gtk
 
 from ATLAS.setup import (
     DatabaseState,
@@ -51,7 +51,30 @@ class SetupWizardWindow(AtlasWindow):
         error: BaseException | None = None,
         controller: CoreSetupWizardController | None = None,
     ) -> None:
-        desired_width, desired_height = 960, 720
+        preferred_width, preferred_height = 960, 720
+        fallback_width, fallback_height = 800, 600
+        margin = 64
+
+        desired_width, desired_height = fallback_width, fallback_height
+
+        display = Gdk.Display.get_default()
+        if display is not None:
+            monitors = display.get_monitors()
+            if monitors is not None and monitors.get_n_items() > 0:
+                monitor = monitors.get_item(0)
+                if monitor is not None:
+                    workarea = monitor.get_workarea()
+                    available_width = max(320, workarea.width - margin)
+                    available_height = max(320, workarea.height - margin)
+
+                    desired_width = min(preferred_width, available_width)
+                    desired_height = min(preferred_height, available_height)
+
+                    if available_width >= fallback_width:
+                        desired_width = max(desired_width, fallback_width)
+                    if available_height >= fallback_height:
+                        desired_height = max(desired_height, fallback_height)
+
         super().__init__(
             title="ATLAS Setup Utility",
             default_size=(desired_width, desired_height),
@@ -67,6 +90,8 @@ class SetupWizardWindow(AtlasWindow):
         root.set_margin_bottom(18)
         root.set_margin_start(18)
         root.set_margin_end(18)
+        root.set_vexpand(True)
+        root.set_hexpand(True)
         self.set_child(root)
 
         scroller = Gtk.ScrolledWindow()
