@@ -132,7 +132,7 @@ class SetupWizardWindow(AtlasWindow):
         self._instructions_label.set_wrap(True)
         self._instructions_label.set_xalign(0.0)
         self._instructions_label.set_hexpand(True)
-        self._instructions_label.set_vexpand(True)
+        self._instructions_label.set_valign(Gtk.Align.START)
         self._instructions_label.set_visible(False)
         guidance_column.append(self._instructions_label)
 
