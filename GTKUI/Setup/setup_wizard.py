@@ -73,6 +73,7 @@ class SetupWizardWindow(AtlasWindow):
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroller.set_vexpand(True)
         scroller.set_hexpand(True)
+        scroller.set_propagate_natural_height(False)
         root.append(scroller)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -96,7 +97,7 @@ class SetupWizardWindow(AtlasWindow):
         self._switcher = Gtk.StackSwitcher()
         self._switcher.set_stack(self._stack)
         self._stack.connect("notify::visible-child", self._on_stack_visible_child_changed)
-        root.append(self._switcher)
+        content.append(self._switcher)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         controls.set_halign(Gtk.Align.END)
