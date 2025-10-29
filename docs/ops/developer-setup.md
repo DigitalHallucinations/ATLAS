@@ -55,3 +55,6 @@ Start the wizard by running `python3 main.py` without an existing configuration,
 - **Switching Python versions** – Recreate the virtual environment with the appropriate interpreter using the `--python` flag, then re-run setup to ensure compiled dependencies match the new version.
 
 After resolving issues, re-run the relevant installer or setup helper to verify that configuration and dependencies were written successfully.
+
+## Learn the GTK shell
+Review the [GTK UI overview](../ui/gtk-overview.md) for a tour of the main window layout, embedded managers, and extension points once your environment is ready.
