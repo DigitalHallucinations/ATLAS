@@ -15,7 +15,7 @@ At startup the application configures message-bus backends, speech services, per
 - **Python 3.10 or newer** – The codebase uses Python 3.10 union type syntax (for example `ATLAS | None`), so run the environment bootstrap with a modern `python3` interpreter.【F:main.py†L22-L34】【F:docs/setup-wizard.md†L45-L54】
 - **PostgreSQL 14+** – Conversation history, key-value state, and scheduling primitives are all backed by PostgreSQL. Setup helpers verify the server, install client utilities when needed, and refuse to start without a PostgreSQL DSN.【F:docs/release-notes.md†L21-L23】【F:modules/conversation_store/bootstrap.py†L242-L312】【F:docs/tools/task_queue.md†L1-L37】【F:docs/tools/kv_store.md†L19-L39】
 - **Redis (optional)** – Redis Streams provide a durable message-bus backend for production deployments; in-memory queues remain available for local development and as a fallback when Redis is absent.【F:docs/ops/messaging.md†L3-L41】
-- Install Python dependencies by running the provided helper script inside your virtual environment.【F:docs/setup-wizard.md†L45-L54】
+- Follow the [developer environment setup runbook](docs/ops/developer-setup.md) to create the virtual environment, install dependencies, and choose between the CLI and GTK setup flows.
 - Review the [configuration reference](docs/configuration.md) to map environment variables and YAML blocks before first launch.【F:docs/configuration.md†L1-L148】
 
 ## Launching the desktop shell and automation APIs
@@ -36,3 +36,4 @@ The application will initialize the ATLAS runtime and present the primary window
 - [Task queue](docs/tools/task_queue.md) and [key-value store](docs/tools/kv_store.md) tools – PostgreSQL-backed automation primitives with configuration and deployment guidance.【F:docs/tools/task_queue.md†L1-L77】【F:docs/tools/kv_store.md†L1-L70】
 - [Conversation retention](docs/conversation_retention.md) – Policy knobs and background workers that manage store retention windows.【F:docs/conversation_retention.md†L1-L34】
 - [Shared blackboard](docs/blackboard.md) – Collaboration surface for skills and external agents with REST and streaming APIs.【F:docs/blackboard.md†L1-L58】
+- [Operations runbooks](docs/ops/README.md) – Developer environment preparation and messaging bus deployment guides.
