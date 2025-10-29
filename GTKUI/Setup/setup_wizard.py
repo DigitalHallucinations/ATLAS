@@ -193,6 +193,27 @@ class SetupWizardWindow(AtlasWindow):
         for step in self._steps:
             self._stack.add_titled(step.widget, step.name.lower(), step.name)
 
+    def _wrap_with_instructions(self, form: Gtk.Widget, instructions: str) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+        box.set_hexpand(True)
+
+        form.set_halign(Gtk.Align.START)
+        form.set_hexpand(False)
+        box.append(form)
+
+        instruction_label = Gtk.Label(label=instructions)
+        instruction_label.set_wrap(True)
+        instruction_label.set_xalign(0.0)
+        instruction_label.set_hexpand(True)
+        instruction_label.set_valign(Gtk.Align.START)
+        instruction_label.set_margin_start(12)
+        instruction_label.set_margin_end(12)
+        instruction_label.set_margin_top(6)
+        instruction_label.set_margin_bottom(6)
+        box.append(instruction_label)
+
+        return box
+
     def _build_database_page(self) -> Gtk.Widget:
         state = self.controller.state.database
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
@@ -207,17 +228,12 @@ class SetupWizardWindow(AtlasWindow):
             grid, 4, "Password", state.password, visibility=False
         )
 
-        help_label = Gtk.Label(
-            label=(
-                "Enter the PostgreSQL connection details. If the conversation store "
-                "already exists, the wizard will reuse it."
-            )
+        instructions = (
+            "Enter the PostgreSQL connection details. If the conversation store "
+            "already exists, the wizard will reuse it."
         )
-        help_label.set_wrap(True)
-        help_label.set_xalign(0.0)
-        grid.attach(help_label, 0, 5, 2, 1)
 
-        return grid
+        return self._wrap_with_instructions(grid, instructions)
 
     def _build_provider_page(self) -> Gtk.Widget:
         state = self.controller.state.providers
@@ -448,14 +464,9 @@ class SetupWizardWindow(AtlasWindow):
             grid, 4, "Confirm password", state.password, visibility=False
         )
 
-        hint = Gtk.Label(
-            label="Create the administrator account that will be used to sign in after setup."
-        )
-        hint.set_wrap(True)
-        hint.set_xalign(0.0)
-        grid.attach(hint, 0, 5, 2, 1)
+        instructions = "Create the administrator account that will be used to sign in after setup."
 
-        return grid
+        return self._wrap_with_instructions(grid, instructions)
 
     def _create_labeled_entry(
         self,
