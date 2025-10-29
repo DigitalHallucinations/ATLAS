@@ -56,5 +56,8 @@ Start the wizard by running `python3 main.py` without an existing configuration,
 
 After resolving issues, re-run the relevant installer or setup helper to verify that configuration and dependencies were written successfully.
 
+## Manage local user accounts
+Account creation, password policies, and lockout recovery are handled by the user account service. Review the [user account management guide](../user-accounts.md) for details on how credentials are stored, how reset tokens are issued, and how operators should respond to duplicate or locked accounts before onboarding new teammates.【F:docs/user-accounts.md†L1-L45】
+
 ## Learn the GTK shell
 Review the [GTK UI overview](../ui/gtk-overview.md) for a tour of the main window layout, embedded managers, and extension points once your environment is ready.
