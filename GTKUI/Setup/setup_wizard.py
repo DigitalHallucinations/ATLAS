@@ -473,7 +473,9 @@ class SetupWizardWindow(AtlasWindow):
         entry = Gtk.Entry()
         entry.set_visibility(visibility)
         entry.set_text(value)
-        entry.set_hexpand(True)
+        entry.set_hexpand(False)
+        entry.set_width_chars(25)
+        entry.set_max_width_chars(25)
         grid.attach(entry, 1, row, 1, 1)
         return entry
 
@@ -481,7 +483,9 @@ class SetupWizardWindow(AtlasWindow):
         entry = Gtk.Entry()
         entry.set_placeholder_text(placeholder)
         entry.set_text(value)
-        entry.set_hexpand(True)
+        entry.set_hexpand(False)
+        entry.set_width_chars(25)
+        entry.set_max_width_chars(25)
         return entry
 
     def _format_api_keys(self, mapping: Dict[str, str]) -> str:
