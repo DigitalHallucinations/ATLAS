@@ -95,6 +95,7 @@ class SetupWizardWindow(AtlasWindow):
 
         self._switcher = Gtk.StackSwitcher()
         self._switcher.set_stack(self._stack)
+        self._stack.connect("notify::visible-child", self._on_stack_visible_child_changed)
         root.append(self._switcher)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -525,6 +526,28 @@ class SetupWizardWindow(AtlasWindow):
         self._current_index = max(0, min(index, len(self._steps) - 1))
         step = self._steps[self._current_index]
         self._stack.set_visible_child(step.widget)
+        self._update_navigation()
+
+    def _on_stack_visible_child_changed(
+        self, stack: Gtk.Stack, _param_spec: object
+    ) -> None:
+        if not self._steps:
+            return
+
+        child = stack.get_visible_child()
+        if child is None:
+            return
+
+        for index, step in enumerate(self._steps):
+            if step.widget is child:
+                break
+        else:
+            return
+
+        if index == self._current_index:
+            return
+
+        self._current_index = index
         self._update_navigation()
 
     def _update_navigation(self) -> None:
