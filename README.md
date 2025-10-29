@@ -5,7 +5,9 @@ ATLAS combines a GTK desktop shell, configurable personas, and an orchestration 
 
 ## Major subsystems
 - **GTK desktop shell** – `main.py` boots a GTK 4 application that initializes ATLAS instances on demand, launches the first-run coordinator, and keeps setup, shell, and window controllers alive for the duration of the session.
-- **Persona runtime** – Persona definitions, toolboxes, and validation rules live under `modules/Personas/` and are documented in the persona guide. They control which tools, skills, and collaboration patterns each persona can access, and include task manifests for persona-specific workflows.【F:docs/Personas.md†L1-L105】
+
+- **Persona runtime** – Persona definitions, toolboxes, and validation rules live under `modules/Personas/` and are documented in the persona guide. They control which tools, skills, and collaboration patterns each persona can access, and include task manifests for persona-specific workflows.
+
 - **Orchestration back end** – The orchestration layer manages message-bus communication, task dispatch, job planning, and capability registry services that feed both automation APIs and UI analytics.
 
 ## High-level architecture
@@ -28,7 +30,7 @@ After completing setup, start the GTK shell from the repository root with:
 python3 main.py
 ```
 
-The application will initialize the ATLAS runtime and present the primary window or, when configuration is missing, guide you through the setup wizard.【F:main.py†L18-L55】【F:docs/setup-wizard.md†L56-L70】 Server and automation surfaces live in `modules/Server/`, where `AtlasServer` wires REST and streaming routes for conversations, tasks, jobs, tools, skills, and shared blackboard collaboration. Tool discovery endpoints (for example `/tools`) and capability registries feed downstream automations and dashboards.
+The application will initialize the ATLAS runtime and present the primary window or, when configuration is missing, guide you through the setup wizard. Server and automation surfaces live in `modules/Server/`, where `AtlasServer` wires REST and streaming routes for conversations, tasks, jobs, tools, skills, and shared blackboard collaboration. Tool discovery endpoints (for example `/tools`) and capability registries feed downstream automations and dashboards.
 
 ## Documentation map
 - [Setup wizard](docs/setup-wizard.md) – Guided configuration flow, CLI helper, and environment bootstrap instructions.
