@@ -141,10 +141,18 @@ class SetupWizardWindow(AtlasWindow):
         self._stack.set_vexpand(True)
         self._form_column.append(self._stack)
 
-        self._switcher = Gtk.StackSwitcher()
-        self._switcher.set_stack(self._stack)
         self._stack.connect("notify::visible-child", self._on_stack_visible_child_changed)
-        self._form_column.append(self._switcher)
+
+        step_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        step_bar.set_halign(Gtk.Align.START)
+        step_bar.set_hexpand(False)
+        step_bar.set_vexpand(False)
+        self._step_indicator = Gtk.Label()
+        self._step_indicator.set_xalign(0.0)
+        self._step_indicator.set_halign(Gtk.Align.START)
+        self._step_indicator.set_hexpand(False)
+        step_bar.append(self._step_indicator)
+        root.append(step_bar)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         controls.set_halign(Gtk.Align.END)
@@ -623,6 +631,7 @@ class SetupWizardWindow(AtlasWindow):
         self._stack.set_visible_child(step.widget)
         self._update_navigation()
         self._update_guidance_for_widget(step.widget)
+        self._update_step_indicator(step.name)
 
     def _on_stack_visible_child_changed(
         self, stack: Gtk.Stack, _param_spec: object
@@ -646,6 +655,10 @@ class SetupWizardWindow(AtlasWindow):
         self._current_index = index
         self._update_navigation()
         self._update_guidance_for_widget(child)
+        self._update_step_indicator(self._steps[self._current_index].name)
+
+    def _update_step_indicator(self, name: str) -> None:
+        self._step_indicator.set_text(name)
 
     def _update_navigation(self) -> None:
         if hasattr(self._back_button, "set_sensitive"):
