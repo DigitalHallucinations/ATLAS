@@ -1,58 +1,176 @@
-# ATLAS
 
-## Overview
-ATLAS combines a GTK desktop shell, configurable personas, and an orchestration back end to coordinate multi-agent work across conversations, scheduled jobs, and automation services. The core application wires configuration, provider management, persona loading, conversation storage, task orchestration, and job scheduling into a single runtime that tools and user interfaces share.
+# 🧠 ATLAS  
+### Modular, Multi-Provider, Multi-Persona Agentic Framework  
+*By Digital Hallucinations — Jeremy Shows*
 
-## Major subsystems
-- **GTK desktop shell** – `main.py` boots a GTK 4 application that initializes ATLAS instances on demand, launches the first-run coordinator, and keeps setup, shell, and window controllers alive for the duration of the session.
+---
 
-- **Persona runtime** – Persona definitions, toolboxes, and validation rules live under `modules/Personas/` and are documented in the persona guide. They control which tools, skills, and collaboration patterns each persona can access, and include task manifests for persona-specific workflows.
+> **ATLAS** combines a GTK desktop shell, configurable personas, and an orchestration back end to coordinate multi-agent work across conversations, scheduled jobs, and automation services.  
+>  
+> It merges **systemic orchestration** with **personal agency**, forming a unified runtime where configuration, provider management, persona logic, and automation coexist under one roof.
 
-- **Orchestration back end** – The orchestration layer manages message-bus communication, task dispatch, job planning, and capability registry services that feed both automation APIs and UI analytics.
+Where other frameworks chase closed ecosystems, ATLAS emphasizes **control**, **autonomy**, and **adaptability**.  
+It allows you to define not just *what* an agent does, but *how* it thinks, *who* it represents, and *which* provider powers it — all from a locally controlled, extensible environment.
 
-## High-level architecture
-At startup the application configures message-bus backends, speech services, persona and provider managers, and the PostgreSQL-backed conversation repository via the central `ConfigManager`. The orchestration stack layers task and job managers on top of that state, while the embedded `AtlasServer` exposes REST routes for conversations, tasks, jobs, tools, skills, and collaboration surfaces. This shared infrastructure lets the GTK shell, automation jobs, and external callers operate against the same message bus, storage, and capability registries.
+---
 
-## Runtime prerequisites
-- **Python 3.10 or newer** – The codebase uses Python 3.10 union type syntax (for example `ATLAS | None`), so run the environment bootstrap with a modern `python3` interpreter.
+## 🌍 Core Philosophy
 
-- **PostgreSQL 14+** – Conversation history, key-value state, and scheduling primitives are all backed by PostgreSQL. Setup helpers verify the server, install client utilities when needed, and refuse to start without a PostgreSQL DSN.
+ATLAS exists to give creators control over the frameworks that define their agents.  
+Every design choice supports *freedom from lock-in* and *clarity of orchestration*.
 
-- **Redis (optional)** – Redis Streams provide a durable message-bus backend for production deployments; in-memory queues remain available for local development and as a fallback when Redis is absent.
+> “I wanted features that mainstream companies only offered fractured examples of —  
+> and the freedom to make it do what I want, not what a corporation or government says I can.”
 
-- Follow the [developer environment setup runbook](docs/ops/developer-setup.md) to create the virtual environment, install dependencies, and choose between the CLI and GTK setup flows.
-- Review the [configuration reference](docs/configuration.md) to map environment variables and YAML blocks before first launch.
+Built under the **Digital Hallucinations** ecosystem, ATLAS merges precision engineering with persona-driven cognition and modular autonomy.
 
-## Launching the desktop shell and automation APIs
-After completing setup, start the GTK shell from the repository root with:
+---
+
+## 🧩 Major Subsystems
+
+- **GTK Desktop Shell** –  
+  `main.py` boots a GTK 4 application that initializes ATLAS instances on demand, launches the first-run coordinator, and keeps setup, shell, and window controllers alive for the duration of the session.
+
+- **Persona Runtime** –  
+  Persona definitions, toolboxes, and validation rules live under `modules/Personas/` and are documented in the persona guide.  
+  They control which tools, skills, and collaboration patterns each persona can access, and include task manifests for persona-specific workflows.
+
+- **Orchestration Back End** –  
+  The orchestration layer manages message-bus communication, task dispatch, job planning, and capability registry services that feed both automation APIs and UI analytics.
+
+---
+
+## 🧠 High-Level Architecture
+
+At startup, ATLAS configures message-bus backends, speech services, persona and provider managers, and the PostgreSQL-backed conversation repository via the central `ConfigManager`.
+
+The orchestration stack layers task and job managers on top of that state, while the embedded **AtlasServer** exposes REST routes for conversations, tasks, jobs, tools, skills, and collaboration surfaces.  
+This shared infrastructure lets the GTK shell, automation jobs, and external callers operate against the same message bus, storage, and capability registries.
+
+```mermaid
+flowchart TD
+    subgraph Core["ATLAS Core Runtime"]
+        A1[ConfigManager] --> A2[Message Bus / Redis Streams]
+        A1 --> A3[PostgreSQL Repository]
+        A1 --> A4[Provider Manager]
+        A1 --> A5[Persona Manager]
+    end
+    subgraph Orchestration["Task + Job Orchestration"]
+        B1[Task Dispatcher] --> B2[Job Scheduler]
+        B2 --> B3[Capability Registry]
+    end
+    subgraph Interfaces["Interfaces"]
+        C1[GTK Desktop Shell]
+        C2[AtlasServer REST / Streaming APIs]
+        C3[Automation Services]
+    end
+    Core --> Orchestration --> Interfaces
+````
+
+---
+
+## ⚙️ Runtime Prerequisites
+
+* **Python 3.10+** – uses modern union type syntax (e.g., `ATLAS | None`).
+* **PostgreSQL 14+** – backs conversation history, key-value state, and scheduling primitives.
+* **Redis (optional)** – durable message-bus backend; in-memory queues available for local dev.
+
+Follow the [developer environment setup runbook](docs/ops/developer-setup.md) to create the virtual environment, install dependencies, and choose between CLI or GTK setup flows.
+Review the [configuration reference](docs/configuration.md) to map environment variables and YAML blocks before first launch.
+
+---
+
+## 🪶 Installation
+
+```bash
+# Clone ATLAS
+git clone https://github.com/DigitalHallucinations/ATLAS.git
+cd ATLAS
+
+# Create a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+---
+
+## 🚀 Launching the Desktop Shell and Automation APIs
+
+Start the GTK shell from the repository root:
 
 ```bash
 python3 main.py
 ```
 
-The application will initialize the ATLAS runtime and present the primary window or, when configuration is missing, guide you through the setup wizard. Server and automation surfaces live in `modules/Server/`, where `AtlasServer` wires REST and streaming routes for conversations, tasks, jobs, tools, skills, and shared blackboard collaboration. Tool discovery endpoints (for example `/tools`) and capability registries feed downstream automations and dashboards.
+The application initializes the ATLAS runtime and presents the primary window or, when configuration is missing, guides you through the setup wizard.
+Server and automation surfaces live in `modules/Server/`, where `AtlasServer` wires REST and streaming routes for conversations, tasks, jobs, tools, skills, and shared blackboard collaboration.
+Tool discovery endpoints (e.g., `/tools`) and capability registries feed downstream automations and dashboards.
 
-## Documentation map
-- [Setup wizard](docs/setup-wizard.md) – Guided configuration flow, CLI helper, and environment bootstrap instructions.
+---
 
-- [Persona definitions](docs/Personas.md) – Schema, validation workflow, and persona-specific tooling guidance.
+## 🧰 Features
 
-- [Task lifecycle overview](docs/tasks/overview.md) – Task manifests, routing, analytics, and UI integration details.
-- [Job services](docs/jobs/api.md) and [job dashboards](docs/jobs/ui.md) – API entry points, lifecycle expectations, and UI analytics guidance.
+* 🧠 Multi-Persona Management — define and switch between intelligent, specialized personas.
+* 🌐 Multi-Provider Layer — dynamically select between OpenAI, Anthropic, xAI, or local LLMs.
+* 🧩 Extensible Tools — universal tool API for integrating retrieval, scheduling, or external modules.
+* 🪶 GTK Interface — sleek, native desktop environment for agent orchestration.
+* 🔐 Privacy & Local Autonomy — all control stays local; no enforced cloud dependency.
+* 🔄 Persistent Context — PostgreSQL-backed state and modular message-bus design.
+* 🧭 Unified Orchestration — conversations, jobs, and automations share a single runtime.
 
-- [Tool manifest metadata](docs/tool-manifest.md) and the [generated tool catalog](docs/generated/tools.md) – Schema, discovery endpoints, and persona-scoped tool inventories.
+---
 
-- [Task queue](docs/tools/task_queue.md) and [key-value store](docs/tools/kv_store.md) tools – PostgreSQL-backed automation primitives with configuration and deployment guidance.
+## 🧾 Documentation Map
 
-- [Conversation retention](docs/conversation_retention.md) – Policy knobs and background workers that manage store retention windows.
+* [Setup Wizard](docs/setup-wizard.md) – guided configuration and bootstrap flow
+* [Persona Definitions](docs/Personas.md) – schema, validation, and persona-specific tooling
+* [Task Lifecycle Overview](docs/tasks/overview.md) – routing, analytics, and UI integration
+* [Job Services](docs/jobs/api.md) / [Job Dashboards](docs/jobs/ui.md) – APIs and analytics
+* [Tool Manifest Metadata](docs/tool-manifest.md) / [Generated Tool Catalog](docs/generated/tools.md)
+* [Task Queue](docs/tools/task_queue.md) / [Key-Value Store](docs/tools/kv_store.md)
+* [Conversation Retention](docs/conversation_retention.md) – policy and workers
+* [Conversation Store Data Model](docs/conversation-store.md) – PostgreSQL schema and helpers
+* [User Account Management](docs/user-accounts.md) – credentials, lockouts, and operator flows
+* [Shared Blackboard](docs/blackboard.md) – collaborative API surfaces
+* [AtlasServer API Reference](docs/server/api.md) – REST endpoints and semantics
+* [Operations Runbooks](docs/ops/README.md) – dev environment and bus deployment guides
+* [GTK UI Overview](docs/ui/gtk-overview.md) – workspace controllers and extensions
 
-- [Conversation store data model](docs/conversation-store.md) – PostgreSQL schema, repository helpers, and subsystem integration points for conversations, memories, assets, and accounts.
+---
 
-- [User account management](docs/user-accounts.md) – Credential storage, password policies, lockout handling, and operator workflows for managing local accounts.
+## 🧭 Project Roadmap
 
-- [Shared blackboard](docs/blackboard.md) – Collaboration surface for skills and external agents with REST and streaming APIs.
+| Phase                       | Focus                                                |
+| --------------------------- | ---------------------------------------------------- |
+| ✅ **Core Framework**        | Multi-persona, multi-provider orchestration          |
+| 🧩 **Tool Ecosystem**       | Expand universal built-ins and automation primitives |
+| 🪶 **UI Enhancements**      | Themes, visualization, live context tracing          |
+| ⚡ **CI/CD + Testing**       | GitHub Actions, linting, and coverage                |
+| 🔄 **Plugin Registry**      | Public index for ATLAS modules and personas          |
+| 💬 **Documentation Portal** | Interactive docs and tutorials                       |
 
-- [AtlasServer API reference](docs/server/api.md) – Conversation, task, job, persona, and blackboard endpoints with pagination, filtering, and error semantics.
+---
 
-- [Operations runbooks](docs/ops/README.md) – Developer environment preparation and messaging bus deployment guides.
-- [GTK UI overview](docs/ui/gtk-overview.md) – GTK shell structure, workspace controllers, and extension guidance for the desktop application.
+## 🤝 Contributing
+
+Contributions are welcome.
+If you’d like to build a persona, tool, or provider adapter, fork the repo and open a pull request.
+Follow PEP 8 and ensure tests pass with `pytest` before submitting.
+
+---
+
+## 🜂 Credits
+
+Created and maintained by **Jeremy Shows**
+Part of the **Digital Hallucinations** ecosystem.
+
+> “ATLAS isn’t just an assistant — it’s a framework for agency.”
+
+---
+
+## 📣 Tags
+
+`#AI` `#AgenticFramework` `#OpenSource` `#GTK` `#MultiProvider` `#DigitalHallucinations` `#Python`
