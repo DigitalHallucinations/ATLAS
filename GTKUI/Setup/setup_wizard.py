@@ -125,6 +125,7 @@ class SetupWizardWindow(AtlasWindow):
         self._optional_widgets: Dict[str, Gtk.Widget] = {}
         self._setup_persisted = False
         self._privileged_credentials: Optional[Tuple[Optional[str], Optional[str]]] = None
+        self._entry_pixel_width: Optional[int] = None
 
         self._build_steps()
         if error is not None:
@@ -360,7 +361,9 @@ class SetupWizardWindow(AtlasWindow):
         backend_combo.append("in_memory", "In-memory")
         backend_combo.append("redis", "Redis")
         backend_combo.set_active_id(state.backend or "in_memory")
-        backend_combo.set_hexpand(True)
+        backend_combo.set_hexpand(False)
+        backend_combo.set_halign(Gtk.Align.START)
+        backend_combo.set_size_request(self._get_entry_pixel_width(), -1)
         grid.attach(backend_combo, 1, 0, 1, 1)
         self._message_widgets["backend"] = backend_combo
 
@@ -489,6 +492,17 @@ class SetupWizardWindow(AtlasWindow):
         entry.set_max_width_chars(25)
         grid.attach(entry, 1, row, 1, 1)
         return entry
+
+    def _get_entry_pixel_width(self) -> int:
+        if self._entry_pixel_width is None:
+            entry = Gtk.Entry()
+            entry.set_hexpand(False)
+            entry.set_width_chars(25)
+            entry.set_max_width_chars(25)
+            minimum, natural, _, _ = entry.measure(Gtk.Orientation.HORIZONTAL, -1)
+            width = max(natural, minimum)
+            self._entry_pixel_width = width or 250
+        return self._entry_pixel_width
 
     def _create_entry(self, placeholder: str, value: str) -> Gtk.Entry:
         entry = Gtk.Entry()
