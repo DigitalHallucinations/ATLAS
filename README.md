@@ -16,6 +16,7 @@ At startup the application configures message-bus backends, speech services, per
 - **PostgreSQL 14+** – Conversation history, key-value state, and scheduling primitives are all backed by PostgreSQL. Setup helpers verify the server, install client utilities when needed, and refuse to start without a PostgreSQL DSN.【F:docs/release-notes.md†L21-L23】【F:modules/conversation_store/bootstrap.py†L242-L312】【F:docs/tools/task_queue.md†L1-L37】【F:docs/tools/kv_store.md†L19-L39】
 - **Redis (optional)** – Redis Streams provide a durable message-bus backend for production deployments; in-memory queues remain available for local development and as a fallback when Redis is absent.【F:docs/ops/messaging.md†L3-L41】
 - Install Python dependencies by running the provided helper script inside your virtual environment.【F:docs/setup-wizard.md†L45-L54】
+- Review the [configuration reference](docs/configuration.md) to map environment variables and YAML blocks before first launch.【F:docs/configuration.md†L1-L148】
 
 ## Launching the desktop shell and automation APIs
 After completing setup, start the GTK shell from the repository root with:
