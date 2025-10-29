@@ -95,7 +95,7 @@ class SetupWizardWindow(AtlasWindow):
         self.set_child(root)
 
         scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scroller.set_vexpand(True)
         scroller.set_hexpand(True)
         scroller.set_propagate_natural_height(False)
