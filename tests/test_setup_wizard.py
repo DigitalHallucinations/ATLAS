@@ -113,6 +113,31 @@ def _complete_speech_step(window):
     window._on_next_clicked(None)
 
 
+def test_stack_switcher_updates_current_index():
+    application = Gtk.Application()
+    controller = FakeController()
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    assert window._current_index == 0
+    assert controller.calls == []
+
+    target_step = window._steps[3]
+    window._stack.set_visible_child(target_step.widget)
+
+    assert window._current_index == 3
+
+    window._on_next_clicked(None)
+
+    assert [name for name, *_ in controller.calls] == ["kv_store"]
+    assert window._current_index == 4
+
+
 class _CallbackRecorder:
     def __init__(self):
         self.calls = []
