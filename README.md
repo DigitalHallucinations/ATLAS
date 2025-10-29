@@ -37,3 +37,4 @@ The application will initialize the ATLAS runtime and present the primary window
 - [Conversation retention](docs/conversation_retention.md) – Policy knobs and background workers that manage store retention windows.【F:docs/conversation_retention.md†L1-L34】
 - [Shared blackboard](docs/blackboard.md) – Collaboration surface for skills and external agents with REST and streaming APIs.【F:docs/blackboard.md†L1-L58】
 - [Operations runbooks](docs/ops/README.md) – Developer environment preparation and messaging bus deployment guides.
+- [GTK UI overview](docs/ui/gtk-overview.md) – GTK shell structure, workspace controllers, and extension guidance for the desktop application.
