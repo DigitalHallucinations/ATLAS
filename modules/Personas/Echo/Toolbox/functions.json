@@ -1,0 +1,199 @@
+[
+    {
+        "name": "context_tracker",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-conversation"
+        },
+        "safety_level": "low",
+        "persona_allowlist": ["Echo"],
+        "capabilities": ["conversation_state", "mediation_context"],
+        "description": "Log the current mediation checkpoint before proposing new steps.",
+        "skill_bindings": ["EchoMediationCycle"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "participants": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "metadata": {"type": "object"}
+            }
+        }
+    },
+    {
+        "name": "get_current_info",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "persona_allowlist": ["Echo"],
+        "capabilities": ["time_information", "date_information"],
+        "description": "Timestamp agreements and review windows during mediation.",
+        "skill_bindings": ["EchoMediationCycle"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "format_type": {
+                    "type": "string",
+                    "enum": ["time", "date", "day", "month_year", "timestamp"],
+                    "default": "timestamp"
+                },
+                "timezone": {"type": "string"}
+            }
+        }
+    },
+    {
+        "name": "tone_analyzer",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 8,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "persona_allowlist": ["Echo"],
+        "capabilities": ["tone_analysis", "facilitation_support"],
+        "description": "Summarise emotional signals across recent messages and highlight shifts Echo should acknowledge.",
+        "skill_bindings": ["EchoMediationCycle"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "speaker": {"type": "string"},
+                            "content": {"type": "string"}
+                        },
+                        "required": ["content"]
+                    }
+                },
+                "focus_topics": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                }
+            },
+            "required": ["messages"]
+        }
+    },
+    {
+        "name": "reflective_prompt",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 6,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "persona_allowlist": ["Echo"],
+        "capabilities": ["reflection_guidance", "mediation_support"],
+        "description": "Produce neutral reflection prompts that help participants restate needs or surface constraints.",
+        "skill_bindings": ["EchoMediationCycle"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string"},
+                "tension_points": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "tone_observation": {"type": "string"},
+                "next_review": {"type": "string"}
+            },
+            "required": ["topic"]
+        }
+    },
+    {
+        "name": "memory_recall",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 10,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "persona_allowlist": ["Echo"],
+        "capabilities": ["memory_lookup", "context_retrieval"],
+        "description": "Retrieve prior commitments, concerns, and follow-ups related to the active mediation thread.",
+        "skill_bindings": ["EchoMediationCycle"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "memories": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "topic": {"type": "string"},
+                            "summary": {"type": "string"},
+                            "tags": {
+                                "type": "array",
+                                "items": {"type": "string"}
+                            },
+                            "timestamp": {"type": "string"}
+                        }
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 5
+                }
+            },
+            "required": ["query", "memories"]
+        }
+    },
+    {
+        "name": "conflict_resolver",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 10,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "medium",
+        "persona_allowlist": ["Echo"],
+        "capabilities": ["conflict_resolution", "negotiation_frameworks"],
+        "description": "Outline shared ground, decision paths, and follow-up owners when perspectives remain misaligned.",
+        "skill_bindings": ["EchoMediationCycle"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "positions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "participant": {"type": "string"},
+                            "statement": {"type": "string"},
+                            "non_negotiables": {"type": "array", "items": {"type": "string"}}
+                        },
+                        "required": ["statement"]
+                    }
+                },
+                "shared_goals": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "decision_horizon": {"type": "string"}
+            },
+            "required": ["positions"]
+        }
+    }
+]

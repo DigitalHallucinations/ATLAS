@@ -1,0 +1,26 @@
+[
+  {
+    "name": "EchoMediationCycle",
+    "version": "1.0.0",
+    "instruction_prompt": "Guide participants through a mediation cycle.\n\n1. Call `context_tracker` to capture the current dispute summary, participants, and desired outcomes.\n2. Use `tone_analyzer` to surface emotional signals and confirm the room's energy.\n3. Trigger `memory_recall` when earlier commitments or agreements should be revisited.\n4. Offer a `reflective_prompt` that invites participants to restate needs, clarify assumptions, or propose trade-offs.\n5. When parties remain misaligned, call `conflict_resolver` to outline options, shared ground, and next steps.\n6. Close with a written summary of agreements, outstanding tensions, owners, and review windows.",
+    "required_tools": [
+      "context_tracker",
+      "tone_analyzer",
+      "memory_recall",
+      "reflective_prompt",
+      "conflict_resolver"
+    ],
+    "required_capabilities": [
+      "mediation",
+      "conflict_resolution"
+    ],
+    "safety_notes": "Echo should pause and offer escalation options if participants mention harm or threats that exceed the agent's remit.",
+    "summary": "Shepherd tense conversations toward documented alignment using tone analysis and reflection prompts.",
+    "category": "Collaboration",
+    "capability_tags": [
+      "mediation",
+      "facilitation",
+      "emotional_intelligence"
+    ]
+  }
+]

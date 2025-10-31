@@ -94,6 +94,20 @@
       <tr><td>search_pubmed</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY)</td><td>Search PubMed for biomedical literature using the NCBI Entrez API.</td></tr>
     </tbody>
   </table>
+  <h2>Persona: Echo</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>conflict_resolver</td><td>1.0.0</td><td>conflict_resolution, negotiation_frameworks</td><td>medium</td><td>No</td><td>Outline shared ground, decision paths, and follow-up owners when perspectives remain misaligned.</td></tr>
+      <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, mediation_context</td><td>low</td><td>No</td><td>Log the current mediation checkpoint before proposing new steps.</td></tr>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>low</td><td>No</td><td>Timestamp agreements and review windows during mediation.</td></tr>
+      <tr><td>memory_recall</td><td>1.0.0</td><td>memory_lookup, context_retrieval</td><td>low</td><td>No</td><td>Retrieve prior commitments, concerns, and follow-ups related to the active mediation thread.</td></tr>
+      <tr><td>reflective_prompt</td><td>1.0.0</td><td>reflection_guidance, mediation_support</td><td>low</td><td>No</td><td>Produce neutral reflection prompts that help participants restate needs or surface constraints.</td></tr>
+      <tr><td>tone_analyzer</td><td>1.0.0</td><td>tone_analysis, facilitation_support</td><td>low</td><td>No</td><td>Summarise emotional signals across recent messages and highlight shifts Echo should acknowledge.</td></tr>
+    </tbody>
+  </table>
   <h2>Persona: Einstein</h2>
   <table>
     <thead>
@@ -270,6 +284,7 @@
       <tr><td>budget.limiter</td><td>1.0.0</td><td>runtime_management, conversation_budgeting</td><td>medium</td><td>No</td><td>Inspect or adjust tracked tool runtime budgets for a conversation.</td></tr>
       <tr><td>calculator</td><td>1.0.0</td><td>calculator</td><td>low</td><td>No</td><td>Evaluate sanitized mathematical expressions with Decimal precision and optional unit conversions.</td></tr>
       <tr><td>calendar_service</td><td>1.0.0</td><td>calendar_read, calendar_write</td><td>medium</td><td>No</td><td>Book lightweight calendar slots and retrieve existing reservations for personas without native calendar access.</td></tr>
+      <tr><td>conflict_resolver</td><td>1.0.0</td><td>conflict_resolution, negotiation_frameworks</td><td>medium</td><td>No</td><td>Draft a structured alignment plan from participant positions, non-negotiables, and shared goals.</td></tr>
       <tr><td>consensus.vote</td><td>1.0.0</td><td>orchestration, coordination</td><td>low</td><td>No</td><td>Run the negotiation vote protocol across a set of participants and return the serialized trace and decision.</td></tr>
       <tr><td>content_repository</td><td>1.0.0</td><td>content_management, knowledge_base</td><td>medium</td><td>No</td><td>Store or refresh reusable content blocks including metadata, tags, and attachments.</td></tr>
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
@@ -305,6 +320,7 @@
       <tr><td>memory_episodic_prune</td><td>1.0.0</td><td>episodic_memory, conversation_context</td><td>—</td><td>No</td><td>Delete episodic memories for a tenant using occurrence and expiration filters.</td></tr>
       <tr><td>memory_episodic_query</td><td>1.0.0</td><td>episodic_memory, conversation_context</td><td>—</td><td>No</td><td>Retrieve episodic memories for a tenant filtered by tags, time bounds, and conversation scope.</td></tr>
       <tr><td>memory_episodic_store</td><td>1.0.0</td><td>episodic_memory, conversation_context</td><td>—</td><td>No</td><td>Persist an episodic memory snapshot tied to a tenant, optionally linked to a conversation message.</td></tr>
+      <tr><td>memory_recall</td><td>1.0.0</td><td>memory_lookup, context_retrieval</td><td>low</td><td>No</td><td>Filter previously captured mediation notes and return the most relevant excerpts.</td></tr>
       <tr><td>mood_map</td><td>1.0.0</td><td>tone_mapping, story_analysis</td><td>low</td><td>No</td><td>Translate story beats into tonal transitions and color palettes.</td></tr>
       <tr><td>notebook</td><td>1.0.0</td><td>note_taking, knowledge_management</td><td>low</td><td>No</td><td>Capture a structured research note inside a collaborative notebook.</td></tr>
       <tr><td>notification_service</td><td>1.0.0</td><td>notification_delivery, engagement</td><td>medium</td><td>No</td><td>Send a notification message to the requested channel and recipients.</td></tr>
@@ -312,6 +328,7 @@
       <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
       <tr><td>priority_queue</td><td>1.0.0</td><td>task_management, status_reporting</td><td>—</td><td>No</td><td>Score and sort operational tasks to produce a prioritized execution list.</td></tr>
       <tr><td>query_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Return the most similar vectors for the supplied query embedding from the configured namespace.</td></tr>
+      <tr><td>reflective_prompt</td><td>1.0.0</td><td>reflection_guidance, mediation_support</td><td>low</td><td>No</td><td>Compose neutral prompts that invite participants to restate needs and surface constraints.</td></tr>
       <tr><td>registry.capability</td><td>1.0.0</td><td>orchestration, introspection</td><td>low</td><td>No</td><td>Inspect cached capability metadata, apply persona-aware filters, and optionally refresh the shared registry snapshot.</td></tr>
       <tr><td>roadmap_service</td><td>1.0.0</td><td>program_management, planning</td><td>medium</td><td>No</td><td>Update a roadmap initiative with owner, status, and upcoming milestones.</td></tr>
       <tr><td>schema_infer</td><td>1.0.0</td><td>schema_discovery, data_profiling</td><td>—</td><td>No</td><td>Infer field types, nullability, and sample values from representative records.</td></tr>
@@ -327,6 +344,7 @@
       <tr><td>terminal_command</td><td>1.0.0</td><td>terminal_execution, system_inspection</td><td>high</td><td>No</td><td>Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status.</td></tr>
       <tr><td>threat_scanner</td><td>0.1.0</td><td>threat_detection, security_analytics</td><td>high</td><td>No</td><td>Score structured events against severity heuristics and threat indicators to surface the riskiest findings.</td></tr>
       <tr><td>ticketing_system</td><td>1.0.0</td><td>issue_tracking, escalations</td><td>medium</td><td>No</td><td>Create a ticket for follow-up work with assignee and tag support.</td></tr>
+      <tr><td>tone_analyzer</td><td>1.0.0</td><td>tone_analysis, facilitation_support</td><td>low</td><td>No</td><td>Summarise emotional cues from conversation snippets so mediators can mirror the room.</td></tr>
       <tr><td>trace.explain</td><td>1.0.0</td><td>observability, diagnostics</td><td>—</td><td>No</td><td>Merge the tool activity log and recorded negotiation traces with optional filters for conversation, trace ID, and time range.</td></tr>
       <tr><td>upsert_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Insert or update vector embeddings within the configured namespace of the active vector store backend.</td></tr>
       <tr><td>vault.secrets</td><td>1.0.0</td><td>credential_management, configuration_access</td><td>—</td><td>No</td><td>Inspect or update stored credentials for configured tools with masked previews of secret values.</td></tr>

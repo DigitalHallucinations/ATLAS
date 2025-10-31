@@ -4921,5 +4921,227 @@
                 "operations"
             ]
         }
+    },
+    {
+        "name": "tone_analyzer",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 8,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "tone_analysis",
+            "facilitation_support"
+        ],
+        "description": "Summarise emotional cues from conversation snippets so mediators can mirror the room.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "speaker": {
+                                "type": "string",
+                                "description": "Optional name or role of the speaker."
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Utterance transcript to analyse."
+                            }
+                        },
+                        "required": [
+                            "content"
+                        ]
+                    }
+                },
+                "focus_topics": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional keywords to highlight when mentioned in the conversation."
+                }
+            },
+            "required": [
+                "messages"
+            ]
+        }
+    },
+    {
+        "name": "reflective_prompt",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 6,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "reflection_guidance",
+            "mediation_support"
+        ],
+        "description": "Compose neutral prompts that invite participants to restate needs and surface constraints.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "Primary subject of the mediation moment."
+                },
+                "tension_points": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Specific friction points that need reflection."
+                },
+                "tone_observation": {
+                    "type": "string",
+                    "description": "Optional tone observation Echo should acknowledge."
+                },
+                "next_review": {
+                    "type": "string",
+                    "description": "Target time or checkpoint for the next mediation review."
+                }
+            },
+            "required": [
+                "topic"
+            ]
+        }
+    },
+    {
+        "name": "memory_recall",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 10,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "memory_lookup",
+            "context_retrieval"
+        ],
+        "description": "Filter previously captured mediation notes and return the most relevant excerpts.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search phrase describing the memory to retrieve."
+                },
+                "memories": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "topic": {
+                                "type": "string"
+                            },
+                            "summary": {
+                                "type": "string"
+                            },
+                            "tags": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "timestamp": {
+                                "type": "string",
+                                "description": "ISO-8601 timestamp attached to the memory."
+                            }
+                        },
+                        "required": [
+                            "topic",
+                            "summary"
+                        ]
+                    },
+                    "description": "Candidate memories Echo can search."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 5,
+                    "description": "Maximum number of memory matches to return."
+                }
+            },
+            "required": [
+                "query",
+                "memories"
+            ]
+        }
+    },
+    {
+        "name": "conflict_resolver",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 10,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "medium",
+        "capabilities": [
+            "conflict_resolution",
+            "negotiation_frameworks"
+        ],
+        "description": "Draft a structured alignment plan from participant positions, non-negotiables, and shared goals.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "positions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "participant": {
+                                "type": "string"
+                            },
+                            "statement": {
+                                "type": "string",
+                                "description": "Summary of the participant perspective."
+                            },
+                            "non_negotiables": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "description": "Constraints the participant cannot move past."
+                            }
+                        },
+                        "required": [
+                            "statement"
+                        ]
+                    },
+                    "description": "Participant positions to reconcile."
+                },
+                "shared_goals": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional shared goals already acknowledged by the group."
+                },
+                "decision_horizon": {
+                    "type": "string",
+                    "description": "Target decision date or review window."
+                }
+            },
+            "required": [
+                "positions"
+            ]
+        }
     }
 ]

@@ -31,6 +31,10 @@ from modules.Tools.Base_Tools.lyricist import Lyricist
 from modules.Tools.Base_Tools.visual_prompt import VisualPrompt
 from modules.Tools.Base_Tools.mood_map import MoodMap
 from modules.Tools.Base_Tools.emotive_tagger import EmotiveTagger
+from modules.Tools.Base_Tools.tone_analyzer import ToneAnalyzer
+from modules.Tools.Base_Tools.reflective_prompt import ReflectivePrompt
+from modules.Tools.Base_Tools.memory_recall import MemoryRecall
+from modules.Tools.Base_Tools.conflict_resolver import ConflictResolver
 from modules.Tools.Base_Tools.workspace_publisher import WorkspacePublisher
 from modules.Tools.Base_Tools.calendar_service import CalendarService
 from modules.Tools.Base_Tools.memory_episodic import EpisodicMemoryTool
@@ -104,6 +108,10 @@ lyricist_tool = Lyricist()
 visual_prompt_tool = VisualPrompt()
 mood_map_tool = MoodMap()
 emotive_tagger_tool = EmotiveTagger()
+tone_analyzer_tool = ToneAnalyzer()
+reflective_prompt_tool = ReflectivePrompt()
+memory_recall_tool = MemoryRecall()
+conflict_resolver_tool = ConflictResolver()
 log_parser_tool = LogParser()
 threat_scanner_tool = ThreatScanner()
 audit_reporter_tool = AuditReporter()
@@ -203,6 +211,10 @@ function_map = {
     "visual_prompt": visual_prompt_tool.run,
     "mood_map": mood_map_tool.run,
     "emotive_tagger": emotive_tagger_tool.run,
+    "tone_analyzer": tone_analyzer_tool.run,
+    "reflective_prompt": reflective_prompt_tool.run,
+    "memory_recall": memory_recall_tool.run,
+    "conflict_resolver": conflict_resolver_tool.run,
     "memory_episodic_store": episodic_memory_tool.store,
     "memory_episodic_query": episodic_memory_tool.query,
     "memory_episodic_prune": episodic_memory_tool.prune,

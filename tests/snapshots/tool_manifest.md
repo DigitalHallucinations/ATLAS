@@ -72,6 +72,17 @@
 | search_pmc | 1.0.0 | medical_research, literature_search | — | No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY) | Search PubMed Central (PMC) for open access articles using the Entrez API. |
 | search_pubmed | 1.0.0 | medical_research, literature_search | — | No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY) | Search PubMed for biomedical literature using the NCBI Entrez API. |
 
+## Persona: Echo
+
+| Name | Version | Capabilities | Safety Level | Auth Required | Description |
+| --- | --- | --- | --- | --- | --- |
+| conflict_resolver | 1.0.0 | conflict_resolution, negotiation_frameworks | medium | No | Outline shared ground, decision paths, and follow-up owners when perspectives remain misaligned. |
+| context_tracker | 1.0.0 | conversation_state, mediation_context | low | No | Log the current mediation checkpoint before proposing new steps. |
+| get_current_info | 1.0.0 | time_information, date_information | low | No | Timestamp agreements and review windows during mediation. |
+| memory_recall | 1.0.0 | memory_lookup, context_retrieval | low | No | Retrieve prior commitments, concerns, and follow-ups related to the active mediation thread. |
+| reflective_prompt | 1.0.0 | reflection_guidance, mediation_support | low | No | Produce neutral reflection prompts that help participants restate needs or surface constraints. |
+| tone_analyzer | 1.0.0 | tone_analysis, facilitation_support | low | No | Summarise emotional signals across recent messages and highlight shifts Echo should acknowledge. |
+
 ## Persona: Einstein
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
@@ -213,6 +224,7 @@
 | budget.limiter | 1.0.0 | runtime_management, conversation_budgeting | medium | No | Inspect or adjust tracked tool runtime budgets for a conversation. |
 | calculator | 1.0.0 | calculator | low | No | Evaluate sanitized mathematical expressions with Decimal precision and optional unit conversions. |
 | calendar_service | 1.0.0 | calendar_read, calendar_write | medium | No | Book lightweight calendar slots and retrieve existing reservations for personas without native calendar access. |
+| conflict_resolver | 1.0.0 | conflict_resolution, negotiation_frameworks | medium | No | Draft a structured alignment plan from participant positions, non-negotiables, and shared goals. |
 | consensus.vote | 1.0.0 | orchestration, coordination | low | No | Run the negotiation vote protocol across a set of participants and return the serialized trace and decision. |
 | content_repository | 1.0.0 | content_management, knowledge_base | medium | No | Store or refresh reusable content blocks including metadata, tags, and attachments. |
 | context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
@@ -248,6 +260,7 @@
 | memory_episodic_prune | 1.0.0 | episodic_memory, conversation_context | — | No | Delete episodic memories for a tenant using occurrence and expiration filters. |
 | memory_episodic_query | 1.0.0 | episodic_memory, conversation_context | — | No | Retrieve episodic memories for a tenant filtered by tags, time bounds, and conversation scope. |
 | memory_episodic_store | 1.0.0 | episodic_memory, conversation_context | — | No | Persist an episodic memory snapshot tied to a tenant, optionally linked to a conversation message. |
+| memory_recall | 1.0.0 | memory_lookup, context_retrieval | low | No | Filter previously captured mediation notes and return the most relevant excerpts. |
 | mood_map | 1.0.0 | tone_mapping, story_analysis | low | No | Translate story beats into tonal transitions and color palettes. |
 | notebook | 1.0.0 | note_taking, knowledge_management | low | No | Capture a structured research note inside a collaborative notebook. |
 | notification_service | 1.0.0 | notification_delivery, engagement | medium | No | Send a notification message to the requested channel and recipients. |
@@ -255,6 +268,7 @@
 | policy_reference | 1.0.0 | policy_lookup, risk_assessment_support | — | No | Retrieve internal safety and governance policy guidance relevant to a proposed action. |
 | priority_queue | 1.0.0 | task_management, status_reporting | — | No | Score and sort operational tasks to produce a prioritized execution list. |
 | query_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Return the most similar vectors for the supplied query embedding from the configured namespace. |
+| reflective_prompt | 1.0.0 | reflection_guidance, mediation_support | low | No | Compose neutral prompts that invite participants to restate needs and surface constraints. |
 | registry.capability | 1.0.0 | orchestration, introspection | low | No | Inspect cached capability metadata, apply persona-aware filters, and optionally refresh the shared registry snapshot. |
 | roadmap_service | 1.0.0 | program_management, planning | medium | No | Update a roadmap initiative with owner, status, and upcoming milestones. |
 | schema_infer | 1.0.0 | schema_discovery, data_profiling | — | No | Infer field types, nullability, and sample values from representative records. |
@@ -270,6 +284,7 @@
 | terminal_command | 1.0.0 | terminal_execution, system_inspection | high | No | Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status. |
 | threat_scanner | 0.1.0 | threat_detection, security_analytics | high | No | Score structured events against severity heuristics and threat indicators to surface the riskiest findings. |
 | ticketing_system | 1.0.0 | issue_tracking, escalations | medium | No | Create a ticket for follow-up work with assignee and tag support. |
+| tone_analyzer | 1.0.0 | tone_analysis, facilitation_support | low | No | Summarise emotional cues from conversation snippets so mediators can mirror the room. |
 | trace.explain | 1.0.0 | observability, diagnostics | — | No | Merge the tool activity log and recorded negotiation traces with optional filters for conversation, trace ID, and time range. |
 | upsert_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Insert or update vector embeddings within the configured namespace of the active vector store backend. |
 | vault.secrets | 1.0.0 | credential_management, configuration_access | — | No | Inspect or update stored credentials for configured tools with masked previews of secret values. |
