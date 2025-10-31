@@ -96,6 +96,22 @@
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 | habit_stack_planner | 1.0.0 | wellness_planning, habit_design | — | No | Design habit stacks combining nutrition, stress, and sleep anchors. |
 
+## Persona: Hermes
+
+| Name | Version | Capabilities | Safety Level | Auth Required | Description |
+| --- | --- | --- | --- | --- | --- |
+| api_connector | 1.0.0 | api_ingestion, http_bridge, data_pipeline | medium | No | Plan or execute HTTP requests against allowlisted data APIs. |
+| context_tracker | 1.0.0 | conversation_state, status_reporting | low | No | Capture a normalised snapshot of the active conversation before coordinating ingestion. |
+| data_bridge | 1.0.0 | data_pipeline, ingestion_orchestration | medium | No | Coordinate connector executions and record a governed ingestion trace. |
+| file_ingest | 1.0.0 | file_ingestion, metadata_capture | medium | No | Inspect local drop zones and capture safe previews for review. |
+| get_current_info | 1.0.0 | time_information, date_information | low | No | Timestamp ingestion runs and note review cadences. |
+| hermes.compose_playbook | 1.0.0 | planning, ingestion_blueprints | low | No | Draft the ingestion playbook structure, objectives, checkpoints, and stakeholders before execution. |
+| hermes.stage_pipeline | 1.0.0 | data_pipeline, execution_orchestration | medium | No | Execute the Hermes pipeline plan via DataBridge while appending governance metadata. |
+| policy_reference | 1.0.0 | policy_lookup, risk_assessment_support | low | No | Surface governance clauses that apply to the planned ingestion pipeline. |
+| priority_queue | 1.0.0 | workflow_control, planning | low | No | Rank follow-up actions when multiple ingestion sources compete for attention. |
+| schema_infer | 1.0.0 | schema_discovery, data_profiling | low | No | Infer field types and nullability from sample payloads to inform mapping rules. |
+| stream_monitor | 1.0.0 | stream_health, ingestion_observability | low | No | Summarise streaming pipeline health, error bursts, and latency trends. |
+
 ## Persona: KnowledgeCurator
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
@@ -189,6 +205,7 @@
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
 | analytics_dashboard | 1.0.0 | analytics_reporting, segment_tracking | medium | No | Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata. |
+| api_connector | 1.0.0 | api_ingestion, http_bridge, data_pipeline | — | No | Plan or execute HTTP requests to allowlisted APIs and capture response previews. |
 | atlas_dashboard | 1.0.0 | atlas_operations, status_reporting | medium | No | Capture an initiative update for the ATLAS persona dashboard, including health, metrics, and stakeholders. |
 | audit_reporter | 0.1.0 | governance, audit_trail | medium | No | Aggregate security control evidence, severity counts, and analyst notes into an audit-ready summary. |
 | browser | 1.0.0 | web_navigation, research | medium | No | Record a virtual browsing session including annotations and metadata for downstream summarisation. |
@@ -201,6 +218,7 @@
 | context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
 | crm_service | 1.0.0 | crm_logging, engagement_tracking | medium | No | Log a structured customer interaction with optional tags and metadata. |
 | dashboard_service | 1.0.0 | metrics_reporting, analysis | medium | No | Store a dashboard snapshot with numeric metrics and supporting commentary. |
+| data_bridge | 1.0.0 | data_pipeline, ingestion_orchestration | — | No | Coordinate connector tools into a repeatable ingestion pipeline and collect results. |
 | debian12_calendar | 1.1.0 | calendar_read, calendar_write | — | No | Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events. |
 | delete_namespace | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Remove all stored embeddings associated with the specified namespace. |
 | email_service | 1.0.0 | email_delivery, communications | medium | No | Dispatch a structured email with support for CC and BCC recipients. |
@@ -209,6 +227,7 @@
 | eval.regression | 1.0.0 | evaluation, analytics | — | No | Compare baseline and candidate artifacts, compute diffs and regression metrics, and publish structured analytics. |
 | execute_javascript | 1.0.0 | javascript_exec, code_execution | high | No | Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files. |
 | execute_python | 1.0.0 | code_execution, analysis | high | No | Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement. |
+| file_ingest | 1.0.0 | file_ingestion, metadata_capture | — | No | Read local files within the sandbox and return metadata plus a safe preview sample. |
 | filesystem_list | 1.0.0 | — | low | No | List directory contents within the sandbox, returning metadata for each entry. |
 | filesystem_read | 1.0.0 | — | medium | No | Read a file from the sandboxed filesystem, returning MIME metadata and optionally truncated contents. |
 | filesystem_write | 1.0.0 | — | high | No | Write or overwrite a file within the sandboxed filesystem while enforcing byte and total storage quotas. |
@@ -238,8 +257,10 @@
 | query_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Return the most similar vectors for the supplied query embedding from the configured namespace. |
 | registry.capability | 1.0.0 | orchestration, introspection | low | No | Inspect cached capability metadata, apply persona-aware filters, and optionally refresh the shared registry snapshot. |
 | roadmap_service | 1.0.0 | program_management, planning | medium | No | Update a roadmap initiative with owner, status, and upcoming milestones. |
+| schema_infer | 1.0.0 | schema_discovery, data_profiling | — | No | Infer field types, nullability, and sample values from representative records. |
 | spreadsheet | 1.0.0 | data_management, tabular_editing | low | No | Append or replace rows within a lightweight spreadsheet. |
 | storyweaver | 1.0.0 | story_development, narrative_design | low | No | Assemble a structured story outline with tonal guidance and beat-level prompts. |
+| stream_monitor | 1.0.0 | stream_health, ingestion_observability | — | No | Aggregate status, error, and latency statistics from streaming events. |
 | structured_parse | 1.0.0 | document_parsing, ocr | low | No | Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents. |
 | sys_snapshot | 0.1.0 | situational_awareness, observability | medium | No | Normalize host inventories, running services, and metrics into a compact situational snapshot. |
 | task_queue_cancel | 1.0.0 | task_queue | — | No | Cancel a queued or scheduled task. |

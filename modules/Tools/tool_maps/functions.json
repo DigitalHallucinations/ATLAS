@@ -3438,8 +3438,7 @@
                 }
             }
         }
-    }
-    ,
+    },
     {
         "name": "storyweaver",
         "version": "1.0.0",
@@ -3493,8 +3492,7 @@
         ],
         "cost_per_call": 0.0,
         "cost_unit": "USD"
-    }
-    ,
+    },
     {
         "name": "lyricist",
         "version": "1.0.0",
@@ -3551,8 +3549,7 @@
         ],
         "cost_per_call": 0.0,
         "cost_unit": "USD"
-    }
-    ,
+    },
     {
         "name": "visual_prompt",
         "version": "1.0.0",
@@ -3606,8 +3603,7 @@
         ],
         "cost_per_call": 0.0,
         "cost_unit": "USD"
-    }
-    ,
+    },
     {
         "name": "mood_map",
         "version": "1.0.0",
@@ -3662,8 +3658,7 @@
         ],
         "cost_per_call": 0.0,
         "cost_unit": "USD"
-    }
-    ,
+    },
     {
         "name": "emotive_tagger",
         "version": "1.0.0",
@@ -3704,8 +3699,7 @@
         ],
         "cost_per_call": 0.0,
         "cost_unit": "USD"
-    }
-    ,
+    },
     {
         "name": "eval.judge",
         "version": "1.0.0",
@@ -3907,8 +3901,7 @@
                 }
             }
         }
-    }
-    ,
+    },
     {
         "name": "eval.regression",
         "version": "1.0.0",
@@ -4079,8 +4072,7 @@
                 "summary"
             ]
         }
-    }
-    ,
+    },
     {
         "name": "memory_episodic_store",
         "version": "1.0.0",
@@ -4160,8 +4152,7 @@
                 "content"
             ]
         }
-    }
-    ,
+    },
     {
         "name": "memory_episodic_query",
         "version": "1.0.0",
@@ -4246,8 +4237,7 @@
                 "tenant_id"
             ]
         }
-    }
-    ,
+    },
     {
         "name": "memory_episodic_prune",
         "version": "1.0.0",
@@ -4296,8 +4286,7 @@
                 "tenant_id"
             ]
         }
-    }
-    ,
+    },
     {
         "name": "memory.graph",
         "version": "1.0.0",
@@ -4471,8 +4460,12 @@
                             "type": "array",
                             "items": {
                                 "oneOf": [
-                                    {"type": "string"},
-                                    {"type": "object"}
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "object"
+                                    }
                                 ]
                             },
                             "description": "Iterable of tool names or metadata dictionaries describing available tools."
@@ -4640,8 +4633,12 @@
                             "type": "array",
                             "items": {
                                 "oneOf": [
-                                    {"type": "object"},
-                                    {"type": "array"}
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "array"
+                                    }
                                 ]
                             }
                         },
@@ -4688,6 +4685,240 @@
                 "participants",
                 "quorum_threshold",
                 "timeout"
+            ]
+        }
+    },
+    {
+        "name": "api_connector",
+        "version": "1.0.0",
+        "side_effects": "network",
+        "default_timeout": 30,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-endpoint",
+            "guidance": "Combine endpoint URL and method to deduplicate identical calls."
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "api_ingestion",
+            "http_bridge",
+            "data_pipeline"
+        ],
+        "description": "Plan or execute HTTP requests to allowlisted APIs and capture response previews.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "endpoint": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Target API endpoint (http or https)."
+                },
+                "method": {
+                    "type": "string",
+                    "default": "GET",
+                    "description": "HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD)."
+                },
+                "params": {
+                    "type": "object",
+                    "description": "Optional query parameters appended to the request URL."
+                },
+                "headers": {
+                    "type": "object",
+                    "description": "Optional HTTP headers to include with the request."
+                },
+                "body": {
+                    "description": "Optional request body. Objects are serialised as JSON automatically."
+                },
+                "timeout": {
+                    "type": "number",
+                    "minimum": 1,
+                    "description": "Timeout in seconds for the HTTP request."
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "When true, normalises the request without executing it."
+                }
+            },
+            "required": [
+                "endpoint"
+            ]
+        }
+    },
+    {
+        "name": "file_ingest",
+        "version": "1.0.0",
+        "side_effects": "filesystem",
+        "default_timeout": 10,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-path",
+            "guidance": "Use the resolved file path to avoid duplicate reads."
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "file_ingestion",
+            "metadata_capture"
+        ],
+        "description": "Read local files within the sandbox and return metadata plus a safe preview sample.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file to ingest."
+                },
+                "as_text": {
+                    "type": "boolean",
+                    "description": "Force the preview to be returned as UTF-8 text when true."
+                }
+            },
+            "required": [
+                "path"
+            ]
+        }
+    },
+    {
+        "name": "stream_monitor",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "stream_health",
+            "ingestion_observability"
+        ],
+        "description": "Aggregate status, error, and latency statistics from streaming events.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "stream_id": {
+                    "type": "string",
+                    "description": "Logical identifier for the monitored stream."
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    },
+                    "description": "Sequence of event payloads that capture status updates."
+                }
+            },
+            "required": [
+                "stream_id",
+                "events"
+            ]
+        }
+    },
+    {
+        "name": "schema_infer",
+        "version": "1.0.0",
+        "side_effects": "compute",
+        "default_timeout": 15,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "schema_discovery",
+            "data_profiling"
+        ],
+        "description": "Infer field types, nullability, and sample values from representative records.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    },
+                    "description": "Sample records used to drive the schema inference."
+                }
+            },
+            "required": [
+                "records"
+            ]
+        }
+    },
+    {
+        "name": "data_bridge",
+        "version": "1.0.0",
+        "side_effects": "network",
+        "default_timeout": 60,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-pipeline",
+            "guidance": "Hash the source identifier and ordered operations to deduplicate runs."
+        },
+        "cost_per_call": 0.0,
+        "cost_unit": "USD",
+        "capabilities": [
+            "data_pipeline",
+            "ingestion_orchestration"
+        ],
+        "description": "Coordinate connector tools into a repeatable ingestion pipeline and collect results.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "Logical source identifier for the ingestion workflow."
+                },
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "tool": {
+                                "type": "string",
+                                "description": "Connector invoked for this step (api_connector, file_ingest, stream_monitor, schema_infer)."
+                            },
+                            "params": {
+                                "type": "object",
+                                "description": "Arguments passed through to the underlying connector."
+                            },
+                            "dry_run": {
+                                "type": "boolean",
+                                "description": "Override for step-level dry-run behaviour."
+                            }
+                        },
+                        "required": [
+                            "tool"
+                        ]
+                    },
+                    "description": "Ordered list of ingestion steps to execute."
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Whether the bridge should avoid executing side-effecting steps by default."
+                }
+            },
+            "required": [
+                "source",
+                "operations"
             ]
         }
     }

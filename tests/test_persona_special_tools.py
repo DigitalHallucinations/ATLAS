@@ -34,6 +34,7 @@ knowledge_cards = _load_tool_module("knowledgecurator_cards", BASE / "KnowledgeC
 metaphors = _load_tool_module("genius_metaphors", BASE / "genius" / "Toolbox" / "metaphors.py")
 innovation = _load_tool_module("nikola_innovation", BASE / "Nikola Tesla" / "Toolbox" / "innovation.py")
 muse_tools = _load_tool_module("muse_toolbox", BASE / "Muse" / "Toolbox" / "maps.py")
+hermes_helpers = _load_tool_module("hermes_helpers", BASE / "Hermes" / "Toolbox" / "helpers.py")
 
 
 def test_task_catalog_snapshot_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -172,3 +173,37 @@ def test_muse_emotive_tagger_defaults_when_no_keywords() -> None:
     )
     assert tags["tags"]
     assert isinstance(tags["dominant_emotion"], str)
+
+
+def test_hermes_compose_playbook_sequences_connectors() -> None:
+    plan = asyncio.run(
+        hermes_helpers.compose_ingestion_playbook(
+            source="crm_delta",
+            objectives=["sync leads", "sync leads"],
+            checkpoints=["alerting"],
+            stakeholders=["data-stewards"],
+        )
+    )
+    assert plan["objectives"] == ["sync leads"]
+    assert plan["sections"]["Connectors"]["steps"][0] == "api_connector"
+    assert plan["sections"]["Observability"]["checkpoints"] == ["alerting"]
+
+
+def test_hermes_stage_pipeline_runs_data_bridge(tmp_path) -> None:
+    sample = tmp_path / "payload.csv"
+    sample.write_text("id,name\n1,alpha", encoding="utf-8")
+
+    result = asyncio.run(
+        hermes_helpers.stage_pipeline(
+            source="crm_delta",
+            operations=[
+                {"tool": "file_ingest", "params": {"path": str(sample)}},
+                {"tool": "schema_infer", "params": {"records": [{"id": 1, "name": "alpha"}]}}
+            ],
+            dry_run=True,
+        )
+    )
+
+    assert result["source"] == "crm_delta"
+    assert result["steps"][0]["tool"] == "file_ingest"
+    assert "fields" in result["steps"][1]["payload"]

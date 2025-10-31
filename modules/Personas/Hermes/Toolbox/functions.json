@@ -1,0 +1,212 @@
+[
+    {
+        "name": "context_tracker",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-conversation"
+        },
+        "safety_level": "low",
+        "capabilities": [
+            "conversation_state",
+            "status_reporting"
+        ],
+        "description": "Capture a normalised snapshot of the active conversation before coordinating ingestion."
+    },
+    {
+        "name": "get_current_info",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "time_information",
+            "date_information"
+        ],
+        "description": "Timestamp ingestion runs and note review cadences."
+    },
+    {
+        "name": "policy_reference",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-query"
+        },
+        "safety_level": "low",
+        "capabilities": [
+            "policy_lookup",
+            "risk_assessment_support"
+        ],
+        "description": "Surface governance clauses that apply to the planned ingestion pipeline."
+    },
+    {
+        "name": "priority_queue",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "workflow_control",
+            "planning"
+        ],
+        "description": "Rank follow-up actions when multiple ingestion sources compete for attention."
+    },
+    {
+        "name": "api_connector",
+        "version": "1.0.0",
+        "side_effects": "network",
+        "default_timeout": 30,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-endpoint",
+            "guidance": "Combine endpoint and method to deduplicate identical calls."
+        },
+        "safety_level": "medium",
+        "capabilities": [
+            "api_ingestion",
+            "http_bridge",
+            "data_pipeline"
+        ],
+        "description": "Plan or execute HTTP requests against allowlisted data APIs."
+    },
+    {
+        "name": "file_ingest",
+        "version": "1.0.0",
+        "side_effects": "filesystem",
+        "default_timeout": 10,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-path",
+            "guidance": "Use the resolved file path to avoid duplicate reads."
+        },
+        "safety_level": "medium",
+        "capabilities": [
+            "file_ingestion",
+            "metadata_capture"
+        ],
+        "description": "Inspect local drop zones and capture safe previews for review."
+    },
+    {
+        "name": "stream_monitor",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "stream_health",
+            "ingestion_observability"
+        ],
+        "description": "Summarise streaming pipeline health, error bursts, and latency trends."
+    },
+    {
+        "name": "schema_infer",
+        "version": "1.0.0",
+        "side_effects": "compute",
+        "default_timeout": 15,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "schema_discovery",
+            "data_profiling"
+        ],
+        "description": "Infer field types and nullability from sample payloads to inform mapping rules."
+    },
+    {
+        "name": "data_bridge",
+        "version": "1.0.0",
+        "side_effects": "network",
+        "default_timeout": 60,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-pipeline",
+            "guidance": "Hash the source identifier and ordered operations to deduplicate runs."
+        },
+        "safety_level": "medium",
+        "capabilities": [
+            "data_pipeline",
+            "ingestion_orchestration"
+        ],
+        "description": "Coordinate connector executions and record a governed ingestion trace."
+    },
+    {
+        "name": "hermes.compose_playbook",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "capabilities": [
+            "planning",
+            "ingestion_blueprints"
+        ],
+        "description": "Draft the ingestion playbook structure, objectives, checkpoints, and stakeholders before execution."
+    },
+    {
+        "name": "hermes.stage_pipeline",
+        "version": "1.0.0",
+        "side_effects": "network",
+        "default_timeout": 60,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-source",
+            "guidance": "Combine the source identifier and ordered operations to ensure deterministic reruns."
+        },
+        "safety_level": "medium",
+        "capabilities": [
+            "data_pipeline",
+            "execution_orchestration"
+        ],
+        "description": "Execute the Hermes pipeline plan via DataBridge while appending governance metadata."
+    }
+]
