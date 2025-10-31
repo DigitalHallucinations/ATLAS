@@ -119,6 +119,10 @@ from .lyricist import Lyricist
 from .visual_prompt import VisualPrompt
 from .mood_map import MoodMap, MoodBeat
 from .emotive_tagger import EmotiveTagger
+from .tone_analyzer import ToneAnalyzer, ToneSignal
+from .reflective_prompt import ReflectivePrompt
+from .memory_recall import MemoryRecall, MemoryRecord
+from .conflict_resolver import ConflictResolver, Position
 
 __all__ = [
     "TerminalCommand",
@@ -175,6 +179,13 @@ __all__ = [
     "MoodMap",
     "MoodBeat",
     "EmotiveTagger",
+    "ToneAnalyzer",
+    "ToneSignal",
+    "ReflectivePrompt",
+    "MemoryRecall",
+    "MemoryRecord",
+    "ConflictResolver",
+    "Position",
     "get_current_location",
     "WebpageFetcher",
     "WebpageFetchResult",

@@ -35,6 +35,7 @@ metaphors = _load_tool_module("genius_metaphors", BASE / "genius" / "Toolbox" / 
 innovation = _load_tool_module("nikola_innovation", BASE / "Nikola Tesla" / "Toolbox" / "innovation.py")
 muse_tools = _load_tool_module("muse_toolbox", BASE / "Muse" / "Toolbox" / "maps.py")
 hermes_helpers = _load_tool_module("hermes_helpers", BASE / "Hermes" / "Toolbox" / "helpers.py")
+echo_tools = _load_tool_module("echo_toolbox", BASE / "Echo" / "Toolbox" / "maps.py")
 
 
 def test_task_catalog_snapshot_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -173,6 +174,85 @@ def test_muse_emotive_tagger_defaults_when_no_keywords() -> None:
     )
     assert tags["tags"]
     assert isinstance(tags["dominant_emotion"], str)
+
+
+def test_echo_tone_analyzer_highlights_focus() -> None:
+    payload = asyncio.run(
+        echo_tools.function_map["tone_analyzer"](
+            messages=[
+                {"speaker": "Pat", "content": "I'm frustrated by the repeated delay."},
+                {"speaker": "Riley", "content": "I appreciate the patience but the risk is rising."},
+            ],
+            focus_topics=["delay", "risk"],
+        )
+    )
+
+    assert payload["dominant_tone"] in {"concerned", "tense"}
+    assert payload["focus_mentions"]["delay"] >= 1
+
+
+def test_echo_reflective_prompt_deduplicates_entries() -> None:
+    prompts = asyncio.run(
+        echo_tools.function_map["reflective_prompt"](
+            topic="release scope",
+            tension_points=["timeline", "timeline"],
+            tone_observation="some tension in the room",
+            next_review="Friday",
+        )
+    )
+
+    assert prompts["topic"] == "release scope"
+    assert len(prompts["prompts"]) == prompts["count"]
+    assert any("Friday" in prompt for prompt in prompts["prompts"])
+
+
+def test_echo_memory_recall_prioritises_matches() -> None:
+    recall = asyncio.run(
+        echo_tools.function_map["memory_recall"](
+            query="timeline risk",
+            memories=[
+                {
+                    "topic": "timeline",
+                    "summary": "Agreed to review launch timeline next Friday.",
+                    "tags": ["timeline", "risk"],
+                    "timestamp": "2024-05-01T10:00:00Z",
+                },
+                {
+                    "topic": "budget",
+                    "summary": "Discussed marketing spend alignment.",
+                    "tags": ["budget"],
+                    "timestamp": "2024-04-01T10:00:00Z",
+                },
+            ],
+        )
+    )
+
+    assert recall["results"]
+    assert recall["results"][0]["topic"] == "timeline"
+
+
+def test_echo_conflict_resolver_builds_steps() -> None:
+    plan = asyncio.run(
+        echo_tools.function_map["conflict_resolver"](
+            positions=[
+                {
+                    "participant": "Pat",
+                    "statement": "We must ship by Friday",
+                    "non_negotiables": ["no quality regressions"],
+                },
+                {
+                    "participant": "Riley",
+                    "statement": "We need a stable rollout",
+                },
+            ],
+            shared_goals=["Protect customer trust"],
+            decision_horizon="Friday",
+        )
+    )
+
+    assert plan["participants"] == ["Pat", "Riley"]
+    assert any(step["theme"] == "Risk review" for step in plan["next_steps"])
+    assert "Friday" in plan["next_steps"][-1]["recommended_action"]
 
 
 def test_hermes_compose_playbook_sequences_connectors() -> None:

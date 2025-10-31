@@ -41,6 +41,22 @@ def test_persona_definitions_validate() -> None:
         assert persona is not None, f"Persona '{persona_name}' should load successfully"
 
 
+def test_echo_persona_includes_mediation_stack() -> None:
+    order, lookup = load_tool_metadata()
+    persona = load_persona_definition(
+        "Echo",
+        metadata_order=order,
+        metadata_lookup=lookup,
+    )
+
+    allowed_tools = set(persona["allowed_tools"])
+    expected = {"context_tracker", "get_current_info", "tone_analyzer", "reflective_prompt", "memory_recall", "conflict_resolver"}
+    assert expected.issubset(allowed_tools)
+
+    skills = persona.get("allowed_skills", [])
+    assert "EchoMediationCycle" in skills
+
+
 class _StubConfigManager:
     def __init__(self, root: Path) -> None:
         self._root = Path(root)

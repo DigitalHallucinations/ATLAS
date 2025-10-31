@@ -16,3 +16,4 @@ def test_generated_docs_match_snapshots():
 
     assert markdown == expected_markdown
     assert html_doc == expected_html
+    assert "tone_analyzer" in markdown
