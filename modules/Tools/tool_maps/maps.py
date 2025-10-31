@@ -25,6 +25,11 @@ from modules.Tools.Base_Tools.labor_market_feed import fetch_labor_market_signal
 from modules.Tools.Base_Tools.crm_service import CRMService
 from modules.Tools.Base_Tools.email_service import send_email
 from modules.Tools.Base_Tools.content_repository import ContentRepository
+from modules.Tools.Base_Tools.story_weaver import StoryWeaver
+from modules.Tools.Base_Tools.lyricist import Lyricist
+from modules.Tools.Base_Tools.visual_prompt import VisualPrompt
+from modules.Tools.Base_Tools.mood_map import MoodMap
+from modules.Tools.Base_Tools.emotive_tagger import EmotiveTagger
 from modules.Tools.Base_Tools.workspace_publisher import WorkspacePublisher
 from modules.Tools.Base_Tools.calendar_service import CalendarService
 from modules.Tools.Base_Tools.memory_episodic import EpisodicMemoryTool
@@ -84,6 +89,11 @@ memory_graph_tool = MemoryGraphTool(config_manager=_config_manager)
 javascript_executor = JavaScriptExecutor.from_config(
     _config_manager.get_javascript_executor_settings()
 )
+storyweaver_tool = StoryWeaver()
+lyricist_tool = Lyricist()
+visual_prompt_tool = VisualPrompt()
+mood_map_tool = MoodMap()
+emotive_tagger_tool = EmotiveTagger()
 
 _tools_config = _config_manager.get_config("tools", {})
 browser_lite_settings = (
@@ -163,6 +173,11 @@ function_map = {
     "workspace_publisher": workspace_publisher_tool.run,
     "calendar_service": calendar_service_tool.run,
     "content_repository": content_repository_tool.run,
+    "storyweaver": storyweaver_tool.run,
+    "lyricist": lyricist_tool.run,
+    "visual_prompt": visual_prompt_tool.run,
+    "mood_map": mood_map_tool.run,
+    "emotive_tagger": emotive_tagger_tool.run,
     "memory_episodic_store": episodic_memory_tool.store,
     "memory_episodic_query": episodic_memory_tool.query,
     "memory_episodic_prune": episodic_memory_tool.prune,

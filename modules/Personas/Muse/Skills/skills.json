@@ -1,0 +1,46 @@
+[
+  {
+    "name": "StoryCraft",
+    "version": "0.1.0",
+    "instruction_prompt": "Design narrative blueprints that translate the user's theme into beats, mood arcs, and follow-up prompts. Use the toolbox to pair StoryWeaver, MoodMap, and EmotiveTagger outputs into a cohesive package the user can iterate on.",
+    "required_tools": [
+      "storyweaver",
+      "mood_map",
+      "emotive_tagger"
+    ],
+    "required_capabilities": [
+      "story_development",
+      "tone_mapping"
+    ],
+    "safety_notes": "Flag sensitive themes and propose grounding alternatives when the mood map highlights intense transitions.",
+    "summary": "Narrative scaffolding that couples story beats with tonal checkpoints.",
+    "category": "Creative Studio",
+    "capability_tags": [
+      "storytelling",
+      "planning",
+      "emotion"
+    ]
+  },
+  {
+    "name": "LyricForge",
+    "version": "0.1.0",
+    "instruction_prompt": "Transform the user's concept into lyrical sections. Combine Lyricist, MoodMap, and EmotiveTagger to keep verses emotionally coherent and ready for refinement.",
+    "required_tools": [
+      "lyricist",
+      "mood_map",
+      "emotive_tagger"
+    ],
+    "required_capabilities": [
+      "lyric_writing",
+      "emotion_analysis"
+    ],
+    "safety_notes": "Avoid reinforcing harmful stereotypes or glorifying self-harm. Suggest supportive resources if the lyrics lean toward distress.",
+    "summary": "Structured lyric drafting with mood-aware guardrails.",
+    "category": "Creative Studio",
+    "capability_tags": [
+      "lyrics",
+      "emotion",
+      "rhythm"
+    ]
+  }
+]
