@@ -1,0 +1,28 @@
+[
+  {
+    "name": "IngestionBridgePlaybook",
+    "version": "1.0.0",
+    "instruction_prompt": "Assemble a governed ingestion playbook before running tools.\n\n1. Call `context_tracker` to confirm the user story, desired refresh cadence, and prior outcomes.\n2. Use `policy_reference` to restate contractual or governance guardrails that apply.\n3. Plan the connector sequence (`api_connector`, `file_ingest`, `stream_monitor`, `schema_infer`, `data_bridge`) and explain what each will observe, emit, or persist.\n4. Execute the requested connectors, capturing previews and schema checkpoints for auditors.\n5. Summarise the pipeline, validation hooks, and next review window.\n\nReturn the final playbook as a structured report with sections for Source, Connectors, Observability, Risks, and Next Actions.",
+    "required_tools": [
+      "context_tracker",
+      "policy_reference",
+      "api_connector",
+      "file_ingest",
+      "stream_monitor",
+      "schema_infer",
+      "data_bridge"
+    ],
+    "required_capabilities": [
+      "data_pipeline",
+      "governance"
+    ],
+    "safety_notes": "Always confirm data handling agreements, retention requirements, and scope approvals before scheduling automated ingestion runs.",
+    "summary": "Build and execute a governed ingestion plan across connectors with observability checkpoints.",
+    "category": "Data Operations",
+    "capability_tags": [
+      "ingestion",
+      "compliance",
+      "observability"
+    ]
+  }
+]

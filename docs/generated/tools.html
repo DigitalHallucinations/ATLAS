@@ -127,6 +127,25 @@
       <tr><td>habit_stack_planner</td><td>1.0.0</td><td>wellness_planning, habit_design</td><td>—</td><td>No</td><td>Design habit stacks combining nutrition, stress, and sleep anchors.</td></tr>
     </tbody>
   </table>
+  <h2>Persona: Hermes</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>api_connector</td><td>1.0.0</td><td>api_ingestion, http_bridge, data_pipeline</td><td>medium</td><td>No</td><td>Plan or execute HTTP requests against allowlisted data APIs.</td></tr>
+      <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>low</td><td>No</td><td>Capture a normalised snapshot of the active conversation before coordinating ingestion.</td></tr>
+      <tr><td>data_bridge</td><td>1.0.0</td><td>data_pipeline, ingestion_orchestration</td><td>medium</td><td>No</td><td>Coordinate connector executions and record a governed ingestion trace.</td></tr>
+      <tr><td>file_ingest</td><td>1.0.0</td><td>file_ingestion, metadata_capture</td><td>medium</td><td>No</td><td>Inspect local drop zones and capture safe previews for review.</td></tr>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>low</td><td>No</td><td>Timestamp ingestion runs and note review cadences.</td></tr>
+      <tr><td>hermes.compose_playbook</td><td>1.0.0</td><td>planning, ingestion_blueprints</td><td>low</td><td>No</td><td>Draft the ingestion playbook structure, objectives, checkpoints, and stakeholders before execution.</td></tr>
+      <tr><td>hermes.stage_pipeline</td><td>1.0.0</td><td>data_pipeline, execution_orchestration</td><td>medium</td><td>No</td><td>Execute the Hermes pipeline plan via DataBridge while appending governance metadata.</td></tr>
+      <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>low</td><td>No</td><td>Surface governance clauses that apply to the planned ingestion pipeline.</td></tr>
+      <tr><td>priority_queue</td><td>1.0.0</td><td>workflow_control, planning</td><td>low</td><td>No</td><td>Rank follow-up actions when multiple ingestion sources compete for attention.</td></tr>
+      <tr><td>schema_infer</td><td>1.0.0</td><td>schema_discovery, data_profiling</td><td>low</td><td>No</td><td>Infer field types and nullability from sample payloads to inform mapping rules.</td></tr>
+      <tr><td>stream_monitor</td><td>1.0.0</td><td>stream_health, ingestion_observability</td><td>low</td><td>No</td><td>Summarise streaming pipeline health, error bursts, and latency trends.</td></tr>
+    </tbody>
+  </table>
   <h2>Persona: KnowledgeCurator</h2>
   <table>
     <thead>
@@ -243,6 +262,7 @@
     </thead>
     <tbody>
       <tr><td>analytics_dashboard</td><td>1.0.0</td><td>analytics_reporting, segment_tracking</td><td>medium</td><td>No</td><td>Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata.</td></tr>
+      <tr><td>api_connector</td><td>1.0.0</td><td>api_ingestion, http_bridge, data_pipeline</td><td>—</td><td>No</td><td>Plan or execute HTTP requests to allowlisted APIs and capture response previews.</td></tr>
       <tr><td>atlas_dashboard</td><td>1.0.0</td><td>atlas_operations, status_reporting</td><td>medium</td><td>No</td><td>Capture an initiative update for the ATLAS persona dashboard, including health, metrics, and stakeholders.</td></tr>
       <tr><td>audit_reporter</td><td>0.1.0</td><td>governance, audit_trail</td><td>medium</td><td>No</td><td>Aggregate security control evidence, severity counts, and analyst notes into an audit-ready summary.</td></tr>
       <tr><td>browser</td><td>1.0.0</td><td>web_navigation, research</td><td>medium</td><td>No</td><td>Record a virtual browsing session including annotations and metadata for downstream summarisation.</td></tr>
@@ -255,6 +275,7 @@
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
       <tr><td>crm_service</td><td>1.0.0</td><td>crm_logging, engagement_tracking</td><td>medium</td><td>No</td><td>Log a structured customer interaction with optional tags and metadata.</td></tr>
       <tr><td>dashboard_service</td><td>1.0.0</td><td>metrics_reporting, analysis</td><td>medium</td><td>No</td><td>Store a dashboard snapshot with numeric metrics and supporting commentary.</td></tr>
+      <tr><td>data_bridge</td><td>1.0.0</td><td>data_pipeline, ingestion_orchestration</td><td>—</td><td>No</td><td>Coordinate connector tools into a repeatable ingestion pipeline and collect results.</td></tr>
       <tr><td>debian12_calendar</td><td>1.1.0</td><td>calendar_read, calendar_write</td><td>—</td><td>No</td><td>Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events.</td></tr>
       <tr><td>delete_namespace</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Remove all stored embeddings associated with the specified namespace.</td></tr>
       <tr><td>email_service</td><td>1.0.0</td><td>email_delivery, communications</td><td>medium</td><td>No</td><td>Dispatch a structured email with support for CC and BCC recipients.</td></tr>
@@ -263,6 +284,7 @@
       <tr><td>eval.regression</td><td>1.0.0</td><td>evaluation, analytics</td><td>—</td><td>No</td><td>Compare baseline and candidate artifacts, compute diffs and regression metrics, and publish structured analytics.</td></tr>
       <tr><td>execute_javascript</td><td>1.0.0</td><td>javascript_exec, code_execution</td><td>high</td><td>No</td><td>Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files.</td></tr>
       <tr><td>execute_python</td><td>1.0.0</td><td>code_execution, analysis</td><td>high</td><td>No</td><td>Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement.</td></tr>
+      <tr><td>file_ingest</td><td>1.0.0</td><td>file_ingestion, metadata_capture</td><td>—</td><td>No</td><td>Read local files within the sandbox and return metadata plus a safe preview sample.</td></tr>
       <tr><td>filesystem_list</td><td>1.0.0</td><td>—</td><td>low</td><td>No</td><td>List directory contents within the sandbox, returning metadata for each entry.</td></tr>
       <tr><td>filesystem_read</td><td>1.0.0</td><td>—</td><td>medium</td><td>No</td><td>Read a file from the sandboxed filesystem, returning MIME metadata and optionally truncated contents.</td></tr>
       <tr><td>filesystem_write</td><td>1.0.0</td><td>—</td><td>high</td><td>No</td><td>Write or overwrite a file within the sandboxed filesystem while enforcing byte and total storage quotas.</td></tr>
@@ -292,8 +314,10 @@
       <tr><td>query_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Return the most similar vectors for the supplied query embedding from the configured namespace.</td></tr>
       <tr><td>registry.capability</td><td>1.0.0</td><td>orchestration, introspection</td><td>low</td><td>No</td><td>Inspect cached capability metadata, apply persona-aware filters, and optionally refresh the shared registry snapshot.</td></tr>
       <tr><td>roadmap_service</td><td>1.0.0</td><td>program_management, planning</td><td>medium</td><td>No</td><td>Update a roadmap initiative with owner, status, and upcoming milestones.</td></tr>
+      <tr><td>schema_infer</td><td>1.0.0</td><td>schema_discovery, data_profiling</td><td>—</td><td>No</td><td>Infer field types, nullability, and sample values from representative records.</td></tr>
       <tr><td>spreadsheet</td><td>1.0.0</td><td>data_management, tabular_editing</td><td>low</td><td>No</td><td>Append or replace rows within a lightweight spreadsheet.</td></tr>
       <tr><td>storyweaver</td><td>1.0.0</td><td>story_development, narrative_design</td><td>low</td><td>No</td><td>Assemble a structured story outline with tonal guidance and beat-level prompts.</td></tr>
+      <tr><td>stream_monitor</td><td>1.0.0</td><td>stream_health, ingestion_observability</td><td>—</td><td>No</td><td>Aggregate status, error, and latency statistics from streaming events.</td></tr>
       <tr><td>structured_parse</td><td>1.0.0</td><td>document_parsing, ocr</td><td>low</td><td>No</td><td>Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents.</td></tr>
       <tr><td>sys_snapshot</td><td>0.1.0</td><td>situational_awareness, observability</td><td>medium</td><td>No</td><td>Normalize host inventories, running services, and metrics into a compact situational snapshot.</td></tr>
       <tr><td>task_queue_cancel</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Cancel a queued or scheduled task.</td></tr>

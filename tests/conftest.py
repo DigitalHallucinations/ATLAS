@@ -49,6 +49,12 @@ if "requests" not in sys.modules and requests is None:
     requests_module.post = _dummy_request
     requests_module.__path__ = []
 
+    class _Session:
+        def request(self, *args, **kwargs):  # pragma: no cover - stubbed session
+            return _dummy_request(*args, **kwargs)
+
+    requests_module.Session = _Session
+
     exceptions_module = types.ModuleType("requests.exceptions")
 
     class _RequestException(Exception):
@@ -145,9 +151,37 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
     ]:
         setattr(sqlalchemy_stub, attr, _marker(attr))
 
-    sqlalchemy_stub.Column = lambda *args, **kwargs: {"args": args, "kwargs": kwargs}
+    def _column(*args, **kwargs):
+        name = args[0] if args else kwargs.get("name")
+        return types.SimpleNamespace(args=args, kwargs=kwargs, name=name, key=name)
+
+    def _table(name, metadata, *columns, **kwargs):
+        column_map = {}
+        for column in columns:
+            key = getattr(column, "key", None)
+            if isinstance(key, str):
+                column_map[key] = column
+        return types.SimpleNamespace(
+            name=name,
+            metadata=metadata,
+            columns=columns,
+            kwargs=kwargs,
+            c=types.SimpleNamespace(**column_map),
+        )
+
+    sqlalchemy_stub.Column = _column
+    sqlalchemy_stub.Table = _table
+    sqlalchemy_stub.MetaData = lambda *args, **kwargs: types.SimpleNamespace(create_all=_noop)
     sqlalchemy_stub.inspect = _noop
     sqlalchemy_stub.create_engine = _noop
+    sqlalchemy_stub.delete = lambda *args, **kwargs: ("delete", args, kwargs)
+
+    class _FuncProxy:
+        def __getattr__(self, name):  # pragma: no cover - stub helper
+            return lambda *args, **kwargs: (name, args, kwargs)
+
+    sqlalchemy_stub.func = _FuncProxy()
+    sqlalchemy_stub.select = lambda *args, **kwargs: ("select", args, kwargs)
 
     event_module = types.ModuleType("sqlalchemy.event")
 
@@ -164,6 +198,7 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
     postgres_module = types.ModuleType("sqlalchemy.dialects.postgresql")
     for attr in ["ARRAY", "JSONB", "UUID", "TSVECTOR"]:
         setattr(postgres_module, attr, _marker(attr))
+    postgres_module.insert = lambda *args, **kwargs: ("insert", args, kwargs)
 
     orm_module = types.ModuleType("sqlalchemy.orm")
 
@@ -190,6 +225,9 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
     types_module.JSON = _marker("JSON")
     types_module.TypeDecorator = _marker("TypeDecorator")
     sys.modules["sqlalchemy.types"] = types_module
+    sql_module = types.ModuleType("sqlalchemy.sql")
+    sql_module.Select = _marker("Select")
+    sys.modules["sqlalchemy.sql"] = sql_module
     engine_url_module = types.ModuleType("sqlalchemy.engine.url")
 
     class _StubURL:

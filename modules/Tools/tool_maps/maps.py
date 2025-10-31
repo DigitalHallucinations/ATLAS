@@ -3,6 +3,7 @@
 from functools import partial
 
 from modules.Tools.Base_Tools.Google_search import GoogleSearch
+from modules.Tools.Base_Tools.api_connector import APIConnector
 from modules.Tools.Base_Tools.policy_reference import policy_reference
 from modules.Tools.Base_Tools.time import get_current_info
 from modules.Tools.Base_Tools.context_tracker import context_tracker
@@ -34,12 +35,16 @@ from modules.Tools.Base_Tools.workspace_publisher import WorkspacePublisher
 from modules.Tools.Base_Tools.calendar_service import CalendarService
 from modules.Tools.Base_Tools.memory_episodic import EpisodicMemoryTool
 from modules.Tools.Base_Tools.memory_graph import MemoryGraphTool
+from modules.Tools.Base_Tools.file_ingest import FileIngestor
 from modules.Tools.Base_Tools.debian12_calendar import (
     Debian12CalendarTool,
     debian12_calendar,
 )
 from modules.Tools.Base_Tools.filesystem_io import read_file, write_file, list_dir
 from modules.Tools.Base_Tools.structured_parser import StructuredParser
+from modules.Tools.Base_Tools.stream_monitor import StreamMonitor
+from modules.Tools.Base_Tools.schema_infer import SchemaInference
+from modules.Tools.Base_Tools.data_bridge import DataBridge
 from modules.Tools.Base_Tools.kv_store import kv_delete, kv_get, kv_increment, kv_set
 from modules.Tools.Base_Tools.vault_secrets import VaultSecretsTool
 from modules.Tools.Base_Tools.budget_limiter import BudgetLimiterTool
@@ -104,6 +109,16 @@ threat_scanner_tool = ThreatScanner()
 audit_reporter_tool = AuditReporter()
 sys_snapshot_tool = SysSnapshot()
 incident_summarizer_tool = IncidentSummarizer()
+api_connector_tool = APIConnector()
+file_ingest_tool = FileIngestor()
+stream_monitor_tool = StreamMonitor()
+schema_infer_tool = SchemaInference()
+data_bridge_tool = DataBridge(
+    api_connector=api_connector_tool,
+    file_ingest=file_ingest_tool,
+    stream_monitor=stream_monitor_tool,
+    schema_infer=schema_infer_tool,
+)
 
 _tools_config = _config_manager.get_config("tools", {})
 browser_lite_settings = (
@@ -214,4 +229,9 @@ function_map = {
     "sys_snapshot": sys_snapshot_tool.run,
     "incident_summarizer": incident_summarizer_tool.run,
     "registry.capability": registry_capability_tool,
+    "api_connector": api_connector_tool.run,
+    "file_ingest": file_ingest_tool.run,
+    "stream_monitor": stream_monitor_tool.run,
+    "schema_infer": schema_infer_tool.run,
+    "data_bridge": data_bridge_tool.run,
 }
