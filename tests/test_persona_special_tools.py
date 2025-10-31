@@ -34,6 +34,7 @@ knowledge_cards = _load_tool_module("knowledgecurator_cards", BASE / "KnowledgeC
 metaphors = _load_tool_module("genius_metaphors", BASE / "genius" / "Toolbox" / "metaphors.py")
 innovation = _load_tool_module("nikola_innovation", BASE / "Nikola Tesla" / "Toolbox" / "innovation.py")
 muse_tools = _load_tool_module("muse_toolbox", BASE / "Muse" / "Toolbox" / "maps.py")
+echo_tools = _load_tool_module("echo_toolbox", BASE / "Echo" / "Toolbox" / "maps.py")
 
 
 def test_task_catalog_snapshot_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -172,3 +173,52 @@ def test_muse_emotive_tagger_defaults_when_no_keywords() -> None:
     )
     assert tags["tags"]
     assert isinstance(tags["dominant_emotion"], str)
+
+
+def test_echo_tone_analyzer_surfaces_focus_points() -> None:
+    analysis = asyncio.run(
+        echo_tools.function_map["tone_analyzer"](
+            transcript="I appreciate the effort, yet I'm frustrated about repeated delays. Let's set clearer boundaries soon.",
+            focus=["boundaries"],
+        )
+    )
+    assert analysis["dominant_signal"] in {"reassuring", "tense", "even"}
+    assert analysis["highlights"]
+    assert analysis["focus_observations"]
+
+
+def test_echo_reflective_prompt_returns_validations() -> None:
+    prompt = asyncio.run(
+        echo_tools.function_map["reflective_prompt"](
+            statement="I feel unheard when updates slip without notice.",
+            emotions=["frustrated"],
+            needs=["predictability"],
+        )
+    )
+    assert any("frustrated" in entry.lower() for entry in prompt["validations"])
+    assert prompt["follow_up_questions"]
+
+
+def test_echo_memory_recall_tracks_commitments() -> None:
+    recall = asyncio.run(
+        echo_tools.function_map["memory_recall"](
+            highlights=["Agreed to send summary", "Need quiet focus time"],
+            commitments=["Send recap email"],
+            timeframe="Last retro",
+        )
+    )
+    assert recall["timeline"][0]["label"].lower() == "last retro"
+    assert recall["commitments"]
+
+
+def test_echo_conflict_resolver_plans_steps() -> None:
+    plan = asyncio.run(
+        echo_tools.function_map["conflict_resolver"](
+            tensions=["scope creep"],
+            shared_goals=["maintain trust"],
+            constraints=["limited budget"],
+            timeframe="two weeks",
+        )
+    )
+    assert plan["phases"]
+    assert plan["plan_steps"][0]["tension"] == "scope creep"

@@ -3384,6 +3384,216 @@
     }
     ,
     {
+        "name": "tone_analyzer",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "medium",
+        "description": "Assess mediation transcripts for emotional tension, reassurance, and neutral moments.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "transcript": {
+                    "type": "string",
+                    "description": "Conversation snippet or transcript to analyse."
+                },
+                "focus": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional keywords to spotlight within the analysis."
+                },
+                "window": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 5,
+                    "description": "Maximum number of sentences to include in highlight summaries."
+                }
+            },
+            "required": [
+                "transcript"
+            ]
+        },
+        "capabilities": [
+            "tone_mapping",
+            "conversation_analysis"
+        ],
+        "persona_allowlist": [
+            "Echo"
+        ],
+        "notes": "Heuristic cues only—route to human moderators if self-harm or safety risks appear.",
+        "cost_per_call": 0.0,
+        "cost_unit": "USD"
+    }
+    ,
+    {
+        "name": "reflective_prompt",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "medium",
+        "description": "Craft reflective listening prompts, validations, and clarifying questions.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "statement": {
+                    "type": "string",
+                    "description": "Participant statement to mirror back."
+                },
+                "emotions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional emotions to acknowledge explicitly."
+                },
+                "needs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Needs or requests to weave into the reflection."
+                },
+                "action_hint": {
+                    "type": "string",
+                    "description": "Optional next step suggestion to foreground."
+                }
+            },
+            "required": [
+                "statement"
+            ]
+        },
+        "capabilities": [
+            "reflective_listening",
+            "conversation_support"
+        ],
+        "persona_allowlist": [
+            "Echo"
+        ],
+        "notes": "Supports de-escalation but is not a substitute for licensed counseling or crisis care.",
+        "cost_per_call": 0.0,
+        "cost_unit": "USD"
+    }
+    ,
+    {
+        "name": "memory_recall",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "description": "Summarise previously shared highlights, commitments, and next focus points.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "highlights": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Moments or notes to bring back into the conversation."
+                },
+                "timeframe": {
+                    "type": "string",
+                    "description": "Optional time period label (e.g., 'last week review')."
+                },
+                "commitments": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Documented commitments or follow-ups to surface."
+                }
+            },
+            "required": [
+                "highlights"
+            ]
+        },
+        "capabilities": [
+            "conversation_memory",
+            "follow_up_planning"
+        ],
+        "persona_allowlist": [
+            "Echo"
+        ],
+        "notes": "Summaries rely on provided context; confirm sensitive details with participants before sharing.",
+        "cost_per_call": 0.0,
+        "cost_unit": "USD"
+    }
+    ,
+    {
+        "name": "conflict_resolver",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 10,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "medium",
+        "description": "Outline facilitation phases, ground rules, and plan steps for tense conversations.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tensions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Key friction points raised by participants."
+                },
+                "shared_goals": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Common goals or values to anchor the dialogue."
+                },
+                "constraints": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Limitations that must be acknowledged during the session."
+                },
+                "timeframe": {
+                    "type": "string",
+                    "description": "Optional follow-up window for reviewing progress."
+                }
+            },
+            "required": [
+                "tensions"
+            ]
+        },
+        "capabilities": [
+            "conflict_resolution",
+            "structured_planning"
+        ],
+        "persona_allowlist": [
+            "Echo"
+        ],
+        "notes": "Provide gentle facilitation guidance only; escalate to HR or legal support for high-risk matters.",
+        "cost_per_call": 0.0,
+        "cost_unit": "USD"
+    }
+    ,
+    {
         "name": "eval.judge",
         "version": "1.0.0",
         "side_effects": "analytics",

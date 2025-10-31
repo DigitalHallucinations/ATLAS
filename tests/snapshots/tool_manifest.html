@@ -19,12 +19,14 @@
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
       <tr><td>crm_service</td><td>1.0.0</td><td>crm_logging, engagement_tracking</td><td>—</td><td>No</td><td>Log a structured customer interaction with optional tags and metadata.</td></tr>
       <tr><td>dashboard_service</td><td>1.0.0</td><td>metrics_reporting, analysis</td><td>—</td><td>No</td><td>Store a dashboard snapshot with numeric metrics and supporting commentary.</td></tr>
+      <tr><td>debian12_calendar</td><td>1.1.0</td><td>calendar_read, calendar_write</td><td>—</td><td>No</td><td>Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events.</td></tr>
       <tr><td>email_service</td><td>1.0.0</td><td>email_delivery, communications</td><td>—</td><td>No</td><td>Dispatch a structured email with support for CC and BCC recipients.</td></tr>
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
       <tr><td>labor_market_feed</td><td>1.0.0</td><td>labor_market_research, trend_analysis</td><td>—</td><td>No</td><td>Generate a synthetic labour market snapshot for the requested regions and skills.</td></tr>
       <tr><td>notebook</td><td>1.0.0</td><td>note_taking, knowledge_management</td><td>—</td><td>No</td><td>Capture a structured research note inside a collaborative notebook.</td></tr>
       <tr><td>notification_service</td><td>1.0.0</td><td>notification_delivery, engagement</td><td>—</td><td>No</td><td>Send a notification message to the requested channel and recipients.</td></tr>
+      <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
       <tr><td>priority_queue</td><td>1.0.0</td><td>task_management, status_reporting</td><td>—</td><td>No</td><td>Score and sort operational tasks to produce a prioritized execution list.</td></tr>
       <tr><td>roadmap_service</td><td>1.0.0</td><td>program_management, planning</td><td>—</td><td>No</td><td>Update a roadmap initiative with owner, status, and upcoming milestones.</td></tr>
       <tr><td>spreadsheet</td><td>1.0.0</td><td>data_management, tabular_editing</td><td>—</td><td>No</td><td>Append or replace rows within a lightweight spreadsheet.</td></tr>
@@ -90,6 +92,20 @@
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
       <tr><td>search_pmc</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY)</td><td>Search PubMed Central (PMC) for open access articles using the Entrez API.</td></tr>
       <tr><td>search_pubmed</td><td>1.0.0</td><td>medical_research, literature_search</td><td>—</td><td>No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY)</td><td>Search PubMed for biomedical literature using the NCBI Entrez API.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: Echo</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>conflict_resolver</td><td>1.0.0</td><td>conflict_resolution, structured_planning</td><td>medium</td><td>No</td><td>Outline facilitation phases, ground rules, and alignment steps for tense topics.</td></tr>
+      <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_history, memory_management</td><td>low</td><td>No</td><td>Persist session snippets so Echo can reference earlier summaries and agreements.</td></tr>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>low</td><td>No</td><td>Retrieve the current time, date, or timestamp to timestamp action plans.</td></tr>
+      <tr><td>memory_recall</td><td>1.0.0</td><td>conversation_memory, follow_up_planning</td><td>low</td><td>No</td><td>Summarise conversation highlights, commitments, and upcoming checkpoints.</td></tr>
+      <tr><td>reflective_prompt</td><td>1.0.0</td><td>reflective_listening, conversation_support</td><td>medium</td><td>No</td><td>Craft reflective statements, validations, and clarifying questions for mediators.</td></tr>
+      <tr><td>tone_analyzer</td><td>1.0.0</td><td>tone_mapping, conversation_analysis</td><td>medium</td><td>No</td><td>Evaluate conversational tone, highlighting tension, reassurance, and neutral statements.</td></tr>
     </tbody>
   </table>
   <h2>Persona: Einstein</h2>
@@ -183,6 +199,21 @@
       <tr><td>stepwise_solution</td><td>1.0.0</td><td>education, mathematics</td><td>—</td><td>No</td><td>Produce numbered reasoning steps and optional symbolic verification.</td></tr>
     </tbody>
   </table>
+  <h2>Persona: Muse</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_history, memory_management</td><td>low</td><td>No</td><td>Record conversation context snapshots to ground creative follow-ups.</td></tr>
+      <tr><td>emotive_tagger</td><td>1.0.0</td><td>emotion_analysis, creative_quality_control</td><td>low</td><td>No</td><td>Annotate passages with emotional tags and optional intensity values.</td></tr>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>low</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
+      <tr><td>lyricist</td><td>1.0.0</td><td>lyric_writing, creative_iteration</td><td>low</td><td>No</td><td>Generate structured lyric sections anchored on the supplied concept.</td></tr>
+      <tr><td>mood_map</td><td>1.0.0</td><td>tone_mapping, story_analysis</td><td>low</td><td>No</td><td>Translate beats into an emotion arc and color palette guidance.</td></tr>
+      <tr><td>storyweaver</td><td>1.0.0</td><td>story_development, narrative_design</td><td>low</td><td>No</td><td>Assemble a multi-beat story outline with tonal notes and focus prompts.</td></tr>
+      <tr><td>visual_prompt</td><td>1.0.0</td><td>visual_prompting, creative_direction</td><td>low</td><td>No</td><td>Craft a descriptive art prompt with palette, lighting, and medium cues.</td></tr>
+    </tbody>
+  </table>
   <h2>Persona: Nikola Tesla</h2>
   <table>
     <thead>
@@ -200,9 +231,11 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>analytics_dashboard</td><td>1.0.0</td><td>analytics_reporting, segment_tracking</td><td>—</td><td>No</td><td>Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata.</td></tr>
       <tr><td>atlas_dashboard</td><td>1.0.0</td><td>atlas_operations, status_reporting</td><td>—</td><td>No</td><td>Capture persona-specific initiative health updates for the ATLAS dashboard.</td></tr>
       <tr><td>ats_scoring_service</td><td>1.0.0</td><td>resume_analysis, ats_compliance</td><td>—</td><td>Yes (docs: Configure ATS_SCORING_SERVICE_API_KEY or ats_scoring_service.api_key for authenticated requests., env: ATS_SCORING_SERVICE_API_KEY, type: api_key)</td><td>Submit resume and job description text to the ATS scoring service and return compatibility insights and optimization suggestions.</td></tr>
       <tr><td>browser</td><td>1.0.0</td><td>web_navigation, research</td><td>—</td><td>No</td><td>Record a virtual browsing session including annotations and metadata for downstream summarisation.</td></tr>
+      <tr><td>content_repository</td><td>1.0.0</td><td>content_management, knowledge_base</td><td>—</td><td>No</td><td>Store or refresh reusable content blocks including metadata, tags, and attachments.</td></tr>
       <tr><td>crm_service</td><td>1.0.0</td><td>crm_logging, engagement_tracking</td><td>—</td><td>No</td><td>Log a structured customer interaction with optional tags and metadata.</td></tr>
       <tr><td>dashboard_service</td><td>1.0.0</td><td>metrics_reporting, analysis</td><td>—</td><td>No</td><td>Store a dashboard snapshot with numeric metrics and supporting commentary.</td></tr>
       <tr><td>email_service</td><td>1.0.0</td><td>email_delivery, communications</td><td>—</td><td>No</td><td>Dispatch a structured email with support for CC and BCC recipients.</td></tr>
@@ -211,6 +244,7 @@
       <tr><td>labor_market_feed</td><td>1.0.0</td><td>labor_market_research, trend_analysis</td><td>—</td><td>No</td><td>Generate a synthetic labour market snapshot for the requested regions and skills.</td></tr>
       <tr><td>notebook</td><td>1.0.0</td><td>note_taking, knowledge_management</td><td>—</td><td>No</td><td>Capture a structured research note inside a collaborative notebook.</td></tr>
       <tr><td>notification_service</td><td>1.0.0</td><td>notification_delivery, engagement</td><td>—</td><td>No</td><td>Send a notification message to the requested channel and recipients.</td></tr>
+      <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
       <tr><td>roadmap_service</td><td>1.0.0</td><td>program_management, planning</td><td>—</td><td>No</td><td>Update a roadmap initiative with owner, status, and upcoming milestones.</td></tr>
       <tr><td>spreadsheet</td><td>1.0.0</td><td>data_management, tabular_editing</td><td>—</td><td>No</td><td>Append or replace rows within a lightweight spreadsheet.</td></tr>
       <tr><td>ticketing_system</td><td>1.0.0</td><td>issue_tracking, escalations</td><td>—</td><td>No</td><td>Create a ticket for follow-up work with assignee and tag support.</td></tr>
@@ -222,16 +256,25 @@
       <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>analytics_dashboard</td><td>1.0.0</td><td>analytics_reporting, segment_tracking</td><td>medium</td><td>No</td><td>Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata.</td></tr>
       <tr><td>atlas_dashboard</td><td>1.0.0</td><td>atlas_operations, status_reporting</td><td>medium</td><td>No</td><td>Capture an initiative update for the ATLAS persona dashboard, including health, metrics, and stakeholders.</td></tr>
       <tr><td>browser</td><td>1.0.0</td><td>web_navigation, research</td><td>medium</td><td>No</td><td>Record a virtual browsing session including annotations and metadata for downstream summarisation.</td></tr>
       <tr><td>browser_lite</td><td>1.0.0</td><td>browser_automation</td><td>high</td><td>No</td><td>Navigate a limited number of allowlisted pages with robots.txt enforcement, throttling, and optional screenshots.</td></tr>
+      <tr><td>budget.limiter</td><td>1.0.0</td><td>runtime_management, conversation_budgeting</td><td>medium</td><td>No</td><td>Inspect or adjust tracked tool runtime budgets for a conversation.</td></tr>
       <tr><td>calculator</td><td>1.0.0</td><td>calculator</td><td>low</td><td>No</td><td>Evaluate sanitized mathematical expressions with Decimal precision and optional unit conversions.</td></tr>
+      <tr><td>calendar_service</td><td>1.0.0</td><td>calendar_read, calendar_write</td><td>medium</td><td>No</td><td>Book lightweight calendar slots and retrieve existing reservations for personas without native calendar access.</td></tr>
+      <tr><td>conflict_resolver</td><td>1.0.0</td><td>conflict_resolution, structured_planning</td><td>medium</td><td>No</td><td>Outline facilitation phases, ground rules, and plan steps for tense conversations.</td></tr>
+      <tr><td>consensus.vote</td><td>1.0.0</td><td>orchestration, coordination</td><td>low</td><td>No</td><td>Run the negotiation vote protocol across a set of participants and return the serialized trace and decision.</td></tr>
+      <tr><td>content_repository</td><td>1.0.0</td><td>content_management, knowledge_base</td><td>medium</td><td>No</td><td>Store or refresh reusable content blocks including metadata, tags, and attachments.</td></tr>
       <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>—</td><td>No</td><td>Compile a normalized snapshot of the active conversation including recent highlights and participants.</td></tr>
       <tr><td>crm_service</td><td>1.0.0</td><td>crm_logging, engagement_tracking</td><td>medium</td><td>No</td><td>Log a structured customer interaction with optional tags and metadata.</td></tr>
       <tr><td>dashboard_service</td><td>1.0.0</td><td>metrics_reporting, analysis</td><td>medium</td><td>No</td><td>Store a dashboard snapshot with numeric metrics and supporting commentary.</td></tr>
       <tr><td>debian12_calendar</td><td>1.1.0</td><td>calendar_read, calendar_write</td><td>—</td><td>No</td><td>Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events.</td></tr>
       <tr><td>delete_namespace</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Remove all stored embeddings associated with the specified namespace.</td></tr>
       <tr><td>email_service</td><td>1.0.0</td><td>email_delivery, communications</td><td>medium</td><td>No</td><td>Dispatch a structured email with support for CC and BCC recipients.</td></tr>
+      <tr><td>emotive_tagger</td><td>1.0.0</td><td>emotion_analysis, creative_quality_control</td><td>low</td><td>No</td><td>Tag passages with qualitative emotions and provide intensity hints.</td></tr>
+      <tr><td>eval.judge</td><td>1.0.0</td><td>evaluation, analytics</td><td>—</td><td>No</td><td>Run evaluator backends across candidate completions, apply configurable thresholds, and publish scoring analytics.</td></tr>
+      <tr><td>eval.regression</td><td>1.0.0</td><td>evaluation, analytics</td><td>—</td><td>No</td><td>Compare baseline and candidate artifacts, compute diffs and regression metrics, and publish structured analytics.</td></tr>
       <tr><td>execute_javascript</td><td>1.0.0</td><td>javascript_exec, code_execution</td><td>high</td><td>No</td><td>Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files.</td></tr>
       <tr><td>execute_python</td><td>1.0.0</td><td>code_execution, analysis</td><td>high</td><td>No</td><td>Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement.</td></tr>
       <tr><td>filesystem_list</td><td>1.0.0</td><td>—</td><td>low</td><td>No</td><td>List directory contents within the sandbox, returning metadata for each entry.</td></tr>
@@ -240,18 +283,31 @@
       <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>—</td><td>No</td><td>Get the current time, date, day, month and year, or timestamp based on the format specified.</td></tr>
       <tr><td>get_current_location</td><td>1.0.0</td><td>geolocation, context_awareness</td><td>—</td><td>No</td><td>Retrieve the caller&#x27;s approximate location using the IP-API geolocation service.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
+      <tr><td>hitl.approval</td><td>1.0.0</td><td>workflow_control, human_approval</td><td>high</td><td>No</td><td>Request human-in-the-loop approvals, poll for status, and resolve HITL review tasks.</td></tr>
       <tr><td>kv_delete</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Remove a key from the namespaced state store if present.</td></tr>
       <tr><td>kv_get</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Retrieve a JSON-serializable value from the namespaced state store, honoring key TTL.</td></tr>
       <tr><td>kv_increment</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Atomically increment an integer counter within the namespaced state store, creating it when missing.</td></tr>
       <tr><td>kv_set</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Persist a JSON-serializable value within the namespaced state store with optional TTL enforcement.</td></tr>
       <tr><td>labor_market_feed</td><td>1.0.0</td><td>labor_market_research, trend_analysis</td><td>low</td><td>No</td><td>Generate a synthetic labour market snapshot for the requested regions and skills.</td></tr>
+      <tr><td>log.event</td><td>1.0.0</td><td>telemetry, observability</td><td>—</td><td>No</td><td>Validate and emit structured telemetry events with optional message bus persistence hints.</td></tr>
+      <tr><td>lyricist</td><td>1.0.0</td><td>lyric_writing, creative_iteration</td><td>low</td><td>No</td><td>Draft a structured lyric sheet with sectioned lines and thematic hooks.</td></tr>
+      <tr><td>memory.graph</td><td>1.0.0</td><td>graph_memory, conversation_context</td><td>—</td><td>No</td><td>Manage tenant-scoped memory graph nodes and edges stored in the conversation repository.</td></tr>
+      <tr><td>memory_episodic_prune</td><td>1.0.0</td><td>episodic_memory, conversation_context</td><td>—</td><td>No</td><td>Delete episodic memories for a tenant using occurrence and expiration filters.</td></tr>
+      <tr><td>memory_episodic_query</td><td>1.0.0</td><td>episodic_memory, conversation_context</td><td>—</td><td>No</td><td>Retrieve episodic memories for a tenant filtered by tags, time bounds, and conversation scope.</td></tr>
+      <tr><td>memory_episodic_store</td><td>1.0.0</td><td>episodic_memory, conversation_context</td><td>—</td><td>No</td><td>Persist an episodic memory snapshot tied to a tenant, optionally linked to a conversation message.</td></tr>
+      <tr><td>memory_recall</td><td>1.0.0</td><td>conversation_memory, follow_up_planning</td><td>low</td><td>No</td><td>Summarise previously shared highlights, commitments, and next focus points.</td></tr>
+      <tr><td>mood_map</td><td>1.0.0</td><td>tone_mapping, story_analysis</td><td>low</td><td>No</td><td>Translate story beats into tonal transitions and color palettes.</td></tr>
       <tr><td>notebook</td><td>1.0.0</td><td>note_taking, knowledge_management</td><td>low</td><td>No</td><td>Capture a structured research note inside a collaborative notebook.</td></tr>
       <tr><td>notification_service</td><td>1.0.0</td><td>notification_delivery, engagement</td><td>medium</td><td>No</td><td>Send a notification message to the requested channel and recipients.</td></tr>
+      <tr><td>planner.decompose</td><td>1.0.0</td><td>workflow_control, planning</td><td>low</td><td>No</td><td>Produce a dependency graph snapshot for a skill&#x27;s execution plan without running any tools.</td></tr>
       <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, risk_assessment_support</td><td>—</td><td>No</td><td>Retrieve internal safety and governance policy guidance relevant to a proposed action.</td></tr>
       <tr><td>priority_queue</td><td>1.0.0</td><td>task_management, status_reporting</td><td>—</td><td>No</td><td>Score and sort operational tasks to produce a prioritized execution list.</td></tr>
       <tr><td>query_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Return the most similar vectors for the supplied query embedding from the configured namespace.</td></tr>
+      <tr><td>reflective_prompt</td><td>1.0.0</td><td>reflective_listening, conversation_support</td><td>medium</td><td>No</td><td>Craft reflective listening prompts, validations, and clarifying questions.</td></tr>
+      <tr><td>registry.capability</td><td>1.0.0</td><td>orchestration, introspection</td><td>low</td><td>No</td><td>Inspect cached capability metadata, apply persona-aware filters, and optionally refresh the shared registry snapshot.</td></tr>
       <tr><td>roadmap_service</td><td>1.0.0</td><td>program_management, planning</td><td>medium</td><td>No</td><td>Update a roadmap initiative with owner, status, and upcoming milestones.</td></tr>
       <tr><td>spreadsheet</td><td>1.0.0</td><td>data_management, tabular_editing</td><td>low</td><td>No</td><td>Append or replace rows within a lightweight spreadsheet.</td></tr>
+      <tr><td>storyweaver</td><td>1.0.0</td><td>story_development, narrative_design</td><td>low</td><td>No</td><td>Assemble a structured story outline with tonal guidance and beat-level prompts.</td></tr>
       <tr><td>structured_parse</td><td>1.0.0</td><td>document_parsing, ocr</td><td>low</td><td>No</td><td>Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents.</td></tr>
       <tr><td>task_queue_cancel</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Cancel a queued or scheduled task.</td></tr>
       <tr><td>task_queue_enqueue</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Enqueue a one-off task into the durable task queue with optional execution delay.</td></tr>
@@ -259,7 +315,11 @@
       <tr><td>task_queue_status</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Retrieve the current state and retry metadata for a queued task.</td></tr>
       <tr><td>terminal_command</td><td>1.0.0</td><td>terminal_execution, system_inspection</td><td>high</td><td>No</td><td>Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status.</td></tr>
       <tr><td>ticketing_system</td><td>1.0.0</td><td>issue_tracking, escalations</td><td>medium</td><td>No</td><td>Create a ticket for follow-up work with assignee and tag support.</td></tr>
+      <tr><td>tone_analyzer</td><td>1.0.0</td><td>tone_mapping, conversation_analysis</td><td>medium</td><td>No</td><td>Assess mediation transcripts for emotional tension, reassurance, and neutral moments.</td></tr>
+      <tr><td>trace.explain</td><td>1.0.0</td><td>observability, diagnostics</td><td>—</td><td>No</td><td>Merge the tool activity log and recorded negotiation traces with optional filters for conversation, trace ID, and time range.</td></tr>
       <tr><td>upsert_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Insert or update vector embeddings within the configured namespace of the active vector store backend.</td></tr>
+      <tr><td>vault.secrets</td><td>1.0.0</td><td>credential_management, configuration_access</td><td>—</td><td>No</td><td>Inspect or update stored credentials for configured tools with masked previews of secret values.</td></tr>
+      <tr><td>visual_prompt</td><td>1.0.0</td><td>visual_prompting, creative_direction</td><td>low</td><td>No</td><td>Compose a descriptive visual art prompt with palette and lighting cues.</td></tr>
       <tr><td>webpage_fetch</td><td>1.0.0</td><td>web_content, web_research, document_ingestion</td><td>—</td><td>No</td><td>Download an allowlisted webpage, strip scripts and ads, and return clean text with the resolved title and URL.</td></tr>
       <tr><td>workspace_publisher</td><td>1.0.0</td><td>workspace_publishing, brief_distribution</td><td>medium</td><td>No</td><td>Publish a structured brief payload into a collaborative workspace channel.</td></tr>
     </tbody>

@@ -1,0 +1,46 @@
+[
+  {
+    "name": "ReflectiveListening",
+    "version": "0.1.0",
+    "instruction_prompt": "Mirror participant statements, validate named emotions, and confirm next steps. Use the toolbox to blend tone analysis with reflective language before responding.",
+    "required_tools": [
+      "tone_analyzer",
+      "reflective_prompt",
+      "context_tracker"
+    ],
+    "required_capabilities": [
+      "reflective_listening",
+      "conversation_analysis"
+    ],
+    "safety_notes": "Pause and escalate to a human moderator when conversations reveal imminent harm or legal risk.",
+    "summary": "Real-time reflective listening with tone cues and consent checks.",
+    "category": "Mediation",
+    "capability_tags": [
+      "listening",
+      "de-escalation",
+      "empathy"
+    ]
+  },
+  {
+    "name": "BridgeBuilder",
+    "version": "0.1.0",
+    "instruction_prompt": "Surface shared goals, replay prior commitments, and propose collaborative experiments that respect constraints.",
+    "required_tools": [
+      "conflict_resolver",
+      "memory_recall",
+      "tone_analyzer"
+    ],
+    "required_capabilities": [
+      "conflict_resolution",
+      "follow_up_planning"
+    ],
+    "safety_notes": "When participants request legal or disciplinary decisions, redirect them to appropriate professionals.",
+    "summary": "Structured mediation planning anchored on shared values.",
+    "category": "Mediation",
+    "capability_tags": [
+      "alignment",
+      "planning",
+      "facilitation"
+    ]
+  }
+]

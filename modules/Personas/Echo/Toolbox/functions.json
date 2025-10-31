@@ -1,0 +1,174 @@
+[
+    {
+        "name": "tone_analyzer",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "medium",
+        "persona_allowlist": ["Echo"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Evaluate conversational tone, highlighting tension, reassurance, and neutral statements.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "transcript": {"type": "string"},
+                "focus": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "window": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 5
+                }
+            },
+            "required": ["transcript"]
+        },
+        "capabilities": ["tone_mapping", "conversation_analysis"],
+        "notes": "Heuristic analysis only. Escalate if the dialogue reveals harm, abuse, or legal threats."
+    },
+    {
+        "name": "reflective_prompt",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "medium",
+        "persona_allowlist": ["Echo"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Craft reflective statements, validations, and clarifying questions for mediators.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "statement": {"type": "string"},
+                "emotions": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "needs": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "action_hint": {"type": "string"}
+            },
+            "required": ["statement"]
+        },
+        "capabilities": ["reflective_listening", "conversation_support"],
+        "notes": "Offer supportive language without making clinical or legal guarantees."
+    },
+    {
+        "name": "memory_recall",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "low",
+        "persona_allowlist": ["Echo"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Summarise conversation highlights, commitments, and upcoming checkpoints.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "highlights": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "timeframe": {"type": "string"},
+                "commitments": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                }
+            },
+            "required": ["highlights"]
+        },
+        "capabilities": ["conversation_memory", "follow_up_planning"],
+        "notes": "Confirm sensitive details with the parties before persisting or sharing outside the session."
+    },
+    {
+        "name": "conflict_resolver",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "medium",
+        "persona_allowlist": ["Echo"],
+        "default_timeout": 10,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Outline facilitation phases, ground rules, and alignment steps for tense topics.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tensions": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "shared_goals": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "constraints": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "timeframe": {"type": "string"}
+            },
+            "required": ["tensions"]
+        },
+        "capabilities": ["conflict_resolution", "structured_planning"],
+        "notes": "Designed for workplace and community mediation. Refer out when situations involve violence, abuse, or legal rulings."
+    },
+    {
+        "name": "context_tracker",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "low",
+        "persona_allowlist": ["Echo"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Persist session snippets so Echo can reference earlier summaries and agreements.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "metadata": {"type": "object"}
+            }
+        },
+        "capabilities": ["conversation_history", "memory_management"],
+        "notes": "Store only the context necessary to continue the mediation session."
+    },
+    {
+        "name": "get_current_info",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "low",
+        "persona_allowlist": ["Echo"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Retrieve the current time, date, or timestamp to timestamp action plans.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "format_type": {
+                    "type": "string",
+                    "enum": ["time", "date", "day", "month_year", "timestamp"],
+                    "default": "timestamp"
+                },
+                "timezone": {"type": "string"}
+            }
+        },
+        "capabilities": ["time_information", "date_information"],
+        "notes": "Use timestamps to confirm accountability windows for mediation follow-ups."
+    }
+]
