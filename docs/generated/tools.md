@@ -10,12 +10,14 @@
 | context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
 | crm_service | 1.0.0 | crm_logging, engagement_tracking | — | No | Log a structured customer interaction with optional tags and metadata. |
 | dashboard_service | 1.0.0 | metrics_reporting, analysis | — | No | Store a dashboard snapshot with numeric metrics and supporting commentary. |
+| debian12_calendar | 1.1.0 | calendar_read, calendar_write | — | No | Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events. |
 | email_service | 1.0.0 | email_delivery, communications | — | No | Dispatch a structured email with support for CC and BCC recipients. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 | labor_market_feed | 1.0.0 | labor_market_research, trend_analysis | — | No | Generate a synthetic labour market snapshot for the requested regions and skills. |
 | notebook | 1.0.0 | note_taking, knowledge_management | — | No | Capture a structured research note inside a collaborative notebook. |
 | notification_service | 1.0.0 | notification_delivery, engagement | — | No | Send a notification message to the requested channel and recipients. |
+| policy_reference | 1.0.0 | policy_lookup, risk_assessment_support | — | No | Retrieve internal safety and governance policy guidance relevant to a proposed action. |
 | priority_queue | 1.0.0 | task_management, status_reporting | — | No | Score and sort operational tasks to produce a prioritized execution list. |
 | roadmap_service | 1.0.0 | program_management, planning | — | No | Update a roadmap initiative with owner, status, and upcoming milestones. |
 | spreadsheet | 1.0.0 | data_management, tabular_editing | — | No | Append or replace rows within a lightweight spreadsheet. |
@@ -140,6 +142,18 @@
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 | stepwise_solution | 1.0.0 | education, mathematics | — | No | Produce numbered reasoning steps and optional symbolic verification. |
 
+## Persona: Muse
+
+| Name | Version | Capabilities | Safety Level | Auth Required | Description |
+| --- | --- | --- | --- | --- | --- |
+| context_tracker | 1.0.0 | conversation_history, memory_management | low | No | Record conversation context snapshots to ground creative follow-ups. |
+| emotive_tagger | 1.0.0 | emotion_analysis, creative_quality_control | low | No | Annotate passages with emotional tags and optional intensity values. |
+| get_current_info | 1.0.0 | time_information, date_information | low | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
+| lyricist | 1.0.0 | lyric_writing, creative_iteration | low | No | Generate structured lyric sections anchored on the supplied concept. |
+| mood_map | 1.0.0 | tone_mapping, story_analysis | low | No | Translate beats into an emotion arc and color palette guidance. |
+| storyweaver | 1.0.0 | story_development, narrative_design | low | No | Assemble a multi-beat story outline with tonal notes and focus prompts. |
+| visual_prompt | 1.0.0 | visual_prompting, creative_direction | low | No | Craft a descriptive art prompt with palette, lighting, and medium cues. |
+
 ## Persona: Nikola Tesla
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
@@ -152,19 +166,20 @@
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
-| atlas_dashboard | 1.0.0 | atlas_operations, status_reporting | — | No | Capture persona-specific initiative health updates for the ATLAS dashboard. |
 | analytics_dashboard | 1.0.0 | analytics_reporting, segment_tracking | — | No | Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata. |
+| atlas_dashboard | 1.0.0 | atlas_operations, status_reporting | — | No | Capture persona-specific initiative health updates for the ATLAS dashboard. |
 | ats_scoring_service | 1.0.0 | resume_analysis, ats_compliance | — | Yes (docs: Configure ATS_SCORING_SERVICE_API_KEY or ats_scoring_service.api_key for authenticated requests., env: ATS_SCORING_SERVICE_API_KEY, type: api_key) | Submit resume and job description text to the ATS scoring service and return compatibility insights and optimization suggestions. |
 | browser | 1.0.0 | web_navigation, research | — | No | Record a virtual browsing session including annotations and metadata for downstream summarisation. |
+| content_repository | 1.0.0 | content_management, knowledge_base | — | No | Store or refresh reusable content blocks including metadata, tags, and attachments. |
 | crm_service | 1.0.0 | crm_logging, engagement_tracking | — | No | Log a structured customer interaction with optional tags and metadata. |
 | dashboard_service | 1.0.0 | metrics_reporting, analysis | — | No | Store a dashboard snapshot with numeric metrics and supporting commentary. |
 | email_service | 1.0.0 | email_delivery, communications | — | No | Dispatch a structured email with support for CC and BCC recipients. |
-| content_repository | 1.0.0 | content_management, knowledge_base | — | No | Store or refresh reusable content blocks including metadata, tags, and attachments. |
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 | labor_market_feed | 1.0.0 | labor_market_research, trend_analysis | — | No | Generate a synthetic labour market snapshot for the requested regions and skills. |
 | notebook | 1.0.0 | note_taking, knowledge_management | — | No | Capture a structured research note inside a collaborative notebook. |
 | notification_service | 1.0.0 | notification_delivery, engagement | — | No | Send a notification message to the requested channel and recipients. |
+| policy_reference | 1.0.0 | policy_lookup, risk_assessment_support | — | No | Retrieve internal safety and governance policy guidance relevant to a proposed action. |
 | roadmap_service | 1.0.0 | program_management, planning | — | No | Update a roadmap initiative with owner, status, and upcoming milestones. |
 | spreadsheet | 1.0.0 | data_management, tabular_editing | — | No | Append or replace rows within a lightweight spreadsheet. |
 | ticketing_system | 1.0.0 | issue_tracking, escalations | — | No | Create a ticket for follow-up work with assignee and tag support. |
@@ -173,17 +188,24 @@
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
 | --- | --- | --- | --- | --- | --- |
+| analytics_dashboard | 1.0.0 | analytics_reporting, segment_tracking | medium | No | Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata. |
 | atlas_dashboard | 1.0.0 | atlas_operations, status_reporting | medium | No | Capture an initiative update for the ATLAS persona dashboard, including health, metrics, and stakeholders. |
 | browser | 1.0.0 | web_navigation, research | medium | No | Record a virtual browsing session including annotations and metadata for downstream summarisation. |
 | browser_lite | 1.0.0 | browser_automation | high | No | Navigate a limited number of allowlisted pages with robots.txt enforcement, throttling, and optional screenshots. |
+| budget.limiter | 1.0.0 | runtime_management, conversation_budgeting | medium | No | Inspect or adjust tracked tool runtime budgets for a conversation. |
 | calculator | 1.0.0 | calculator | low | No | Evaluate sanitized mathematical expressions with Decimal precision and optional unit conversions. |
+| calendar_service | 1.0.0 | calendar_read, calendar_write | medium | No | Book lightweight calendar slots and retrieve existing reservations for personas without native calendar access. |
+| consensus.vote | 1.0.0 | orchestration, coordination | low | No | Run the negotiation vote protocol across a set of participants and return the serialized trace and decision. |
+| content_repository | 1.0.0 | content_management, knowledge_base | medium | No | Store or refresh reusable content blocks including metadata, tags, and attachments. |
 | context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
 | crm_service | 1.0.0 | crm_logging, engagement_tracking | medium | No | Log a structured customer interaction with optional tags and metadata. |
 | dashboard_service | 1.0.0 | metrics_reporting, analysis | medium | No | Store a dashboard snapshot with numeric metrics and supporting commentary. |
-| analytics_dashboard | 1.0.0 | analytics_reporting, segment_tracking | medium | No | Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata. |
 | debian12_calendar | 1.1.0 | calendar_read, calendar_write | — | No | Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events. |
 | delete_namespace | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Remove all stored embeddings associated with the specified namespace. |
 | email_service | 1.0.0 | email_delivery, communications | medium | No | Dispatch a structured email with support for CC and BCC recipients. |
+| emotive_tagger | 1.0.0 | emotion_analysis, creative_quality_control | low | No | Tag passages with qualitative emotions and provide intensity hints. |
+| eval.judge | 1.0.0 | evaluation, analytics | — | No | Run evaluator backends across candidate completions, apply configurable thresholds, and publish scoring analytics. |
+| eval.regression | 1.0.0 | evaluation, analytics | — | No | Compare baseline and candidate artifacts, compute diffs and regression metrics, and publish structured analytics. |
 | execute_javascript | 1.0.0 | javascript_exec, code_execution | high | No | Execute JavaScript with a sandboxed runtime that captures stdout, stderr, and generated files. |
 | execute_python | 1.0.0 | code_execution, analysis | high | No | Execute Python code inside a sandboxed interpreter with stdout capture and timeout enforcement. |
 | filesystem_list | 1.0.0 | — | low | No | List directory contents within the sandbox, returning metadata for each entry. |
@@ -192,19 +214,29 @@
 | get_current_info | 1.0.0 | time_information, date_information | — | No | Get the current time, date, day, month and year, or timestamp based on the format specified. |
 | get_current_location | 1.0.0 | geolocation, context_awareness | — | No | Retrieve the caller's approximate location using the IP-API geolocation service. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
+| hitl.approval | 1.0.0 | workflow_control, human_approval | high | No | Request human-in-the-loop approvals, poll for status, and resolve HITL review tasks. |
 | kv_delete | 1.0.0 | state_store | — | No | Remove a key from the namespaced state store if present. |
 | kv_get | 1.0.0 | state_store | — | No | Retrieve a JSON-serializable value from the namespaced state store, honoring key TTL. |
 | kv_increment | 1.0.0 | state_store | — | No | Atomically increment an integer counter within the namespaced state store, creating it when missing. |
 | kv_set | 1.0.0 | state_store | — | No | Persist a JSON-serializable value within the namespaced state store with optional TTL enforcement. |
 | labor_market_feed | 1.0.0 | labor_market_research, trend_analysis | low | No | Generate a synthetic labour market snapshot for the requested regions and skills. |
-| content_repository | 1.0.0 | content_management, knowledge_base | medium | No | Store or refresh reusable content blocks including metadata, tags, and attachments. |
+| log.event | 1.0.0 | telemetry, observability | — | No | Validate and emit structured telemetry events with optional message bus persistence hints. |
+| lyricist | 1.0.0 | lyric_writing, creative_iteration | low | No | Draft a structured lyric sheet with sectioned lines and thematic hooks. |
+| memory.graph | 1.0.0 | graph_memory, conversation_context | — | No | Manage tenant-scoped memory graph nodes and edges stored in the conversation repository. |
+| memory_episodic_prune | 1.0.0 | episodic_memory, conversation_context | — | No | Delete episodic memories for a tenant using occurrence and expiration filters. |
+| memory_episodic_query | 1.0.0 | episodic_memory, conversation_context | — | No | Retrieve episodic memories for a tenant filtered by tags, time bounds, and conversation scope. |
+| memory_episodic_store | 1.0.0 | episodic_memory, conversation_context | — | No | Persist an episodic memory snapshot tied to a tenant, optionally linked to a conversation message. |
+| mood_map | 1.0.0 | tone_mapping, story_analysis | low | No | Translate story beats into tonal transitions and color palettes. |
 | notebook | 1.0.0 | note_taking, knowledge_management | low | No | Capture a structured research note inside a collaborative notebook. |
 | notification_service | 1.0.0 | notification_delivery, engagement | medium | No | Send a notification message to the requested channel and recipients. |
+| planner.decompose | 1.0.0 | workflow_control, planning | low | No | Produce a dependency graph snapshot for a skill's execution plan without running any tools. |
 | policy_reference | 1.0.0 | policy_lookup, risk_assessment_support | — | No | Retrieve internal safety and governance policy guidance relevant to a proposed action. |
 | priority_queue | 1.0.0 | task_management, status_reporting | — | No | Score and sort operational tasks to produce a prioritized execution list. |
 | query_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Return the most similar vectors for the supplied query embedding from the configured namespace. |
+| registry.capability | 1.0.0 | orchestration, introspection | low | No | Inspect cached capability metadata, apply persona-aware filters, and optionally refresh the shared registry snapshot. |
 | roadmap_service | 1.0.0 | program_management, planning | medium | No | Update a roadmap initiative with owner, status, and upcoming milestones. |
 | spreadsheet | 1.0.0 | data_management, tabular_editing | low | No | Append or replace rows within a lightweight spreadsheet. |
+| storyweaver | 1.0.0 | story_development, narrative_design | low | No | Assemble a structured story outline with tonal guidance and beat-level prompts. |
 | structured_parse | 1.0.0 | document_parsing, ocr | low | No | Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents. |
 | task_queue_cancel | 1.0.0 | task_queue | — | No | Cancel a queued or scheduled task. |
 | task_queue_enqueue | 1.0.0 | task_queue | — | No | Enqueue a one-off task into the durable task queue with optional execution delay. |
@@ -212,7 +244,10 @@
 | task_queue_status | 1.0.0 | task_queue | — | No | Retrieve the current state and retry metadata for a queued task. |
 | terminal_command | 1.0.0 | terminal_execution, system_inspection | high | No | Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status. |
 | ticketing_system | 1.0.0 | issue_tracking, escalations | medium | No | Create a ticket for follow-up work with assignee and tag support. |
+| trace.explain | 1.0.0 | observability, diagnostics | — | No | Merge the tool activity log and recorded negotiation traces with optional filters for conversation, trace ID, and time range. |
 | upsert_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Insert or update vector embeddings within the configured namespace of the active vector store backend. |
+| vault.secrets | 1.0.0 | credential_management, configuration_access | — | No | Inspect or update stored credentials for configured tools with masked previews of secret values. |
+| visual_prompt | 1.0.0 | visual_prompting, creative_direction | low | No | Compose a descriptive visual art prompt with palette and lighting cues. |
 | webpage_fetch | 1.0.0 | web_content, web_research, document_ingestion | — | No | Download an allowlisted webpage, strip scripts and ads, and return clean text with the resolved title and URL. |
 | workspace_publisher | 1.0.0 | workspace_publishing, brief_distribution | medium | No | Publish a structured brief payload into a collaborative workspace channel. |
 

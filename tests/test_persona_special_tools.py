@@ -33,6 +33,7 @@ problem_solver = _load_tool_module("mathtutor_problem_solver", BASE / "MathTutor
 knowledge_cards = _load_tool_module("knowledgecurator_cards", BASE / "KnowledgeCurator" / "Toolbox" / "knowledge_cards.py")
 metaphors = _load_tool_module("genius_metaphors", BASE / "genius" / "Toolbox" / "metaphors.py")
 innovation = _load_tool_module("nikola_innovation", BASE / "Nikola Tesla" / "Toolbox" / "innovation.py")
+muse_tools = _load_tool_module("muse_toolbox", BASE / "Muse" / "Toolbox" / "maps.py")
 
 
 def test_task_catalog_snapshot_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -114,3 +115,60 @@ def test_regulatory_gap_audit_flags_missing() -> None:
 def test_knowledge_card_builder_defaults_review_cadence() -> None:
     card = asyncio.run(knowledge_cards.knowledge_card_builder("Query", ["Source"]))
     assert card["review_cadence"] == "quarterly"
+
+
+def test_muse_storyweaver_generates_beats() -> None:
+    story = asyncio.run(
+        muse_tools.function_map["storyweaver"](
+            theme="Rebirth",
+            genre="mythic",
+            characters=["Nova"],
+            tone="hopeful",
+        )
+    )
+    assert story["theme"] == "Rebirth"
+    assert story["beats"] and story["beats"][0]["order"] == 1
+
+
+def test_muse_lyricist_returns_hook_and_structure() -> None:
+    payload = asyncio.run(
+        muse_tools.function_map["lyricist"](
+            concept="Aurora",
+            structure=["verse", "chorus"],
+            keywords=["radiant", "dawn"],
+        )
+    )
+    assert payload["hook"].lower().startswith("hold to the aurora")
+    assert "chorus_2" in payload["lyrics"]
+
+
+def test_muse_visual_prompt_and_mood_map_alignment() -> None:
+    visual = asyncio.run(
+        muse_tools.function_map["visual_prompt"](
+            subject="floating lanterns",
+            style="watercolor",
+            color_palette=["amber", "cobalt"],
+            lighting="twilight",
+        )
+    )
+    assert "floating lanterns" in visual["prompt"]
+    mood = asyncio.run(
+        muse_tools.function_map["mood_map"](
+            beats=["spark", "crescendo", "afterglow"],
+            start_mood="anticipation",
+            target_mood="serenity",
+            inflection="wonder",
+        )
+    )
+    assert mood["beats"][0]["dominant_mood"].lower() == "anticipation"
+    assert len(mood["palette"]) >= 1
+
+
+def test_muse_emotive_tagger_defaults_when_no_keywords() -> None:
+    tags = asyncio.run(
+        muse_tools.function_map["emotive_tagger"](
+            text="The canvas waits in quiet balance, ready for the first brushstroke."
+        )
+    )
+    assert tags["tags"]
+    assert isinstance(tags["dominant_emotion"], str)

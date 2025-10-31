@@ -109,6 +109,11 @@ from .trace_explain import trace_explain
 from .consensus_vote import consensus_vote
 from .eval_judge import eval_judge, register_evaluator, EvaluatorNotFoundError
 from .registry_capability import registry_capability
+from .story_weaver import StoryWeaver, StoryBeat
+from .lyricist import Lyricist
+from .visual_prompt import VisualPrompt
+from .mood_map import MoodMap, MoodBeat
+from .emotive_tagger import EmotiveTagger
 
 __all__ = [
     "TerminalCommand",
@@ -158,6 +163,13 @@ __all__ = [
     "priority_queue",
     "PrioritizedTask",
     "PrioritizedTaskList",
+    "StoryWeaver",
+    "StoryBeat",
+    "Lyricist",
+    "VisualPrompt",
+    "MoodMap",
+    "MoodBeat",
+    "EmotiveTagger",
     "get_current_location",
     "WebpageFetcher",
     "WebpageFetchResult",

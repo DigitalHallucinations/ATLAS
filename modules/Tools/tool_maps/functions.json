@@ -3118,6 +3118,272 @@
     }
     ,
     {
+        "name": "storyweaver",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "description": "Assemble a structured story outline with tonal guidance and beat-level prompts.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "theme": {
+                    "type": "string",
+                    "description": "Central motif or idea anchoring the narrative."
+                },
+                "genre": {
+                    "type": "string",
+                    "description": "Optional genre framing (e.g., fantasy, sci-fi)."
+                },
+                "setting": {
+                    "type": "string",
+                    "description": "Location or context for the opening beat."
+                },
+                "characters": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Key character names to highlight within each beat."
+                },
+                "tone": {
+                    "type": "string",
+                    "description": "Desired tonal direction (e.g., hopeful, bittersweet)."
+                },
+                "target_length": {
+                    "type": "string",
+                    "description": "High-level length guidance such as short, vignette, or epic."
+                }
+            },
+            "required": [
+                "theme"
+            ]
+        },
+        "capabilities": [
+            "story_development",
+            "narrative_design"
+        ],
+        "cost_per_call": 0.0,
+        "cost_unit": "USD"
+    }
+    ,
+    {
+        "name": "lyricist",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "description": "Draft a structured lyric sheet with sectioned lines and thematic hooks.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "concept": {
+                    "type": "string",
+                    "description": "Central idea or phrase that the lyrics should explore."
+                },
+                "genre": {
+                    "type": "string",
+                    "description": "Optional genre reference to shape imagery and rhythm."
+                },
+                "structure": {
+                    "type": "array",
+                    "description": "Ordered collection of sections (e.g., verse, chorus, bridge).",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "vibe": {
+                    "type": "string",
+                    "description": "High-level mood for the language choices."
+                },
+                "tempo": {
+                    "type": "string",
+                    "description": "Tempo or pacing guidance such as slow, moderate, or fast."
+                },
+                "keywords": {
+                    "type": "array",
+                    "description": "Optional list of motifs or terms to weave into lyrics.",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            },
+            "required": [
+                "concept"
+            ]
+        },
+        "capabilities": [
+            "lyric_writing",
+            "creative_iteration"
+        ],
+        "cost_per_call": 0.0,
+        "cost_unit": "USD"
+    }
+    ,
+    {
+        "name": "visual_prompt",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "description": "Compose a descriptive visual art prompt with palette and lighting cues.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": "Primary focus of the image prompt."
+                },
+                "style": {
+                    "type": "string",
+                    "description": "Optional aesthetic treatment or genre."
+                },
+                "color_palette": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Preferred colors or materials to emphasise."
+                },
+                "lighting": {
+                    "type": "string",
+                    "description": "Lighting direction or mood such as soft studio or neon glow."
+                },
+                "medium": {
+                    "type": "string",
+                    "description": "Medium inspiration (digital, watercolor, charcoal, etc.)."
+                },
+                "camera": {
+                    "type": "string",
+                    "description": "Optional camera framing details for cinematic prompts."
+                }
+            },
+            "required": [
+                "subject"
+            ]
+        },
+        "capabilities": [
+            "visual_prompting",
+            "creative_direction"
+        ],
+        "cost_per_call": 0.0,
+        "cost_unit": "USD"
+    }
+    ,
+    {
+        "name": "mood_map",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "description": "Translate story beats into tonal transitions and color palettes.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "beats": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Ordered beat names or moments to map."
+                },
+                "start_mood": {
+                    "type": "string",
+                    "description": "Opening emotional tone."
+                },
+                "target_mood": {
+                    "type": "string",
+                    "description": "Closing emotional tone."
+                },
+                "palette": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional colors associated with the transitions."
+                },
+                "inflection": {
+                    "type": "string",
+                    "description": "Midpoint emotion used to blend start and end moods."
+                }
+            },
+            "required": [
+                "beats",
+                "start_mood",
+                "target_mood"
+            ]
+        },
+        "capabilities": [
+            "tone_mapping",
+            "story_analysis"
+        ],
+        "cost_per_call": 0.0,
+        "cost_unit": "USD"
+    }
+    ,
+    {
+        "name": "emotive_tagger",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "safety_level": "low",
+        "description": "Tag passages with qualitative emotions and provide intensity hints.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "Text to analyse for emotional cues."
+                },
+                "include_intensity": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Toggle inclusion of relative intensity scores in the response."
+                },
+                "max_tags": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Maximum number of tags to return."
+                }
+            },
+            "required": [
+                "text"
+            ]
+        },
+        "capabilities": [
+            "emotion_analysis",
+            "creative_quality_control"
+        ],
+        "cost_per_call": 0.0,
+        "cost_unit": "USD"
+    }
+    ,
+    {
         "name": "eval.judge",
         "version": "1.0.0",
         "side_effects": "analytics",

@@ -1,0 +1,198 @@
+[
+    {
+        "name": "storyweaver",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "low",
+        "persona_allowlist": ["Muse"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Assemble a multi-beat story outline with tonal notes and focus prompts.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "theme": {"type": "string"},
+                "genre": {"type": "string"},
+                "setting": {"type": "string"},
+                "characters": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "tone": {"type": "string"},
+                "target_length": {"type": "string"}
+            },
+            "required": ["theme"]
+        },
+        "capabilities": ["story_development", "narrative_design"]
+    },
+    {
+        "name": "lyricist",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "low",
+        "persona_allowlist": ["Muse"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Generate structured lyric sections anchored on the supplied concept.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "concept": {"type": "string"},
+                "genre": {"type": "string"},
+                "structure": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "vibe": {"type": "string"},
+                "tempo": {"type": "string"},
+                "keywords": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                }
+            },
+            "required": ["concept"]
+        },
+        "capabilities": ["lyric_writing", "creative_iteration"]
+    },
+    {
+        "name": "visual_prompt",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "low",
+        "persona_allowlist": ["Muse"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Craft a descriptive art prompt with palette, lighting, and medium cues.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string"},
+                "style": {"type": "string"},
+                "color_palette": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "lighting": {"type": "string"},
+                "medium": {"type": "string"},
+                "camera": {"type": "string"}
+            },
+            "required": ["subject"]
+        },
+        "capabilities": ["visual_prompting", "creative_direction"]
+    },
+    {
+        "name": "mood_map",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "low",
+        "persona_allowlist": ["Muse"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Translate beats into an emotion arc and color palette guidance.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "beats": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "start_mood": {"type": "string"},
+                "target_mood": {"type": "string"},
+                "palette": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "inflection": {"type": "string"}
+            },
+            "required": ["beats", "start_mood", "target_mood"]
+        },
+        "capabilities": ["tone_mapping", "story_analysis"]
+    },
+    {
+        "name": "emotive_tagger",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "low",
+        "persona_allowlist": ["Muse"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Annotate passages with emotional tags and optional intensity values.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "include_intensity": {"type": "boolean", "default": true},
+                "max_tags": {"type": "integer", "minimum": 1}
+            },
+            "required": ["text"]
+        },
+        "capabilities": ["emotion_analysis", "creative_quality_control"]
+    },
+    {
+        "name": "get_current_info",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "low",
+        "persona_allowlist": ["Muse"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Get the current time, date, day, month and year, or timestamp based on the format specified.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "format_type": {
+                    "type": "string",
+                    "enum": [
+                        "time",
+                        "date",
+                        "day",
+                        "month_year",
+                        "timestamp"
+                    ],
+                    "default": "timestamp"
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "Optional IANA timezone identifier (e.g., \"America/New_York\")."
+                }
+            }
+        },
+        "capabilities": ["time_information", "date_information"]
+    },
+    {
+        "name": "context_tracker",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "safety_level": "low",
+        "persona_allowlist": ["Muse"],
+        "default_timeout": 5,
+        "auth": {"required": false},
+        "allow_parallel": true,
+        "idempotency_key": false,
+        "description": "Record conversation context snapshots to ground creative follow-ups.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "metadata": {"type": "object"}
+            }
+        },
+        "capabilities": ["conversation_history", "memory_management"]
+    }
+]
