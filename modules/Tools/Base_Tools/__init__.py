@@ -108,6 +108,11 @@ from .hitl_approval import HITLApprovalTool, HITLApprovalError, hitl_approval
 from .trace_explain import trace_explain
 from .consensus_vote import consensus_vote
 from .eval_judge import eval_judge, register_evaluator, EvaluatorNotFoundError
+from .log_parser import LogParser, ParsedLogEntry
+from .threat_scanner import ThreatScanner, ThreatFinding
+from .audit_reporter import AuditReporter
+from .sys_snapshot import SysSnapshot, SnapshotHost
+from .incident_summarizer import IncidentSummarizer, IncidentEvent
 from .registry_capability import registry_capability
 from .story_weaver import StoryWeaver, StoryBeat
 from .lyricist import Lyricist
@@ -229,4 +234,13 @@ __all__ = [
     "eval_judge",
     "register_evaluator",
     "EvaluatorNotFoundError",
+    "LogParser",
+    "ParsedLogEntry",
+    "ThreatScanner",
+    "ThreatFinding",
+    "AuditReporter",
+    "SysSnapshot",
+    "SnapshotHost",
+    "IncidentSummarizer",
+    "IncidentEvent",
 ]

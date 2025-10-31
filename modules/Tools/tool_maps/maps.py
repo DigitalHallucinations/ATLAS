@@ -51,6 +51,11 @@ from modules.Tools.Base_Tools.planner_decompose import planner_decompose
 from modules.Tools.Base_Tools.eval_judge import eval_judge
 from modules.Tools.Base_Tools.eval_regression import eval_regression
 from modules.Tools.Base_Tools.registry_capability import registry_capability
+from modules.Tools.Base_Tools.log_parser import LogParser
+from modules.Tools.Base_Tools.threat_scanner import ThreatScanner
+from modules.Tools.Base_Tools.audit_reporter import AuditReporter
+from modules.Tools.Base_Tools.sys_snapshot import SysSnapshot
+from modules.Tools.Base_Tools.incident_summarizer import IncidentSummarizer
 from modules.Tools.Base_Tools.vector_store import (
     delete_namespace as _vector_delete_namespace,
     query_vectors as _vector_query_vectors,
@@ -94,6 +99,11 @@ lyricist_tool = Lyricist()
 visual_prompt_tool = VisualPrompt()
 mood_map_tool = MoodMap()
 emotive_tagger_tool = EmotiveTagger()
+log_parser_tool = LogParser()
+threat_scanner_tool = ThreatScanner()
+audit_reporter_tool = AuditReporter()
+sys_snapshot_tool = SysSnapshot()
+incident_summarizer_tool = IncidentSummarizer()
 
 _tools_config = _config_manager.get_config("tools", {})
 browser_lite_settings = (
@@ -198,5 +208,10 @@ function_map = {
     "eval.judge": eval_judge,
     "eval.regression": eval_regression,
     "planner.decompose": planner_decompose,
+    "log_parser": log_parser_tool.run,
+    "threat_scanner": threat_scanner_tool.run,
+    "audit_reporter": audit_reporter_tool.run,
+    "sys_snapshot": sys_snapshot_tool.run,
+    "incident_summarizer": incident_summarizer_tool.run,
     "registry.capability": registry_capability_tool,
 }
