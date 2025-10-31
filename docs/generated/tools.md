@@ -190,6 +190,7 @@
 | --- | --- | --- | --- | --- | --- |
 | analytics_dashboard | 1.0.0 | analytics_reporting, segment_tracking | medium | No | Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata. |
 | atlas_dashboard | 1.0.0 | atlas_operations, status_reporting | medium | No | Capture an initiative update for the ATLAS persona dashboard, including health, metrics, and stakeholders. |
+| audit_reporter | 0.1.0 | governance, audit_trail | medium | No | Aggregate security control evidence, severity counts, and analyst notes into an audit-ready summary. |
 | browser | 1.0.0 | web_navigation, research | medium | No | Record a virtual browsing session including annotations and metadata for downstream summarisation. |
 | browser_lite | 1.0.0 | browser_automation | high | No | Navigate a limited number of allowlisted pages with robots.txt enforcement, throttling, and optional screenshots. |
 | budget.limiter | 1.0.0 | runtime_management, conversation_budgeting | medium | No | Inspect or adjust tracked tool runtime budgets for a conversation. |
@@ -215,12 +216,14 @@
 | get_current_location | 1.0.0 | geolocation, context_awareness | — | No | Retrieve the caller's approximate location using the IP-API geolocation service. |
 | google_search | 1.0.0 | web_search, knowledge_lookup | — | Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key) | A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query. |
 | hitl.approval | 1.0.0 | workflow_control, human_approval | high | No | Request human-in-the-loop approvals, poll for status, and resolve HITL review tasks. |
+| incident_summarizer | 0.1.0 | incident_response, executive_reporting | medium | No | Transform incident timelines, impact assessments, and remediation actions into an executive-ready brief. |
 | kv_delete | 1.0.0 | state_store | — | No | Remove a key from the namespaced state store if present. |
 | kv_get | 1.0.0 | state_store | — | No | Retrieve a JSON-serializable value from the namespaced state store, honoring key TTL. |
 | kv_increment | 1.0.0 | state_store | — | No | Atomically increment an integer counter within the namespaced state store, creating it when missing. |
 | kv_set | 1.0.0 | state_store | — | No | Persist a JSON-serializable value within the namespaced state store with optional TTL enforcement. |
 | labor_market_feed | 1.0.0 | labor_market_research, trend_analysis | low | No | Generate a synthetic labour market snapshot for the requested regions and skills. |
 | log.event | 1.0.0 | telemetry, observability | — | No | Validate and emit structured telemetry events with optional message bus persistence hints. |
+| log_parser | 0.1.0 | log_analysis, observability | medium | No | Normalize newline-delimited logs, enrich entries with severity and timestamps, and filter by pattern or time window. |
 | lyricist | 1.0.0 | lyric_writing, creative_iteration | low | No | Draft a structured lyric sheet with sectioned lines and thematic hooks. |
 | memory.graph | 1.0.0 | graph_memory, conversation_context | — | No | Manage tenant-scoped memory graph nodes and edges stored in the conversation repository. |
 | memory_episodic_prune | 1.0.0 | episodic_memory, conversation_context | — | No | Delete episodic memories for a tenant using occurrence and expiration filters. |
@@ -238,11 +241,13 @@
 | spreadsheet | 1.0.0 | data_management, tabular_editing | low | No | Append or replace rows within a lightweight spreadsheet. |
 | storyweaver | 1.0.0 | story_development, narrative_design | low | No | Assemble a structured story outline with tonal guidance and beat-level prompts. |
 | structured_parse | 1.0.0 | document_parsing, ocr | low | No | Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents. |
+| sys_snapshot | 0.1.0 | situational_awareness, observability | medium | No | Normalize host inventories, running services, and metrics into a compact situational snapshot. |
 | task_queue_cancel | 1.0.0 | task_queue | — | No | Cancel a queued or scheduled task. |
 | task_queue_enqueue | 1.0.0 | task_queue | — | No | Enqueue a one-off task into the durable task queue with optional execution delay. |
 | task_queue_schedule | 1.0.0 | task_queue | — | No | Register or replace a cron-style recurring task in the durable queue. |
 | task_queue_status | 1.0.0 | task_queue | — | No | Retrieve the current state and retry metadata for a queued task. |
 | terminal_command | 1.0.0 | terminal_execution, system_inspection | high | No | Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status. |
+| threat_scanner | 0.1.0 | threat_detection, security_analytics | high | No | Score structured events against severity heuristics and threat indicators to surface the riskiest findings. |
 | ticketing_system | 1.0.0 | issue_tracking, escalations | medium | No | Create a ticket for follow-up work with assignee and tag support. |
 | trace.explain | 1.0.0 | observability, diagnostics | — | No | Merge the tool activity log and recorded negotiation traces with optional filters for conversation, trace ID, and time range. |
 | upsert_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Insert or update vector embeddings within the configured namespace of the active vector store backend. |
@@ -250,6 +255,20 @@
 | visual_prompt | 1.0.0 | visual_prompting, creative_direction | low | No | Compose a descriptive visual art prompt with palette and lighting cues. |
 | webpage_fetch | 1.0.0 | web_content, web_research, document_ingestion | — | No | Download an allowlisted webpage, strip scripts and ads, and return clean text with the resolved title and URL. |
 | workspace_publisher | 1.0.0 | workspace_publishing, brief_distribution | medium | No | Publish a structured brief payload into a collaborative workspace channel. |
+
+## Persona: Specter
+
+| Name | Version | Capabilities | Safety Level | Auth Required | Description |
+| --- | --- | --- | --- | --- | --- |
+| audit_reporter | 0.1.0 | governance, audit_trail | medium | No | Aggregate control evidence, map findings to compliance tags, and generate an audit-friendly status payload. |
+| context_tracker | 1.0.0 | conversation_state, status_reporting | medium | No | Capture a normalized snapshot of the current investigation thread so Specter can reference prior findings and open actions. |
+| get_current_info | 1.0.0 | time_information, date_information | low | No | Return the current timestamp or formatted clock reference for incident timelines. |
+| incident_summarizer | 0.1.0 | incident_response, executive_reporting | medium | No | Transform incident timelines, impact assessments, and remediation actions into an executive-ready brief. |
+| log.event | 1.0.0 | telemetry, observability | medium | No | Emit structured telemetry to the security event bus with optional metadata for routing. |
+| log_parser | 0.1.0 | log_analysis, observability | medium | No | Normalize raw log lines, filter by severity or pattern, and surface the events most relevant to the investigation. |
+| policy_reference | 1.0.0 | policy_lookup, governance | low | No | Retrieve the latest security or compliance policy excerpts relevant to the incident. |
+| sys_snapshot | 0.1.0 | situational_awareness, observability | medium | No | Normalize host inventories, running services, and metric samples into a compact situational snapshot. |
+| threat_scanner | 0.1.0 | threat_detection, security_analytics | high | No | Score parsed events against threat indicators and return the highest-risk findings with rationale. |
 
 ## Persona: WeatherGenius
 

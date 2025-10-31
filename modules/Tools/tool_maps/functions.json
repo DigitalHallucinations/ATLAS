@@ -2970,6 +2970,329 @@
         }
     },
     {
+        "name": "log_parser",
+        "version": "0.1.0",
+        "side_effects": "none",
+        "default_timeout": 15,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Normalize newline-delimited logs, enrich entries with severity and timestamps, and filter by pattern or time window.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "log_source": {
+                    "type": "string",
+                    "description": "Raw log payload with entries separated by newlines."
+                },
+                "format": {
+                    "type": "string",
+                    "enum": [
+                        "auto",
+                        "json",
+                        "key_value"
+                    ],
+                    "default": "auto",
+                    "description": "Hint for how each line should be interpreted during parsing."
+                },
+                "severities": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional severity labels to keep (e.g., error, critical)."
+                },
+                "contains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "String fragments that must be present in the raw line."
+                },
+                "patterns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Regular expression patterns used to match candidate events."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Maximum number of entries to return after filtering."
+                },
+                "time_window": {
+                    "type": "object",
+                    "description": "Restrict results to events between the optional ISO 8601 start and end timestamps.",
+                    "properties": {
+                        "start": {
+                            "type": "string"
+                        },
+                        "end": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "required": [
+                "log_source"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "log_analysis",
+            "observability"
+        ],
+        "safety_level": "medium",
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ]
+    },
+    {
+        "name": "threat_scanner",
+        "version": "0.1.0",
+        "side_effects": "none",
+        "default_timeout": 15,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Score structured events against severity heuristics and threat indicators to surface the riskiest findings.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "description": "Structured events to evaluate. Each entry should contain severity, message, and timestamp fields.",
+                    "items": {
+                        "type": "object"
+                    }
+                },
+                "indicators": {
+                    "type": "array",
+                    "description": "Keyword or signature fragments that increase risk when matched.",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "min_score": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.5,
+                    "description": "Only include findings whose computed score meets or exceeds this threshold."
+                },
+                "max_findings": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Limit the number of findings returned."
+                },
+                "include_context": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Toggle inclusion of the original event payload in each finding."
+                }
+            },
+            "required": [
+                "events"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "threat_detection",
+            "security_analytics"
+        ],
+        "safety_level": "high",
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ]
+    },
+    {
+        "name": "audit_reporter",
+        "version": "0.1.0",
+        "side_effects": "none",
+        "default_timeout": 20,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Aggregate security control evidence, severity counts, and analyst notes into an audit-ready summary.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    },
+                    "description": "Collection of normalized events or control checks to summarize."
+                },
+                "controls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Control identifiers to highlight in the summary."
+                },
+                "include_passed": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Whether to include passing controls alongside failures."
+                },
+                "window": {
+                    "type": "object",
+                    "description": "Optional reporting window with ISO 8601 start and end timestamps.",
+                    "properties": {
+                        "start": {
+                            "type": "string"
+                        },
+                        "end": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "required": [
+                "events"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "governance",
+            "audit_trail"
+        ],
+        "safety_level": "medium",
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ]
+    },
+    {
+        "name": "sys_snapshot",
+        "version": "0.1.0",
+        "side_effects": "none",
+        "default_timeout": 10,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Normalize host inventories, running services, and metrics into a compact situational snapshot.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "hosts": {
+                    "type": "array",
+                    "description": "List of host descriptors or identifiers to include in the snapshot.",
+                    "items": {
+                        "type": [
+                            "string",
+                            "object"
+                        ]
+                    }
+                },
+                "metrics": {
+                    "type": "object",
+                    "description": "Mapping of metric names to readings collected from the environment."
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional classification tags applied to the snapshot."
+                },
+                "observations": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Free-form analyst observations to append."
+                }
+            },
+            "required": []
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "situational_awareness",
+            "observability"
+        ],
+        "safety_level": "medium",
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ]
+    },
+    {
+        "name": "incident_summarizer",
+        "version": "0.1.0",
+        "side_effects": "none",
+        "default_timeout": 15,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Transform incident timelines, impact assessments, and remediation actions into an executive-ready brief.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "timeline": {
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    },
+                    "description": "Ordered sequence of incident events with timestamps and notes."
+                },
+                "impact": {
+                    "type": "object",
+                    "description": "Structured impact assessment including affected assets and severity."
+                },
+                "actions": {
+                    "type": "array",
+                    "description": "Mitigation or follow-up actions already taken or planned.",
+                    "items": {
+                        "type": "object"
+                    }
+                },
+                "include_recommendations": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Include prioritized recommendations in the summary output."
+                }
+            },
+            "required": [
+                "timeline"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "incident_response",
+            "executive_reporting"
+        ],
+        "safety_level": "medium",
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ]
+    },
+    {
         "name": "log.event",
         "version": "1.0.0",
         "side_effects": "logging",

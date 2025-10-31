@@ -1,0 +1,532 @@
+[
+    {
+        "name": "context_tracker",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Capture a normalized snapshot of the current investigation thread so Specter can reference prior findings and open actions.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Identifier for the investigation or chat being summarized."
+                },
+                "conversation_history": {
+                    "type": "array",
+                    "description": "Recent ordered security notes that should be normalized into the snapshot.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "role": {"type": "string"},
+                            "content": {"type": "string"},
+                            "timestamp": {"type": ["string", "number"]},
+                            "metadata": {"type": "object"}
+                        }
+                    }
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Optional summary override for the generated snapshot."
+                },
+                "highlights": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of highlight strings to emphasize."
+                }
+            },
+            "required": [
+                "conversation_id"
+            ]
+        },
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-conversation"
+        },
+        "capabilities": [
+            "conversation_state",
+            "status_reporting"
+        ],
+        "safety_level": "medium",
+        "persona_allowlist": [
+            "Specter"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ]
+    },
+    {
+        "name": "get_current_info",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Return the current timestamp or formatted clock reference for incident timelines.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "format_type": {
+                    "type": "string",
+                    "enum": [
+                        "time",
+                        "date",
+                        "day",
+                        "month_year",
+                        "timestamp"
+                    ],
+                    "default": "timestamp"
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "Optional IANA timezone identifier (e.g., 'UTC' or 'America/New_York')."
+                }
+            },
+            "required": []
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "time_information",
+            "date_information"
+        ],
+        "safety_level": "low",
+        "persona_allowlist": [
+            "Specter"
+        ]
+    },
+    {
+        "name": "log_parser",
+        "version": "0.1.0",
+        "side_effects": "none",
+        "default_timeout": 15,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Normalize raw log lines, filter by severity or pattern, and surface the events most relevant to the investigation.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "log_source": {
+                    "type": "string",
+                    "description": "Raw log payload with entries separated by newlines."
+                },
+                "format": {
+                    "type": "string",
+                    "enum": [
+                        "auto",
+                        "json",
+                        "key_value"
+                    ],
+                    "default": "auto",
+                    "description": "Hint for how to interpret each line when parsing."
+                },
+                "severities": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional set of severity labels to keep (e.g., error, critical)."
+                },
+                "contains": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "String fragments that must be present in the raw line."
+                },
+                "patterns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Regular expression patterns used to match candidate events."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Maximum number of entries to return after filtering."
+                },
+                "time_window": {
+                    "type": "object",
+                    "description": "Restrict results to events between the optional ISO 8601 start and end timestamps.",
+                    "properties": {
+                        "start": {"type": "string"},
+                        "end": {"type": "string"}
+                    }
+                }
+            },
+            "required": [
+                "log_source"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "log_analysis",
+            "observability"
+        ],
+        "safety_level": "medium",
+        "persona_allowlist": [
+            "Specter"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ]
+    },
+    {
+        "name": "threat_scanner",
+        "version": "0.1.0",
+        "side_effects": "none",
+        "default_timeout": 15,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Score parsed events against threat indicators and return the highest-risk findings with rationale.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "description": "Structured events to evaluate. Each entry should contain severity, message, and timestamp fields.",
+                    "items": {"type": "object"}
+                },
+                "indicators": {
+                    "type": "array",
+                    "description": "Keyword or signature fragments that increase risk when matched.",
+                    "items": {"type": "string"}
+                },
+                "min_score": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.5,
+                    "description": "Only include findings whose computed score meets or exceeds this threshold."
+                },
+                "max_findings": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Limit the number of findings returned."
+                },
+                "include_context": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Toggle inclusion of the original event payload in each finding."
+                }
+            },
+            "required": [
+                "events"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "threat_detection",
+            "security_analytics"
+        ],
+        "safety_level": "high",
+        "persona_allowlist": [
+            "Specter"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ]
+    },
+    {
+        "name": "audit_reporter",
+        "version": "0.1.0",
+        "side_effects": "none",
+        "default_timeout": 20,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Aggregate control evidence, map findings to compliance tags, and generate an audit-friendly status payload.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Collection of normalized events or control checks to summarize."
+                },
+                "controls": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Control identifiers to highlight in the summary."
+                },
+                "include_passed": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Whether to include passing controls alongside failures."
+                },
+                "window": {
+                    "type": "object",
+                    "description": "Optional reporting window with ISO 8601 start and end timestamps.",
+                    "properties": {
+                        "start": {"type": "string"},
+                        "end": {"type": "string"}
+                    }
+                }
+            },
+            "required": [
+                "events"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "governance",
+            "audit_trail"
+        ],
+        "safety_level": "medium",
+        "persona_allowlist": [
+            "Specter"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ]
+    },
+    {
+        "name": "sys_snapshot",
+        "version": "0.1.0",
+        "side_effects": "none",
+        "default_timeout": 10,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Normalize host inventories, running services, and metric samples into a compact situational snapshot.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "hosts": {
+                    "type": "array",
+                    "description": "List of host descriptors or identifiers to include in the snapshot.",
+                    "items": {"type": ["string", "object"]}
+                },
+                "metrics": {
+                    "type": "object",
+                    "description": "Mapping of metric names to readings collected from the environment."
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional classification tags applied to the snapshot."
+                },
+                "observations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Free-form analyst observations to append."
+                }
+            },
+            "required": []
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "situational_awareness",
+            "observability"
+        ],
+        "safety_level": "medium",
+        "persona_allowlist": [
+            "Specter"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ]
+    },
+    {
+        "name": "incident_summarizer",
+        "version": "0.1.0",
+        "side_effects": "none",
+        "default_timeout": 15,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Transform incident timelines, impact assessments, and remediation actions into an executive-ready brief.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "timeline": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Ordered sequence of incident events with timestamps and notes."
+                },
+                "impact": {
+                    "type": "object",
+                    "description": "Structured impact assessment including affected assets and severity."
+                },
+                "actions": {
+                    "type": "array",
+                    "description": "Mitigation or follow-up actions already taken or planned.",
+                    "items": {"type": "object"}
+                },
+                "include_recommendations": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Include prioritized recommendations in the summary output."
+                }
+            },
+            "required": [
+                "timeline"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "incident_response",
+            "executive_reporting"
+        ],
+        "safety_level": "medium",
+        "persona_allowlist": [
+            "Specter"
+        ],
+        "providers": [
+            {
+                "name": "atlas_runtime",
+                "priority": 0,
+                "health_check_interval": 0
+            }
+        ]
+    },
+    {
+        "name": "log.event",
+        "version": "1.0.0",
+        "side_effects": "logging",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Emit structured telemetry to the security event bus with optional metadata for routing.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "event_name": {
+                    "type": "string",
+                    "description": "Fully-qualified event topic name routed on the message bus."
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": [
+                        "debug",
+                        "info",
+                        "notice",
+                        "warning",
+                        "error",
+                        "critical",
+                        "alert",
+                        "emergency"
+                    ],
+                    "description": "Severity level controls logger output and message bus priority mapping."
+                },
+                "payload": {
+                    "type": "object",
+                    "default": {},
+                    "description": "JSON-serializable event payload. Sensitive keys are redacted before publication."
+                },
+                "correlation_id": {
+                    "type": "string",
+                    "description": "Optional correlation identifier to reuse when emitting the message."
+                },
+                "parent_correlation_id": {
+                    "type": "string",
+                    "description": "Optional causation identifier recorded alongside the emitted event."
+                },
+                "logger": {
+                    "type": "string",
+                    "description": "Override the default structured logger that mirrors the sanitized payload."
+                },
+                "persistence": {
+                    "type": "object",
+                    "description": "Hints that control message bus persistence, metadata, and tracing behavior.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "priority": {"type": ["string", "integer"]},
+                        "emit_legacy": {"type": "boolean"},
+                        "metadata": {"type": "object"},
+                        "tracing": {"type": "object"},
+                        "logger": {"type": "string"}
+                    }
+                }
+            },
+            "required": [
+                "event_name",
+                "severity"
+            ]
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "telemetry",
+            "observability"
+        ],
+        "safety_level": "medium",
+        "persona_allowlist": [
+            "Specter"
+        ]
+    },
+    {
+        "name": "policy_reference",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 5,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Retrieve the latest security or compliance policy excerpts relevant to the incident.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Free-form question describing the policy information needed."
+                },
+                "section": {
+                    "type": "string",
+                    "description": "Optional policy section identifier to scope the lookup."
+                }
+            },
+            "required": [
+                "query"
+            ]
+        },
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-query"
+        },
+        "capabilities": [
+            "policy_lookup",
+            "governance"
+        ],
+        "safety_level": "low",
+        "persona_allowlist": [
+            "Specter"
+        ],
+        "providers": [
+            {
+                "name": "builtin_policy",
+                "priority": 0,
+                "health_check_interval": 60
+            }
+        ]
+    }
+]

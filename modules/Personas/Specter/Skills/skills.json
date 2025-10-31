@@ -1,0 +1,46 @@
+[
+  {
+    "name": "AnomalyTriage",
+    "version": "0.1.0",
+    "instruction_prompt": "Ingest the latest telemetry, normalize it with LogParser, and run ThreatScanner to isolate likely incidents. Pull a SysSnapshot when additional environment context is needed and hand back prioritized investigative steps.",
+    "required_tools": [
+      "log_parser",
+      "threat_scanner",
+      "sys_snapshot"
+    ],
+    "required_capabilities": [
+      "threat_detection",
+      "log_analysis"
+    ],
+    "safety_notes": "Redact credentials or customer data that may appear in raw logs. Explain confidence and suggest corroborating data before escalating.",
+    "summary": "Coordinated log parsing and threat scoring to decide which alerts warrant escalation.",
+    "category": "Security Operations",
+    "capability_tags": [
+      "soc",
+      "detection",
+      "triage"
+    ]
+  },
+  {
+    "name": "IncidentReview",
+    "version": "0.1.0",
+    "instruction_prompt": "Assemble an incident-ready briefing. Use AuditReporter to capture control coverage, IncidentSummarizer for executive context, and cross-check remediation guidance with policy_reference before delivering the review.",
+    "required_tools": [
+      "audit_reporter",
+      "incident_summarizer",
+      "policy_reference"
+    ],
+    "required_capabilities": [
+      "incident_response",
+      "governance"
+    ],
+    "safety_notes": "Call out unverified impact statements and identify stakeholders that must approve communications before they exit the SOC.",
+    "summary": "Produces actionable post-incident briefs with policy-aligned recommendations.",
+    "category": "Security Operations",
+    "capability_tags": [
+      "ir",
+      "reporting",
+      "governance"
+    ]
+  }
+]

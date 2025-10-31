@@ -244,6 +244,7 @@
     <tbody>
       <tr><td>analytics_dashboard</td><td>1.0.0</td><td>analytics_reporting, segment_tracking</td><td>medium</td><td>No</td><td>Refresh an analytics dashboard with numeric metrics, cohort breakdowns, and contextual metadata.</td></tr>
       <tr><td>atlas_dashboard</td><td>1.0.0</td><td>atlas_operations, status_reporting</td><td>medium</td><td>No</td><td>Capture an initiative update for the ATLAS persona dashboard, including health, metrics, and stakeholders.</td></tr>
+      <tr><td>audit_reporter</td><td>0.1.0</td><td>governance, audit_trail</td><td>medium</td><td>No</td><td>Aggregate security control evidence, severity counts, and analyst notes into an audit-ready summary.</td></tr>
       <tr><td>browser</td><td>1.0.0</td><td>web_navigation, research</td><td>medium</td><td>No</td><td>Record a virtual browsing session including annotations and metadata for downstream summarisation.</td></tr>
       <tr><td>browser_lite</td><td>1.0.0</td><td>browser_automation</td><td>high</td><td>No</td><td>Navigate a limited number of allowlisted pages with robots.txt enforcement, throttling, and optional screenshots.</td></tr>
       <tr><td>budget.limiter</td><td>1.0.0</td><td>runtime_management, conversation_budgeting</td><td>medium</td><td>No</td><td>Inspect or adjust tracked tool runtime budgets for a conversation.</td></tr>
@@ -269,12 +270,14 @@
       <tr><td>get_current_location</td><td>1.0.0</td><td>geolocation, context_awareness</td><td>—</td><td>No</td><td>Retrieve the caller&#x27;s approximate location using the IP-API geolocation service.</td></tr>
       <tr><td>google_search</td><td>1.0.0</td><td>web_search, knowledge_lookup</td><td>—</td><td>Yes (docs: Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback., env: GOOGLE_API_KEY, type: api_key)</td><td>A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.</td></tr>
       <tr><td>hitl.approval</td><td>1.0.0</td><td>workflow_control, human_approval</td><td>high</td><td>No</td><td>Request human-in-the-loop approvals, poll for status, and resolve HITL review tasks.</td></tr>
+      <tr><td>incident_summarizer</td><td>0.1.0</td><td>incident_response, executive_reporting</td><td>medium</td><td>No</td><td>Transform incident timelines, impact assessments, and remediation actions into an executive-ready brief.</td></tr>
       <tr><td>kv_delete</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Remove a key from the namespaced state store if present.</td></tr>
       <tr><td>kv_get</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Retrieve a JSON-serializable value from the namespaced state store, honoring key TTL.</td></tr>
       <tr><td>kv_increment</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Atomically increment an integer counter within the namespaced state store, creating it when missing.</td></tr>
       <tr><td>kv_set</td><td>1.0.0</td><td>state_store</td><td>—</td><td>No</td><td>Persist a JSON-serializable value within the namespaced state store with optional TTL enforcement.</td></tr>
       <tr><td>labor_market_feed</td><td>1.0.0</td><td>labor_market_research, trend_analysis</td><td>low</td><td>No</td><td>Generate a synthetic labour market snapshot for the requested regions and skills.</td></tr>
       <tr><td>log.event</td><td>1.0.0</td><td>telemetry, observability</td><td>—</td><td>No</td><td>Validate and emit structured telemetry events with optional message bus persistence hints.</td></tr>
+      <tr><td>log_parser</td><td>0.1.0</td><td>log_analysis, observability</td><td>medium</td><td>No</td><td>Normalize newline-delimited logs, enrich entries with severity and timestamps, and filter by pattern or time window.</td></tr>
       <tr><td>lyricist</td><td>1.0.0</td><td>lyric_writing, creative_iteration</td><td>low</td><td>No</td><td>Draft a structured lyric sheet with sectioned lines and thematic hooks.</td></tr>
       <tr><td>memory.graph</td><td>1.0.0</td><td>graph_memory, conversation_context</td><td>—</td><td>No</td><td>Manage tenant-scoped memory graph nodes and edges stored in the conversation repository.</td></tr>
       <tr><td>memory_episodic_prune</td><td>1.0.0</td><td>episodic_memory, conversation_context</td><td>—</td><td>No</td><td>Delete episodic memories for a tenant using occurrence and expiration filters.</td></tr>
@@ -292,11 +295,13 @@
       <tr><td>spreadsheet</td><td>1.0.0</td><td>data_management, tabular_editing</td><td>low</td><td>No</td><td>Append or replace rows within a lightweight spreadsheet.</td></tr>
       <tr><td>storyweaver</td><td>1.0.0</td><td>story_development, narrative_design</td><td>low</td><td>No</td><td>Assemble a structured story outline with tonal guidance and beat-level prompts.</td></tr>
       <tr><td>structured_parse</td><td>1.0.0</td><td>document_parsing, ocr</td><td>low</td><td>No</td><td>Extract normalized text, tables, and metadata from PDF, DOCX, HTML, CSV, or image documents.</td></tr>
+      <tr><td>sys_snapshot</td><td>0.1.0</td><td>situational_awareness, observability</td><td>medium</td><td>No</td><td>Normalize host inventories, running services, and metrics into a compact situational snapshot.</td></tr>
       <tr><td>task_queue_cancel</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Cancel a queued or scheduled task.</td></tr>
       <tr><td>task_queue_enqueue</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Enqueue a one-off task into the durable task queue with optional execution delay.</td></tr>
       <tr><td>task_queue_schedule</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Register or replace a cron-style recurring task in the durable queue.</td></tr>
       <tr><td>task_queue_status</td><td>1.0.0</td><td>task_queue</td><td>—</td><td>No</td><td>Retrieve the current state and retry metadata for a queued task.</td></tr>
       <tr><td>terminal_command</td><td>1.0.0</td><td>terminal_execution, system_inspection</td><td>high</td><td>No</td><td>Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status.</td></tr>
+      <tr><td>threat_scanner</td><td>0.1.0</td><td>threat_detection, security_analytics</td><td>high</td><td>No</td><td>Score structured events against severity heuristics and threat indicators to surface the riskiest findings.</td></tr>
       <tr><td>ticketing_system</td><td>1.0.0</td><td>issue_tracking, escalations</td><td>medium</td><td>No</td><td>Create a ticket for follow-up work with assignee and tag support.</td></tr>
       <tr><td>trace.explain</td><td>1.0.0</td><td>observability, diagnostics</td><td>—</td><td>No</td><td>Merge the tool activity log and recorded negotiation traces with optional filters for conversation, trace ID, and time range.</td></tr>
       <tr><td>upsert_vectors</td><td>1.0.0</td><td>vector_store</td><td>—</td><td>Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key)</td><td>Insert or update vector embeddings within the configured namespace of the active vector store backend.</td></tr>
@@ -304,6 +309,23 @@
       <tr><td>visual_prompt</td><td>1.0.0</td><td>visual_prompting, creative_direction</td><td>low</td><td>No</td><td>Compose a descriptive visual art prompt with palette and lighting cues.</td></tr>
       <tr><td>webpage_fetch</td><td>1.0.0</td><td>web_content, web_research, document_ingestion</td><td>—</td><td>No</td><td>Download an allowlisted webpage, strip scripts and ads, and return clean text with the resolved title and URL.</td></tr>
       <tr><td>workspace_publisher</td><td>1.0.0</td><td>workspace_publishing, brief_distribution</td><td>medium</td><td>No</td><td>Publish a structured brief payload into a collaborative workspace channel.</td></tr>
+    </tbody>
+  </table>
+  <h2>Persona: Specter</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Version</th><th>Capabilities</th><th>Safety Level</th><th>Auth Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>audit_reporter</td><td>0.1.0</td><td>governance, audit_trail</td><td>medium</td><td>No</td><td>Aggregate control evidence, map findings to compliance tags, and generate an audit-friendly status payload.</td></tr>
+      <tr><td>context_tracker</td><td>1.0.0</td><td>conversation_state, status_reporting</td><td>medium</td><td>No</td><td>Capture a normalized snapshot of the current investigation thread so Specter can reference prior findings and open actions.</td></tr>
+      <tr><td>get_current_info</td><td>1.0.0</td><td>time_information, date_information</td><td>low</td><td>No</td><td>Return the current timestamp or formatted clock reference for incident timelines.</td></tr>
+      <tr><td>incident_summarizer</td><td>0.1.0</td><td>incident_response, executive_reporting</td><td>medium</td><td>No</td><td>Transform incident timelines, impact assessments, and remediation actions into an executive-ready brief.</td></tr>
+      <tr><td>log.event</td><td>1.0.0</td><td>telemetry, observability</td><td>medium</td><td>No</td><td>Emit structured telemetry to the security event bus with optional metadata for routing.</td></tr>
+      <tr><td>log_parser</td><td>0.1.0</td><td>log_analysis, observability</td><td>medium</td><td>No</td><td>Normalize raw log lines, filter by severity or pattern, and surface the events most relevant to the investigation.</td></tr>
+      <tr><td>policy_reference</td><td>1.0.0</td><td>policy_lookup, governance</td><td>low</td><td>No</td><td>Retrieve the latest security or compliance policy excerpts relevant to the incident.</td></tr>
+      <tr><td>sys_snapshot</td><td>0.1.0</td><td>situational_awareness, observability</td><td>medium</td><td>No</td><td>Normalize host inventories, running services, and metric samples into a compact situational snapshot.</td></tr>
+      <tr><td>threat_scanner</td><td>0.1.0</td><td>threat_detection, security_analytics</td><td>high</td><td>No</td><td>Score parsed events against threat indicators and return the highest-risk findings with rationale.</td></tr>
     </tbody>
   </table>
   <h2>Persona: WeatherGenius</h2>
