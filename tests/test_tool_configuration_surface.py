@@ -52,6 +52,7 @@ from modules.conversation_store import ConversationStoreRepository
 
 from ATLAS.ATLAS import ATLAS
 from ATLAS.config import ConfigManager
+from modules.Tools.manifest_loader import load_manifest_entries
 from modules.orchestration.capability_registry import reset_capability_registry
 from ATLAS import ToolManager as ToolManagerModule
 
@@ -162,6 +163,52 @@ def test_tool_snapshot_masks_credentials(config_manager_with_temp_yaml):
     metadata = snapshot["example_tool"]["credentials"]["EXAMPLE_API_KEY"]
     assert metadata["configured"] is True
     assert metadata["hint"] == "••••••••"
+
+
+def test_vector_store_manifest_credentials(config_manager_with_temp_yaml):
+    manager, _ = config_manager_with_temp_yaml
+
+    entries = load_manifest_entries(config_manager=manager)
+    vector_tools = {"upsert_vectors", "query_vectors", "delete_namespace"}
+
+    def _extract_env_keys(auth_block):
+        env_keys = set()
+        if not isinstance(auth_block, dict):
+            return env_keys
+        env_value = auth_block.get("env")
+        if isinstance(env_value, str) and env_value.strip():
+            env_keys.add(env_value.strip())
+        envs_value = auth_block.get("envs")
+        if isinstance(envs_value, dict):
+            for value in envs_value.values():
+                if isinstance(value, str) and value.strip():
+                    env_keys.add(value.strip())
+        elif isinstance(envs_value, (list, tuple, set)):
+            for value in envs_value:
+                if isinstance(value, str) and value.strip():
+                    env_keys.add(value.strip())
+        return env_keys
+
+    manifest_lookup = {}
+    expected_env_keys = {}
+    for entry in entries:
+        if entry.name in vector_tools:
+            manifest_lookup[entry.name] = {"auth": entry.auth}
+            expected_env_keys[entry.name] = _extract_env_keys(entry.auth)
+
+    assert manifest_lookup, "Vector store tools should be present in the manifest"
+
+    snapshot = manager.get_tool_config_snapshot(manifest_lookup=manifest_lookup)
+
+    for tool_name, env_keys in expected_env_keys.items():
+        assert env_keys, f"{tool_name} should declare credential environment keys"
+        credentials = snapshot[tool_name]["credentials"]
+        assert env_keys.issubset(credentials.keys())
+        for key in env_keys:
+            metadata = credentials[key]
+            assert metadata["configured"] is False
+            assert metadata["hint"] == ""
+            assert metadata["source"] == "env"
 
 
 def test_atlas_list_tools_includes_manifest_and_credentials(atlas_with_temp_config):
