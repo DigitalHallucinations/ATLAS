@@ -1,6 +1,8 @@
 import copy
+import json
 import sys
 import types
+from pathlib import Path
 from typing import Any, Dict
 
 import pytest
@@ -50,6 +52,54 @@ else:
 
 if not hasattr(Gtk, "ListBoxRow"):
     Gtk.ListBoxRow = type("ListBoxRow", (dummy_base,), {})
+
+
+_VECTOR_TOOL_NAMES = {"upsert_vectors", "query_vectors", "delete_namespace"}
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_FUNCTIONS_PATH = _REPO_ROOT / "modules" / "Tools" / "tool_maps" / "functions.json"
+
+
+def _extract_auth_env_keys(auth_block: Any) -> set[str]:
+    keys: set[str] = set()
+    if isinstance(auth_block, dict):
+        env_value = auth_block.get("env")
+        if isinstance(env_value, str):
+            token = env_value.strip()
+            if token:
+                keys.add(token)
+        envs_value = auth_block.get("envs")
+        if isinstance(envs_value, dict):
+            for value in envs_value.values():
+                if isinstance(value, str):
+                    token = value.strip()
+                    if token:
+                        keys.add(token)
+        elif isinstance(envs_value, (list, tuple, set)):
+            for value in envs_value:
+                if isinstance(value, str):
+                    token = value.strip()
+                    if token:
+                        keys.add(token)
+    return keys
+
+
+def _load_vector_env_keys() -> set[str]:
+    try:
+        raw = _FUNCTIONS_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    try:
+        payload = json.loads(raw) if raw.strip() else []
+    except json.JSONDecodeError:
+        return set()
+    keys: set[str] = set()
+    for entry in payload:
+        if isinstance(entry, dict) and entry.get("name") in _VECTOR_TOOL_NAMES:
+            keys.update(_extract_auth_env_keys(entry.get("auth")))
+    return keys
+
+
+_VECTOR_ENV_KEYS = _load_vector_env_keys()
 
 
 class _DummyPersonaManagement:
@@ -156,6 +206,24 @@ class _AtlasStub:
                 "auth": {"required": False},
                 "settings": {"enabled": False},
                 "credentials": {"TOKEN": {"configured": True}},
+            },
+            {
+                "name": "upsert_vectors",
+                "title": "Vector Store Upsert",
+                "summary": "Manage vector embeddings in connected stores.",
+                "capabilities": ["vector_store"],
+                "persona": "Shared",
+                "auth": {
+                    "required": True,
+                    "provider": "Vector Store",
+                    "status": "Linked",
+                    "type": "api_key",
+                },
+                "settings": {"enabled": True, "providers": ["in_memory"]},
+                "credentials": {
+                    key: {"configured": False, "hint": "", "source": "env"}
+                    for key in sorted(_VECTOR_ENV_KEYS)
+                },
             },
         ]
         self._task_templates: list[Dict[str, Any]] = [
@@ -633,6 +701,29 @@ def test_tool_management_credentials_validation_and_refresh():
     assert "error" not in getattr(field, "_css_classes", set())
 
 
+def test_tool_management_vector_credentials_rendered():
+    from GTKUI.Tool_manager.tool_management import ToolManagement
+
+    parent = _ParentWindowStub()
+    atlas = _AtlasStub()
+    manager = ToolManagement(atlas, parent)
+
+    manager.get_embeddable_widget()
+
+    scope_widget = manager._scope_selector
+    assert scope_widget is not None
+    scope_widget.set_active(1)
+    manager._on_scope_changed(scope_widget)
+
+    assert "upsert_vectors" in manager._entry_lookup
+
+    manager._select_tool("upsert_vectors")
+
+    env_keys = set(manager._credential_inputs.keys())
+    assert _VECTOR_ENV_KEYS, "Vector env keys should be detected from the manifest"
+    assert _VECTOR_ENV_KEYS.issubset(env_keys)
+
+
 def test_tool_management_filter_modes():
     from GTKUI.Tool_manager.tool_management import ToolManagement
 
@@ -664,6 +755,7 @@ def test_tool_management_filter_modes():
 
     all_entries = {entry.name for entry in manager._entries}
     assert "restricted_calculator" in all_entries
+    assert "upsert_vectors" in all_entries
 
     scope_widget.set_active(0)
     manager._on_scope_changed(scope_widget)

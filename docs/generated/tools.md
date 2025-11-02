@@ -72,6 +72,17 @@
 | search_pmc | 1.0.0 | medical_research, literature_search | — | No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY) | Search PubMed Central (PMC) for open access articles using the Entrez API. |
 | search_pubmed | 1.0.0 | medical_research, literature_search | — | No (docs: Optional Entrez API key for higher rate limits., env: NCBI_API_KEY) | Search PubMed for biomedical literature using the NCBI Entrez API. |
 
+## Persona: Echo
+
+| Name | Version | Capabilities | Safety Level | Auth Required | Description |
+| --- | --- | --- | --- | --- | --- |
+| conflict_resolver | 1.0.0 | conflict_resolution, negotiation_frameworks | medium | No | Outline shared ground, decision paths, and follow-up owners when perspectives remain misaligned. |
+| context_tracker | 1.0.0 | conversation_state, mediation_context | low | No | Log the current mediation checkpoint before proposing new steps. |
+| get_current_info | 1.0.0 | time_information, date_information | low | No | Timestamp agreements and review windows during mediation. |
+| memory_recall | 1.0.0 | memory_lookup, context_retrieval | low | No | Retrieve prior commitments, concerns, and follow-ups related to the active mediation thread. |
+| reflective_prompt | 1.0.0 | reflection_guidance, mediation_support | low | No | Produce neutral reflection prompts that help participants restate needs or surface constraints. |
+| tone_analyzer | 1.0.0 | tone_analysis, facilitation_support | low | No | Summarise emotional signals across recent messages and highlight shifts Echo should acknowledge. |
+
 ## Persona: Einstein
 
 | Name | Version | Capabilities | Safety Level | Auth Required | Description |
@@ -213,6 +224,7 @@
 | budget.limiter | 1.0.0 | runtime_management, conversation_budgeting | medium | No | Inspect or adjust tracked tool runtime budgets for a conversation. |
 | calculator | 1.0.0 | calculator | low | No | Evaluate sanitized mathematical expressions with Decimal precision and optional unit conversions. |
 | calendar_service | 1.0.0 | calendar_read, calendar_write | medium | No | Book lightweight calendar slots and retrieve existing reservations for personas without native calendar access. |
+| conflict_resolver | 1.0.0 | conflict_resolution, negotiation_frameworks | medium | No | Draft a structured alignment plan from participant positions, non-negotiables, and shared goals. |
 | consensus.vote | 1.0.0 | orchestration, coordination | low | No | Run the negotiation vote protocol across a set of participants and return the serialized trace and decision. |
 | content_repository | 1.0.0 | content_management, knowledge_base | medium | No | Store or refresh reusable content blocks including metadata, tags, and attachments. |
 | context_tracker | 1.0.0 | conversation_state, status_reporting | — | No | Compile a normalized snapshot of the active conversation including recent highlights and participants. |
@@ -220,7 +232,7 @@
 | dashboard_service | 1.0.0 | metrics_reporting, analysis | medium | No | Store a dashboard snapshot with numeric metrics and supporting commentary. |
 | data_bridge | 1.0.0 | data_pipeline, ingestion_orchestration | — | No | Coordinate connector tools into a repeatable ingestion pipeline and collect results. |
 | debian12_calendar | 1.1.0 | calendar_read, calendar_write | — | No | Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events. |
-| delete_namespace | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Remove all stored embeddings associated with the specified namespace. |
+| delete_namespace | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., envs: {'pinecone_api_key': 'PINECONE_API_KEY', 'pinecone_environment': 'PINECONE_ENVIRONMENT', 'pinecone_index_name': 'PINECONE_INDEX_NAME', 'qdrant_api_key': 'QDRANT_API_KEY', 'qdrant_url': 'QDRANT_URL', 'qdrant_collection_name': 'QDRANT_COLLECTION_NAME', 'weaviate_api_key': 'WEAVIATE_API_KEY', 'weaviate_url': 'WEAVIATE_URL', 'milvus_uri': 'MILVUS_URI', 'milvus_user': 'MILVUS_USER', 'milvus_password': 'MILVUS_PASSWORD', 'milvus_collection_name': 'MILVUS_COLLECTION_NAME', 'redis_url': 'REDIS_URL', 'redis_password': 'REDIS_PASSWORD', 'redis_index_name': 'REDIS_INDEX_NAME', 'pgvector_connection': 'PGVECTOR_CONNECTION_STRING', 'azure_ai_search_endpoint': 'AZURE_AI_SEARCH_ENDPOINT', 'azure_ai_search_api_key': 'AZURE_AI_SEARCH_API_KEY', 'azure_ai_search_index_name': 'AZURE_AI_SEARCH_INDEX_NAME'}, type: api_key) | Remove all stored embeddings associated with the specified namespace. |
 | email_service | 1.0.0 | email_delivery, communications | medium | No | Dispatch a structured email with support for CC and BCC recipients. |
 | emotive_tagger | 1.0.0 | emotion_analysis, creative_quality_control | low | No | Tag passages with qualitative emotions and provide intensity hints. |
 | eval.judge | 1.0.0 | evaluation, analytics | — | No | Run evaluator backends across candidate completions, apply configurable thresholds, and publish scoring analytics. |
@@ -248,13 +260,15 @@
 | memory_episodic_prune | 1.0.0 | episodic_memory, conversation_context | — | No | Delete episodic memories for a tenant using occurrence and expiration filters. |
 | memory_episodic_query | 1.0.0 | episodic_memory, conversation_context | — | No | Retrieve episodic memories for a tenant filtered by tags, time bounds, and conversation scope. |
 | memory_episodic_store | 1.0.0 | episodic_memory, conversation_context | — | No | Persist an episodic memory snapshot tied to a tenant, optionally linked to a conversation message. |
+| memory_recall | 1.0.0 | memory_lookup, context_retrieval | low | No | Filter previously captured mediation notes and return the most relevant excerpts. |
 | mood_map | 1.0.0 | tone_mapping, story_analysis | low | No | Translate story beats into tonal transitions and color palettes. |
 | notebook | 1.0.0 | note_taking, knowledge_management | low | No | Capture a structured research note inside a collaborative notebook. |
 | notification_service | 1.0.0 | notification_delivery, engagement | medium | No | Send a notification message to the requested channel and recipients. |
 | planner.decompose | 1.0.0 | workflow_control, planning | low | No | Produce a dependency graph snapshot for a skill's execution plan without running any tools. |
 | policy_reference | 1.0.0 | policy_lookup, risk_assessment_support | — | No | Retrieve internal safety and governance policy guidance relevant to a proposed action. |
 | priority_queue | 1.0.0 | task_management, status_reporting | — | No | Score and sort operational tasks to produce a prioritized execution list. |
-| query_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Return the most similar vectors for the supplied query embedding from the configured namespace. |
+| query_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., envs: {'pinecone_api_key': 'PINECONE_API_KEY', 'pinecone_environment': 'PINECONE_ENVIRONMENT', 'pinecone_index_name': 'PINECONE_INDEX_NAME', 'qdrant_api_key': 'QDRANT_API_KEY', 'qdrant_url': 'QDRANT_URL', 'qdrant_collection_name': 'QDRANT_COLLECTION_NAME', 'weaviate_api_key': 'WEAVIATE_API_KEY', 'weaviate_url': 'WEAVIATE_URL', 'milvus_uri': 'MILVUS_URI', 'milvus_user': 'MILVUS_USER', 'milvus_password': 'MILVUS_PASSWORD', 'milvus_collection_name': 'MILVUS_COLLECTION_NAME', 'redis_url': 'REDIS_URL', 'redis_password': 'REDIS_PASSWORD', 'redis_index_name': 'REDIS_INDEX_NAME', 'pgvector_connection': 'PGVECTOR_CONNECTION_STRING', 'azure_ai_search_endpoint': 'AZURE_AI_SEARCH_ENDPOINT', 'azure_ai_search_api_key': 'AZURE_AI_SEARCH_API_KEY', 'azure_ai_search_index_name': 'AZURE_AI_SEARCH_INDEX_NAME'}, type: api_key) | Return the most similar vectors for the supplied query embedding from the configured namespace. |
+| reflective_prompt | 1.0.0 | reflection_guidance, mediation_support | low | No | Compose neutral prompts that invite participants to restate needs and surface constraints. |
 | registry.capability | 1.0.0 | orchestration, introspection | low | No | Inspect cached capability metadata, apply persona-aware filters, and optionally refresh the shared registry snapshot. |
 | roadmap_service | 1.0.0 | program_management, planning | medium | No | Update a roadmap initiative with owner, status, and upcoming milestones. |
 | schema_infer | 1.0.0 | schema_discovery, data_profiling | — | No | Infer field types, nullability, and sample values from representative records. |
@@ -270,8 +284,9 @@
 | terminal_command | 1.0.0 | terminal_execution, system_inspection | high | No | Execute a constrained terminal command inside the ATLAS sandbox and return stdout, stderr, and exit status. |
 | threat_scanner | 0.1.0 | threat_detection, security_analytics | high | No | Score structured events against severity heuristics and threat indicators to surface the riskiest findings. |
 | ticketing_system | 1.0.0 | issue_tracking, escalations | medium | No | Create a ticket for follow-up work with assignee and tag support. |
+| tone_analyzer | 1.0.0 | tone_analysis, facilitation_support | low | No | Summarise emotional cues from conversation snippets so mediators can mirror the room. |
 | trace.explain | 1.0.0 | observability, diagnostics | — | No | Merge the tool activity log and recorded negotiation traces with optional filters for conversation, trace ID, and time range. |
-| upsert_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., type: api_key) | Insert or update vector embeddings within the configured namespace of the active vector store backend. |
+| upsert_vectors | 1.0.0 | vector_store | — | Yes (docs: Configure credentials for the selected vector store provider via ConfigManager., envs: {'pinecone_api_key': 'PINECONE_API_KEY', 'pinecone_environment': 'PINECONE_ENVIRONMENT', 'pinecone_index_name': 'PINECONE_INDEX_NAME', 'qdrant_api_key': 'QDRANT_API_KEY', 'qdrant_url': 'QDRANT_URL', 'qdrant_collection_name': 'QDRANT_COLLECTION_NAME', 'weaviate_api_key': 'WEAVIATE_API_KEY', 'weaviate_url': 'WEAVIATE_URL', 'milvus_uri': 'MILVUS_URI', 'milvus_user': 'MILVUS_USER', 'milvus_password': 'MILVUS_PASSWORD', 'milvus_collection_name': 'MILVUS_COLLECTION_NAME', 'redis_url': 'REDIS_URL', 'redis_password': 'REDIS_PASSWORD', 'redis_index_name': 'REDIS_INDEX_NAME', 'pgvector_connection': 'PGVECTOR_CONNECTION_STRING', 'azure_ai_search_endpoint': 'AZURE_AI_SEARCH_ENDPOINT', 'azure_ai_search_api_key': 'AZURE_AI_SEARCH_API_KEY', 'azure_ai_search_index_name': 'AZURE_AI_SEARCH_INDEX_NAME'}, type: api_key) | Insert or update vector embeddings within the configured namespace of the active vector store backend. |
 | vault.secrets | 1.0.0 | credential_management, configuration_access | — | No | Inspect or update stored credentials for configured tools with masked previews of secret values. |
 | visual_prompt | 1.0.0 | visual_prompting, creative_direction | low | No | Compose a descriptive visual art prompt with palette and lighting cues. |
 | webpage_fetch | 1.0.0 | web_content, web_research, document_ingestion | — | No | Download an allowlisted webpage, strip scripts and ads, and return clean text with the resolved title and URL. |
