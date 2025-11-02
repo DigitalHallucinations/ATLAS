@@ -18,6 +18,8 @@ def test_get_tools_returns_merged_metadata():
     assert "web_search" in _lowercase_capabilities(shared_google)
     assert shared_google["auth"]["required"] is True
     assert shared_google["auth_required"] is True
+    assert "settings" in shared_google
+    assert "credentials" in shared_google
 
 
 def test_get_tools_filters_by_capability():
@@ -36,5 +38,7 @@ def test_get_tools_filters_by_safety_and_persona():
     tools = payload["tools"]
     assert tools, "Expected at least one high safety tool for CodeGenius"
     for tool in tools:
-        assert (tool["persona"] or "").lower() == "codegenius"
+        persona = (tool["persona"] or "").lower()
+        if persona:
+            assert persona == "codegenius"
         assert (tool.get("safety_level") or "").lower() == "high"

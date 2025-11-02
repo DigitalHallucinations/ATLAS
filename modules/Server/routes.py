@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncIterator, Iterable, Mapping
@@ -322,9 +323,56 @@ class AtlasServer:
             safety_tokens=safety_tokens,
             persona_tokens=persona_tokens,
         )
+
+        serialized: List[Dict[str, Any]] = []
+        manifest_lookup: Dict[str, Dict[str, Any]] = {}
+        for entry in filtered:
+            payload = _serialize_entry(entry)
+            serialized.append(payload)
+
+            name = payload.get("name") if isinstance(payload, Mapping) else None
+            if isinstance(name, str):
+                manifest_lookup[name] = {"auth": payload.get("auth")}
+
+        snapshot: Dict[str, Dict[str, Any]] = {}
+        getter = getattr(self._config_manager, "get_tool_config_snapshot", None)
+        if callable(getter):
+            try:
+                snapshot_candidate = getter(
+                    manifest_lookup=manifest_lookup if manifest_lookup else None
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                logger.warning("Failed to load tool configuration snapshot: %s", exc)
+            else:
+                if isinstance(snapshot_candidate, Mapping):
+                    snapshot = dict(snapshot_candidate)
+
+        for entry in serialized:
+            name = entry.get("name")
+            config_record: Mapping[str, Any]
+            if isinstance(name, str):
+                config_candidate = snapshot.get(name, {})
+                config_record = (
+                    dict(config_candidate)
+                    if isinstance(config_candidate, Mapping)
+                    else {}
+                )
+            else:
+                config_record = {}
+            entry["settings"] = deepcopy(
+                config_record.get("settings", {})
+                if isinstance(config_record, Mapping)
+                else {}
+            )
+            entry["credentials"] = deepcopy(
+                config_record.get("credentials", {})
+                if isinstance(config_record, Mapping)
+                else {}
+            )
+
         return {
-            "count": len(filtered),
-            "tools": [_serialize_entry(entry) for entry in filtered],
+            "count": len(serialized),
+            "tools": serialized,
         }
 
     def get_persona_metrics(
@@ -390,11 +438,67 @@ class AtlasServer:
 
         registry = get_capability_registry(config_manager=self._config_manager)
         persona_tokens = _normalize_filters(persona)
-        entries = registry.query_skills(persona_filters=persona_tokens)
+        views = list(registry.query_skills(persona_filters=persona_tokens))
+
+        serialized: List[Dict[str, Any]] = []
+        manifest_lookup: Dict[str, Dict[str, Any]] = {}
+
+        for view in views:
+            payload = _serialize_skill(view)
+            serialized.append(payload)
+
+            name = payload.get("name")
+            manifest_entry: Dict[str, Any]
+            if isinstance(name, str):
+                manifest_entry = manifest_lookup.setdefault(name, {})
+            else:
+                continue
+
+            candidate = getattr(view.manifest, "auth", None)
+            if isinstance(candidate, Mapping):
+                manifest_entry["auth"] = candidate
+
+        snapshot: Dict[str, Dict[str, Any]] = {}
+        getter = getattr(self._config_manager, "get_skill_config_snapshot", None)
+        if callable(getter):
+            try:
+                snapshot_candidate = getter(
+                    manifest_lookup=manifest_lookup if manifest_lookup else None,
+                    skill_names=[entry.get("name", "") for entry in serialized],
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                logger.warning("Failed to load skill configuration snapshot: %s", exc)
+            else:
+                if isinstance(snapshot_candidate, Mapping):
+                    snapshot = dict(snapshot_candidate)
+
+        for entry in serialized:
+            name = entry.get("name")
+            config_record: Mapping[str, Any]
+            if isinstance(name, str):
+                config_candidate = snapshot.get(name, {})
+                config_record = (
+                    dict(config_candidate)
+                    if isinstance(config_candidate, Mapping)
+                    else {}
+                )
+            else:
+                config_record = {}
+
+            entry["settings"] = deepcopy(
+                config_record.get("settings", {})
+                if isinstance(config_record, Mapping)
+                else {}
+            )
+            entry["credentials"] = deepcopy(
+                config_record.get("credentials", {})
+                if isinstance(config_record, Mapping)
+                else {}
+            )
 
         return {
-            "count": len(entries),
-            "skills": [_serialize_skill(entry) for entry in entries],
+            "count": len(serialized),
+            "skills": serialized,
         }
 
     def get_task_catalog(
