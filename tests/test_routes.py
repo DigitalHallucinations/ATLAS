@@ -54,6 +54,7 @@ def _make_entry(name: str, *, persona: Optional[str]) -> ToolManifestEntry:
         cost_per_call=None,
         cost_unit=None,
         persona_allowlist=[],
+        requires_flags={},
         providers=[],
         source="tests",
     )
