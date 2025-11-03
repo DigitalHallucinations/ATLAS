@@ -198,19 +198,6 @@ class ConfigManager:
         if isinstance(huggingface_block, Mapping):
             self.config["HUGGINGFACE"] = dict(huggingface_block)
 
-        messaging_block = self.config.get('messaging')
-        if not isinstance(messaging_block, Mapping):
-            messaging_block = {}
-        else:
-            messaging_block = dict(messaging_block)
-        backend_name = str(messaging_block.get('backend') or 'in_memory').lower()
-        messaging_block['backend'] = backend_name
-        if backend_name == 'redis':
-            default_url = self.env_config.get('REDIS_URL', 'redis://localhost:6379/0')
-            messaging_block.setdefault('redis_url', default_url)
-            messaging_block.setdefault('stream_prefix', 'atlas_bus')
-        self.config['messaging'] = messaging_block
-
         # Track provider/environment key relationships for faster lookups
         self._provider_env_lookup = {
             env_key: provider
