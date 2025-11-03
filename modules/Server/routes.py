@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 from copy import deepcopy
@@ -289,6 +290,157 @@ class AtlasServer:
                 metadata=metadata,
             )
         raise TypeError("Unsupported request context type")
+
+    def _resolve_request_context(self, context: Any = None) -> RequestContext:
+        if context is not None:
+            return self._coerce_context(context)
+
+        tenant_id = "default"
+        manager = self._config_manager
+        if manager is not None:
+            for source_name in ("config", "yaml_config"):
+                source = getattr(manager, source_name, None)
+                if not isinstance(source, Mapping):
+                    continue
+                candidate = source.get("tenant_id")
+                if isinstance(candidate, str):
+                    token = candidate.strip()
+                    if token:
+                        tenant_id = token
+                        break
+
+        return RequestContext(tenant_id=tenant_id)
+
+    @staticmethod
+    def _resolve_skill_identifier(*candidates: Any) -> str:
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            if isinstance(candidate, str):
+                token = candidate.strip()
+            else:
+                token = str(candidate).strip()
+            if token:
+                return token
+        raise ValueError("Skill name is required")
+
+    def _find_skill_view(
+        self,
+        skill_name: str,
+        persona: Optional[str] = None,
+    ) -> SkillCapabilityView:
+        registry = get_capability_registry(config_manager=self._config_manager)
+        views = registry.query_skills()
+
+        target_name = skill_name.strip().lower()
+        persona_token = persona.strip().lower() if isinstance(persona, str) else None
+
+        shared_candidate: Optional[SkillCapabilityView] = None
+        fallback_candidate: Optional[SkillCapabilityView] = None
+
+        for view in views:
+            manifest = view.manifest
+            manifest_name = getattr(manifest, "name", "")
+            name_token = str(manifest_name).strip().lower()
+            if name_token != target_name:
+                continue
+
+            manifest_persona = getattr(manifest, "persona", None)
+            manifest_persona_token = (
+                str(manifest_persona).strip().lower() if manifest_persona else None
+            )
+
+            if persona_token is None:
+                if manifest_persona_token is None and shared_candidate is None:
+                    shared_candidate = view
+                elif fallback_candidate is None:
+                    fallback_candidate = view
+                continue
+
+            if manifest_persona_token == persona_token:
+                return view
+
+            if manifest_persona_token is None and shared_candidate is None:
+                shared_candidate = view
+
+        if persona_token is None:
+            if shared_candidate is not None:
+                return shared_candidate
+            if fallback_candidate is not None:
+                return fallback_candidate
+
+        if shared_candidate is not None:
+            return shared_candidate
+
+        raise KeyError(f"Skill '{skill_name}' could not be located")
+
+    def _load_persisted_skill_metadata(
+        self, skill_name: str
+    ) -> Dict[str, Optional[str]]:
+        metadata_getter = getattr(self._config_manager, "get_skill_metadata", None)
+        default_payload = {"review_status": None, "tester_notes": None}
+
+        if not callable(metadata_getter):
+            return dict(default_payload)
+
+        try:
+            metadata = metadata_getter(skill_name)
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.warning("Failed to load metadata for skill '%s': %s", skill_name, exc)
+            return dict(default_payload)
+
+        if not isinstance(metadata, Mapping):
+            return dict(default_payload)
+
+        review_status = metadata.get("review_status")
+        if isinstance(review_status, str):
+            review_status = review_status.strip() or None
+        else:
+            review_status = None
+
+        tester_notes = metadata.get("tester_notes")
+        if isinstance(tester_notes, str):
+            tester_notes = tester_notes.strip() or None
+        else:
+            tester_notes = None
+
+        return {
+            "review_status": review_status,
+            "tester_notes": tester_notes,
+        }
+
+    @staticmethod
+    def _execute_skill_preview(
+        skill: Any,
+        *,
+        context: Any,
+        tool_inputs: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        timeout_seconds: Optional[float] = None,
+        budget_ms: Optional[float] = None,
+    ) -> Any:
+        from ATLAS.SkillManager import use_skill
+
+        async def _runner() -> Any:
+            return await use_skill(
+                skill,
+                context=context,
+                tool_inputs=tool_inputs,
+                timeout_seconds=timeout_seconds,
+                budget_ms=budget_ms,
+            )
+
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(_runner())
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:  # pragma: no cover - shutdown best effort
+                pass
+            finally:
+                asyncio.set_event_loop(None)
+                loop.close()
 
     @staticmethod
     def _coerce_pagination_limit(
@@ -616,6 +768,354 @@ class AtlasServer:
             "skills": serialized,
         }
 
+    def get_skill_details(
+        self,
+        skill_identifier: Optional[str] = None,
+        *,
+        name: Optional[str] = None,
+        skill: Optional[str] = None,
+        skill_name: Optional[str] = None,
+        persona: Optional[Any] = None,
+        context: Any = None,
+        payload: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Return manifest metadata and persisted review state for a single skill."""
+
+        payload_map = payload if isinstance(payload, Mapping) else {}
+        persona_value = persona
+        if persona_value is None and isinstance(payload_map, Mapping):
+            candidate = payload_map.get("persona")
+            if isinstance(candidate, str):
+                persona_value = candidate
+
+        identifier = self._resolve_skill_identifier(
+            skill_identifier,
+            name,
+            skill,
+            skill_name,
+            payload_map.get("name") if isinstance(payload_map, Mapping) else None,
+            payload_map.get("skill") if isinstance(payload_map, Mapping) else None,
+            payload_map.get("skill_name") if isinstance(payload_map, Mapping) else None,
+        )
+
+        persona_token = str(persona_value).strip() if isinstance(persona_value, str) else None
+
+        try:
+            view = self._find_skill_view(identifier, persona_token)
+        except KeyError as exc:
+            raise KeyError(str(exc))
+
+        request_context = self._resolve_request_context(context)
+        metadata_snapshot = self._load_persisted_skill_metadata(identifier)
+
+        instruction_prompt = getattr(view.manifest, "instruction_prompt", None)
+        if isinstance(instruction_prompt, str):
+            prompt_text = instruction_prompt
+        else:
+            prompt_text = None
+
+        response: Dict[str, Any] = {
+            "success": True,
+            "skill": _serialize_skill(view),
+            "metadata": metadata_snapshot,
+            "tenant_id": request_context.tenant_id,
+        }
+        if prompt_text is not None:
+            response["instruction_prompt"] = prompt_text
+        return response
+
+    def validate_skill(
+        self,
+        skill_identifier: Optional[str] = None,
+        *,
+        name: Optional[str] = None,
+        skill: Optional[str] = None,
+        skill_name: Optional[str] = None,
+        persona: Optional[Any] = None,
+        context: Any = None,
+        payload: Optional[Mapping[str, Any]] = None,
+        tool_inputs: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        timeout_seconds: Optional[Any] = None,
+        budget_ms: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Execute a dry-run validation of a skill manifest using ``use_skill``."""
+
+        payload_map = payload if isinstance(payload, Mapping) else {}
+        persona_value = persona
+        if persona_value is None:
+            candidate = payload_map.get("persona") if isinstance(payload_map, Mapping) else None
+            if isinstance(candidate, str):
+                persona_value = candidate
+
+        identifier = self._resolve_skill_identifier(
+            skill_identifier,
+            name,
+            skill,
+            skill_name,
+            payload_map.get("name") if isinstance(payload_map, Mapping) else None,
+            payload_map.get("skill") if isinstance(payload_map, Mapping) else None,
+            payload_map.get("skill_name") if isinstance(payload_map, Mapping) else None,
+        )
+
+        context_payload = context or (
+            payload_map.get("context") if isinstance(payload_map, Mapping) else None
+        )
+        request_context = self._resolve_request_context(context_payload)
+
+        persona_token = str(persona_value).strip() if isinstance(persona_value, str) else None
+        try:
+            view = self._find_skill_view(identifier, persona_token)
+        except KeyError as exc:
+            return {"success": False, "error": str(exc)}
+
+        manifest_persona = getattr(view.manifest, "persona", None)
+        persona_scope = persona_token or (
+            str(manifest_persona).strip() if isinstance(manifest_persona, str) else None
+        )
+
+        persona_payload: Any = None
+        if persona_scope:
+            try:
+                persona_payload = load_persona_definition(
+                    persona_scope,
+                    config_manager=self._config_manager,
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                logger.warning(
+                    "Failed to load persona '%s' for skill '%s': %s",
+                    persona_scope,
+                    identifier,
+                    exc,
+                )
+                persona_payload = persona_scope
+            else:
+                if persona_payload is None:
+                    persona_payload = persona_scope
+        else:
+            persona_payload = manifest_persona
+
+        conversation_id = payload_map.get("conversation_id") if isinstance(payload_map, Mapping) else None
+        if not isinstance(conversation_id, str) or not conversation_id.strip():
+            conversation_id = f"skill-validation:{identifier}"
+
+        conversation_history: List[Mapping[str, Any]] = []
+        history_payload = (
+            payload_map.get("conversation_history") if isinstance(payload_map, Mapping) else None
+        )
+        if isinstance(history_payload, Iterable) and not isinstance(
+            history_payload, (str, bytes, bytearray)
+        ):
+            for entry in history_payload:
+                if isinstance(entry, Mapping):
+                    conversation_history.append(dict(entry))
+
+        user_block = None
+        raw_user = payload_map.get("user") if isinstance(payload_map, Mapping) else None
+        if isinstance(raw_user, Mapping):
+            user_block = dict(raw_user)
+        elif request_context.user_id:
+            user_block = {"id": request_context.user_id}
+        if user_block is not None and request_context.roles:
+            user_block.setdefault("roles", list(request_context.roles))
+
+        metadata_block: Dict[str, Any] = {}
+        raw_metadata = payload_map.get("metadata") if isinstance(payload_map, Mapping) else None
+        if isinstance(raw_metadata, Mapping):
+            metadata_block = dict(raw_metadata)
+        metadata_block.setdefault("tenant_id", request_context.tenant_id)
+        if request_context.user_id:
+            metadata_block.setdefault("user_id", request_context.user_id)
+
+        if tool_inputs is None and isinstance(payload_map, Mapping):
+            raw_inputs = payload_map.get("tool_inputs")
+        else:
+            raw_inputs = tool_inputs
+
+        sanitized_inputs: Optional[Dict[str, Mapping[str, Any]]] = None
+        if isinstance(raw_inputs, Mapping):
+            sanitized_inputs = {}
+            for key, value in raw_inputs.items():
+                if not isinstance(value, Mapping):
+                    continue
+                sanitized_inputs[str(key)] = dict(value)
+
+        if timeout_seconds is None and isinstance(payload_map, Mapping):
+            timeout_seconds = payload_map.get("timeout_seconds")
+        if budget_ms is None and isinstance(payload_map, Mapping):
+            budget_ms = payload_map.get("budget_ms")
+
+        try:
+            timeout_value = float(timeout_seconds) if timeout_seconds is not None else None
+        except (TypeError, ValueError):
+            timeout_value = None
+        try:
+            budget_value = float(budget_ms) if budget_ms is not None else None
+        except (TypeError, ValueError):
+            budget_value = None
+
+        from ATLAS.SkillManager import SkillExecutionContext
+
+        execution_context = SkillExecutionContext(
+            conversation_id=str(conversation_id),
+            conversation_history=list(conversation_history),
+            persona=persona_payload,
+            user=user_block,
+            metadata=metadata_block,
+        )
+
+        try:
+            result = self._execute_skill_preview(
+                view.manifest,
+                context=execution_context,
+                tool_inputs=sanitized_inputs,
+                timeout_seconds=timeout_value,
+                budget_ms=budget_value,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.warning(
+                "Skill validation for '%s' failed: %s",
+                identifier,
+                exc,
+                exc_info=True,
+            )
+            message = str(exc) or "Skill validation failed."
+            return {"success": False, "error": message}
+
+        result_payload = {
+            "skill": result.skill_name,
+            "tool_results": dict(result.tool_results),
+            "metadata": dict(result.metadata),
+            "version": result.version,
+            "required_capabilities": list(result.required_capabilities),
+        }
+
+        return {
+            "success": True,
+            "result": result_payload,
+            "skill": _serialize_skill(view),
+            "metadata": self._load_persisted_skill_metadata(identifier),
+        }
+
+    def run_skill_test(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        """Compatibility wrapper aliasing :meth:`validate_skill`."""
+
+        return self.validate_skill(*args, **kwargs)
+
+    def set_skill_metadata(
+        self,
+        skill_identifier: Optional[str] = None,
+        *,
+        name: Optional[str] = None,
+        skill: Optional[str] = None,
+        skill_name: Optional[str] = None,
+        persona: Optional[Any] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+        payload: Optional[Mapping[str, Any]] = None,
+        context: Any = None,
+    ) -> Dict[str, Any]:
+        """Persist tester notes or review status changes for a skill."""
+
+        payload_map = payload if isinstance(payload, Mapping) else {}
+
+        identifier = self._resolve_skill_identifier(
+            skill_identifier,
+            name,
+            skill,
+            skill_name,
+            payload_map.get("name") if isinstance(payload_map, Mapping) else None,
+            payload_map.get("skill") if isinstance(payload_map, Mapping) else None,
+            payload_map.get("skill_name") if isinstance(payload_map, Mapping) else None,
+        )
+
+        if metadata is None:
+            candidate_metadata = payload_map.get("metadata") if isinstance(payload_map, Mapping) else None
+            if isinstance(candidate_metadata, Mapping):
+                metadata = candidate_metadata
+
+        if metadata is None:
+            raise ValueError("Metadata payload is required when updating skill metadata.")
+        if not isinstance(metadata, Mapping):
+            raise TypeError("Skill metadata payload must be a mapping.")
+
+        persona_value = persona
+        if persona_value is None:
+            candidate = payload_map.get("persona") if isinstance(payload_map, Mapping) else None
+            if isinstance(candidate, str):
+                persona_value = candidate
+
+        context_payload = context or (
+            payload_map.get("context") if isinstance(payload_map, Mapping) else None
+        )
+        request_context = self._resolve_request_context(context_payload)
+
+        persona_token = str(persona_value).strip() if isinstance(persona_value, str) else None
+        try:
+            view = self._find_skill_view(identifier, persona_token)
+        except KeyError as exc:
+            return {"success": False, "error": str(exc)}
+
+        manifest_persona = getattr(view.manifest, "persona", None)
+        persona_for_logging = persona_token or (
+            str(manifest_persona).strip() if isinstance(manifest_persona, str) else "shared"
+        )
+        if not persona_for_logging:
+            persona_for_logging = "shared"
+
+        metadata_payload: Dict[str, Any] = {}
+        if "review_status" in metadata:
+            metadata_payload["review_status"] = metadata.get("review_status")
+        if "tester_notes" in metadata:
+            metadata_payload["tester_notes"] = metadata.get("tester_notes")
+
+        previous_metadata = self._load_persisted_skill_metadata(identifier)
+
+        setter = getattr(self._config_manager, "set_skill_metadata", None)
+        if not callable(setter):
+            raise RuntimeError("Skill metadata persistence is not configured")
+
+        try:
+            setter(identifier, metadata_payload)
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.warning(
+                "Failed to persist metadata for skill '%s': %s",
+                identifier,
+                exc,
+                exc_info=True,
+            )
+            message = str(exc) or "Unable to persist metadata."
+            return {"success": False, "error": message}
+
+        persisted_metadata = self._load_persisted_skill_metadata(identifier)
+
+        audit_entry = None
+        try:
+            audit_entry = get_skill_audit_logger().record_change(
+                persona_for_logging,
+                identifier,
+                old_review_status=previous_metadata.get("review_status"),
+                new_review_status=persisted_metadata.get("review_status"),
+                old_tester_notes=previous_metadata.get("tester_notes"),
+                new_tester_notes=persisted_metadata.get("tester_notes"),
+                username=request_context.user_id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.warning(
+                "Failed to record skill audit entry for '%s': %s",
+                identifier,
+                exc,
+                exc_info=True,
+            )
+            audit_entry = None
+
+        response: Dict[str, Any] = {
+            "success": True,
+            "metadata": persisted_metadata,
+            "skill": _serialize_skill(view),
+        }
+        if audit_entry is not None:
+            response["audit"] = asdict(audit_entry)
+        return response
+
     def get_task_catalog(
         self,
         *,
@@ -929,6 +1429,16 @@ class AtlasServer:
         query = query or {}
 
         if method_upper == "GET":
+            if path.startswith("/skills/") and path != "/skills/changes":
+                components = [part for part in path.strip("/").split("/") if part]
+                if len(components) == 2:
+                    skill_name = components[1]
+                    return self.get_skill_details(
+                        skill_name,
+                        persona=query.get("persona"),
+                    )
+                elif len(components) > 2:
+                    raise ValueError(f"Unsupported path: {path}")
             if path.startswith("/personas/") and path.endswith("/analytics"):
                 components = [part for part in path.strip("/").split("/") if part]
                 if len(components) != 3:
@@ -1066,6 +1576,22 @@ class AtlasServer:
                 notes=str(notes) if notes is not None else None,
             )
 
+        if path.startswith("/skills/") and (
+            path.endswith("/validate") or path.endswith("/test")
+        ):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            skill_name = components[1]
+            persona_value = payload.get("persona") if isinstance(payload, Mapping) else None
+            context_payload = payload.get("context") if isinstance(payload, Mapping) else None
+            return self.validate_skill(
+                skill_name,
+                persona=persona_value,
+                payload=payload,
+                context=context_payload,
+            )
+
         raise ValueError(f"Unsupported path: {path}")
 
     def _handle_patch(
@@ -1078,6 +1604,21 @@ class AtlasServer:
             if not entry_id:
                 raise ValueError("PATCH requests must target a specific entry")
             return self.update_blackboard_entry(scope_type, scope_id, entry_id, payload)
+        if path.startswith("/skills/") and path.endswith("/metadata"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            skill_name = components[1]
+            persona_value = payload.get("persona") if isinstance(payload, Mapping) else None
+            context_payload = payload.get("context") if isinstance(payload, Mapping) else None
+            metadata_payload = payload.get("metadata") if isinstance(payload, Mapping) else None
+            return self.set_skill_metadata(
+                skill_name,
+                persona=persona_value,
+                metadata=metadata_payload,
+                payload=payload,
+                context=context_payload,
+            )
         raise ValueError(f"Unsupported path: {path}")
 
     def _handle_delete(
