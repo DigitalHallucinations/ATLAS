@@ -4556,6 +4556,127 @@ class ConfigManager:
 
         return self._collect_credential_status(sorted(env_keys))
 
+    def get_skill_metadata(self, skill_name: str) -> Dict[str, Optional[str]]:
+        """Return persisted review metadata for ``skill_name`` if available."""
+
+        normalized_name = str(skill_name or "").strip()
+        if not normalized_name:
+            raise ValueError("Skill name is required when reading metadata.")
+
+        review_status: Optional[str] = None
+        tester_notes: Optional[str] = None
+
+        config_block = self.config.get("skill_metadata")
+        yaml_block = self.yaml_config.get("skill_metadata")
+
+        stored_entry: Mapping[str, Any] | None = None
+        if isinstance(config_block, Mapping):
+            candidate = config_block.get(normalized_name)
+            if isinstance(candidate, Mapping):
+                stored_entry = candidate
+        if stored_entry is None and isinstance(yaml_block, Mapping):
+            candidate = yaml_block.get(normalized_name)
+            if isinstance(candidate, Mapping):
+                stored_entry = candidate
+
+        if stored_entry is not None:
+            status_value = stored_entry.get("review_status")
+            if isinstance(status_value, str):
+                review_status = status_value.strip() or None
+            tester_value = stored_entry.get("tester_notes")
+            if isinstance(tester_value, str):
+                tester_notes = tester_value.strip() or None
+            elif tester_value is None:
+                tester_notes = None
+
+        return {
+            "review_status": review_status,
+            "tester_notes": tester_notes,
+        }
+
+    def set_skill_metadata(
+        self,
+        skill_name: str,
+        metadata: Optional[Mapping[str, Any]],
+    ) -> Dict[str, Optional[str]]:
+        """Persist review metadata such as tester notes for ``skill_name``."""
+
+        normalized_name = str(skill_name or "").strip()
+        if not normalized_name:
+            raise ValueError("Skill name is required when updating metadata.")
+        if metadata is not None and not isinstance(metadata, Mapping):
+            raise TypeError("Skill metadata payload must be a mapping when provided.")
+
+        existing_config = self.config.get("skill_metadata")
+        existing_yaml = self.yaml_config.get("skill_metadata")
+
+        existing_entry: Mapping[str, Any] | None = None
+        if isinstance(existing_config, Mapping):
+            candidate = existing_config.get(normalized_name)
+            if isinstance(candidate, Mapping):
+                existing_entry = candidate
+        if existing_entry is None and isinstance(existing_yaml, Mapping):
+            candidate = existing_yaml.get(normalized_name)
+            if isinstance(candidate, Mapping):
+                existing_entry = candidate
+
+        def _sanitize_text(value: Any) -> Optional[str]:
+            if value is None:
+                return None
+            text = str(value).strip()
+            return text or None
+
+        existing_status = _sanitize_text(existing_entry.get("review_status")) if existing_entry else None
+        existing_notes = _sanitize_text(existing_entry.get("tester_notes")) if existing_entry else None
+
+        if metadata is None:
+            sanitized_status = None
+            sanitized_notes = None
+        else:
+            if "review_status" in metadata:
+                sanitized_status = _sanitize_text(metadata.get("review_status"))
+            else:
+                sanitized_status = existing_status
+            if "tester_notes" in metadata:
+                sanitized_notes = _sanitize_text(metadata.get("tester_notes"))
+            else:
+                sanitized_notes = existing_notes
+
+        record: Dict[str, Optional[str]] = {}
+        if sanitized_status is not None:
+            record["review_status"] = sanitized_status
+        if sanitized_notes is not None:
+            record["tester_notes"] = sanitized_notes
+
+        yaml_block: Dict[str, Any] = {}
+        if isinstance(existing_yaml, Mapping):
+            yaml_block = copy.deepcopy(existing_yaml)
+
+        config_block: Dict[str, Any] = {}
+        if isinstance(existing_config, Mapping):
+            config_block = copy.deepcopy(existing_config)
+
+        if record:
+            yaml_block[normalized_name] = copy.deepcopy(record)
+            config_block[normalized_name] = copy.deepcopy(record)
+        else:
+            yaml_block.pop(normalized_name, None)
+            config_block.pop(normalized_name, None)
+
+        if yaml_block:
+            self.yaml_config["skill_metadata"] = yaml_block
+        else:
+            self.yaml_config.pop("skill_metadata", None)
+
+        self.config["skill_metadata"] = config_block
+
+        self._write_yaml_config()
+
+        return {
+            "review_status": sanitized_status,
+            "tester_notes": sanitized_notes,
+        }
+
     # Additional methods to handle TTS_ENABLED from config.yaml
     def get_tts_enabled(self) -> bool:
         """
