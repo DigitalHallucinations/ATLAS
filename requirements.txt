@@ -73,9 +73,11 @@ matplotlib
 # For environment variables
 python-dotenv
 
-# HTTP client for API integrations
+# HTTP client & server for API integrations
 requests
 aiohttp
+fastapi
+uvicorn[standard]
 
 
 # Timezone handling utilities

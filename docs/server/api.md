@@ -7,6 +7,43 @@ Internally every handler translates requests into `ConversationRoutes`,
 `TaskRoutes`, `JobRoutes`, or persona/blackboard helpers inside
 `modules/Server/routes.py`.
 
+## Running the standalone HTTP gateway
+
+`server/http_gateway.py` packages these routes into a FastAPI application. To run
+the gateway alongside other UI stacks:
+
+1. Install the HTTP dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Launch the FastAPI service with Uvicorn:
+
+   ```bash
+   uvicorn server.http_gateway:app --host 0.0.0.0 --port 8080
+   ```
+
+   Startup creates a shared `ATLAS` instance, calls `await atlas.initialize()`, and
+   wires `AtlasServer` against the configured message bus, task service, and job
+   orchestration components. Shutdown hooks dispose of the message bus, task queue
+   executor, and provider resources via `atlas.close()`.
+
+3. Forward `RequestContext` information through headers when invoking the API.
+   The gateway inspects the following keys and falls back to the configured
+   tenant identifier when they are absent:
+
+   | Header | Purpose |
+   | --- | --- |
+   | `X-Atlas-Tenant` | Required tenant identifier used for authorization checks. |
+   | `X-Atlas-User` | Optional user identifier propagated to audit logs. |
+   | `X-Atlas-Session` | Optional session correlation identifier. |
+   | `X-Atlas-Roles` | Comma-delimited roles (for example `admin,reviewer`). |
+   | `X-Atlas-Metadata` | Optional JSON object that becomes `RequestContext.metadata`. |
+
+Streaming endpoints emit Server-Sent Events (`text/event-stream`) with JSON
+payloads so dashboards can subscribe to live job, task, and conversation updates.
+
 ## Authentication and context
 
 Requests are evaluated against a `RequestContext` that carries the caller's
