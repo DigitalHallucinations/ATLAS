@@ -1422,6 +1422,7 @@ class AtlasServer:
         *,
         method: str = "GET",
         query: Optional[Mapping[str, Any]] = None,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         """Simple request dispatcher supporting persona metadata endpoints."""
 
@@ -1429,6 +1430,12 @@ class AtlasServer:
         query = query or {}
 
         if method_upper == "GET":
+            if path == "/conversations":
+                if context is None:
+                    raise ConversationAuthorizationError(
+                        "A tenant scoped context is required"
+                    )
+                return self.list_conversations(query, context=context)
             if path.startswith("/skills/") and path != "/skills/changes":
                 components = [part for part in path.strip("/").split("/") if part]
                 if len(components) == 2:
@@ -1499,13 +1506,13 @@ class AtlasServer:
             )
 
         if method_upper == "POST":
-            return self._handle_post(path, query)
+            return self._handle_post(path, query, context=context)
 
         if method_upper == "PATCH":
             return self._handle_patch(path, query)
 
         if method_upper == "DELETE":
-            return self._handle_delete(path, query)
+            return self._handle_delete(path, query, context=context)
 
         raise ValueError(f"Unsupported method: {method}")
 
@@ -1513,7 +1520,20 @@ class AtlasServer:
         self,
         path: str,
         payload: Mapping[str, Any],
+        *,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
+        if path.startswith("/conversations/") and path.endswith("/reset"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            if context is None:
+                raise ConversationAuthorizationError(
+                    "A tenant scoped context is required"
+                )
+            conversation_id = components[1]
+            return self.reset_conversation(conversation_id, context=context)
+
         if path.startswith("/blackboard/"):
             scope_type, scope_id, entry_id = self._parse_blackboard_path(path)
             if entry_id:
@@ -1625,7 +1645,20 @@ class AtlasServer:
         self,
         path: str,
         payload: Mapping[str, Any],
+        *,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
+        if path.startswith("/conversations/"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 2:
+                raise ValueError(f"Unsupported path: {path}")
+            if context is None:
+                raise ConversationAuthorizationError(
+                    "A tenant scoped context is required"
+                )
+            conversation_id = components[1]
+            return self.delete_conversation(conversation_id, context=context)
+
         if path.startswith("/blackboard/"):
             scope_type, scope_id, entry_id = self._parse_blackboard_path(path)
             if not entry_id:
@@ -1896,6 +1929,42 @@ class AtlasServer:
             )
 
         return repository.run_retention(now=datetime.now(timezone.utc))
+
+    def list_conversations(
+        self,
+        params: Optional[Mapping[str, Any]] = None,
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        """Handle ``GET /conversations`` requests."""
+
+        routes = self._get_conversation_routes()
+        request_context = self._coerce_context(context)
+        return routes.list_conversations(params, context=request_context)
+
+    def reset_conversation(
+        self,
+        conversation_id: str,
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        """Handle ``POST /conversations/{id}/reset`` requests."""
+
+        routes = self._get_conversation_routes()
+        request_context = self._coerce_context(context)
+        return routes.reset_conversation(conversation_id, context=request_context)
+
+    def delete_conversation(
+        self,
+        conversation_id: str,
+        *,
+        context: Any,
+    ) -> Dict[str, Any]:
+        """Handle ``DELETE /conversations/{id}`` requests."""
+
+        routes = self._get_conversation_routes()
+        request_context = self._coerce_context(context)
+        return routes.delete_conversation(conversation_id, context=request_context)
 
     def create_message(
         self,

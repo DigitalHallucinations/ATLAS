@@ -411,6 +411,108 @@ class ConversationRoutes:
         self._emit_events(events, context, stored)
         return {"status": "deleted", "message": stored}
 
+    def list_conversations(
+        self,
+        params: Optional[Mapping[str, Any]] = None,
+        *,
+        context: RequestContext,
+    ) -> Dict[str, Any]:
+        """Return a paginated listing of conversations for the tenant."""
+
+        self._require_context(context)
+        params = params or {}
+
+        limit_value: Optional[int] = None
+        if "limit" in params and params.get("limit") is not None:
+            try:
+                limit_value = int(params["limit"])
+            except (TypeError, ValueError) as exc:
+                raise ConversationValidationError(
+                    "Conversation listing limit must be an integer"
+                ) from exc
+            if limit_value < 0:
+                raise ConversationValidationError(
+                    "Conversation listing limit must be non-negative"
+                )
+
+        offset_value = 0
+        if params.get("offset") is not None:
+            try:
+                offset_value = int(params["offset"])
+            except (TypeError, ValueError) as exc:
+                raise ConversationValidationError(
+                    "Conversation listing offset must be an integer"
+                ) from exc
+            if offset_value < 0:
+                raise ConversationValidationError(
+                    "Conversation listing offset must be non-negative"
+                )
+
+        order_value = str(params.get("order") or "desc").lower()
+        if order_value not in {"asc", "desc"}:
+            raise ConversationValidationError(
+                "Conversation listing order must be 'asc' or 'desc'"
+            )
+
+        records = self._repository.list_conversations_for_tenant(
+            context.tenant_id,
+            limit=limit_value,
+            offset=offset_value,
+            order=order_value,
+        )
+
+        return {
+            "items": records,
+            "count": len(records),
+            "limit": limit_value,
+            "offset": offset_value,
+            "order": order_value,
+        }
+
+    def reset_conversation(
+        self,
+        conversation_id: str,
+        *,
+        context: RequestContext,
+    ) -> Dict[str, Any]:
+        """Remove all messages from a conversation while retaining metadata."""
+
+        self._require_context(context)
+        conversation = self._repository.get_conversation(
+            conversation_id, tenant_id=context.tenant_id
+        )
+        if conversation is None:
+            raise ConversationNotFoundError(
+                "Conversation is not accessible for this tenant"
+            )
+
+        self._repository.reset_conversation(
+            conversation_id, tenant_id=context.tenant_id
+        )
+        return {"status": "reset", "conversation": conversation}
+
+    def delete_conversation(
+        self,
+        conversation_id: str,
+        *,
+        context: RequestContext,
+    ) -> Dict[str, Any]:
+        """Permanently remove a conversation for the current tenant."""
+
+        self._require_context(context)
+        conversation = self._repository.get_conversation(
+            conversation_id, tenant_id=context.tenant_id
+        )
+        if conversation is None:
+            raise ConversationNotFoundError(
+                "Conversation is not accessible for this tenant"
+            )
+
+        self._repository.hard_delete_conversation(
+            conversation_id, tenant_id=context.tenant_id
+        )
+        return {"status": "deleted", "conversation": conversation}
+
     def list_messages(
         self,
         conversation_id: str,
