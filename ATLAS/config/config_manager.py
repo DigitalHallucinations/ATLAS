@@ -7,7 +7,7 @@ import json
 import os
 import shlex
 from collections.abc import Mapping, Sequence
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
 
 try:  # pragma: no cover - optional dependency handling for test environments
     from sqlalchemy import create_engine, inspect
@@ -40,6 +40,9 @@ else:  # pragma: no cover - sanitize stubbed implementations
 
         sessionmaker = _Sessionmaker  # type: ignore[assignment]
 
+from .messaging import MessagingConfigSection
+from .persistence import KV_STORE_UNSET, PersistenceConfigSection
+from .tooling import ToolingConfigSection
 from modules.orchestration.message_bus import (
     InMemoryQueueBackend,
     MessageBus,
@@ -122,196 +125,33 @@ class ConfigManager:
         if "MODEL_CACHE" not in self.yaml_config:
             self.yaml_config["MODEL_CACHE"] = copy.deepcopy(self._model_cache)
 
-        # Track whether the conversation store connection has been verified during startup.
-        self._conversation_store_verified = False
+        # --- Tooling defaults & sandbox configuration -----------------
+        self.tooling = ToolingConfigSection(
+            config=self.config,
+            yaml_config=self.yaml_config,
+            env_config=self.env_config,
+            logger=self.logger,
+        )
+        self.tooling.apply()
 
-        # Ensure configurable tool timeout/budget defaults are present
-        tool_defaults = self.config.get('tool_defaults')
-        if not isinstance(tool_defaults, Mapping):
-            tool_defaults = {}
-        else:
-            tool_defaults = dict(tool_defaults)
-        tool_defaults.setdefault('timeout_seconds', 30)
-        tool_defaults.setdefault('max_cost_per_session', None)
-        self.config['tool_defaults'] = tool_defaults
+        # --- Persistence (KV + conversation stores) -------------------
+        self.persistence = PersistenceConfigSection(
+            config=self.config,
+            yaml_config=self.yaml_config,
+            env_config=self.env_config,
+            logger=self.logger,
+            normalize_job_store_url=self._normalize_job_store_url,
+            write_yaml_callback=self._write_yaml_config,
+            create_engine=create_engine,
+            inspect_engine=inspect,
+            make_url=make_url,
+            sessionmaker_factory=sessionmaker,
+            conversation_required_tables=self._conversation_store_required_tables,
+            default_conversation_dsn=_DEFAULT_CONVERSATION_STORE_DSN,
+        )
+        self.persistence.apply()
 
-        conversation_block = self.config.get('conversation')
-        if not isinstance(conversation_block, Mapping):
-            conversation_block = {}
-        else:
-            conversation_block = dict(conversation_block)
-        conversation_block.setdefault('max_tool_duration_ms', 120000)
-        self.config['conversation'] = conversation_block
-
-        tool_logging_block = self.config.get('tool_logging')
-        if not isinstance(tool_logging_block, Mapping):
-            tool_logging_block = {}
-        else:
-            tool_logging_block = dict(tool_logging_block)
-        tool_logging_block.setdefault('log_full_payloads', False)
-        tool_logging_block.setdefault('payload_summary_length', 256)
-        self.config['tool_logging'] = tool_logging_block
-
-        tools_block = self.config.get('tools')
-        if not isinstance(tools_block, Mapping):
-            tools_block = {}
-        else:
-            tools_block = dict(tools_block)
-
-        js_block = tools_block.get('javascript_executor')
-        if not isinstance(js_block, Mapping):
-            js_block = {}
-        else:
-            js_block = dict(js_block)
-
-        env_executable = self.env_config.get('JAVASCRIPT_EXECUTOR_BIN')
-        if env_executable and not js_block.get('executable'):
-            js_block['executable'] = env_executable
-
-        env_args = self.env_config.get('JAVASCRIPT_EXECUTOR_ARGS')
-        if env_args and not js_block.get('args'):
-            try:
-                js_block['args'] = shlex.split(env_args)
-            except ValueError:
-                js_block['args'] = env_args
-
-        js_block.setdefault('default_timeout', 5.0)
-        js_block.setdefault('cpu_time_limit', 2.0)
-        js_block.setdefault('memory_limit_bytes', 256 * 1024 * 1024)
-        js_block.setdefault('max_output_bytes', 64 * 1024)
-        js_block.setdefault('max_file_bytes', 128 * 1024)
-        js_block.setdefault('max_files', 32)
-
-        tools_block['javascript_executor'] = js_block
-
-        kv_block = tools_block.get('kv_store')
-        if not isinstance(kv_block, Mapping):
-            kv_block = {}
-        else:
-            kv_block = dict(kv_block)
-
-        default_adapter = kv_block.get('default_adapter')
-        if isinstance(default_adapter, str) and default_adapter.strip():
-            kv_block['default_adapter'] = default_adapter.strip().lower()
-        else:
-            kv_block['default_adapter'] = 'postgres'
-
-        adapters_block = kv_block.get('adapters')
-        if not isinstance(adapters_block, Mapping):
-            adapters_block = {}
-        else:
-            adapters_block = dict(adapters_block)
-
-        postgres_block = adapters_block.get('postgres')
-        if not isinstance(postgres_block, Mapping):
-            postgres_block = {}
-        else:
-            postgres_block = dict(postgres_block)
-
-        env_kv_url = self.env_config.get('ATLAS_KV_STORE_URL')
-        if env_kv_url and not postgres_block.get('url'):
-            postgres_block['url'] = env_kv_url
-
-        namespace_quota_value = postgres_block.get('namespace_quota_bytes')
-        if namespace_quota_value is None:
-            env_namespace_quota = self.env_config.get('ATLAS_KV_NAMESPACE_QUOTA_BYTES')
-            if env_namespace_quota is not None:
-                try:
-                    postgres_block['namespace_quota_bytes'] = int(env_namespace_quota)
-                except (TypeError, ValueError):
-                    self.logger.warning(
-                        "Invalid ATLAS_KV_NAMESPACE_QUOTA_BYTES value %r; expected integer",
-                        env_namespace_quota,
-                    )
-        else:
-            try:
-                postgres_block['namespace_quota_bytes'] = int(namespace_quota_value)
-            except (TypeError, ValueError):
-                self.logger.warning(
-                    "Invalid namespace_quota_bytes value %r; expected integer",
-                    namespace_quota_value,
-                )
-                postgres_block.pop('namespace_quota_bytes', None)
-
-        if 'namespace_quota_bytes' not in postgres_block:
-            postgres_block['namespace_quota_bytes'] = 1_048_576
-
-        global_quota_value = postgres_block.get('global_quota_bytes')
-        if global_quota_value not in (None, ''):
-            try:
-                postgres_block['global_quota_bytes'] = int(global_quota_value)
-            except (TypeError, ValueError):
-                self.logger.warning(
-                    "Invalid global_quota_bytes value %r; expected integer",
-                    global_quota_value,
-                )
-                postgres_block.pop('global_quota_bytes', None)
-        else:
-            env_global_quota = self.env_config.get('ATLAS_KV_GLOBAL_QUOTA_BYTES')
-            if env_global_quota not in (None, ''):
-                try:
-                    postgres_block['global_quota_bytes'] = int(env_global_quota)
-                except (TypeError, ValueError):
-                    self.logger.warning(
-                        "Invalid ATLAS_KV_GLOBAL_QUOTA_BYTES value %r; expected integer",
-                        env_global_quota,
-                    )
-                else:
-                    if postgres_block['global_quota_bytes'] <= 0:
-                        postgres_block.pop('global_quota_bytes', None)
-
-        reuse_value = postgres_block.get('reuse_conversation_store')
-        if reuse_value is None:
-            env_reuse = self.env_config.get('ATLAS_KV_REUSE_CONVERSATION')
-            if env_reuse is not None:
-                postgres_block['reuse_conversation_store'] = str(env_reuse).strip().lower() in {
-                    '1', 'true', 'yes', 'on'
-                }
-            else:
-                postgres_block['reuse_conversation_store'] = True
-        else:
-            if isinstance(reuse_value, str):
-                normalized_reuse = reuse_value.strip().lower()
-                if normalized_reuse in {'1', 'true', 'yes', 'on'}:
-                    postgres_block['reuse_conversation_store'] = True
-                elif normalized_reuse in {'0', 'false', 'no', 'off'}:
-                    postgres_block['reuse_conversation_store'] = False
-                else:
-                    postgres_block['reuse_conversation_store'] = bool(reuse_value)
-            else:
-                postgres_block['reuse_conversation_store'] = bool(reuse_value)
-
-        pool_block = postgres_block.get('pool')
-        if not isinstance(pool_block, Mapping):
-            pool_block = {}
-        else:
-            pool_block = dict(pool_block)
-
-        for env_key, setting_key in (
-            ('ATLAS_KV_POOL_SIZE', 'size'),
-            ('ATLAS_KV_MAX_OVERFLOW', 'max_overflow'),
-            ('ATLAS_KV_POOL_TIMEOUT', 'timeout'),
-        ):
-            value = self.env_config.get(env_key)
-            if value is None or pool_block.get(setting_key) not in (None, ''):
-                continue
-            try:
-                if setting_key == 'timeout':
-                    pool_block[setting_key] = float(value)
-                else:
-                    pool_block[setting_key] = int(value)
-            except (TypeError, ValueError):
-                self.logger.warning(
-                    "Invalid %s value %r; expected numeric", env_key, value
-                )
-
-        postgres_block['pool'] = pool_block
-        adapters_block['postgres'] = postgres_block
-        kv_block['adapters'] = adapters_block
-        tools_block['kv_store'] = kv_block
-
-        self.config['tools'] = tools_block
-
+        # --- Task queue defaults --------------------------------------
         queue_block = self.config.get('task_queue')
         if not isinstance(queue_block, Mapping):
             queue_block = {}
@@ -342,72 +182,18 @@ class ConfigManager:
         else:
             self.config.pop('task_queue', None)
 
-        tool_safety_block = self.config.get('tool_safety')
-        if not isinstance(tool_safety_block, Mapping):
-            tool_safety_block = {}
-        else:
-            tool_safety_block = dict(tool_safety_block)
-        normalized_allowlist = self._normalize_network_allowlist(
-            tool_safety_block.get('network_allowlist')
+        # --- Messaging backend defaults -------------------------------
+        self.messaging = MessagingConfigSection(
+            config=self.config,
+            yaml_config=self.yaml_config,
+            env_config=self.env_config,
+            logger=self.logger,
+            write_yaml_callback=self._write_yaml_config,
         )
-        tool_safety_block['network_allowlist'] = normalized_allowlist
-        self.config['tool_safety'] = tool_safety_block
+        self.messaging.apply()
 
         # Ensure any persisted OpenAI speech preferences are reflected in the active config
         self._synchronize_openai_speech_block()
-
-        conversation_store_block = self.config.get("conversation_database")
-        if not isinstance(conversation_store_block, Mapping):
-            conversation_store_block = {}
-        else:
-            conversation_store_block = dict(conversation_store_block)
-
-        env_db_url = self.env_config.get("CONVERSATION_DATABASE_URL")
-        if env_db_url and not conversation_store_block.get("url"):
-            conversation_store_block["url"] = env_db_url
-
-        pool_block = conversation_store_block.get("pool")
-        if not isinstance(pool_block, Mapping):
-            pool_block = {}
-        else:
-            pool_block = dict(pool_block)
-
-        for env_key, setting_key in (
-            ("CONVERSATION_DATABASE_POOL_SIZE", "size"),
-            ("CONVERSATION_DATABASE_MAX_OVERFLOW", "max_overflow"),
-            ("CONVERSATION_DATABASE_POOL_TIMEOUT", "timeout"),
-        ):
-            value = self.env_config.get(env_key)
-            if value is None:
-                continue
-            try:
-                pool_block[setting_key] = int(value)
-            except (TypeError, ValueError):
-                self.logger.warning(
-                    "Invalid %s value %r; expected integer", env_key, value
-                )
-
-        conversation_store_block["pool"] = pool_block
-
-        retention_block = conversation_store_block.get("retention")
-        if not isinstance(retention_block, Mapping):
-            retention_block = {}
-        else:
-            retention_block = dict(retention_block)
-
-        env_retention_days = self.env_config.get("CONVERSATION_DATABASE_RETENTION_DAYS")
-        if env_retention_days is not None:
-            try:
-                retention_block["days"] = int(env_retention_days)
-            except (TypeError, ValueError):
-                self.logger.warning(
-                    "Invalid CONVERSATION_DATABASE_RETENTION_DAYS value %r", env_retention_days
-                )
-
-        retention_block.setdefault("history_message_limit", 500)
-        conversation_store_block["retention"] = retention_block
-        self.config["conversation_database"] = conversation_store_block
-
         huggingface_block = self.yaml_config.get("HUGGINGFACE")
         if isinstance(huggingface_block, Mapping):
             self.config["HUGGINGFACE"] = dict(huggingface_block)
@@ -461,8 +247,6 @@ class ConfigManager:
             self._pending_provider_warnings[default_provider] = warning_message
 
         self._message_bus: Optional[MessageBus] = None
-        self._conversation_engine: Engine | None = None
-        self._conversation_session_factory: sessionmaker | None = None
         self._task_session_factory: sessionmaker | None = None
         self._task_repository: TaskStoreRepository | None = None
         self._task_service: TaskService | None = None
@@ -471,7 +255,6 @@ class ConfigManager:
         self._task_queue_service: TaskQueueService | None = None
         self._job_manager: "JobManager" | None = None
         self._job_scheduler: "JobScheduler" | None = None
-        self._kv_engine_cache: Dict[tuple[Any, ...], Engine] = {}
 
     def _normalize_network_allowlist(self, value):
         """Return a sanitized allowlist for sandboxed tool networking."""
@@ -552,118 +335,12 @@ class ConfigManager:
     def get_conversation_database_config(self) -> Dict[str, Any]:
         """Return the merged configuration block for the conversation database."""
 
-        block = self.config.get("conversation_database")
-        if not isinstance(block, Mapping):
-            return {}
-        return dict(block)
+        return self.persistence.conversation.get_config()
 
     def ensure_postgres_conversation_store(self) -> str:
         """Verify the configured PostgreSQL conversation store without provisioning it."""
 
-        self._conversation_store_verified = False
-
-        config = self.get_conversation_database_config()
-        url_value = config.get("url")
-        if isinstance(url_value, str):
-            url = url_value.strip()
-        else:
-            url = url_value or ""
-
-        generated_default = False
-        if not url:
-            url = _DEFAULT_CONVERSATION_STORE_DSN
-            generated_default = True
-            self.logger.info(
-                "No conversation database URL configured; defaulting to %s",
-                url,
-            )
-
-        try:
-            parsed_url = make_url(url)
-        except Exception as exc:
-            message = f"Invalid conversation database URL {url!r}: {exc}"
-            self.logger.error(message)
-            raise RuntimeError(message) from exc
-
-        drivername = (parsed_url.drivername or "").lower()
-        dialect = drivername.split("+", 1)[0]
-        if dialect != "postgresql":
-            message = (
-                "Conversation database URL must use the 'postgresql' dialect; "
-                f"received '{parsed_url.drivername}'."
-            )
-            self.logger.error(message)
-            raise RuntimeError(message)
-
-        try:
-            engine = create_engine(url, future=True)
-        except Exception as exc:
-            message = (
-                "Conversation store verification failed: unable to initialise the SQLAlchemy engine. "
-                "Run the standalone setup utility to provision the database."
-            )
-            self.logger.error(message, exc_info=True)
-            raise RuntimeError(message) from exc
-
-        try:
-            inspector = inspect(engine)
-            existing_tables = {name for name in inspector.get_table_names()}
-        except Exception as exc:
-            engine.dispose()
-            message = (
-                "Conversation store verification failed: unable to connect to the configured database. "
-                "Run the standalone setup utility to provision the database."
-            )
-            self.logger.error(message, exc_info=True)
-            raise RuntimeError(f"{message} (original error: {exc})") from exc
-
-        required_tables = self._conversation_store_required_tables()
-        missing_tables = required_tables.difference(existing_tables)
-        engine.dispose()
-
-        if missing_tables:
-            missing_list = ", ".join(sorted(missing_tables)) or "unknown"
-            message = (
-                "Conversation store verification failed: missing required tables "
-                f"[{missing_list}]. Run the standalone setup utility to provision the database."
-            )
-            self.logger.error(message)
-            raise RuntimeError(message)
-
-        self._persist_conversation_database_url(url)
-
-        if generated_default:
-            self._write_yaml_config()
-
-        self._conversation_store_verified = True
-        return url
-
-    def _persist_conversation_database_url(self, url: str) -> None:
-        """Synchronize the conversation database URL across config sources."""
-
-        if not isinstance(url, str) or not url:
-            return
-
-        config_block = self.config.get("conversation_database")
-        yaml_block = self.yaml_config.get("conversation_database")
-
-        if isinstance(config_block, Mapping):
-            updated_config_block = dict(config_block)
-        elif isinstance(yaml_block, Mapping):
-            updated_config_block = dict(yaml_block)
-        else:
-            updated_config_block = {}
-        updated_config_block["url"] = url
-        self.config["conversation_database"] = updated_config_block
-
-        if isinstance(yaml_block, Mapping):
-            updated_yaml_block = dict(yaml_block)
-        elif isinstance(config_block, Mapping):
-            updated_yaml_block = dict(config_block)
-        else:
-            updated_yaml_block = {}
-        updated_yaml_block["url"] = url
-        self.yaml_config["conversation_database"] = updated_yaml_block
+        return self.persistence.conversation.ensure_postgres_store()
 
     def _conversation_store_required_tables(self) -> set[str]:
         """Return the set of tables that must exist in the conversation database."""
@@ -675,16 +352,12 @@ class ConfigManager:
     def is_conversation_store_verified(self) -> bool:
         """Return ``True`` if the conversation store connection has been verified."""
 
-        return bool(getattr(self, "_conversation_store_verified", False))
+        return self.persistence.conversation.is_verified()
 
     def get_conversation_retention_policies(self) -> Dict[str, Any]:
         """Return configured retention policies for the conversation store."""
 
-        config = self.get_conversation_database_config()
-        retention = config.get("retention") or {}
-        if isinstance(retention, Mapping):
-            return dict(retention)
-        return {}
+        return self.persistence.conversation.get_retention_policies()
 
     def set_conversation_retention(
         self,
@@ -694,51 +367,21 @@ class ConfigManager:
     ) -> Dict[str, Any]:
         """Persist conversation retention settings under the conversation block."""
 
-        block = dict(self.get_conversation_database_config())
-        retention = dict(block.get('retention') or {})
+        return self.persistence.conversation.set_retention(
+            days=days,
+            history_limit=history_limit,
+        )
 
-        if days is None:
-            retention.pop('days', None)
-            retention.pop('max_days', None)
-        else:
-            retention['days'] = int(days)
-
-        if history_limit is None:
-            retention.pop('history_message_limit', None)
-        else:
-            retention['history_message_limit'] = int(history_limit)
-
-        if retention:
-            block['retention'] = dict(retention)
-        else:
-            block.pop('retention', None)
-
-        conversation_block = dict(block)
-        self.yaml_config.setdefault('conversation_database', {})
-        yaml_block = dict(self.yaml_config['conversation_database'])
-        yaml_block.update(conversation_block)
-        self.yaml_config['conversation_database'] = yaml_block
-        self.config['conversation_database'] = dict(yaml_block)
-        self._write_yaml_config()
-        return dict(yaml_block.get('retention', {}))
-
+    # --- Service factory helpers -------------------------------------
     def get_conversation_store_engine(self) -> Engine | None:
         """Return a configured SQLAlchemy engine for the conversation store."""
 
-        if self._conversation_engine is None:
-            self.get_conversation_store_session_factory()
-        return self._conversation_engine
+        return self.persistence.conversation.get_engine()
 
     def get_conversation_store_session_factory(self) -> sessionmaker | None:
         """Return a configured session factory for the conversation store."""
 
-        if self._conversation_session_factory is not None:
-            return self._conversation_session_factory
-
-        engine, factory = self._build_conversation_store_session_factory()
-        self._conversation_engine = engine
-        self._conversation_session_factory = factory
-        return factory
+        return self.persistence.conversation.get_session_factory()
 
     def get_task_store_session_factory(self) -> sessionmaker | None:
         """Return a session factory for task persistence that shares the conversation engine."""
@@ -898,6 +541,7 @@ class ConfigManager:
         factory = sessionmaker(bind=engine, future=True)
         return engine, factory
 
+    # --- Provider fallback configuration -----------------------------
     def get_llm_fallback_config(self) -> Dict[str, Any]:
         """Return the configured fallback provider settings with sensible defaults."""
 
@@ -951,10 +595,7 @@ class ConfigManager:
     def get_messaging_settings(self) -> Dict[str, Any]:
         """Return the configured messaging backend settings."""
 
-        configured = self.config.get('messaging')
-        if isinstance(configured, Mapping):
-            return dict(configured)
-        return {'backend': 'in_memory'}
+        return self.messaging.get_settings()
 
     def set_messaging_settings(
         self,
@@ -965,48 +606,18 @@ class ConfigManager:
     ) -> Dict[str, Any]:
         """Persist messaging backend preferences and clear cached bus instances."""
 
-        sanitized_backend = str(backend or 'in_memory').strip().lower()
-        if sanitized_backend not in {'in_memory', 'redis'}:
-            sanitized_backend = 'in_memory'
-
-        block: Dict[str, Any] = {'backend': sanitized_backend}
-        if sanitized_backend == 'redis':
-            if redis_url:
-                block['redis_url'] = str(redis_url).strip()
-            if stream_prefix:
-                block['stream_prefix'] = str(stream_prefix).strip()
-
-        self.yaml_config['messaging'] = dict(block)
-        self.config['messaging'] = dict(block)
+        block = self.messaging.set_settings(
+            backend=backend,
+            redis_url=redis_url,
+            stream_prefix=stream_prefix,
+        )
         self._message_bus = None
-        self._write_yaml_config()
         return dict(block)
 
     def get_kv_store_settings(self) -> Dict[str, Any]:
         """Return normalized configuration for the key-value store adapter."""
 
-        tools_block = self.get_config('tools', {})
-        normalized: Dict[str, Any] = {
-            'default_adapter': 'postgres',
-            'adapters': {},
-        }
-
-        if isinstance(tools_block, Mapping):
-            kv_block = tools_block.get('kv_store')
-            if isinstance(kv_block, Mapping):
-                default_adapter = kv_block.get('default_adapter')
-                if isinstance(default_adapter, str) and default_adapter.strip():
-                    normalized['default_adapter'] = default_adapter.strip().lower()
-                adapters = kv_block.get('adapters')
-                if isinstance(adapters, Mapping):
-                    postgres = adapters.get('postgres')
-                    if isinstance(postgres, Mapping):
-                        normalized['adapters']['postgres'] = self._normalize_kv_postgres_settings(postgres)
-
-        if 'postgres' not in normalized['adapters']:
-            normalized['adapters']['postgres'] = self._normalize_kv_postgres_settings({})
-
-        return copy.deepcopy(normalized)
+        return copy.deepcopy(self.persistence.kv_store.get_settings())
 
     def set_kv_store_settings(
         self,
@@ -1019,224 +630,25 @@ class ConfigManager:
     ) -> Dict[str, Any]:
         """Persist configuration for the PostgreSQL-backed key-value store."""
 
-        settings = self.get_kv_store_settings()
-        postgres = dict(settings['adapters'].get('postgres', {}))
-
-        if url is not _UNSET:
-            if url in (None, ''):
-                postgres.pop('url', None)
-            else:
-                postgres['url'] = self._normalize_kv_store_url(url, 'tools.kv_store.adapters.postgres.url')
-
-        if reuse_conversation_store is not None:
-            postgres['reuse_conversation_store'] = bool(reuse_conversation_store)
-
-        if namespace_quota_bytes is not _UNSET:
-            if namespace_quota_bytes in (None, ''):
-                postgres.pop('namespace_quota_bytes', None)
-            else:
-                postgres['namespace_quota_bytes'] = int(namespace_quota_bytes)
-
-        if global_quota_bytes is not _UNSET:
-            if global_quota_bytes in (None, ''):
-                postgres['global_quota_bytes'] = None
-            else:
-                value = int(global_quota_bytes)
-                postgres['global_quota_bytes'] = value if value > 0 else None
-
-        if pool is not None:
-            normalized_pool: Dict[str, Any] = {}
-            if isinstance(pool, Mapping):
-                size_value = pool.get('size')
-                if size_value not in (None, ''):
-                    normalized_pool['size'] = int(size_value)
-                overflow_value = pool.get('max_overflow')
-                if overflow_value not in (None, ''):
-                    normalized_pool['max_overflow'] = int(overflow_value)
-                timeout_value = pool.get('timeout')
-                if timeout_value not in (None, ''):
-                    normalized_pool['timeout'] = float(timeout_value)
-            if normalized_pool:
-                postgres['pool'] = normalized_pool
-            else:
-                postgres.pop('pool', None)
-
-        adapters = dict(settings.get('adapters', {}))
-        adapters['postgres'] = postgres
-        updated = {
-            'default_adapter': settings.get('default_adapter', 'postgres'),
-            'adapters': adapters,
-        }
-
-        tools_yaml = self.yaml_config.get('tools')
-        if isinstance(tools_yaml, Mapping):
-            new_tools_yaml = dict(tools_yaml)
-        else:
-            new_tools_yaml = {}
-        new_tools_yaml['kv_store'] = copy.deepcopy(updated)
-        self.yaml_config['tools'] = new_tools_yaml
-
-        tools_config = self.config.get('tools')
-        if isinstance(tools_config, Mapping):
-            new_tools_config = dict(tools_config)
-        else:
-            new_tools_config = {}
-        new_tools_config['kv_store'] = copy.deepcopy(updated)
-        self.config['tools'] = new_tools_config
-
-        self._kv_engine_cache.clear()
-        self._write_yaml_config()
+        updated = self.persistence.kv_store.set_settings(
+            url=url if url is not _UNSET else KV_STORE_UNSET,
+            reuse_conversation_store=reuse_conversation_store,
+            namespace_quota_bytes=(
+                namespace_quota_bytes if namespace_quota_bytes is not _UNSET else KV_STORE_UNSET
+            ),
+            global_quota_bytes=(
+                global_quota_bytes if global_quota_bytes is not _UNSET else KV_STORE_UNSET
+            ),
+            pool=pool,
+        )
         return copy.deepcopy(updated)
 
-    def _normalize_kv_store_url(self, url: Any, source: str) -> str:
-        normalized = self._normalize_job_store_url(url, source)
-        try:
-            parsed = make_url(normalized)
-        except Exception:
-            return normalized
-        if parsed.drivername == 'postgresql':
-            parsed = parsed.set(drivername='postgresql+psycopg')
-        try:
-            return parsed.render_as_string(hide_password=False)
-        except AttributeError:  # pragma: no cover - SQLAlchemy < 1.4 compatibility
-            return str(parsed)
 
-    def _normalize_kv_postgres_settings(self, raw: Mapping[str, Any]) -> Dict[str, Any]:
-        settings: Dict[str, Any] = {
-            'reuse_conversation_store': True,
-            'namespace_quota_bytes': 1_048_576,
-            'global_quota_bytes': None,
-            'pool': {},
-        }
-
-        url_value = raw.get('url')
-        if isinstance(url_value, str) and url_value.strip():
-            settings['url'] = url_value.strip()
-
-        settings['reuse_conversation_store'] = self._coerce_bool_flag(
-            raw.get('reuse_conversation_store'),
-            True,
-        )
-
-        namespace_value = raw.get('namespace_quota_bytes')
-        if namespace_value not in (None, ''):
-            try:
-                settings['namespace_quota_bytes'] = int(namespace_value)
-            except (TypeError, ValueError):
-                self.logger.warning(
-                    "Invalid namespace_quota_bytes value %r; expected integer",
-                    namespace_value,
-                )
-
-        global_value = raw.get('global_quota_bytes')
-        if global_value in (None, ''):
-            settings['global_quota_bytes'] = None
-        else:
-            try:
-                parsed_global = int(global_value)
-            except (TypeError, ValueError):
-                self.logger.warning(
-                    "Invalid global_quota_bytes value %r; expected integer",
-                    global_value,
-                )
-                settings['global_quota_bytes'] = None
-            else:
-                settings['global_quota_bytes'] = parsed_global if parsed_global > 0 else None
-
-        pool_raw = raw.get('pool')
-        normalized_pool: Dict[str, Any] = {}
-        if isinstance(pool_raw, Mapping):
-            size_value = pool_raw.get('size')
-            if size_value not in (None, ''):
-                try:
-                    normalized_pool['size'] = int(size_value)
-                except (TypeError, ValueError):
-                    self.logger.warning(
-                        "Invalid pool size value %r; expected integer",
-                        size_value,
-                    )
-            overflow_value = pool_raw.get('max_overflow')
-            if overflow_value not in (None, ''):
-                try:
-                    normalized_pool['max_overflow'] = int(overflow_value)
-                except (TypeError, ValueError):
-                    self.logger.warning(
-                        "Invalid pool max_overflow value %r; expected integer",
-                        overflow_value,
-                    )
-            timeout_value = pool_raw.get('timeout')
-            if timeout_value not in (None, ''):
-                try:
-                    normalized_pool['timeout'] = float(timeout_value)
-                except (TypeError, ValueError):
-                    self.logger.warning(
-                        "Invalid pool timeout value %r; expected numeric",
-                        timeout_value,
-                    )
-
-        settings['pool'] = normalized_pool
-        return settings
 
     def get_kv_store_engine(self, *, adapter_config: Optional[Mapping[str, Any]] = None) -> Engine | None:
         """Return a SQLAlchemy engine configured for the KV store."""
 
-        override_config: Dict[str, Any] = {}
-        if isinstance(adapter_config, Mapping):
-            override_config = dict(adapter_config)
-
-        settings = self.get_kv_store_settings()
-        postgres = settings['adapters'].get('postgres', {})
-
-        reuse = self._coerce_bool_flag(
-            override_config.get('reuse_conversation_store'),
-            postgres.get('reuse_conversation_store', True),
-        )
-
-        url_override = override_config.get('url')
-        if reuse and not url_override:
-            engine = self.get_conversation_store_engine()
-            if engine is None:
-                return None
-            return engine
-
-        pool_settings: Dict[str, Any] = {}
-        base_pool = postgres.get('pool')
-        if isinstance(base_pool, Mapping):
-            pool_settings.update(base_pool)
-        override_pool = override_config.get('pool')
-        if isinstance(override_pool, Mapping):
-            for key, value in override_pool.items():
-                if value in (None, ''):
-                    continue
-                pool_settings[key] = value
-
-        url_value = url_override or postgres.get('url')
-        if not url_value:
-            raise RuntimeError('KV store PostgreSQL URL is not configured')
-
-        normalized_url = self._normalize_kv_store_url(url_value, 'tools.kv_store.adapters.postgres.url')
-        cache_key = (
-            normalized_url,
-            pool_settings.get('size'),
-            pool_settings.get('max_overflow'),
-            pool_settings.get('timeout'),
-        )
-
-        engine = self._kv_engine_cache.get(cache_key)
-        if engine is not None:
-            return engine
-
-        engine_kwargs: Dict[str, Any] = {'future': True}
-        if pool_settings.get('size') is not None:
-            engine_kwargs['pool_size'] = int(pool_settings['size'])
-        if pool_settings.get('max_overflow') is not None:
-            engine_kwargs['max_overflow'] = int(pool_settings['max_overflow'])
-        if pool_settings.get('timeout') is not None:
-            engine_kwargs['pool_timeout'] = float(pool_settings['timeout'])
-
-        engine = create_engine(normalized_url, **engine_kwargs)
-        self._kv_engine_cache[cache_key] = engine
-        return engine
+        return self.persistence.kv_store.get_engine(adapter_config=adapter_config)
 
     def get_job_scheduling_settings(self) -> Dict[str, Any]:
         """Return the merged configuration for job scheduling defaults."""
@@ -1501,19 +913,7 @@ class ConfigManager:
 
         return candidate
 
-    @staticmethod
-    def _coerce_bool_flag(value: Any, default: bool) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            lowered = value.strip().lower()
-            if lowered in {'1', 'true', 'yes', 'on'}:
-                return True
-            if lowered in {'0', 'false', 'no', 'off'}:
-                return False
-        return bool(value)
+
 
     def _get_provider_env_keys(self) -> Dict[str, str]:
         """Return the mapping between provider display names and environment keys."""
@@ -4930,8 +4330,10 @@ class ConfigManager:
         yaml_path = getattr(self, '_yaml_path', None) or self._compute_yaml_path()
         try:
             os.makedirs(os.path.dirname(yaml_path), exist_ok=True)
-            with open(yaml_path, 'w') as file:
+            with open(yaml_path, 'w', encoding='utf-8') as file:
                 yaml.dump(self.yaml_config, file)
+                if file.tell() == 0 and self.yaml_config:
+                    file.write(json.dumps(self.yaml_config))
             self.logger.debug("Configuration written to %s", yaml_path)
         except Exception as e:
             self.logger.error(f"Failed to write configuration to {yaml_path}: {e}")

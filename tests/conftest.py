@@ -280,9 +280,41 @@ if "jsonschema" not in sys.modules:
 
 if "yaml" not in sys.modules:
     yaml_module = types.ModuleType("yaml")
-    yaml_module.safe_load = lambda *_args, **_kwargs: {}
-    yaml_module.safe_dump = lambda *_args, **_kwargs: ""
-    yaml_module.dump = yaml_module.safe_dump
+
+    def _safe_load_fallback(stream=None, *_args, **_kwargs):
+        """Lightweight JSON-based ``yaml.safe_load`` drop-in."""
+
+        import json as _json
+
+        if hasattr(stream, "read"):
+            content = stream.read()
+        else:
+            content = stream or ""
+
+        content = (content or "").strip()
+        if not content:
+            return {}
+
+        try:
+            return _json.loads(content)
+        except _json.JSONDecodeError:
+            return {}
+
+    def _safe_dump_fallback(data, stream=None, *_args, **_kwargs):
+        """Mirror ``yaml.safe_dump`` using JSON for tests."""
+
+        import json as _json
+
+        text = _json.dumps(data or {})
+        if stream is None:
+            return text
+
+        stream.write(text)
+        return text
+
+    yaml_module.safe_load = _safe_load_fallback
+    yaml_module.safe_dump = _safe_dump_fallback
+    yaml_module.dump = _safe_dump_fallback
     sys.modules["yaml"] = yaml_module
 
 if "dotenv" not in sys.modules:

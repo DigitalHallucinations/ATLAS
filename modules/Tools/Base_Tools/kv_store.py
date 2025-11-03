@@ -595,24 +595,42 @@ def _build_engine_from_config(
     config_manager: Optional[ConfigManager],
     config: Mapping[str, Any],
 ) -> Engine:
-    if config_manager is not None and hasattr(config_manager, "get_kv_store_engine"):
-        try:
-            engine = config_manager.get_kv_store_engine(adapter_config=config)
-        except Exception as exc:  # pragma: no cover - fallback on manual construction
-            logger.debug("Falling back to manual KV engine construction: %s", exc)
-        else:
-            if engine is not None:
-                return engine
+    if config_manager is not None:
+        kv_section = getattr(getattr(config_manager, "persistence", None), "kv_store", None)
+        if kv_section is not None and hasattr(kv_section, "get_engine"):
+            try:
+                engine = kv_section.get_engine(adapter_config=config)
+            except Exception as exc:  # pragma: no cover - fallback on manual construction
+                logger.debug("Falling back to manual KV engine construction: %s", exc)
+            else:
+                if engine is not None:
+                    return engine
+
+        if hasattr(config_manager, "get_kv_store_engine"):
+            try:
+                engine = config_manager.get_kv_store_engine(adapter_config=config)
+            except Exception as exc:  # pragma: no cover - fallback on manual construction
+                logger.debug("Falling back to manual KV engine construction: %s", exc)
+            else:
+                if engine is not None:
+                    return engine
 
     reuse_conversation = _normalize_bool(
         config.get("reuse_conversation_store"),
         default=False,
     )
 
-    if reuse_conversation and config_manager is not None and hasattr(config_manager, "get_conversation_store_engine"):
-        engine = config_manager.get_conversation_store_engine()
-        if engine is not None:
-            return engine
+    if reuse_conversation and config_manager is not None:
+        conversation_section = getattr(getattr(config_manager, "persistence", None), "conversation", None)
+        if conversation_section is not None and hasattr(conversation_section, "get_engine"):
+            engine = conversation_section.get_engine()
+            if engine is not None:
+                return engine
+
+        if hasattr(config_manager, "get_conversation_store_engine"):
+            engine = config_manager.get_conversation_store_engine()
+            if engine is not None:
+                return engine
 
     url_value = config.get("url")
     if not isinstance(url_value, str) or not url_value.strip():
@@ -642,10 +660,19 @@ def _postgres_adapter_factory(
 ) -> PostgresKeyValueStoreAdapter:
     namespace_quota = config.get("namespace_quota_bytes")
     if namespace_quota is None and config_manager is not None:
-        try:
-            kv_settings = config_manager.get_kv_store_settings()
-        except AttributeError:
-            kv_settings = {}
+        kv_section = getattr(getattr(config_manager, "persistence", None), "kv_store", None)
+        kv_settings: Mapping[str, Any] | None = None
+        if kv_section is not None and hasattr(kv_section, "get_settings"):
+            try:
+                kv_settings = kv_section.get_settings()
+            except Exception:  # pragma: no cover - defensive path
+                kv_settings = None
+        if kv_settings is None:
+            try:
+                kv_settings = config_manager.get_kv_store_settings()  # type: ignore[attr-defined]
+            except AttributeError:
+                kv_settings = None
+
         if isinstance(kv_settings, Mapping):
             adapters = kv_settings.get("adapters")
             if isinstance(adapters, Mapping):

@@ -3,8 +3,34 @@ import math
 import os
 import sys
 import types
+from typing import Any, Callable, Dict, Optional
 
 import pytest
+
+
+class _StubLogger:
+    def __init__(self):
+        self.warnings: list[str] = []
+
+    def warning(self, message, *args, **kwargs):
+        if args:
+            try:
+                message = message % args
+            except Exception:
+                message = str(message)
+        self.warnings.append(str(message))
+
+    def info(self, *args, **kwargs):  # pragma: no cover - no-op logging helpers
+        return None
+
+    def error(self, *args, **kwargs):  # pragma: no cover - no-op logging helpers
+        return None
+
+    def debug(self, *args, **kwargs):  # pragma: no cover - no-op logging helpers
+        return None
+
+
+
 
 try:
     import yaml
@@ -48,7 +74,58 @@ if "dotenv" not in sys.modules:
     sys.modules["dotenv"] = dotenv_module
 
 import ATLAS.config as config_module
+import ATLAS.config.config_manager as config_impl
 from ATLAS.config import ConfigManager
+from ATLAS.config.messaging import MessagingConfigSection
+from ATLAS.config.persistence import PersistenceConfigSection
+from ATLAS.config.tooling import ToolingConfigSection
+
+
+class _DummyURL:
+    def __init__(self, value: str, drivername: str = "postgresql") -> None:
+        self._value = value
+        self.drivername = drivername
+
+    def set(self, **kwargs):
+        return _DummyURL(self._value, kwargs.get("drivername", self.drivername))
+
+    def render_as_string(self, hide_password: bool = False) -> str:
+        return self._value
+def _make_persistence_section(
+    *,
+    config: Optional[dict] = None,
+    yaml_config: Optional[dict] = None,
+    env: Optional[dict] = None,
+    create_engine: Optional[Callable[..., Any]] = None,
+    inspect_engine: Optional[Callable[..., Any]] = None,
+    make_url: Optional[Callable[[str], Any]] = None,
+    sessionmaker_factory: Optional[Callable[..., Any]] = None,
+    conversation_required_tables: Optional[Callable[[], set[str]]] = None,
+) -> PersistenceConfigSection:
+    writes: list[bool] = []
+
+    def _write_yaml_callback() -> None:
+        writes.append(True)
+
+    section = PersistenceConfigSection(
+        config=config or {},
+        yaml_config=yaml_config or {},
+        env_config=env or {},
+        logger=_StubLogger(),
+        normalize_job_store_url=lambda value, source: str(value),
+        write_yaml_callback=_write_yaml_callback,
+        create_engine=create_engine
+        or (lambda *args, **kwargs: types.SimpleNamespace(dispose=lambda: None)),
+        inspect_engine=inspect_engine
+        or (lambda *_args, **_kwargs: types.SimpleNamespace(get_table_names=lambda: [])),
+        make_url=make_url or (lambda value: _DummyURL(str(value))),
+        sessionmaker_factory=sessionmaker_factory
+        or (lambda **kwargs: ("factory", kwargs)),
+        conversation_required_tables=conversation_required_tables or (lambda: set()),
+        default_conversation_dsn="postgresql://default",
+    )
+    section._write_calls = writes  # type: ignore[attr-defined]
+    return section
 
 
 @pytest.fixture
@@ -65,9 +142,9 @@ def config_manager(tmp_path, monkeypatch):
     def fake_set_key(path, key, value):
         recorded[(path, key)] = value
 
-    monkeypatch.setattr(config_module, "set_key", fake_set_key)
-    monkeypatch.setattr(config_module, "find_dotenv", lambda: str(env_file))
-    monkeypatch.setattr(config_module, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr(config_impl, "set_key", fake_set_key)
+    monkeypatch.setattr(config_impl, "find_dotenv", lambda: str(env_file))
+    monkeypatch.setattr(config_impl, "load_dotenv", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         ConfigManager,
         "_load_env_config",
@@ -117,10 +194,10 @@ def test_init_missing_default_provider_records_warning(tmp_path, monkeypatch):
 
     dummy_logger = DummyLogger()
 
-    monkeypatch.setattr(config_module, "setup_logger", lambda name: dummy_logger)
-    monkeypatch.setattr(config_module, "set_key", lambda *args, **kwargs: None)
-    monkeypatch.setattr(config_module, "find_dotenv", lambda: str(env_file))
-    monkeypatch.setattr(config_module, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr(config_impl, "setup_logger", lambda name: dummy_logger)
+    monkeypatch.setattr(config_impl, "set_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(config_impl, "find_dotenv", lambda: str(env_file))
+    monkeypatch.setattr(config_impl, "load_dotenv", lambda *args, **kwargs: None)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("DEFAULT_PROVIDER", "OpenAI")
     monkeypatch.setattr(
@@ -153,10 +230,10 @@ def test_provider_warning_cleared_after_api_key_update(tmp_path, monkeypatch):
     def fake_set_key(path, key, value):
         recorded[(path, key)] = value
 
-    monkeypatch.setattr(config_module, "setup_logger", lambda name: DummyLogger())
-    monkeypatch.setattr(config_module, "set_key", fake_set_key)
-    monkeypatch.setattr(config_module, "find_dotenv", lambda: str(env_file))
-    monkeypatch.setattr(config_module, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr(config_impl, "setup_logger", lambda name: DummyLogger())
+    monkeypatch.setattr(config_impl, "set_key", fake_set_key)
+    monkeypatch.setattr(config_impl, "find_dotenv", lambda: str(env_file))
+    monkeypatch.setattr(config_impl, "load_dotenv", lambda *args, **kwargs: None)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr(
         ConfigManager,
@@ -205,10 +282,10 @@ def test_init_with_default_provider_credentials_has_no_warnings(tmp_path, monkey
 
     dummy_logger = DummyLogger()
 
-    monkeypatch.setattr(config_module, "setup_logger", lambda name: dummy_logger)
-    monkeypatch.setattr(config_module, "set_key", lambda *args, **kwargs: None)
-    monkeypatch.setattr(config_module, "find_dotenv", lambda: str(env_file))
-    monkeypatch.setattr(config_module, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr(config_impl, "setup_logger", lambda name: dummy_logger)
+    monkeypatch.setattr(config_impl, "set_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(config_impl, "find_dotenv", lambda: str(env_file))
+    monkeypatch.setattr(config_impl, "load_dotenv", lambda *args, **kwargs: None)
     monkeypatch.setenv("OPENAI_API_KEY", "configured-key")
     monkeypatch.setenv("DEFAULT_PROVIDER", "OpenAI")
     monkeypatch.setattr(
@@ -259,10 +336,10 @@ def test_update_api_key_creates_env_when_missing(tmp_path, monkeypatch):
         debug=lambda *args, **kwargs: None,
     )
 
-    monkeypatch.setattr(config_module, "setup_logger", lambda name: logger)
-    monkeypatch.setattr(config_module, "set_key", fake_set_key)
-    monkeypatch.setattr(config_module, "find_dotenv", lambda: "")
-    monkeypatch.setattr(config_module, "load_dotenv", fake_load_dotenv)
+    monkeypatch.setattr(config_impl, "setup_logger", lambda name: logger)
+    monkeypatch.setattr(config_impl, "set_key", fake_set_key)
+    monkeypatch.setattr(config_impl, "find_dotenv", lambda: "")
+    monkeypatch.setattr(config_impl, "load_dotenv", fake_load_dotenv)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("DEFAULT_PROVIDER", "OpenAI")
     monkeypatch.setenv("DEFAULT_MODEL", "gpt-4o")
@@ -306,7 +383,7 @@ def test_set_google_credentials_failure_rolls_back(config_manager, monkeypatch):
     def fail(*args, **kwargs):
         raise RuntimeError("write error")
 
-    monkeypatch.setattr(config_module, "set_key", fail)
+    monkeypatch.setattr(config_impl, "set_key", fail)
     monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
 
     with pytest.raises(RuntimeError):
@@ -364,15 +441,15 @@ def test_openai_speech_settings_persist_to_yaml(tmp_path, monkeypatch):
 
     dummy_logger = DummyLogger()
 
-    monkeypatch.setattr(config_module, "setup_logger", lambda name: dummy_logger)
+    monkeypatch.setattr(config_impl, "setup_logger", lambda name: dummy_logger)
     recorded = {}
 
     def fake_set_key(path, key, value):
         recorded[(path, key)] = value
 
-    monkeypatch.setattr(config_module, "set_key", fake_set_key)
-    monkeypatch.setattr(config_module, "find_dotenv", lambda: str(env_file))
-    monkeypatch.setattr(config_module, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr(config_impl, "set_key", fake_set_key)
+    monkeypatch.setattr(config_impl, "find_dotenv", lambda: str(env_file))
+    monkeypatch.setattr(config_impl, "load_dotenv", lambda *args, **kwargs: None)
     monkeypatch.setenv("OPENAI_API_KEY", "initial-key")
     monkeypatch.setenv("DEFAULT_PROVIDER", "OpenAI")
     monkeypatch.setenv("DEFAULT_MODEL", "gpt-4o")
@@ -1051,3 +1128,129 @@ def test_set_openai_llm_settings_tracks_tool_preferences(config_manager):
     stored = config_manager.config["OPENAI_LLM"]
     assert stored["enable_code_interpreter"] is False
     assert stored["enable_file_search"] is False
+
+def test_tooling_section_apply_sets_defaults():
+    config: dict[str, Any] = {
+        "tool_safety": {"network_allowlist": ["  example.com  ", ""]},
+        "tool_logging": {},
+    }
+    section = ToolingConfigSection(
+        config=config,
+        yaml_config={},
+        env_config={
+            "JAVASCRIPT_EXECUTOR_BIN": "/usr/bin/node",
+            "JAVASCRIPT_EXECUTOR_ARGS": "--inspect",
+        },
+        logger=_StubLogger(),
+    )
+
+    section.apply()
+
+    assert config["tool_defaults"]["timeout_seconds"] == 30
+    assert config["tool_safety"]["network_allowlist"] == ["example.com"]
+    assert config["tools"]["javascript_executor"]["args"] == ["--inspect"]
+
+
+def test_persistence_kv_section_set_settings_updates_blocks():
+    section = _make_persistence_section(env={"ATLAS_KV_STORE_URL": "postgresql://env"})
+
+    section.apply()
+    updated = section.kv_store.set_settings(
+        url="postgresql://override",
+        namespace_quota_bytes=2048,
+        pool={"size": "5"},
+    )
+
+    postgres_settings = section.config["tools"]["kv_store"]["adapters"]["postgres"]
+    assert postgres_settings["namespace_quota_bytes"] == 2048
+    assert section.yaml_config["tools"]["kv_store"]["adapters"]["postgres"]["url"] == "postgresql://override"
+    assert updated["adapters"]["postgres"]["pool"]["size"] == 5
+    assert section._write_calls  # type: ignore[attr-defined]
+
+
+def test_persistence_conversation_retention_updates_yaml():
+    section = _make_persistence_section()
+    section.apply()
+
+    retention = section.conversation.set_retention(days=7, history_limit=50)
+
+    assert retention == {"days": 7, "history_message_limit": 50}
+    assert (
+        section.yaml_config["conversation_database"]["retention"]["history_message_limit"]
+        == 50
+    )
+    assert section._write_calls  # type: ignore[attr-defined]
+
+
+def test_persistence_conversation_ensure_postgres_persists_default_url():
+    class _Engine:
+        def __init__(self):
+            self.dispose_called = False
+
+        def dispose(self):
+            self.dispose_called = True
+
+    engine = _Engine()
+    section = _make_persistence_section(
+        env={},
+        create_engine=lambda *args, **kwargs: engine,
+        inspect_engine=lambda *_args, **_kwargs: types.SimpleNamespace(
+            get_table_names=lambda: ["atlas_conversations"]
+        ),
+        conversation_required_tables=lambda: {"atlas_conversations"},
+    )
+    section.apply()
+
+    url = section.conversation.ensure_postgres_store()
+
+    assert url == "postgresql://default"
+    assert section.conversation.is_verified() is True
+    assert section.config["conversation_database"]["url"] == "postgresql://default"
+    assert section.yaml_config["conversation_database"]["url"] == "postgresql://default"
+    assert engine.dispose_called is True
+    assert section._write_calls  # type: ignore[attr-defined]
+
+
+def test_persistence_conversation_ensure_postgres_missing_tables_raises():
+    engine = types.SimpleNamespace(dispose=lambda: None)
+
+    section = _make_persistence_section(
+        env={},
+        create_engine=lambda *args, **kwargs: engine,
+        inspect_engine=lambda *_args, **_kwargs: types.SimpleNamespace(
+            get_table_names=lambda: ["other_table"]
+        ),
+        conversation_required_tables=lambda: {"atlas_conversations"},
+    )
+    section.apply()
+
+    with pytest.raises(RuntimeError) as excinfo:
+        section.conversation.ensure_postgres_store()
+
+    assert "missing required tables" in str(excinfo.value)
+
+
+def test_messaging_section_apply_and_set():
+    config = {"messaging": {"backend": "redis"}}
+    yaml_config: dict[str, Any] = {}
+    writes: list[bool] = []
+    section = MessagingConfigSection(
+        config=config,
+        yaml_config=yaml_config,
+        env_config={"REDIS_URL": "redis://cache:6379/1"},
+        logger=_StubLogger(),
+        write_yaml_callback=lambda: writes.append(True),
+    )
+
+    section.apply()
+    assert config["messaging"]["redis_url"] == "redis://cache:6379/1"
+
+    result = section.set_settings(
+        backend="redis",
+        redis_url="redis://app-cache:6379/2",
+        stream_prefix="atlas",
+    )
+
+    assert result["stream_prefix"] == "atlas"
+    assert yaml_config["messaging"]["redis_url"] == "redis://app-cache:6379/2"
+    assert writes
