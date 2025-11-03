@@ -217,7 +217,14 @@ def test_atlas_list_tools_includes_manifest_and_credentials(atlas_with_temp_conf
 
     google_entry = next(tool for tool in tools if tool["name"] == "google_search" and tool["persona"] is None)
     assert google_entry["auth"]["required"] is True
-    assert google_entry["credentials"]["GOOGLE_API_KEY"]["configured"] is False
+
+    credentials = google_entry["credentials"]
+    assert credentials["GOOGLE_API_KEY"]["configured"] is False
+    assert credentials["GOOGLE_API_KEY"].get("required") is True
+    assert credentials["GOOGLE_CSE_ID"]["configured"] is False
+    assert credentials["GOOGLE_CSE_ID"].get("required") is True
+    assert credentials["SERPAPI_KEY"]["configured"] is False
+    assert credentials["SERPAPI_KEY"].get("optional") is True
 
 
 def test_update_tool_settings_refreshes_cache(monkeypatch, atlas_with_temp_config):
