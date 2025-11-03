@@ -1503,6 +1503,9 @@ class AtlasServer:
                 capability=query.get("capability"),
                 safety_level=query.get("safety_level"),
                 persona=query.get("persona"),
+                provider=query.get("provider"),
+                version=query.get("version"),
+                min_success_rate=query.get("min_success_rate"),
             )
 
         if method_upper == "POST":

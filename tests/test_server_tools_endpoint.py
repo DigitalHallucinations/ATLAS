@@ -5,6 +5,16 @@ def _lowercase_capabilities(tool):
     return {cap.lower() for cap in tool.get("capabilities", [])}
 
 
+def _provider_names(tool):
+    providers = []
+    for provider in tool.get("providers", []):
+        if isinstance(provider, dict):
+            name = provider.get("name")
+            if isinstance(name, str) and name:
+                providers.append(name)
+    return set(providers)
+
+
 def test_get_tools_returns_merged_metadata():
     payload = atlas_server.handle_request("/tools")
     assert payload["count"] == len(payload["tools"])
@@ -42,3 +52,35 @@ def test_get_tools_filters_by_safety_and_persona():
         if persona:
             assert persona == "codegenius"
         assert (tool.get("safety_level") or "").lower() == "high"
+
+
+def test_get_tools_filters_by_provider_and_version():
+    base_payload = atlas_server.handle_request("/tools")
+    filtered = atlas_server.handle_request(
+        "/tools",
+        query={"provider": "debian12_local", "version": ">=1.1.0"},
+    )
+
+    assert filtered["count"] == len(filtered["tools"])
+    assert 0 < filtered["count"] < base_payload["count"]
+
+    for tool in filtered["tools"]:
+        assert "debian12_local" in _provider_names(tool)
+        version = tool.get("version")
+        assert isinstance(version, str) and version
+        parts = tuple(int(part) for part in version.split("."))
+        assert parts >= (1, 1, 0)
+
+
+def test_get_tools_filters_by_min_success_rate():
+    base_payload = atlas_server.handle_request("/tools")
+    filtered = atlas_server.handle_request(
+        "/tools",
+        query={"min_success_rate": "0.5"},
+    )
+
+    assert filtered["count"] == len(filtered["tools"])
+    assert filtered["count"] < base_payload["count"]
+    for tool in filtered["tools"]:
+        rate = tool.get("health", {}).get("tool", {}).get("success_rate")
+        assert rate is not None and rate >= 0.5
