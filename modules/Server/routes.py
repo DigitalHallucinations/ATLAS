@@ -146,14 +146,29 @@ class AtlasServer:
     def _build_conversation_repository(self) -> ConversationStoreRepository | None:
         if self._config_manager is None:
             return None
-        getter = getattr(self._config_manager, "get_conversation_store_session_factory", None)
-        if not callable(getter):
-            return None
-        session_factory = getter()
+        conversation_section = getattr(getattr(self._config_manager, "persistence", None), "conversation", None)
+        session_factory = None
+        retention: Mapping[str, Any] = {}
+        if conversation_section is not None:
+            try:
+                session_factory = conversation_section.get_session_factory()
+            except Exception:  # pragma: no cover - defensive path
+                session_factory = None
+            try:
+                retention = conversation_section.get_retention_policies()
+            except Exception:
+                retention = {}
+
+        if session_factory is None:
+            getter = getattr(self._config_manager, "get_conversation_store_session_factory", None)
+            if not callable(getter):
+                return None
+            session_factory = getter()
         if session_factory is None:
             return None
-        retention_getter = getattr(self._config_manager, "get_conversation_retention_policies", None)
-        retention = retention_getter() if callable(retention_getter) else {}
+        if not retention:
+            retention_getter = getattr(self._config_manager, "get_conversation_retention_policies", None)
+            retention = retention_getter() if callable(retention_getter) else {}
         repository = ConversationStoreRepository(session_factory, retention=retention)
         try:
             repository.create_schema()
