@@ -222,6 +222,271 @@ class PersonaAuditLogger:
 
 
 _default_logger: Optional[PersonaAuditLogger] = None
+ 
+
+@dataclass(frozen=True)
+class SkillAuditEntry:
+    """Describe a skill review metadata change event."""
+
+    timestamp: str
+    persona_name: str
+    skill_name: str
+    username: str
+    review_status_before: str
+    review_status_after: str
+    tester_notes_before: str
+    tester_notes_after: str
+    summary: str
+
+
+class SkillAuditLogger:
+    """Persist skill review events in a JSON lines log file."""
+
+    def __init__(
+        self,
+        *,
+        log_path: Optional[Path] = None,
+        clock: Optional[Callable[[], datetime]] = None,
+        user_service_factory: Optional[Callable[[], object]] = None,
+    ) -> None:
+        self._logger = setup_logger(__name__)
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._user_service_factory = (
+            user_service_factory or self._default_user_service_factory
+        )
+        self._user_service: Optional[object] = None
+        self._lock = threading.RLock()
+
+        if log_path is None:
+            base = Path(__file__).resolve().parents[2]
+            log_dir = base / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / "skill_audit.jsonl"
+        else:
+            log_path = Path(log_path)
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self._log_path = log_path
+
+    @staticmethod
+    def _default_user_service_factory() -> Optional[object]:
+        if UserAccountService is None:  # pragma: no cover - dependency not available
+            return None
+        try:
+            return UserAccountService()
+        except Exception:  # pragma: no cover - defensive guard
+            return None
+
+    def clear(self) -> None:
+        """Remove all audit entries from the backing log file."""
+
+        with self._lock:
+            try:
+                if self._log_path.exists():
+                    self._log_path.unlink()
+            except OSError:
+                self._logger.warning("Failed to clear skill audit log", exc_info=True)
+
+    def record_change(
+        self,
+        persona_name: str,
+        skill_name: str,
+        *,
+        old_review_status: Optional[str] = None,
+        new_review_status: Optional[str] = None,
+        old_tester_notes: Optional[str] = None,
+        new_tester_notes: Optional[str] = None,
+        summary: Optional[str] = None,
+        username: Optional[str] = None,
+        timestamp: Optional[datetime] = None,
+    ) -> SkillAuditEntry:
+        """Append a skill audit entry to the JSONL log."""
+
+        skill_value = str(skill_name or "").strip()
+        if not skill_value:
+            raise ValueError("Skill name is required for audit entries")
+
+        persona_value = str(persona_name or "").strip()
+        status_before = self._normalise_status(old_review_status)
+        status_after = self._normalise_status(new_review_status)
+        notes_before = self._normalise_notes(old_tester_notes)
+        notes_after = self._normalise_notes(new_tester_notes)
+
+        moment = timestamp or self._clock()
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        else:
+            moment = moment.astimezone(timezone.utc)
+
+        summary_text = summary or self._build_summary(
+            persona_value,
+            skill_value,
+            status_before,
+            status_after,
+            notes_before,
+            notes_after,
+        )
+
+        entry = SkillAuditEntry(
+            timestamp=moment.isoformat().replace("+00:00", "Z"),
+            persona_name=persona_value,
+            skill_name=skill_value,
+            username=self._resolve_username(username),
+            review_status_before=status_before,
+            review_status_after=status_after,
+            tester_notes_before=notes_before,
+            tester_notes_after=notes_after,
+            summary=summary_text,
+        )
+
+        payload = json.dumps(asdict(entry), ensure_ascii=False)
+
+        with self._lock:
+            try:
+                with self._log_path.open("a", encoding="utf-8") as handle:
+                    handle.write(payload)
+                    handle.write("\n")
+            except OSError:
+                self._logger.warning("Failed to persist skill audit entry", exc_info=True)
+
+        return entry
+
+    def get_history(
+        self,
+        *,
+        persona_name: Optional[str] = None,
+        skill_name: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> Tuple[List[SkillAuditEntry], int]:
+        """Return paginated skill audit entries matching filters."""
+
+        entries = list(self._iter_entries())
+
+        if persona_name:
+            persona_lower = persona_name.lower()
+            entries = [
+                entry
+                for entry in entries
+                if entry.persona_name.lower() == persona_lower
+            ]
+
+        if skill_name:
+            skill_lower = skill_name.lower()
+            entries = [
+                entry for entry in entries if entry.skill_name.lower() == skill_lower
+            ]
+
+        entries.sort(key=lambda item: item.timestamp, reverse=True)
+
+        total = len(entries)
+        if offset < 0:
+            offset = 0
+        if limit <= 0:
+            return [], total
+
+        paginated = entries[offset : offset + limit]
+        return paginated, total
+
+    def _iter_entries(self) -> Iterator[SkillAuditEntry]:
+        with self._lock:
+            try:
+                if not self._log_path.exists():
+                    lines: List[str] = []
+                else:
+                    lines = self._log_path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                self._logger.warning("Failed to read skill audit log", exc_info=True)
+                lines = []
+
+        for line in lines:
+            entry = self._deserialize(line)
+            if entry is not None:
+                yield entry
+
+    def _deserialize(self, line: str) -> Optional[SkillAuditEntry]:
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            self._logger.warning("Encountered invalid JSON in skill audit log")
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+
+        def _get_text(key: str) -> str:
+            value = payload.get(key)
+            return str(value or "")
+
+        return SkillAuditEntry(
+            timestamp=str(payload.get("timestamp") or ""),
+            persona_name=_get_text("persona_name"),
+            skill_name=_get_text("skill_name"),
+            username=_get_text("username"),
+            review_status_before=_get_text("review_status_before"),
+            review_status_after=_get_text("review_status_after"),
+            tester_notes_before=_get_text("tester_notes_before"),
+            tester_notes_after=_get_text("tester_notes_after"),
+            summary=_get_text("summary"),
+        )
+
+    def _resolve_username(self, explicit: Optional[str]) -> str:
+        if explicit:
+            return str(explicit)
+        try:
+            if self._user_service is None and callable(self._user_service_factory):
+                self._user_service = self._user_service_factory()
+            service = self._user_service
+            if service is None:
+                return "unknown"
+            getter = getattr(service, "get_active_user", None)
+            if callable(getter):
+                username = getter()
+                if username:
+                    return str(username)
+        except Exception:  # pragma: no cover - defensive logging only
+            self._logger.warning("Failed to resolve active user for skill audit", exc_info=True)
+        return "unknown"
+
+    @staticmethod
+    def _normalise_status(value: Optional[str]) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
+
+    @staticmethod
+    def _normalise_notes(value: Optional[str]) -> str:
+        if value is None:
+            return ""
+        return str(value)
+
+    @staticmethod
+    def _build_summary(
+        persona_name: str,
+        skill_name: str,
+        status_before: str,
+        status_after: str,
+        notes_before: str,
+        notes_after: str,
+    ) -> str:
+        changes: List[str] = []
+        if status_before != status_after:
+            before = status_before or "unreviewed"
+            after = status_after or "unreviewed"
+            changes.append(f"Review status: '{before}' → '{after}'")
+        if notes_before != notes_after:
+            changes.append("Tester notes updated")
+
+        detail = "; ".join(changes) if changes else "Metadata refreshed"
+
+        if persona_name:
+            return f"Skill '{skill_name}' for persona '{persona_name}' updated ({detail})."
+        if skill_name:
+            return f"Skill '{skill_name}' updated ({detail})."
+        return f"Skill metadata updated ({detail})."
+
+
+_default_skill_logger: Optional[SkillAuditLogger] = None
 
 
 @dataclass(frozen=True)
@@ -624,6 +889,22 @@ def set_persona_audit_logger(logger: Optional[PersonaAuditLogger]) -> None:
     _default_logger = logger
 
 
+def get_skill_audit_logger() -> SkillAuditLogger:
+    """Return the shared skill audit logger instance."""
+
+    global _default_skill_logger
+    if _default_skill_logger is None:
+        _default_skill_logger = SkillAuditLogger()
+    return _default_skill_logger
+
+
+def set_skill_audit_logger(logger: Optional[SkillAuditLogger]) -> None:
+    """Override the shared skill audit logger (primarily for tests)."""
+
+    global _default_skill_logger
+    _default_skill_logger = logger
+
+
 _default_review_logger: Optional[PersonaReviewLogger] = None
 
 
@@ -677,16 +958,20 @@ def parse_persona_timestamp(value: str) -> Optional[datetime]:
 __all__ = [
     "PersonaAuditEntry",
     "PersonaAuditLogger",
+    "SkillAuditEntry",
+    "SkillAuditLogger",
     "PersonaReviewAttestation",
     "PersonaReviewLogger",
     "PersonaReviewQueue",
     "PersonaReviewTask",
     "format_persona_timestamp",
     "get_persona_audit_logger",
+    "get_skill_audit_logger",
     "get_persona_review_logger",
     "get_persona_review_queue",
     "parse_persona_timestamp",
     "set_persona_audit_logger",
+    "set_skill_audit_logger",
     "set_persona_review_logger",
     "set_persona_review_queue",
 ]

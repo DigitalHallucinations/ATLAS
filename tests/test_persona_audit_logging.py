@@ -82,7 +82,7 @@ from modules.Personas import (
     persist_persona_definition,
 )
 from modules.logging import audit
-from modules.logging.audit import PersonaAuditLogger
+from modules.logging.audit import PersonaAuditLogger, SkillAuditLogger
 from modules.Server.routes import AtlasServer
 from GTKUI.Persona_manager.persona_management import PersonaManagement
 
@@ -173,6 +173,20 @@ def audit_logger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PersonaAudi
     logger.clear()
 
 
+@pytest.fixture
+def skill_audit_logger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> SkillAuditLogger:
+    logger = SkillAuditLogger(
+        log_path=tmp_path / "skill_audit.jsonl",
+        user_service_factory=lambda: _UserServiceStub("reviewer"),
+    )
+    logger.clear()
+    monkeypatch.setattr(audit, "_default_skill_logger", logger)
+    yield logger
+    logger.clear()
+
+
 def test_persist_persona_definition_records_audit_entry(
     tmp_path: Path,
     audit_logger: PersonaAuditLogger,
@@ -249,17 +263,16 @@ def test_server_route_updates_persona_skills(
                 "required_capabilities": ["analysis"],
                 "safety_notes": "Review output.",
             },
-            {
-                "name": "atlas_insight",
-                "version": "1.0",
-                "instruction_prompt": "Atlas-only insight",
-                "required_tools": ["beta_tool"],
-                "required_capabilities": ["expertise"],
-                "safety_notes": "Use responsibly.",
-                "persona": "Atlas",
-            },
-        ],
-    )
+                {
+                    "name": "atlas_insight",
+                    "version": "1.0",
+                    "instruction_prompt": "Atlas-only insight",
+                    "required_tools": ["beta_tool"],
+                    "required_capabilities": ["expertise"],
+                    "safety_notes": "Use responsibly.",
+                },
+            ],
+        )
     config = _ConfigStub(tmp_path)
 
     persona_data = dict(persona_payload)
@@ -286,6 +299,115 @@ def test_server_route_updates_persona_skills(
     persisted = load_persona_definition("Atlas", config_manager=config)
     assert persisted is not None
     assert persisted.get("allowed_skills") == ["atlas_insight", "shared_skill"]
+
+
+def test_list_tool_changes_supports_filters(
+    audit_logger: PersonaAuditLogger,
+) -> None:
+    audit_logger.clear()
+    audit_logger.record_change(
+        "Atlas",
+        ["alpha_tool"],
+        ["beta_tool"],
+        username="alice",
+        timestamp=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    audit_logger.record_change(
+        "Zephyr",
+        ["delta_tool"],
+        ["epsilon_tool"],
+        username="zeus",
+        timestamp=datetime(2024, 1, 2, 12, 0, tzinfo=timezone.utc),
+    )
+    audit_logger.record_change(
+        "Atlas",
+        ["beta_tool"],
+        ["gamma_tool"],
+        username="bob",
+        timestamp=datetime(2024, 1, 3, 12, 0, tzinfo=timezone.utc),
+    )
+
+    server = AtlasServer()
+
+    filtered = server.list_tool_changes(persona="Atlas", limit=5)
+    assert filtered["total"] == 2
+    assert filtered["count"] == 2
+    authors = [entry["author"] for entry in filtered["changes"]]
+    assert authors == ["bob", "alice"]
+    first_entry = filtered["changes"][0]
+    assert first_entry["persona"] == "Atlas"
+    assert first_entry["added"] == ["gamma_tool"]
+    assert first_entry["removed"] == ["beta_tool"]
+    assert first_entry["summary"] == "Tool configuration updated."
+    assert first_entry["timestamp"].endswith("Z")
+
+    paginated = server.list_tool_changes(limit=1, offset=1)
+    assert paginated["count"] == 1
+    assert paginated["total"] == 3
+    assert paginated["changes"][0]["persona"] == "Zephyr"
+
+    empty = server.list_tool_changes(limit=0)
+    assert empty["limit"] == 0
+    assert empty["total"] == 3
+    assert empty["changes"] == []
+
+
+def test_list_skill_changes_supports_filters(
+    skill_audit_logger: SkillAuditLogger,
+) -> None:
+    skill_audit_logger.clear()
+    skill_audit_logger.record_change(
+        "Atlas",
+        "insight",
+        old_review_status="pending",
+        new_review_status="reviewed",
+        old_tester_notes="",
+        new_tester_notes="Looks good",
+        username="reviewer1",
+        timestamp=datetime(2024, 2, 1, 9, 0, tzinfo=timezone.utc),
+    )
+    skill_audit_logger.record_change(
+        "Zephyr",
+        "calibrate",
+        old_review_status="unreviewed",
+        new_review_status="reviewed",
+        old_tester_notes="",
+        new_tester_notes="Escalate edge cases",
+        username="reviewer2",
+        timestamp=datetime(2024, 2, 2, 9, 0, tzinfo=timezone.utc),
+    )
+    skill_audit_logger.record_change(
+        "Atlas",
+        "insight",
+        old_review_status="reviewed",
+        new_review_status="reviewed",
+        old_tester_notes="Looks good",
+        new_tester_notes="Updated tester notes",
+        username="reviewer3",
+        timestamp=datetime(2024, 2, 3, 9, 0, tzinfo=timezone.utc),
+    )
+
+    server = AtlasServer()
+
+    filtered = server.list_skill_changes(persona="Atlas", limit=10)
+    assert filtered["total"] == 2
+    assert filtered["count"] == 2
+    first_entry = filtered["changes"][0]
+    assert first_entry["skill"] == "insight"
+    assert first_entry["author"] == "reviewer3"
+    assert first_entry["details"]["tester_notes"]["changed"] is True
+    assert first_entry["details"]["review_status"]["changed"] is False
+    assert first_entry["summary"]
+    assert first_entry["timestamp"].endswith("Z")
+
+    skill_filtered = server.list_skill_changes(skill="calibrate", limit=5)
+    assert skill_filtered["total"] == 1
+    assert skill_filtered["changes"][0]["persona"] == "Zephyr"
+
+    empty = server.list_skill_changes(limit=0)
+    assert empty["limit"] == 0
+    assert empty["total"] == 3
+    assert empty["changes"] == []
 
 
 def test_server_route_rejects_invalid_tool_update(
