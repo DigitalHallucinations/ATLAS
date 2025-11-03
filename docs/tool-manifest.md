@@ -28,7 +28,7 @@ following fields:
 | `version` | string | Human readable semantic version for the tool. |
 | `side_effects` | string | One of `"none"`, `"write"`, `"network"`, `"read_external_service"`, `"filesystem"`, `"compute"`, `"system"`, or `"database"`, signalling the type of external interaction the tool performs. |
 | `default_timeout` | integer | Preferred execution timeout in seconds for the tool. |
-| `auth` | object | Authentication requirements, e.g. `{ "required": true, "type": "api_key", "env": "GOOGLE_API_KEY", "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback." }`. |
+| `auth` | object | Authentication requirements, e.g. `{ "required": true, "type": "api_key", "envs": { "GOOGLE_API_KEY": { "required": true }, "GOOGLE_CSE_ID": { "required": true }, "SERPAPI_KEY": { "optional": true } }, "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When either is missing, configure SERPAPI_KEY as a fallback." }`. |
 | `allow_parallel` | boolean | Indicates whether the tool is safe to invoke in parallel with itself. |
 
 Additional fields (such as `description` and `parameters`) continue to follow
@@ -86,8 +86,12 @@ regressions will be caught in CI.
   "auth": {
     "required": true,
     "type": "api_key",
-    "env": "GOOGLE_API_KEY",
-    "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback."
+    "envs": {
+      "GOOGLE_API_KEY": {"required": true},
+      "GOOGLE_CSE_ID": {"required": true},
+      "SERPAPI_KEY": {"optional": true}
+    },
+    "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When either is missing, configure SERPAPI_KEY as a fallback."
   },
   "allow_parallel": true,
   "description": "A Google search result API...",
@@ -117,7 +121,16 @@ regressions will be caught in CI.
             "version": "1.0.0",
             "side_effects": "none",
             "default_timeout": 30,
-            "auth": {"required": True, "type": "api_key", "env": "GOOGLE_API_KEY", "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback."},
+            "auth": {
+                "required": True,
+                "type": "api_key",
+                "envs": {
+                    "GOOGLE_API_KEY": {"required": True},
+                    "GOOGLE_CSE_ID": {"required": True},
+                    "SERPAPI_KEY": {"optional": True},
+                },
+                "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When either is missing, configure SERPAPI_KEY as a fallback.",
+            },
             "allow_parallel": True,
         },
     },

@@ -46,8 +46,18 @@
         "auth": {
             "required": true,
             "type": "api_key",
-            "env": "GOOGLE_API_KEY",
-            "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When those are missing, configure SERPAPI_KEY as a fallback."
+            "docs": "Set GOOGLE_API_KEY and GOOGLE_CSE_ID to use Google Programmable Search. When either is missing, configure SERPAPI_KEY as a fallback.",
+            "envs": {
+                "GOOGLE_API_KEY": {
+                    "required": true
+                },
+                "GOOGLE_CSE_ID": {
+                    "required": true
+                },
+                "SERPAPI_KEY": {
+                    "optional": true
+                }
+            }
         },
         "allow_parallel": true,
         "description": "A Google search result API. When you need a short and clear answer to a specific question, you can use it. The input should be a search query.",

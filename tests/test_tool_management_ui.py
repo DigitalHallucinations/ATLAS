@@ -53,6 +53,42 @@ else:
 if not hasattr(Gtk, "ListBoxRow"):
     Gtk.ListBoxRow = type("ListBoxRow", (dummy_base,), {})
 
+user_account_module = types.ModuleType("modules.user_accounts.user_account_service")
+
+
+class _AccountError(RuntimeError):
+    pass
+
+
+class _DummyRequirements:
+    def __init__(self, *args, **kwargs):  # pragma: no cover - simple stub
+        self.minimum_length = kwargs.get("minimum_length", 8)
+        self.require_numbers = kwargs.get("require_numbers", False)
+        self.require_symbols = kwargs.get("require_symbols", False)
+
+
+user_account_module.AccountLockedError = type("AccountLockedError", (_AccountError,), {})
+user_account_module.DuplicateUserError = type("DuplicateUserError", (_AccountError,), {})
+user_account_module.InvalidCurrentPasswordError = type(
+    "InvalidCurrentPasswordError", (_AccountError,), {}
+)
+user_account_module.PasswordRequirements = _DummyRequirements
+
+sys.modules.setdefault(
+    "modules.user_accounts.user_account_service", user_account_module
+)
+
+_user_accounts_pkg = sys.modules.get("modules.user_accounts")
+if _user_accounts_pkg is None:
+    _user_accounts_pkg = types.ModuleType("modules.user_accounts")
+    sys.modules["modules.user_accounts"] = _user_accounts_pkg
+
+setattr(_user_accounts_pkg, "user_account_service", user_account_module)
+
+account_dialog_module = types.ModuleType("GTKUI.UserAccounts.account_dialog")
+account_dialog_module.AccountDialog = type("AccountDialog", (dummy_base,), {})
+sys.modules.setdefault("GTKUI.UserAccounts.account_dialog", account_dialog_module)
+
 
 _VECTOR_TOOL_NAMES = {"upsert_vectors", "query_vectors", "delete_namespace"}
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -172,7 +208,22 @@ class _AtlasStub:
                 "auth": {"required": True, "provider": "Google", "status": "Linked"},
                 "settings": {"enabled": True, "providers": ["primary"]},
                 "credentials": {
-                    "GOOGLE_API_KEY": {"configured": False, "hint": "MASKED", "required": True}
+                    "GOOGLE_API_KEY": {
+                        "configured": False,
+                        "hint": "MASKED",
+                        "required": True,
+                    },
+                    "GOOGLE_CSE_ID": {
+                        "configured": False,
+                        "hint": "",
+                        "required": True,
+                    },
+                    "SERPAPI_KEY": {
+                        "configured": False,
+                        "hint": "",
+                        "optional": True,
+                        "required": False,
+                    },
                 },
             },
             {
@@ -619,7 +670,10 @@ def test_tool_management_save_and_reset():
     google_entry = manager._entry_lookup.get("google_search")
     assert google_entry is not None
     assert google_entry.raw_metadata["settings"] == {"enabled": True, "providers": ["primary"]}
-    assert google_entry.raw_metadata["credentials"]["GOOGLE_API_KEY"]["configured"] is False
+    credentials = google_entry.raw_metadata["credentials"]
+    assert credentials["GOOGLE_API_KEY"]["configured"] is False
+    assert credentials["GOOGLE_CSE_ID"]["configured"] is False
+    assert credentials["SERPAPI_KEY"]["configured"] is False
 
     manager._select_tool("terminal_command")
     manager._on_switch_state_set(manager._switch, True)
@@ -675,6 +729,12 @@ def test_tool_management_credentials_validation_and_refresh():
     manager.get_embeddable_widget()
     manager._select_tool("google_search")
 
+    assert set(manager._credential_inputs) >= {
+        "GOOGLE_API_KEY",
+        "GOOGLE_CSE_ID",
+        "SERPAPI_KEY",
+    }
+
     field = manager._credential_inputs.get("GOOGLE_API_KEY")
     assert field is not None
     placeholder = getattr(field, "placeholder", getattr(field, "_placeholder_text", ""))
@@ -690,12 +750,17 @@ def test_tool_management_credentials_validation_and_refresh():
     assert "error" in getattr(field, "_css_classes", set()), "Missing required credential should be highlighted"
 
     field.set_text("secret-token")
+    cse_field = manager._credential_inputs.get("GOOGLE_CSE_ID")
+    assert cse_field is not None
+    cse_field.set_text("cse-id-token")
     manager._on_credentials_apply_clicked(apply_button)
 
     assert atlas.credential_updates, "Credential updates should reach the backend stub"
     cred_record = atlas.credential_updates[-1]
     assert cred_record["tool"] == "google_search"
     assert cred_record["credentials"]["GOOGLE_API_KEY"] == "secret-token"
+    assert cred_record["credentials"]["GOOGLE_CSE_ID"] == "cse-id-token"
+    assert "SERPAPI_KEY" not in cred_record["credentials"]
     assert atlas.tool_fetches >= 2
     assert parent.toasts and parent.toasts[-1] == "Credentials saved."
     assert "error" not in getattr(field, "_css_classes", set())

@@ -4197,31 +4197,110 @@ class ConfigManager:
         }
 
     @staticmethod
+    def _extract_auth_env_definitions(
+        auth_block: Optional[Mapping[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return environment definitions declared in an authentication manifest block."""
+
+        definitions: Dict[str, Dict[str, Any]] = {}
+
+        if not isinstance(auth_block, Mapping):
+            return definitions
+
+        def _register_env(env_name: Any, metadata: Optional[Mapping[str, Any]] = None) -> None:
+            if not isinstance(env_name, str):
+                env_candidate = str(env_name) if env_name is not None else ""
+            else:
+                env_candidate = env_name
+
+            token = env_candidate.strip()
+            if not token:
+                return
+
+            merged: Dict[str, Any] = dict(definitions.get(token, {}))
+            if isinstance(metadata, Mapping):
+                for key, value in metadata.items():
+                    merged[key] = value
+            definitions[token] = merged
+
+        env_value = auth_block.get("env")
+        env_required: Optional[bool] = None
+        if isinstance(auth_block.get("required"), bool):
+            env_required = bool(auth_block["required"])
+
+        if isinstance(env_value, str):
+            metadata: Dict[str, Any] = {}
+            if env_required is not None:
+                metadata["required"] = env_required
+            _register_env(env_value, metadata)
+        elif isinstance(env_value, Sequence) and not isinstance(env_value, (str, bytes, bytearray)):
+            for entry in env_value:
+                if isinstance(entry, str):
+                    metadata: Dict[str, Any] = {}
+                    if env_required is not None:
+                        metadata["required"] = env_required
+                    _register_env(entry, metadata)
+
+        envs_value = auth_block.get("envs")
+        if isinstance(envs_value, Mapping):
+            for key, value in envs_value.items():
+                metadata: Dict[str, Any] = {}
+                env_name: Optional[str] = None
+
+                if isinstance(value, str):
+                    env_name = value
+                elif isinstance(value, Mapping):
+                    candidate = value.get("env")
+                    if isinstance(candidate, str):
+                        env_name = candidate
+                    optional_flag = value.get("optional")
+                    if isinstance(optional_flag, bool):
+                        metadata["optional"] = optional_flag
+                        metadata.setdefault("required", not optional_flag)
+                    required_flag = value.get("required")
+                    if isinstance(required_flag, bool):
+                        metadata["required"] = required_flag
+                        if "optional" not in metadata:
+                            metadata["optional"] = not required_flag
+                elif value is None:
+                    env_name = None
+
+                if env_name is None and isinstance(key, str):
+                    env_name = key
+
+                if env_name is not None:
+                    _register_env(env_name, metadata)
+        elif isinstance(envs_value, Sequence) and not isinstance(envs_value, (str, bytes, bytearray)):
+            for value in envs_value:
+                metadata = {}
+                env_name = None
+                if isinstance(value, str):
+                    env_name = value
+                elif isinstance(value, Mapping):
+                    candidate = value.get("env")
+                    if isinstance(candidate, str):
+                        env_name = candidate
+                    optional_flag = value.get("optional")
+                    if isinstance(optional_flag, bool):
+                        metadata["optional"] = optional_flag
+                        metadata.setdefault("required", not optional_flag)
+                    required_flag = value.get("required")
+                    if isinstance(required_flag, bool):
+                        metadata["required"] = required_flag
+                        if "optional" not in metadata:
+                            metadata["optional"] = not required_flag
+                if env_name is not None:
+                    _register_env(env_name, metadata)
+
+        return definitions
+
+    @staticmethod
     def _extract_auth_env_keys(auth_block: Optional[Mapping[str, Any]]) -> List[str]:
         """Return normalized environment variable keys declared in a manifest auth block."""
 
-        candidates: List[str] = []
-        if isinstance(auth_block, Mapping):
-            env_value = auth_block.get("env")
-            if isinstance(env_value, str):
-                candidates.append(env_value)
-            elif isinstance(env_value, Sequence) and not isinstance(env_value, (str, bytes, bytearray)):
-                for entry in env_value:
-                    if isinstance(entry, str):
-                        candidates.append(entry)
-
-            envs_value = auth_block.get("envs")
-            if isinstance(envs_value, Mapping):
-                for entry in envs_value.values():
-                    if isinstance(entry, str):
-                        candidates.append(entry)
-            elif isinstance(envs_value, Sequence) and not isinstance(envs_value, (str, bytes, bytearray)):
-                for entry in envs_value:
-                    if isinstance(entry, str):
-                        candidates.append(entry)
-
+        definitions = ConfigManager._extract_auth_env_definitions(auth_block)
         normalized: List[str] = []
-        for candidate in candidates:
+        for candidate in definitions.keys():
             token = candidate.strip()
             if token and token not in normalized:
                 normalized.append(token)
@@ -4305,8 +4384,21 @@ class ConfigManager:
                     if not isinstance(auth_block, Mapping):
                         auth_block = None
 
-            env_keys = self._extract_auth_env_keys(auth_block)
+            env_definitions = self._extract_auth_env_definitions(auth_block)
+            env_keys = list(env_definitions.keys())
             credentials = self._collect_credential_status(env_keys)
+
+            for env_key, metadata in env_definitions.items():
+                if not metadata:
+                    continue
+                entry = credentials.get(env_key)
+                if entry is None:
+                    entry = {"configured": False, "hint": "", "source": "env"}
+                    credentials[env_key] = entry
+                for meta_key, meta_value in metadata.items():
+                    if meta_key in {"configured", "hint", "source"}:
+                        continue
+                    entry[meta_key] = meta_value
 
             snapshot[name] = {
                 "settings": copy.deepcopy(settings_block),
@@ -4458,8 +4550,21 @@ class ConfigManager:
                     if isinstance(auth_candidate, Mapping):
                         auth_block = auth_candidate
 
-            env_keys = self._extract_auth_env_keys(auth_block)
+            env_definitions = self._extract_auth_env_definitions(auth_block)
+            env_keys = list(env_definitions.keys())
             credentials = self._collect_credential_status(env_keys)
+
+            for env_key, metadata in env_definitions.items():
+                if not metadata:
+                    continue
+                entry = credentials.get(env_key)
+                if entry is None:
+                    entry = {"configured": False, "hint": "", "source": "env"}
+                    credentials[env_key] = entry
+                for meta_key, meta_value in metadata.items():
+                    if meta_key in {"configured", "hint", "source"}:
+                        continue
+                    entry[meta_key] = meta_value
 
             snapshot[name] = {
                 "settings": copy.deepcopy(settings_block),
