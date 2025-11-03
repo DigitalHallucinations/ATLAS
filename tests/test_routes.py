@@ -31,6 +31,7 @@ if "yaml" not in sys.modules:
 
 from types import MappingProxyType
 
+from modules.Server.conversation_routes import RequestContext
 from modules.Server.routes import AtlasServer
 from modules.Tools.manifest_loader import ToolManifestEntry
 from modules.Skills.manifest_loader import SkillMetadata
@@ -213,3 +214,41 @@ def test_get_skills_returns_serialized_entries(monkeypatch: pytest.MonkeyPatch) 
     routed = server.handle_request("/skills", method="GET")
     assert routed["count"] == 2
     assert {entry["category"] for entry in routed["skills"]} == {"Context", "Atlas"}
+
+
+def test_handle_request_skills_details_preserves_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = AtlasServer()
+    skill = SkillMetadata(
+        name="custom_skill",
+        version="1.0.0",
+        instruction_prompt="Do the custom task",
+        required_tools=[],
+        required_capabilities=[],
+        safety_notes="",
+        summary="Custom skill summary",
+        category="Custom",
+        capability_tags=[],
+        persona=None,
+        source="tests",
+        collaboration=None,
+    )
+
+    registry = _RegistryStub([], [_make_skill_view(skill)])
+    monkeypatch.setattr(
+        "modules.Server.routes.get_capability_registry",
+        lambda config_manager=None: registry,
+    )
+
+    context = RequestContext(tenant_id="tenant-123", user_id="user-456")
+
+    response = server.handle_request(
+        "/skills/custom_skill",
+        method="GET",
+        context=context,
+    )
+
+    assert response["success"] is True
+    assert response["skill"]["name"] == "custom_skill"
+    assert response["tenant_id"] == context.tenant_id
