@@ -26,9 +26,12 @@ from modules.Personas import (
 from modules.analytics.persona_metrics import get_persona_metrics
 from modules.conversation_store import ConversationStoreRepository
 from modules.logging.audit import (
+    PersonaAuditEntry,
+    SkillAuditEntry,
     get_persona_audit_logger,
     get_persona_review_logger,
     get_persona_review_queue,
+    get_skill_audit_logger,
     parse_persona_timestamp,
 )
 from modules.logging.logger import setup_logger
@@ -286,6 +289,118 @@ class AtlasServer:
                 metadata=metadata,
             )
         raise TypeError("Unsupported request context type")
+
+    @staticmethod
+    def _coerce_pagination_limit(
+        value: Optional[Any],
+        *,
+        default: int = 20,
+        maximum: int = 200,
+    ) -> int:
+        if value is None:
+            return default
+        try:
+            limit_value = int(value)
+        except (TypeError, ValueError):
+            return default
+        if limit_value <= 0:
+            return 0
+        return min(limit_value, maximum)
+
+    @staticmethod
+    def _coerce_pagination_offset(value: Optional[Any]) -> int:
+        if value is None:
+            return 0
+        try:
+            offset_value = int(value)
+        except (TypeError, ValueError):
+            return 0
+        if offset_value < 0:
+            return 0
+        return offset_value
+
+    @staticmethod
+    def _format_audit_timestamp(raw: str) -> str:
+        parsed = parse_persona_timestamp(str(raw or ""))
+        if parsed is None:
+            return str(raw or "")
+        return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _serialize_tool_change_entry(entry: PersonaAuditEntry) -> Dict[str, Any]:
+        timestamp = AtlasServer._format_audit_timestamp(entry.timestamp)
+        persona_name = entry.persona_name.strip() if entry.persona_name else ""
+        author = entry.username.strip() if entry.username else ""
+
+        old_tools = [tool for tool in entry.old_tools]
+        new_tools = [tool for tool in entry.new_tools]
+
+        old_lookup = set(old_tools)
+        added = [tool for tool in new_tools if tool not in old_lookup]
+        new_lookup = set(new_tools)
+        removed = [tool for tool in old_tools if tool not in new_lookup]
+
+        summary = "Tool configuration updated."
+        if entry.rationale:
+            rationale_text = entry.rationale.strip()
+        else:
+            rationale_text = ""
+
+        return {
+            "persona": persona_name or None,
+            "author": author or "unknown",
+            "timestamp": timestamp,
+            "summary": summary,
+            "action": "updated",
+            "added": added,
+            "removed": removed,
+            "previous_tools": old_tools,
+            "current_tools": new_tools,
+            "rationale": rationale_text,
+        }
+
+    @staticmethod
+    def _serialize_skill_change_entry(entry: SkillAuditEntry) -> Dict[str, Any]:
+        timestamp = AtlasServer._format_audit_timestamp(entry.timestamp)
+        persona_name = entry.persona_name.strip() if entry.persona_name else ""
+        author = entry.username.strip() if entry.username else ""
+        skill_name = entry.skill_name.strip() if entry.skill_name else ""
+        summary = entry.summary.strip() if entry.summary else "Skill metadata updated."
+
+        status_before = entry.review_status_before.strip()
+        status_after = entry.review_status_after.strip()
+        notes_before = entry.tester_notes_before
+        notes_after = entry.tester_notes_after
+
+        status_changed = (
+            status_before.casefold() != status_after.casefold()
+            if status_before and status_after
+            else status_before != status_after
+        )
+        notes_changed = notes_before != notes_after
+
+        details = {
+            "review_status": {
+                "before": status_before,
+                "after": status_after,
+                "changed": status_changed,
+            },
+            "tester_notes": {
+                "before": notes_before,
+                "after": notes_after,
+                "changed": notes_changed,
+            },
+        }
+
+        return {
+            "persona": persona_name or None,
+            "skill": skill_name or None,
+            "author": author or "unknown",
+            "timestamp": timestamp,
+            "summary": summary,
+            "action": "updated",
+            "details": details,
+        }
 
     def get_tools(
         self,
@@ -730,6 +845,77 @@ class AtlasServer:
             "status": asdict(status),
         }
 
+    def list_tool_changes(
+        self,
+        *,
+        persona: Optional[Any] = None,
+        limit: Optional[Any] = None,
+        offset: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Return normalized persona tool change history."""
+
+        persona_filter = None
+        if persona is not None:
+            persona_text = str(persona).strip()
+            persona_filter = persona_text or None
+        limit_value = self._coerce_pagination_limit(limit)
+        offset_value = self._coerce_pagination_offset(offset)
+
+        entries, total = get_persona_audit_logger().get_history(
+            persona_name=persona_filter,
+            offset=offset_value,
+            limit=limit_value,
+        )
+
+        serialized = [self._serialize_tool_change_entry(entry) for entry in entries]
+
+        return {
+            "changes": serialized,
+            "count": len(serialized),
+            "total": total,
+            "offset": offset_value,
+            "limit": limit_value,
+        }
+
+    def list_skill_changes(
+        self,
+        *,
+        persona: Optional[Any] = None,
+        skill: Optional[Any] = None,
+        limit: Optional[Any] = None,
+        offset: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Return normalized skill review change history."""
+
+        persona_filter = None
+        if persona is not None:
+            persona_text = str(persona).strip()
+            persona_filter = persona_text or None
+
+        skill_filter = None
+        if skill is not None:
+            skill_text = str(skill).strip()
+            skill_filter = skill_text or None
+        limit_value = self._coerce_pagination_limit(limit)
+        offset_value = self._coerce_pagination_offset(offset)
+
+        entries, total = get_skill_audit_logger().get_history(
+            persona_name=persona_filter,
+            skill_name=skill_filter,
+            offset=offset_value,
+            limit=limit_value,
+        )
+
+        serialized = [self._serialize_skill_change_entry(entry) for entry in entries]
+
+        return {
+            "changes": serialized,
+            "count": len(serialized),
+            "total": total,
+            "offset": offset_value,
+            "limit": limit_value,
+        }
+
     def handle_request(
         self,
         path: str,
@@ -765,6 +951,19 @@ class AtlasServer:
                     raise ValueError(f"Unsupported path: {path}")
                 persona_name = components[1]
                 return self.get_persona_review_status(persona_name)
+            if path == "/tools/changes":
+                return self.list_tool_changes(
+                    persona=query.get("persona"),
+                    limit=query.get("limit"),
+                    offset=query.get("offset"),
+                )
+            if path == "/skills/changes":
+                return self.list_skill_changes(
+                    persona=query.get("persona"),
+                    skill=query.get("skill"),
+                    limit=query.get("limit"),
+                    offset=query.get("offset"),
+                )
             if path == "/skills":
                 return self.get_skills(persona=query.get("persona"))
             if path.startswith("/blackboard/"):
