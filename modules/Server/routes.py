@@ -1443,6 +1443,7 @@ class AtlasServer:
                     return self.get_skill_details(
                         skill_name,
                         persona=query.get("persona"),
+                        context=context,
                     )
                 elif len(components) > 2:
                     raise ValueError(f"Unsupported path: {path}")
