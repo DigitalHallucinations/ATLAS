@@ -85,6 +85,11 @@ class SetupWizardWindow(AtlasWindow):
 
         self.controller = controller or CoreSetupWizardController(atlas=atlas)
 
+        # NEW: sidebar tracking
+        self._completed_steps: set[int] = set()
+        self._step_rows: list[Gtk.ListBoxRow] = []
+        self._step_list: Gtk.ListBox | None = None
+
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         root.set_margin_top(18)
         root.set_margin_bottom(18)
@@ -101,16 +106,47 @@ class SetupWizardWindow(AtlasWindow):
         scroller.set_propagate_natural_height(False)
         root.append(scroller)
 
+        # H layout: [Steps Sidebar] [Form Container] [Guidance]
         content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
         content.set_hexpand(True)
         content.set_vexpand(True)
         scroller.set_child(content)
 
+        # --- Steps sidebar (left) ---
+        steps_sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        steps_sidebar.set_hexpand(False)
+        steps_sidebar.set_vexpand(True)
+        steps_sidebar.set_size_request(220, -1)  # keep form “slid” to the right
+        content.append(steps_sidebar)
+
+        steps_title = Gtk.Label(label="Setup Steps")
+        steps_title.set_xalign(0.0)
+        if hasattr(steps_title, "add_css_class"):
+            steps_title.add_css_class("heading")
+        steps_sidebar.append(steps_title)
+
+        self._step_list = Gtk.ListBox()
+        self._step_list.set_selection_mode(Gtk.SelectionMode.BROWSE)
+        self._step_list.connect("row-activated", self._on_step_row_activated)
+        steps_sidebar.append(self._step_list)
+
+        # --- Center form container (middle) ---
+        center_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        center_column.set_hexpand(True)
+        center_column.set_vexpand(True)
+        content.append(center_column)
+
+        form_frame = Gtk.Frame()
+        form_frame.set_hexpand(True)
+        form_frame.set_vexpand(True)
+        center_column.append(form_frame)
+
         self._form_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self._form_column.set_hexpand(True)
         self._form_column.set_vexpand(True)
-        content.append(self._form_column)
+        form_frame.set_child(self._form_column)
 
+        # --- Guidance column (right) ---
         guidance_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         guidance_column.set_hexpand(True)
         guidance_column.set_vexpand(True)
@@ -143,16 +179,7 @@ class SetupWizardWindow(AtlasWindow):
 
         self._stack.connect("notify::visible-child", self._on_stack_visible_child_changed)
 
-        step_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        step_bar.set_halign(Gtk.Align.START)
-        step_bar.set_hexpand(False)
-        step_bar.set_vexpand(False)
-        self._step_indicator = Gtk.Label()
-        self._step_indicator.set_xalign(0.0)
-        self._step_indicator.set_halign(Gtk.Align.START)
-        self._step_indicator.set_hexpand(False)
-        step_bar.append(self._step_indicator)
-        root.append(step_bar)
+        # NOTE: removed the old single-line step indicator bar (sidebar replaces it)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         controls.set_halign(Gtk.Align.END)
@@ -185,6 +212,8 @@ class SetupWizardWindow(AtlasWindow):
         self._entry_pixel_width: Optional[int] = None
 
         self._build_steps()
+        self._build_steps_sidebar()  # populate sidebar
+
         if error is not None:
             self.display_error(error)
         else:
@@ -250,6 +279,40 @@ class SetupWizardWindow(AtlasWindow):
 
         for step in self._steps:
             self._stack.add_titled(step.widget, step.name.lower(), step.name)
+
+    # -- sidebar -----------------------------------------------------------
+
+    def _build_steps_sidebar(self) -> None:
+        """(Re)build the left sidebar list of steps with completion marks."""
+        if not self._step_list:
+            return
+
+        for row in list(self._step_rows):
+            self._step_list.remove(row)
+        self._step_rows.clear()
+
+        for idx, step in enumerate(self._steps):
+            row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            row_box.set_margin_top(6)
+            row_box.set_margin_bottom(6)
+            row_box.set_margin_start(8)
+            row_box.set_margin_end(8)
+
+            mark = Gtk.Label()
+            mark.set_text("✓" if idx in self._completed_steps else "•")
+            mark.set_width_chars(2)
+            row_box.append(mark)
+
+            title = Gtk.Label(label=step.name)
+            title.set_xalign(0.0)
+            title.set_hexpand(True)
+            row_box.append(title)
+
+            row = Gtk.ListBoxRow()
+            row.set_activatable(True)
+            row.set_child(row_box)
+            self._step_list.append(row)
+            self._step_rows.append(row)
 
     def _register_instructions(self, widget: Gtk.Widget, instructions: str) -> None:
         self._instructions_by_widget[widget] = instructions
@@ -653,12 +716,12 @@ class SetupWizardWindow(AtlasWindow):
             return
 
         self._current_index = index
-        self._update_navigation()
         self._update_guidance_for_widget(child)
-        self._update_step_indicator(self._steps[self._current_index].name)
+        self._update_navigation()
 
     def _update_step_indicator(self, name: str) -> None:
-        self._step_indicator.set_text(name)
+        # Deprecated: the sidebar now acts as the step indicator.
+        pass
 
     def _update_navigation(self) -> None:
         if hasattr(self._back_button, "set_sensitive"):
@@ -670,6 +733,16 @@ class SetupWizardWindow(AtlasWindow):
     def _on_back_clicked(self, *_: object) -> None:
         if self._current_index > 0:
             self._go_to_step(self._current_index - 1)
+
+    def _on_step_row_activated(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
+        """Jump directly to a step when its row is activated in the sidebar."""
+        try:
+            index = self._step_rows.index(row)
+        except ValueError:
+            return
+        self._go_to_step(index)
+        if self._step_list:
+            self._step_list.select_row(row)
 
     def _on_next_clicked(self, *_: object) -> None:
         step = self._steps[self._current_index]
@@ -683,6 +756,12 @@ class SetupWizardWindow(AtlasWindow):
             self.display_error(exc)
             self._on_error(exc)
             return
+
+        # Mark current step as completed and refresh sidebar visuals
+        self._completed_steps.add(self._current_index)
+        self._build_steps_sidebar()
+        if self._step_list and 0 <= self._current_index < len(self._step_rows):
+            self._step_list.select_row(self._step_rows[self._current_index])
 
         if self._current_index == len(self._steps) - 1:
             final_message = message or "Setup complete."
