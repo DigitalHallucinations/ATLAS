@@ -14,6 +14,7 @@ from ATLAS.setup import (
     KvStoreState,
     MessageBusState,
     OptionalState,
+    PrivilegedCredentialState,
     ProviderState,
     SpeechState,
     UserState,
@@ -34,7 +35,10 @@ class FakeController:
             user=UserState(),
         )
         self.calls = []
+        self.profile_calls = []
+        self.register_calls = []
         self.summary = {"status": "ok"}
+        self._staged_privileged_credentials = None
 
     def apply_database_settings(self, state):
         self.calls.append(("database", state))
@@ -71,13 +75,40 @@ class FakeController:
         self.state.optional = state
         return state
 
-    def register_user(self, state):
-        self.calls.append(("user", state))
-        self.state.user = state
+    def set_user_profile(self, profile):
+        self.profile_calls.append(profile)
+        self.state.user = UserState(
+            username=profile.username or "",
+            email=profile.email or "",
+            password=profile.password or "",
+            display_name=profile.display_name or "",
+            full_name=profile.full_name or "",
+            domain=profile.domain or "",
+            date_of_birth=profile.date_of_birth or "",
+            privileged_credentials=PrivilegedCredentialState(
+                sudo_username=profile.sudo_username or "",
+                sudo_password=profile.sudo_password or "",
+            ),
+        )
+        if profile.privileged_db_username or profile.privileged_db_password:
+            self.set_privileged_credentials(
+                (profile.privileged_db_username or None, profile.privileged_db_password or None)
+            )
+        return self.state.user
+
+    def set_privileged_credentials(self, credentials):
+        self._staged_privileged_credentials = credentials
+
+    def get_privileged_credentials(self):
+        return self._staged_privileged_credentials
+
+    def register_user(self, state=None):
+        staged = state or self.state.user
+        self.register_calls.append(staged)
         return {
-            "username": state.username,
-            "display_name": state.display_name,
-            "full_name": getattr(state, "full_name", ""),
+            "username": staged.username,
+            "display_name": staged.display_name,
+            "full_name": staged.full_name,
         }
 
     def build_summary(self):
@@ -117,6 +148,29 @@ def _complete_speech_step(window):
     window._on_next_clicked(None)
 
 
+def _populate_user_entries(window, **overrides):
+    defaults = {
+        "full_name": "Atlas Admin",
+        "username": "admin",
+        "email": "admin@example.com",
+        "domain": "Example.COM",
+        "date_of_birth": "1990-01-01",
+        "password": "changeme",
+        "confirm_password": "changeme",
+        "sudo_username": "atlas-admin",
+        "sudo_password": "SudoPass!",
+        "confirm_sudo_password": "SudoPass!",
+    }
+    defaults.update(overrides)
+    for key, value in defaults.items():
+        window._user_entries[key].set_text(value)
+
+
+def _complete_user_step(window, **overrides):
+    _populate_user_entries(window, **overrides)
+    window._on_next_clicked(None)
+
+
 def test_stack_switcher_updates_current_index():
     application = Gtk.Application()
     controller = FakeController()
@@ -138,7 +192,7 @@ def test_stack_switcher_updates_current_index():
 
     window._on_next_clicked(None)
 
-    assert [name for name, *_ in controller.calls] == ["kv_store"]
+    assert [name for name, *_ in controller.calls] == ["message_bus"]
     assert window._current_index == 4
 
 
@@ -174,6 +228,18 @@ def test_setup_wizard_happy_path(monkeypatch):
         controller=controller,
     )
 
+    _complete_user_step(window)
+
+    assert controller.profile_calls
+    assert controller.calls == []
+    assert window._current_index == 1
+    assert controller.state.user.username == "admin"
+    assert controller.state.user.domain == "example.com"
+    assert window._database_entries["user"].get_text() == "admin"
+    tenant_entry = window._optional_widgets["tenant_id"]
+    assert isinstance(tenant_entry, Gtk.Entry)
+    assert tenant_entry.get_text() == "example.com"
+
     window._database_entries["host"].set_text("db.example.com")
     window._database_entries["port"].set_text("5433")
     window._database_entries["database"].set_text("atlas_test")
@@ -183,7 +249,7 @@ def test_setup_wizard_happy_path(monkeypatch):
     window._on_next_clicked(None)
 
     assert [name for name, *_ in controller.calls] == ["database"]
-    assert window._current_index == 1
+    assert window._current_index == 2
     assert not on_error.calls
 
     window._job_widgets["enabled"].set_active(True)
@@ -199,7 +265,7 @@ def test_setup_wizard_happy_path(monkeypatch):
     window._on_next_clicked(None)
 
     assert [name for name, *_ in controller.calls] == ["database", "job_scheduling"]
-    assert window._current_index == 2
+    assert window._current_index == 3
 
     window._message_widgets["backend"].set_active_id("redis")
     window._message_widgets["redis_url"].set_text("redis://localhost:6379/0")
@@ -212,7 +278,7 @@ def test_setup_wizard_happy_path(monkeypatch):
         "job_scheduling",
         "message_bus",
     ]
-    assert window._current_index == 3
+    assert window._current_index == 4
 
     window._kv_widgets["reuse"].set_active(False)
     window._kv_widgets["url"].set_text("postgresql://kv")
@@ -225,7 +291,7 @@ def test_setup_wizard_happy_path(monkeypatch):
         "message_bus",
         "kv_store",
     ]
-    assert window._current_index == 4
+    assert window._current_index == 5
 
     window._provider_entries["default_provider"].set_text("openai")
     window._provider_entries["default_model"].set_text("gpt-4o-mini")
@@ -242,7 +308,7 @@ def test_setup_wizard_happy_path(monkeypatch):
         "kv_store",
         "providers",
     ]
-    assert window._current_index == 5
+    assert window._current_index == 6
 
     window._speech_widgets["tts_enabled"].set_active(True)
     window._speech_widgets["stt_enabled"].set_active(True)
@@ -262,7 +328,7 @@ def test_setup_wizard_happy_path(monkeypatch):
         "providers",
         "speech",
     ]
-    assert window._current_index == 6
+    assert window._current_index == 7
 
     window._optional_widgets["tenant_id"].set_text("tenant-123")
     window._optional_widgets["retention_days"].set_text("30")
@@ -284,29 +350,12 @@ def test_setup_wizard_happy_path(monkeypatch):
     ]
     assert window._current_index == 7
 
-    window._user_entries["username"].set_text("admin")
-    window._user_entries["email"].set_text("admin@example.com")
-    window._user_entries["display_name"].set_text("Atlas Admin")
-    window._user_entries["password"].set_text("changeme")
-    window._user_entries["confirm_password"].set_text("changeme")
-
-    window._on_next_clicked(None)
-
-    assert [name for name, *_ in controller.calls] == [
-        "database",
-        "job_scheduling",
-        "message_bus",
-        "kv_store",
-        "providers",
-        "speech",
-        "optional",
-        "user",
-    ]
     assert on_success.calls
     assert marker_calls == [controller.summary]
+    assert controller.register_calls
     assert (
         window._status_label.get_text()
-        == "Administrator account created. You can now sign in with the new administrator account."
+        == "Optional settings saved. Administrator account created. You can now sign in with the new administrator account."
     )
 
     window.close()
@@ -326,11 +375,13 @@ def test_setup_wizard_validation_error_surfaces_in_ui():
         controller=controller,
     )
 
+    _complete_user_step(window)
+
     window._database_entries["port"].set_text("invalid")
 
     window._on_next_clicked(None)
 
-    assert window._current_index == 0
+    assert window._current_index == 1
     assert on_success.calls == []
     assert on_error.calls
     assert "Port must be a valid integer" in window._status_label.get_text()
@@ -354,15 +405,16 @@ def test_setup_wizard_job_scheduling_validation():
         controller=controller,
     )
 
+    _complete_user_step(window)
     _complete_database_step(window)
-    assert window._current_index == 1
+    assert window._current_index == 2
 
     window._job_widgets["enabled"].set_active(True)
     window._job_widgets["retry_max_attempts"].set_text("not-a-number")
 
     window._on_next_clicked(None)
 
-    assert window._current_index == 1
+    assert window._current_index == 2
     assert on_success.calls == []
     assert on_error.calls
     assert "Max attempts must be an integer" in window._status_label.get_text()
@@ -384,6 +436,7 @@ def test_setup_wizard_requests_privileged_credentials(monkeypatch):
         controller=controller,
     )
 
+    _complete_user_step(window)
     window._database_entries["host"].set_text("db.example.com")
     window._database_entries["port"].set_text("5432")
     window._database_entries["database"].set_text("atlas")
@@ -414,7 +467,7 @@ def test_setup_wizard_requests_privileged_credentials(monkeypatch):
 
     assert calls == [None, ("postgres", "supersecret")]
     assert window._privileged_credentials == ("postgres", "supersecret")
-    assert window._current_index == 1
+    assert window._current_index == 2
     assert prompts == [(None, "superuser access required")]
     assert not on_error.calls
 
@@ -435,6 +488,7 @@ def test_setup_wizard_optional_settings_validation():
         controller=controller,
     )
 
+    _complete_user_step(window)
     _complete_database_step(window)
     _complete_job_step(window)
     _complete_message_bus_step(window)
@@ -442,15 +496,58 @@ def test_setup_wizard_optional_settings_validation():
     _complete_providers_step(window)
     _complete_speech_step(window)
 
-    assert window._current_index == 6
+    assert window._current_index == 7
 
     window._optional_widgets["retention_days"].set_text("invalid")
 
     window._on_next_clicked(None)
 
-    assert window._current_index == 6
+    assert window._current_index == 7
     assert on_success.calls == []
     assert on_error.calls
     assert "Conversation retention days must be an integer" in window._status_label.get_text()
+
+    window.close()
+
+
+def test_user_step_validation_and_domain_normalization():
+    application = Gtk.Application()
+    controller = FakeController()
+    on_success = _CallbackRecorder()
+    on_error = _CallbackRecorder()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=on_success,
+        on_error=on_error,
+        controller=controller,
+    )
+
+    _populate_user_entries(window, confirm_password="different")
+    window._on_next_clicked(None)
+    assert window._current_index == 0
+    assert "Passwords do not match" in window._status_label.get_text()
+
+    _populate_user_entries(window, confirm_password="changeme", date_of_birth="01-01-1990")
+    window._on_next_clicked(None)
+    assert window._current_index == 0
+    assert "Date of birth must use YYYY-MM-DD format" in window._status_label.get_text()
+
+    _populate_user_entries(
+        window,
+        date_of_birth="1990-01-01",
+        confirm_sudo_password="Mismatch",
+    )
+    window._on_next_clicked(None)
+    assert window._current_index == 0
+    assert "Sudo passwords do not match" in window._status_label.get_text()
+
+    _complete_user_step(window, domain=" @MyOrg.COM ")
+    assert window._current_index == 1
+    assert controller.state.user.domain == "myorg.com"
+    tenant_widget = window._optional_widgets["tenant_id"]
+    assert isinstance(tenant_widget, Gtk.Entry)
+    assert tenant_widget.get_text() == "myorg.com"
 
     window.close()
