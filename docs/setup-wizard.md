@@ -2,27 +2,37 @@
 
 ATLAS ships with a guided GTK experience for first-time configuration. The
 desktop shell launches a multi-step window that walks through the key decisions
-required to bring the platform online:
+required to bring the platform online. The administrator profile now opens the
+wizard so that environment-specific defaults can be staged before any
+infrastructure settings are applied:
 
-1. **Database** – Collect PostgreSQL connection details and run the conversation
+1. **Administrator** – Collect the profile for the first user. The form requires
+   a full name, username, email address, organization domain, date of birth,
+   password, and privileged sudo credentials. The wizard stages this
+   information instead of registering the account immediately. Subsequent pages
+   reuse the staged data; for example the database user defaults to the staged
+   username and the optional settings tenant field inherits the normalized
+   domain. Privileged database credentials captured later in the flow are also
+   stored so they can be reused by the CLI and GTK flows.
+2. **Database** – Collect PostgreSQL connection details and run the conversation
    store bootstrap helpers.
-2. **Job scheduling** – Enable durable scheduling, configure retry policy, and
+3. **Job scheduling** – Enable durable scheduling, configure retry policy, and
    provide job store details when needed.
-3. **Message bus** – Choose between the in-memory or Redis backends and supply
+4. **Message bus** – Choose between the in-memory or Redis backends and supply
    any Redis connection details.
-4. **Key-value store** – Decide whether to reuse the conversation store and set
+5. **Key-value store** – Decide whether to reuse the conversation store and set
    an alternate DSN when required.
-5. **Providers** – Store default model/provider selections along with any API
+6. **Providers** – Store default model/provider selections along with any API
    keys that should be written to the configuration.
-6. **Speech** – Toggle text-to-speech and speech-to-text integrations and record
+7. **Speech** – Toggle text-to-speech and speech-to-text integrations and record
    provider defaults and API keys.
-7. **Optional settings** – Capture tenancy, retention, scheduler overrides, and
+8. **Optional settings** – Capture tenancy, retention, scheduler overrides, and
    whether the HTTP server should auto-start.
-8. **Administrator** – Register the first user account so you can sign in after
-   the wizard finishes.
 
 Progress and any validation errors are surfaced inline, and the wizard invokes
-the same controller methods used by the CLI to persist settings.
+the same controller methods used by the CLI to persist settings. The final step
+registers the staged administrator once all configuration has been applied and
+the setup marker written.
 
 ### Step details
 
