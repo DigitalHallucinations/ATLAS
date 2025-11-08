@@ -399,6 +399,51 @@ def test_setup_wizard_validation_error_surfaces_in_ui():
     window.close()
 
 
+def test_setup_wizard_reuses_stored_sudo_password_for_bootstrap(monkeypatch):
+    application = Gtk.Application()
+    on_success = _CallbackRecorder()
+    on_error = _CallbackRecorder()
+
+    class RecordingController(FakeController):
+        def __init__(self, *, atlas=None, request_privileged_password=None):
+            super().__init__()
+            self.request_privileged_password = request_privileged_password
+            self.bootstrap_calls = []
+
+        def apply_database_settings(self, state, privileged_credentials=None):
+            self.calls.append(("database", state))
+            password = None
+            if self.request_privileged_password is not None:
+                password = self.request_privileged_password()
+            self.bootstrap_calls.append(password)
+            self.state.database = state
+            return "dsn"
+
+    monkeypatch.setattr(
+        "GTKUI.Setup.setup_wizard.CoreSetupWizardController",
+        RecordingController,
+    )
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=on_success,
+        on_error=on_error,
+    )
+
+    assert isinstance(window.controller, RecordingController)
+    assert window.controller.request_privileged_password is window._request_sudo_password
+
+    _complete_user_step(window)
+
+    _complete_database_step(window)
+
+    assert window.controller.bootstrap_calls == ["SudoPass!"]
+    assert window._current_index == 2
+
+    window.close()
+
+
 def test_setup_wizard_job_scheduling_validation():
     application = Gtk.Application()
     controller = FakeController()
