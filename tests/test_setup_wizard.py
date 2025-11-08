@@ -171,6 +171,38 @@ def _complete_user_step(window, **overrides):
     window._on_next_clicked(None)
 
 
+def test_user_page_handles_missing_date_input_purpose(monkeypatch):
+    application = Gtk.Application()
+    controller = FakeController()
+
+    monkeypatch.setattr(Gtk.InputPurpose, "DATE", None, raising=False)
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    entry = window._user_entries["date_of_birth"]
+    assert isinstance(entry, Gtk.Entry)
+
+    acceptable = [
+        value
+        for value in (
+            getattr(Gtk.InputPurpose, "DIGITS", None),
+            getattr(Gtk.InputPurpose, "NUMBER", None),
+            getattr(Gtk.InputPurpose, "FREE_FORM", None),
+        )
+        if value is not None
+    ]
+    if acceptable:
+        assert entry.get_input_purpose() in acceptable
+
+    window.close()
+
+
 def test_stack_switcher_updates_current_index():
     application = Gtk.Application()
     controller = FakeController()

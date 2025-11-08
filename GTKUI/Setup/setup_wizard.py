@@ -632,7 +632,15 @@ class SetupWizardWindow(AtlasWindow):
             state.date_of_birth,
             placeholder="YYYY-MM-DD",
         )
-        dob_entry.set_input_purpose(Gtk.InputPurpose.DATE)
+        input_purpose = getattr(Gtk.InputPurpose, "DATE", None)
+        if input_purpose is None:
+            for candidate in ("DIGITS", "NUMBER"):
+                fallback = getattr(Gtk.InputPurpose, candidate, None)
+                if fallback is not None:
+                    input_purpose = fallback
+                    break
+        if input_purpose is not None:
+            dob_entry.set_input_purpose(input_purpose)
         self._user_entries["date_of_birth"] = dob_entry
         row += 1
         self._user_entries["password"] = self._create_labeled_entry(
