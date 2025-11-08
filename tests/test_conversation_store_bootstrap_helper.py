@@ -381,6 +381,55 @@ def test_bootstrap_sanitises_driver_specific_urls(dsn):
     assert verification.closed is True
 
 
+def test_bootstrap_resets_password_with_privileged_credentials_on_auth_failure(base_dsn):
+    op_error_cls = getattr(bootstrap_module, "OperationalError", None)
+    if op_error_cls is None:  # pragma: no cover - defensive guard
+        op_error_cls = type("OperationalError", (Exception,), {})
+        bootstrap_module.OperationalError = op_error_cls
+
+    maintenance = RecordingConnection(
+        responses={
+            ("SELECT 1 FROM pg_roles WHERE rolname = %s", ("atlas",)): (1,),
+            ("SELECT 1 FROM pg_database WHERE datname = %s", ("atlas",)): (1,),
+        }
+    )
+    verification = RecordingConnection()
+
+    connection_attempts = []
+
+    def connector(conninfo):
+        connection_attempts.append(conninfo)
+        attempt = len(connection_attempts)
+        if attempt <= 3:
+            raise op_error_cls('password authentication failed for user "atlas"')
+        if attempt == 4:
+            return maintenance
+        if attempt == 5:
+            return verification
+        raise AssertionError("Unexpected connection attempt")
+
+    privileged_credentials = ("postgres", "supersecret")
+
+    result = bootstrap_conversation_store(
+        base_dsn,
+        which=lambda *_: "/usr/bin/psql",
+        run=lambda *args, **kwargs: types.SimpleNamespace(returncode=0),
+        platform_system=lambda: "Linux",
+        connector=connector,
+        privileged_credentials=privileged_credentials,
+    )
+
+    assert result == base_dsn
+    assert any(
+        statement == 'ALTER ROLE "atlas" WITH PASSWORD %s' and params == ("secret",)
+        for statement, params in maintenance.executed
+    )
+    assert maintenance.autocommit is True
+    assert maintenance.closed is True
+    assert verification.closed is True
+    assert len(connection_attempts) == 5
+
+
 def test_bootstrap_updates_existing_role_password_with_privileged_credentials(base_dsn):
     updated_password = "refreshed-secret"
     updated_dsn = base_dsn.replace(":secret@", f":{updated_password}@")

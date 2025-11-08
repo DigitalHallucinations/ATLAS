@@ -201,6 +201,11 @@ def _error_indicates_missing_role(exc: Exception) -> bool:
     return "role" in message and "does not exist" in message
 
 
+def _error_indicates_bad_password(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "password" in message and "authentication failed" in message
+
+
 def _attempt_candidate_connection(
     *,
     connector: Callable[[str], object],
@@ -211,6 +216,7 @@ def _attempt_candidate_connection(
 ):
     last_error: Exception | None = None
     missing_role_error: Exception | None = None
+    bad_password_error: Exception | None = None
 
     for candidate in candidate_databases:
         candidate_url = base_url.set(database=candidate)
@@ -224,11 +230,13 @@ def _attempt_candidate_connection(
             last_error = exc
             if _error_indicates_missing_role(exc):
                 missing_role_error = exc
+            if _error_indicates_bad_password(exc):
+                bad_password_error = exc
             continue
         else:
-            return connection, None, None
+            return connection, None, None, None
 
-    return None, last_error, missing_role_error
+    return None, last_error, missing_role_error, bad_password_error
 
 
 def _install_postgres_client(
@@ -484,7 +492,12 @@ def bootstrap_conversation_store(
     ensured_username = username
     ensured_password = password
 
-    maintenance_conn, last_error, missing_role_error = _attempt_candidate_connection(
+    (
+        maintenance_conn,
+        last_error,
+        missing_role_error,
+        bad_password_error,
+    ) = _attempt_candidate_connection(
         connector=active_connector,
         base_url=url,
         candidate_databases=candidate_databases,
@@ -511,15 +524,25 @@ def bootstrap_conversation_store(
     if maintenance_conn is not None:
         _provision(maintenance_conn)
     else:
-        if missing_role_error is not None:
+        if missing_role_error is not None or bad_password_error is not None:
             if not privileged_credentials or not (privileged_credentials[0] or "").strip():
+                if missing_role_error is not None:
+                    raise BootstrapError(
+                        "Unable to connect using the configured PostgreSQL user because the role does not exist. "
+                        "Provide privileged credentials so the setup wizard can create the role and database automatically.",
+                    ) from missing_role_error
                 raise BootstrapError(
-                    "Unable to connect using the configured PostgreSQL user because the role does not exist. "
-                    "Provide privileged credentials so the setup wizard can create the role and database automatically.",
-                ) from missing_role_error
+                    "Unable to connect using the configured PostgreSQL user because the password was rejected. "
+                    "Provide privileged credentials so the setup wizard can reset the role password automatically.",
+                ) from bad_password_error
 
             privileged_username, privileged_password = privileged_credentials
-            privileged_conn, privileged_error, _ = _attempt_candidate_connection(
+            (
+                privileged_conn,
+                privileged_error,
+                _,
+                _,
+            ) = _attempt_candidate_connection(
                 connector=active_connector,
                 base_url=url,
                 candidate_databases=candidate_databases,
