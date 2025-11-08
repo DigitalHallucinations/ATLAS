@@ -201,6 +201,12 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
     postgres_module.insert = lambda *args, **kwargs: ("insert", args, kwargs)
 
     orm_module = types.ModuleType("sqlalchemy.orm")
+    exc_module = types.ModuleType("sqlalchemy.exc")
+
+    class _IntegrityError(Exception):
+        pass
+
+    exc_module.IntegrityError = _IntegrityError
 
     def _declarative_base():  # pragma: no cover - lightweight declarative base stub
         metadata = types.SimpleNamespace(create_all=_noop)
@@ -219,6 +225,7 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
     sys.modules["sqlalchemy.dialects"] = dialects_module
     sys.modules["sqlalchemy.dialects.postgresql"] = postgres_module
     sys.modules["sqlalchemy.orm"] = orm_module
+    sys.modules["sqlalchemy.exc"] = exc_module
     sys.modules["sqlalchemy.engine"] = engine_module
     sys.modules["sqlalchemy.event"] = event_module
     types_module = types.ModuleType("sqlalchemy.types")
@@ -245,6 +252,7 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
     def _stub_make_url(url: str):  # pragma: no cover - lightweight helper
         return _StubURL(url)
 
+    engine_url_module.URL = _StubURL
     engine_url_module.make_url = _stub_make_url
     sys.modules["sqlalchemy.engine.url"] = engine_url_module
     requests_module.adapters = adapters_module
