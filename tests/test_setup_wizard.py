@@ -475,6 +475,51 @@ def test_setup_wizard_job_scheduling_validation():
     window.close()
 
 
+def test_privileged_credentials_dialog_footer_buttons():
+    application = Gtk.Application()
+    controller = FakeController()
+    on_success = _CallbackRecorder()
+    on_error = _CallbackRecorder()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=on_success,
+        on_error=on_error,
+        controller=controller,
+    )
+
+    dialog, _username_entry, _password_entry, apply_button, cancel_button = (
+        window._create_privileged_credentials_dialog(
+            existing=None,
+            error=BootstrapError("superuser access required"),
+        )
+    )
+
+    try:
+        responses: list[int] = []
+        dialog.connect("response", lambda _dlg, resp: responses.append(resp))
+
+        assert isinstance(apply_button, Gtk.Button)
+        assert isinstance(cancel_button, Gtk.Button)
+        assert apply_button.get_label() == "Apply"
+        assert cancel_button.get_label() == "Cancel"
+
+        apply_button.emit("clicked")
+        assert responses[-1] == Gtk.ResponseType.OK
+
+        responses.clear()
+        dialog.activate_default()
+        assert responses[-1] == Gtk.ResponseType.OK
+
+        responses.clear()
+        cancel_button.emit("clicked")
+        assert responses[-1] == Gtk.ResponseType.CANCEL
+    finally:
+        dialog.destroy()
+        window.close()
+
+
 def test_setup_wizard_requests_privileged_credentials(monkeypatch):
     application = Gtk.Application()
     controller = FakeController()

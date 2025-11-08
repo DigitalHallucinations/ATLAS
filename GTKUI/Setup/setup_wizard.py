@@ -1004,19 +1004,15 @@ class SetupWizardWindow(AtlasWindow):
             )
         return "Database connection saved."
 
-    def _prompt_privileged_credentials(
+    def _create_privileged_credentials_dialog(
         self,
         *,
         existing: Optional[Tuple[Optional[str], Optional[str]]],
         error: BootstrapError,
-    ) -> Optional[Tuple[Optional[str], Optional[str]]]:
+    ) -> Tuple[Gtk.Dialog, Gtk.Entry, Gtk.Entry, Gtk.Button, Gtk.Button]:
         dialog = Gtk.Dialog(transient_for=self, modal=True)
         if hasattr(dialog, "set_title"):
             dialog.set_title("Privileged PostgreSQL credentials required")
-        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Apply", Gtk.ResponseType.OK)
-        dialog.set_default_response(Gtk.ResponseType.OK)
-
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         content.set_margin_top(12)
         content.set_margin_bottom(12)
@@ -1062,10 +1058,62 @@ class SetupWizardWindow(AtlasWindow):
         password_entry.set_placeholder_text("Leave blank to skip")
         if existing and existing[1]:
             password_entry.set_text(existing[1])
+        if hasattr(password_entry, "set_activates_default"):
+            password_entry.set_activates_default(True)
         grid.attach(password_entry, 1, 1, 1, 1)
 
         content.append(grid)
+
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        action_box.set_halign(Gtk.Align.END)
+        cancel_button = Gtk.Button(label="Cancel")
+
+        def _emit_cancel(_: Gtk.Widget) -> None:
+            dialog.response(Gtk.ResponseType.CANCEL)
+
+        cancel_button.connect("clicked", _emit_cancel)
+        action_box.append(cancel_button)
+
+        apply_button = Gtk.Button(label="Apply")
+
+        def _emit_apply(_: Gtk.Widget) -> None:
+            dialog.response(Gtk.ResponseType.OK)
+
+        apply_button.connect("clicked", _emit_apply)
+        try:
+            apply_button.connect("activate", _emit_apply)
+        except TypeError:
+            # Some Gtk versions may not expose the "activate" signal on Gtk.Button.
+            pass
+        if hasattr(apply_button, "set_receives_default"):
+            apply_button.set_receives_default(True)
+        if hasattr(dialog, "set_default_widget"):
+            dialog.set_default_widget(apply_button)
+        if hasattr(dialog, "set_default_response"):
+            dialog.set_default_response(Gtk.ResponseType.OK)
+        action_box.append(apply_button)
+
+        content.append(action_box)
         dialog.set_child(content)
+
+        return dialog, username_entry, password_entry, apply_button, cancel_button
+
+    def _prompt_privileged_credentials(
+        self,
+        *,
+        existing: Optional[Tuple[Optional[str], Optional[str]]],
+        error: BootstrapError,
+    ) -> Optional[Tuple[Optional[str], Optional[str]]]:
+        (
+            dialog,
+            username_entry,
+            password_entry,
+            _apply_button,
+            _cancel_button,
+        ) = self._create_privileged_credentials_dialog(existing=existing, error=error)
+
+        if hasattr(username_entry, "grab_focus"):
+            username_entry.grab_focus()
 
         response: Dict[str, Any] = {
             "response": Gtk.ResponseType.CANCEL,
