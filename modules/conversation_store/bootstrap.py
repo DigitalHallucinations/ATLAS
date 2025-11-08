@@ -383,6 +383,23 @@ def _ensure_role(
         (username,),
     )
     if cursor.fetchone():
+        if password:
+            try:
+                cursor.execute(
+                    sql.SQL("ALTER ROLE {} WITH PASSWORD %s").format(
+                        sql.Identifier(username)
+                    ),
+                    (password,),
+                )
+            except OperationalError as exc:  # type: ignore[misc]
+                message = str(exc).lower()
+                if "permission" in message or "must be" in message:
+                    raise BootstrapError(
+                        "Unable to update the password for existing PostgreSQL role "
+                        f"'{username}'. Provide privileged credentials capable of "
+                        "modifying role passwords and retry."
+                    ) from exc
+                raise
         return username, password
 
     final_password = password or secrets.token_urlsafe(18)
