@@ -1,6 +1,7 @@
 """Shared setup tooling for ATLAS."""
 
 from .controller import (
+    AdminProfile,
     BootstrapError,
     ConfigManager,
     DatabaseState,
@@ -8,6 +9,7 @@ from .controller import (
     KvStoreState,
     MessageBusState,
     OptionalState,
+    PrivilegedCredentialState,
     ProviderState,
     RetryPolicyState,
     SetupWizardController,
@@ -16,6 +18,7 @@ from .controller import (
 )
 
 __all__ = [
+    "AdminProfile",
     "BootstrapError",
     "ConfigManager",
     "DatabaseState",
@@ -23,6 +26,7 @@ __all__ = [
     "KvStoreState",
     "MessageBusState",
     "OptionalState",
+    "PrivilegedCredentialState",
     "ProviderState",
     "RetryPolicyState",
     "SetupWizardController",

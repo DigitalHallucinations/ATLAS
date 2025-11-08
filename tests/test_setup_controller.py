@@ -1,6 +1,6 @@
 import dataclasses
 
-from ATLAS.setup.controller import AdminProfile, KvStoreState, SetupWizardController
+from ATLAS.setup import AdminProfile, KvStoreState, SetupWizardController
 
 
 class _StubConfigManager:
