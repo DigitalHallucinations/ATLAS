@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import gi
@@ -85,7 +85,10 @@ class SetupWizardWindow(AtlasWindow):
         self._on_success = on_success
         self._on_error = on_error
 
-        self.controller = controller or CoreSetupWizardController(atlas=atlas)
+        self.controller = controller or CoreSetupWizardController(
+            atlas=atlas,
+            request_privileged_password=self._request_sudo_password,
+        )
 
         # NEW: sidebar tracking
         self._completed_steps: set[int] = set()
@@ -223,6 +226,75 @@ class SetupWizardWindow(AtlasWindow):
         else:
             self._set_status("Welcome to the ATLAS setup wizard.")
         self._go_to_step(0)
+
+    def _request_sudo_password(self) -> str | None:
+        privileged_state = self.controller.state.user.privileged_credentials
+        stored = (privileged_state.sudo_password or "").strip()
+        if stored:
+            return stored
+
+        dialog = Gtk.Dialog(transient_for=self, modal=True)
+        if hasattr(dialog, "set_title"):
+            dialog.set_title("Administrator privileges required")
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Submit", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content.set_margin_top(12)
+        content.set_margin_bottom(12)
+        content.set_margin_start(12)
+        content.set_margin_end(12)
+
+        message = Gtk.Label(
+            label=(
+                "ATLAS needs the administrator's sudo password to perform privileged "
+                "operations. Enter the password to continue."
+            )
+        )
+        message.set_wrap(True)
+        message.set_xalign(0.0)
+        content.append(message)
+
+        password_entry = Gtk.Entry()
+        password_entry.set_visibility(False)
+        password_entry.set_hexpand(True)
+        password_entry.set_activates_default(True)
+        content.append(password_entry)
+
+        dialog.set_child(content)
+
+        response: Dict[str, Any] = {
+            "response": Gtk.ResponseType.CANCEL,
+            "password": "",
+        }
+
+        loop = GLib.MainLoop()
+
+        def _on_response(dlg: Gtk.Dialog, resp: int) -> None:
+            response["response"] = resp
+            response["password"] = password_entry.get_text()
+            dlg.destroy()
+            if loop.is_running():
+                loop.quit()
+
+        dialog.connect("response", _on_response)
+        dialog.present()
+        loop.run()
+
+        if response["response"] != Gtk.ResponseType.OK:
+            return None
+
+        password = response["password"].strip()
+        if not password:
+            return None
+
+        updated_credentials = replace(privileged_state, sudo_password=password)
+        self.controller.state.user = replace(
+            self.controller.state.user,
+            privileged_credentials=updated_credentials,
+        )
+        return password
 
     def display_error(self, error: BaseException) -> None:
         text = str(error) or error.__class__.__name__
