@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import types
+from urllib.parse import urlparse
 
 import pytest
 from sqlalchemy.engine.url import make_url as sa_make_url
@@ -19,6 +20,100 @@ _BOOTSTRAP_SPEC.loader.exec_module(bootstrap_module)
 
 bootstrap_conversation_store = bootstrap_module.bootstrap_conversation_store
 BootstrapError = bootstrap_module.BootstrapError
+
+
+class _FormattedSQL(str):
+    pass
+
+
+class _Identifier:
+    def __init__(self, name: str):
+        self._name = name
+
+    def __str__(self) -> str:
+        return f'"{self._name}"'
+
+
+def _compose_url(*, drivername, username, password, host, port, database):
+    auth = ""
+    if username:
+        auth = username
+        if password is not None:
+            auth += f":{password}"
+        auth += "@"
+    host_part = host or ""
+    port_part = f":{port}" if port is not None else ""
+    path_part = f"/{database}" if database else ""
+    return f"{drivername}://{auth}{host_part}{port_part}{path_part}"
+
+
+class _SQL:
+    def __init__(self, template: str):
+        self._template = template
+
+    def format(self, *identifiers):
+        formatted = self._template
+        for identifier in identifiers:
+            formatted = formatted.replace("{}", str(identifier), 1)
+        return _FormattedSQL(formatted)
+
+
+class _OperationalError(Exception):
+    pass
+
+
+class _URL:
+    def __init__(self, dsn: str):
+        self._dsn = dsn
+        parsed = urlparse(dsn)
+        self.drivername = parsed.scheme
+        self.username = parsed.username
+        self.password = parsed.password
+        self.host = parsed.hostname
+        self.port = parsed.port
+        self.database = parsed.path.lstrip("/") if parsed.path else None
+
+    def get_dialect(self):
+        return types.SimpleNamespace(name=self.drivername.split("+", 1)[0])
+
+    def get_backend_name(self):
+        return self.drivername.split("+", 1)[0]
+
+    def set(self, **updates):
+        params = {
+            "drivername": updates.get("drivername", self.drivername),
+            "username": updates.get("username", self.username),
+            "password": updates.get("password", self.password),
+            "host": updates.get("host", self.host),
+            "port": updates.get("port", self.port),
+            "database": updates.get("database", self.database),
+        }
+        return _URL(_compose_url(**params))
+
+    def render_as_string(self, hide_password: bool = True):
+        password = None if hide_password else self.password
+        return _compose_url(
+            drivername=self.drivername,
+            username=self.username,
+            password=password,
+            host=self.host,
+            port=self.port,
+            database=self.database,
+        )
+
+
+def _ensure_psycopg_stub(**_kwargs):
+    bootstrap_module.OperationalError = _OperationalError
+    bootstrap_module.sql = types.SimpleNamespace(SQL=_SQL, Identifier=_Identifier)
+    if getattr(bootstrap_module, "connect", None) is None:
+        bootstrap_module.connect = lambda *_args, **_kwargs: None
+
+
+bootstrap_module._ensure_psycopg_loaded = _ensure_psycopg_stub  # type: ignore[attr-defined]
+bootstrap_module.OperationalError = _OperationalError
+bootstrap_module.sql = types.SimpleNamespace(SQL=_SQL, Identifier=_Identifier)
+bootstrap_module.make_url = lambda dsn: _URL(dsn)
+sa_make_url = bootstrap_module.make_url  # type: ignore[assignment]
 
 
 class RecordingCursor:
@@ -38,6 +133,9 @@ class RecordingCursor:
         key = (text, tuple(params or ()))
         self._executed.append(key)
         self._last_key = key
+        response = self._responses.get(key)
+        if isinstance(response, Exception):
+            raise response
 
     def fetchone(self):
         if self._last_key is None:
@@ -172,10 +270,15 @@ def test_bootstrap_noop_when_already_provisioned(base_dsn):
     connector = make_connector(maintenance, verification)
     commands = []
 
+    def recording_run(command, check):
+        if command[0] != "pg_isready":
+            commands.append(command)
+        return types.SimpleNamespace(returncode=0)
+
     result = bootstrap_conversation_store(
         base_dsn,
         which=lambda *_: "/usr/bin/psql",
-        run=lambda command, check: commands.append(command),
+        run=recording_run,
         platform_system=lambda: "Linux",
         connector=connector,
     )
@@ -276,3 +379,86 @@ def test_bootstrap_sanitises_driver_specific_urls(dsn):
     assert connector_calls == [expected_conninfo, expected_conninfo]
     assert maintenance.closed is True
     assert verification.closed is True
+
+
+def test_bootstrap_updates_existing_role_password_with_privileged_credentials(base_dsn):
+    updated_password = "refreshed-secret"
+    updated_dsn = base_dsn.replace(":secret@", f":{updated_password}@")
+
+    op_error_cls = getattr(bootstrap_module, "OperationalError", None)
+    if op_error_cls is None:  # pragma: no cover - defensive guard
+        op_error_cls = type("OperationalError", (Exception,), {})
+        bootstrap_module.OperationalError = op_error_cls
+
+    maintenance = RecordingConnection(
+        responses={
+            ("SELECT 1 FROM pg_roles WHERE rolname = %s", ("atlas",)): (1,),
+            ("SELECT 1 FROM pg_database WHERE datname = %s", ("atlas",)): (1,),
+        }
+    )
+    verification = RecordingConnection()
+
+    connection_attempts = []
+
+    def connector(conninfo):
+        connection_attempts.append(conninfo)
+        if len(connection_attempts) == 1:
+            raise op_error_cls('role "atlas" does not exist')
+        if len(connection_attempts) == 2:
+            return maintenance
+        if len(connection_attempts) == 3:
+            return verification
+        raise AssertionError("Unexpected connection attempt")
+
+    privileged_credentials = ("postgres", "admin")
+
+    result = bootstrap_conversation_store(
+        updated_dsn,
+        which=lambda *_: "/usr/bin/psql",
+        run=lambda *args, **kwargs: types.SimpleNamespace(returncode=0),
+        platform_system=lambda: "Linux",
+        connector=connector,
+        privileged_credentials=privileged_credentials,
+    )
+
+    assert f":{updated_password}@" in result
+    assert any(
+        statement == 'ALTER ROLE "atlas" WITH PASSWORD %s' and params == (updated_password,)
+        for statement, params in maintenance.executed
+    )
+    assert verification.closed is True
+    assert len(connection_attempts) == 3
+
+
+def test_bootstrap_raises_when_password_update_lacks_privilege(base_dsn):
+    desired_password = "new-password"
+    desired_dsn = base_dsn.replace(":secret@", f":{desired_password}@")
+
+    op_error_cls = getattr(bootstrap_module, "OperationalError", None)
+    if op_error_cls is None:  # pragma: no cover - defensive guard
+        op_error_cls = type("OperationalError", (Exception,), {})
+        bootstrap_module.OperationalError = op_error_cls
+
+    maintenance = RecordingConnection(
+        responses={
+            ("SELECT 1 FROM pg_roles WHERE rolname = %s", ("atlas",)): (1,),
+            ("SELECT 1 FROM pg_database WHERE datname = %s", ("atlas",)): (1,),
+            ('ALTER ROLE "atlas" WITH PASSWORD %s', (desired_password,)): op_error_cls(
+                "permission denied to alter role"
+            ),
+        }
+    )
+    verification = RecordingConnection()
+    connector = make_connector(maintenance, verification)
+
+    with pytest.raises(BootstrapError) as excinfo:
+        bootstrap_conversation_store(
+            desired_dsn,
+            which=lambda *_: "/usr/bin/psql",
+            run=lambda *args, **kwargs: types.SimpleNamespace(returncode=0),
+            platform_system=lambda: "Linux",
+            connector=connector,
+        )
+
+    assert "privileged credentials" in str(excinfo.value)
+    assert maintenance.closed is True
