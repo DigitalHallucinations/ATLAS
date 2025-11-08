@@ -59,7 +59,7 @@ class _AccountServiceStub:
         self.users: dict[str, dict[str, object]] = {}
         self.active_user: str | None = None
 
-    def register_user(self, username, password, email, name=None, dob=None):
+    def register_user(self, username, password, email, name=None, dob=None, **_kwargs):
         account = SimpleNamespace(
             id=len(self.users) + 1,
             username=username,
