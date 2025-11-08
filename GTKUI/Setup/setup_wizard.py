@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -12,6 +13,7 @@ gi.require_version("GLib", "2.0")
 from gi.repository import GLib, Gdk, Gtk
 
 from ATLAS.setup import (
+    AdminProfile,
     DatabaseState,
     JobSchedulingState,
     KvStoreState,
@@ -210,6 +212,8 @@ class SetupWizardWindow(AtlasWindow):
         self._setup_persisted = False
         self._privileged_credentials: Optional[Tuple[Optional[str], Optional[str]]] = None
         self._entry_pixel_width: Optional[int] = None
+        self._database_user_suggestion: str = ""
+        self._tenant_id_suggestion: str = ""
 
         self._build_steps()
         self._build_steps_sidebar()  # populate sidebar
@@ -235,6 +239,11 @@ class SetupWizardWindow(AtlasWindow):
 
     def _build_steps(self) -> None:
         self._steps = [
+            WizardStep(
+                name="Administrator",
+                widget=self._build_user_page(),
+                apply=self._apply_user,
+            ),
             WizardStep(
                 name="Database",
                 widget=self._build_database_page(),
@@ -269,11 +278,6 @@ class SetupWizardWindow(AtlasWindow):
                 name="Optional",
                 widget=self._build_optional_page(),
                 apply=self._apply_optional,
-            ),
-            WizardStep(
-                name="Administrator",
-                widget=self._build_user_page(),
-                apply=self._apply_user,
             ),
         ]
 
@@ -314,6 +318,8 @@ class SetupWizardWindow(AtlasWindow):
             self._step_list.append(row)
             self._step_rows.append(row)
 
+        self._select_step_row(self._current_index)
+
     def _register_instructions(self, widget: Gtk.Widget, instructions: str) -> None:
         self._instructions_by_widget[widget] = instructions
 
@@ -333,6 +339,13 @@ class SetupWizardWindow(AtlasWindow):
         self._instructions_label.set_text(instructions)
         self._instructions_label.set_visible(bool(instructions))
 
+    def _select_step_row(self, index: int) -> None:
+        if not self._step_list:
+            return
+        if not (0 <= index < len(self._step_rows)):
+            return
+        self._step_list.select_row(self._step_rows[index])
+
     def _build_database_page(self) -> Gtk.Widget:
         state = self.controller.state.database
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
@@ -346,6 +359,7 @@ class SetupWizardWindow(AtlasWindow):
         self._database_entries["password"] = self._create_labeled_entry(
             grid, 4, "Password", state.password, visibility=False
         )
+        self._database_user_suggestion = self._database_entries["user"].get_text().strip()
 
         instructions = (
             "Enter the PostgreSQL connection details. If the conversation store "
@@ -555,6 +569,9 @@ class SetupWizardWindow(AtlasWindow):
         self._optional_widgets["tenant_id"] = self._create_labeled_entry(
             grid, 0, "Tenant ID", state.tenant_id or ""
         )
+        tenant_entry = self._optional_widgets["tenant_id"]
+        if isinstance(tenant_entry, Gtk.Entry):
+            self._tenant_id_suggestion = tenant_entry.get_text().strip()
         self._optional_widgets["retention_days"] = self._create_labeled_entry(
             grid, 1, "Conversation retention days", self._optional_to_text(state.retention_days)
         )
@@ -591,21 +608,99 @@ class SetupWizardWindow(AtlasWindow):
         state = self.controller.state.user
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
 
-        self._user_entries["username"] = self._create_labeled_entry(grid, 0, "Username", state.username)
-        self._user_entries["email"] = self._create_labeled_entry(grid, 1, "Email", state.email)
-        self._user_entries["display_name"] = self._create_labeled_entry(
-            grid, 2, "Display name", state.display_name
+        row = 0
+        self._user_entries["full_name"] = self._create_labeled_entry(
+            grid, row, "Full name", state.full_name
         )
+        row += 1
+        self._user_entries["username"] = self._create_labeled_entry(grid, row, "Username", state.username)
+        row += 1
+        self._user_entries["email"] = self._create_labeled_entry(grid, row, "Email", state.email)
+        row += 1
+        self._user_entries["domain"] = self._create_labeled_entry(
+            grid,
+            row,
+            "Domain",
+            state.domain,
+            placeholder="example.com",
+        )
+        row += 1
+        dob_entry = self._create_labeled_entry(
+            grid,
+            row,
+            "Date of birth",
+            state.date_of_birth,
+            placeholder="YYYY-MM-DD",
+        )
+        dob_entry.set_input_purpose(Gtk.InputPurpose.DATE)
+        self._user_entries["date_of_birth"] = dob_entry
+        row += 1
         self._user_entries["password"] = self._create_labeled_entry(
-            grid, 3, "Password", state.password, visibility=False
+            grid, row, "Password", state.password, visibility=False
         )
+        row += 1
         self._user_entries["confirm_password"] = self._create_labeled_entry(
-            grid, 4, "Confirm password", state.password, visibility=False
+            grid, row, "Confirm password", state.password, visibility=False
+        )
+        row += 1
+
+        privileged_label = Gtk.Label(label="System privileged credentials")
+        privileged_label.set_xalign(0.0)
+        if hasattr(privileged_label, "add_css_class"):
+            privileged_label.add_css_class("heading")
+        grid.attach(privileged_label, 0, row, 2, 1)
+        row += 1
+
+        privileged_state = state.privileged_credentials
+        self._user_entries["sudo_username"] = self._create_labeled_entry(
+            grid, row, "Sudo username", privileged_state.sudo_username
+        )
+        row += 1
+        self._user_entries["sudo_password"] = self._create_labeled_entry(
+            grid,
+            row,
+            "Sudo password",
+            privileged_state.sudo_password,
+            visibility=False,
+        )
+        row += 1
+        self._user_entries["confirm_sudo_password"] = self._create_labeled_entry(
+            grid,
+            row,
+            "Confirm sudo password",
+            privileged_state.sudo_password,
+            visibility=False,
         )
 
-        instructions = "Create the administrator account that will be used to sign in after setup."
+        instructions = (
+            "Provide details for the administrator account, including contact information, "
+            "an optional organization domain, and the credentials needed for privileged "
+            "operations."
+        )
 
-        return self._wrap_with_instructions(grid, instructions)
+        form = self._wrap_with_instructions(grid, instructions)
+        self._sync_user_entries_from_state()
+        return form
+
+    def _sync_user_entries_from_state(self) -> None:
+        state = self.controller.state.user
+        privileged_state = state.privileged_credentials
+        mapping = {
+            "full_name": state.full_name,
+            "username": state.username,
+            "email": state.email,
+            "domain": state.domain,
+            "date_of_birth": state.date_of_birth,
+            "password": state.password,
+            "confirm_password": state.password,
+            "sudo_username": privileged_state.sudo_username,
+            "sudo_password": privileged_state.sudo_password,
+            "confirm_sudo_password": privileged_state.sudo_password,
+        }
+        for key, value in mapping.items():
+            entry = self._user_entries.get(key)
+            if isinstance(entry, Gtk.Entry):
+                entry.set_text(value or "")
 
     def _create_labeled_entry(
         self,
@@ -614,6 +709,7 @@ class SetupWizardWindow(AtlasWindow):
         label: str,
         value: str,
         *,
+        placeholder: str | None = None,
         visibility: bool = True,
     ) -> Gtk.Entry:
         label_widget = Gtk.Label(label=label)
@@ -626,6 +722,8 @@ class SetupWizardWindow(AtlasWindow):
         entry.set_hexpand(False)
         entry.set_width_chars(25)
         entry.set_max_width_chars(25)
+        if placeholder:
+            entry.set_placeholder_text(placeholder)
         grid.attach(entry, 1, row, 1, 1)
         return entry
 
@@ -695,6 +793,7 @@ class SetupWizardWindow(AtlasWindow):
         self._update_navigation()
         self._update_guidance_for_widget(step.widget)
         self._update_step_indicator(step.name)
+        self._select_step_row(self._current_index)
 
     def _on_stack_visible_child_changed(
         self, stack: Gtk.Stack, _param_spec: object
@@ -764,7 +863,16 @@ class SetupWizardWindow(AtlasWindow):
             self._step_list.select_row(self._step_rows[self._current_index])
 
         if self._current_index == len(self._steps) - 1:
+            try:
+                registration = self.controller.register_user()
+            except Exception as exc:  # pragma: no cover - defensive
+                self.display_error(exc)
+                self._on_error(exc)
+                return
+            admin_message = "Administrator account created."
             final_message = message or "Setup complete."
+            if admin_message:
+                final_message = f"{final_message} {admin_message}".strip()
             if not self._setup_persisted:
                 try:
                     summary = self.controller.build_summary()
@@ -1158,9 +1266,14 @@ class SetupWizardWindow(AtlasWindow):
     def _apply_user(self) -> str:
         username = self._user_entries["username"].get_text().strip()
         email = self._user_entries["email"].get_text().strip()
-        display_name = self._user_entries["display_name"].get_text().strip()
+        full_name = self._user_entries["full_name"].get_text().strip()
+        domain_entry = self._user_entries["domain"].get_text().strip()
+        date_of_birth_text = self._user_entries["date_of_birth"].get_text().strip()
         password = self._user_entries["password"].get_text()
         confirm = self._user_entries["confirm_password"].get_text()
+        sudo_username = self._user_entries["sudo_username"].get_text().strip()
+        sudo_password = self._user_entries["sudo_password"].get_text()
+        confirm_sudo = self._user_entries["confirm_sudo_password"].get_text()
 
         if not username:
             raise ValueError("Username is required")
@@ -1168,16 +1281,64 @@ class SetupWizardWindow(AtlasWindow):
             raise ValueError("Password is required")
         if password != confirm:
             raise ValueError("Passwords do not match")
+        if sudo_password != confirm_sudo:
+            raise ValueError("Sudo passwords do not match")
 
-        state = UserState(
+        normalized_domain = domain_entry.strip()
+        if normalized_domain.startswith("@"):
+            normalized_domain = normalized_domain[1:]
+        normalized_domain = normalized_domain.lower()
+
+        dob_value = date_of_birth_text
+        if date_of_birth_text:
+            try:
+                parsed = datetime.strptime(date_of_birth_text, "%Y-%m-%d")
+            except ValueError as exc:
+                raise ValueError("Date of birth must use YYYY-MM-DD format") from exc
+            dob_value = parsed.strftime("%Y-%m-%d")
+
+        display_name = full_name or username
+
+        privileged_username, privileged_password = (self._privileged_credentials or (None, None))
+
+        profile = AdminProfile(
             username=username,
             email=email,
-            display_name=display_name,
             password=password,
+            display_name=display_name,
+            full_name=full_name,
+            domain=normalized_domain,
+            date_of_birth=dob_value,
+            sudo_username=sudo_username,
+            sudo_password=sudo_password,
+            privileged_db_username=privileged_username or "",
+            privileged_db_password=privileged_password or "",
         )
 
-        self.controller.register_user(state)
-        return "Administrator account created."
+        self.controller.set_user_profile(profile)
+        self._privileged_credentials = self.controller.get_privileged_credentials()
+        self._sync_user_entries_from_state()
+        self._refresh_downstream_defaults()
+        return "Administrator profile saved."
+
+    def _refresh_downstream_defaults(self) -> None:
+        user_state = self.controller.state.user
+        db_entry = self._database_entries.get("user")
+        suggested_db_user = user_state.username.strip() if user_state.username else ""
+        if isinstance(db_entry, Gtk.Entry):
+            current = db_entry.get_text().strip()
+            if suggested_db_user and (not current or current == self._database_user_suggestion):
+                db_entry.set_text(suggested_db_user)
+            if suggested_db_user:
+                self._database_user_suggestion = suggested_db_user
+        tenant_entry = self._optional_widgets.get("tenant_id")
+        suggested_tenant = user_state.domain.strip() if user_state.domain else ""
+        if isinstance(tenant_entry, Gtk.Entry):
+            current = tenant_entry.get_text().strip()
+            if suggested_tenant and (not current or current == self._tenant_id_suggestion):
+                tenant_entry.set_text(suggested_tenant)
+            if suggested_tenant:
+                self._tenant_id_suggestion = suggested_tenant
 
 
 class SetupWizardController(CoreSetupWizardController):  # type: ignore[misc]
