@@ -231,10 +231,18 @@ def test_setup_wizard_happy_path(monkeypatch):
     _complete_user_step(window)
 
     assert controller.profile_calls
+    assert controller.register_calls == []
     assert controller.calls == []
     assert window._current_index == 1
     assert controller.state.user.username == "admin"
     assert controller.state.user.domain == "example.com"
+    staged_profile = controller.profile_calls[-1]
+    assert staged_profile.username == "admin"
+    assert staged_profile.email == "admin@example.com"
+    assert staged_profile.full_name == "Atlas Admin"
+    assert staged_profile.domain == "example.com"
+    assert staged_profile.sudo_username == "atlas-admin"
+    assert staged_profile.sudo_password == "SudoPass!"
     assert window._database_entries["user"].get_text() == "admin"
     tenant_entry = window._optional_widgets["tenant_id"]
     assert isinstance(tenant_entry, Gtk.Entry)
@@ -352,7 +360,7 @@ def test_setup_wizard_happy_path(monkeypatch):
 
     assert on_success.calls
     assert marker_calls == [controller.summary]
-    assert controller.register_calls
+    assert len(controller.register_calls) == 1
     assert (
         window._status_label.get_text()
         == "Optional settings saved. Administrator account created. You can now sign in with the new administrator account."

@@ -261,7 +261,7 @@ def test_configure_database_reuses_staged_privileged_credentials():
 def test_configure_user_stages_profile_and_normalizes_date():
     controller = DummyController()
     controller.set_privileged_credentials(("dbadmin", "dbpass"))
-    responses = iter(
+    responses_iter = iter(
         [
             "Ada Lovelace",  # full name
             "ada",  # username
@@ -272,22 +272,47 @@ def test_configure_user_stages_profile_and_normalizes_date():
             "root",  # sudo username
         ]
     )
-    passwords = iter([
+    passwords_iter = iter([
         "P@ssw0rd!",  # account password
         "P@ssw0rd!",  # account confirm
         "S3cret!",  # sudo password
         "S3cret!",  # sudo confirm
     ])
+    input_prompts: list[str] = []
+    password_prompts: list[str] = []
+
+    def record_input(prompt: str) -> str:
+        input_prompts.append(prompt)
+        return next(responses_iter)
+
+    def record_getpass(prompt: str) -> str:
+        password_prompts.append(prompt)
+        return next(passwords_iter)
 
     utility = SetupUtility(
         controller=controller,
-        input_func=lambda prompt: next(responses),
-        getpass_func=lambda prompt: next(passwords),
+        input_func=record_input,
+        getpass_func=record_getpass,
         print_func=lambda message: None,
     )
 
     result = utility.configure_user()
 
+    assert input_prompts == [
+        "Administrator full name: ",
+        "Administrator username: ",
+        "Administrator email: ",
+        "Administrator domain: ",
+        "Administrator date of birth (YYYY-MM-DD): ",
+        "Display name: ",
+        "Privileged sudo username: ",
+    ]
+    assert password_prompts == [
+        "Administrator password: ",
+        "Confirm password: ",
+        "Privileged sudo password: ",
+        "Confirm privileged sudo password: ",
+    ]
     assert not controller.registered_users
     staged_profile = controller.staged_profiles[-1]
     assert staged_profile.full_name == "Ada Lovelace"
@@ -295,8 +320,16 @@ def test_configure_user_stages_profile_and_normalizes_date():
     assert staged_profile.domain == "example.com"
     assert staged_profile.sudo_username == "root"
     assert staged_profile.sudo_password == "S3cret!"
+    assert staged_profile.privileged_db_username == "dbadmin"
+    assert staged_profile.privileged_db_password == "dbpass"
+    assert controller.set_privileged_credentials_calls == [
+        ("dbadmin", "dbpass"),
+        ("dbadmin", "dbpass"),
+    ]
     assert result["date_of_birth"] == "1815-12-10"
     assert result["domain"] == "example.com"
+    assert result["privileged_credentials"]["sudo_username"] == "root"
+    assert result["privileged_credentials"]["sudo_password"] == "S3cret!"
 
 
 def test_install_postgresql_reuses_staged_sudo_password(monkeypatch):
