@@ -1,15 +1,73 @@
 import dataclasses
+import sys
 import types
 from pathlib import Path
 from unittest.mock import Mock
 
+sqlalchemy_module = types.ModuleType("sqlalchemy")
+sqlalchemy_engine_module = types.ModuleType("sqlalchemy.engine")
+sqlalchemy_url_module = types.ModuleType("sqlalchemy.engine.url")
+sqlalchemy_module.__path__ = []  # mark as package
+sqlalchemy_engine_module.__path__ = []
+sqlalchemy_url_module.URL = object
+sqlalchemy_url_module.make_url = lambda value: value
+sqlalchemy_engine_module.url = sqlalchemy_url_module
+sqlalchemy_module.engine = sqlalchemy_engine_module
+sys.modules["sqlalchemy"] = sqlalchemy_module
+sys.modules["sqlalchemy.engine"] = sqlalchemy_engine_module
+sys.modules["sqlalchemy.engine.url"] = sqlalchemy_url_module
+
+config_module = types.ModuleType("ATLAS.config")
+config_module.ConfigManager = type("ConfigManager", (), {"UNSET": object()})
+config_module._DEFAULT_CONVERSATION_STORE_DSN = "postgresql+psycopg://atlas@localhost:5432/atlas"
+sys.modules["ATLAS.config"] = config_module
+
+bootstrap_module = types.ModuleType("modules.conversation_store.bootstrap")
+bootstrap_module.BootstrapError = Exception
+bootstrap_module.bootstrap_conversation_store = lambda dsn: dsn
+sys.modules["modules.conversation_store.bootstrap"] = bootstrap_module
+
+repository_module = types.ModuleType("modules.conversation_store.repository")
+
+class _ConversationStoreRepository:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def create_schema(self):
+        return None
+
+
+repository_module.ConversationStoreRepository = _ConversationStoreRepository
+sys.modules["modules.conversation_store.repository"] = repository_module
+
+user_account_module = types.ModuleType("modules.user_accounts.user_account_service")
+
+
+class _UserAccountService:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def register_user(self, *, username, password, email, name=None, dob=None, full_name=None, domain=None):
+        return types.SimpleNamespace(
+            username=username,
+            password=password,
+            email=email,
+            name=name,
+        )
+
+
+user_account_module.UserAccountService = _UserAccountService
+sys.modules["modules.user_accounts.user_account_service"] = user_account_module
+
 from ATLAS.setup import BootstrapError, OptionalState, UserState
 from ATLAS.setup.cli import SetupUtility
 from ATLAS.setup.controller import (
+    AdminProfile,
     DatabaseState,
     JobSchedulingState,
     KvStoreState,
     MessageBusState,
+    PrivilegedCredentialState,
     ProviderState,
     SpeechState,
 )
@@ -31,6 +89,9 @@ class DummyController:
         self.privileged_credentials: list[tuple[str | None, str | None] | None] = []
         self.bootstrap_error_sequence: list[Exception] = []
         self.registered_users: list[UserState] = []
+        self.staged_profiles: list[AdminProfile] = []
+        self._privileged_credentials: tuple[str | None, str | None] | None = None
+        self.set_privileged_credentials_calls: list[tuple[str | None, str | None] | None] = []
 
     def apply_database_settings(
         self,
@@ -74,7 +135,7 @@ class DummyController:
         return self.state.optional
 
     def register_user(self, state: UserState):
-        self.registered_users.append(state)
+        self.registered_users.append(dataclasses.replace(state))
         self.state.user = dataclasses.replace(state)
         return {
             "username": state.username,
@@ -84,6 +145,44 @@ class DummyController:
             "domain": state.domain or None,
             "date_of_birth": state.date_of_birth or None,
         }
+
+    def set_user_profile(self, profile: AdminProfile) -> UserState:
+        self.staged_profiles.append(dataclasses.replace(profile))
+        privileged_state = PrivilegedCredentialState(
+            sudo_username=profile.sudo_username or "",
+            sudo_password=profile.sudo_password or "",
+        )
+        self.state.user = UserState(
+            username=profile.username or "",
+            email=profile.email or "",
+            password=profile.password or "",
+            display_name=profile.display_name or "",
+            full_name=profile.full_name or "",
+            domain=profile.domain or "",
+            date_of_birth=profile.date_of_birth or "",
+            privileged_credentials=privileged_state,
+        )
+        db_username = profile.privileged_db_username or None
+        db_password = profile.privileged_db_password or None
+        if db_username or db_password:
+            self.set_privileged_credentials((db_username, db_password))
+        return self.state.user
+
+    def set_privileged_credentials(self, credentials):
+        self.set_privileged_credentials_calls.append(credentials)
+        if credentials is None:
+            self._privileged_credentials = None
+        else:
+            username, password = credentials
+            cleaned_username = username or None
+            cleaned_password = password or None
+            if cleaned_username is None and cleaned_password is None:
+                self._privileged_credentials = None
+            else:
+                self._privileged_credentials = (cleaned_username, cleaned_password)
+
+    def get_privileged_credentials(self):
+        return self._privileged_credentials
 
     def build_summary(self):  # pragma: no cover - not needed
         return {}
@@ -128,15 +227,57 @@ def test_configure_database_handles_missing_role_with_privileged_credentials():
     dsn = utility.configure_database()
 
     assert controller.privileged_credentials == [None, ("postgres", "supersecret")]
+    assert controller.set_privileged_credentials_calls[-1] == ("postgres", "supersecret")
     assert controller.applied_database_states[-1].password == ""
     assert controller.state.database.password == ""
     assert dsn.endswith("@localhost:5432/atlas")
 
 
-def test_configure_user_registers_admin():
+def test_configure_database_reuses_staged_privileged_credentials():
     controller = DummyController()
-    responses = iter(["admin", "admin@example.com", "Administrator"])
-    passwords = iter(["P@ssw0rd!", "P@ssw0rd!"])
+    controller.set_privileged_credentials(("postgres", "supersecret"))
+    controller.bootstrap_error_sequence = [BootstrapError('role "atlas" does not exist')]
+
+    responses = iter(["", "", "", "", "n"])
+    passwords = iter(["password"])
+
+    utility = SetupUtility(
+        controller=controller,
+        input_func=lambda prompt: next(responses),
+        getpass_func=lambda prompt: next(passwords),
+        print_func=lambda message: None,
+    )
+
+    dsn = utility.configure_database()
+
+    assert controller.privileged_credentials == [
+        ("postgres", "supersecret"),
+        ("postgres", "supersecret"),
+    ]
+    assert controller.set_privileged_credentials_calls[-1] == ("postgres", "supersecret")
+    assert dsn.endswith("@localhost:5432/atlas")
+
+
+def test_configure_user_stages_profile_and_normalizes_date():
+    controller = DummyController()
+    controller.set_privileged_credentials(("dbadmin", "dbpass"))
+    responses = iter(
+        [
+            "Ada Lovelace",  # full name
+            "ada",  # username
+            "ada@example.com",  # email
+            "example.com",  # domain
+            "12/10/1815",  # dob
+            "Administrator",  # display name
+            "root",  # sudo username
+        ]
+    )
+    passwords = iter([
+        "P@ssw0rd!",  # account password
+        "P@ssw0rd!",  # account confirm
+        "S3cret!",  # sudo password
+        "S3cret!",  # sudo confirm
+    ])
 
     utility = SetupUtility(
         controller=controller,
@@ -147,12 +288,49 @@ def test_configure_user_registers_admin():
 
     result = utility.configure_user()
 
-    assert controller.registered_users
-    registered = controller.registered_users[-1]
-    assert registered.username == "admin"
-    assert registered.email == "admin@example.com"
-    assert registered.display_name == "Administrator"
-    assert result["username"] == "admin"
+    assert not controller.registered_users
+    staged_profile = controller.staged_profiles[-1]
+    assert staged_profile.full_name == "Ada Lovelace"
+    assert staged_profile.date_of_birth == "1815-12-10"
+    assert staged_profile.domain == "example.com"
+    assert staged_profile.sudo_username == "root"
+    assert staged_profile.sudo_password == "S3cret!"
+    assert result["date_of_birth"] == "1815-12-10"
+    assert result["domain"] == "example.com"
+
+
+def test_install_postgresql_reuses_staged_sudo_password(monkeypatch):
+    controller = DummyController()
+    controller.set_user_profile(AdminProfile(sudo_password="secret"))
+
+    responses = iter(["y"])
+    captured_runs: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_run(command, **kwargs):
+        captured_runs.append((command, kwargs))
+        return types.SimpleNamespace(returncode=0)
+
+    def fail_getpass(prompt):
+        raise AssertionError("sudo password prompt should be skipped")
+
+    utility = SetupUtility(
+        controller=controller,
+        input_func=lambda prompt: next(responses),
+        getpass_func=fail_getpass,
+        print_func=lambda message: None,
+        run=fake_run,
+        platform_system=lambda: "Linux",
+    )
+
+    monkeypatch.setattr(utility, "_postgres_commands", lambda system: [["sudo", "true"]])
+
+    utility.install_postgresql()
+
+    assert captured_runs
+    command, kwargs = captured_runs[0]
+    assert command == ["sudo", "true"]
+    assert kwargs["input"] == "secret\n"
+    assert kwargs["text"] is True
 
 
 def test_finalize_writes_marker(monkeypatch, tmp_path: Path):
@@ -200,6 +378,7 @@ def test_run_skips_virtualenv_and_focuses_on_configuration(monkeypatch):
         return _
 
     monkeypatch.setattr(utility, "ensure_virtualenv", Mock(side_effect=AssertionError("should not be called")))
+    monkeypatch.setattr(utility, "configure_user", recorder("configure_user", {}))
     monkeypatch.setattr(utility, "install_postgresql", recorder("install_postgresql", None))
     monkeypatch.setattr(utility, "configure_database", recorder("configure_database", "dsn"))
     monkeypatch.setattr(utility, "configure_kv_store", recorder("configure_kv_store", {}))
@@ -207,8 +386,8 @@ def test_run_skips_virtualenv_and_focuses_on_configuration(monkeypatch):
     monkeypatch.setattr(utility, "configure_message_bus", recorder("configure_message_bus", {}))
     monkeypatch.setattr(utility, "configure_providers", recorder("configure_providers", {}))
     monkeypatch.setattr(utility, "configure_speech", recorder("configure_speech", {}))
-    monkeypatch.setattr(utility, "configure_user", recorder("configure_user", {}))
     monkeypatch.setattr(utility, "configure_optional_settings", recorder("configure_optional_settings", {}))
+    monkeypatch.setattr(controller, "register_user", recorder("register_user", {}))
 
     sentinel = Path("/tmp/setup.json")
     monkeypatch.setattr(utility, "finalize", recorder("finalize", sentinel))
@@ -217,6 +396,7 @@ def test_run_skips_virtualenv_and_focuses_on_configuration(monkeypatch):
 
     assert result == sentinel
     assert order == [
+        "configure_user",
         "install_postgresql",
         "configure_database",
         "configure_kv_store",
@@ -224,7 +404,7 @@ def test_run_skips_virtualenv_and_focuses_on_configuration(monkeypatch):
         "configure_message_bus",
         "configure_providers",
         "configure_speech",
-        "configure_user",
         "configure_optional_settings",
+        "register_user",
         "finalize",
     ]

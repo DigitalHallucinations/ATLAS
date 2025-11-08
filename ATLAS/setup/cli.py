@@ -8,10 +8,12 @@ import os
 import platform
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Mapping
 
 from ATLAS.setup.controller import (
+    AdminProfile,
     DatabaseState,
     JobSchedulingState,
     KvStoreState,
@@ -51,6 +53,8 @@ class SetupUtility:
     def run(self) -> Path:
         """Execute the full setup workflow."""
 
+        self.configure_user()
+
         self.install_postgresql()
 
         dsn = self.configure_database()
@@ -61,8 +65,9 @@ class SetupUtility:
         self.configure_message_bus()
         self.configure_providers()
         self.configure_speech()
-        self.configure_user()
         self.configure_optional_settings()
+
+        self.controller.register_user()
 
         summary = self.controller.build_summary()
         marker_path = self.finalize(summary)
@@ -110,10 +115,12 @@ class SetupUtility:
             self._print("Skipping PostgreSQL installation.")
             return
 
-        sudo_password: str | None = None
+        sudo_state = self.controller.state.user.privileged_credentials
+        sudo_password = sudo_state.sudo_password.strip() or None
         if any(cmd and cmd[0] == "sudo" for cmd in commands):
-            entered = self._getpass("Enter sudo password (leave blank to skip automation): ")
-            sudo_password = entered if entered.strip() else None
+            if sudo_password is None:
+                entered = self._getpass("Enter sudo password (leave blank to skip automation): ")
+                sudo_password = entered.strip() or None
 
         for command in commands:
             kwargs: dict[str, object] = {"check": True}
@@ -128,12 +135,18 @@ class SetupUtility:
         """Prompt for PostgreSQL connection settings and persist them."""
 
         state = self.controller.state.database
-        privileged_credentials: tuple[str | None, str | None] | None = None
+        privileged_credentials = self.controller.get_privileged_credentials()
+        user_state = self.controller.state.user
+        default_host = state.host
+        user_domain = user_state.domain.strip()
+        if default_host in {"", "localhost"} and user_domain:
+            default_host = user_domain
+        default_user = state.user or user_state.username or state.user
         while True:
-            host = self._ask("PostgreSQL host", state.host)
+            host = self._ask("PostgreSQL host", default_host)
             port = self._ask_int("PostgreSQL port", state.port)
             database = self._ask("Database name", state.database)
-            user = self._ask("Database user", state.user)
+            user = self._ask("Database user", default_user)
             password_prompt = "Database password"
             if state.password:
                 password_prompt += " (leave blank to keep existing, type !clear! to remove)"
@@ -147,23 +160,32 @@ class SetupUtility:
                 password=password,
             )
             try:
-                return self.controller.apply_database_settings(
+                result = self.controller.apply_database_settings(
                     new_state,
                     privileged_credentials=privileged_credentials,
                 )
+                if privileged_credentials is not None:
+                    self.controller.set_privileged_credentials(privileged_credentials)
+                return result
             except BootstrapError as exc:
                 self._print(f"Failed to connect: {exc}")
+                state = dataclasses.replace(new_state)
+                default_host = host
+                default_user = user
                 collected = self._maybe_collect_privileged_credentials(
                     existing=privileged_credentials
                 )
                 if collected is not None:
                     privileged_credentials = collected
+                    self.controller.set_privileged_credentials(privileged_credentials)
                 if privileged_credentials is not None:
                     try:
-                        return self.controller.apply_database_settings(
+                        result = self.controller.apply_database_settings(
                             new_state,
                             privileged_credentials=privileged_credentials,
                         )
+                        self.controller.set_privileged_credentials(privileged_credentials)
+                        return result
                     except BootstrapError as privileged_exc:
                         self._print(f"Failed to connect with privileged provisioning: {privileged_exc}")
                 if not self._confirm("Try again? [Y/n]: ", default=True):
@@ -278,23 +300,65 @@ class SetupUtility:
 
     def configure_user(self) -> Mapping[str, object]:
         state = self.controller.state.user
+        privileged_state = state.privileged_credentials
+        staged_privileged_db = self.controller.get_privileged_credentials()
         while True:
+            full_name = self._ask("Administrator full name", state.full_name)
             username = self._ask_required("Administrator username", state.username)
             email = self._ask_required("Administrator email", state.email)
-            password = self._ask_password("Administrator password", "")
-            confirm = self._ask_password("Confirm password", "")
+            domain = self._ask("Administrator domain", state.domain)
+            dob_input = self._ask("Administrator date of birth (YYYY-MM-DD)", state.date_of_birth)
+            try:
+                dob = self._normalize_date(dob_input)
+            except ValueError:
+                self._print("Invalid date format. Please enter as YYYY-MM-DD or MM/DD/YYYY.")
+                continue
+            password_prompt = "Administrator password"
+            if state.password:
+                password_prompt += " (leave blank to keep existing, type !clear! to remove)"
+            password = self._ask_password(password_prompt, state.password)
+            confirm = self._ask_password("Confirm password", password)
             if password != confirm:
                 self._print("Passwords do not match. Try again.")
                 continue
             display_name = self._ask("Display name", state.display_name)
-            new_state = dataclasses.replace(
-                state,
+            sudo_username = self._ask(
+                "Privileged sudo username",
+                privileged_state.sudo_username,
+            )
+            sudo_password_prompt = "Privileged sudo password"
+            if privileged_state.sudo_password:
+                sudo_password_prompt += " (leave blank to keep existing, type !clear! to remove)"
+            sudo_password = self._ask_password(
+                sudo_password_prompt,
+                privileged_state.sudo_password,
+            )
+            sudo_confirm = self._ask_password("Confirm privileged sudo password", sudo_password)
+            if sudo_password != sudo_confirm:
+                self._print("Sudo passwords do not match. Try again.")
+                continue
+
+            db_username = ""
+            db_password = ""
+            if staged_privileged_db is not None:
+                db_username = staged_privileged_db[0] or ""
+                db_password = staged_privileged_db[1] or ""
+
+            profile = AdminProfile(
                 username=username,
                 email=email,
                 password=password,
                 display_name=display_name,
+                full_name=full_name,
+                domain=domain,
+                date_of_birth=dob,
+                sudo_username=sudo_username,
+                sudo_password=sudo_password,
+                privileged_db_username=db_username,
+                privileged_db_password=db_password,
             )
-            return self.controller.register_user(new_state)
+            staged_state = self.controller.set_user_profile(profile)
+            return dataclasses.asdict(staged_state)
 
     def configure_optional_settings(self) -> OptionalState:
         state = self.controller.state.optional
@@ -357,6 +421,20 @@ class SetupUtility:
         if normalized == "!clear!":
             return ""
         return normalized
+
+    def _normalize_date(self, raw: str) -> str:
+        if not raw:
+            return ""
+        value = raw.strip()
+        if not value:
+            return ""
+        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"):
+            try:
+                parsed = datetime.strptime(value, fmt).date()
+            except ValueError:
+                continue
+            return parsed.isoformat()
+        raise ValueError(f"Invalid date: {raw}")
 
     def _maybe_collect_privileged_credentials(
         self,
