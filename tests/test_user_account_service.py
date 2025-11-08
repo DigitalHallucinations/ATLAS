@@ -208,19 +208,25 @@ def test_conversation_store_synchronised(monkeypatch, conversation_repository):
     spy_repo = _SpyConversationRepository(conversation_repository)
     service, _ = _create_service(monkeypatch, spy_repo)
     try:
-        service.register_user(
+        account = service.register_user(
             "bob",
             "Password123!",
             "bob@example.com",
             "Bob",
             "1985-05-05",
+            full_name="Robert Bobson",
+            domain="example.org",
         )
+        assert account.full_name == "Robert Bobson"
+        assert account.domain == "example.org"
         assert spy_repo.ensure_user_calls
         external_id, display_name, metadata = spy_repo.ensure_user_calls[0]
         assert external_id == "bob"
         assert display_name == "Bob"
         assert metadata["email"] == "bob@example.com"
         assert metadata["name"] == "Bob"
+        assert metadata["full_name"] == "Robert Bobson"
+        assert metadata["domain"] == "example.org"
         assert spy_repo.attach_credential_calls
         attach_username, attach_uuid = spy_repo.attach_credential_calls[0]
         assert attach_username == "bob"

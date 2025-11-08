@@ -16,10 +16,12 @@ __all__ = [
     "BootstrapError",
     "ConfigManager",
     "DatabaseState",
+    "AdminProfile",
     "JobSchedulingState",
     "KvStoreState",
     "MessageBusState",
     "OptionalState",
+    "PrivilegedCredentialState",
     "ProviderState",
     "RetryPolicyState",
     "SetupWizardController",
@@ -88,11 +90,36 @@ class SpeechState:
 
 
 @dataclass
+class PrivilegedCredentialState:
+    sudo_username: str = ""
+    sudo_password: str = ""
+
+
+@dataclass
 class UserState:
     username: str = ""
     email: str = ""
     password: str = ""
     display_name: str = ""
+    full_name: str = ""
+    domain: str = ""
+    date_of_birth: str = ""
+    privileged_credentials: PrivilegedCredentialState = field(default_factory=PrivilegedCredentialState)
+
+
+@dataclass
+class AdminProfile:
+    username: str = ""
+    email: str = ""
+    password: str = ""
+    display_name: str = ""
+    full_name: str = ""
+    domain: str = ""
+    date_of_birth: str = ""
+    sudo_username: str = ""
+    sudo_password: str = ""
+    privileged_db_username: str = ""
+    privileged_db_password: str = ""
 
 
 @dataclass
@@ -152,8 +179,12 @@ class SetupWizardController:
         self.config_manager = config_manager or ConfigManager()
         self.atlas = atlas
         self._bootstrap = bootstrap
-        self._request_privileged_password = request_privileged_password
+        self._privileged_password_requester = self._wrap_privileged_password_requester(
+            request_privileged_password
+        )
         self.state = WizardState()
+        self._staged_admin_profile: AdminProfile | None = None
+        self._staged_privileged_credentials: tuple[str | None, str | None] | None = None
         self._load_defaults()
 
     # -- state loaders -----------------------------------------------------
@@ -234,6 +265,31 @@ class SetupWizardController:
             http_auto_start=bool(http_block.get("auto_start")) if isinstance(http_block, Mapping) else False,
         )
 
+    def _wrap_privileged_password_requester(
+        self, callback: Callable[[], str | None] | None
+    ) -> Callable[[], str | None] | None:
+        if callback is None:
+            return None
+
+        def _request_password() -> str | None:
+            staged_password = (self.state.user.privileged_credentials.sudo_password or "").strip()
+            if staged_password:
+                return staged_password
+            password = callback()
+            if isinstance(password, str) and password.strip():
+                credentials = dataclasses.replace(
+                    self.state.user.privileged_credentials,
+                    sudo_password=password,
+                )
+                self.state.user = dataclasses.replace(
+                    self.state.user,
+                    privileged_credentials=credentials,
+                )
+                return password
+            return password
+
+        return _request_password
+
     # -- database -----------------------------------------------------------
 
     def apply_database_settings(
@@ -244,10 +300,13 @@ class SetupWizardController:
     ) -> str:
         dsn = _compose_dsn(state)
         kwargs: dict[str, Any] = {}
-        if self._request_privileged_password is not None:
-            kwargs["request_privileged_password"] = self._request_privileged_password
+        if self._privileged_password_requester is not None:
+            kwargs["request_privileged_password"] = self._privileged_password_requester
         if privileged_credentials is not None:
-            kwargs["privileged_credentials"] = privileged_credentials
+            self.set_privileged_credentials(privileged_credentials)
+        staged_privileged = self.get_privileged_credentials()
+        if staged_privileged is not None:
+            kwargs["privileged_credentials"] = staged_privileged
         ensured = self._bootstrap(dsn, **kwargs)
         self.config_manager._persist_conversation_database_url(ensured)
         self.config_manager._write_yaml_config()
@@ -331,24 +390,39 @@ class SetupWizardController:
 
     # -- user --------------------------------------------------------------
 
-    def register_user(self, state: UserState) -> Mapping[str, Any]:
+    def register_user(self, state: UserState | None = None) -> Mapping[str, Any]:
+        if state is not None:
+            profile = self._state_to_profile(state)
+        elif self._staged_admin_profile is not None:
+            profile = self._staged_admin_profile
+        else:
+            profile = self._state_to_profile(self.state.user)
+
+        self.set_user_profile(profile)
+
         repository = self._get_conversation_repository()
         service = UserAccountService(
             config_manager=self.config_manager,
             conversation_repository=repository,
         )
         account = service.register_user(
-            username=state.username,
-            password=state.password,
-            email=state.email,
-            name=state.display_name or None,
+            username=profile.username,
+            password=profile.password,
+            email=profile.email,
+            name=profile.display_name or profile.full_name or None,
+            dob=profile.date_of_birth or None,
+            full_name=profile.full_name or None,
+            domain=profile.domain or None,
         )
         self.config_manager.set_active_user(account.username)
-        self.state.user = dataclasses.replace(state)
+        self._staged_admin_profile = dataclasses.replace(profile)
         return {
             "username": account.username,
             "email": account.email,
             "display_name": account.name,
+            "full_name": profile.full_name or None,
+            "domain": profile.domain or None,
+            "date_of_birth": profile.date_of_birth or None,
         }
 
     def _get_conversation_repository(self) -> ConversationStoreRepository:
@@ -381,9 +455,100 @@ class SetupWizardController:
         self.state.optional = dataclasses.replace(state)
         return self.state.optional
 
+    # -- staging helpers ----------------------------------------------------
+
+    def _state_to_profile(self, state: UserState) -> AdminProfile:
+        staged_privileged = self.get_privileged_credentials()
+        privileged_state = state.privileged_credentials
+        db_username = ""
+        db_password = ""
+        if staged_privileged is not None:
+            username, password = staged_privileged
+            db_username = (username or "").strip()
+            db_password = password or ""
+        return AdminProfile(
+            username=state.username,
+            email=state.email,
+            password=state.password,
+            display_name=state.display_name,
+            full_name=state.full_name,
+            domain=state.domain,
+            date_of_birth=state.date_of_birth,
+            sudo_username=privileged_state.sudo_username,
+            sudo_password=privileged_state.sudo_password,
+            privileged_db_username=db_username,
+            privileged_db_password=db_password,
+        )
+
+    def set_user_profile(self, profile: AdminProfile) -> UserState:
+        self._staged_admin_profile = dataclasses.replace(profile)
+        privileged_state = PrivilegedCredentialState(
+            sudo_username=profile.sudo_username or "",
+            sudo_password=profile.sudo_password or "",
+        )
+        self.state.user = UserState(
+            username=profile.username or "",
+            email=profile.email or "",
+            password=profile.password or "",
+            display_name=profile.display_name or "",
+            full_name=profile.full_name or "",
+            domain=profile.domain or "",
+            date_of_birth=profile.date_of_birth or "",
+            privileged_credentials=privileged_state,
+        )
+        db_username = (profile.privileged_db_username or "").strip()
+        db_password = profile.privileged_db_password
+        if db_username or (isinstance(db_password, str) and db_password.strip()):
+            self.set_privileged_credentials((db_username, db_password))
+        return self.state.user
+
+    def set_privileged_credentials(
+        self, credentials: tuple[str | None, str | None] | None
+    ) -> None:
+        if credentials is None:
+            self._staged_privileged_credentials = None
+            return
+        username, password = credentials
+        cleaned_username = (username or "").strip()
+        cleaned_password: str | None
+        if isinstance(password, str):
+            cleaned_password = password.strip() or None
+        else:
+            cleaned_password = password
+        if not cleaned_username and cleaned_password is None:
+            self._staged_privileged_credentials = None
+            return
+        self._staged_privileged_credentials = (
+            cleaned_username or None,
+            cleaned_password,
+        )
+
+    def get_privileged_credentials(self) -> tuple[str | None, str | None] | None:
+        return self._staged_privileged_credentials
+
     # -- summary -----------------------------------------------------------
 
     def build_summary(self) -> Dict[str, Any]:
+        user_state = self.state.user
+        privileged_state = user_state.privileged_credentials
+        staged_privileged = self.get_privileged_credentials()
+        user_summary: Dict[str, Any] = {
+            "username": user_state.username,
+            "email": user_state.email,
+            "display_name": user_state.display_name,
+            "full_name": user_state.full_name,
+            "domain": user_state.domain,
+            "date_of_birth": user_state.date_of_birth,
+            "has_password": bool(user_state.password),
+            "privileged_credentials": {
+                "sudo_username": privileged_state.sudo_username,
+                "has_sudo_password": bool(privileged_state.sudo_password),
+            },
+        }
+        if staged_privileged is not None:
+            username, password = staged_privileged
+            user_summary["database_privileged_username"] = username
+            user_summary["has_database_privileged_password"] = bool(password)
         return {
             "database": dataclasses.asdict(self.state.database),
             "job_scheduling": dataclasses.asdict(self.state.job_scheduling),
@@ -395,6 +560,6 @@ class SetupWizardController:
                 "configured_providers": sorted(self.state.providers.api_keys.keys()),
             },
             "speech": dataclasses.asdict(self.state.speech),
-            "user": dataclasses.asdict(self.state.user),
+            "user": user_summary,
             "optional": dataclasses.asdict(self.state.optional),
         }

@@ -80,6 +80,9 @@ class DummyController:
             "username": state.username,
             "email": state.email,
             "display_name": state.display_name,
+            "full_name": state.full_name or None,
+            "domain": state.domain or None,
+            "date_of_birth": state.date_of_birth or None,
         }
 
     def build_summary(self):  # pragma: no cover - not needed

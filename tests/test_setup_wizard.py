@@ -74,7 +74,11 @@ class FakeController:
     def register_user(self, state):
         self.calls.append(("user", state))
         self.state.user = state
-        return {"username": state.username}
+        return {
+            "username": state.username,
+            "display_name": state.display_name,
+            "full_name": getattr(state, "full_name", ""),
+        }
 
     def build_summary(self):
         return self.summary

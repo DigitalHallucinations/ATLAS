@@ -126,6 +126,9 @@ class ConversationCredentialStore:
         email: str,
         name: Optional[str],
         dob: Optional[str],
+        *,
+        full_name: Optional[str] = None,
+        domain: Optional[str] = None,
     ) -> None:
         hashed_password = self._hash_password(password)
         canonical_email = self._canonicalize_email(email)
@@ -136,9 +139,13 @@ class ConversationCredentialStore:
             metadata_payload["name"] = name
         if dob:
             metadata_payload["dob"] = dob
+        if full_name:
+            metadata_payload["full_name"] = full_name
+        if domain:
+            metadata_payload["domain"] = domain
         user_uuid = self._repository.ensure_user(
             username,
-            display_name=name or username,
+            display_name=name or full_name or username,
             metadata=metadata_payload,
         )
         try:
@@ -320,6 +327,8 @@ class UserAccount:
     name: Optional[str]
     dob: Optional[str]
     last_login: Optional[str]
+    full_name: Optional[str] = None
+    domain: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -888,6 +897,21 @@ class UserAccountService:
 
         return cleaned
 
+    @classmethod
+    def _validate_domain(cls, value: Optional[str]) -> Optional[str]:
+        cleaned = cls._normalise_optional_text(value)
+
+        if cleaned in (None, ""):
+            return cleaned
+
+        if any(char.isspace() for char in cleaned):
+            raise ValueError("Domain must not contain whitespace.")
+
+        if len(cleaned) > 255:
+            raise ValueError("Domain must be 255 characters or fewer.")
+
+        return cleaned.lower()
+
     def _resolve_username_from_identifier(self, identifier: str) -> Optional[str]:
         """Attempt to resolve a username from a login identifier."""
 
@@ -935,6 +959,8 @@ class UserAccountService:
             "dob": account.dob,
             "display_name": account.name or account.username,
             "last_login": account.last_login,
+            "full_name": account.full_name,
+            "domain": account.domain,
         }
 
     def _rows_to_mappings(self, rows: Iterable[Iterable[object]]) -> List[Dict[str, object]]:
@@ -1102,6 +1128,9 @@ class UserAccountService:
         email: str,
         name: Optional[str] = None,
         dob: Optional[str] = None,
+        *,
+        full_name: Optional[str] = None,
+        domain: Optional[str] = None,
     ) -> UserAccount:
         """Create a new user account in the backing store."""
 
@@ -1111,6 +1140,8 @@ class UserAccountService:
         validated_password = self._validate_password(password)
         validated_name = self._validate_display_name(name)
         validated_dob = self._validate_dob(dob)
+        validated_full_name = self._validate_display_name(full_name)
+        validated_domain = self._validate_domain(domain)
 
         self._database.add_user(
             normalised_username,
@@ -1118,6 +1149,8 @@ class UserAccountService:
             validated_email,
             validated_name,
             validated_dob,
+            full_name=validated_full_name,
+            domain=validated_domain,
         )
 
         record = self._database.get_user(normalised_username)
@@ -1125,6 +1158,11 @@ class UserAccountService:
             raise RuntimeError("Failed to retrieve user after creation")
 
         account = self._row_to_account(record)
+        account = replace(
+            account,
+            full_name=validated_full_name,
+            domain=validated_domain,
+        )
         self.logger.info("Registered new user '%s'", account.username)
         metadata_payload: Dict[str, object] = {}
         if account.email:
@@ -1133,9 +1171,13 @@ class UserAccountService:
             metadata_payload["name"] = account.name
         if account.dob:
             metadata_payload["dob"] = account.dob
+        if validated_full_name:
+            metadata_payload["full_name"] = validated_full_name
+        if validated_domain:
+            metadata_payload["domain"] = validated_domain
         self._sync_conversation_user(
             account.username,
-            display_name=account.name,
+            display_name=account.name or validated_full_name,
             metadata=metadata_payload,
         )
         return account
