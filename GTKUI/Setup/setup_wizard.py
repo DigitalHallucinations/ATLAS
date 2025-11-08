@@ -632,7 +632,13 @@ class SetupWizardWindow(AtlasWindow):
             state.date_of_birth,
             placeholder="YYYY-MM-DD",
         )
-        dob_entry.set_input_purpose(Gtk.InputPurpose.DATE)
+        # ``Gtk.InputPurpose.DATE`` was added in GTK 4. Fall back to a broadly
+        # compatible purpose so the widget still works under GTK 3 where the
+        # enum value may not exist.
+        if hasattr(Gtk.InputPurpose, "DATE"):
+            dob_entry.set_input_purpose(Gtk.InputPurpose.DATE)
+        elif hasattr(Gtk.InputPurpose, "FREE_FORM"):
+            dob_entry.set_input_purpose(Gtk.InputPurpose.FREE_FORM)
         self._user_entries["date_of_birth"] = dob_entry
         row += 1
         self._user_entries["password"] = self._create_labeled_entry(
