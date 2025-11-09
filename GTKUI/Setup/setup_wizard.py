@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -26,6 +27,7 @@ from ATLAS.setup import (
     UserState,
 )
 from ATLAS.setup_marker import write_setup_marker
+from GTKUI.Utils.logging import GTKUILogHandler
 from GTKUI.Utils.styled_window import AtlasWindow
 from modules.conversation_store.bootstrap import BootstrapError
 
@@ -40,8 +42,80 @@ class WizardStep:
     apply: Callable[[], str]
 
 
+class SetupWizardLogWindow(AtlasWindow):
+    """Lightweight window that streams setup logs to an inspector view."""
+
+    def __init__(
+        self,
+        *,
+        application: Gtk.Application | None = None,
+        transient_for: Gtk.Window | None = None,
+    ) -> None:
+        super().__init__(
+            title="ATLAS Setup Logs",
+            default_size=(720, 480),
+            transient_for=transient_for,
+        )
+
+        if application is not None:
+            try:
+                self.set_application(application)
+            except Exception:  # pragma: no cover - GTK stubs in tests
+                pass
+
+        header = Gtk.HeaderBar()
+        try:
+            header.set_show_title_buttons(True)
+        except Exception:  # pragma: no cover - compatibility shim
+            pass
+
+        title_label = Gtk.Label(label="Setup Activity Log")
+        if hasattr(title_label, "add_css_class"):
+            title_label.add_css_class("heading")
+        try:
+            header.set_title_widget(title_label)
+        except Exception:  # pragma: no cover - GTK3 fallback
+            try:
+                header.set_title("Setup Activity Log")
+            except Exception:
+                pass
+
+        try:
+            self.set_titlebar(header)
+        except Exception:  # pragma: no cover - GTK3 fallback
+            pass
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        root.set_hexpand(True)
+        root.set_vexpand(True)
+        self.set_child(root)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_hexpand(True)
+        scroller.set_vexpand(True)
+        root.append(scroller)
+
+        self.text_view = Gtk.TextView()
+        self.text_view.set_editable(False)
+        self.text_view.set_cursor_visible(False)
+        self.text_view.set_monospace(True)
+        wrap_mode = getattr(Gtk.WrapMode, "WORD_CHAR", getattr(Gtk.WrapMode, "WORD", None))
+        if wrap_mode is not None:
+            self.text_view.set_wrap_mode(wrap_mode)
+        scroller.set_child(self.text_view)
+
+        self.text_buffer = self.text_view.get_buffer()
+
+
 class SetupWizardWindow(AtlasWindow):
     """A small multi-step wizard bound to :class:`SetupWizardController`."""
+
+    _ADDITIONAL_LOGGER_NAMES: tuple[str, ...] = (
+        "ATLAS.setup",
+        "ATLAS.setup.cli",
+        "modules.conversation_store.bootstrap",
+    )
 
     def __init__(
         self,
@@ -244,6 +318,9 @@ class SetupWizardWindow(AtlasWindow):
         self._entry_pixel_width: Optional[int] = None
         self._database_user_suggestion: str = ""
         self._tenant_id_suggestion: str = ""
+        self._log_window: SetupWizardLogWindow | None = None
+        self._log_handler: GTKUILogHandler | None = None
+        self._log_target_loggers: list[logging.Logger] = []
 
         self._build_steps()
         self._build_steps_sidebar()  # populate sidebar
@@ -253,6 +330,15 @@ class SetupWizardWindow(AtlasWindow):
         else:
             self._set_status("Welcome to the ATLAS setup wizard.")
         self._go_to_step(0)
+
+        if hasattr(self, "connect"):
+            try:
+                self.connect("close-request", self._on_wizard_close_request)
+            except (AttributeError, TypeError):
+                try:
+                    self.connect("destroy", self._on_wizard_destroy)
+                except Exception:  # pragma: no cover - GTK stubs
+                    pass
 
     def _request_sudo_password(self) -> str | None:
         privileged_state = self.controller.state.user.privileged_credentials
@@ -1505,6 +1591,119 @@ class SetupWizardWindow(AtlasWindow):
                 tenant_entry.set_text(suggested_tenant)
             if suggested_tenant:
                 self._tenant_id_suggestion = suggested_tenant
+
+    # -- log window helpers -------------------------------------------------
+
+    def _ensure_log_window(self) -> SetupWizardLogWindow:
+        """Create and present the setup log window if it is not already visible."""
+
+        window = self._log_window
+        if window is None:
+            application = None
+            if hasattr(self, "get_application"):
+                try:
+                    application = self.get_application()
+                except Exception:  # pragma: no cover - defensive
+                    application = None
+
+            window = SetupWizardLogWindow(application=application, transient_for=self)
+            if hasattr(window, "connect"):
+                try:
+                    window.connect("close-request", self._on_log_window_close_request)
+                except (AttributeError, TypeError):
+                    try:
+                        window.connect("destroy", self._on_log_window_destroy)
+                    except Exception:  # pragma: no cover - GTK stubs
+                        pass
+
+            handler = GTKUILogHandler(window.text_buffer, text_view=window.text_view)
+            handler.setLevel(logging.INFO)
+            formatter = logging.Formatter(
+                "%(asctime)s %(levelname)s %(name)s: %(message)s",
+                datefmt="%H:%M:%S",
+            )
+            handler.setFormatter(formatter)
+
+            self._log_handler = handler
+            self._log_target_loggers = []
+
+            for logger in self._collect_setup_loggers():
+                logger.addHandler(handler)
+                effective_level = logger.getEffectiveLevel()
+                if logger.level == logging.NOTSET or effective_level > logging.INFO:
+                    logger.setLevel(logging.INFO)
+                self._log_target_loggers.append(logger)
+
+            self._log_window = window
+
+        if hasattr(window, "present"):
+            window.present()
+        return window
+
+    def _close_log_window(self) -> None:
+        """Close the setup log window and detach logging handlers."""
+
+        window = self._log_window
+        self._detach_log_handler()
+        self._log_window = None
+        if window is None:
+            return
+        for attr in ("close", "destroy"):
+            closer = getattr(window, attr, None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:  # pragma: no cover - defensive cleanup
+                    pass
+                break
+
+    def _detach_log_handler(self) -> None:
+        handler = self._log_handler
+        if handler is None:
+            return
+        for logger in list(self._log_target_loggers):
+            try:
+                logger.removeHandler(handler)
+            except Exception:  # pragma: no cover - defensive cleanup
+                continue
+        self._log_target_loggers.clear()
+        try:
+            handler.close()
+        finally:
+            self._log_handler = None
+
+    def _collect_setup_loggers(self) -> list[logging.Logger]:
+        names = set(self._ADDITIONAL_LOGGER_NAMES)
+        controller_module = self.controller.__class__.__module__
+        names.add(controller_module)
+        if "." in controller_module:
+            names.add(controller_module.rsplit(".", 1)[0])
+        return [logging.getLogger(name) for name in sorted(names)]
+
+    def _on_log_window_close_request(self, *_: object) -> bool:
+        self._detach_log_handler()
+        self._log_window = None
+        return False
+
+    def _on_log_window_destroy(self, *_: object) -> None:
+        self._detach_log_handler()
+        self._log_window = None
+
+    def _on_wizard_close_request(self, *_: object) -> bool:
+        self._close_log_window()
+        return False
+
+    def _on_wizard_destroy(self, *_: object) -> None:
+        self._close_log_window()
+
+    def close(self) -> None:  # type: ignore[override]
+        self._close_log_window()
+        try:
+            super().close()
+        except AttributeError:  # pragma: no cover - GTK3 fallback
+            destroy = getattr(super(), "destroy", None)
+            if callable(destroy):
+                destroy()
 
 
 class SetupWizardController(CoreSetupWizardController):  # type: ignore[misc]
