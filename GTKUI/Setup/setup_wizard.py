@@ -531,35 +531,60 @@ class SetupWizardWindow(AtlasWindow):
 
         provider_pages = self._build_provider_pages()
 
+        overview_page = self._build_overview_page()
+        administrator_intro = self._build_administrator_intro_page()
+        administrator_form = self._build_user_page()
+        database_intro = self._build_database_intro_page()
+        database_form = self._build_database_page()
+        job_scheduling_intro = self._build_job_scheduling_intro_page()
+        job_scheduling_form = self._build_job_scheduling_page()
+        message_bus_intro = self._build_message_bus_intro_page()
+        message_bus_form = self._build_message_bus_page()
+        kv_intro = self._build_kv_store_intro_page()
+        kv_form = self._build_kv_store_page()
+        speech_intro = self._build_speech_intro_page()
+        speech_form = self._build_speech_page()
+        optional_intro = self._build_optional_intro_page()
+        optional_form = self._build_optional_page()
+
+        provider_intro = self._build_provider_intro_page()
+        provider_pages = [provider_intro, *provider_pages]
+
         self._steps = [
             WizardStep(
                 name="Overview",
-                widget=self._build_overview_page(),
+                widget=overview_page,
+                subpages=[overview_page],
                 apply=lambda: "Review complete.",
             ),
             WizardStep(
                 name="Administrator",
-                widget=self._build_user_page(),
+                widget=administrator_intro,
+                subpages=[administrator_intro, administrator_form],
                 apply=self._apply_user,
             ),
             WizardStep(
                 name="Database",
-                widget=self._build_database_page(),
+                widget=database_intro,
+                subpages=[database_intro, database_form],
                 apply=self._apply_database,
             ),
             WizardStep(
                 name="Job Scheduling",
-                widget=self._build_job_scheduling_page(),
+                widget=job_scheduling_intro,
+                subpages=[job_scheduling_intro, job_scheduling_form],
                 apply=self._apply_job_scheduling,
             ),
             WizardStep(
                 name="Message Bus",
-                widget=self._build_message_bus_page(),
+                widget=message_bus_intro,
+                subpages=[message_bus_intro, message_bus_form],
                 apply=self._apply_message_bus,
             ),
             WizardStep(
                 name="Key-Value Store",
-                widget=self._build_kv_store_page(),
+                widget=kv_intro,
+                subpages=[kv_intro, kv_form],
                 apply=self._apply_kv_store,
             ),
             WizardStep(
@@ -570,12 +595,14 @@ class SetupWizardWindow(AtlasWindow):
             ),
             WizardStep(
                 name="Speech",
-                widget=self._build_speech_page(),
+                widget=speech_intro,
+                subpages=[speech_intro, speech_form],
                 apply=self._apply_speech,
             ),
             WizardStep(
                 name="Optional",
-                widget=self._build_optional_page(),
+                widget=optional_intro,
+                subpages=[optional_intro, optional_form],
                 apply=self._apply_optional,
             ),
         ]
@@ -602,10 +629,14 @@ class SetupWizardWindow(AtlasWindow):
         inner_stack.set_vexpand(True)
 
         for page_index, page in enumerate(pages):
+            if page_index == 0:
+                page_title = f"{step.name} — Intro"
+            else:
+                page_title = f"{step.name} ({page_index + 1})"
             inner_stack.add_titled(
                 page,
                 f"step-{index}-page-{page_index}",
-                f"{step.name} ({page_index + 1})",
+                page_title,
             )
 
         inner_stack.set_visible_child(pages[0])
@@ -643,6 +674,15 @@ class SetupWizardWindow(AtlasWindow):
             return []
         pages = self._steps[index].subpages or []
         return list(pages)
+
+    def _format_page_status(self, step: WizardStep, page_index: int, total: int) -> str:
+        prefix = ""
+        if total > 1:
+            if page_index == 0:
+                prefix = "Intro — "
+            elif page_index == 1 and total == 2:
+                prefix = "Configuration — "
+        return f"{step.name}: {prefix}Page {page_index + 1} of {total}"
 
     # -- sidebar -----------------------------------------------------------
 
@@ -737,6 +777,127 @@ class SetupWizardWindow(AtlasWindow):
             "Read the introduction, then continue to enter the administrator details.",
         )
         return box
+
+    def _create_intro_page(
+        self, heading_text: str, paragraphs: list[str], instructions: str
+    ) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_hexpand(True)
+        box.set_vexpand(True)
+
+        heading = Gtk.Label(label=heading_text)
+        heading.set_wrap(True)
+        heading.set_xalign(0.0)
+        if hasattr(heading, "add_css_class"):
+            heading.add_css_class("heading")
+        box.append(heading)
+
+        for text in paragraphs:
+            paragraph = Gtk.Label(label=text)
+            paragraph.set_wrap(True)
+            paragraph.set_xalign(0.0)
+            box.append(paragraph)
+
+        self._register_instructions(box, instructions)
+        return box
+
+    def _build_administrator_intro_page(self) -> Gtk.Widget:
+        return self._create_intro_page(
+            "Administrator account",
+            [
+                "Create the first administrator so that ATLAS has a trusted owner. The "
+                "email address and password you provide will be required to sign in and "
+                "complete future changes.",
+                "Have a secure password ready. If you are connecting ATLAS to an existing "
+                "deployment, matching credentials will allow the wizard to reuse them.",
+            ],
+            "Review what information you need for the administrator before moving to the form.",
+        )
+
+    def _build_database_intro_page(self) -> Gtk.Widget:
+        return self._create_intro_page(
+            "Database connection",
+            [
+                "ATLAS stores conversations and configuration in PostgreSQL. The wizard will "
+                "validate the host, port, database, and credentials that you provide.",
+                "Collect the connection information or confirm that the defaults are "
+                "correct before continuing to the form.",
+            ],
+            "Confirm you know the database connection details, then continue to the form to enter them.",
+        )
+
+    def _build_job_scheduling_intro_page(self) -> Gtk.Widget:
+        return self._create_intro_page(
+            "Job scheduling",
+            [
+                "Background jobs keep ATLAS healthy by refreshing caches and performing "
+                "maintenance tasks. Configure the scheduler connection that will dispatch "
+                "those jobs.",
+                "If you are unsure which backend to use, stick with the defaults and review "
+                "them with your infrastructure team before deployment.",
+            ],
+            "Review what the scheduler is responsible for, then proceed to configure the connection details.",
+        )
+
+    def _build_message_bus_intro_page(self) -> Gtk.Widget:
+        return self._create_intro_page(
+            "Message bus",
+            [
+                "The message bus links ATLAS services together and delivers events. Typical "
+                "deployments use NATS, RabbitMQ, or Redis streams.",
+                "Gather the broker URL and credentials so the wizard can test connectivity on "
+                "the next page.",
+            ],
+            "Check which broker you plan to use so you can provide the URL and credentials next.",
+        )
+
+    def _build_kv_store_intro_page(self) -> Gtk.Widget:
+        return self._create_intro_page(
+            "Key-value store",
+            [
+                "A key-value backend stores ephemeral state like rate limits and cache data. "
+                "Redis is the most common option, but other providers are supported too.",
+                "Confirm the hostname, port, and any authentication requirements before filling "
+                "out the configuration form.",
+            ],
+            "Prepare the connection details for your key-value store, then continue to configure it.",
+        )
+
+    def _build_speech_intro_page(self) -> Gtk.Widget:
+        return self._create_intro_page(
+            "Speech services",
+            [
+                "Enable speech synthesis and recognition to power voice experiences. You can "
+                "choose providers, supply API keys, and tailor default voices.",
+                "Collect the credentials for any speech provider you plan to enable so the form "
+                "is quick to complete.",
+            ],
+            "Decide which speech providers you will enable before moving on to the configuration form.",
+        )
+
+    def _build_optional_intro_page(self) -> Gtk.Widget:
+        return self._create_intro_page(
+            "Optional features",
+            [
+                "ATLAS can integrate with extra services such as observability, analytics, and "
+                "external APIs. These settings are not required but help tailor your deployment.",
+                "Review which optional components you need so you can toggle and configure them on "
+                "the next page.",
+            ],
+            "Confirm which optional services are relevant, then continue to adjust their settings.",
+        )
+
+    def _build_provider_intro_page(self) -> Gtk.Widget:
+        return self._create_intro_page(
+            "Model providers",
+            [
+                "Choose sensible defaults for providers and models so new conversations start with "
+                "the right capabilities.",
+                "You can fine-tune provider-specific settings on the following pages if multiple "
+                "services are enabled.",
+            ],
+            "Review the provider defaults before stepping through each provider-specific configuration.",
+        )
 
     def _select_step_row(self, index: int) -> None:
         if not self._step_list:
@@ -1246,7 +1407,9 @@ class SetupWizardWindow(AtlasWindow):
         new_index = current + 1
         self._show_subpage(self._current_index, new_index)
         step = self._steps[self._current_index]
-        self._set_status(f"{step.name}: Page {new_index + 1} of {total}")
+        self._set_status(
+            self._format_page_status(step, new_index, total)
+        )
         return True
 
     def _retreat_subpage(self) -> bool:
@@ -1257,7 +1420,9 @@ class SetupWizardWindow(AtlasWindow):
         new_index = current - 1
         self._show_subpage(self._current_index, new_index)
         step = self._steps[self._current_index]
-        self._set_status(f"{step.name}: Page {new_index + 1} of {total}")
+        self._set_status(
+            self._format_page_status(step, new_index, total)
+        )
         return True
 
     def _go_to_step(self, index: int) -> None:
@@ -1272,6 +1437,11 @@ class SetupWizardWindow(AtlasWindow):
         self._show_subpage(self._current_index, current_page)
         step = self._steps[self._current_index]
         self._update_step_indicator(step.name)
+        total_pages = self._get_total_pages()
+        if total_pages:
+            self._set_status(
+                self._format_page_status(step, current_page, total_pages)
+            )
         self._select_step_row(self._current_index)
 
     def _on_stack_visible_child_changed(
@@ -1339,7 +1509,15 @@ class SetupWizardWindow(AtlasWindow):
         current_page = self._get_current_page_index()
         status = f"{step.name}: Step {current_step_number} of {total_steps}"
         if total_pages > 1:
-            status = f"{status} — Page {current_page + 1} of {total_pages}"
+            if current_page == 0:
+                page_label = "Intro"
+            elif current_page == 1 and total_pages == 2:
+                page_label = "Configuration"
+            else:
+                page_label = f"Page {current_page + 1}"
+            status = (
+                f"{status} — {page_label} (Page {current_page + 1} of {total_pages})"
+            )
         self._step_status_label.set_text(status)
         self._step_progress_bar.set_fraction(current_step_number / total_steps)
 
