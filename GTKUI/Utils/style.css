@@ -148,6 +148,43 @@ button image {
     color: inherit;
 }
 
+/* Setup wizard header styling */
+headerbar.setup-wizard-header {
+    background-color: #3c4554;
+    color: #f5f7fb;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    min-height: 46px;
+}
+
+headerbar.setup-wizard-header .heading {
+    color: #f5f7fb;
+}
+
+headerbar.setup-wizard-header button.setup-wizard-debug-button {
+    background-color: rgba(255, 255, 255, 0.10);
+    color: #102033;
+    border-radius: 999px;
+    border: 1px solid rgba(16, 32, 51, 0.25);
+    padding: 4px 6px;
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+headerbar.setup-wizard-header button.setup-wizard-debug-button:hover {
+    background-color: rgba(255, 255, 255, 0.18);
+    border-color: rgba(16, 32, 51, 0.35);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+headerbar.setup-wizard-header button.setup-wizard-debug-button-active {
+    background-color: rgba(255, 255, 255, 0.25);
+    border-color: rgba(16, 32, 51, 0.45);
+    color: #0c1726;
+}
+
+headerbar.setup-wizard-header button.setup-wizard-debug-button image {
+    color: inherit;
+}
+
 /* Status Bar Styling */
 statusbar {
     background-color: #2b2b2b;
