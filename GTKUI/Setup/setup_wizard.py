@@ -256,6 +256,8 @@ class SetupWizardWindow(AtlasWindow):
         steps_sidebar.set_hexpand(False)
         steps_sidebar.set_vexpand(True)
         steps_sidebar.set_size_request(220, -1)  # keep form “slid” to the right
+        if hasattr(steps_sidebar, "add_css_class"):
+            steps_sidebar.add_css_class("setup-wizard-sidebar")
         content.append(steps_sidebar)
 
         steps_title = Gtk.Label(label="Setup Steps")
@@ -280,6 +282,8 @@ class SetupWizardWindow(AtlasWindow):
         center_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         center_column.set_hexpand(True)
         center_column.set_vexpand(True)
+        if hasattr(center_column, "add_css_class"):
+            center_column.add_css_class("setup-wizard-main")
         content.append(center_column)
 
         form_scroller = Gtk.ScrolledWindow()
@@ -310,6 +314,8 @@ class SetupWizardWindow(AtlasWindow):
         guidance_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         guidance_column.set_hexpand(True)
         guidance_column.set_vexpand(True)
+        if hasattr(guidance_column, "add_css_class"):
+            guidance_column.add_css_class("setup-wizard-guidance")
         guidance_scroller.set_child(guidance_column)
 
         header = Gtk.Label(label="Complete the following steps to finish configuring ATLAS.")
@@ -344,6 +350,8 @@ class SetupWizardWindow(AtlasWindow):
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         controls.set_halign(Gtk.Align.FILL)
         controls.set_hexpand(True)
+        if hasattr(controls, "add_css_class"):
+            controls.add_css_class("setup-wizard-controls")
         root.append(controls)
 
         self._step_status_label = Gtk.Label()

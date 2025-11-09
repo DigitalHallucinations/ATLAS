@@ -150,14 +150,14 @@ button image {
 
 /* Setup wizard header styling */
 headerbar.setup-wizard-header {
-    background-color: #3c4554;
+    background-color: #4b525d;
     color: #f5f7fb;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     min-height: 46px;
     border: none;
     box-shadow: none;
     border-radius: 0;
     background-image: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 headerbar.setup-wizard-header .heading {
@@ -187,6 +187,26 @@ headerbar.setup-wizard-header button.setup-wizard-debug-button-active {
 
 headerbar.setup-wizard-header button.setup-wizard-debug-button image {
     color: inherit;
+}
+
+.setup-wizard-sidebar {
+    border-right: 1px solid rgba(255, 255, 255, 0.12);
+    padding-right: 12px;
+}
+
+.setup-wizard-main {
+    border-right: 1px solid rgba(255, 255, 255, 0.12);
+    padding-right: 12px;
+}
+
+.setup-wizard-guidance {
+    padding-left: 12px;
+}
+
+.setup-wizard-controls {
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    margin-top: 12px;
+    padding-top: 12px;
 }
 
 /* Status Bar Styling */
