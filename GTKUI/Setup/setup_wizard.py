@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import gi
@@ -116,6 +117,7 @@ class SetupWizardWindow(AtlasWindow):
         "ATLAS.setup.cli",
         "modules.conversation_store.bootstrap",
     )
+    _DEBUG_ICON_FILENAME = "debug.png"
 
     def __init__(
         self,
@@ -155,6 +157,62 @@ class SetupWizardWindow(AtlasWindow):
             title="ATLAS Setup Utility",
             default_size=(desired_width, desired_height),
         )
+
+        header_bar = Gtk.HeaderBar()
+        try:
+            header_bar.set_show_title_buttons(True)
+        except Exception:  # pragma: no cover - compatibility shim
+            pass
+
+        if hasattr(header_bar, "add_css_class"):
+            try:
+                header_bar.add_css_class("setup-wizard-header")
+            except Exception:  # pragma: no cover - GTK stubs in tests
+                pass
+
+        debug_button = Gtk.Button()
+        if hasattr(debug_button, "set_tooltip_text"):
+            debug_button.set_tooltip_text("Show setup logs")
+        if hasattr(debug_button, "add_css_class"):
+            try:
+                debug_button.add_css_class("setup-wizard-debug-button")
+            except Exception:  # pragma: no cover - GTK stubs
+                pass
+
+        icon_widget = self._create_debug_icon_widget()
+        if icon_widget is not None:
+            if hasattr(debug_button, "set_child"):
+                debug_button.set_child(icon_widget)
+            elif hasattr(debug_button, "set_image"):
+                debug_button.set_image(icon_widget)
+
+        for pack in (getattr(header_bar, "pack_start", None), getattr(header_bar, "add", None)):
+            if callable(pack):
+                try:
+                    pack(debug_button)
+                    break
+                except Exception:  # pragma: no cover - GTK fallback
+                    continue
+
+        title_label = Gtk.Label(label="ATLAS Setup Utility")
+        if hasattr(title_label, "add_css_class"):
+            try:
+                title_label.add_css_class("heading")
+            except Exception:  # pragma: no cover - GTK stubs
+                pass
+        try:
+            header_bar.set_title_widget(title_label)
+        except Exception:  # pragma: no cover - GTK3 fallback
+            try:
+                header_bar.set_title("ATLAS Setup Utility")
+            except Exception:
+                pass
+
+        try:
+            self.set_titlebar(header_bar)
+        except Exception:  # pragma: no cover - GTK3 fallback
+            pass
+
         self.set_application(application)
         self._on_success = on_success
         self._on_error = on_error
@@ -321,6 +379,16 @@ class SetupWizardWindow(AtlasWindow):
         self._log_window: SetupWizardLogWindow | None = None
         self._log_handler: GTKUILogHandler | None = None
         self._log_target_loggers: list[logging.Logger] = []
+        self._log_toggle_button: Gtk.Button | None = debug_button
+        self._log_button_handler_id: int | None = None
+
+        if hasattr(debug_button, "connect"):
+            try:
+                self._log_button_handler_id = debug_button.connect(
+                    "clicked", self._on_log_button_clicked
+                )
+            except Exception:  # pragma: no cover - GTK fallback
+                self._log_button_handler_id = None
 
         self._build_steps()
         self._build_steps_sidebar()  # populate sidebar
@@ -1592,6 +1660,143 @@ class SetupWizardWindow(AtlasWindow):
             if suggested_tenant:
                 self._tenant_id_suggestion = suggested_tenant
 
+    def _create_debug_icon_widget(self) -> Gtk.Widget | None:
+        icon_path = self._resolve_icon_path(self._DEBUG_ICON_FILENAME)
+        image: Gtk.Image | None = None
+        if icon_path is not None:
+            try:
+                image = Gtk.Image.new_from_file(icon_path)
+            except Exception:  # pragma: no cover - GTK runtime fallback
+                image = None
+
+        if image is None:
+            for icon_name in ("applications-system-symbolic", "applications-system"):
+                factory = getattr(Gtk.Image, "new_from_icon_name", None)
+                if callable(factory):
+                    try:
+                        image = factory(icon_name)
+                    except TypeError:
+                        try:
+                            image = factory(icon_name, Gtk.IconSize.BUTTON)
+                        except Exception:
+                            image = None
+                    except Exception:
+                        image = None
+                if image is not None:
+                    break
+
+        if image is None:
+            return None
+
+        pixel_setter = getattr(image, "set_pixel_size", None)
+        if callable(pixel_setter):
+            try:
+                pixel_setter(24)
+            except Exception:  # pragma: no cover - GTK stubs in tests
+                pass
+        return image
+
+    def _resolve_icon_path(self, filename: str) -> str | None:
+        try:
+            root_dir = Path(__file__).resolve().parents[2]
+        except Exception:  # pragma: no cover - path resolution fallback
+            return None
+
+        icon_path = root_dir / "Icons" / filename
+        if icon_path.exists():
+            self._register_icon_directory(icon_path.parent)
+            return str(icon_path)
+        return None
+
+    def _register_icon_directory(self, directory: Path) -> None:
+        try:
+            display = Gdk.Display.get_default()
+        except Exception:  # pragma: no cover - display unavailable in tests
+            return
+
+        if display is None:
+            return
+
+        theme_getter = getattr(Gtk.IconTheme, "get_for_display", None)
+        if callable(theme_getter):
+            try:
+                theme = theme_getter(display)
+            except Exception:  # pragma: no cover - GTK fallback
+                theme = Gtk.IconTheme.get_default()
+        else:
+            theme = Gtk.IconTheme.get_default()
+
+        if theme is None:
+            return
+
+        add_path = getattr(theme, "add_search_path", None)
+        if callable(add_path):
+            try:
+                add_path(str(directory))
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+    def _on_log_button_clicked(self, *_: object) -> None:
+        window = self._log_window
+        is_visible = False
+        if window is not None:
+            getter = getattr(window, "get_visible", None)
+            if callable(getter):
+                try:
+                    is_visible = bool(getter())
+                except Exception:
+                    is_visible = False
+
+        if window is None or not is_visible:
+            self._ensure_log_window()
+        else:
+            self._close_log_window()
+
+    def _set_log_button_active(self, active: bool) -> None:
+        button = self._log_toggle_button
+        if button is None:
+            return
+
+        add_css = getattr(button, "add_css_class", None)
+        remove_css = getattr(button, "remove_css_class", None)
+
+        if callable(add_css) and callable(remove_css):
+            try:
+                if active:
+                    add_css("setup-wizard-debug-button-active")
+                else:
+                    remove_css("setup-wizard-debug-button-active")
+            except Exception:  # pragma: no cover - GTK fallback
+                return
+        else:
+            context = getattr(button, "get_style_context", None)
+            if context is None:
+                return
+            add_class = getattr(context, "add_class", None)
+            remove_class = getattr(context, "remove_class", None)
+            if callable(add_class) and callable(remove_class):
+                try:
+                    if active:
+                        add_class("setup-wizard-debug-button-active")
+                    else:
+                        remove_class("setup-wizard-debug-button-active")
+                except Exception:
+                    return
+
+    def _disconnect_log_button(self) -> None:
+        button = self._log_toggle_button
+        handler_id = self._log_button_handler_id
+        if button is not None and handler_id is not None:
+            disconnect = getattr(button, "disconnect", None)
+            if callable(disconnect):
+                try:
+                    disconnect(handler_id)
+                except Exception:  # pragma: no cover - GTK fallback
+                    pass
+        self._set_log_button_active(False)
+        self._log_button_handler_id = None
+        self._log_toggle_button = None
+
     # -- log window helpers -------------------------------------------------
 
     def _ensure_log_window(self) -> SetupWizardLogWindow:
@@ -1638,6 +1843,7 @@ class SetupWizardWindow(AtlasWindow):
 
         if hasattr(window, "present"):
             window.present()
+        self._set_log_button_active(True)
         return window
 
     def _close_log_window(self) -> None:
@@ -1656,6 +1862,7 @@ class SetupWizardWindow(AtlasWindow):
                 except Exception:  # pragma: no cover - defensive cleanup
                     pass
                 break
+        self._set_log_button_active(False)
 
     def _detach_log_handler(self) -> None:
         handler = self._log_handler
@@ -1683,21 +1890,26 @@ class SetupWizardWindow(AtlasWindow):
     def _on_log_window_close_request(self, *_: object) -> bool:
         self._detach_log_handler()
         self._log_window = None
+        self._set_log_button_active(False)
         return False
 
     def _on_log_window_destroy(self, *_: object) -> None:
         self._detach_log_handler()
         self._log_window = None
+        self._set_log_button_active(False)
 
     def _on_wizard_close_request(self, *_: object) -> bool:
         self._close_log_window()
+        self._disconnect_log_button()
         return False
 
     def _on_wizard_destroy(self, *_: object) -> None:
         self._close_log_window()
+        self._disconnect_log_button()
 
     def close(self) -> None:  # type: ignore[override]
         self._close_log_window()
+        self._disconnect_log_button()
         try:
             super().close()
         except AttributeError:  # pragma: no cover - GTK3 fallback
