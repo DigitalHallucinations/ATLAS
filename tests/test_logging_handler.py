@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import types
@@ -61,6 +62,13 @@ def _ensure_gi_stubs() -> None:
             gi_module.repository = repository_module
             sys.modules["gi.repository"] = repository_module
 
+    if not hasattr(gi_module, "require_version"):
+        def _require_version(namespace: str, version: str) -> None:
+            _require_version.calls.append((namespace, version))
+
+        _require_version.calls = []  # type: ignore[attr-defined]
+        gi_module.require_version = _require_version  # type: ignore[attr-defined]
+
     repository_module = sys.modules["gi.repository"]
 
     if not hasattr(repository_module, "GLib"):
@@ -117,20 +125,20 @@ def test_setup_logger_uses_yaml_console_level() -> None:
     config_path = Path(__file__).resolve().parents[1] / "ATLAS" / "config" / "logging_config.yaml"
     original_content = config_path.read_text(encoding="utf-8")
 
-    updated_config = """
-log_level: INFO
-file_log_level: DEBUG
-console_log_level: CRITICAL
-log_format: '%(levelname)s:%(message)s'
-log_file: CSSLM.log
-max_file_size: 52428800
-backup_count: 5
-"""
+    updated_config = {
+        "log_level": "INFO",
+        "file_log_level": "DEBUG",
+        "console_log_level": "CRITICAL",
+        "log_format": "%(levelname)s:%(message)s",
+        "log_file": "CSSLM.log",
+        "max_file_size": 52_428_800,
+        "backup_count": 5,
+    }
 
     logger = None
     original_logger_class = logging.getLoggerClass()
     try:
-        config_path.write_text(updated_config.strip() + "\n", encoding="utf-8")
+        config_path.write_text(json.dumps(updated_config, indent=2) + "\n", encoding="utf-8")
         logging.setLoggerClass(original_logger_class)
         logger = setup_logger("test_yaml_console_level")
 
