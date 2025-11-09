@@ -154,6 +154,10 @@ headerbar.setup-wizard-header {
     color: #f5f7fb;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     min-height: 46px;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    background-image: none;
 }
 
 headerbar.setup-wizard-header .heading {
