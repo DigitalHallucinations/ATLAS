@@ -150,7 +150,8 @@ button image {
 
 /* Setup wizard header styling */
 headerbar.setup-wizard-header {
-    background-color: #4b525d;
+    background-color: #3f444d;
+    background: #3f444d;
     color: #f5f7fb;
     min-height: 46px;
     border: none;
@@ -158,6 +159,10 @@ headerbar.setup-wizard-header {
     border-radius: 0;
     background-image: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+headerbar.setup-wizard-header:backdrop {
+    background: #3f444d;
 }
 
 headerbar.setup-wizard-header .heading {
