@@ -8,6 +8,11 @@ from collections import deque
 from pathlib import Path
 from typing import Deque, Optional
 
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("GLib", "2.0")
+
 from gi.repository import GLib, Gtk
 
 
