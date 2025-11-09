@@ -200,9 +200,19 @@ class SetupWizardWindow(AtlasWindow):
 
         # NOTE: removed the old single-line step indicator bar (sidebar replaces it)
 
-        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        controls.set_halign(Gtk.Align.END)
+        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        controls.set_halign(Gtk.Align.FILL)
+        controls.set_hexpand(True)
         root.append(controls)
+
+        self._step_status_label = Gtk.Label()
+        self._step_status_label.set_xalign(0.0)
+        self._step_status_label.set_hexpand(True)
+        controls.append(self._step_status_label)
+
+        self._step_progress_bar = Gtk.ProgressBar()
+        self._step_progress_bar.set_hexpand(True)
+        controls.append(self._step_progress_bar)
 
         self._back_button = Gtk.Button(label="Back")
         self._back_button.connect("clicked", self._on_back_clicked)
@@ -214,6 +224,9 @@ class SetupWizardWindow(AtlasWindow):
 
         self._steps: List[WizardStep] = []
         self._current_index = 0
+
+        self._step_status_label.set_text("")
+        self._step_progress_bar.set_fraction(0.0)
 
         self._instructions_by_widget: Dict[Gtk.Widget, str] = {}
 
@@ -885,6 +898,7 @@ class SetupWizardWindow(AtlasWindow):
         self._update_navigation()
         self._update_guidance_for_widget(step.widget)
         self._update_step_indicator(step.name)
+        self._update_step_status()
         self._select_step_row(self._current_index)
 
     def _on_stack_visible_child_changed(
@@ -909,6 +923,7 @@ class SetupWizardWindow(AtlasWindow):
         self._current_index = index
         self._update_guidance_for_widget(child)
         self._update_navigation()
+        self._update_step_status()
 
     def _update_step_indicator(self, name: str) -> None:
         # Deprecated: the sidebar now acts as the step indicator.
@@ -920,6 +935,17 @@ class SetupWizardWindow(AtlasWindow):
         if hasattr(self._next_button, "set_label"):
             label = "Finish" if self._current_index == len(self._steps) - 1 else "Next"
             self._next_button.set_label(label)
+
+    def _update_step_status(self) -> None:
+        total_steps = len(self._steps)
+        if total_steps == 0:
+            self._step_status_label.set_text("")
+            self._step_progress_bar.set_fraction(0.0)
+            return
+
+        current_step_number = self._current_index + 1
+        self._step_status_label.set_text(f"Step {current_step_number} of {total_steps}")
+        self._step_progress_bar.set_fraction(current_step_number / total_steps)
 
     def _on_back_clicked(self, *_: object) -> None:
         if self._current_index > 0:
