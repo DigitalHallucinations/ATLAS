@@ -41,6 +41,15 @@ class WizardStep:
     name: str
     widget: Gtk.Widget
     apply: Callable[[], str]
+    subpages: list[Gtk.Widget] | None = None
+
+    def __post_init__(self) -> None:
+        if self.subpages is None or not self.subpages:
+            self.subpages = [self.widget]
+        elif self.widget not in self.subpages:
+            self.subpages.insert(0, self.widget)
+        if self.subpages:
+            self.widget = self.subpages[0]
 
 
 class SetupWizardLogWindow(AtlasWindow):
@@ -346,6 +355,18 @@ class SetupWizardWindow(AtlasWindow):
         self._step_progress_bar.set_hexpand(True)
         controls.append(self._step_progress_bar)
 
+        self._page_back_button = Gtk.Button(label="◀")
+        if hasattr(self._page_back_button, "set_tooltip_text"):
+            self._page_back_button.set_tooltip_text("Previous section")
+        self._page_back_button.connect("clicked", self._on_back_clicked)
+        controls.append(self._page_back_button)
+
+        self._page_next_button = Gtk.Button(label="▶")
+        if hasattr(self._page_next_button, "set_tooltip_text"):
+            self._page_next_button.set_tooltip_text("Next section")
+        self._page_next_button.connect("clicked", self._on_next_clicked)
+        controls.append(self._page_next_button)
+
         self._back_button = Gtk.Button(label="Back")
         self._back_button.connect("clicked", self._on_back_clicked)
         controls.append(self._back_button)
@@ -361,6 +382,9 @@ class SetupWizardWindow(AtlasWindow):
         self._step_progress_bar.set_fraction(0.0)
 
         self._instructions_by_widget: Dict[Gtk.Widget, str] = {}
+        self._step_containers: List[Gtk.Widget] = []
+        self._step_page_stacks: Dict[int, Gtk.Stack] = {}
+        self._current_page_indices: Dict[int, int] = {}
 
         self._database_entries: Dict[str, Gtk.Entry] = {}
         self._provider_entries: Dict[str, Gtk.Entry] = {}
@@ -491,7 +515,28 @@ class SetupWizardWindow(AtlasWindow):
             self._status_label.remove_css_class("error-text")
 
     def _build_steps(self) -> None:
+        try:
+            children = list(self._stack.get_children())
+        except AttributeError:  # pragma: no cover - GTK3 fallback
+            children = []
+        for child in children:
+            try:
+                self._stack.remove(child)
+            except Exception:  # pragma: no cover - defensive
+                pass
+
+        self._step_containers = []
+        self._step_page_stacks.clear()
+        self._current_page_indices.clear()
+
+        provider_pages = self._build_provider_pages()
+
         self._steps = [
+            WizardStep(
+                name="Overview",
+                widget=self._build_overview_page(),
+                apply=lambda: "Review complete.",
+            ),
             WizardStep(
                 name="Administrator",
                 widget=self._build_user_page(),
@@ -519,7 +564,8 @@ class SetupWizardWindow(AtlasWindow):
             ),
             WizardStep(
                 name="Providers",
-                widget=self._build_provider_page(),
+                widget=provider_pages[0],
+                subpages=provider_pages,
                 apply=self._apply_providers,
             ),
             WizardStep(
@@ -534,8 +580,69 @@ class SetupWizardWindow(AtlasWindow):
             ),
         ]
 
-        for step in self._steps:
-            self._stack.add_titled(step.widget, step.name.lower(), step.name)
+        for index, step in enumerate(self._steps):
+            container, inner_stack = self._create_step_container(index, step)
+            name = f"step-{index}"
+            self._step_containers.append(container)
+            self._current_page_indices[index] = 0
+            self._stack.add_titled(container, name, step.name)
+            if inner_stack is not None:
+                self._step_page_stacks[index] = inner_stack
+
+    def _create_step_container(
+        self, index: int, step: WizardStep
+    ) -> tuple[Gtk.Widget, Gtk.Stack | None]:
+        pages = step.subpages or [step.widget]
+        if len(pages) <= 1:
+            return pages[0], None
+
+        inner_stack = Gtk.Stack()
+        inner_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        inner_stack.set_hexpand(True)
+        inner_stack.set_vexpand(True)
+
+        for page_index, page in enumerate(pages):
+            inner_stack.add_titled(
+                page,
+                f"step-{index}-page-{page_index}",
+                f"{step.name} ({page_index + 1})",
+            )
+
+        inner_stack.set_visible_child(pages[0])
+        inner_stack.connect(
+            "notify::visible-child",
+            self._on_inner_stack_visible_child_changed,
+            index,
+        )
+
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        container.set_hexpand(True)
+        container.set_vexpand(True)
+        container.append(inner_stack)
+        return container, inner_stack
+
+    def _on_inner_stack_visible_child_changed(
+        self, stack: Gtk.Stack, _param_spec: object, step_index: int
+    ) -> None:
+        step_pages = self._get_step_pages(step_index)
+        visible = stack.get_visible_child()
+        if visible is None or not step_pages:
+            return
+        try:
+            page_index = step_pages.index(visible)
+        except ValueError:
+            return
+        self._current_page_indices[step_index] = page_index
+        if step_index == self._current_index:
+            self._update_guidance_for_widget(visible)
+            self._update_navigation()
+            self._update_step_status()
+
+    def _get_step_pages(self, index: int) -> list[Gtk.Widget]:
+        if not (0 <= index < len(self._steps)):
+            return []
+        pages = self._steps[index].subpages or []
+        return list(pages)
 
     # -- sidebar -----------------------------------------------------------
 
@@ -592,6 +699,45 @@ class SetupWizardWindow(AtlasWindow):
         self._instructions_label.set_text(instructions)
         self._instructions_label.set_visible(bool(instructions))
 
+    def _build_overview_page(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_hexpand(True)
+        box.set_vexpand(True)
+
+        heading = Gtk.Label(label="Welcome to the ATLAS setup wizard")
+        heading.set_wrap(True)
+        heading.set_xalign(0.0)
+        if hasattr(heading, "add_css_class"):
+            heading.add_css_class("heading")
+        box.append(heading)
+
+        summary = Gtk.Label(
+            label=(
+                "This wizard will guide you through configuring database connections, "
+                "administrative access, and optional services. Use the arrows or the "
+                "Next button to move between sections."
+            )
+        )
+        summary.set_wrap(True)
+        summary.set_xalign(0.0)
+        box.append(summary)
+
+        sidebar_hint = Gtk.Label(
+            label=(
+                "Completed steps will show a checkmark in the sidebar. You can return to any "
+                "step at any time to review or update its settings."
+            )
+        )
+        sidebar_hint.set_wrap(True)
+        sidebar_hint.set_xalign(0.0)
+        box.append(sidebar_hint)
+
+        self._register_instructions(
+            box,
+            "Read the introduction, then continue to enter the administrator details.",
+        )
+        return box
+
     def _select_step_row(self, index: int) -> None:
         if not self._step_list:
             return
@@ -621,9 +767,11 @@ class SetupWizardWindow(AtlasWindow):
 
         return self._wrap_with_instructions(grid, instructions)
 
-    def _build_provider_page(self) -> Gtk.Widget:
+    def _build_provider_pages(self) -> list[Gtk.Widget]:
         state = self.controller.state.providers
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+
+        defaults_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        defaults_box.set_hexpand(True)
 
         self._provider_entries["default_provider"] = self._create_entry(
             "Default provider", state.default_provider or ""
@@ -632,32 +780,41 @@ class SetupWizardWindow(AtlasWindow):
             "Default model", state.default_model or ""
         )
 
-        for entry in self._provider_entries.values():
-            box.append(entry)
+        defaults_box.append(self._provider_entries["default_provider"])
+        defaults_box.append(self._provider_entries["default_model"])
+
+        defaults_instructions = (
+            "Choose the default provider and model that conversations will use unless a "
+            "workspace overrides them."
+        )
+        self._register_instructions(defaults_box, defaults_instructions)
+
+        keys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        keys_box.set_hexpand(True)
 
         keys_label = Gtk.Label(
             label=(
-                "API keys (one per line using provider=key format). Existing values "
-                "will be pre-populated when available."
+                "API keys (one per line using provider=key format). Existing values will be "
+                "pre-populated when available."
             )
         )
         keys_label.set_wrap(True)
         keys_label.set_xalign(0.0)
-        box.append(keys_label)
+        keys_box.append(keys_label)
 
         view = Gtk.TextView()
         view.set_monospace(True)
         self._provider_buffer = view.get_buffer()
         self._provider_buffer.set_text(self._format_api_keys(state.api_keys))
-        box.append(view)
+        keys_box.append(view)
 
-        instructions = (
-            "Set the default provider and model used for conversations, then supply any API"
-            " keys the assistant needs. Add keys one per line in provider=key format."
+        keys_instructions = (
+            "Provide any API keys the assistant needs. Enter one entry per line using "
+            "provider=key format."
         )
+        self._register_instructions(keys_box, keys_instructions)
 
-        self._register_instructions(box, instructions)
-        return box
+        return [defaults_box, keys_box]
 
     def _build_kv_store_page(self) -> Gtk.Widget:
         state = self.controller.state.kv_store
@@ -1045,14 +1202,76 @@ class SetupWizardWindow(AtlasWindow):
 
     # -- navigation -----------------------------------------------------
 
-    def _go_to_step(self, index: int) -> None:
-        self._current_index = max(0, min(index, len(self._steps) - 1))
+    def _get_current_page_index(self, step_index: int | None = None) -> int:
+        if step_index is None:
+            step_index = self._current_index
+        return self._current_page_indices.get(step_index, 0)
+
+    def _get_total_pages(self, step_index: int | None = None) -> int:
+        if step_index is None:
+            step_index = self._current_index
+        pages = self._get_step_pages(step_index)
+        return len(pages)
+
+    def _get_current_page_widget(self) -> Gtk.Widget | None:
+        pages = self._get_step_pages(self._current_index)
+        if not pages:
+            return None
+        index = self._get_current_page_index(self._current_index)
+        index = max(0, min(index, len(pages) - 1))
+        return pages[index]
+
+    def _show_subpage(self, step_index: int, page_index: int) -> None:
+        pages = self._get_step_pages(step_index)
+        if not pages:
+            return
+        page_index = max(0, min(page_index, len(pages) - 1))
+        self._current_page_indices[step_index] = page_index
+        stack = self._step_page_stacks.get(step_index)
+        if stack is not None:
+            try:
+                stack.set_visible_child(pages[page_index])
+            except Exception:  # pragma: no cover - defensive
+                pass
+        if step_index == self._current_index:
+            self._update_guidance_for_widget(pages[page_index])
+            self._update_navigation()
+            self._update_step_status()
+
+    def _advance_subpage(self) -> bool:
+        total = self._get_total_pages()
+        current = self._get_current_page_index()
+        if total <= 1 or current >= total - 1:
+            return False
+        new_index = current + 1
+        self._show_subpage(self._current_index, new_index)
         step = self._steps[self._current_index]
-        self._stack.set_visible_child(step.widget)
-        self._update_navigation()
-        self._update_guidance_for_widget(step.widget)
+        self._set_status(f"{step.name}: Page {new_index + 1} of {total}")
+        return True
+
+    def _retreat_subpage(self) -> bool:
+        total = self._get_total_pages()
+        current = self._get_current_page_index()
+        if total <= 1 or current == 0:
+            return False
+        new_index = current - 1
+        self._show_subpage(self._current_index, new_index)
+        step = self._steps[self._current_index]
+        self._set_status(f"{step.name}: Page {new_index + 1} of {total}")
+        return True
+
+    def _go_to_step(self, index: int) -> None:
+        if not self._steps:
+            return
+        self._current_index = max(0, min(index, len(self._steps) - 1))
+        if not (0 <= self._current_index < len(self._step_containers)):
+            return
+        container = self._step_containers[self._current_index]
+        self._stack.set_visible_child(container)
+        current_page = self._get_current_page_index(self._current_index)
+        self._show_subpage(self._current_index, current_page)
+        step = self._steps[self._current_index]
         self._update_step_indicator(step.name)
-        self._update_step_status()
         self._select_step_row(self._current_index)
 
     def _on_stack_visible_child_changed(
@@ -1065,29 +1284,46 @@ class SetupWizardWindow(AtlasWindow):
         if child is None:
             return
 
-        for index, step in enumerate(self._steps):
-            if step.widget is child:
-                break
-        else:
+        try:
+            index = self._step_containers.index(child)
+        except ValueError:
             return
 
         if index == self._current_index:
             return
 
         self._current_index = index
-        self._update_guidance_for_widget(child)
-        self._update_navigation()
-        self._update_step_status()
+        current_page = self._get_current_page_index(index)
+        self._show_subpage(index, current_page)
+        self._select_step_row(self._current_index)
 
     def _update_step_indicator(self, name: str) -> None:
         # Deprecated: the sidebar now acts as the step indicator.
         pass
 
     def _update_navigation(self) -> None:
+        total_pages = self._get_total_pages()
+        current_page = self._get_current_page_index()
+        has_previous_step = self._current_index > 0
+        has_next_step = self._current_index < len(self._steps) - 1
+        has_previous_page = current_page > 0
+        has_next_page = total_pages > 0 and current_page < total_pages - 1
+
         if hasattr(self._back_button, "set_sensitive"):
-            self._back_button.set_sensitive(self._current_index > 0)
+            self._back_button.set_sensitive(has_previous_step or has_previous_page)
+
+        if hasattr(self._page_back_button, "set_sensitive"):
+            self._page_back_button.set_sensitive(has_previous_page)
+        if hasattr(self._page_next_button, "set_sensitive"):
+            self._page_next_button.set_sensitive(has_next_page)
+
+        show_page_navigation = total_pages > 1
+        for button in (self._page_back_button, self._page_next_button):
+            if hasattr(button, "set_visible"):
+                button.set_visible(show_page_navigation)
+
         if hasattr(self._next_button, "set_label"):
-            label = "Finish" if self._current_index == len(self._steps) - 1 else "Next"
+            label = "Finish" if not has_next_page and not has_next_step else "Next"
             self._next_button.set_label(label)
 
     def _update_step_status(self) -> None:
@@ -1098,10 +1334,18 @@ class SetupWizardWindow(AtlasWindow):
             return
 
         current_step_number = self._current_index + 1
-        self._step_status_label.set_text(f"Step {current_step_number} of {total_steps}")
+        step = self._steps[self._current_index]
+        total_pages = self._get_total_pages()
+        current_page = self._get_current_page_index()
+        status = f"{step.name}: Step {current_step_number} of {total_steps}"
+        if total_pages > 1:
+            status = f"{status} — Page {current_page + 1} of {total_pages}"
+        self._step_status_label.set_text(status)
         self._step_progress_bar.set_fraction(current_step_number / total_steps)
 
     def _on_back_clicked(self, *_: object) -> None:
+        if self._retreat_subpage():
+            return
         if self._current_index > 0:
             self._go_to_step(self._current_index - 1)
 
@@ -1116,6 +1360,10 @@ class SetupWizardWindow(AtlasWindow):
             self._step_list.select_row(row)
 
     def _on_next_clicked(self, *_: object) -> None:
+        if not self._steps:
+            return
+        if self._advance_subpage():
+            return
         step = self._steps[self._current_index]
         self._set_status("Applying changes…")
         try:
