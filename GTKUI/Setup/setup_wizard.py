@@ -104,18 +104,11 @@ class SetupWizardWindow(AtlasWindow):
         root.set_hexpand(True)
         self.set_child(root)
 
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_vexpand(True)
-        scroller.set_hexpand(True)
-        scroller.set_propagate_natural_height(False)
-        root.append(scroller)
-
         # H layout: [Steps Sidebar] [Form Container] [Guidance]
         content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
         content.set_hexpand(True)
         content.set_vexpand(True)
-        scroller.set_child(content)
+        root.append(content)
 
         # --- Steps sidebar (left) ---
         steps_sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -133,7 +126,14 @@ class SetupWizardWindow(AtlasWindow):
         self._step_list = Gtk.ListBox()
         self._step_list.set_selection_mode(Gtk.SelectionMode.BROWSE)
         self._step_list.connect("row-activated", self._on_step_row_activated)
-        steps_sidebar.append(self._step_list)
+        steps_scroller = Gtk.ScrolledWindow()
+        steps_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        steps_scroller.set_vexpand(True)
+        steps_scroller.set_hexpand(True)
+        steps_scroller.set_propagate_natural_height(False)
+        steps_sidebar.append(steps_scroller)
+
+        steps_scroller.set_child(self._step_list)
 
         # --- Center form container (middle) ---
         center_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -141,10 +141,17 @@ class SetupWizardWindow(AtlasWindow):
         center_column.set_vexpand(True)
         content.append(center_column)
 
+        form_scroller = Gtk.ScrolledWindow()
+        form_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        form_scroller.set_vexpand(True)
+        form_scroller.set_hexpand(True)
+        form_scroller.set_propagate_natural_height(False)
+        center_column.append(form_scroller)
+
         form_frame = Gtk.Frame()
         form_frame.set_hexpand(True)
         form_frame.set_vexpand(True)
-        center_column.append(form_frame)
+        form_scroller.set_child(form_frame)
 
         self._form_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self._form_column.set_hexpand(True)
@@ -152,10 +159,17 @@ class SetupWizardWindow(AtlasWindow):
         form_frame.set_child(self._form_column)
 
         # --- Guidance column (right) ---
+        guidance_scroller = Gtk.ScrolledWindow()
+        guidance_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        guidance_scroller.set_vexpand(True)
+        guidance_scroller.set_hexpand(True)
+        guidance_scroller.set_propagate_natural_height(False)
+        content.append(guidance_scroller)
+
         guidance_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         guidance_column.set_hexpand(True)
         guidance_column.set_vexpand(True)
-        content.append(guidance_column)
+        guidance_scroller.set_child(guidance_column)
 
         header = Gtk.Label(label="Complete the following steps to finish configuring ATLAS.")
         header.set_wrap(True)
