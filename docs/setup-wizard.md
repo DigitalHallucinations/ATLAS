@@ -79,6 +79,18 @@ ATLAS create the database and role automatically; leave the fields blank to
 retry without privileged provisioning. Validation failures in any step keep you
 on the current page so you can fix the input without losing progress.
 
+### Debug log window
+
+Operators can monitor setup activity in real time through the debug log window.
+The header bar includes a circular bug icon on the left edge; selecting it
+opens a dedicated inspector that streams log output from the wizard controller
+and its supporting bootstrap helpers. The window mirrors the wizard's lighter
+header styling, presents log lines in a monospace view, and highlights
+timestamps, log levels, logger names, and messages. Use it to verify connection
+attempts, database provisioning, and any validation errors that are logged but
+not surfaced inline. Selecting the icon again hides the window and detaches the
+temporary log handler.
+
 ## Standalone CLI utility
 
 The original CLI workflow remains available at `scripts/setup_atlas.py`. It

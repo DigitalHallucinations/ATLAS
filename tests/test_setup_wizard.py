@@ -204,6 +204,47 @@ class _CallbackRecorder:
         self.calls.append(args)
 
 
+def test_setup_wizard_debug_button_opens_log_window(monkeypatch):
+    application = Gtk.Application()
+    controller = FakeController()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    debug_button = window._log_toggle_button
+    assert isinstance(debug_button, Gtk.Button)
+
+    tooltip_getter = getattr(debug_button, "get_tooltip_text", None)
+    if callable(tooltip_getter):
+        assert tooltip_getter() == "Show setup logs"
+
+    ensure_calls: list[SetupWizardWindow] = []
+
+    def _fake_ensure(self: SetupWizardWindow) -> types.SimpleNamespace:
+        ensure_calls.append(self)
+        stub_window = types.SimpleNamespace(present=lambda: None)
+        self._set_log_button_active(True)
+        self._log_window = stub_window
+        return stub_window
+
+    monkeypatch.setattr(SetupWizardWindow, "_ensure_log_window", _fake_ensure)
+
+    emit = getattr(debug_button, "emit", None)
+    if callable(emit):
+        emit("clicked")
+    else:
+        window._on_log_button_clicked(debug_button)
+
+    assert ensure_calls == [window]
+
+    window.close()
+
+
 def test_setup_wizard_happy_path(monkeypatch):
     application = Gtk.Application()
     controller = FakeController()
