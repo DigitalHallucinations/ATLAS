@@ -394,6 +394,8 @@ class SetupWizardWindow(AtlasWindow):
         self._step_page_stacks: Dict[int, Gtk.Stack] = {}
         self._current_page_indices: Dict[int, int] = {}
 
+        self._setup_type_buttons: Dict[str, Gtk.CheckButton] = {}
+        self._setup_type_syncing = False
         self._database_entries: Dict[str, Gtk.Entry] = {}
         self._provider_entries: Dict[str, Gtk.Entry] = {}
         self._provider_buffer: Optional[Gtk.TextBuffer] = None
@@ -403,6 +405,7 @@ class SetupWizardWindow(AtlasWindow):
         self._message_widgets: Dict[str, Gtk.Widget] = {}
         self._speech_widgets: Dict[str, Gtk.Widget] = {}
         self._optional_widgets: Dict[str, Gtk.Widget] = {}
+        self._optional_personal_hint: Gtk.Label | None = None
         self._setup_persisted = False
         self._privileged_credentials: Optional[Tuple[Optional[str], Optional[str]]] = None
         self._entry_pixel_width: Optional[int] = None
@@ -537,9 +540,11 @@ class SetupWizardWindow(AtlasWindow):
         self._step_page_stacks.clear()
         self._current_page_indices.clear()
 
+        self._setup_type_buttons.clear()
         provider_pages = self._build_provider_pages()
 
         overview_page = self._build_overview_page()
+        setup_type_page = self._build_setup_type_page()
         administrator_intro = self._build_administrator_intro_page()
         administrator_form = self._build_user_page()
         database_intro = self._build_database_intro_page()
@@ -564,6 +569,12 @@ class SetupWizardWindow(AtlasWindow):
                 widget=overview_page,
                 subpages=[overview_page],
                 apply=lambda: "Review complete.",
+            ),
+            WizardStep(
+                name="Setup Type",
+                widget=setup_type_page,
+                subpages=[setup_type_page],
+                apply=self._apply_setup_type,
             ),
             WizardStep(
                 name="Administrator",
@@ -623,6 +634,8 @@ class SetupWizardWindow(AtlasWindow):
             self._stack.add_titled(container, name, step.name)
             if inner_stack is not None:
                 self._step_page_stacks[index] = inner_stack
+
+        self._update_setup_type_dependent_widgets()
 
     def _create_step_container(
         self, index: int, step: WizardStep
@@ -853,6 +866,291 @@ class SetupWizardWindow(AtlasWindow):
             "You can swap to the terminal helper at any point—the wizard keeps your progress in sync.",
         )
         return box
+
+    def _build_setup_type_page(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_hexpand(True)
+
+        heading = Gtk.Label(label="Choose how presets should shape the rest of setup")
+        heading.set_wrap(True)
+        heading.set_xalign(0.0)
+        if hasattr(heading, "add_css_class"):
+            heading.add_css_class("heading")
+        box.append(heading)
+
+        copy = Gtk.Label(
+            label=(
+                "Presets apply once to pre-fill the remaining forms. After you tweak a field manually,"
+                " picking the same preset again leaves your edits alone."
+            )
+        )
+        copy.set_wrap(True)
+        copy.set_xalign(0.0)
+        box.append(copy)
+
+        button_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        button_column.set_hexpand(False)
+
+        radio_descriptors = [
+            (
+                "personal",
+                "Personal",
+                "Single administrator, defaults favor convenience on one host.",
+            ),
+            (
+                "enterprise",
+                "Enterprise",
+                "Team rollout with Redis, schedulers, and stricter retention defaults.",
+            ),
+        ]
+
+        first_button: Gtk.CheckButton | None = None
+        for key, title, subtitle in radio_descriptors:
+            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            toggle = Gtk.CheckButton.new_with_label(title)
+            if first_button is None:
+                first_button = toggle
+            else:
+                toggle.set_group(first_button)
+            toggle.set_hexpand(False)
+            toggle.connect("toggled", self._on_setup_type_toggled, key)
+            self._setup_type_buttons[key] = toggle
+            row.append(toggle)
+
+            if subtitle:
+                detail = Gtk.Label(label=subtitle)
+                detail.set_wrap(True)
+                detail.set_xalign(0.0)
+                if hasattr(detail, "add_css_class"):
+                    detail.add_css_class("dim-label")
+                row.append(detail)
+
+            button_column.append(row)
+
+        box.append(button_column)
+
+        table = Gtk.Grid(column_spacing=12, row_spacing=6)
+        table.set_hexpand(True)
+        table.set_vexpand(False)
+
+        headers = ["Area", "Personal", "Enterprise"]
+        for col, title in enumerate(headers):
+            label = Gtk.Label(label=title)
+            label.set_wrap(True)
+            label.set_xalign(0.0)
+            if hasattr(label, "add_css_class"):
+                label.add_css_class("heading")
+            table.attach(label, col, 0, 1, 1)
+
+        rows = [
+            (
+                "Message bus",
+                "In-memory queue for a single app server.",
+                "Redis backend with shared streams.",
+            ),
+            (
+                "Job scheduling",
+                "Disabled so nothing else is required.",
+                "Enabled with a dedicated Postgres store.",
+            ),
+            (
+                "Key-value store",
+                "Reuse the conversation database.",
+                "Separate Postgres cache for scale.",
+            ),
+            (
+                "Retention & policies",
+                "No retention limits are pre-set.",
+                "30 day retention and 500 message history.",
+            ),
+            (
+                "HTTP server",
+                "Auto-start for easy local testing.",
+                "Manual start so ops can control ingress.",
+            ),
+        ]
+
+        for row_index, (area, personal, enterprise) in enumerate(rows, start=1):
+            for column, text in enumerate((area, personal, enterprise)):
+                label = Gtk.Label(label=text)
+                label.set_wrap(True)
+                label.set_xalign(0.0)
+                table.attach(label, column, row_index, 1, 1)
+
+        box.append(table)
+
+        instructions = (
+            "Pick the preset that matches your rollout. You can always override fields later or"
+            " switch presets if plans change."
+        )
+
+        self._register_instructions(box, instructions)
+        self._register_instructions(
+            table,
+            "Scan this comparison so you know which downstream defaults will update when you choose a preset.",
+        )
+
+        self._sync_setup_type_selection()
+
+        return box
+
+    def _sync_setup_type_selection(self) -> None:
+        if not self._setup_type_buttons:
+            return
+        state = getattr(self.controller.state, "setup_type", None)
+        mode = (state.mode if state else "") or ""
+        normalized = mode.strip().lower()
+        if normalized not in {"personal", "enterprise"}:
+            normalized = "personal"
+
+        self._setup_type_syncing = True
+        try:
+            for key, button in self._setup_type_buttons.items():
+                if isinstance(button, Gtk.CheckButton):
+                    button.set_active(key == normalized)
+        finally:
+            self._setup_type_syncing = False
+
+    def _get_selected_setup_type(self) -> str | None:
+        for key, button in self._setup_type_buttons.items():
+            if isinstance(button, Gtk.CheckButton) and button.get_active():
+                return key
+        return None
+
+    def _on_setup_type_toggled(
+        self, button: Gtk.CheckButton, mode: str
+    ) -> None:
+        if self._setup_type_syncing:
+            return
+        if not button.get_active():
+            return
+        self._apply_setup_type_selection(mode, update_status=True)
+
+    def _apply_setup_type_selection(
+        self, mode: str | None, *, update_status: bool
+    ) -> tuple[str, bool]:
+        selected = (mode or self._get_selected_setup_type() or "").strip().lower()
+        if selected not in {"personal", "enterprise"}:
+            message = "No preset selected. Configure each service manually."
+            if update_status:
+                self._set_status(message)
+            return message, False
+
+        current_state = getattr(self.controller.state, "setup_type", None)
+        before_mode = current_state.mode if current_state else ""
+        before_applied = current_state.applied if current_state else False
+
+        new_state = self.controller.apply_setup_type(selected)
+        after_mode = new_state.mode
+        after_applied = new_state.applied
+        changed = (before_mode != after_mode) or (before_applied != after_applied)
+
+        if changed:
+            self._refresh_setup_type_defaults()
+
+        self._sync_setup_type_selection()
+        self._update_setup_type_dependent_widgets()
+
+        if after_applied:
+            if changed:
+                message = f"{after_mode.title()} preset applied."
+            else:
+                message = f"{after_mode.title()} preset already applied."
+        else:
+            message = f"{after_mode.title()} preset saved."
+
+        if update_status:
+            self._set_status(message)
+
+        return message, changed
+
+    def _refresh_setup_type_defaults(self) -> None:
+        self._sync_job_widgets_from_state()
+        self._sync_message_widgets_from_state()
+        self._sync_kv_widgets_from_state()
+        self._sync_optional_widgets_from_state()
+
+    def _sync_job_widgets_from_state(self) -> None:
+        state = self.controller.state.job_scheduling
+        toggle = self._job_widgets.get("enabled")
+        if isinstance(toggle, Gtk.CheckButton):
+            toggle.set_active(state.enabled)
+
+        mappings = {
+            "job_store_url": state.job_store_url or "",
+            "max_workers": self._optional_to_text(state.max_workers),
+            "timezone": state.timezone or "",
+            "queue_size": self._optional_to_text(state.queue_size),
+            "retry_max_attempts": str(state.retry_policy.max_attempts),
+            "retry_backoff_seconds": self._format_float(state.retry_policy.backoff_seconds),
+            "retry_jitter_seconds": self._format_float(state.retry_policy.jitter_seconds),
+            "retry_backoff_multiplier": self._format_float(
+                state.retry_policy.backoff_multiplier
+            ),
+        }
+
+        for key, value in mappings.items():
+            widget = self._job_widgets.get(key)
+            if isinstance(widget, Gtk.Entry):
+                widget.set_text(value)
+
+    def _sync_message_widgets_from_state(self) -> None:
+        state = self.controller.state.message_bus
+        backend_widget = self._message_widgets.get("backend")
+        active_id = state.backend or "in_memory"
+        set_active = getattr(backend_widget, "set_active_id", None)
+        if callable(set_active):
+            set_active(active_id)
+
+        text_mappings = {
+            "redis_url": state.redis_url or "",
+            "stream_prefix": state.stream_prefix or "",
+        }
+        for key, value in text_mappings.items():
+            widget = self._message_widgets.get(key)
+            if isinstance(widget, Gtk.Entry):
+                widget.set_text(value)
+
+    def _sync_kv_widgets_from_state(self) -> None:
+        state = self.controller.state.kv_store
+        reuse_widget = self._kv_widgets.get("reuse")
+        if isinstance(reuse_widget, Gtk.CheckButton):
+            reuse_widget.set_active(state.reuse_conversation_store)
+        url_widget = self._kv_widgets.get("url")
+        if isinstance(url_widget, Gtk.Entry):
+            url_widget.set_text(state.url or "")
+
+    def _sync_optional_widgets_from_state(self) -> None:
+        state = self.controller.state.optional
+        mapping = {
+            "tenant_id": state.tenant_id or "",
+            "retention_days": self._optional_to_text(state.retention_days),
+            "retention_history_limit": self._optional_to_text(
+                state.retention_history_limit
+            ),
+            "scheduler_timezone": state.scheduler_timezone or "",
+            "scheduler_queue_size": self._optional_to_text(state.scheduler_queue_size),
+        }
+
+        for key, value in mapping.items():
+            widget = self._optional_widgets.get(key)
+            if isinstance(widget, Gtk.Entry):
+                widget.set_text(value)
+                if key == "tenant_id" and value:
+                    self._tenant_id_suggestion = value
+
+        http_toggle = self._optional_widgets.get("http_auto_start")
+        if isinstance(http_toggle, Gtk.CheckButton):
+            http_toggle.set_active(state.http_auto_start)
+
+        self._update_setup_type_dependent_widgets()
+
+    def _update_setup_type_dependent_widgets(self) -> None:
+        hint = self._optional_personal_hint
+        if not isinstance(hint, Gtk.Label):
+            return
+        mode = getattr(self.controller.state.setup_type, "mode", "")
+        hint.set_visible((mode or "").strip().lower() == "personal")
 
     def _create_overview_callout(self, title: str, bullets: list[str]) -> Gtk.Widget:
         frame = Gtk.Frame()
@@ -1323,35 +1621,52 @@ class SetupWizardWindow(AtlasWindow):
         state = self.controller.state.optional
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
 
+        row = 0
+
+        personal_hint = Gtk.Label(label="Most people can keep the defaults.")
+        personal_hint.set_wrap(True)
+        personal_hint.set_xalign(0.0)
+        personal_hint.set_visible(False)
+        grid.attach(personal_hint, 0, row, 2, 1)
+        self._optional_personal_hint = personal_hint
+
+        row += 1
+
         self._optional_widgets["tenant_id"] = self._create_labeled_entry(
-            grid, 0, "Tenant ID", state.tenant_id or ""
+            grid, row, "Tenant ID", state.tenant_id or ""
         )
         tenant_entry = self._optional_widgets["tenant_id"]
         if isinstance(tenant_entry, Gtk.Entry):
             self._tenant_id_suggestion = tenant_entry.get_text().strip()
+        row += 1
         self._optional_widgets["retention_days"] = self._create_labeled_entry(
-            grid, 1, "Conversation retention days", self._optional_to_text(state.retention_days)
+            grid, row, "Conversation retention days", self._optional_to_text(state.retention_days)
         )
+        row += 1
         self._optional_widgets["retention_history_limit"] = self._create_labeled_entry(
             grid,
-            2,
+            row,
             "Conversation history limit",
             self._optional_to_text(state.retention_history_limit),
         )
+        row += 1
         self._optional_widgets["scheduler_timezone"] = self._create_labeled_entry(
-            grid, 3, "Scheduler timezone", state.scheduler_timezone or ""
+            grid, row, "Scheduler timezone", state.scheduler_timezone or ""
         )
+        row += 1
         self._optional_widgets["scheduler_queue_size"] = self._create_labeled_entry(
             grid,
-            4,
+            row,
             "Scheduler queue size",
             self._optional_to_text(state.scheduler_queue_size),
         )
+        row += 1
 
         http_toggle = Gtk.CheckButton(label="Auto-start HTTP server")
         http_toggle.set_active(state.http_auto_start)
         self._optional_widgets["http_auto_start"] = http_toggle
-        grid.attach(http_toggle, 0, 5, 2, 1)
+        grid.attach(http_toggle, 0, row, 2, 1)
+        row += 1
 
         callout_frame = Gtk.Frame()
         callout_frame.set_hexpand(True)
@@ -1436,7 +1751,7 @@ class SetupWizardWindow(AtlasWindow):
         else:  # pragma: no cover - GTK3 fallback
             callout_frame.add(callout_box)
 
-        grid.attach(callout_frame, 0, 6, 2, 1)
+        grid.attach(callout_frame, 0, row, 2, 1)
 
         instructions = (
             "• Set tenant defaults and retention expectations that fit your rollout.\n"
@@ -2288,6 +2603,10 @@ class SetupWizardWindow(AtlasWindow):
 
         self.controller.apply_provider_settings(state)
         return "Provider settings saved."
+
+    def _apply_setup_type(self) -> str:
+        message, _ = self._apply_setup_type_selection(None, update_status=True)
+        return message
 
     def _apply_user(self) -> str:
         username = self._user_entries["username"].get_text().strip()
