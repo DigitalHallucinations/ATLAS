@@ -214,6 +214,22 @@ headerbar.setup-wizard-header button.setup-wizard-debug-button image {
     padding-top: 12px;
 }
 
+.setup-wizard-controls button.setup-wizard-nav {
+    font-weight: 600;
+    min-width: 120px;
+    padding: 8px 18px;
+}
+
+.setup-wizard-progress-hint {
+    font-size: 12px;
+    opacity: 0.75;
+}
+
+.validation-error {
+    border: 1px solid rgba(198, 40, 40, 0.8);
+    box-shadow: 0 0 0 2px rgba(198, 40, 40, 0.25);
+}
+
 /* Status Bar Styling */
 statusbar {
     background-color: #2b2b2b;
