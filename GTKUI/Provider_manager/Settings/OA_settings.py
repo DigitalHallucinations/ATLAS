@@ -14,7 +14,6 @@ from gi.repository import Gtk, GLib
 
 from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css, create_box
-from modules.background_tasks import run_async_in_thread
 
 logger = logging.getLogger(__name__)
 
@@ -1045,15 +1044,25 @@ class OpenAISettingsWindow(AtlasWindow):
             )
             return
 
+        runner = getattr(self.ATLAS, "run_provider_manager_task", None)
+        if not callable(runner):
+            runner = getattr(self.ATLAS, "run_in_background", None)
+
+        if not callable(runner):
+            self._show_message(
+                "Error",
+                "Background tasks are not supported in this build.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
         try:
-            future = run_async_in_thread(
+            runner(
                 lambda: updater("OpenAI", api_key),
                 on_success=handle_success,
                 on_error=handle_error,
-                logger=logger,
                 thread_name="openai-api-key-fallback",
             )
-            future.result()
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.error("Unable to start fallback API key save task: %s", exc, exc_info=True)
             self._show_message(

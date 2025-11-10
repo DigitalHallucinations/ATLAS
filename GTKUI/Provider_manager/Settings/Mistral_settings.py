@@ -15,7 +15,6 @@ from gi.repository import GLib, Gtk
 
 from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import create_box
-from modules.background_tasks import run_async_in_thread
 
 logger = logging.getLogger(__name__)
 
@@ -683,15 +682,25 @@ class MistralSettingsWindow(AtlasWindow):
             )
             return
 
+        runner = getattr(self.ATLAS, "run_provider_manager_task", None)
+        if not callable(runner):
+            runner = getattr(self.ATLAS, "run_in_background", None)
+
+        if not callable(runner):
+            self._set_message(
+                "Error",
+                "Background tasks are not supported in this build.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
         try:
-            future = run_async_in_thread(
+            runner(
                 lambda: updater("Mistral", api_key),
                 on_success=handle_success,
                 on_error=handle_error,
-                logger=logger,
                 thread_name="mistral-api-key-fallback",
             )
-            future.result()
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.error(
                 "Unable to start fallback API key save task: %s", exc, exc_info=True
@@ -788,12 +797,24 @@ class MistralSettingsWindow(AtlasWindow):
 
         self._set_refresh_in_progress(True)
 
+        runner = getattr(self.ATLAS, "run_provider_manager_task", None)
+        if not callable(runner):
+            runner = getattr(self.ATLAS, "run_in_background", None)
+
+        if not callable(runner):
+            self._set_refresh_in_progress(False)
+            self._set_message(
+                "Error",
+                "Background tasks are not supported in this build.",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
         try:
-            run_async_in_thread(
+            runner(
                 lambda: fetcher(base_url=base_url),
                 on_success=handle_success,
                 on_error=handle_error,
-                logger=logger,
                 thread_name="mistral-model-refresh",
             )
         except Exception as exc:  # pragma: no cover - defensive logging
