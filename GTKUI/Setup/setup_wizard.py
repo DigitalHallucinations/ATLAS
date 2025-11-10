@@ -608,7 +608,7 @@ class SetupWizardWindow(AtlasWindow):
                 apply=self._apply_speech,
             ),
             WizardStep(
-                name="Optional",
+                name="Organization",
                 widget=optional_intro,
                 subpages=[optional_intro, optional_form],
                 apply=self._apply_optional,
@@ -958,16 +958,140 @@ class SetupWizardWindow(AtlasWindow):
         )
 
     def _build_optional_intro_page(self) -> Gtk.Widget:
-        return self._create_intro_page(
-            "Optional features",
-            [
-                "ATLAS can integrate with extra services such as observability, analytics, and "
-                "external APIs. These settings are not required but help tailor your deployment.",
-                "Review which optional components you need so you can toggle and configure them on "
-                "the next page.",
-            ],
-            "Confirm which optional services are relevant, then continue to adjust their settings.",
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_hexpand(True)
+        box.set_vexpand(True)
+
+        heading = Gtk.Label(label="Organization policies")
+        heading.set_wrap(True)
+        heading.set_xalign(0.0)
+        if hasattr(heading, "add_css_class"):
+            heading.add_css_class("heading")
+        box.append(heading)
+
+        summary_paragraphs = [
+            (
+                "Seed tenancy defaults, retention expectations, and scheduler overrides so the "
+                "wizard can align the deployment with your organization’s policies."
+            ),
+            (
+                "Enterprise teams often standardize retention workers, queue sizing, and tenant "
+                "namespaces up front so downstream services inherit the right safeguards."
+            ),
+        ]
+        for text in summary_paragraphs:
+            paragraph = Gtk.Label(label=text)
+            paragraph.set_wrap(True)
+            paragraph.set_xalign(0.0)
+            box.append(paragraph)
+
+        callout_frame = Gtk.Frame()
+        callout_frame.set_hexpand(True)
+        callout_frame.set_vexpand(False)
+
+        callout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        callout_box.set_margin_top(6)
+        callout_box.set_margin_bottom(6)
+        callout_box.set_margin_start(12)
+        callout_box.set_margin_end(12)
+
+        runbook_uri: str | None = None
+        try:
+            runbook_path = Path(__file__).resolve().parents[2] / "docs" / "conversation_retention.md"
+            runbook_uri = GLib.filename_to_uri(str(runbook_path), None)
+        except Exception:  # pragma: no cover - defensive fallback
+            runbook_uri = None
+
+        callout_heading = Gtk.Label(label="Scaling checklist")
+        callout_heading.set_wrap(True)
+        callout_heading.set_xalign(0.0)
+        if hasattr(callout_heading, "add_css_class"):
+            callout_heading.add_css_class("heading")
+        callout_box.append(callout_heading)
+
+        tenancy_label = Gtk.Label(
+            label=(
+                "Tenancy defaults: the wizard will suggest tenant IDs from the administrator "
+                "domain so shared namespaces stay consistent across services."
+            )
         )
+        tenancy_label.set_wrap(True)
+        tenancy_label.set_xalign(0.0)
+        callout_box.append(tenancy_label)
+
+        retention_label = Gtk.Label(
+            label=(
+                "Retention workers: confirm the retention worker schedule matches the "
+                "conversation retention runbook before "
+                "enabling stricter purges."
+            )
+        )
+        retention_label.set_wrap(True)
+        retention_label.set_xalign(0.0)
+        callout_box.append(retention_label)
+
+        if runbook_uri:
+            link_widget: Gtk.Widget | None = None
+            link_button_cls = getattr(Gtk, "LinkButton", None)
+            if link_button_cls is not None:
+                try:
+                    link_widget = link_button_cls.new_with_label(
+                        runbook_uri, "Open conversation retention runbook"
+                    )
+                except Exception:  # pragma: no cover - fallback guard
+                    link_widget = None
+            if link_widget is not None:
+                if hasattr(link_widget, "set_halign"):
+                    link_widget.set_halign(Gtk.Align.START)
+                callout_box.append(link_widget)
+            else:
+                fallback_label = Gtk.Label(label=f"Runbook: {runbook_uri}")
+                fallback_label.set_wrap(True)
+                fallback_label.set_xalign(0.0)
+                callout_box.append(fallback_label)
+
+        scheduler_label = Gtk.Label(
+            label=(
+                "Scheduler overrides: document queue size or timezone overrides so job workers "
+                "adopt the same cadence as production schedulers."
+            )
+        )
+        scheduler_label.set_wrap(True)
+        scheduler_label.set_xalign(0.0)
+        callout_box.append(scheduler_label)
+
+        safeguards_label = Gtk.Label(
+            label=(
+                "Shared safeguards: audit residency, encryption, and deletion controls with "
+                "your administrators before scaling multi-tenant deployments."
+            )
+        )
+        safeguards_label.set_wrap(True)
+        safeguards_label.set_xalign(0.0)
+        callout_box.append(safeguards_label)
+
+        if hasattr(callout_frame, "set_child"):
+            callout_frame.set_child(callout_box)
+        else:  # pragma: no cover - GTK3 fallback
+            callout_frame.add(callout_box)
+
+        box.append(callout_frame)
+
+        instructions = (
+            "• Personal workspaces can accept the suggested tenant defaults and baseline retention.\n"
+            "• Enterprise rollouts should align retention with the documented worker schedule and note scheduler overrides.\n"
+            "• Confirm shared safeguards with administrators before advancing to configuration."
+        )
+
+        self._register_instructions(box, instructions)
+        self._register_instructions(
+            callout_frame,
+            (
+                "Review tenancy defaults, retention worker coverage, scheduler overrides, and "
+                "shared safeguards before proceeding."
+            ),
+        )
+        return box
 
     def _build_provider_intro_page(self) -> Gtk.Widget:
         return self._create_intro_page(
@@ -1249,12 +1373,109 @@ class SetupWizardWindow(AtlasWindow):
         self._optional_widgets["http_auto_start"] = http_toggle
         grid.attach(http_toggle, 0, 5, 2, 1)
 
+        callout_frame = Gtk.Frame()
+        callout_frame.set_hexpand(True)
+        callout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        callout_box.set_margin_top(6)
+        callout_box.set_margin_bottom(6)
+        callout_box.set_margin_start(12)
+        callout_box.set_margin_end(12)
+
+        runbook_uri: str | None = None
+        try:
+            runbook_path = Path(__file__).resolve().parents[2] / "docs" / "conversation_retention.md"
+            runbook_uri = GLib.filename_to_uri(str(runbook_path), None)
+        except Exception:  # pragma: no cover - defensive fallback
+            runbook_uri = None
+
+        info_heading = Gtk.Label(label="Enterprise guidance")
+        info_heading.set_wrap(True)
+        info_heading.set_xalign(0.0)
+        if hasattr(info_heading, "add_css_class"):
+            info_heading.add_css_class("heading")
+        callout_box.append(info_heading)
+
+        tenancy_info = Gtk.Label(
+            label=(
+                "Tenancy defaults from the administrator domain populate here automatically; "
+                "adjust them if your organization isolates tenants per business unit."
+            )
+        )
+        tenancy_info.set_wrap(True)
+        tenancy_info.set_xalign(0.0)
+        callout_box.append(tenancy_info)
+
+        retention_info = Gtk.Label(
+            label=(
+                "Retention windows should mirror the retention worker cadence documented in "
+                "docs/conversation_retention.md so purge jobs run consistently."
+            )
+        )
+        retention_info.set_wrap(True)
+        retention_info.set_xalign(0.0)
+        callout_box.append(retention_info)
+
+        if runbook_uri:
+            link_widget: Gtk.Widget | None = None
+            link_button_cls = getattr(Gtk, "LinkButton", None)
+            if link_button_cls is not None:
+                try:
+                    link_widget = link_button_cls.new_with_label(
+                        runbook_uri, "Open conversation retention runbook"
+                    )
+                except Exception:  # pragma: no cover - fallback guard
+                    link_widget = None
+            if link_widget is not None:
+                if hasattr(link_widget, "set_halign"):
+                    link_widget.set_halign(Gtk.Align.START)
+                callout_box.append(link_widget)
+            else:
+                fallback_label = Gtk.Label(label=f"Runbook: {runbook_uri}")
+                fallback_label.set_wrap(True)
+                fallback_label.set_xalign(0.0)
+                callout_box.append(fallback_label)
+
+        scheduler_info = Gtk.Label(
+            label=(
+                "Scheduler overrides help large tenants throttle peak workloads—coordinate "
+                "queue sizes with your infrastructure team."
+            )
+        )
+        scheduler_info.set_wrap(True)
+        scheduler_info.set_xalign(0.0)
+        callout_box.append(scheduler_info)
+
+        safeguards_info = Gtk.Label(
+            label=(
+                "Shared safeguards should include audit logging, residency commitments, and "
+                "scheduled reviews of retention metrics."
+            )
+        )
+        safeguards_info.set_wrap(True)
+        safeguards_info.set_xalign(0.0)
+        callout_box.append(safeguards_info)
+
+        if hasattr(callout_frame, "set_child"):
+            callout_frame.set_child(callout_box)
+        else:  # pragma: no cover - GTK3 fallback
+            callout_frame.add(callout_box)
+
+        grid.attach(callout_frame, 0, 6, 2, 1)
+
         instructions = (
-            "Configure optional tuning parameters such as tenant scoping, retention policies,"
-            " and scheduler defaults."
+            "• Personal deployments may keep defaults but should note how tenant IDs impact audit trails.\n"
+            "• Enterprise deployments must align retention inputs with worker schedules and document scheduler overrides.\n"
+            "• Capture shared safeguards and review them with administrators before saving organization settings."
         )
 
         self._register_instructions(grid, instructions)
+        self._register_instructions(
+            callout_frame,
+            (
+                "Use these notes to compare personal versus enterprise policies and align them "
+                "with your documentation set."
+            ),
+        )
         return grid
 
     def _build_user_page(self) -> Gtk.Widget:
@@ -2031,7 +2252,7 @@ class SetupWizardWindow(AtlasWindow):
                 scheduler_queue_entry,
             )
         ) or not isinstance(http_toggle, Gtk.CheckButton):
-            raise RuntimeError("Optional settings widgets are not configured correctly")
+            raise RuntimeError("Organization settings widgets are not configured correctly")
 
         assert isinstance(tenant_entry, Gtk.Entry)
         assert isinstance(retention_days_entry, Gtk.Entry)
@@ -2058,7 +2279,7 @@ class SetupWizardWindow(AtlasWindow):
         )
 
         self.controller.apply_optional_settings(state)
-        return "Optional settings saved."
+        return "Organization settings saved."
 
     def _apply_providers(self) -> str:
         default_provider = self._provider_entries["default_provider"].get_text().strip() or None
