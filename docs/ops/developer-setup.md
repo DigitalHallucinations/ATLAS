@@ -4,6 +4,23 @@ This runbook walks through preparing a local development environment for ATLAS. 
 
 ## Prerequisites
 - Python 3.10 or newer available on your path.
+- GTK build headers and introspection libraries installed locally.
+  - **Debian/Ubuntu**
+    ```bash
+    sudo apt install libgtk-4-dev libadwaita-1-dev gobject-introspection gir1.2-gtk-4.0
+    ```
+  - **Fedora**
+    ```bash
+    sudo dnf install gtk4-devel libadwaita-devel gobject-introspection-devel
+    ```
+  - **macOS (Homebrew)**
+    ```bash
+    brew install gtk4 libadwaita gobject-introspection
+    ```
+  - Verify the bindings are visible to Python:
+    ```bash
+    python -c "import gi"
+    ```
 - Access to the PostgreSQL instance you intend to use for development (local or remote).
 - Optional: Redis if you plan to exercise the Redis-backed message bus.
 
