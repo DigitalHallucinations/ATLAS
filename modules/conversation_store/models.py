@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID, TSVECTOR
 from sqlalchemy.types import JSON, TypeDecorator
@@ -57,7 +58,8 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
-    external_id = Column(String(255), unique=True, nullable=True)
+    external_id = Column(String(255), unique=False, nullable=True)
+    tenant_id = Column(String(255), nullable=True, index=True)
     display_name = Column(String(255), nullable=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -73,15 +75,27 @@ class User(Base):
         uselist=False,
     )
 
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "external_id", name="uq_users_tenant_external"),
+        Index(
+            "uq_users_external_single",
+            "external_id",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+            sqlite_where=text("tenant_id IS NULL"),
+        ),
+    )
+
 
 class UserCredential(Base):
     __tablename__ = "user_credentials"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    username = Column(String(255), nullable=False, unique=True)
+    tenant_id = Column(String(255), nullable=True, index=True)
+    username = Column(String(255), nullable=False)
     password_hash = Column(String(512), nullable=False)
-    email = Column(String(320), nullable=False, unique=True)
+    email = Column(String(320), nullable=False)
     name = Column(String(255), nullable=True)
     dob = Column(String(32), nullable=True)
     last_login = Column(DateTime(timezone=True), nullable=True)
@@ -103,6 +117,27 @@ class UserCredential(Base):
         back_populates="credential",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "username", name="uq_user_credentials_tenant_username"),
+        UniqueConstraint("tenant_id", "email", name="uq_user_credentials_tenant_email"),
+        Index("ix_user_credentials_username", "username"),
+        Index("ix_user_credentials_email", "email"),
+        Index(
+            "uq_user_credentials_username_single",
+            "username",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+            sqlite_where=text("tenant_id IS NULL"),
+        ),
+        Index(
+            "uq_user_credentials_email_single",
+            "email",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+            sqlite_where=text("tenant_id IS NULL"),
+        ),
     )
 
 

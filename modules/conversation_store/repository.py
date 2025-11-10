@@ -11,7 +11,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Set
 
 try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
-    from sqlalchemy import and_, create_engine, delete, func, inspect, or_, select, text
+    from sqlalchemy import (
+        and_,
+        create_engine,
+        delete,
+        func,
+        inspect,
+        or_,
+        select,
+        text,
+    )
 except Exception:  # pragma: no cover - lightweight fallbacks when SQLAlchemy is absent
     def _raise_sqlalchemy(name: str):
         return RuntimeError(f"SQLAlchemy function '{name}' is unavailable in this environment")
@@ -105,11 +114,11 @@ def _coerce_uuid(value: Any) -> uuid.UUID:
         return uuid.UUID(hex=text.replace("-", ""))
 
 
-def _normalize_tenant_id(value: Any) -> str:
-    text = str(value).strip() if value is not None else ""
-    if not text:
-        raise ValueError("Tenant identifier must be a non-empty string")
-    return text
+def _normalize_tenant_id(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _coerce_dt(value: Any) -> datetime:
@@ -158,6 +167,12 @@ def _normalize_status(value: Any) -> str:
         return _DEFAULT_STATUS
     text = str(value).strip()
     return text or _DEFAULT_STATUS
+
+
+def _tenant_filter(column, tenant_id: Optional[str]):  # type: ignore[no-untyped-def]
+    if tenant_id is None:
+        return column.is_(None)
+    return column == tenant_id
 
 
 def _normalize_episode_tags(tags: Optional[Sequence[Any]]) -> List[str]:
@@ -534,6 +549,7 @@ def _serialize_credential(record: UserCredential) -> Dict[str, Any]:
         "lockout_until": _dt_to_iso(record.lockout_until),
         "created_at": _dt_to_iso(record.created_at),
         "updated_at": _dt_to_iso(record.updated_at),
+        "tenant_id": record.tenant_id,
     }
     return data
 
@@ -589,11 +605,96 @@ class ConversationStoreRepository:
         Base.metadata.create_all(engine)
         ensure_task_schema(engine)
         ensure_job_schema(engine)
-        if getattr(engine.dialect, "name", "") == "postgresql":
-            inspector = inspect(engine)
-            columns = {column["name"] for column in inspector.get_columns("messages")}
-            with engine.begin() as connection:
-                if "message_text_tsv" not in columns:
+
+        inspector = inspect(engine)
+        dialect_name = getattr(engine.dialect, "name", "")
+
+        with engine.begin() as connection:
+            user_columns = {column["name"] for column in inspector.get_columns("users")}
+            if "tenant_id" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN tenant_id VARCHAR(255)"))
+            if dialect_name == "postgresql":
+                connection.execute(text("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_external_id_key"))
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_users_tenant_id ON users (tenant_id)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_tenant_external ON users (tenant_id, external_id)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_external_single ON users (external_id) WHERE tenant_id IS NULL"
+                )
+            )
+
+            credential_columns = {
+                column["name"] for column in inspector.get_columns("user_credentials")
+            }
+            if "tenant_id" not in credential_columns:
+                connection.execute(
+                    text("ALTER TABLE user_credentials ADD COLUMN tenant_id VARCHAR(255)")
+                )
+                connection.execute(
+                    text(
+                        "UPDATE user_credentials SET tenant_id = NULL WHERE tenant_id IS NULL"
+                    )
+                )
+            if dialect_name == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE user_credentials DROP CONSTRAINT IF EXISTS user_credentials_username_key"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "ALTER TABLE user_credentials DROP CONSTRAINT IF EXISTS user_credentials_email_key"
+                    )
+                )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_user_credentials_tenant_id ON user_credentials (tenant_id)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_credentials_tenant_username ON user_credentials (tenant_id, username)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_credentials_tenant_email ON user_credentials (tenant_id, email)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_credentials_username_single ON user_credentials (username) WHERE tenant_id IS NULL"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_credentials_email_single ON user_credentials (email) WHERE tenant_id IS NULL"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_user_credentials_username ON user_credentials (username)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_user_credentials_email ON user_credentials (email)"
+                )
+            )
+
+            if dialect_name == "postgresql":
+                message_columns = {
+                    column["name"] for column in inspector.get_columns("messages")
+                }
+                if "message_text_tsv" not in message_columns:
                     connection.execute(
                         text("ALTER TABLE messages ADD COLUMN message_text_tsv tsvector")
                     )
@@ -626,6 +727,7 @@ class ConversationStoreRepository:
         password_hash: str,
         email: str,
         *,
+        tenant_id: Optional[Any] = None,
         name: Optional[str] = None,
         dob: Optional[str] = None,
         user_id: Optional[Any] = None,
@@ -640,10 +742,57 @@ class ConversationStoreRepository:
         normalised_name = name.strip() if isinstance(name, str) and name.strip() else None
         normalised_dob = dob.strip() if isinstance(dob, str) and dob.strip() else None
         user_uuid = _coerce_uuid(user_id) if user_id is not None else None
+        tenant = _normalize_tenant_id(tenant_id)
 
         with self._session_scope() as session:
+            if tenant is not None:
+                legacy_credential = session.execute(
+                    select(UserCredential)
+                    .where(UserCredential.username == cleaned_username)
+                    .where(UserCredential.tenant_id.is_(None))
+                ).scalar_one_or_none()
+                if legacy_credential is None:
+                    legacy_credential = session.execute(
+                        select(UserCredential)
+                        .where(UserCredential.email == cleaned_email)
+                        .where(UserCredential.tenant_id.is_(None))
+                    ).scalar_one_or_none()
+                if legacy_credential is not None:
+                    legacy_credential.tenant_id = tenant
+                    legacy_credential.username = cleaned_username
+                    legacy_credential.password_hash = password_hash
+                    legacy_credential.email = cleaned_email
+                    legacy_credential.name = normalised_name
+                    legacy_credential.dob = normalised_dob
+                    legacy_credential.user_id = user_uuid
+                    if legacy_credential.failed_attempts is None:
+                        legacy_credential.failed_attempts = []
+                    session.flush()
+                    return _serialize_credential(legacy_credential)
+
+            # Guard against accidental duplicates when the tenant is omitted by
+            # ensuring we only allow a single account with the same username or
+            # email in the legacy single-tenant configuration.
+            tenant_clause = _tenant_filter(UserCredential.tenant_id, tenant)
+            username_conflict = session.execute(
+                select(UserCredential.id)
+                .where(UserCredential.username == cleaned_username)
+                .where(tenant_clause)
+            ).scalar_one_or_none()
+            if username_conflict is not None:
+                raise IntegrityError("duplicate username", params=None, orig=None)  # type: ignore[arg-type]
+
+            email_conflict = session.execute(
+                select(UserCredential.id)
+                .where(UserCredential.email == cleaned_email)
+                .where(tenant_clause)
+            ).scalar_one_or_none()
+            if email_conflict is not None:
+                raise IntegrityError("duplicate email", params=None, orig=None)  # type: ignore[arg-type]
+
             record = UserCredential(
                 user_id=user_uuid,
+                tenant_id=tenant,
                 username=cleaned_username,
                 password_hash=password_hash,
                 email=cleaned_email,
@@ -658,16 +807,30 @@ class ConversationStoreRepository:
                 raise
             return _serialize_credential(record)
 
-    def attach_credential(self, username: str, user_id: Any) -> Optional[str]:
+    def attach_credential(
+        self, username: str, user_id: Any, *, tenant_id: Optional[Any] = None
+    ) -> Optional[str]:
         cleaned_username = str(username).strip()
         if not cleaned_username:
             return None
         user_uuid = _coerce_uuid(user_id)
+        tenant = _normalize_tenant_id(tenant_id)
 
         with self._session_scope() as session:
             credential = session.execute(
-                select(UserCredential).where(UserCredential.username == cleaned_username)
+                select(UserCredential)
+                .where(UserCredential.username == cleaned_username)
+                .where(_tenant_filter(UserCredential.tenant_id, tenant))
             ).scalar_one_or_none()
+            if credential is None and tenant is not None:
+                legacy = session.execute(
+                    select(UserCredential)
+                    .where(UserCredential.username == cleaned_username)
+                    .where(UserCredential.tenant_id.is_(None))
+                ).scalar_one_or_none()
+                if legacy is not None:
+                    legacy.tenant_id = tenant
+                    credential = legacy
             if credential is None:
                 return None
             if credential.user_id == user_uuid:
@@ -677,45 +840,90 @@ class ConversationStoreRepository:
             session.flush()
             return str(credential.user_id) if credential.user_id is not None else None
 
-    def get_user_account(self, username: str) -> Optional[Dict[str, Any]]:
+    def get_user_account(
+        self, username: str, *, tenant_id: Optional[Any] = None
+    ) -> Optional[Dict[str, Any]]:
         cleaned = str(username).strip()
         if not cleaned:
             return None
+        tenant = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             record = session.execute(
-                select(UserCredential).where(UserCredential.username == cleaned)
+                select(UserCredential)
+                .where(UserCredential.username == cleaned)
+                .where(_tenant_filter(UserCredential.tenant_id, tenant))
             ).scalar_one_or_none()
+            if record is None and tenant is not None:
+                legacy = session.execute(
+                    select(UserCredential)
+                    .where(UserCredential.username == cleaned)
+                    .where(UserCredential.tenant_id.is_(None))
+                ).scalar_one_or_none()
+                if legacy is not None:
+                    legacy.tenant_id = tenant
+                    record = legacy
             if record is None:
                 return None
             return _serialize_credential(record)
 
-    def get_user_account_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+    def get_user_account_by_email(
+        self, email: str, *, tenant_id: Optional[Any] = None
+    ) -> Optional[Dict[str, Any]]:
         cleaned = str(email).strip().lower()
         if not cleaned:
             return None
+        tenant = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             record = session.execute(
-                select(UserCredential).where(UserCredential.email == cleaned)
+                select(UserCredential)
+                .where(UserCredential.email == cleaned)
+                .where(_tenant_filter(UserCredential.tenant_id, tenant))
             ).scalar_one_or_none()
+            if record is None and tenant is not None:
+                legacy = session.execute(
+                    select(UserCredential)
+                    .where(UserCredential.email == cleaned)
+                    .where(UserCredential.tenant_id.is_(None))
+                ).scalar_one_or_none()
+                if legacy is not None:
+                    legacy.tenant_id = tenant
+                    record = legacy
             if record is None:
                 return None
             return _serialize_credential(record)
 
-    def get_username_for_email(self, email: str) -> Optional[str]:
-        record = self.get_user_account_by_email(email)
+    def get_username_for_email(
+        self, email: str, *, tenant_id: Optional[Any] = None
+    ) -> Optional[str]:
+        record = self.get_user_account_by_email(email, tenant_id=tenant_id)
         if not record:
             return None
         return record["username"]
 
-    def list_user_accounts(self) -> List[Dict[str, Any]]:
-        with self._session_scope() as session:
-            rows = session.execute(select(UserCredential)).scalars().all()
-            return [_serialize_credential(row) for row in rows]
-
-    def search_user_accounts(self, query_text: Optional[str]) -> List[Dict[str, Any]]:
-        search_term = (str(query_text or "").strip().lower())
+    def list_user_accounts(
+        self, *, tenant_id: Optional[Any] = None
+    ) -> List[Dict[str, Any]]:
+        tenant = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             stmt = select(UserCredential)
+            if tenant is None:
+                stmt = stmt.where(UserCredential.tenant_id.is_(None))
+            else:
+                stmt = stmt.where(UserCredential.tenant_id == tenant)
+            rows = session.execute(stmt).scalars().all()
+            return [_serialize_credential(row) for row in rows]
+
+    def search_user_accounts(
+        self, query_text: Optional[str], *, tenant_id: Optional[Any] = None
+    ) -> List[Dict[str, Any]]:
+        search_term = (str(query_text or "").strip().lower())
+        tenant = _normalize_tenant_id(tenant_id)
+        with self._session_scope() as session:
+            stmt = select(UserCredential)
+            if tenant is None:
+                stmt = stmt.where(UserCredential.tenant_id.is_(None))
+            else:
+                stmt = stmt.where(UserCredential.tenant_id == tenant)
             if search_term:
                 like_term = f"%{search_term}%"
                 stmt = stmt.where(
@@ -737,16 +945,30 @@ class ConversationStoreRepository:
         dob: Optional[str] = None,
         password_hash: Optional[str] = None,
         user_id: Optional[Any] = None,
+        tenant_id: Optional[Any] = None,
     ) -> bool:
         cleaned = str(username).strip()
         if not cleaned:
             return False
+        tenant = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
             record = session.execute(
-                select(UserCredential).where(UserCredential.username == cleaned)
+                select(UserCredential)
+                .where(UserCredential.username == cleaned)
+                .where(_tenant_filter(UserCredential.tenant_id, tenant))
             ).scalar_one_or_none()
             if record is None:
-                return False
+                if tenant is not None:
+                    legacy = session.execute(
+                        select(UserCredential)
+                        .where(UserCredential.username == cleaned)
+                        .where(UserCredential.tenant_id.is_(None))
+                    ).scalar_one_or_none()
+                    if legacy is not None:
+                        legacy.tenant_id = tenant
+                        record = legacy
+                if record is None:
+                    return False
 
             if email is not None:
                 cleaned_email = str(email).strip().lower() or None
@@ -765,15 +987,25 @@ class ConversationStoreRepository:
                 raise
             return True
 
-    def delete_user_account(self, username: str) -> bool:
+    def delete_user_account(
+        self, username: str, *, tenant_id: Optional[Any] = None
+    ) -> bool:
         cleaned = str(username).strip()
         if not cleaned:
             return False
+        tenant = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
-            result = session.execute(
-                delete(UserCredential).where(UserCredential.username == cleaned)
-            )
-            return result.rowcount > 0
+            stmt = delete(UserCredential).where(UserCredential.username == cleaned)
+            stmt = stmt.where(_tenant_filter(UserCredential.tenant_id, tenant))
+            result = session.execute(stmt)
+            if result.rowcount:
+                return True
+            if tenant is not None:
+                legacy_stmt = delete(UserCredential).where(UserCredential.username == cleaned)
+                legacy_stmt = legacy_stmt.where(UserCredential.tenant_id.is_(None))
+                legacy_result = session.execute(legacy_stmt)
+                return legacy_result.rowcount > 0
+            return False
 
     def set_user_password(self, username: str, password_hash: str) -> bool:
         return self.update_user_account(username, password_hash=password_hash)
@@ -1003,24 +1235,47 @@ class ConversationStoreRepository:
     # -- CRUD operations ----------------------------------------------------
 
     def _lookup_user_by_username(
-        self, session: Session, username: str
+        self, session: Session, username: str, *, tenant_id: Optional[Any] = None
     ) -> Optional[User]:
         cleaned = str(username).strip()
         if not cleaned:
             return None
+        tenant = _normalize_tenant_id(tenant_id)
 
         credential = session.execute(
             select(UserCredential)
             .options(joinedload(UserCredential.user))
             .where(UserCredential.username == cleaned)
+            .where(_tenant_filter(UserCredential.tenant_id, tenant))
         ).scalar_one_or_none()
+
+        if credential is None and tenant is not None:
+            legacy_credential = session.execute(
+                select(UserCredential)
+                .options(joinedload(UserCredential.user))
+                .where(UserCredential.username == cleaned)
+                .where(UserCredential.tenant_id.is_(None))
+            ).scalar_one_or_none()
+            if legacy_credential is not None:
+                legacy_credential.tenant_id = tenant
+                credential = legacy_credential
 
         if credential and credential.user is not None:
             return credential.user
 
-        user = session.execute(
-            select(User).where(User.external_id == cleaned)
-        ).scalar_one_or_none()
+        user_stmt = select(User).where(User.external_id == cleaned)
+        user_stmt = user_stmt.where(_tenant_filter(User.tenant_id, tenant))
+        user = session.execute(user_stmt).scalar_one_or_none()
+
+        if user is None and tenant is not None:
+            legacy_user = session.execute(
+                select(User)
+                .where(User.external_id == cleaned)
+                .where(User.tenant_id.is_(None))
+            ).scalar_one_or_none()
+            if legacy_user is not None:
+                legacy_user.tenant_id = tenant
+                user = legacy_user
 
         if user is not None:
             if credential and credential.user_id != user.id:
@@ -1043,6 +1298,7 @@ class ConversationStoreRepository:
         *,
         display_name: Optional[str] = None,
         metadata: Optional[Mapping[str, Any]] = None,
+        tenant_id: Optional[Any] = None,
     ) -> uuid.UUID:
         """Ensure that a user record exists for ``external_id`` and return its UUID."""
 
@@ -1055,15 +1311,27 @@ class ConversationStoreRepository:
 
         display = display_name.strip() if isinstance(display_name, str) else None
         metadata_payload = dict(metadata or {})
+        tenant = _normalize_tenant_id(tenant_id)
 
         with self._session_scope() as session:
-            record = session.execute(
-                select(User).where(User.external_id == identifier)
-            ).scalar_one_or_none()
+            stmt = select(User).where(User.external_id == identifier)
+            stmt = stmt.where(_tenant_filter(User.tenant_id, tenant))
+            record = session.execute(stmt).scalar_one_or_none()
+
+            if record is None and tenant is not None:
+                legacy_record = session.execute(
+                    select(User)
+                    .where(User.external_id == identifier)
+                    .where(User.tenant_id.is_(None))
+                ).scalar_one_or_none()
+                if legacy_record is not None:
+                    legacy_record.tenant_id = tenant
+                    record = legacy_record
 
             if record is None:
                 record = User(
                     external_id=identifier,
+                    tenant_id=tenant,
                     display_name=display or identifier,
                     meta=metadata_payload,
                 )
@@ -1088,13 +1356,17 @@ class ConversationStoreRepository:
 
             return record.id
 
-    def get_user_profile(self, username: str) -> Optional[Dict[str, Any]]:
+    def get_user_profile(
+        self, username: str, *, tenant_id: Optional[Any] = None
+    ) -> Optional[Dict[str, Any]]:
         cleaned = str(username).strip()
         if not cleaned:
             return None
 
         with self._session_scope() as session:
-            user_record = self._lookup_user_by_username(session, cleaned)
+            user_record = self._lookup_user_by_username(
+                session, cleaned, tenant_id=tenant_id
+            )
             if user_record is None:
                 return None
 
@@ -1124,11 +1396,17 @@ class ConversationStoreRepository:
                 "user_id": str(user_record.id),
             }
 
-    def list_user_profiles(self) -> List[Dict[str, Any]]:
+    def list_user_profiles(
+        self, *, tenant_id: Optional[Any] = None
+    ) -> List[Dict[str, Any]]:
+        tenant = _normalize_tenant_id(tenant_id)
         with self._session_scope() as session:
-            rows = session.execute(
-                select(User).options(joinedload(User.credentials))
-            ).scalars().all()
+            stmt = select(User).options(joinedload(User.credentials))
+            if tenant is None:
+                stmt = stmt.where(User.tenant_id.is_(None))
+            else:
+                stmt = stmt.where(User.tenant_id == tenant)
+            rows = session.execute(stmt).scalars().all()
 
             results: List[Dict[str, Any]] = []
             for row in rows:

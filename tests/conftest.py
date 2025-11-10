@@ -175,6 +175,7 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
     sqlalchemy_stub.inspect = _noop
     sqlalchemy_stub.create_engine = _noop
     sqlalchemy_stub.delete = lambda *args, **kwargs: ("delete", args, kwargs)
+    sqlalchemy_stub.text = lambda *args, **kwargs: ("text", args, kwargs)
 
     class _FuncProxy:
         def __getattr__(self, name):  # pragma: no cover - stub helper

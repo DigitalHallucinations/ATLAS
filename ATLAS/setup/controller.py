@@ -405,6 +405,14 @@ class SetupWizardController:
             config_manager=self.config_manager,
             conversation_repository=repository,
         )
+        tenant_value: Optional[str] = None
+        optional_state = getattr(self.state, "optional", None)
+        if optional_state and optional_state.tenant_id:
+            tenant_value = optional_state.tenant_id.strip() or None
+        if not tenant_value:
+            configured_tenant = self.config_manager.get_config("tenant_id")
+            if configured_tenant:
+                tenant_value = str(configured_tenant).strip() or None
         account = service.register_user(
             username=profile.username,
             password=profile.password,
@@ -413,6 +421,7 @@ class SetupWizardController:
             dob=profile.date_of_birth or None,
             full_name=profile.full_name or None,
             domain=profile.domain or None,
+            tenant_id=tenant_value,
         )
         self.config_manager.set_active_user(account.username)
         self._staged_admin_profile = dataclasses.replace(profile)
