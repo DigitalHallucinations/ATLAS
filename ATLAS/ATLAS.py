@@ -1876,6 +1876,23 @@ class ATLAS:
             thread_name=thread_name,
         )
 
+    def run_provider_manager_task(
+        self,
+        coroutine_factory: Callable[[], Awaitable[Any]],
+        *,
+        on_success: Optional[Callable[[Any], None]] = None,
+        on_error: Optional[Callable[[Exception], None]] = None,
+        thread_name: Optional[str] = None,
+    ) -> Future:
+        """Schedule a provider-manager coroutine using the shared background runner."""
+
+        return self.run_in_background(
+            coroutine_factory,
+            on_success=on_success,
+            on_error=on_error,
+            thread_name=thread_name,
+        )
+
     def set_current_provider_in_background(
         self,
         provider: str,

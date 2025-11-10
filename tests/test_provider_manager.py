@@ -3983,10 +3983,17 @@ def test_mistral_settings_window_round_trips_defaults(provider_manager, monkeypa
 
     monkeypatch.setattr(config, "has_provider_api_key", tracked_has_provider_api_key)
 
+    provider_manager.model_manager.models["Mistral"] = [
+        "mistral-small-latest",
+        "mistral-medium-latest",
+        "mistral-large-latest",
+    ]
+
     atlas_stub = types.SimpleNamespace(
         provider_manager=provider_manager,
         config_manager=config,
         get_provider_api_key_status=lambda _name: {"has_key": False, "metadata": {}},
+        run_in_background=lambda *args, **kwargs: types.SimpleNamespace(result=lambda: None),
     )
 
     window = MistralSettingsWindow(atlas_stub, config, None)
@@ -4268,7 +4275,7 @@ def test_mistral_settings_window_saves_api_key_with_fallback(
         def result(self):
             return None
 
-    def fake_run_async_in_thread(factory, *, on_success=None, on_error=None, **_kwargs):
+    def fake_run_in_background(factory, *, on_success=None, on_error=None, **_kwargs):
         state["scheduled"] = True
         try:
             result = factory()
@@ -4280,13 +4287,12 @@ def test_mistral_settings_window_saves_api_key_with_fallback(
                 on_success(result)
         return _FakeFuture()
 
-    monkeypatch.setattr(Mistral_settings, "run_async_in_thread", fake_run_async_in_thread)
-
     atlas_stub = types.SimpleNamespace(
         provider_manager=provider_manager,
         config_manager=config,
         update_provider_api_key=fake_update_provider_api_key,
         get_provider_api_key_status=fake_status,
+        run_in_background=fake_run_in_background,
     )
 
     window = MistralSettingsWindow(atlas_stub, config, None)
@@ -4315,16 +4321,15 @@ def test_mistral_settings_window_refresh_requires_api_key(
 
     state = {"scheduled": False}
 
-    def fake_run_async_in_thread(*_args, **_kwargs):
+    def fake_run_in_background(*_args, **_kwargs):
         state["scheduled"] = True
         return types.SimpleNamespace(result=lambda: None)
-
-    monkeypatch.setattr(Mistral_settings, "run_async_in_thread", fake_run_async_in_thread)
 
     atlas_stub = types.SimpleNamespace(
         provider_manager=provider_manager,
         config_manager=config,
         get_provider_api_key_status=lambda _name: {"has_key": False, "metadata": {}},
+        run_in_background=fake_run_in_background,
     )
 
     window = MistralSettingsWindow(atlas_stub, config, None)
@@ -4372,7 +4377,7 @@ def test_mistral_settings_window_refresh_updates_models(provider_manager, monkey
 
     state = {"scheduled": False, "result": None, "base_url": None}
 
-    def fake_run_async_in_thread(factory, *, on_success=None, on_error=None, **_kwargs):
+    def fake_run_in_background(factory, *, on_success=None, on_error=None, **_kwargs):
         state["scheduled"] = True
         try:
             result = asyncio.run(factory())
@@ -4386,14 +4391,13 @@ def test_mistral_settings_window_refresh_updates_models(provider_manager, monkey
                 on_success(result)
             return _FakeFuture(result)
 
-    monkeypatch.setattr(Mistral_settings, "run_async_in_thread", fake_run_async_in_thread)
-
     status_payload = {"has_key": True, "metadata": {"hint": "••••resh"}}
 
     atlas_stub = types.SimpleNamespace(
         provider_manager=provider_manager,
         config_manager=config,
         get_provider_api_key_status=lambda _name: dict(status_payload),
+        run_in_background=fake_run_in_background,
     )
 
     window = MistralSettingsWindow(atlas_stub, config, None)
@@ -4434,7 +4438,7 @@ def test_mistral_settings_window_refresh_handles_error(provider_manager, monkeyp
 
     state = {"scheduled": False, "base_url": None}
 
-    def fake_run_async_in_thread(factory, *, on_success=None, on_error=None, **_kwargs):
+    def fake_run_in_background(factory, *, on_success=None, on_error=None, **_kwargs):
         state["scheduled"] = True
         try:
             result = asyncio.run(factory())
@@ -4446,12 +4450,11 @@ def test_mistral_settings_window_refresh_handles_error(provider_manager, monkeyp
                 on_success(result)
         return _FakeFuture()
 
-    monkeypatch.setattr(Mistral_settings, "run_async_in_thread", fake_run_async_in_thread)
-
     atlas_stub = types.SimpleNamespace(
         provider_manager=provider_manager,
         config_manager=config,
         get_provider_api_key_status=lambda _name: {"has_key": True, "metadata": {}},
+        run_in_background=fake_run_in_background,
     )
 
     window = MistralSettingsWindow(atlas_stub, config, None)
@@ -4545,7 +4548,7 @@ def test_anthropic_settings_window_fallback_is_non_blocking(provider_manager, mo
         def result(self):  # pragma: no cover - ensuring the old blocking call is gone
             raise AssertionError("future.result() should not be invoked")
 
-    def fake_run_async_in_thread(factory, *, on_success=None, on_error=None, **_kwargs):
+    def fake_run_in_background(factory, *, on_success=None, on_error=None, **_kwargs):
         state["scheduled"] = True
         state["button_disabled_before_success"] = not getattr(window.save_key_button, "sensitive", True)
         try:
@@ -4558,11 +4561,7 @@ def test_anthropic_settings_window_fallback_is_non_blocking(provider_manager, mo
                 on_success(result)
         return _FakeFuture()
 
-    monkeypatch.setattr(
-        Anthropic_settings,
-        "run_async_in_thread",
-        fake_run_async_in_thread,
-    )
+    atlas_stub.run_in_background = fake_run_in_background
 
     window.api_key_entry.set_text("fallback-key")
     window.on_save_api_key_clicked(None)
