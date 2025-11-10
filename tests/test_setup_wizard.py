@@ -5,7 +5,7 @@ import pytest
 gi = pytest.importorskip("gi")
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk
+from gi.repository import Gdk, Gtk
 
 from GTKUI.Setup.setup_wizard import SetupWizardWindow
 from ATLAS.setup import (
@@ -309,6 +309,74 @@ def test_setup_wizard_debug_button_opens_log_window(monkeypatch):
         window._on_log_button_clicked(debug_button)
 
     assert ensure_calls == [window]
+
+    window.close()
+
+
+def test_setup_wizard_alt_arrow_shortcuts(monkeypatch):
+    application = Gtk.Application()
+    controller = FakeController()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    calls: list[str] = []
+
+    def _record_back(*_args: object) -> None:
+        calls.append("back")
+
+    def _record_next(*_args: object) -> None:
+        calls.append("next")
+
+    monkeypatch.setattr(window, "_on_back_clicked", _record_back)
+    monkeypatch.setattr(window, "_on_next_clicked", _record_next)
+
+    alt_mask = getattr(Gdk.ModifierType, "ALT_MASK", getattr(Gdk.ModifierType, "MOD1_MASK", 0))
+
+    assert window._on_window_key_pressed(None, Gdk.KEY_Left, 0, alt_mask) is True
+    assert window._on_window_key_pressed(None, Gdk.KEY_Right, 0, alt_mask) is True
+    assert window._on_window_key_pressed(None, Gdk.KEY_Right, 0, 0) is False
+    assert calls == ["back", "next"]
+
+    window.close()
+
+
+def test_setup_wizard_inline_validation_feedback():
+    application = Gtk.Application()
+    controller = FakeController()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    username_entry = window._user_entries["username"]
+    username_entry.set_text("")
+    window._run_validation(username_entry)
+    tooltip_getter = getattr(username_entry, "get_tooltip_text", None)
+    if callable(tooltip_getter):
+        assert tooltip_getter() == "Username is required"
+
+    retry_entry = window._job_widgets["retry_max_attempts"]
+    assert isinstance(retry_entry, Gtk.Entry)
+    retry_entry.set_text("invalid")
+    window._run_validation(retry_entry)
+    retry_tooltip_getter = getattr(retry_entry, "get_tooltip_text", None)
+    if callable(retry_tooltip_getter):
+        assert retry_tooltip_getter() == "Max attempts must be a whole number"
+
+    retry_entry.set_text("5")
+    window._run_validation(retry_entry)
+    if callable(retry_tooltip_getter):
+        assert retry_tooltip_getter() in {None, ""}
 
     window.close()
 

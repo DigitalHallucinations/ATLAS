@@ -363,25 +363,33 @@ class SetupWizardWindow(AtlasWindow):
         self._step_progress_bar.set_hexpand(True)
         controls.append(self._step_progress_bar)
 
-        self._page_back_button = Gtk.Button(label="◀")
-        if hasattr(self._page_back_button, "set_tooltip_text"):
-            self._page_back_button.set_tooltip_text("Previous section")
-        self._page_back_button.connect("clicked", self._on_back_clicked)
-        controls.append(self._page_back_button)
-
-        self._page_next_button = Gtk.Button(label="▶")
-        if hasattr(self._page_next_button, "set_tooltip_text"):
-            self._page_next_button.set_tooltip_text("Next section")
-        self._page_next_button.connect("clicked", self._on_next_clicked)
-        controls.append(self._page_next_button)
-
         self._back_button = Gtk.Button(label="Back")
+        if hasattr(self._back_button, "add_css_class"):
+            self._back_button.add_css_class("setup-wizard-nav")
+        if hasattr(self._back_button, "set_tooltip_text"):
+            self._back_button.set_tooltip_text("Go back (Alt+Left)")
+        if hasattr(self._back_button, "set_can_default"):
+            self._back_button.set_can_default(False)
         self._back_button.connect("clicked", self._on_back_clicked)
         controls.append(self._back_button)
 
         self._next_button = Gtk.Button(label="Next")
+        if hasattr(self._next_button, "add_css_class"):
+            self._next_button.add_css_class("setup-wizard-nav")
+            self._next_button.add_css_class("suggested-action")
+        if hasattr(self._next_button, "set_tooltip_text"):
+            self._next_button.set_tooltip_text("Next (Alt+Right)")
+        if hasattr(self._next_button, "set_can_default"):
+            self._next_button.set_can_default(True)
         self._next_button.connect("clicked", self._on_next_clicked)
         controls.append(self._next_button)
+
+        self._progress_hint_label = Gtk.Label(label="Progress saved automatically.")
+        self._progress_hint_label.set_xalign(1.0)
+        self._progress_hint_label.set_hexpand(False)
+        if hasattr(self._progress_hint_label, "add_css_class"):
+            self._progress_hint_label.add_css_class("setup-wizard-progress-hint")
+        controls.append(self._progress_hint_label)
 
         self._steps: List[WizardStep] = []
         self._current_index = 0
@@ -416,6 +424,10 @@ class SetupWizardWindow(AtlasWindow):
         self._log_target_loggers: list[logging.Logger] = []
         self._log_toggle_button: Gtk.Button | None = debug_button
         self._log_button_handler_id: int | None = None
+        self._validation_rules: dict[Gtk.Widget, Callable[[], tuple[bool, str | None]]] = {}
+        self._validation_signal_ids: dict[Gtk.Widget, int] = {}
+        self._validation_base_tooltips: dict[Gtk.Widget, str | None] = {}
+        self._validation_base_descriptions: dict[Gtk.Widget, str | None] = {}
 
         if hasattr(debug_button, "connect"):
             try:
@@ -425,8 +437,31 @@ class SetupWizardWindow(AtlasWindow):
             except Exception:  # pragma: no cover - GTK fallback
                 self._log_button_handler_id = None
 
+        key_controller_cls = getattr(Gtk, "EventControllerKey", None)
+        if key_controller_cls is not None:
+            try:
+                key_controller = key_controller_cls()
+            except Exception:  # pragma: no cover - GTK stubs
+                key_controller = None
+            if key_controller is not None:
+                try:
+                    key_controller.connect(
+                        "key-pressed", self._on_window_key_pressed
+                    )
+                except Exception:  # pragma: no cover - GTK stubs
+                    pass
+                else:
+                    add_controller = getattr(self, "add_controller", None)
+                    if callable(add_controller):
+                        try:
+                            add_controller(key_controller)
+                        except Exception:  # pragma: no cover - GTK3 fallback
+                            pass
+
         self._build_steps()
         self._build_steps_sidebar()  # populate sidebar
+
+        self._refresh_validation_states()
 
         if error is not None:
             self.display_error(error)
@@ -1526,18 +1561,50 @@ class SetupWizardWindow(AtlasWindow):
         self._job_widgets["retry_max_attempts"] = self._create_labeled_entry(
             grid, row, "Max attempts", str(retry.max_attempts)
         )
+        retry_max_entry = self._job_widgets["retry_max_attempts"]
+        if isinstance(retry_max_entry, Gtk.Entry):
+            self._register_required_number(
+                retry_max_entry,
+                "Max attempts",
+                parse=lambda value: int(value),
+                number_label="whole number",
+            )
         row += 1
         self._job_widgets["retry_backoff_seconds"] = self._create_labeled_entry(
             grid, row, "Backoff seconds", self._format_float(retry.backoff_seconds)
         )
+        backoff_entry = self._job_widgets["retry_backoff_seconds"]
+        if isinstance(backoff_entry, Gtk.Entry):
+            self._register_required_number(
+                backoff_entry,
+                "Backoff seconds",
+                parse=lambda value: float(value),
+                number_label="number",
+            )
         row += 1
         self._job_widgets["retry_jitter_seconds"] = self._create_labeled_entry(
             grid, row, "Jitter seconds", self._format_float(retry.jitter_seconds)
         )
+        jitter_entry = self._job_widgets["retry_jitter_seconds"]
+        if isinstance(jitter_entry, Gtk.Entry):
+            self._register_required_number(
+                jitter_entry,
+                "Jitter seconds",
+                parse=lambda value: float(value),
+                number_label="number",
+            )
         row += 1
         self._job_widgets["retry_backoff_multiplier"] = self._create_labeled_entry(
             grid, row, "Backoff multiplier", self._format_float(retry.backoff_multiplier)
         )
+        multiplier_entry = self._job_widgets["retry_backoff_multiplier"]
+        if isinstance(multiplier_entry, Gtk.Entry):
+            self._register_required_number(
+                multiplier_entry,
+                "Backoff multiplier",
+                parse=lambda value: float(value),
+                number_label="number",
+            )
 
         instructions = (
             "• Turn scheduling on when you want background jobs to run.\n"
@@ -1810,10 +1877,14 @@ class SetupWizardWindow(AtlasWindow):
         self._user_entries["password"] = self._create_labeled_entry(
             grid, row, "Password", state.password, visibility=False
         )
+        password_entry = self._user_entries["password"]
+        self._register_required_text(password_entry, "Password", strip=False)
         row += 1
         self._user_entries["confirm_password"] = self._create_labeled_entry(
             grid, row, "Confirm password", state.password, visibility=False
         )
+        confirm_password_entry = self._user_entries["confirm_password"]
+        self._register_password_confirmation(password_entry, confirm_password_entry)
         row += 1
 
         privileged_label = Gtk.Label(label="System privileged credentials")
@@ -1835,6 +1906,7 @@ class SetupWizardWindow(AtlasWindow):
             privileged_state.sudo_password,
             visibility=False,
         )
+        sudo_password_entry = self._user_entries["sudo_password"]
         row += 1
         self._user_entries["confirm_sudo_password"] = self._create_labeled_entry(
             grid,
@@ -1843,6 +1915,21 @@ class SetupWizardWindow(AtlasWindow):
             privileged_state.sudo_password,
             visibility=False,
         )
+        confirm_sudo_entry = self._user_entries["confirm_sudo_password"]
+
+        def _sudo_validator() -> tuple[bool, str | None]:
+            sudo_password = sudo_password_entry.get_text()
+            confirm_sudo = confirm_sudo_entry.get_text()
+            if not sudo_password and not confirm_sudo:
+                return True, None
+            if sudo_password and not confirm_sudo:
+                return False, "Confirm sudo password is required"
+            if sudo_password != confirm_sudo:
+                return False, "Sudo passwords must match"
+            return True, None
+
+        self._register_validation(confirm_sudo_entry, _sudo_validator)
+        self._register_linked_validation_trigger(sudo_password_entry, confirm_sudo_entry)
 
         instructions = (
             "Share the administrator's contact details, optional domain, and any privileged credentials so we can stage them for later steps."
@@ -1851,6 +1938,8 @@ class SetupWizardWindow(AtlasWindow):
         form = self._wrap_with_instructions(
             grid, instructions, "Configure Administrator"
         )
+        username_entry = self._user_entries["username"]
+        self._register_required_text(username_entry, "Username")
         self._sync_user_entries_from_state()
         return form
 
@@ -1918,6 +2007,164 @@ class SetupWizardWindow(AtlasWindow):
         entry.set_width_chars(25)
         entry.set_max_width_chars(25)
         return entry
+
+    def _register_validation(
+        self,
+        widget: Gtk.Widget,
+        validator: Callable[[], tuple[bool, str | None]],
+        *,
+        signal: str = "changed",
+    ) -> None:
+        if widget in self._validation_rules:
+            self._validation_rules[widget] = validator
+        else:
+            self._validation_rules[widget] = validator
+            getter = getattr(widget, "get_tooltip_text", None)
+            if callable(getter):
+                try:
+                    current = getter()
+                except Exception:  # pragma: no cover - GTK stubs
+                    current = None
+            else:
+                current = None
+            self._validation_base_tooltips.setdefault(widget, current)
+
+            desc_getter = getattr(widget, "get_accessible_description", None)
+            if callable(desc_getter):
+                try:
+                    description = desc_getter()
+                except Exception:  # pragma: no cover - GTK stubs
+                    description = None
+            else:
+                description = None
+            self._validation_base_descriptions.setdefault(widget, description)
+
+        connector = getattr(widget, "connect", None)
+        handler_id: int | None = None
+        if callable(connector):
+            try:
+                handler_id = connector(signal, lambda *_args, w=widget: self._run_validation(w))
+            except Exception:  # pragma: no cover - GTK stubs
+                handler_id = None
+        if handler_id is not None:
+            self._validation_signal_ids[widget] = handler_id
+        self._run_validation(widget)
+
+    def _register_linked_validation_trigger(
+        self, source: Gtk.Widget, target: Gtk.Widget
+    ) -> None:
+        connector = getattr(source, "connect", None)
+        if callable(connector):
+            try:
+                connector("changed", lambda *_args, w=target: self._run_validation(w))
+            except Exception:  # pragma: no cover - GTK stubs
+                pass
+
+    def _register_required_text(
+        self, entry: Gtk.Entry, field: str, *, strip: bool = True
+    ) -> None:
+        def _validator() -> tuple[bool, str | None]:
+            text = entry.get_text()
+            if strip:
+                text = text.strip()
+            if not text:
+                return False, f"{field} is required"
+            return True, None
+
+        self._register_validation(entry, _validator)
+
+    def _register_password_confirmation(
+        self, password_entry: Gtk.Entry, confirm_entry: Gtk.Entry
+    ) -> None:
+        def _validator() -> tuple[bool, str | None]:
+            password = password_entry.get_text()
+            confirm = confirm_entry.get_text()
+            if not confirm:
+                return False, "Confirm password is required"
+            if password != confirm:
+                return False, "Passwords must match"
+            return True, None
+
+        self._register_validation(confirm_entry, _validator)
+        self._register_linked_validation_trigger(password_entry, confirm_entry)
+
+    def _register_required_number(
+        self,
+        entry: Gtk.Entry,
+        field: str,
+        *,
+        parse: Callable[[str], object],
+        number_label: str,
+    ) -> None:
+        def _validator() -> tuple[bool, str | None]:
+            text = entry.get_text().strip()
+            if not text:
+                return False, f"{field} is required"
+            try:
+                parse(text)
+            except ValueError:
+                return False, f"{field} must be a {number_label}"
+            return True, None
+
+        self._register_validation(entry, _validator)
+
+    def _run_validation(self, widget: Gtk.Widget) -> None:
+        validator = self._validation_rules.get(widget)
+        if validator is None:
+            return
+        try:
+            valid, message = validator()
+        except Exception:  # pragma: no cover - defensive
+            valid, message = False, "Invalid value"
+        self._apply_validation_feedback(widget, valid, message)
+
+    def _apply_validation_feedback(
+        self, widget: Gtk.Widget, is_valid: bool, message: str | None
+    ) -> None:
+        css_class = "validation-error"
+        add_class = getattr(widget, "add_css_class", None)
+        remove_class = getattr(widget, "remove_css_class", None)
+        set_tooltip = getattr(widget, "set_tooltip_text", None)
+        set_description = getattr(widget, "set_accessible_description", None)
+
+        if is_valid:
+            if callable(remove_class):
+                try:
+                    remove_class(css_class)
+                except Exception:  # pragma: no cover - GTK stubs
+                    pass
+            base_tooltip = self._validation_base_tooltips.get(widget)
+            if callable(set_tooltip):
+                try:
+                    set_tooltip(base_tooltip)
+                except Exception:  # pragma: no cover - GTK stubs
+                    pass
+            base_description = self._validation_base_descriptions.get(widget) or ""
+            if callable(set_description):
+                try:
+                    set_description(base_description)
+                except Exception:  # pragma: no cover - GTK stubs
+                    pass
+        else:
+            if callable(add_class):
+                try:
+                    add_class(css_class)
+                except Exception:  # pragma: no cover - GTK stubs
+                    pass
+            if callable(set_tooltip):
+                try:
+                    set_tooltip(message or "")
+                except Exception:  # pragma: no cover - GTK stubs
+                    pass
+            if callable(set_description):
+                try:
+                    set_description(message or "")
+                except Exception:  # pragma: no cover - GTK stubs
+                    pass
+
+    def _refresh_validation_states(self) -> None:
+        for widget in list(self._validation_rules):
+            self._run_validation(widget)
 
     def _format_api_keys(self, mapping: Dict[str, str]) -> str:
         lines = [f"{provider}={key}" for provider, key in sorted(mapping.items())]
@@ -2077,19 +2324,50 @@ class SetupWizardWindow(AtlasWindow):
         if hasattr(self._back_button, "set_sensitive"):
             self._back_button.set_sensitive(has_previous_step or has_previous_page)
 
-        if hasattr(self._page_back_button, "set_sensitive"):
-            self._page_back_button.set_sensitive(has_previous_page)
-        if hasattr(self._page_next_button, "set_sensitive"):
-            self._page_next_button.set_sensitive(has_next_page)
-
-        show_page_navigation = total_pages > 1
-        for button in (self._page_back_button, self._page_next_button):
-            if hasattr(button, "set_visible"):
-                button.set_visible(show_page_navigation)
+        if hasattr(self._next_button, "set_sensitive"):
+            self._next_button.set_sensitive(has_next_page or has_next_step)
 
         if hasattr(self._next_button, "set_label"):
-            label = "Finish" if not has_next_page and not has_next_step else "Next"
+            if has_next_page:
+                label = "Next page"
+            elif not has_next_step:
+                label = "Finish"
+            else:
+                label = "Next"
             self._next_button.set_label(label)
+
+        back_tooltip = "Go back (Alt+Left)"
+        back_description = "Use Alt+Left to move to the previous page or step"
+        if has_previous_page:
+            back_tooltip = "Previous page (Alt+Left)"
+            back_description = "Use Alt+Left to return to the previous page"
+        elif has_previous_step:
+            back_tooltip = "Previous step (Alt+Left)"
+            back_description = "Use Alt+Left to return to the previous step"
+
+        next_tooltip = "Next (Alt+Right)"
+        next_description = "Use Alt+Right to move forward"
+        if has_next_page:
+            next_tooltip = "Next page (Alt+Right)"
+            next_description = "Use Alt+Right to continue to the next page"
+        elif not has_next_step:
+            next_tooltip = "Finish setup (Alt+Right)"
+            next_description = "Use Alt+Right to complete setup"
+
+        for widget, tooltip, description in (
+            (self._back_button, back_tooltip, back_description),
+            (self._next_button, next_tooltip, next_description),
+        ):
+            if hasattr(widget, "set_tooltip_text"):
+                try:
+                    widget.set_tooltip_text(tooltip)
+                except Exception:  # pragma: no cover - GTK stubs
+                    pass
+            if hasattr(widget, "set_accessible_description"):
+                try:
+                    widget.set_accessible_description(description)
+                except Exception:  # pragma: no cover - GTK stubs
+                    pass
 
     def _update_step_status(self) -> None:
         total_steps = len(self._steps)
@@ -2115,6 +2393,29 @@ class SetupWizardWindow(AtlasWindow):
             )
         self._step_status_label.set_text(status)
         self._step_progress_bar.set_fraction(current_step_number / total_steps)
+
+    def _on_window_key_pressed(
+        self, _controller: Gtk.EventControllerKey | None, keyval: int, _keycode: int, state: int
+    ) -> bool:
+        alt_mask = getattr(Gdk.ModifierType, "ALT_MASK", getattr(Gdk.ModifierType, "MOD1_MASK", 0))
+        if not state & alt_mask:
+            return False
+
+        handled = False
+        if keyval in {
+            getattr(Gdk, "KEY_Left", 0),
+            getattr(Gdk, "KEY_KP_Left", 0),
+        }:
+            self._on_back_clicked(None)
+            handled = True
+        elif keyval in {
+            getattr(Gdk, "KEY_Right", 0),
+            getattr(Gdk, "KEY_KP_Right", 0),
+        }:
+            self._on_next_clicked(None)
+            handled = True
+
+        return handled
 
     def _on_back_clicked(self, *_: object) -> None:
         if self._retreat_subpage():
