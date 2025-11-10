@@ -15,11 +15,8 @@ from modules.Tools.Base_Tools.vector_store import (
     VectorStoreService,
 )
 
-from .repository import (
-    ConversationStoreRepository,
-    _coerce_uuid,
-    _default_vector_key,
-)
+from .repository import ConversationStoreRepository
+from ._shared import _coerce_uuid, _default_vector_key
 
 logger = setup_logger(__name__)
 
