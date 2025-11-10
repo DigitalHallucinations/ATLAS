@@ -87,12 +87,23 @@ Review the [configuration reference](docs/configuration.md) to map environment v
 git clone https://github.com/DigitalHallucinations/ATLAS.git
 cd ATLAS
 
+# Install GTK build prerequisites (choose the command for your OS)
+# Linux (Debian/Ubuntu)
+sudo apt install libgtk-4-dev libadwaita-1-dev gobject-introspection gir1.2-gtk-4.0
+# Linux (Fedora)
+sudo dnf install gtk4-devel libadwaita-devel gobject-introspection-devel
+# macOS (Homebrew)
+brew install gtk4 libadwaita gobject-introspection
+
 # Create a virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Confirm GTK bindings are available
+python -c "import gi"
 ```
 
 ---
