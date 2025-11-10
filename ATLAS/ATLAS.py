@@ -29,7 +29,16 @@ from ATLAS.persona_manager import PersonaManager
 from modules.Chat.chat_session import ChatHistoryExportError, ChatSession
 from modules.conversation_store import ConversationStoreRepository
 from modules.Speech_Services.speech_manager import SpeechManager
+from modules.Tools.tool_event_system import (
+    DualSubscription,
+    event_system as _legacy_event_system,
+    subscribe_bus_event as _subscribe_bus_event,
+)
 from modules.background_tasks import run_async_in_thread
+from modules.orchestration.blackboard import (
+    get_blackboard as _get_blackboard,
+    stream_blackboard as _stream_blackboard,
+)
 from modules.user_accounts.user_account_service import PasswordRequirements
 from modules.Server import AtlasServer
 from modules.Skills import load_skill_metadata
@@ -2518,6 +2527,114 @@ class ATLAS:
         """Return transcription history records from the speech manager."""
 
         return self.speech_manager.get_transcription_history(formatted=formatted)
+
+    class _LegacySubscriptionHandle:
+        """Wrapper for legacy event system subscriptions."""
+
+        __slots__ = ("event_name", "callback")
+
+        def __init__(self, event_name: str, callback: Callable[..., Any]) -> None:
+            self.event_name = event_name
+            self.callback = callback
+
+        def cancel(self) -> None:
+            _legacy_event_system.unsubscribe(self.event_name, self.callback)
+
+    def subscribe_event(
+        self,
+        event_name: str,
+        callback: Callable[..., Any],
+        *,
+        include_message: bool = False,
+        retry_attempts: int = 3,
+        retry_delay: float = 0.1,
+        concurrency: int = 1,
+        legacy_only: bool = False,
+    ) -> Any:
+        """Subscribe *callback* to backend events via the facade.
+
+        When ``legacy_only`` is ``True`` the subscription is limited to the
+        in-process legacy event system. Otherwise the combined message bus and
+        legacy subscription from :func:`modules.Tools.tool_event_system.subscribe_bus_event`
+        is used.
+        """
+
+        if legacy_only:
+            _legacy_event_system.subscribe(event_name, callback)
+            return self._LegacySubscriptionHandle(event_name, callback)
+
+        return _subscribe_bus_event(
+            event_name,
+            callback,
+            include_message=include_message,
+            retry_attempts=retry_attempts,
+            retry_delay=retry_delay,
+            concurrency=concurrency,
+        )
+
+    def unsubscribe_event(
+        self,
+        handle: Any,
+        *,
+        event_name: Optional[str] = None,
+        callback: Optional[Callable[..., Any]] = None,
+    ) -> None:
+        """Cancel a subscription obtained via :meth:`subscribe_event`."""
+
+        if handle is None:
+            return
+
+        try:
+            if isinstance(handle, DualSubscription):
+                handle.cancel()
+                return
+            if isinstance(handle, self._LegacySubscriptionHandle):
+                handle.cancel()
+                return
+            cancel = getattr(handle, "cancel", None)
+            if callable(cancel):
+                cancel()
+                return
+        except Exception as exc:  # pragma: no cover - defensive cancellation
+            self.logger.debug("Event unsubscribe failed: %s", exc, exc_info=True)
+            return
+
+        if event_name and callback:
+            try:
+                _legacy_event_system.unsubscribe(event_name, callback)
+            except Exception as exc:  # pragma: no cover - defensive cancellation
+                self.logger.debug("Legacy unsubscribe failed: %s", exc, exc_info=True)
+
+    def get_blackboard_summary(
+        self,
+        scope_id: str,
+        *,
+        scope_type: str = "conversation",
+    ) -> Dict[str, Any]:
+        """Return the aggregated blackboard summary for the requested scope."""
+
+        store = _get_blackboard()
+        client = store.client_for(scope_id, scope_type=scope_type)
+        return client.summary()
+
+    async def stream_blackboard_summary(
+        self,
+        scope_id: str,
+        *,
+        scope_type: str = "conversation",
+    ) -> TypingAsyncIterator[Dict[str, Any]]:
+        """Yield up-to-date blackboard summaries as events are received."""
+
+        async for _event in _stream_blackboard(scope_id, scope_type=scope_type):
+            try:
+                yield self.get_blackboard_summary(scope_id, scope_type=scope_type)
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                self.logger.debug(
+                    "Failed to refresh blackboard summary during stream: %s",
+                    exc,
+                    exc_info=True,
+                )
+
 
     async def close(self):
         """

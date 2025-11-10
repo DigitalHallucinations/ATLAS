@@ -28,8 +28,6 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 from GTKUI.Utils.logging import GTKUILogHandler, read_recent_log_lines
-from modules.Tools.tool_event_system import event_system, subscribe_bus_event
-from modules.orchestration.blackboard import get_blackboard
 
 # Configure logging for the chat page.
 logger = logging.getLogger(__name__)
@@ -88,6 +86,7 @@ class ChatPage(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.ATLAS = atlas
         self._blackboard_subscription = None
+        self._tool_activity_subscription = None
         self.connect("destroy", self._on_destroy)
 
         # Main vertical container.
@@ -264,7 +263,6 @@ class ChatPage(Gtk.Box):
         self._terminal_sections: Dict[str, Gtk.TextBuffer] = {}
         self._terminal_section_buffers_by_widget: Dict[Gtk.Widget, Gtk.TextBuffer] = {}
         self._tool_log_entries: List[str] = []
-        self._tool_activity_listener = None
         self._build_terminal_tab()
         terminal_label = Gtk.Label(label="Terminal")
         terminal_label.add_css_class("caption")
@@ -331,7 +329,7 @@ class ChatPage(Gtk.Box):
         self._debug_level_filter: Optional[_HandlerLevelFilter] = None
         self._build_debug_tab()
 
-        self._blackboard_subscription = subscribe_bus_event(
+        self._blackboard_subscription = self.ATLAS.subscribe_event(
             "blackboard.events",
             self._handle_blackboard_event,
         )
@@ -779,8 +777,11 @@ class ChatPage(Gtk.Box):
             list_widget.append(placeholder)
             return
 
-        store = get_blackboard()
-        summary = store.client_for(scope_id).summary()
+        try:
+            summary = self.ATLAS.get_blackboard_summary(scope_id)
+        except Exception as exc:
+            logger.error("Failed to obtain blackboard summary: %s", exc, exc_info=True)
+            summary = {}
         counts = summary.get("counts") if isinstance(summary, Mapping) else {}
         hypothesis_count = counts.get("hypothesis", 0) if isinstance(counts, Mapping) else 0
         claim_count = counts.get("claim", 0) if isinstance(counts, Mapping) else 0
@@ -879,12 +880,7 @@ class ChatPage(Gtk.Box):
     def _on_destroy(self, *_args) -> None:
         subscription = self._blackboard_subscription
         if subscription is not None:
-            try:
-                subscription.cancel()
-            except Exception as exc:  # pragma: no cover - defensive cleanup
-                logger.debug(
-                    "Failed to cancel blackboard subscription: %s", exc, exc_info=True
-                )
+            self.ATLAS.unsubscribe_event(subscription)
             self._blackboard_subscription = None
 
     def _format_declared_tools(self, snapshot: Dict[str, object]) -> str:
@@ -1978,12 +1974,16 @@ class ChatPage(Gtk.Box):
             GLib.idle_add(self._on_tool_activity_event, entry)
 
         try:
-            event_system.subscribe("tool_activity", _listener)
+            handle = self.ATLAS.subscribe_event(
+                "tool_activity",
+                _listener,
+                legacy_only=True,
+            )
         except Exception as exc:  # pragma: no cover - defensive logging only
             logger.error("Unable to subscribe to tool activity events: %s", exc, exc_info=True)
-            self._tool_activity_listener = None
+            self._tool_activity_subscription = None
         else:
-            self._tool_activity_listener = _listener
+            self._tool_activity_subscription = handle
 
     def _on_persona_context_changed(self, context: Optional[Dict[str, object]]) -> bool:
         self.update_persona_label()
@@ -2516,12 +2516,9 @@ class ChatPage(Gtk.Box):
                 except Exception as exc:  # pragma: no cover - defensive logging only
                     logger.error("Failed to remove persona change listener: %s", exc, exc_info=True)
             self._persona_change_handler = None
-        if self._tool_activity_listener is not None:
-            try:
-                event_system.unsubscribe("tool_activity", self._tool_activity_listener)
-            except Exception as exc:  # pragma: no cover - defensive logging only
-                logger.error("Failed to remove tool activity listener: %s", exc, exc_info=True)
-            self._tool_activity_listener = None
+        if self._tool_activity_subscription is not None:
+            self.ATLAS.unsubscribe_event(self._tool_activity_subscription)
+            self._tool_activity_subscription = None
         return False
 
     def update_status_bar(self, status_summary=None):
