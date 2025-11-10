@@ -481,16 +481,18 @@ class ChatPage(Gtk.Box):
         """Read the persisted terminal wrap preference, defaulting to wrapping."""
 
         manager = getattr(self.ATLAS, "config_manager", None)
+        ui_config = getattr(self.ATLAS, "ui_config", None) or getattr(manager, "ui_config", None)
+        if ui_config is not None:
+            getter = getattr(ui_config, "get_terminal_wrap_enabled", None)
+            if callable(getter):
+                try:
+                    return bool(getter())
+                except Exception:  # pragma: no cover - defensive fallback
+                    logger.debug("Failed to load terminal wrap preference", exc_info=True)
+                    return True
+
         if manager is None:
             return True
-
-        getter = getattr(manager, "get_ui_terminal_wrap_enabled", None)
-        if callable(getter):
-            try:
-                return bool(getter())
-            except Exception:  # pragma: no cover - defensive fallback
-                logger.debug("Failed to load terminal wrap preference", exc_info=True)
-                return True
 
         try:
             value = manager.get_config("UI_TERMINAL_WRAP_ENABLED", True)
@@ -508,7 +510,15 @@ class ChatPage(Gtk.Box):
 
         wrap_enabled = self.terminal_wrap_toggle.get_active()
         manager = getattr(self.ATLAS, "config_manager", None)
-        if manager is not None:
+        ui_config = getattr(self.ATLAS, "ui_config", None) or getattr(manager, "ui_config", None)
+        if ui_config is not None:
+            setter = getattr(ui_config, "set_terminal_wrap_enabled", None)
+            if callable(setter):
+                try:
+                    setter(wrap_enabled)
+                except Exception:  # pragma: no cover - defensive fallback
+                    logger.debug("Failed to persist terminal wrap preference", exc_info=True)
+        elif manager is not None:
             setter = getattr(manager, "set_ui_terminal_wrap_enabled", None)
             if callable(setter):
                 try:
@@ -1034,7 +1044,8 @@ class ChatPage(Gtk.Box):
         }
 
         manager = getattr(self.ATLAS, "config_manager", None)
-        if manager is None:
+        ui_config = getattr(self.ATLAS, "ui_config", None) or getattr(manager, "ui_config", None)
+        if ui_config is None and manager is None:
             return defaults
 
         def _extract_int(value, fallback):
@@ -1049,10 +1060,16 @@ class ChatPage(Gtk.Box):
                     return fallback
             return fallback
 
-        try:
-            level_value = manager.get_config("UI_DEBUG_LOG_LEVEL")
-        except Exception:
-            level_value = None
+        if ui_config is not None:
+            try:
+                level_value = ui_config.get_debug_log_level()
+            except Exception:
+                level_value = None
+        else:
+            try:
+                level_value = manager.get_config("UI_DEBUG_LOG_LEVEL")
+            except Exception:
+                level_value = None
         if isinstance(level_value, str):
             candidate = getattr(logging, level_value.upper(), None)
             if isinstance(candidate, int):
@@ -1060,39 +1077,61 @@ class ChatPage(Gtk.Box):
         elif isinstance(level_value, int):
             defaults["level"] = level_value
 
-        try:
-            max_lines_value = manager.get_config("UI_DEBUG_LOG_MAX_LINES")
-        except Exception:
-            max_lines_value = None
-        defaults["max_lines"] = max(100, _extract_int(max_lines_value, defaults["max_lines"]))
+        if ui_config is not None:
+            try:
+                configured_max = ui_config.get_debug_log_max_lines(defaults["max_lines"])
+            except Exception:
+                configured_max = None
+            if isinstance(configured_max, int):
+                defaults["max_lines"] = configured_max
+            try:
+                configured_initial = ui_config.get_debug_log_initial_lines(defaults["initial_lines"])
+            except Exception:
+                configured_initial = None
+            if isinstance(configured_initial, int):
+                defaults["initial_lines"] = configured_initial
+            try:
+                defaults["logger_names"] = ui_config.get_debug_logger_names()
+            except Exception:
+                defaults["logger_names"] = []
+            try:
+                format_value = ui_config.get_debug_log_format()
+            except Exception:
+                format_value = None
+        else:
+            try:
+                max_lines_value = manager.get_config("UI_DEBUG_LOG_MAX_LINES")
+            except Exception:
+                max_lines_value = None
+            defaults["max_lines"] = max(100, _extract_int(max_lines_value, defaults["max_lines"]))
 
-        try:
-            initial_lines_value = manager.get_config("UI_DEBUG_LOG_INITIAL_LINES")
-        except Exception:
-            initial_lines_value = None
-        defaults["initial_lines"] = max(0, _extract_int(initial_lines_value, defaults["initial_lines"]))
+            try:
+                initial_lines_value = manager.get_config("UI_DEBUG_LOG_INITIAL_LINES")
+            except Exception:
+                initial_lines_value = None
+            defaults["initial_lines"] = max(0, _extract_int(initial_lines_value, defaults["initial_lines"]))
 
-        try:
-            logger_names_value = manager.get_config("UI_DEBUG_LOGGERS")
-        except Exception:
-            logger_names_value = None
-        logger_names: List[str] = []
-        if isinstance(logger_names_value, str):
-            for part in logger_names_value.split(","):
-                sanitized = part.strip()
-                if sanitized:
-                    logger_names.append(sanitized)
-        elif isinstance(logger_names_value, (list, tuple, set)):
-            for entry in logger_names_value:
-                sanitized = str(entry).strip()
-                if sanitized:
-                    logger_names.append(sanitized)
-        defaults["logger_names"] = logger_names
+            try:
+                logger_names_value = manager.get_config("UI_DEBUG_LOGGERS")
+            except Exception:
+                logger_names_value = None
+            logger_names: List[str] = []
+            if isinstance(logger_names_value, str):
+                for part in logger_names_value.split(","):
+                    sanitized = part.strip()
+                    if sanitized:
+                        logger_names.append(sanitized)
+            elif isinstance(logger_names_value, (list, tuple, set)):
+                for entry in logger_names_value:
+                    sanitized = str(entry).strip()
+                    if sanitized:
+                        logger_names.append(sanitized)
+            defaults["logger_names"] = logger_names
 
-        try:
-            format_value = manager.get_config("UI_DEBUG_LOG_FORMAT")
-        except Exception:
-            format_value = None
+            try:
+                format_value = manager.get_config("UI_DEBUG_LOG_FORMAT")
+            except Exception:
+                format_value = None
         if isinstance(format_value, str) and format_value.strip():
             defaults["format"] = format_value.strip()
 
@@ -1245,17 +1284,28 @@ class ChatPage(Gtk.Box):
                     return Path(base)
 
         manager = getattr(self.ATLAS, "config_manager", None)
-        if manager is None:
-            return None
+        ui_config = getattr(self.ATLAS, "ui_config", None) or getattr(manager, "ui_config", None)
+        if ui_config is not None:
+            try:
+                configured = ui_config.get_debug_log_file_name()
+            except Exception:
+                configured = None
+            try:
+                app_root = ui_config.get_app_root()
+            except Exception:
+                app_root = None
+        elif manager is not None:
+            try:
+                configured = manager.get_config("UI_DEBUG_LOG_FILE")
+            except Exception:
+                configured = None
 
-        try:
-            configured = manager.get_config("UI_DEBUG_LOG_FILE")
-        except Exception:
+            try:
+                app_root = manager.get_config("APP_ROOT")
+            except Exception:
+                app_root = None
+        else:
             configured = None
-
-        try:
-            app_root = manager.get_config("APP_ROOT")
-        except Exception:
             app_root = None
 
         if configured:
@@ -1630,18 +1680,19 @@ class ChatPage(Gtk.Box):
             self._debug_level_filter.set_level(level_value)
 
         manager = getattr(self.ATLAS, "config_manager", None)
-        if manager is not None:
-            persisted_value: object = logging.getLevelName(level_value)
-            if isinstance(persisted_value, int):
-                persisted_value = level_value
-            if isinstance(getattr(manager, "config", None), dict):
-                manager.config["UI_DEBUG_LOG_LEVEL"] = persisted_value
-            if isinstance(getattr(manager, "yaml_config", None), dict):
-                manager.yaml_config["UI_DEBUG_LOG_LEVEL"] = persisted_value
-            writer = getattr(manager, "_write_yaml_config", None)
-            if callable(writer):
+        ui_config = getattr(self.ATLAS, "ui_config", None) or getattr(manager, "ui_config", None)
+        if ui_config is not None:
+            try:
+                ui_config.set_debug_log_level(level_value)
+            except Exception:
+                logger.warning(
+                    "Failed to persist UI debug log level", exc_info=True
+                )
+        elif manager is not None:
+            setter = getattr(manager, "set_ui_debug_log_level", None)
+            if callable(setter):
                 try:
-                    writer()
+                    setter(level_value)
                 except Exception:
                     logger.warning(
                         "Failed to persist UI debug log level", exc_info=True
@@ -1685,10 +1736,16 @@ class ChatPage(Gtk.Box):
         self._attach_debug_log_handler()
 
         manager = getattr(self.ATLAS, "config_manager", None)
-        setter = getattr(manager, "set_ui_debug_logger_names", None)
-        if callable(setter):
+        ui_config = getattr(self.ATLAS, "ui_config", None) or getattr(manager, "ui_config", None)
+        target = None
+        if ui_config is not None:
+            target = getattr(ui_config, "set_debug_logger_names", None)
+        elif manager is not None:
+            target = getattr(manager, "set_ui_debug_logger_names", None)
+
+        if callable(target):
             try:
-                setter(updated_names)
+                target(updated_names)
             except Exception as exc:
                 logger.warning("Failed to persist debug logger names: %s", exc)
 
@@ -1704,7 +1761,13 @@ class ChatPage(Gtk.Box):
             self._debug_log_handler.set_max_lines(value)
 
         manager = getattr(self.ATLAS, "config_manager", None)
-        setter = getattr(manager, "set_ui_debug_log_max_lines", None)
+        ui_config = getattr(self.ATLAS, "ui_config", None) or getattr(manager, "ui_config", None)
+        setter = None
+        if ui_config is not None:
+            setter = getattr(ui_config, "set_debug_log_max_lines", None)
+        elif manager is not None:
+            setter = getattr(manager, "set_ui_debug_log_max_lines", None)
+
         persisted_value: Optional[int] = None
         if callable(setter):
             try:

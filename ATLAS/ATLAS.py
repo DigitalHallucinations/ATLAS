@@ -49,6 +49,7 @@ class ATLAS:
         Initialize the ATLAS instance with synchronous initialization.
         """
         self.config_manager = ConfigManager()
+        self.ui_config = self.config_manager.ui_config
         self.message_bus = self.config_manager.configure_message_bus()
         self.logger = setup_logger(__name__)
         self.persona_path = self.config_manager.get_app_root()

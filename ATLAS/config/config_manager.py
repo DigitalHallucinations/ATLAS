@@ -45,6 +45,7 @@ from .messaging import MessagingConfigSection
 from .persistence import KV_STORE_UNSET, PersistenceConfigSection
 from .providers import ProviderConfigSections
 from .tooling import ToolingConfigSection
+from .ui_config import UIConfig
 from modules.orchestration.message_bus import (
     InMemoryQueueBackend,
     MessageBus,
@@ -123,6 +124,14 @@ class ConfigManager:
         self.config["MODEL_CACHE"] = copy.deepcopy(self._model_cache)
         if "MODEL_CACHE" not in self.yaml_config:
             self.yaml_config["MODEL_CACHE"] = copy.deepcopy(self._model_cache)
+
+        # --- UI helpers ------------------------------------------------
+        self.ui_config = UIConfig(
+            config=self.config,
+            yaml_config=self.yaml_config,
+            read_config=self.get_config,
+            write_config=self._write_yaml_config,
+        )
 
         # --- Tooling defaults & sandbox configuration -----------------
         self.tooling = ToolingConfigSection(
@@ -2697,72 +2706,57 @@ class ConfigManager:
     def set_ui_debug_log_max_lines(self, max_lines: Optional[int]) -> Optional[int]:
         """Persist the maximum number of UI debug log lines retained."""
 
-        normalized: Optional[int]
-        if max_lines is None:
-            normalized = None
-        else:
-            try:
-                normalized = int(max_lines)
-            except (TypeError, ValueError):
-                normalized = None
-
-        if normalized is not None:
-            # Enforce a practical lower bound so the UI handler can operate safely.
-            normalized = max(100, normalized)
-            self.yaml_config['UI_DEBUG_LOG_MAX_LINES'] = normalized
-            self.config['UI_DEBUG_LOG_MAX_LINES'] = normalized
-        else:
-            self.yaml_config.pop('UI_DEBUG_LOG_MAX_LINES', None)
-            self.config.pop('UI_DEBUG_LOG_MAX_LINES', None)
-
-        self._write_yaml_config()
-        return normalized
+        return self.ui_config.set_debug_log_max_lines(max_lines)
 
     def set_ui_debug_logger_names(self, logger_names: Optional[Sequence[str]]) -> List[str]:
         """Persist the list of logger names mirrored in the UI debug console."""
 
-        normalized: List[str] = []
-        if logger_names is not None:
-            for entry in logger_names:
-                sanitized = str(entry).strip()
-                if sanitized:
-                    normalized.append(sanitized)
+        return self.ui_config.set_debug_logger_names(logger_names)
 
-        if normalized:
-            self.yaml_config['UI_DEBUG_LOGGERS'] = list(normalized)
-            self.config['UI_DEBUG_LOGGERS'] = list(normalized)
-        else:
-            self.yaml_config.pop('UI_DEBUG_LOGGERS', None)
-            self.config.pop('UI_DEBUG_LOGGERS', None)
+    def get_ui_debug_log_level(self) -> Optional[Any]:
+        """Return the configured UI debug log level."""
 
-        self._write_yaml_config()
-        return list(normalized)
+        return self.ui_config.get_debug_log_level()
+
+    def set_ui_debug_log_level(self, level: Optional[Any]) -> Optional[Any]:
+        """Persist the configured UI debug log level."""
+
+        return self.ui_config.set_debug_log_level(level)
+
+    def get_ui_debug_log_max_lines(self, default: Optional[int] = None) -> Optional[int]:
+        """Return the configured maximum number of debug log lines."""
+
+        return self.ui_config.get_debug_log_max_lines(default)
+
+    def get_ui_debug_log_initial_lines(self, default: Optional[int] = None) -> Optional[int]:
+        """Return the configured number of initial debug log lines."""
+
+        return self.ui_config.get_debug_log_initial_lines(default)
+
+    def get_ui_debug_logger_names(self) -> List[str]:
+        """Return configured debug logger names."""
+
+        return self.ui_config.get_debug_logger_names()
+
+    def get_ui_debug_log_format(self) -> Optional[str]:
+        """Return the configured debug log format string."""
+
+        return self.ui_config.get_debug_log_format()
+
+    def get_ui_debug_log_file_name(self) -> Optional[str]:
+        """Return the configured debug log file name."""
+
+        return self.ui_config.get_debug_log_file_name()
 
     def get_ui_terminal_wrap_enabled(self) -> bool:
         """Return whether terminal sections in the UI should wrap lines."""
 
-        value = self.get_config('UI_TERMINAL_WRAP_ENABLED', self.UNSET)
-
-        if isinstance(value, bool):
-            return value
-
-        if isinstance(value, str):
-            normalized = value.strip().lower()
-            if normalized in {'true', '1', 'yes', 'on'}:
-                return True
-            if normalized in {'false', '0', 'no', 'off'}:
-                return False
-
-        return True
+        return self.ui_config.get_terminal_wrap_enabled()
 
     def set_ui_terminal_wrap_enabled(self, enabled: bool) -> bool:
         """Persist the line wrapping preference for UI terminal sections."""
 
-        normalized = bool(enabled)
-        self.yaml_config['UI_TERMINAL_WRAP_ENABLED'] = normalized
-        self.config['UI_TERMINAL_WRAP_ENABLED'] = normalized
-        self._write_yaml_config()
-        return normalized
+        return self.ui_config.set_terminal_wrap_enabled(enabled)
 
     def export_yaml_config(self, destination: str | os.PathLike[str] | Path) -> str:
         """Write the current YAML configuration to ``destination``.
