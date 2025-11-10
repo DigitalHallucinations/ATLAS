@@ -185,7 +185,11 @@ def test_atlas_list_skills_includes_manifest_and_credentials(monkeypatch, atlas_
     atlas.config_manager.config.setdefault("skills", {})["ExampleSkill"] = {"enabled": True}
     atlas.config_manager.config["EXAMPLE_SKILL_KEY"] = "secret-value"
 
-    monkeypatch.setattr("ATLAS.ATLAS.load_skill_metadata", lambda **_kwargs: [skill], raising=False)
+    monkeypatch.setattr(
+        "ATLAS.services.tooling.load_skill_metadata",
+        lambda **_kwargs: [skill],
+        raising=False,
+    )
 
     skills = atlas.list_skills()
 
@@ -200,7 +204,11 @@ def test_update_skill_settings_refreshes_cache(monkeypatch, atlas_with_temp_conf
     atlas, yaml_path = atlas_with_temp_config
     skill = _dummy_skill()
 
-    monkeypatch.setattr("ATLAS.ATLAS.load_skill_metadata", lambda **_kwargs: [skill], raising=False)
+    monkeypatch.setattr(
+        "ATLAS.services.tooling.load_skill_metadata",
+        lambda **_kwargs: [skill],
+        raising=False,
+    )
 
     class DummyRegistry:
         def __init__(self):
@@ -211,7 +219,11 @@ def test_update_skill_settings_refreshes_cache(monkeypatch, atlas_with_temp_conf
             return True
 
     registry = DummyRegistry()
-    monkeypatch.setattr("ATLAS.ATLAS.get_capability_registry", lambda **_kwargs: registry, raising=False)
+    monkeypatch.setattr(
+        "ATLAS.services.tooling.get_capability_registry",
+        lambda **_kwargs: registry,
+        raising=False,
+    )
 
     if atlas.persona_manager is None:
         user_identifier, _ = atlas._ensure_user_identity()
@@ -239,7 +251,11 @@ def test_update_skill_credentials_refreshes_cache(monkeypatch, atlas_with_temp_c
     atlas, _ = atlas_with_temp_config
     skill = _dummy_skill()
 
-    monkeypatch.setattr("ATLAS.ATLAS.load_skill_metadata", lambda **_kwargs: [skill], raising=False)
+    monkeypatch.setattr(
+        "ATLAS.services.tooling.load_skill_metadata",
+        lambda **_kwargs: [skill],
+        raising=False,
+    )
 
     class DummyRegistry:
         def __init__(self):
@@ -250,7 +266,11 @@ def test_update_skill_credentials_refreshes_cache(monkeypatch, atlas_with_temp_c
             return True
 
     registry = DummyRegistry()
-    monkeypatch.setattr("ATLAS.ATLAS.get_capability_registry", lambda **_kwargs: registry, raising=False)
+    monkeypatch.setattr(
+        "ATLAS.services.tooling.get_capability_registry",
+        lambda **_kwargs: registry,
+        raising=False,
+    )
 
     if atlas.persona_manager is None:
         user_identifier, _ = atlas._ensure_user_identity()
