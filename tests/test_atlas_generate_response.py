@@ -31,7 +31,7 @@ def test_generate_response_returns_with_conversation_id():
     atlas.provider_manager = provider_manager
     atlas.chat_session = SimpleNamespace(conversation_id="conversation-123")
     atlas._ensure_user_identity = Mock(return_value=("user", "User"))
-    atlas.maybe_text_to_speech = AsyncMock()
+    atlas.speech_facade = SimpleNamespace(maybe_text_to_speech=AsyncMock())
 
     messages = [{"role": "user", "content": "Hello"}]
     result = asyncio.run(atlas.generate_response(messages))
@@ -43,12 +43,14 @@ def test_generate_response_returns_with_conversation_id():
     assert await_args.kwargs["messages"] is messages
     assert await_args.kwargs["current_persona"] == "Persona"
     assert await_args.kwargs["conversation_manager"] is atlas.chat_session
-    atlas.maybe_text_to_speech.assert_awaited_once_with("ok")
+    atlas.speech_facade.maybe_text_to_speech.assert_awaited_once_with("ok")
     atlas.logger.error.assert_not_called()
     provider_manager.set_current_conversation_id.assert_called_with("conversation-123")
 
 
 def test_generate_response_handles_tts_failure():
+    from ATLAS.services.speech import SpeechService
+
     atlas = ATLAS.__new__(ATLAS)
     atlas.logger = SimpleNamespace(error=Mock(), debug=Mock())
     atlas.current_persona = "Persona"
@@ -62,9 +64,17 @@ def test_generate_response_handles_tts_failure():
     atlas.chat_session = SimpleNamespace(conversation_id="conversation-123")
     atlas._ensure_user_identity = Mock(return_value=("user", "User"))
 
-    atlas.speech_manager = SimpleNamespace(
+    atlas._default_status_tooltip = "Active LLM provider/model and TTS status"
+    speech_manager = SimpleNamespace(
         get_tts_status=Mock(return_value=True),
         text_to_speech=AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    atlas.speech_manager = speech_manager
+    atlas.speech_facade = SpeechService(
+        speech_manager=speech_manager,
+        logger=atlas.logger,
+        status_summary_getter=lambda: {},
+        default_status_tooltip=atlas._default_status_tooltip,
     )
 
     messages = [{"role": "user", "content": "Hello"}]
@@ -72,13 +82,15 @@ def test_generate_response_handles_tts_failure():
 
     assert result == "ok"
     provider_generate.assert_awaited_once()
-    atlas.speech_manager.text_to_speech.assert_awaited_once_with("ok")
+    speech_manager.text_to_speech.assert_awaited_once_with("ok")
     assert atlas.logger.error.called
     error_message = atlas.logger.error.call_args[0][0]
     assert "Text-to-speech failed" in error_message
 
 
 def test_generate_response_streaming_skips_tts_and_preserves_stream():
+    from ATLAS.services.speech import SpeechService
+
     atlas = ATLAS.__new__(ATLAS)
     atlas.logger = SimpleNamespace(error=Mock(), debug=Mock())
     atlas.current_persona = "Persona"
@@ -94,9 +106,17 @@ def test_generate_response_streaming_skips_tts_and_preserves_stream():
     )
     atlas.chat_session = SimpleNamespace(conversation_id="conversation-123")
     atlas._ensure_user_identity = Mock(return_value=("user", "User"))
-    atlas.speech_manager = SimpleNamespace(
+    atlas._default_status_tooltip = "Active LLM provider/model and TTS status"
+    speech_manager = SimpleNamespace(
         get_tts_status=Mock(return_value=True),
         text_to_speech=AsyncMock(),
+    )
+    atlas.speech_manager = speech_manager
+    atlas.speech_facade = SpeechService(
+        speech_manager=speech_manager,
+        logger=atlas.logger,
+        status_summary_getter=lambda: {},
+        default_status_tooltip=atlas._default_status_tooltip,
     )
 
     messages = [{"role": "user", "content": "Hello"}]
@@ -113,7 +133,7 @@ def test_generate_response_streaming_skips_tts_and_preserves_stream():
 
     assert collected == "Hello world"
     provider_generate.assert_awaited_once()
-    atlas.speech_manager.text_to_speech.assert_not_called()
+    speech_manager.text_to_speech.assert_not_called()
     atlas.logger.error.assert_not_called()
     atlas.logger.debug.assert_any_call(
         "Skipping text-to-speech for streaming async iterator response."

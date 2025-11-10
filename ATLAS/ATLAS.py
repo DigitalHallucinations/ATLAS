@@ -6,7 +6,6 @@ import copy
 from dataclasses import asdict
 import json
 from datetime import datetime
-from collections.abc import AsyncIterator as AbcAsyncIterator
 from concurrent.futures import Future
 from pathlib import Path
 from typing import (
@@ -49,6 +48,7 @@ from modules.orchestration.task_manager import TaskManager
 from ATLAS.services.tooling import ToolingService
 from ATLAS.services.conversations import ConversationService
 from ATLAS.services.providers import ProviderService
+from ATLAS.services.speech import SpeechService
 
 class ATLAS:
     """
@@ -70,7 +70,14 @@ class ATLAS:
         self.provider_facade: ProviderService | None = None
         self._persona_manager: PersonaManager | None = None
         self.chat_session = None
+        self._default_status_tooltip = "Active LLM provider/model and TTS status"
         self.speech_manager = SpeechManager(self.config_manager)  # Instantiate SpeechManager with ConfigManager
+        self.speech_facade: SpeechService | None = SpeechService(
+            speech_manager=self.speech_manager,
+            logger=self.logger,
+            status_summary_getter=self._speech_status_summary,
+            default_status_tooltip=self._default_status_tooltip,
+        )
         self._initialized = False
         self._pending_provider_change_listeners: List[
             Callable[[Dict[str, str]], None]
@@ -78,7 +85,6 @@ class ATLAS:
         self._persona_change_listeners: List[Callable[[Dict[str, Any]], None]] = []
         self._message_dispatchers: List[Callable[[str, str], None]] = []
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
-        self._default_status_tooltip = "Active LLM provider/model and TTS status"
         self.server = AtlasServer(config_manager=self.config_manager)
         self.conversation_repository: ConversationStoreRepository | None = None
         self.conversation_service: ConversationService | None = None
@@ -200,6 +206,20 @@ class ATLAS:
     @property
     def persona_manager(self) -> PersonaManager | None:
         return self._persona_manager
+
+    def _speech_status_summary(self) -> Dict[str, Any]:
+        try:
+            return self.get_chat_status_summary()
+        except Exception as exc:  # pragma: no cover - defensive guard for bootstrap
+            self.logger.debug(
+                "Unable to obtain chat status summary for speech facade: %s", exc
+            )
+            return {}
+
+    def _require_speech_facade(self) -> SpeechService:
+        if self.speech_facade is None:
+            raise RuntimeError("Speech facade is not initialized.")
+        return self.speech_facade
 
     @persona_manager.setter
     def persona_manager(self, value: PersonaManager | None) -> None:
@@ -1706,25 +1726,24 @@ class ATLAS:
     def get_speech_defaults(self) -> Dict[str, Any]:
         """Expose global speech defaults for UI consumers."""
 
-        return self.speech_manager.describe_general_settings()
+        return self._require_speech_facade().get_speech_defaults()
 
     def get_speech_provider_status(self, provider_name: str) -> Dict[str, Any]:
         """Return credential metadata for a speech provider."""
 
-        return self.speech_manager.get_provider_credential_status(provider_name)
+        return self._require_speech_facade().get_speech_provider_status(provider_name)
 
     def get_speech_voice_options(
         self, provider: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Return the available voice options for a speech provider."""
 
-        return self.speech_manager.list_tts_voice_options(provider)
+        return self._require_speech_facade().get_speech_voice_options(provider)
 
     def get_active_speech_voice(self) -> Dict[str, Optional[str]]:
         """Return the active speech provider and voice name."""
 
-        provider, voice = self.speech_manager.get_active_tts_summary()
-        return {"provider": provider, "name": voice}
+        return self._require_speech_facade().get_active_speech_voice()
 
     def update_speech_defaults(
         self,
@@ -1736,14 +1755,12 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Persist global speech defaults via the speech manager."""
 
-        self.speech_manager.configure_defaults(
-            tts_enabled=bool(tts_enabled),
+        return self._require_speech_facade().update_speech_defaults(
+            tts_enabled=tts_enabled,
             tts_provider=tts_provider,
-            stt_enabled=bool(stt_enabled),
+            stt_enabled=stt_enabled,
             stt_provider=stt_provider,
         )
-
-        return self.get_speech_defaults()
 
     def update_elevenlabs_settings(
         self,
@@ -1753,34 +1770,10 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Update ElevenLabs credentials or active voice selection."""
 
-        manager = self.speech_manager
-        result = {
-            "updated_api_key": False,
-            "updated_voice": False,
-        }
-
-        if api_key:
-            manager.set_elevenlabs_api_key(api_key)
-            result["updated_api_key"] = True
-
-        provider_key = manager.resolve_tts_provider(manager.get_default_tts_provider())
-
-        if voice_id and provider_key:
-            voices = manager.get_tts_voices(provider_key) or []
-            selected_voice: Optional[Dict[str, Any]] = None
-            for voice in voices:
-                if not isinstance(voice, dict):
-                    continue
-                if voice.get("voice_id") == voice_id or voice.get("name") == voice_id:
-                    selected_voice = voice
-                    break
-
-            if selected_voice is not None:
-                manager.set_tts_voice(selected_voice, provider_key)
-                result["updated_voice"] = True
-
-        result["provider"] = provider_key
-        return result
+        return self._require_speech_facade().update_elevenlabs_settings(
+            api_key=api_key,
+            voice_id=voice_id,
+        )
 
     def update_google_speech_settings(
         self,
@@ -1792,9 +1785,9 @@ class ATLAS:
     ) -> None:
         """Persist Google speech credentials and preferences via the speech manager."""
 
-        self.speech_manager.set_google_credentials(
+        self._require_speech_facade().update_google_speech_settings(
             credentials_path,
-            voice_name=tts_voice,
+            tts_voice=tts_voice,
             stt_language=stt_language,
             auto_punctuation=auto_punctuation,
         )
@@ -1802,47 +1795,40 @@ class ATLAS:
     def get_google_speech_credentials_path(self) -> Optional[str]:
         """Return the persisted Google speech credentials path."""
 
-        return self.speech_manager.get_google_credentials_path()
+        return self._require_speech_facade().get_google_speech_credentials_path()
 
     def get_google_speech_settings(self) -> Dict[str, Any]:
         """Expose persisted Google speech configuration for UI rendering."""
 
-        return self.speech_manager.get_google_speech_settings()
+        return self._require_speech_facade().get_google_speech_settings()
 
     def get_openai_speech_options(self) -> Dict[str, List[Tuple[str, Optional[str]]]]:
         """Return the OpenAI speech option sets for UI rendering."""
 
-        return self.speech_manager.get_openai_option_sets()
+        return self._require_speech_facade().get_openai_speech_options()
 
     def get_openai_speech_configuration(self) -> Dict[str, Optional[str]]:
         """Return persisted OpenAI speech configuration values."""
 
-        return self.speech_manager.get_openai_display_config()
+        return self._require_speech_facade().get_openai_speech_configuration()
 
     def update_openai_speech_settings(
         self, display_payload: Dict[str, Any]
     ) -> Dict[str, Optional[str]]:
         """Validate and persist OpenAI speech settings supplied by the UI."""
 
-        prepared = self.speech_manager.normalize_openai_display_settings(display_payload)
-
-        self.speech_manager.set_openai_speech_config(
-            api_key=prepared.get("api_key"),
-            stt_provider=prepared.get("stt_provider"),
-            language=prepared.get("language"),
-            task=prepared.get("task"),
-            initial_prompt=prepared.get("initial_prompt"),
-            tts_provider=prepared.get("tts_provider"),
+        return self._require_speech_facade().update_openai_speech_settings(
+            display_payload
         )
-
-        return prepared
 
     def get_transcription_history(
         self, *, formatted: bool = False
     ) -> List[Dict[str, Any]]:
         """Return transcription history records from the speech manager."""
 
-        return self.speech_manager.get_transcription_history(formatted=formatted)
+        return self._require_speech_facade().get_transcription_history(
+            formatted=formatted
+        )
 
     class _LegacySubscriptionHandle:
         """Wrapper for legacy event system subscriptions."""
@@ -1974,37 +1960,10 @@ class ATLAS:
                 string or a mapping containing ``text``/``audio`` fields.
         """
 
-        if isinstance(response_text, AbcAsyncIterator):
-            self.logger.debug(
-                "Skipping text-to-speech for streaming async iterator response."
-            )
-            return
-
-        payload_text = ""
-        audio_available = False
-
-        if isinstance(response_text, dict):
-            payload_text = str(response_text.get("text") or "")
-            audio_available = bool(response_text.get("audio"))
-        else:
-            payload_text = str(response_text or "")
-
-        if not payload_text:
-            return
-
-        if audio_available:
-            # Skip synthetic TTS when OpenAI already returned audio output.
-            return
-
-        if not self.speech_manager.get_tts_status():
-            return
-
-        self.logger.debug("TTS enabled; synthesizing response text.")
-
         try:
-            await self.speech_manager.text_to_speech(payload_text)
-        except Exception as exc:
-            self.logger.error("Text-to-speech failed: %s", exc, exc_info=True)
+            await self._require_speech_facade().maybe_text_to_speech(response_text)
+        except RuntimeError:
+            self.logger.debug("Speech facade unavailable; skipping TTS synthesis.")
             return
 
     def start_stt_listening(self) -> Dict[str, Any]:
@@ -2013,69 +1972,7 @@ class ATLAS:
         Returns:
             Dict[str, Any]: Structured payload describing the resulting state.
         """
-
-        manager: Optional[SpeechManager] = getattr(self, "speech_manager", None)
-        if manager is None:
-            message = "Speech services unavailable."
-            self.logger.error(message)
-            return {
-                "ok": False,
-                "status_text": message,
-                "provider": None,
-                "listening": False,
-                "spinner": False,
-                "error": message,
-                "status_tooltip": self._default_status_tooltip,
-                "status_summary": self.get_chat_status_summary(),
-            }
-
-        provider_key = manager.get_active_stt_provider()
-        if not provider_key:
-            message = "No STT service configured."
-            self.logger.error(message)
-            return {
-                "ok": False,
-                "status_text": message,
-                "provider": None,
-                "listening": False,
-                "spinner": False,
-                "error": message,
-                "status_tooltip": self._default_status_tooltip,
-                "status_summary": self.get_chat_status_summary(),
-            }
-
-        try:
-            started = manager.listen(provider_key)
-        except Exception as exc:  # Defensive: listen() already handles errors.
-            self.logger.error(
-                "Failed to start STT provider %s: %s", provider_key, exc, exc_info=True
-            )
-            started = False
-
-        if not started:
-            message = "Failed to start listening."
-            return {
-                "ok": False,
-                "status_text": message,
-                "provider": provider_key,
-                "listening": False,
-                "spinner": False,
-                "error": message,
-                "status_tooltip": self._default_status_tooltip,
-                "status_summary": self.get_chat_status_summary(),
-            }
-
-        self.logger.debug("Listening started using provider '%s'.", provider_key)
-        return {
-            "ok": True,
-            "status_text": "Listening…",
-            "provider": provider_key,
-            "listening": True,
-            "spinner": False,
-            "error": None,
-            "status_tooltip": f"Listening via {provider_key}",
-            "status_summary": self.get_chat_status_summary(),
-        }
+        return self._require_speech_facade().start_stt_listening()
 
     def stop_stt_and_transcribe(self) -> Dict[str, Any]:
         """Stop recording (if active) and transcribe in the background.
@@ -2084,136 +1981,7 @@ class ATLAS:
             Dict[str, Any]: Structured payload with an attached transcription future.
         """
 
-        manager: Optional[SpeechManager] = getattr(self, "speech_manager", None)
-        if manager is None:
-            message = "Speech services unavailable."
-            self.logger.error(message)
-            return {
-                "ok": False,
-                "status_text": message,
-                "provider": None,
-                "listening": False,
-                "spinner": False,
-                "error": message,
-                "status_tooltip": self._default_status_tooltip,
-                "status_summary": self.get_chat_status_summary(),
-                "transcription_future": None,
-            }
-
-        provider_key = manager.get_active_stt_provider()
-        if not provider_key:
-            message = "No STT service configured."
-            self.logger.error(message)
-            return {
-                "ok": False,
-                "status_text": message,
-                "provider": None,
-                "listening": False,
-                "spinner": False,
-                "error": message,
-                "status_tooltip": self._default_status_tooltip,
-                "status_summary": self.get_chat_status_summary(),
-                "transcription_future": None,
-            }
-
-        result_future: Future[Dict[str, Any]] = Future()
-
-        def _finalize_payload(
-            *, transcript: Optional[str] = None, error: Optional[Exception] = None
-        ) -> Dict[str, Any]:
-            summary = self.get_chat_status_summary()
-            normalized_transcript = (transcript or "").strip()
-            if error is not None:
-                error_message = f"Transcription failed: {error}"
-                payload = {
-                    "ok": False,
-                    "status_text": error_message,
-                    "provider": provider_key,
-                    "listening": False,
-                    "spinner": False,
-                    "transcript": "",
-                    "error": error_message,
-                    "status_tooltip": self._default_status_tooltip,
-                    "status_summary": summary,
-                }
-            elif normalized_transcript:
-                payload = {
-                    "ok": True,
-                    "status_text": "Transcription complete.",
-                    "provider": provider_key,
-                    "listening": False,
-                    "spinner": False,
-                    "transcript": normalized_transcript,
-                    "error": None,
-                    "status_tooltip": self._default_status_tooltip,
-                    "status_summary": summary,
-                }
-            else:
-                payload = {
-                    "ok": True,
-                    "status_text": "No transcription available.",
-                    "provider": provider_key,
-                    "listening": False,
-                    "spinner": False,
-                    "transcript": "",
-                    "error": None,
-                    "status_tooltip": self._default_status_tooltip,
-                    "status_summary": summary,
-                }
-
-            return payload
-
-        def _on_success(transcript: str) -> None:
-            payload = _finalize_payload(transcript=transcript)
-            if not result_future.done():
-                result_future.set_result(payload)
-
-        def _on_error(exc: Exception) -> None:
-            self.logger.error("Unexpected transcription error: %s", exc, exc_info=True)
-            payload = _finalize_payload(error=exc)
-            if not result_future.done():
-                result_future.set_result(payload)
-
-        try:
-            manager.stop_and_transcribe_in_background(
-                provider_key,
-                on_success=_on_success,
-                on_error=_on_error,
-                thread_name="SpeechTranscriptionWorker",
-            )
-        except Exception as exc:
-            self.logger.error(
-                "Failed to schedule transcription with provider %s: %s",
-                provider_key,
-                exc,
-                exc_info=True,
-            )
-            payload = _finalize_payload(error=exc)
-            if not result_future.done():
-                result_future.set_result(payload)
-            return {
-                "ok": False,
-                "status_text": payload["status_text"],
-                "provider": provider_key,
-                "listening": False,
-                "spinner": False,
-                "error": payload["error"],
-                "status_tooltip": payload["status_tooltip"],
-                "status_summary": payload["status_summary"],
-                "transcription_future": result_future,
-            }
-
-        return {
-            "ok": True,
-            "status_text": "Transcribing…",
-            "provider": provider_key,
-            "listening": False,
-            "spinner": True,
-            "error": None,
-            "status_tooltip": f"Transcribing via {provider_key}",
-            "status_summary": self.get_chat_status_summary(),
-            "transcription_future": result_future,
-        }
+        return self._require_speech_facade().stop_stt_and_transcribe()
 
     async def generate_response(
         self, messages: List[Dict[str, str]]
