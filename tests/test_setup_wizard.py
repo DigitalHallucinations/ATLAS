@@ -203,6 +203,46 @@ def _complete_speech_step(window):
     window._on_next_clicked(None)
 
 
+def test_provider_keys_masked_by_default_and_toggle():
+    application = Gtk.Application()
+    controller = FakeController()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    buffer = window._provider_buffer
+    assert buffer is not None
+    buffer.set_text("openai=sk-test\nmistral = token-123")
+
+    mask_buffer = window._provider_mask_buffer
+    assert mask_buffer is not None
+    masked_text = mask_buffer.get_text(
+        mask_buffer.get_start_iter(), mask_buffer.get_end_iter(), True
+    )
+    assert "sk-test" not in masked_text
+    assert "token-123" not in masked_text
+    assert "openai" in masked_text
+    assert "mistral" in masked_text
+
+    stack = window._provider_stack
+    assert stack is not None
+    assert stack.get_visible_child_name() == "masked"
+
+    toggle = window._provider_show_toggle
+    assert isinstance(toggle, Gtk.CheckButton)
+    toggle.set_active(True)
+    assert stack.get_visible_child_name() == "visible"
+    toggle.set_active(False)
+    assert stack.get_visible_child_name() == "masked"
+
+    window.close()
+
+
 def _populate_user_entries(window, **overrides):
     defaults = {
         "full_name": "Atlas Admin",

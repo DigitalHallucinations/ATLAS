@@ -407,6 +407,9 @@ class SetupWizardWindow(AtlasWindow):
         self._database_entries: Dict[str, Gtk.Entry] = {}
         self._provider_entries: Dict[str, Gtk.Entry] = {}
         self._provider_buffer: Optional[Gtk.TextBuffer] = None
+        self._provider_mask_buffer: Optional[Gtk.TextBuffer] = None
+        self._provider_stack: Gtk.Stack | None = None
+        self._provider_show_toggle: Gtk.CheckButton | None = None
         self._user_entries: Dict[str, Gtk.Entry] = {}
         self._kv_widgets: Dict[str, Gtk.Widget] = {}
         self._job_widgets: Dict[str, Gtk.Widget] = {}
@@ -1469,33 +1472,82 @@ class SetupWizardWindow(AtlasWindow):
             "Pick the default provider and model. New workspaces inherit these unless they choose otherwise."
         )
         defaults_form = self._wrap_with_instructions(
-            defaults_box, defaults_instructions, "Configure Providers"
+            defaults_box, defaults_instructions, "Configure defaults"
         )
 
         keys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         keys_box.set_hexpand(True)
 
-        keys_label = Gtk.Label(
+        helper_label = Gtk.Label(
             label=(
-                "API keys (one per line using provider=key format). Existing values will be "
-                "pre-populated when available."
+                "Enter each provider and key on its own line using provider=key. "
+                "Keys are stored in your local configuration and only sent to the provider when needed."
             )
         )
-        keys_label.set_wrap(True)
-        keys_label.set_xalign(0.0)
-        keys_box.append(keys_label)
+        helper_label.set_wrap(True)
+        helper_label.set_xalign(0.0)
+        keys_box.append(helper_label)
 
-        view = Gtk.TextView()
-        view.set_monospace(True)
-        self._provider_buffer = view.get_buffer()
-        self._provider_buffer.set_text(self._format_api_keys(state.api_keys))
-        keys_box.append(view)
+        show_toggle = Gtk.CheckButton(label="Show keys")
+        if hasattr(show_toggle, "set_tooltip_text"):
+            show_toggle.set_tooltip_text(
+                "Temporarily reveal saved API keys to review or edit them."
+            )
+        keys_box.append(show_toggle)
+
+        stack = Gtk.Stack()
+        stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        stack.set_transition_duration(150)
+        stack.set_hexpand(True)
+        stack.set_vexpand(True)
+
+        visible_view = Gtk.TextView()
+        visible_view.set_monospace(True)
+        visible_view.set_hexpand(True)
+        visible_view.set_vexpand(True)
+        visible_buffer = visible_view.get_buffer()
+        visible_buffer.set_text(self._format_api_keys(state.api_keys))
+
+        masked_view = Gtk.TextView()
+        masked_view.set_monospace(True)
+        masked_view.set_editable(False)
+        masked_view.set_cursor_visible(False)
+        if hasattr(masked_view, "set_focusable"):
+            masked_view.set_focusable(False)
+        elif hasattr(masked_view, "set_can_focus"):
+            masked_view.set_can_focus(False)
+
+        visible_scroller = Gtk.ScrolledWindow()
+        visible_scroller.set_hexpand(True)
+        visible_scroller.set_vexpand(True)
+        visible_scroller.set_child(visible_view)
+
+        masked_scroller = Gtk.ScrolledWindow()
+        masked_scroller.set_hexpand(True)
+        masked_scroller.set_vexpand(True)
+        masked_scroller.set_child(masked_view)
+
+        stack.add_named(masked_scroller, "masked")
+        stack.add_named(visible_scroller, "visible")
+        stack.set_visible_child_name("masked")
+
+        keys_box.append(stack)
+
+        self._provider_buffer = visible_buffer
+        self._provider_mask_buffer = masked_view.get_buffer()
+        self._provider_stack = stack
+        self._provider_show_toggle = show_toggle
+
+        visible_buffer.connect("changed", self._on_provider_buffer_changed)
+        show_toggle.connect("toggled", self._on_provider_show_toggled)
+
+        self._on_provider_buffer_changed(visible_buffer)
 
         keys_instructions = (
-            "Add any API keys the assistant needs—one per line using provider=key format."
+            "Add API keys for any providers you plan to use. We only display the full values while the toggle is enabled."
         )
         keys_form = self._wrap_with_instructions(
-            keys_box, keys_instructions, "Configure Provider Keys"
+            keys_box, keys_instructions, "API keys"
         )
 
         return [defaults_form, keys_form]
@@ -2165,6 +2217,59 @@ class SetupWizardWindow(AtlasWindow):
     def _refresh_validation_states(self) -> None:
         for widget in list(self._validation_rules):
             self._run_validation(widget)
+
+    def _on_provider_buffer_changed(self, buffer: Gtk.TextBuffer) -> None:
+        mask_buffer = self._provider_mask_buffer
+        if mask_buffer is None:
+            return
+
+        start_iter = buffer.get_start_iter()
+        end_iter = buffer.get_end_iter()
+        text = buffer.get_text(start_iter, end_iter, True)
+
+        masked_text = self._mask_api_keys_text(text)
+        mask_buffer.set_text(masked_text)
+
+    def _on_provider_show_toggled(self, toggle: Gtk.CheckButton) -> None:
+        stack = self._provider_stack
+        if stack is None:
+            return
+
+        show_plain = toggle.get_active()
+        if not show_plain:
+            buffer = self._provider_buffer
+            if buffer is not None:
+                self._on_provider_buffer_changed(buffer)
+            stack.set_visible_child_name("masked")
+            return
+
+        stack.set_visible_child_name("visible")
+
+    def _mask_api_keys_text(self, text: str) -> str:
+        if not text:
+            return ""
+
+        masked_parts: list[str] = []
+        for segment in text.splitlines(keepends=True):
+            newline = ""
+            content = segment
+            if segment.endswith("\r\n"):
+                newline = "\r\n"
+                content = segment[:-2]
+            elif segment.endswith("\n") or segment.endswith("\r"):
+                newline = segment[-1]
+                content = segment[:-1]
+
+            if "=" in content:
+                prefix, suffix = content.split("=", 1)
+                masked_suffix = "".join("•" if not ch.isspace() else ch for ch in suffix)
+                masked_content = f"{prefix}={masked_suffix}"
+            else:
+                masked_content = "".join("•" if not ch.isspace() else ch for ch in content)
+
+            masked_parts.append(masked_content + newline)
+
+        return "".join(masked_parts)
 
     def _format_api_keys(self, mapping: Dict[str, str]) -> str:
         lines = [f"{provider}={key}" for provider, key in sorted(mapping.items())]
