@@ -163,7 +163,7 @@ class SetupWizardWindow(AtlasWindow):
                         desired_height = max(desired_height, fallback_height)
 
         super().__init__(
-            title="ATLAS Setup Utility",
+            title="ATLAS Setup — Guided Configuration",
             default_size=(desired_width, desired_height),
         )
 
@@ -203,7 +203,7 @@ class SetupWizardWindow(AtlasWindow):
                 except Exception:  # pragma: no cover - GTK fallback
                     continue
 
-        title_label = Gtk.Label(label="ATLAS Setup Utility")
+        title_label = Gtk.Label(label="ATLAS Setup — Guided Configuration")
         if hasattr(title_label, "add_css_class"):
             try:
                 title_label.add_css_class("heading")
@@ -213,7 +213,7 @@ class SetupWizardWindow(AtlasWindow):
             header_bar.set_title_widget(title_label)
         except Exception:  # pragma: no cover - GTK3 fallback
             try:
-                header_bar.set_title("ATLAS Setup Utility")
+                header_bar.set_title("ATLAS Setup — Guided Configuration")
             except Exception:
                 pass
 
@@ -260,7 +260,7 @@ class SetupWizardWindow(AtlasWindow):
             steps_sidebar.add_css_class("setup-wizard-sidebar")
         content.append(steps_sidebar)
 
-        steps_title = Gtk.Label(label="Setup Steps")
+        steps_title = Gtk.Label(label="Steps")
         steps_title.set_xalign(0.0)
         if hasattr(steps_title, "add_css_class"):
             steps_title.add_css_class("heading")
@@ -318,7 +318,7 @@ class SetupWizardWindow(AtlasWindow):
             guidance_column.add_css_class("setup-wizard-guidance")
         guidance_scroller.set_child(guidance_column)
 
-        header = Gtk.Label(label="Complete the following steps to finish configuring ATLAS.")
+        header = Gtk.Label(label="Here's the plan—work through each step to wrap up setup.")
         header.set_wrap(True)
         header.set_xalign(0.0)
         header.set_hexpand(True)
@@ -428,7 +428,7 @@ class SetupWizardWindow(AtlasWindow):
         if error is not None:
             self.display_error(error)
         else:
-            self._set_status("Welcome to the ATLAS setup wizard.")
+            self._set_status("Welcome! Let's configure ATLAS together.")
         self._go_to_step(0)
 
         if hasattr(self, "connect"):
@@ -560,7 +560,7 @@ class SetupWizardWindow(AtlasWindow):
 
         self._steps = [
             WizardStep(
-                name="Overview",
+                name="Introduction",
                 widget=overview_page,
                 subpages=[overview_page],
                 apply=lambda: "Review complete.",
@@ -731,11 +731,34 @@ class SetupWizardWindow(AtlasWindow):
     def _register_instructions(self, widget: Gtk.Widget, instructions: str) -> None:
         self._instructions_by_widget[widget] = instructions
 
-    def _wrap_with_instructions(self, form: Gtk.Widget, instructions: str) -> Gtk.Widget:
-        form.set_halign(Gtk.Align.START)
-        form.set_hexpand(False)
-        self._register_instructions(form, instructions)
-        return form
+    def _wrap_with_instructions(
+        self, form: Gtk.Widget, instructions: str, heading: str | None = None
+    ) -> Gtk.Widget:
+        if heading is None:
+            form.set_halign(Gtk.Align.START)
+            form.set_hexpand(False)
+            self._register_instructions(form, instructions)
+            return form
+
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        container.set_halign(Gtk.Align.FILL)
+        container.set_hexpand(True)
+
+        heading_label = Gtk.Label(label=heading)
+        heading_label.set_wrap(True)
+        heading_label.set_xalign(0.0)
+        if hasattr(heading_label, "add_css_class"):
+            heading_label.add_css_class("heading")
+        container.append(heading_label)
+
+        if hasattr(form, "set_halign"):
+            form.set_halign(Gtk.Align.FILL)
+        if hasattr(form, "set_hexpand"):
+            form.set_hexpand(True)
+        container.append(form)
+
+        self._register_instructions(container, instructions)
+        return container
 
     def _update_guidance_for_widget(self, widget: Gtk.Widget | None) -> None:
         if widget is None:
@@ -752,7 +775,7 @@ class SetupWizardWindow(AtlasWindow):
         box.set_hexpand(True)
         box.set_vexpand(True)
 
-        heading = Gtk.Label(label="Welcome to the ATLAS setup wizard")
+        heading = Gtk.Label(label="Welcome! Let's get ATLAS ready")
         heading.set_wrap(True)
         heading.set_xalign(0.0)
         if hasattr(heading, "add_css_class"):
@@ -761,103 +784,113 @@ class SetupWizardWindow(AtlasWindow):
 
         summary = Gtk.Label(
             label=(
-                "This wizard will guide you through configuring database connections, "
-                "administrative access, and optional services. Use the arrows or the "
-                "Next button to move between sections."
+                "This short walkthrough gathers the essentials so your deployment starts "
+                "with sensible defaults. We'll pause along the way to explain what each "
+                "choice does."
             )
         )
         summary.set_wrap(True)
         summary.set_xalign(0.0)
         box.append(summary)
 
-        sidebar_hint = Gtk.Label(
+        reassurance = Gtk.Label(
             label=(
-                "Completed steps will show a checkmark in the sidebar. You can return to any "
-                "step at any time to review or update its settings."
+                "Your answers save automatically—come back to any step from the sidebar "
+                "whenever you need to tweak something or resume later."
             )
         )
-        sidebar_hint.set_wrap(True)
-        sidebar_hint.set_xalign(0.0)
-        box.append(sidebar_hint)
+        reassurance.set_wrap(True)
+        reassurance.set_xalign(0.0)
+        box.append(reassurance)
 
-        callout_frame = Gtk.Frame()
-        callout_frame.set_hexpand(True)
-        callout_frame.set_margin_top(6)
-        callout_frame.set_margin_bottom(6)
-        callout_frame.set_margin_start(6)
-        callout_frame.set_margin_end(6)
-        if hasattr(callout_frame, "set_label"):
-            callout_frame.set_label("Prefer the command line?")
-        if hasattr(callout_frame, "set_label_align"):
-            try:
-                callout_frame.set_label_align(0.0, 0.5)
-            except Exception:  # pragma: no cover - GTK3 fallback
-                pass
+        why_callout = self._create_overview_callout(
+            "Why this matters",
+            [
+                "Give ATLAS an owner who can finish setup and invite others.",
+                "Connect the services that keep conversations safe and responsive.",
+                "Set expectations now so future teammates know what was chosen.",
+            ],
+        )
+        box.append(why_callout)
 
-        callout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        callout_box.set_margin_top(12)
-        callout_box.set_margin_bottom(12)
-        callout_box.set_margin_start(18)
-        callout_box.set_margin_end(18)
+        needs_callout = self._create_overview_callout(
+            "What you'll need",
+            [
+                "Contact details for the first administrator.",
+                "Connection info for PostgreSQL and supporting services.",
+                "API keys or credentials for any model providers you plan to use.",
+            ],
+        )
+        box.append(needs_callout)
 
-        callout_label = Gtk.Label(
+        cli_label = Gtk.Label(
             label=(
-                "You can run the same guided experience from a terminal with "
-                "scripts/setup_atlas.py. The wizard stages your inputs so you can finish "
-                "here or at the command line."
+                "Prefer a terminal instead? Run scripts/setup_atlas.py to pick up the "
+                "same guided flow from the command line."
             )
         )
-        callout_label.set_wrap(True)
-        callout_label.set_xalign(0.0)
-        callout_box.append(callout_label)
-
-        script_path = Path(__file__).resolve().parents[2] / "scripts" / "setup_atlas.py"
-        try:
-            script_uri = script_path.as_uri()
-        except ValueError:
-            script_uri = f"file://{script_path}"
-
-        link_label = "Open scripts/setup_atlas.py"
-        link_button: Gtk.Widget
-        link_button_cls = getattr(Gtk, "LinkButton", None)
-        if link_button_cls is not None and hasattr(link_button_cls, "new_with_label"):
-            link_button = link_button_cls.new_with_label(script_uri, link_label)
-        elif link_button_cls is not None:
-            try:
-                link_button = link_button_cls.new(script_uri)
-            except Exception:  # pragma: no cover - fallback guard
-                link_button = Gtk.Button(label=link_label)
-            else:
-                if hasattr(link_button, "set_label"):
-                    link_button.set_label(link_label)
-        else:  # pragma: no cover - GTK fallback guard
-            link_button = Gtk.Button(label=link_label)
-        if hasattr(link_button, "set_halign"):
-            link_button.set_halign(Gtk.Align.START)
-        callout_box.append(link_button)
-
-        if hasattr(callout_frame, "set_child"):
-            callout_frame.set_child(callout_box)
-        else:  # pragma: no cover - GTK3 fallback
-            callout_frame.add(callout_box)
-
-        box.append(callout_frame)
+        cli_label.set_wrap(True)
+        cli_label.set_xalign(0.0)
+        box.append(cli_label)
 
         self._register_instructions(
             box,
             (
-                "Read the introduction, review the command-line helper information, "
-                "then continue to enter the administrator details."
+                "Glance through the overview and check the two callouts so you know what "
+                "we'll ask for before you continue to the administrator details."
             ),
         )
         self._register_instructions(
-            callout_frame,
-            "Prefer a terminal workflow? Launch scripts/setup_atlas.py to step through the same setup on the command line.",
+            why_callout,
+            "Use this to align the setup goals with anyone joining you for the rollout.",
+        )
+        self._register_instructions(
+            needs_callout,
+            "Gather these items now so the next few forms go quickly.",
+        )
+        self._register_instructions(
+            cli_label,
+            "You can swap to the terminal helper at any point—the wizard keeps your progress in sync.",
         )
         return box
 
+    def _create_overview_callout(self, title: str, bullets: list[str]) -> Gtk.Widget:
+        frame = Gtk.Frame()
+        frame.set_hexpand(True)
+        frame.set_margin_top(6)
+        frame.set_margin_bottom(6)
+        frame.set_margin_start(6)
+        frame.set_margin_end(6)
+
+        if hasattr(frame, "set_label"):
+            frame.set_label(title)
+        if hasattr(frame, "set_label_align"):
+            try:
+                frame.set_label_align(0.0, 0.5)
+            except Exception:  # pragma: no cover - GTK3 fallback
+                pass
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(18)
+        box.set_margin_end(18)
+
+        for bullet in bullets:
+            label = Gtk.Label(label=f"• {bullet}")
+            label.set_wrap(True)
+            label.set_xalign(0.0)
+            box.append(label)
+
+        if hasattr(frame, "set_child"):
+            frame.set_child(box)
+        else:  # pragma: no cover - GTK3 fallback
+            frame.add(box)
+
+        return frame
+
     def _create_intro_page(
-        self, heading_text: str, paragraphs: list[str], instructions: str
+        self, heading_text: str, bullets: list[str], instructions: str
     ) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_hexpand(True)
@@ -870,91 +903,73 @@ class SetupWizardWindow(AtlasWindow):
             heading.add_css_class("heading")
         box.append(heading)
 
-        for text in paragraphs:
-            paragraph = Gtk.Label(label=text)
-            paragraph.set_wrap(True)
-            paragraph.set_xalign(0.0)
-            box.append(paragraph)
+        for text in bullets:
+            bullet = Gtk.Label(label=f"• {text}")
+            bullet.set_wrap(True)
+            bullet.set_xalign(0.0)
+            box.append(bullet)
 
         self._register_instructions(box, instructions)
         return box
 
     def _build_administrator_intro_page(self) -> Gtk.Widget:
         return self._create_intro_page(
-            "Administrator account",
+            "About the Administrator",
             [
-                "Create the first administrator so that ATLAS has a trusted owner. The "
-                "email address and password you provide will be required to sign in and "
-                "complete future changes.",
-                "The wizard stages this administrator profile so later steps can reuse the "
-                "same contact information and credentials before registration is finalized. "
-                "Have a secure password ready to keep the staged profile protected.",
+                "Create the first administrator so there's a trusted owner from day one.",
+                "We'll reuse their contact and domain details to prefill later steps.",
             ],
-            (
-                "Review what information you need for the administrator and how the wizard "
-                "will stage those details for reuse before moving to the form."
-            ),
+            "Grab a strong password and the administrator's contact info, then continue when you're set.",
         )
 
     def _build_database_intro_page(self) -> Gtk.Widget:
         return self._create_intro_page(
-            "Database connection",
+            "About the Database",
             [
-                "ATLAS stores conversations and configuration in PostgreSQL. The wizard will "
-                "validate the host, port, database, and credentials that you provide.",
-                "Collect the connection information or confirm that the defaults are "
-                "correct before continuing to the form.",
+                "ATLAS keeps conversations and configuration in PostgreSQL.",
+                "We'll test the host, port, database, and credentials you share next.",
             ],
-            "Confirm you know the database connection details, then continue to the form to enter them.",
+            "Keep the database connection details nearby so entering them is quick.",
         )
 
     def _build_job_scheduling_intro_page(self) -> Gtk.Widget:
         return self._create_intro_page(
-            "Job scheduling",
+            "About Job Scheduling",
             [
-                "Background jobs keep ATLAS healthy by refreshing caches and performing "
-                "maintenance tasks. Configure the scheduler connection that will dispatch "
-                "those jobs.",
-                "If you are unsure which backend to use, stick with the defaults and review "
-                "them with your infrastructure team before deployment.",
+                "Background jobs refresh caches and handle maintenance tasks for ATLAS.",
+                "You'll choose how those jobs queue and which backend coordinates them.",
             ],
-            "Review what the scheduler is responsible for, then proceed to configure the connection details.",
+            "Think about the scheduler service you plan to use so the form choices feel familiar.",
         )
 
     def _build_message_bus_intro_page(self) -> Gtk.Widget:
         return self._create_intro_page(
-            "Message bus",
+            "About the Message Bus",
             [
-                "The message bus links ATLAS services together and delivers events. Typical "
-                "deployments use NATS, RabbitMQ, or Redis streams.",
-                "Gather the broker URL and credentials so the wizard can test connectivity on "
-                "the next page.",
+                "The message bus keeps ATLAS services talking to each other.",
+                "Common choices include NATS, RabbitMQ, or Redis streams—pick what fits your stack.",
             ],
-            "Check which broker you plan to use so you can provide the URL and credentials next.",
+            "Have the broker URL and credentials ready for the next screen.",
         )
 
     def _build_kv_store_intro_page(self) -> Gtk.Widget:
         return self._create_intro_page(
-            "Key-value store",
+            "About the Key-Value Store",
             [
-                "A key-value backend stores ephemeral state like rate limits and cache data. "
-                "Redis is the most common option, but other providers are supported too.",
-                "Confirm the hostname, port, and any authentication requirements before filling "
-                "out the configuration form.",
+                "A key-value backend keeps short-lived state like rate limits and caches.",
+                "Redis works great, but any compatible service with a DSN will do.",
             ],
-            "Prepare the connection details for your key-value store, then continue to configure it.",
+            "Jot down the hostname, port, and credentials so you can plug them in quickly.",
         )
 
     def _build_speech_intro_page(self) -> Gtk.Widget:
         return self._create_intro_page(
-            "Speech services",
+            "About Speech Services",
             [
-                "Enable speech synthesis and recognition to power voice experiences. You can "
-                "choose providers, supply API keys, and tailor default voices.",
-                "Collect the credentials for any speech provider you plan to enable so the form "
-                "is quick to complete.",
+                "Speech synthesis and recognition unlock voice-driven experiences in ATLAS.",
+                "We'll ask for provider choices, API keys, and preferred default voices next.",
             ],
-            "Decide which speech providers you will enable before moving on to the configuration form.",
+            "Pick the providers you want to enable and have their credentials ready to drop in.",
         )
 
     def _build_optional_intro_page(self) -> Gtk.Widget:
@@ -962,28 +977,22 @@ class SetupWizardWindow(AtlasWindow):
         box.set_hexpand(True)
         box.set_vexpand(True)
 
-        heading = Gtk.Label(label="Organization policies")
+        heading = Gtk.Label(label="About the Organization")
         heading.set_wrap(True)
         heading.set_xalign(0.0)
         if hasattr(heading, "add_css_class"):
             heading.add_css_class("heading")
         box.append(heading)
 
-        summary_paragraphs = [
-            (
-                "Seed tenancy defaults, retention expectations, and scheduler overrides so the "
-                "wizard can align the deployment with your organization’s policies."
-            ),
-            (
-                "Enterprise teams often standardize retention workers, queue sizing, and tenant "
-                "namespaces up front so downstream services inherit the right safeguards."
-            ),
+        summary_bullets = [
+            "Seed tenancy defaults, retention expectations, and scheduler notes so ATLAS mirrors your policies.",
+            "Large teams often standardize retention workers, queue sizing, and namespaces before go-live.",
         ]
-        for text in summary_paragraphs:
-            paragraph = Gtk.Label(label=text)
-            paragraph.set_wrap(True)
-            paragraph.set_xalign(0.0)
-            box.append(paragraph)
+        for text in summary_bullets:
+            bullet = Gtk.Label(label=f"• {text}")
+            bullet.set_wrap(True)
+            bullet.set_xalign(0.0)
+            box.append(bullet)
 
         callout_frame = Gtk.Frame()
         callout_frame.set_hexpand(True)
@@ -1002,33 +1011,30 @@ class SetupWizardWindow(AtlasWindow):
         except Exception:  # pragma: no cover - defensive fallback
             runbook_uri = None
 
-        callout_heading = Gtk.Label(label="Scaling checklist")
+        callout_heading = Gtk.Label(label="Scaling reminders")
         callout_heading.set_wrap(True)
         callout_heading.set_xalign(0.0)
         if hasattr(callout_heading, "add_css_class"):
             callout_heading.add_css_class("heading")
         callout_box.append(callout_heading)
 
-        tenancy_label = Gtk.Label(
-            label=(
-                "Tenancy defaults: the wizard will suggest tenant IDs from the administrator "
-                "domain so shared namespaces stay consistent across services."
-            )
-        )
-        tenancy_label.set_wrap(True)
-        tenancy_label.set_xalign(0.0)
-        callout_box.append(tenancy_label)
+        callout_points = [
+            "Tenant defaults start with the administrator domain—adjust if teams need their own space.",
+            "Match retention worker cadence with the conversation retention runbook before tightening purges.",
+        ]
 
-        retention_label = Gtk.Label(
-            label=(
-                "Retention workers: confirm the retention worker schedule matches the "
-                "conversation retention runbook before "
-                "enabling stricter purges."
-            )
+        callout_points.extend(
+            [
+                "Document scheduler overrides—queue sizes, time zones, cadence—so workers match production.",
+                "Review residency, encryption, and deletion safeguards with stakeholders before scaling up.",
+            ]
         )
-        retention_label.set_wrap(True)
-        retention_label.set_xalign(0.0)
-        callout_box.append(retention_label)
+
+        for text in callout_points:
+            label = Gtk.Label(label=f"• {text}")
+            label.set_wrap(True)
+            label.set_xalign(0.0)
+            callout_box.append(label)
 
         if runbook_uri:
             link_widget: Gtk.Widget | None = None
@@ -1050,26 +1056,6 @@ class SetupWizardWindow(AtlasWindow):
                 fallback_label.set_xalign(0.0)
                 callout_box.append(fallback_label)
 
-        scheduler_label = Gtk.Label(
-            label=(
-                "Scheduler overrides: document queue size or timezone overrides so job workers "
-                "adopt the same cadence as production schedulers."
-            )
-        )
-        scheduler_label.set_wrap(True)
-        scheduler_label.set_xalign(0.0)
-        callout_box.append(scheduler_label)
-
-        safeguards_label = Gtk.Label(
-            label=(
-                "Shared safeguards: audit residency, encryption, and deletion controls with "
-                "your administrators before scaling multi-tenant deployments."
-            )
-        )
-        safeguards_label.set_wrap(True)
-        safeguards_label.set_xalign(0.0)
-        callout_box.append(safeguards_label)
-
         if hasattr(callout_frame, "set_child"):
             callout_frame.set_child(callout_box)
         else:  # pragma: no cover - GTK3 fallback
@@ -1078,31 +1064,28 @@ class SetupWizardWindow(AtlasWindow):
         box.append(callout_frame)
 
         instructions = (
-            "• Personal workspaces can accept the suggested tenant defaults and baseline retention.\n"
-            "• Enterprise rollouts should align retention with the documented worker schedule and note scheduler overrides.\n"
-            "• Confirm shared safeguards with administrators before advancing to configuration."
+            "• Decide which organizational defaults matter most before moving on.\n"
+            "• Jot down any retention or scheduling nuances you want to capture on the next form.\n"
+            "• Loop in stakeholders if you need buy-in on safeguards before saving."
         )
 
         self._register_instructions(box, instructions)
         self._register_instructions(
             callout_frame,
             (
-                "Review tenancy defaults, retention worker coverage, scheduler overrides, and "
-                "shared safeguards before proceeding."
+                "Use these reminders to double-check policies and documentation needs before you continue."
             ),
         )
         return box
 
     def _build_provider_intro_page(self) -> Gtk.Widget:
         return self._create_intro_page(
-            "Model providers",
+            "About Providers",
             [
-                "Choose sensible defaults for providers and models so new conversations start with "
-                "the right capabilities.",
-                "You can fine-tune provider-specific settings on the following pages if multiple "
-                "services are enabled.",
+                "Choose the default providers and models new conversations should start with.",
+                "You'll tune provider-specific settings on the following pages when more than one is enabled.",
             ],
-            "Review the provider defaults before stepping through each provider-specific configuration.",
+            "Decide which providers you'll enable so the next forms go quickly.",
         )
 
     def _select_step_row(self, index: int) -> None:
@@ -1128,11 +1111,10 @@ class SetupWizardWindow(AtlasWindow):
         self._database_user_suggestion = self._database_entries["user"].get_text().strip()
 
         instructions = (
-            "Enter the PostgreSQL connection details. If the conversation store "
-            "already exists, the wizard will reuse it."
+            "Share the PostgreSQL details here. If a conversation store already exists, we'll reuse it."
         )
 
-        return self._wrap_with_instructions(grid, instructions)
+        return self._wrap_with_instructions(grid, instructions, "Configure Database")
 
     def _build_provider_pages(self) -> list[Gtk.Widget]:
         state = self.controller.state.providers
@@ -1151,10 +1133,11 @@ class SetupWizardWindow(AtlasWindow):
         defaults_box.append(self._provider_entries["default_model"])
 
         defaults_instructions = (
-            "Choose the default provider and model that conversations will use unless a "
-            "workspace overrides them."
+            "Pick the default provider and model. New workspaces inherit these unless they choose otherwise."
         )
-        self._register_instructions(defaults_box, defaults_instructions)
+        defaults_form = self._wrap_with_instructions(
+            defaults_box, defaults_instructions, "Configure Providers"
+        )
 
         keys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         keys_box.set_hexpand(True)
@@ -1176,12 +1159,13 @@ class SetupWizardWindow(AtlasWindow):
         keys_box.append(view)
 
         keys_instructions = (
-            "Provide any API keys the assistant needs. Enter one entry per line using "
-            "provider=key format."
+            "Add any API keys the assistant needs—one per line using provider=key format."
         )
-        self._register_instructions(keys_box, keys_instructions)
+        keys_form = self._wrap_with_instructions(
+            keys_box, keys_instructions, "Configure Provider Keys"
+        )
 
-        return [defaults_box, keys_box]
+        return [defaults_form, keys_form]
 
     def _build_kv_store_page(self) -> Gtk.Widget:
         state = self.controller.state.kv_store
@@ -1200,19 +1184,17 @@ class SetupWizardWindow(AtlasWindow):
         box.append(url_entry)
 
         instructions = (
-            "Reuse the existing conversation store for key-value storage, or provide a dedicated"
-            " DSN when you need an external database."
+            "Reuse the conversation store for key-value data or share a dedicated DSN if you prefer a separate service."
         )
 
-        self._register_instructions(box, instructions)
-        return box
+        return self._wrap_with_instructions(box, instructions, "Configure Key-Value Store")
 
     def _build_job_scheduling_page(self) -> Gtk.Widget:
         state = self.controller.state.job_scheduling
         retry = state.retry_policy
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
 
-        enable_toggle = Gtk.CheckButton(label="Enable durable job scheduling")
+        enable_toggle = Gtk.CheckButton(label="Enable background job scheduling")
         enable_toggle.set_active(state.enabled)
         enable_toggle.set_hexpand(False)
         self._job_widgets["enabled"] = enable_toggle
@@ -1260,12 +1242,15 @@ class SetupWizardWindow(AtlasWindow):
         )
 
         instructions = (
-            "Enable durable job scheduling and configure the worker pool, timezone,"
-            " and retry policy used for queued jobs."
+            "• Turn scheduling on when you want background jobs to run.\n"
+            "• Share DSNs and limits that match how you plan to operate workers.\n"
+            "• Capture retry details so teammates know what to expect."
         )
 
-        self._register_instructions(grid, instructions)
-        return grid
+        form = self._wrap_with_instructions(
+            grid, instructions, "Configure Job Scheduling"
+        )
+        return form
 
     def _build_message_bus_page(self) -> Gtk.Widget:
         state = self.controller.state.message_bus
@@ -1293,13 +1278,10 @@ class SetupWizardWindow(AtlasWindow):
         )
 
         instructions = (
-            "Choose the message bus backend used for inter-process communication."
-            " Select Redis to coordinate multiple workers or keep the in-memory backend for"
-            " single-instance deployments."
+            "Choose the message bus backend. Redis keeps multiple workers in sync, while in-memory suits single instances."
         )
 
-        self._register_instructions(grid, instructions)
-        return grid
+        return self._wrap_with_instructions(grid, instructions, "Configure Message Bus")
 
     def _build_speech_page(self) -> Gtk.Widget:
         state = self.controller.state.speech
@@ -1332,12 +1314,10 @@ class SetupWizardWindow(AtlasWindow):
         )
 
         instructions = (
-            "Enable text-to-speech or speech-to-text features and provide credentials for the"
-            " services you plan to use."
+            "Toggle the speech features you need and drop in credentials for the providers you'll rely on."
         )
 
-        self._register_instructions(grid, instructions)
-        return grid
+        return self._wrap_with_instructions(grid, instructions, "Configure Speech Services")
 
     def _build_optional_page(self) -> Gtk.Widget:
         state = self.controller.state.optional
@@ -1388,7 +1368,7 @@ class SetupWizardWindow(AtlasWindow):
         except Exception:  # pragma: no cover - defensive fallback
             runbook_uri = None
 
-        info_heading = Gtk.Label(label="Enterprise guidance")
+        info_heading = Gtk.Label(label="Tips for larger teams")
         info_heading.set_wrap(True)
         info_heading.set_xalign(0.0)
         if hasattr(info_heading, "add_css_class"):
@@ -1397,8 +1377,7 @@ class SetupWizardWindow(AtlasWindow):
 
         tenancy_info = Gtk.Label(
             label=(
-                "Tenancy defaults from the administrator domain populate here automatically; "
-                "adjust them if your organization isolates tenants per business unit."
+                "Tenant defaults start with the administrator domain—tweak them if teams need their own space."
             )
         )
         tenancy_info.set_wrap(True)
@@ -1407,8 +1386,7 @@ class SetupWizardWindow(AtlasWindow):
 
         retention_info = Gtk.Label(
             label=(
-                "Retention windows should mirror the retention worker cadence documented in "
-                "docs/conversation_retention.md so purge jobs run consistently."
+                "Match retention windows with the cadence documented in docs/conversation_retention.md so purge jobs stay predictable."
             )
         )
         retention_info.set_wrap(True)
@@ -1437,8 +1415,7 @@ class SetupWizardWindow(AtlasWindow):
 
         scheduler_info = Gtk.Label(
             label=(
-                "Scheduler overrides help large tenants throttle peak workloads—coordinate "
-                "queue sizes with your infrastructure team."
+                "Note any scheduler overrides—queue sizes, time zones—so operators keep peak workloads in check."
             )
         )
         scheduler_info.set_wrap(True)
@@ -1447,8 +1424,7 @@ class SetupWizardWindow(AtlasWindow):
 
         safeguards_info = Gtk.Label(
             label=(
-                "Shared safeguards should include audit logging, residency commitments, and "
-                "scheduled reviews of retention metrics."
+                "Record shared safeguards like audit logging, residency requirements, and regular retention reviews."
             )
         )
         safeguards_info.set_wrap(True)
@@ -1463,20 +1439,21 @@ class SetupWizardWindow(AtlasWindow):
         grid.attach(callout_frame, 0, 6, 2, 1)
 
         instructions = (
-            "• Personal deployments may keep defaults but should note how tenant IDs impact audit trails.\n"
-            "• Enterprise deployments must align retention inputs with worker schedules and document scheduler overrides.\n"
-            "• Capture shared safeguards and review them with administrators before saving organization settings."
+            "• Set tenant defaults and retention expectations that fit your rollout.\n"
+            "• Share scheduler tweaks so background jobs line up with your policies.\n"
+            "• Decide whether ATLAS should auto-start its HTTP server for you."
         )
 
-        self._register_instructions(grid, instructions)
+        form = self._wrap_with_instructions(
+            grid, instructions, "Configure Organization"
+        )
         self._register_instructions(
             callout_frame,
             (
-                "Use these notes to compare personal versus enterprise policies and align them "
-                "with your documentation set."
+                "Capture any notes that will help future teammates understand your organizational defaults."
             ),
         )
-        return grid
+        return form
 
     def _build_user_page(self) -> Gtk.Widget:
         state = self.controller.state.user
@@ -1553,13 +1530,12 @@ class SetupWizardWindow(AtlasWindow):
         )
 
         instructions = (
-            "Provide details for the administrator account, including contact information, "
-            "an optional organization domain, and the credentials needed for privileged "
-            "operations. The wizard stages these details for later steps before final "
-            "registration."
+            "Share the administrator's contact details, optional domain, and any privileged credentials so we can stage them for later steps."
         )
 
-        form = self._wrap_with_instructions(grid, instructions)
+        form = self._wrap_with_instructions(
+            grid, instructions, "Configure Administrator"
+        )
         self._sync_user_entries_from_state()
         return form
 
