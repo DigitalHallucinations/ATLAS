@@ -727,6 +727,7 @@ class _AtlasForChatPage:
         self.user_display = "Guest"
         self.provider_listener = None
         self.active_listener = None
+        self._subscriptions = []
 
     def add_provider_change_listener(self, listener):
         self.provider_listener = listener
@@ -743,6 +744,17 @@ class _AtlasForChatPage:
         if self.active_listener == listener:
             self.active_listener = None
 
+    def subscribe_event(self, event_name, callback, **_kwargs):
+        handle = SimpleNamespace(cancel=None, cancelled=False)
+        handle.cancel = lambda: setattr(handle, "cancelled", True)
+        self._subscriptions.append((event_name, callback, _kwargs, handle))
+        return handle
+
+    def unsubscribe_event(self, handle, **_kwargs):
+        cancel = getattr(handle, "cancel", None)
+        if callable(cancel):
+            cancel()
+
     def get_active_persona_name(self):
         return "Helper"
 
@@ -754,6 +766,9 @@ class _AtlasForChatPage:
 
     def format_chat_status(self, _summary):
         return "status"
+
+    def get_blackboard_summary(self, _scope_id, *, scope_type="conversation"):
+        return {"scope_type": scope_type, "counts": {}, "entries": []}
 
 
 class _DummyChatSession:
@@ -849,6 +864,7 @@ class _AtlasStub:
         self.calls = []
         self.last_success = None
         self.last_error = None
+        self._subscriptions = []
 
     def get_user_display_name(self):
         return self._user_display_name
@@ -872,6 +888,17 @@ class _AtlasStub:
         self.last_success = on_success
         self.last_error = on_error
         return SimpleNamespace()
+
+    def subscribe_event(self, event_name, callback, **_kwargs):
+        handle = SimpleNamespace(cancel=None)
+        handle.cancel = lambda: None
+        self._subscriptions.append((event_name, callback, handle))
+        return handle
+
+    def unsubscribe_event(self, handle, **_kwargs):
+        cancel = getattr(handle, "cancel", None)
+        if callable(cancel):
+            cancel()
 
 
 def _make_atlas_with_session():

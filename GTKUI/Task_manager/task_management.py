@@ -12,8 +12,6 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
-from modules.Tools.tool_event_system import subscribe_bus_event
-
 from .widgets import clear_container, create_badge, create_badge_container, sync_badge_section
 
 logger = logging.getLogger(__name__)
@@ -1057,7 +1055,7 @@ class TaskManagement:
         events = ("task.created", "task.updated", "task.status_changed")
         for event_name in events:
             try:
-                handle = subscribe_bus_event(event_name, self._handle_bus_event)
+                handle = self.ATLAS.subscribe_event(event_name, self._handle_bus_event)
             except Exception as exc:  # pragma: no cover - subscription fallback
                 logger.debug("Unable to subscribe to %s events: %s", event_name, exc, exc_info=True)
                 continue

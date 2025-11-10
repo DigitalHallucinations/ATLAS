@@ -433,16 +433,13 @@ class _SubscriptionStore(list[_SubscriptionStub]):
 def _register_bus_stub(monkeypatch):
     subscriptions = _SubscriptionStore()
 
-    def fake_subscribe(event_name: str, callback, **_kwargs):
+    def fake_subscribe(self, event_name: str, callback, **_kwargs):
         subscriptions.requested_events.append(event_name)
         subscription = _SubscriptionStub(event_name, callback)
         subscriptions.append(subscription)
         return subscription
 
-    monkeypatch.setattr(
-        "GTKUI.Job_manager.job_management.subscribe_bus_event",
-        fake_subscribe,
-    )
+    monkeypatch.setattr(_AtlasStub, "subscribe_event", fake_subscribe, raising=False)
     return subscriptions
 
 

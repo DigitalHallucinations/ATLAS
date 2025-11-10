@@ -12,8 +12,6 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
-from modules.Tools.tool_event_system import subscribe_bus_event
-
 from GTKUI.Task_manager.widgets import (
     clear_container,
     create_badge,
@@ -1085,8 +1083,17 @@ class JobManagement:
             except Exception:  # pragma: no cover - GTK fallback
                 dialog = None
             if dialog is not None:
-                resume_response = getattr(Gtk, "ResponseType", types.SimpleNamespace(YES=1, ACCEPT=1)).YES
-                run_response = getattr(Gtk, "ResponseType", types.SimpleNamespace(APPLY=2, OK=2)).APPLY
+                response_type = getattr(Gtk, "ResponseType", types.SimpleNamespace())
+                resume_response = getattr(
+                    response_type,
+                    "YES",
+                    getattr(response_type, "ACCEPT", 1),
+                )
+                run_response = getattr(
+                    response_type,
+                    "APPLY",
+                    getattr(response_type, "OK", 2),
+                )
                 add_button = getattr(dialog, "add_button", None)
                 if callable(add_button):
                     try:
@@ -1186,7 +1193,7 @@ class JobManagement:
         )
         for event_name in events:
             try:
-                handle = subscribe_bus_event(event_name, self._handle_bus_event)
+                handle = self.ATLAS.subscribe_event(event_name, self._handle_bus_event)
             except Exception as exc:  # pragma: no cover - subscription fallback
                 logger.debug("Unable to subscribe to %s events: %s", event_name, exc, exc_info=True)
                 continue
