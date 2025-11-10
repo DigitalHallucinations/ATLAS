@@ -47,6 +47,7 @@ from modules.orchestration.job_manager import JobManager
 from modules.orchestration.job_scheduler import JobScheduler
 from modules.orchestration.task_manager import TaskManager
 from ATLAS.services.tooling import ToolingService
+from ATLAS.services.conversations import ConversationService
 
 class ATLAS:
     """
@@ -76,7 +77,7 @@ class ATLAS:
         self._default_status_tooltip = "Active LLM provider/model and TTS status"
         self.server = AtlasServer(config_manager=self.config_manager)
         self.conversation_repository: ConversationStoreRepository | None = None
-        self._conversation_history_listeners: List[Callable[[Dict[str, Any]], None]] = []
+        self.conversation_service: ConversationService | None = None
 
         tenant_value = self.config_manager.config.get("tenant_id")
         if tenant_value is None:
@@ -122,6 +123,12 @@ class ATLAS:
             raise
         else:
             self.conversation_repository = repository
+            self.conversation_service = ConversationService(
+                repository=self.conversation_repository,
+                logger=self.logger,
+                tenant_id=self.tenant_id,
+                chat_session_getter=self._require_chat_session,
+            )
             self.user_account_facade = UserAccountFacade(
                 config_manager=self.config_manager,
                 conversation_repository=self.conversation_repository,
@@ -774,112 +781,58 @@ class ATLAS:
         """Return a safe copy of the current conversation history."""
 
         try:
-            session = self._require_chat_session()
+            service = self._get_conversation_service()
         except RuntimeError:
             return []
-
-        getter = getattr(session, "get_history", None)
-        if not callable(getter):
-            return []
-
-        try:
-            history = getter()
-        except Exception as exc:  # pragma: no cover - defensive logging only
-            self.logger.error("Failed to retrieve chat history snapshot: %s", exc, exc_info=True)
-            return []
-
-        if isinstance(history, list):
-            return list(history)
-
-        return []
+        return service.get_chat_history_snapshot()
 
     # ------------------------------------------------------------------
     # Conversation repository helpers
     # ------------------------------------------------------------------
+    def _get_conversation_service(self) -> ConversationService:
+        service = self.conversation_service
+        if service is None:
+            raise RuntimeError("Conversation service is not initialized.")
+        return service
+
     def add_conversation_history_listener(
         self, listener: Callable[[Dict[str, Any]], None]
     ) -> None:
         """Register a callback notified when the conversation list changes."""
 
-        if not callable(listener):
-            raise TypeError("listener must be callable")
-
-        if listener not in self._conversation_history_listeners:
-            self._conversation_history_listeners.append(listener)
+        self._get_conversation_service().add_listener(listener)
 
     def remove_conversation_history_listener(
         self, listener: Callable[[Dict[str, Any]], None]
     ) -> None:
         """Remove a previously registered conversation listener."""
 
-        try:
-            self._conversation_history_listeners.remove(listener)
-        except ValueError:
-            pass
-
-    def _conversation_tenant(self) -> str:
-        tenant = getattr(self, "tenant_id", None)
-        if not tenant:
-            return "default"
-        text = str(tenant).strip()
-        return text or "default"
-
-    def _notify_conversation_listeners(self, payload: Mapping[str, Any]) -> None:
-        event = dict(payload)
-        for listener in list(self._conversation_history_listeners):
-            try:
-                listener(event)
-            except Exception as exc:  # pragma: no cover - defensive logging
-                self.logger.debug(
-                    "Conversation listener %s failed: %s", listener, exc, exc_info=True
-                )
+        self._get_conversation_service().remove_listener(listener)
 
     def notify_conversation_updated(
         self, conversation_id: Any, *, reason: str = "updated"
     ) -> None:
         """Notify UI components that a conversation has changed."""
 
-        identifier = str(conversation_id)
-        payload = {"conversation_id": identifier, "reason": reason}
-        self._notify_conversation_listeners(payload)
+        self._get_conversation_service().notify_updated(conversation_id, reason=reason)
 
     def get_recent_conversations(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Return the most recent conversations for the active tenant."""
 
-        repository = self.conversation_repository
-        if repository is None:
-            return []
-
         try:
-            window = max(int(limit), 1)
-        except (TypeError, ValueError):
-            window = 20
-
-        try:
-            return repository.list_conversations_for_tenant(
-                self._conversation_tenant(),
-                limit=window,
-                order="desc",
-            )
-        except Exception as exc:  # pragma: no cover - database errors logged
-            self.logger.error("Failed to load recent conversations: %s", exc, exc_info=True)
+            service = self._get_conversation_service()
+        except RuntimeError:
             return []
+        return service.get_recent_conversations(limit)
 
     def list_all_conversations(self, *, order: str = "desc") -> List[Dict[str, Any]]:
         """Return all conversations for the tenant in the requested order."""
 
-        repository = self.conversation_repository
-        if repository is None:
-            return []
-
         try:
-            return repository.list_conversations_for_tenant(
-                self._conversation_tenant(),
-                order=order,
-            )
-        except Exception as exc:  # pragma: no cover - defensive logging only
-            self.logger.error("Failed to enumerate conversations: %s", exc, exc_info=True)
+            service = self._get_conversation_service()
+        except RuntimeError:
             return []
+        return service.list_all_conversations(order=order)
 
     def get_conversation_messages(
         self,
@@ -891,117 +844,43 @@ class ATLAS:
     ) -> List[Dict[str, Any]]:
         """Return messages for ``conversation_id`` using the conversation store."""
 
-        repository = self.conversation_repository
-        if repository is None:
-            return []
-
-        remaining: Optional[int]
-        if limit is None:
-            remaining = None
-        else:
-            try:
-                remaining = max(int(limit), 0)
-            except (TypeError, ValueError):
-                remaining = None
-
         try:
-            chunk_size = max(int(batch_size), 1)
-        except (TypeError, ValueError):
-            chunk_size = 200
-
-        try:
-            stream = repository.stream_conversation_messages(
-                conversation_id,
-                tenant_id=self._conversation_tenant(),
-                batch_size=chunk_size,
-                direction="forward",
-                include_deleted=include_deleted,
-            )
-
-            messages: List[Dict[str, Any]] = []
-            if remaining is None:
-                messages.extend(stream)
-            else:
-                for message in stream:
-                    if remaining <= 0:
-                        break
-                    messages.append(message)
-                    remaining -= 1
-            return messages
-        except Exception as exc:  # pragma: no cover - persistence failures logged
-            self.logger.error(
-                "Failed to load messages for conversation %s: %s", conversation_id, exc, exc_info=True
-            )
+            service = self._get_conversation_service()
+        except RuntimeError:
             return []
+        return service.get_conversation_messages(
+            conversation_id,
+            limit=limit,
+            include_deleted=include_deleted,
+            batch_size=batch_size,
+        )
 
     def reset_conversation_messages(self, conversation_id: Any) -> Dict[str, Any]:
         """Remove stored messages for ``conversation_id`` while preserving the record."""
 
-        repository = self.conversation_repository
-        if repository is None:
-            return {"success": False, "error": "Conversation store unavailable."}
-
         try:
-            repository.reset_conversation(
-                conversation_id,
-                tenant_id=self._conversation_tenant(),
-            )
-        except Exception as exc:  # pragma: no cover - propagate details to UI payload
-            self.logger.error(
-                "Failed to reset conversation %s: %s", conversation_id, exc, exc_info=True
-            )
-            return {"success": False, "error": str(exc) or "Unable to reset conversation."}
-
-        self.notify_conversation_updated(conversation_id, reason="reset")
-        return {"success": True}
+            service = self._get_conversation_service()
+        except RuntimeError:
+            return {"success": False, "error": "Conversation store unavailable."}
+        return service.reset_conversation_messages(conversation_id)
 
     def delete_conversation(self, conversation_id: Any) -> Dict[str, Any]:
         """Permanently delete ``conversation_id`` and associated assets."""
 
-        repository = self.conversation_repository
-        if repository is None:
-            return {"success": False, "error": "Conversation store unavailable."}
-
         try:
-            repository.hard_delete_conversation(
-                conversation_id,
-                tenant_id=self._conversation_tenant(),
-            )
-        except Exception as exc:  # pragma: no cover - persistence failure reported
-            self.logger.error(
-                "Failed to delete conversation %s: %s", conversation_id, exc, exc_info=True
-            )
-            return {"success": False, "error": str(exc) or "Unable to delete conversation."}
-
-        self.notify_conversation_updated(conversation_id, reason="deleted")
-        return {"success": True}
+            service = self._get_conversation_service()
+        except RuntimeError:
+            return {"success": False, "error": "Conversation store unavailable."}
+        return service.delete_conversation(conversation_id)
 
     def get_negotiation_log(self) -> List[Dict[str, Any]]:
         """Expose recorded negotiation traces to the UI layer."""
 
         try:
-            session = self._require_chat_session()
+            service = self._get_conversation_service()
         except RuntimeError:
             return []
-
-        getter = getattr(session, "get_negotiation_history", None)
-        if not callable(getter):
-            return []
-
-        try:
-            history = getter()
-        except Exception as exc:  # pragma: no cover - defensive logging only
-            self.logger.error(
-                "Failed to retrieve negotiation history: %s",
-                exc,
-                exc_info=True,
-            )
-            return []
-
-        if isinstance(history, list):
-            return [dict(entry) for entry in history]
-
-        return []
+        return service.get_negotiation_log()
 
     def compute_persona_locked_content(
         self,
