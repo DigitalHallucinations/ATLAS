@@ -16,7 +16,6 @@ from .General_Tab.general_tab import GeneralTab
 from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
 from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css
-from modules.logging.audit import PersonaAuditEntry, get_persona_audit_logger
 
 
 logger = logging.getLogger(__name__)
@@ -1091,23 +1090,32 @@ class PersonaManagement:
             return "Rationale: Not provided."
         return f"Rationale: {text}"
 
-    def _format_history_entry(self, entry: PersonaAuditEntry) -> str:
-        timestamp = self._format_timestamp(entry.timestamp)
-        username = entry.username or "unknown"
+    def _format_history_entry(self, entry: Dict[str, Any]) -> str:
+        timestamp = self._format_timestamp(entry.get("timestamp", ""))
+        username = str(entry.get("username") or "unknown")
         return f"{timestamp} — {username}"
 
-    def _build_history_row(self, entry: PersonaAuditEntry) -> Gtk.Widget:
+    def _build_history_row(self, entry: Dict[str, Any]) -> Gtk.Widget:
         container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
 
         summary_label = Gtk.Label(label=self._format_history_entry(entry))
         summary_label.set_xalign(0.0)
         container.append(summary_label)
 
-        tools_label = Gtk.Label(label=self._format_tool_change(entry.old_tools, entry.new_tools))
+        old_tools = entry.get("old_tools") or []
+        new_tools = entry.get("new_tools") or []
+        tools_label = Gtk.Label(
+            label=self._format_tool_change(
+                [str(tool) for tool in old_tools],
+                [str(tool) for tool in new_tools],
+            )
+        )
         tools_label.set_xalign(0.0)
         container.append(tools_label)
 
-        rationale_label = Gtk.Label(label=self._format_rationale(entry.rationale))
+        rationale_label = Gtk.Label(
+            label=self._format_rationale(str(entry.get("rationale") or ""))
+        )
         rationale_label.set_xalign(0.0)
         container.append(rationale_label)
 
@@ -1137,9 +1145,8 @@ class PersonaManagement:
             self._history_placeholder = None
 
         try:
-            logger = get_persona_audit_logger()
-            entries, total = logger.get_history(
-                persona_name=persona_name,
+            entries, total = self.ATLAS.get_persona_audit_history(
+                persona_name,
                 offset=self._history_offset,
                 limit=self._history_page_size,
             )

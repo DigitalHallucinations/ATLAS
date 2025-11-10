@@ -66,6 +66,40 @@ if not hasattr(Gtk, "Dialog"):
 
     Gtk.Dialog = _DummyDialog
 
+if not hasattr(Gtk, "Stack"):
+    class _DummyStack:
+        def __init__(self, *args, **kwargs):
+            self._children: list[Any] = []
+            self._transition_type = getattr(Gtk, "StackTransitionType", None)
+            self._visible_child_name = None
+
+        def set_transition_type(self, transition_type):  # pragma: no cover - stub helper
+            self._transition_type = transition_type
+
+        def set_transition_duration(self, duration):  # pragma: no cover - stub helper
+            self._transition_duration = duration
+
+        def add_titled(self, child, name: str, _title: str) -> None:
+            self._children.append((name, child))
+
+        def set_visible_child_name(self, name: str) -> None:
+            self._visible_child_name = name
+
+    Gtk.Stack = _DummyStack
+
+if not hasattr(Gtk, "StackSwitcher"):
+    class _DummyStackSwitcher:
+        def __init__(self, *args, **kwargs):
+            self._stack = None
+
+        def set_stack(self, stack):  # pragma: no cover - stub helper
+            self._stack = stack
+
+        def set_tooltip_text(self, text: str) -> None:  # pragma: no cover - stub helper
+            self._tooltip = text
+
+    Gtk.StackSwitcher = _DummyStackSwitcher
+
 if not hasattr(Gtk, "StackTransitionType"):
     Gtk.StackTransitionType = types.SimpleNamespace(SLIDE_LEFT_RIGHT=0)
 else:
@@ -220,6 +254,7 @@ class _AtlasStub:
         self.review_status = dict(status)
         self.messages: list[tuple[str, str]] = []
         self.attest_calls: list[Dict[str, Any]] = []
+        self.audit_history: list[Dict[str, Any]] = []
 
     def register_message_dispatcher(self, handler) -> None:  # pragma: no cover - stored
         self.dispatcher = handler
@@ -264,6 +299,15 @@ class _AtlasStub:
             "notes": notes,
         }
         return {"success": True, "attestation": attestation, "status": dict(self.review_status)}
+
+    def get_persona_audit_history(
+        self,
+        _persona_name: str,
+        *,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[Dict[str, Any]], int]:
+        return [], len(self.audit_history)
 
 
 def test_overdue_review_shows_banner_and_button_enabled():
