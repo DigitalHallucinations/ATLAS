@@ -24,6 +24,7 @@ __all__ = [
     "PrivilegedCredentialState",
     "ProviderState",
     "RetryPolicyState",
+    "SetupTypeState",
     "SetupWizardController",
     "SpeechState",
     "UserState",
@@ -133,6 +134,12 @@ class OptionalState:
 
 
 @dataclass
+class SetupTypeState:
+    mode: str = "custom"
+    applied: bool = False
+
+
+@dataclass
 class WizardState:
     database: DatabaseState = field(default_factory=DatabaseState)
     job_scheduling: JobSchedulingState = field(default_factory=JobSchedulingState)
@@ -142,6 +149,7 @@ class WizardState:
     speech: SpeechState = field(default_factory=SpeechState)
     user: UserState = field(default_factory=UserState)
     optional: OptionalState = field(default_factory=OptionalState)
+    setup_type: SetupTypeState = field(default_factory=SetupTypeState)
 
 
 def _parse_default_dsn(dsn: str) -> DatabaseState:
@@ -264,6 +272,84 @@ class SetupWizardController:
             scheduler_queue_size=self.state.job_scheduling.queue_size,
             http_auto_start=bool(http_block.get("auto_start")) if isinstance(http_block, Mapping) else False,
         )
+
+    # -- presets ------------------------------------------------------------
+
+    def apply_setup_type(self, mode: str) -> SetupTypeState:
+        normalized = (mode or "").strip().lower()
+        if normalized not in {"personal", "enterprise"}:
+            fallback_mode = normalized or "custom"
+            setup_state = SetupTypeState(mode=fallback_mode, applied=False)
+            self.state.setup_type = setup_state
+            return setup_state
+
+        current = self.state.setup_type
+        if current.mode == normalized and current.applied:
+            return current
+
+        if normalized == "personal":
+            self.state.message_bus = dataclasses.replace(
+                self.state.message_bus,
+                backend="in_memory",
+                redis_url=None,
+                stream_prefix=None,
+            )
+            self.state.job_scheduling = dataclasses.replace(
+                self.state.job_scheduling,
+                enabled=False,
+                job_store_url=None,
+                max_workers=None,
+                retry_policy=dataclasses.replace(self.state.job_scheduling.retry_policy),
+                timezone=None,
+                queue_size=None,
+            )
+            self.state.kv_store = dataclasses.replace(
+                self.state.kv_store,
+                reuse_conversation_store=True,
+                url=None,
+            )
+            self.state.optional = dataclasses.replace(
+                self.state.optional,
+                retention_days=None,
+                retention_history_limit=None,
+                http_auto_start=True,
+            )
+        else:  # enterprise preset
+            redis_url = self.state.message_bus.redis_url or "redis://localhost:6379/0"
+            stream_prefix = self.state.message_bus.stream_prefix or "atlas"
+            self.state.message_bus = dataclasses.replace(
+                self.state.message_bus,
+                backend="redis",
+                redis_url=redis_url,
+                stream_prefix=stream_prefix,
+            )
+            job_store_url = self.state.job_scheduling.job_store_url or (
+                "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
+            )
+            self.state.job_scheduling = dataclasses.replace(
+                self.state.job_scheduling,
+                enabled=True,
+                job_store_url=job_store_url,
+                max_workers=self.state.job_scheduling.max_workers or 4,
+                retry_policy=dataclasses.replace(self.state.job_scheduling.retry_policy),
+                timezone=self.state.job_scheduling.timezone or "UTC",
+                queue_size=self.state.job_scheduling.queue_size or 100,
+            )
+            self.state.kv_store = dataclasses.replace(
+                self.state.kv_store,
+                reuse_conversation_store=False,
+                url=self.state.kv_store.url or "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_cache",
+            )
+            self.state.optional = dataclasses.replace(
+                self.state.optional,
+                retention_days=30,
+                retention_history_limit=500,
+                http_auto_start=False,
+            )
+
+        setup_state = SetupTypeState(mode=normalized, applied=True)
+        self.state.setup_type = setup_state
+        return setup_state
 
     def _wrap_privileged_password_requester(
         self, callback: Callable[[], str | None] | None
@@ -571,4 +657,5 @@ class SetupWizardController:
             "speech": dataclasses.asdict(self.state.speech),
             "user": user_summary,
             "optional": dataclasses.asdict(self.state.optional),
+            "setup_type": dataclasses.asdict(self.state.setup_type),
         }

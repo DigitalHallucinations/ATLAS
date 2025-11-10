@@ -53,6 +53,7 @@ def test_build_summary_includes_kv_store_payload():
 
     assert "kv_store" in summary
     assert summary["kv_store"] == dataclasses.asdict(controller.state.kv_store)
+    assert summary["setup_type"] == dataclasses.asdict(controller.state.setup_type)
 
 
 def test_user_profile_staging_and_summary_mask_secrets():
@@ -90,3 +91,62 @@ def test_user_profile_staging_and_summary_mask_secrets():
     assert user_summary["database_privileged_username"] == "postgres"
     assert user_summary["has_database_privileged_password"] is True
     assert "password" not in user_summary
+
+
+def test_apply_setup_type_personal_only_applies_once():
+    controller = SetupWizardController(config_manager=_StubConfigManager())
+
+    controller.apply_setup_type("personal")
+
+    assert controller.state.setup_type.mode == "personal"
+    assert controller.state.setup_type.applied is True
+    assert controller.state.message_bus.backend == "in_memory"
+    assert controller.state.message_bus.redis_url is None
+    assert controller.state.job_scheduling.enabled is False
+    assert controller.state.kv_store.reuse_conversation_store is True
+    assert controller.state.kv_store.url is None
+    assert controller.state.optional.retention_days is None
+    assert controller.state.optional.retention_history_limit is None
+    assert controller.state.optional.http_auto_start is True
+
+    controller.state.optional = dataclasses.replace(
+        controller.state.optional,
+        http_auto_start=False,
+    )
+
+    controller.apply_setup_type("PERSONAL")
+
+    assert controller.state.optional.http_auto_start is False
+
+
+def test_apply_setup_type_switches_between_presets():
+    controller = SetupWizardController(config_manager=_StubConfigManager())
+
+    controller.apply_setup_type("personal")
+    controller.apply_setup_type("enterprise")
+
+    assert controller.state.setup_type.mode == "enterprise"
+    assert controller.state.setup_type.applied is True
+    assert controller.state.message_bus.backend == "redis"
+    assert controller.state.message_bus.redis_url == "redis://localhost:6379/0"
+    assert controller.state.message_bus.stream_prefix == "atlas"
+    assert controller.state.job_scheduling.enabled is True
+    assert (
+        controller.state.job_scheduling.job_store_url
+        == "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
+    )
+    assert controller.state.job_scheduling.queue_size == 100
+    assert controller.state.job_scheduling.timezone == "UTC"
+    assert controller.state.kv_store.reuse_conversation_store is False
+    assert (
+        controller.state.kv_store.url
+        == "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_cache"
+    )
+    assert controller.state.optional.retention_days == 30
+    assert controller.state.optional.retention_history_limit == 500
+    assert controller.state.optional.http_auto_start is False
+
+    custom_state = dataclasses.replace(controller.state.job_scheduling, queue_size=5)
+    controller.state.job_scheduling = custom_state
+    controller.apply_setup_type("enterprise")
+    assert controller.state.job_scheduling.queue_size == 5
