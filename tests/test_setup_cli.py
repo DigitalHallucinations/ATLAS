@@ -47,12 +47,24 @@ class _UserAccountService:
     def __init__(self, *args, **kwargs):
         pass
 
-    def register_user(self, *, username, password, email, name=None, dob=None, full_name=None, domain=None):
+    def register_user(
+        self,
+        *,
+        username,
+        password,
+        email,
+        name=None,
+        dob=None,
+        full_name=None,
+        domain=None,
+        tenant_id=None,
+    ):
         return types.SimpleNamespace(
             username=username,
             password=password,
             email=email,
             name=name,
+            tenant_id=tenant_id,
         )
 
 

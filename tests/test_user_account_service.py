@@ -67,8 +67,8 @@ class _StubConfigManager:
 class _SpyConversationRepository:
     def __init__(self, delegate: ConversationStoreRepository) -> None:
         self._delegate = delegate
-        self.ensure_user_calls: list[tuple[str, Optional[str], dict[str, object]]] = []
-        self.attach_credential_calls: list[tuple[str, str]] = []
+        self.ensure_user_calls: list[tuple[str, Optional[str], Optional[str], dict[str, object]]] = []
+        self.attach_credential_calls: list[tuple[str, str, Optional[str]]] = []
 
     def ensure_user(
         self,
@@ -76,30 +76,51 @@ class _SpyConversationRepository:
         *,
         display_name=None,
         metadata=None,
+        tenant_id=None,
     ):
         record = dict(metadata or {})
-        self.ensure_user_calls.append((external_id, display_name, record))
+        self.ensure_user_calls.append((external_id, display_name, tenant_id, record))
         return self._delegate.ensure_user(
             external_id,
             display_name=display_name,
             metadata=metadata,
+            tenant_id=tenant_id,
         )
 
-    def attach_credential(self, username, user_id):
-        self.attach_credential_calls.append((str(username), str(user_id)))
-        return self._delegate.attach_credential(username, user_id)
+    def attach_credential(self, username, user_id, *, tenant_id=None):
+        self.attach_credential_calls.append((str(username), str(user_id), tenant_id))
+        return self._delegate.attach_credential(username, user_id, tenant_id=tenant_id)
 
     def __getattr__(self, name: str):
         return getattr(self._delegate, name)
 
 
 @pytest.fixture
+def postgresql(tmp_path):
+    db_path = tmp_path / "accounts.sqlite"
+    return types.SimpleNamespace(dsn=lambda: f"sqlite:///{db_path}")
+
+
+@pytest.fixture
 def conversation_repository(postgresql):
     engine = create_engine(postgresql.dsn(), future=True)
     Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, future=True)
-    repository = ConversationStoreRepository(factory)
-    repository.create_schema()
+    base_factory = sessionmaker(bind=engine, future=True)
+
+    class _FactoryWrapper:
+        def __init__(self, wrapped, engine):
+            self._wrapped = wrapped
+            self.bind = engine
+
+        def __call__(self):
+            return self._wrapped()
+
+    repository = ConversationStoreRepository(_FactoryWrapper(base_factory, engine))
+    dsn = postgresql.dsn()
+    if dsn.startswith("postgresql"):
+        repository.create_schema()
+    else:
+        Base.metadata.create_all(engine)
     try:
         yield repository
     finally:
@@ -220,16 +241,18 @@ def test_conversation_store_synchronised(monkeypatch, conversation_repository):
         assert account.full_name == "Robert Bobson"
         assert account.domain == "example.org"
         assert spy_repo.ensure_user_calls
-        external_id, display_name, metadata = spy_repo.ensure_user_calls[0]
+        external_id, display_name, tenant_id, metadata = spy_repo.ensure_user_calls[0]
         assert external_id == "bob"
         assert display_name == "Bob"
+        assert tenant_id is None
         assert metadata["email"] == "bob@example.com"
         assert metadata["name"] == "Bob"
         assert metadata["full_name"] == "Robert Bobson"
         assert metadata["domain"] == "example.org"
         assert spy_repo.attach_credential_calls
-        attach_username, attach_uuid = spy_repo.attach_credential_calls[0]
+        attach_username, attach_uuid, attach_tenant = spy_repo.attach_credential_calls[0]
         assert attach_username == "bob"
+        assert attach_tenant is None
         session = conversation_repository._session_factory()
         try:
             credential_row = session.execute(
@@ -239,6 +262,45 @@ def test_conversation_store_synchronised(monkeypatch, conversation_repository):
             assert str(credential_row.user_id) == attach_uuid
         finally:
             session.close()
+    finally:
+        service.close()
+
+
+def test_register_user_with_tenant(monkeypatch, conversation_repository):
+    spy_repo = _SpyConversationRepository(conversation_repository)
+    service, _ = _create_service(monkeypatch, spy_repo)
+    try:
+        account = service.register_user(
+            "tenant-user",
+            "Password123!",
+            "tenant@example.com",
+            "Tenant User",
+            "1990-01-01",
+            tenant_id="tenant-a",
+        )
+        assert account.tenant_id == "tenant-a"
+        assert spy_repo.ensure_user_calls
+        _, _, recorded_tenant, _ = spy_repo.ensure_user_calls[0]
+        assert recorded_tenant == "tenant-a"
+        assert spy_repo.attach_credential_calls
+        _, _, attach_tenant = spy_repo.attach_credential_calls[0]
+        assert attach_tenant == "tenant-a"
+
+        with conversation_repository._session_scope() as session:  # type: ignore[attr-defined]
+            credential = session.execute(
+                select(UserCredential).where(UserCredential.username == "tenant-user")
+            ).scalar_one()
+            assert credential.tenant_id == "tenant-a"
+
+        second_account = service.register_user(
+            "tenant-user",
+            "Password123!",
+            "tenant+alt@example.com",
+            "Tenant User",
+            "1990-01-01",
+            tenant_id="tenant-b",
+        )
+        assert second_account.tenant_id == "tenant-b"
     finally:
         service.close()
 

@@ -117,6 +117,7 @@ class ConversationCredentialStore:
             record.get("name"),
             record.get("dob"),
             record.get("last_login"),
+            record.get("tenant_id"),
         )
 
     def add_user(
@@ -129,6 +130,7 @@ class ConversationCredentialStore:
         *,
         full_name: Optional[str] = None,
         domain: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> None:
         hashed_password = self._hash_password(password)
         canonical_email = self._canonicalize_email(email)
@@ -147,12 +149,14 @@ class ConversationCredentialStore:
             username,
             display_name=name or full_name or username,
             metadata=metadata_payload,
+            tenant_id=tenant_id,
         )
         try:
             self._repository.create_user_account(
                 username,
                 hashed_password,
                 canonical_email,
+                tenant_id=tenant_id,
                 name=name,
                 dob=dob,
                 user_id=user_uuid,
@@ -160,8 +164,10 @@ class ConversationCredentialStore:
         except IntegrityError as exc:
             raise DuplicateUserError(_DUPLICATE_USER_MESSAGE) from exc
 
-    def get_user(self, username: str) -> Optional[Tuple[object, ...]]:
-        record = self._repository.get_user_account(username)
+    def get_user(
+        self, username: str, *, tenant_id: Optional[str] = None
+    ) -> Optional[Tuple[object, ...]]:
+        record = self._repository.get_user_account(username, tenant_id=tenant_id)
         if not record:
             return None
         return self._dict_to_row(record)
@@ -329,6 +335,7 @@ class UserAccount:
     last_login: Optional[str]
     full_name: Optional[str] = None
     domain: Optional[str] = None
+    tenant_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -435,6 +442,7 @@ class UserAccountService:
         *,
         display_name: Optional[str] = None,
         metadata: Optional[Mapping[str, object]] = None,
+        tenant_id: Optional[str] = None,
     ) -> None:
         if not username:
             return
@@ -446,6 +454,7 @@ class UserAccountService:
                 username,
                 display_name=display_name,
                 metadata=dict(metadata or {}),
+                tenant_id=tenant_id,
             )
         except Exception as exc:  # pragma: no cover - best effort logging
             self.logger.warning(
@@ -455,7 +464,7 @@ class UserAccountService:
             )
             return
         try:
-            repository.attach_credential(username, user_uuid)
+            repository.attach_credential(username, user_uuid, tenant_id=tenant_id)
         except Exception as exc:  # pragma: no cover - best effort logging
             self.logger.warning(
                 "Failed to attach credential for '%s' in conversation store: %s",
@@ -912,6 +921,19 @@ class UserAccountService:
 
         return cleaned.lower()
 
+    @staticmethod
+    def _validate_tenant(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        if not cleaned:
+            raise ValueError("Tenant identifier must not be empty")
+        if any(char.isspace() for char in cleaned):
+            raise ValueError("Tenant identifier must not contain whitespace")
+        if len(cleaned) > 255:
+            raise ValueError("Tenant identifier must be 255 characters or fewer")
+        return cleaned
+
     def _resolve_username_from_identifier(self, identifier: str) -> Optional[str]:
         """Attempt to resolve a username from a login identifier."""
 
@@ -947,6 +969,7 @@ class UserAccountService:
             name=_normalise_optional(data[4]) if len(data) > 4 else None,
             dob=_normalise_optional(data[5]) if len(data) > 5 else None,
             last_login=_normalise_optional(data[6]) if len(data) > 6 else None,
+            tenant_id=_normalise_optional(data[7]) if len(data) > 7 else None,
         )
 
     @staticmethod
@@ -961,6 +984,7 @@ class UserAccountService:
             "last_login": account.last_login,
             "full_name": account.full_name,
             "domain": account.domain,
+            "tenant_id": account.tenant_id,
         }
 
     def _rows_to_mappings(self, rows: Iterable[Iterable[object]]) -> List[Dict[str, object]]:
@@ -1131,6 +1155,7 @@ class UserAccountService:
         *,
         full_name: Optional[str] = None,
         domain: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> UserAccount:
         """Create a new user account in the backing store."""
 
@@ -1142,6 +1167,7 @@ class UserAccountService:
         validated_dob = self._validate_dob(dob)
         validated_full_name = self._validate_display_name(full_name)
         validated_domain = self._validate_domain(domain)
+        validated_tenant = self._validate_tenant(tenant_id)
 
         self._database.add_user(
             normalised_username,
@@ -1151,9 +1177,10 @@ class UserAccountService:
             validated_dob,
             full_name=validated_full_name,
             domain=validated_domain,
+            tenant_id=validated_tenant,
         )
 
-        record = self._database.get_user(normalised_username)
+        record = self._database.get_user(normalised_username, tenant_id=validated_tenant)
         if not record:  # pragma: no cover - defensive safeguard
             raise RuntimeError("Failed to retrieve user after creation")
 
@@ -1179,6 +1206,7 @@ class UserAccountService:
             account.username,
             display_name=account.name or validated_full_name,
             metadata=metadata_payload,
+            tenant_id=validated_tenant,
         )
         return account
 
