@@ -16,6 +16,7 @@ from ATLAS.setup import (
     OptionalState,
     PrivilegedCredentialState,
     ProviderState,
+    SetupTypeState,
     SpeechState,
     UserState,
 )
@@ -33,12 +34,66 @@ class FakeController:
             speech=SpeechState(),
             optional=OptionalState(),
             user=UserState(),
+            setup_type=SetupTypeState(),
         )
         self.calls = []
         self.profile_calls = []
         self.register_calls = []
         self.summary = {"status": "ok"}
         self._staged_privileged_credentials = None
+        self.setup_type_calls = []
+
+    def apply_setup_type(self, mode):
+        normalized = (mode or "").strip().lower()
+        self.setup_type_calls.append(normalized)
+        if normalized not in {"personal", "enterprise"}:
+            self.state.setup_type = SetupTypeState(mode=normalized or "custom", applied=False)
+            return self.state.setup_type
+
+        current = self.state.setup_type
+        if current.mode == normalized and current.applied:
+            return current
+
+        if normalized == "personal":
+            self.state.message_bus = MessageBusState(backend="in_memory")
+            self.state.job_scheduling = JobSchedulingState(enabled=False)
+            self.state.kv_store = KvStoreState(reuse_conversation_store=True, url=None)
+            self.state.optional = OptionalState(
+                tenant_id=self.state.optional.tenant_id,
+                retention_days=None,
+                retention_history_limit=None,
+                scheduler_timezone=self.state.optional.scheduler_timezone,
+                scheduler_queue_size=self.state.optional.scheduler_queue_size,
+                http_auto_start=True,
+            )
+        else:
+            self.state.message_bus = MessageBusState(
+                backend="redis", redis_url=self.state.message_bus.redis_url or "redis://localhost:6379/0", stream_prefix=self.state.message_bus.stream_prefix or "atlas"
+            )
+            self.state.job_scheduling = JobSchedulingState(
+                enabled=True,
+                job_store_url=self.state.job_scheduling.job_store_url
+                or "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs",
+                max_workers=self.state.job_scheduling.max_workers or 4,
+                retry_policy=self.state.job_scheduling.retry_policy,
+                timezone=self.state.job_scheduling.timezone or "UTC",
+                queue_size=self.state.job_scheduling.queue_size or 100,
+            )
+            self.state.kv_store = KvStoreState(
+                reuse_conversation_store=False,
+                url=self.state.kv_store.url or "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_cache",
+            )
+            self.state.optional = OptionalState(
+                tenant_id=self.state.optional.tenant_id,
+                retention_days=30,
+                retention_history_limit=500,
+                scheduler_timezone=self.state.optional.scheduler_timezone or "UTC",
+                scheduler_queue_size=self.state.optional.scheduler_queue_size or 100,
+                http_auto_start=False,
+            )
+
+        self.state.setup_type = SetupTypeState(mode=normalized, applied=True)
+        return self.state.setup_type
 
     def apply_database_settings(self, state):
         self.calls.append(("database", state))
@@ -171,6 +226,19 @@ def _complete_user_step(window, **overrides):
     window._on_next_clicked(None)
 
 
+def _advance_intro(window):
+    window._on_next_clicked(None)
+
+
+def _complete_setup_type_step(window, mode="personal"):
+    if window._current_index == 0:
+        _advance_intro(window)
+    button = window._setup_type_buttons.get(mode)
+    assert isinstance(button, Gtk.CheckButton)
+    button.set_active(True)
+    window._on_next_clicked(None)
+
+
 def test_stack_switcher_updates_current_index():
     application = Gtk.Application()
     controller = FakeController()
@@ -185,15 +253,15 @@ def test_stack_switcher_updates_current_index():
     assert window._current_index == 0
     assert controller.calls == []
 
-    target_step = window._steps[3]
+    target_step = window._steps[5]
     window._stack.set_visible_child(target_step.widget)
 
-    assert window._current_index == 3
+    assert window._current_index == 5
 
     window._on_next_clicked(None)
 
     assert [name for name, *_ in controller.calls] == ["message_bus"]
-    assert window._current_index == 4
+    assert window._current_index == 6
 
 
 class _CallbackRecorder:
@@ -269,12 +337,17 @@ def test_setup_wizard_happy_path(monkeypatch):
         controller=controller,
     )
 
+    _complete_setup_type_step(window)
+
+    assert controller.setup_type_calls
+    assert window._current_index == 2
+
     _complete_user_step(window)
 
     assert controller.profile_calls
     assert controller.register_calls == []
     assert controller.calls == []
-    assert window._current_index == 1
+    assert window._current_index == 3
     assert controller.state.user.username == "admin"
     assert controller.state.user.domain == "example.com"
     staged_profile = controller.profile_calls[-1]
@@ -298,7 +371,7 @@ def test_setup_wizard_happy_path(monkeypatch):
     window._on_next_clicked(None)
 
     assert [name for name, *_ in controller.calls] == ["database"]
-    assert window._current_index == 2
+    assert window._current_index == 4
     assert not on_error.calls
 
     window._job_widgets["enabled"].set_active(True)
@@ -314,7 +387,7 @@ def test_setup_wizard_happy_path(monkeypatch):
     window._on_next_clicked(None)
 
     assert [name for name, *_ in controller.calls] == ["database", "job_scheduling"]
-    assert window._current_index == 3
+    assert window._current_index == 5
 
     window._message_widgets["backend"].set_active_id("redis")
     window._message_widgets["redis_url"].set_text("redis://localhost:6379/0")
@@ -327,7 +400,7 @@ def test_setup_wizard_happy_path(monkeypatch):
         "job_scheduling",
         "message_bus",
     ]
-    assert window._current_index == 4
+    assert window._current_index == 6
 
     window._kv_widgets["reuse"].set_active(False)
     window._kv_widgets["url"].set_text("postgresql://kv")
@@ -340,7 +413,7 @@ def test_setup_wizard_happy_path(monkeypatch):
         "message_bus",
         "kv_store",
     ]
-    assert window._current_index == 5
+    assert window._current_index == 7
 
     window._provider_entries["default_provider"].set_text("openai")
     window._provider_entries["default_model"].set_text("gpt-4o-mini")
@@ -357,7 +430,7 @@ def test_setup_wizard_happy_path(monkeypatch):
         "kv_store",
         "providers",
     ]
-    assert window._current_index == 6
+    assert window._current_index == 8
 
     window._speech_widgets["tts_enabled"].set_active(True)
     window._speech_widgets["stt_enabled"].set_active(True)
@@ -377,7 +450,7 @@ def test_setup_wizard_happy_path(monkeypatch):
         "providers",
         "speech",
     ]
-    assert window._current_index == 7
+    assert window._current_index == 9
 
     window._optional_widgets["tenant_id"].set_text("tenant-123")
     window._optional_widgets["retention_days"].set_text("30")
@@ -397,7 +470,7 @@ def test_setup_wizard_happy_path(monkeypatch):
         "speech",
         "optional",
     ]
-    assert window._current_index == 7
+    assert window._current_index == 9
 
     assert on_success.calls
     assert marker_calls == [controller.summary]
@@ -424,18 +497,47 @@ def test_setup_wizard_validation_error_surfaces_in_ui():
         controller=controller,
     )
 
+    _complete_setup_type_step(window)
+
     _complete_user_step(window)
 
     window._database_entries["port"].set_text("invalid")
 
     window._on_next_clicked(None)
 
-    assert window._current_index == 1
+    assert window._current_index == 3
     assert on_success.calls == []
     assert on_error.calls
     assert "Port must be a valid integer" in window._status_label.get_text()
     if hasattr(window._status_label, "get_css_classes"):
         assert "error-text" in window._status_label.get_css_classes()
+
+    window.close()
+
+
+def test_setup_type_hint_tracks_selection():
+    application = Gtk.Application()
+    controller = FakeController()
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    hint = window._optional_personal_hint
+    assert isinstance(hint, Gtk.Label)
+    assert not hint.get_visible()
+
+    _complete_setup_type_step(window, mode="personal")
+    assert hint.get_visible()
+
+    enterprise_button = window._setup_type_buttons.get("enterprise")
+    assert isinstance(enterprise_button, Gtk.CheckButton)
+    enterprise_button.set_active(True)
+
+    assert not hint.get_visible()
 
     window.close()
 
@@ -475,12 +577,13 @@ def test_setup_wizard_reuses_stored_sudo_password_for_bootstrap(monkeypatch):
     assert isinstance(window.controller, RecordingController)
     assert window.controller.request_privileged_password is window._request_sudo_password
 
+    _complete_setup_type_step(window)
     _complete_user_step(window)
 
     _complete_database_step(window)
 
     assert window.controller.bootstrap_calls == ["SudoPass!"]
-    assert window._current_index == 2
+    assert window._current_index == 4
 
     window.close()
 
@@ -499,16 +602,17 @@ def test_setup_wizard_job_scheduling_validation():
         controller=controller,
     )
 
+    _complete_setup_type_step(window)
     _complete_user_step(window)
     _complete_database_step(window)
-    assert window._current_index == 2
+    assert window._current_index == 4
 
     window._job_widgets["enabled"].set_active(True)
     window._job_widgets["retry_max_attempts"].set_text("not-a-number")
 
     window._on_next_clicked(None)
 
-    assert window._current_index == 2
+    assert window._current_index == 4
     assert on_success.calls == []
     assert on_error.calls
     assert "Max attempts must be an integer" in window._status_label.get_text()
@@ -575,6 +679,7 @@ def test_setup_wizard_requests_privileged_credentials(monkeypatch):
         controller=controller,
     )
 
+    _complete_setup_type_step(window)
     _complete_user_step(window)
     window._database_entries["host"].set_text("db.example.com")
     window._database_entries["port"].set_text("5432")
@@ -606,7 +711,7 @@ def test_setup_wizard_requests_privileged_credentials(monkeypatch):
 
     assert calls == [None, ("postgres", "supersecret")]
     assert window._privileged_credentials == ("postgres", "supersecret")
-    assert window._current_index == 2
+    assert window._current_index == 4
     assert prompts == [(None, "superuser access required")]
     assert not on_error.calls
 
@@ -627,6 +732,7 @@ def test_setup_wizard_optional_settings_validation():
         controller=controller,
     )
 
+    _complete_setup_type_step(window)
     _complete_user_step(window)
     _complete_database_step(window)
     _complete_job_step(window)
@@ -635,13 +741,13 @@ def test_setup_wizard_optional_settings_validation():
     _complete_providers_step(window)
     _complete_speech_step(window)
 
-    assert window._current_index == 7
+    assert window._current_index == 9
 
     window._optional_widgets["retention_days"].set_text("invalid")
 
     window._on_next_clicked(None)
 
-    assert window._current_index == 7
+    assert window._current_index == 9
     assert on_success.calls == []
     assert on_error.calls
     assert "Conversation retention days must be an integer" in window._status_label.get_text()
@@ -663,14 +769,16 @@ def test_user_step_validation_and_domain_normalization():
         controller=controller,
     )
 
+    _complete_setup_type_step(window)
+
     _populate_user_entries(window, confirm_password="different")
     window._on_next_clicked(None)
-    assert window._current_index == 0
+    assert window._current_index == 2
     assert "Passwords do not match" in window._status_label.get_text()
 
     _populate_user_entries(window, confirm_password="changeme", date_of_birth="01-01-1990")
     window._on_next_clicked(None)
-    assert window._current_index == 0
+    assert window._current_index == 2
     assert "Date of birth must use YYYY-MM-DD format" in window._status_label.get_text()
 
     _populate_user_entries(
@@ -679,11 +787,11 @@ def test_user_step_validation_and_domain_normalization():
         confirm_sudo_password="Mismatch",
     )
     window._on_next_clicked(None)
-    assert window._current_index == 0
+    assert window._current_index == 2
     assert "Sudo passwords do not match" in window._status_label.get_text()
 
     _complete_user_step(window, domain=" @MyOrg.COM ")
-    assert window._current_index == 1
+    assert window._current_index == 3
     assert controller.state.user.domain == "myorg.com"
     tenant_widget = window._optional_widgets["tenant_id"]
     assert isinstance(tenant_widget, Gtk.Entry)
