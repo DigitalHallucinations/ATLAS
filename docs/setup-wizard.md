@@ -52,6 +52,49 @@ the same controller methods used by the CLI to persist settings. The final step
 registers the staged administrator once all configuration has been applied and
 the setup marker written.
 
+### User setup
+
+Smaller rollouts often stop at the administrator profile, but the wizard also
+streamlines onboarding for up to five local users. Once the environment is
+provisioned, open **Settings → Accounts** in the GTK shell to launch the same
+registration panel used during bootstrap. Selecting **Add user** walks through a
+condensed version of the administrator form: enter the person's full name,
+username, email address, and password, then confirm to register the account.
+Behind the scenes the wizard reuses `UserAccountService.register_user`, so the
+new credential is hashed with PBKDF2, policy checks run, and the profile is tied
+to the conversation store automatically. Review the broader
+[user account management guide](./user-accounts.md) for API examples and
+automation workflows.
+
+Automation scripts can register additional users directly with
+`register_user`—pass the normalized username, email, password, and optional
+profile metadata to mirror the GTK experience. This is the recommended path when
+bootstrapping small teams that prefer to seed accounts during provisioning
+rather than waiting for users to sign in interactively.
+
+#### Password requirements
+
+The wizard mirrors the configurable password policy defined in
+`config.yaml`. Administrators can adjust the following keys to tune enforcement:
+
+| Key | Purpose | Default |
+| --- | --- | --- |
+| `ACCOUNT_PASSWORD_MIN_LENGTH` | Minimum password length in characters. | `10` |
+| `ACCOUNT_PASSWORD_REQUIRE_UPPERCASE` | Require at least one uppercase letter. | `true` |
+| `ACCOUNT_PASSWORD_REQUIRE_LOWERCASE` | Require at least one lowercase letter. | `true` |
+| `ACCOUNT_PASSWORD_REQUIRE_DIGIT` | Require at least one number. | `true` |
+| `ACCOUNT_PASSWORD_REQUIRE_SYMBOL` | Require at least one symbol. | `true` |
+| `ACCOUNT_PASSWORD_FORBID_WHITESPACE` | Disallow whitespace characters. | `true` |
+
+Regardless of how an account is created, passwords are salted and hashed before
+storage, and repeated failures trigger lockouts that mirror the behaviour
+documented in the [user account service reference](./user-accounts.md). Reset
+tokens issued through the automation or GTK flows inherit those protections so
+small teams get the same auditing, recovery, and credential hygiene as larger
+deployments. These safeguards remain important even when operating near the
+five-user ceiling because they mitigate credential reuse, shoulder surfing, and
+accidental lockouts in lightweight deployments.
+
 ### Step details
 
 Each step mirrors the questions asked by the CLI setup utility:
