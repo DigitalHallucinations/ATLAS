@@ -84,6 +84,7 @@ class _AtlasStub:
             "notes": None,
         }
         self.review_attestations: list[tuple[str, Dict[str, Any]]] = []
+        self.audit_history: list[Dict[str, Any]] = []
 
     def register_message_dispatcher(self, handler) -> None:
         self.dispatcher = handler
@@ -127,6 +128,15 @@ class _AtlasStub:
         )
         self.review_status = status
         return {"success": True, "attestation": attestation, "status": status}
+
+    def get_persona_audit_history(
+        self,
+        _persona_name: str,
+        *,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[Dict[str, Any]], int]:
+        return [], len(self.audit_history)
 
 
 def _persona_state(reason: str = "Policy restriction") -> dict:

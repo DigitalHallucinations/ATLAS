@@ -487,6 +487,7 @@ class _AtlasStub:
             "notes": None,
         }
         self.review_attestations: list[tuple[str, Dict[str, Any]]] = []
+        self.audit_history: list[Dict[str, Any]] = []
 
     def register_message_dispatcher(self, handler) -> None:  # pragma: no cover - stored for completeness
         self.dispatcher = handler
@@ -534,6 +535,30 @@ class _AtlasStub:
         self.review_status = status
         return {"success": True, "attestation": attestation, "status": status}
 
+    def get_persona_audit_history(
+        self,
+        _persona_name: str,
+        *,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[Dict[str, Any]], int]:
+        try:
+            offset_value = int(offset)
+        except (TypeError, ValueError):
+            offset_value = 0
+        if offset_value < 0:
+            offset_value = 0
+
+        try:
+            limit_value = int(limit)
+        except (TypeError, ValueError):
+            limit_value = 20
+        if limit_value <= 0:
+            return [], len(self.audit_history)
+
+        window = self.audit_history[offset_value : offset_value + limit_value]
+        return [dict(entry) for entry in window], len(self.audit_history)
+
 
 def test_history_view_renders_entries(
     audit_logger: PersonaAuditLogger,
@@ -557,6 +582,18 @@ def test_history_view_renders_entries(
     )
 
     atlas = _AtlasStub()
+    entries, _total = audit_logger.get_history(persona_name="Atlas")
+    atlas.audit_history = [
+        {
+            "timestamp": entry.timestamp,
+            "persona_name": entry.persona_name,
+            "username": entry.username,
+            "old_tools": list(entry.old_tools),
+            "new_tools": list(entry.new_tools),
+            "rationale": entry.rationale,
+        }
+        for entry in entries
+    ]
     parent_window = Gtk.Window()
     manager = PersonaManagement(atlas, parent_window)
 

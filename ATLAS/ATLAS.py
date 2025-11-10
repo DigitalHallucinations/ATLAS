@@ -3,6 +3,7 @@
 import base64
 import binascii
 import copy
+from dataclasses import asdict
 import getpass
 import inspect
 import json
@@ -24,6 +25,7 @@ from typing import (
 from ATLAS import ToolManager as ToolManagerModule
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
+from modules.logging.audit import get_persona_audit_logger
 from ATLAS.provider_manager import ProviderManager
 from ATLAS.persona_manager import PersonaManager
 from modules.Chat.chat_session import ChatHistoryExportError, ChatSession
@@ -1247,6 +1249,88 @@ class ATLAS:
         except Exception as exc:
             self.logger.error("Failed to retrieve tool activity log: %s", exc, exc_info=True)
             return []
+
+    def get_persona_audit_history(
+        self,
+        persona_name: Optional[str],
+        offset: int = 0,
+        limit: int = 20,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Return serialized persona audit history entries for UI consumption."""
+
+        persona_filter = None
+        if persona_name:
+            persona_text = str(persona_name).strip()
+            persona_filter = persona_text or None
+
+        try:
+            offset_value = int(offset)
+        except (TypeError, ValueError):
+            offset_value = 0
+        if offset_value < 0:
+            offset_value = 0
+
+        try:
+            limit_value = int(limit)
+        except (TypeError, ValueError):
+            limit_value = 20
+        if limit_value <= 0:
+            limit_value = 0
+
+        try:
+            entries, total = get_persona_audit_logger().get_history(
+                persona_name=persona_filter,
+                offset=offset_value,
+                limit=limit_value,
+            )
+        except Exception as exc:
+            self.logger.error(
+                "Failed to retrieve persona audit history: %s", exc, exc_info=True
+            )
+            return [], 0
+
+        serialised: List[Dict[str, Any]] = []
+
+        for entry in entries:
+            if entry is None:
+                continue
+
+            try:
+                payload = asdict(entry)
+            except TypeError:
+                payload = {
+                    "timestamp": getattr(entry, "timestamp", ""),
+                    "persona_name": getattr(entry, "persona_name", ""),
+                    "username": getattr(entry, "username", ""),
+                    "old_tools": getattr(entry, "old_tools", []),
+                    "new_tools": getattr(entry, "new_tools", []),
+                    "rationale": getattr(entry, "rationale", ""),
+                }
+
+            def _as_tool_list(raw: object) -> List[str]:
+                if isinstance(raw, AbcSequence) and not isinstance(raw, (str, bytes)):
+                    return [str(item) for item in raw]
+                if raw in (None, ""):
+                    return []
+                return [str(raw)]
+
+            serialised.append(
+                {
+                    "timestamp": str(payload.get("timestamp") or ""),
+                    "persona_name": str(payload.get("persona_name") or ""),
+                    "username": str(payload.get("username") or ""),
+                    "old_tools": _as_tool_list(payload.get("old_tools")),
+                    "new_tools": _as_tool_list(payload.get("new_tools")),
+                    "rationale": str(payload.get("rationale") or ""),
+                }
+            )
+
+        try:
+            total_count = int(total)
+        except (TypeError, ValueError):
+            total_count = len(serialised)
+
+        return serialised, total_count
 
     def get_current_persona_prompt(self) -> Optional[str]:
         """Return the system prompt for the active persona when available."""
