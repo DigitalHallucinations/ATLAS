@@ -24,6 +24,12 @@ material that follows this administrator bootstrap.
 
 ### Step-by-step configuration
 
+> **Callout:** Prefer to script the bootstrap? Run `python3 scripts/setup_atlas.py`
+> to mirror the wizard's prompts from the terminal. Larger rollouts often
+> pre-seed configuration with the CLI before handing the final review to an
+> administrator in the GTK flow—see the [Standalone CLI utility](#standalone-cli-utility)
+> section for the full walkthrough.
+
 1. **Administrator** – Collect the profile for the first user. The form requires
    a full name, username, email address, organization domain, date of birth,
    password, and privileged sudo credentials. The wizard stages this
