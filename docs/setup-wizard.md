@@ -4,7 +4,25 @@ ATLAS ships with a guided GTK experience for first-time configuration. The
 desktop shell launches a multi-step window that walks through the key decisions
 required to bring the platform online. The administrator profile now opens the
 wizard so that environment-specific defaults can be staged before any
-infrastructure settings are applied:
+infrastructure settings are applied.
+
+### Administrator bootstrap
+
+The first screen captures the primary administrator's profile so the wizard can
+stage identity data before any infrastructure steps load. Full name, username,
+email address, organization domain, and birth date are written to a temporary
+state object that seeds later forms: the PostgreSQL step proposes the staged
+username for the database role, optional tenancy fields reuse the normalized
+domain, and password policy hints pull from the captured email address. The
+same staging process stores the administrator's chosen password and privileged
+sudo credentials so the database bootstrapper and follow-on CLI helpers can
+reuse them without asking the operator twice. Once the environment is ready,
+the staged profile is registered and the setup marker written. Review the
+[user account management guide](./user-accounts.md) and the
+[developer setup runbook](./ops/developer-setup.md) for the onboarding
+material that follows this administrator bootstrap.
+
+### Step-by-step configuration
 
 1. **Administrator** – Collect the profile for the first user. The form requires
    a full name, username, email address, organization domain, date of birth,
