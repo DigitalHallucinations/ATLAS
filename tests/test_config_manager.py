@@ -3,6 +3,7 @@ import math
 import os
 import sys
 import types
+import logging
 from typing import Any, Callable, Dict, Optional
 
 import pytest
@@ -168,6 +169,53 @@ def config_manager(tmp_path, monkeypatch):
     manager._recorded_set_key = recorded
     manager._env_path = str(env_file)
     return manager
+
+
+def test_ui_config_wrap_roundtrip(config_manager):
+    ui_config = config_manager.ui_config
+    writes: list[bool] = []
+    ui_config._write_callback = lambda: writes.append(True)  # type: ignore[attr-defined]
+
+    assert ui_config.get_terminal_wrap_enabled() is True
+
+    result = ui_config.set_terminal_wrap_enabled(False)
+
+    assert result is False
+    assert config_manager.config["UI_TERMINAL_WRAP_ENABLED"] is False
+    assert config_manager.yaml_config["UI_TERMINAL_WRAP_ENABLED"] is False
+    assert ui_config.get_terminal_wrap_enabled() is False
+    assert writes
+
+
+def test_ui_config_debug_preferences_roundtrip(config_manager):
+    ui_config = config_manager.ui_config
+    writes: list[bool] = []
+    ui_config._write_callback = lambda: writes.append(True)  # type: ignore[attr-defined]
+
+    persisted_level = ui_config.set_debug_log_level(logging.DEBUG)
+    assert persisted_level in {"DEBUG", logging.DEBUG}
+    assert config_manager.config["UI_DEBUG_LOG_LEVEL"] == persisted_level
+    assert config_manager.yaml_config["UI_DEBUG_LOG_LEVEL"] == persisted_level
+
+    max_lines = ui_config.set_debug_log_max_lines("500")
+    assert max_lines == 500
+    assert config_manager.config["UI_DEBUG_LOG_MAX_LINES"] == 500
+    assert config_manager.yaml_config["UI_DEBUG_LOG_MAX_LINES"] == 500
+    assert ui_config.get_debug_log_max_lines() == 500
+
+    logger_names = ui_config.set_debug_logger_names([" atlas ", "core", ""])
+    assert logger_names == ["atlas", "core"]
+    assert ui_config.get_debug_logger_names() == ["atlas", "core"]
+    assert config_manager.yaml_config["UI_DEBUG_LOGGERS"] == ["atlas", "core"]
+
+    assert ui_config.get_debug_log_initial_lines(123) == 123
+    assert ui_config.get_debug_log_format() is None
+    assert ui_config.get_debug_log_file_name() is None
+    assert ui_config.get_app_root() == config_manager.env_config.get("APP_ROOT")
+
+    ui_config.set_debug_log_level(None)
+    assert "UI_DEBUG_LOG_LEVEL" not in config_manager.config
+    assert writes
 
 
 def test_tooling_section_apply_sets_defaults():
