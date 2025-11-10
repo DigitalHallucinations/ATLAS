@@ -1,0 +1,23 @@
+# =====================================
+# Hugging Face fine-tuning and accelerator extras
+# =====================================
+# Install these only when you plan to run fine-tuning workloads.
+
+# Core transformer stack and local model runtimes
+transformers>=4.31.0
+datasets>=2.14.5
+torch
+openai-whisper
+
+# Acceleration and distributed training backends
+accelerate>=0.21.0
+deepspeed>=0.10.2
+
+# Parameter-efficient fine-tuning tools
+peft
+git+https://github.com/microsoft/LoRA.git@main#egg=loralib
+
+# Optional runtime optimizations (GPU-only)
+# Ensure compatibility with the installed torch version.
+flash-attn>=1.0.3.post0
+onnxruntime>=1.15.1

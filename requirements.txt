@@ -30,9 +30,8 @@ google.generativeai
 xai_sdk
 
 # Speech Services Providers
-google-cloud-texttospeech 
+google-cloud-texttospeech
 google-cloud-speech
-openai-whisper
 
 # for Config
 pyyaml
@@ -47,9 +46,6 @@ sounddevice
 ffmpeg
 noisereduce
 pydub
-
-# Torch for model computations
-torch
 
 # For data manipulation
 numpy
@@ -83,43 +79,14 @@ uvicorn[standard]
 # Timezone handling utilities
 pytz
 
-# Transformers for model architectures and pipelines
-transformers>=4.31.0
-
-# Datasets for data handling and preprocessing
-datasets>=2.14.5
-
-# Accelerate for optimized training and inference
-accelerate>=0.21.0
-
 # psutil for system monitoring and resource management
 psutil>=5.9.5
 
 # Tenacity for implementing retries and robust error handling
 tenacity>=8.2.3
 
-# DeepSpeed for efficient large-scale model training and inference
-deepspeed>=0.10.2
-
 # =====================================
-# Optional Packages for Additional Features
+# Optional accelerator/fine-tuning dependencies
 # =====================================
-
-# Low-Rank Adaptation (LoRA) for efficient fine-tuning
-git+https://github.com/microsoft/LoRA.git@main#egg=loralib
-
-peft 
-
-# FlashAttention optimization for faster attention mechanisms
-# Ensure compatibility with the installed torch version.
-flash-attn>=1.0.3.post0
-
-# ONNX Runtime for deploying models in ONNX format
-onnxruntime>=1.15.1
-
-# =====================================
-# Additional Recommendations
-# =====================================
-
-wheel>=0.38.4
+# See requirements-accelerators.txt for Torch, local Whisper STT, and Hugging Face fine-tuning extras.
 

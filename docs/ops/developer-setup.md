@@ -31,6 +31,18 @@ Run the environment installer from the repository root to create `.venv/` and in
 python3 scripts/install_environment.py
 ```
 
+Running without additional flags installs the base runtime and skips GPU toolchains. Pass
+`--with-accelerators` if you plan to fine-tune Hugging Face models or run local Whisper
+speech-to-text and need the optional `requirements-accelerators.txt` dependencies installed
+automatically:
+
+```bash
+python3 scripts/install_environment.py --with-accelerators
+```
+
+You can also install the extras manually later with `pip install -r requirements-accelerators.txt`
+when you need Torch, Hugging Face fine-tuning stacks, or local Whisper tooling.
+
 Pass `--python` when you need to target a specific interpreter. For example, on systems with multiple Python installations:
 
 ```bash
