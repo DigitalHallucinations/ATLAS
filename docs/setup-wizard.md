@@ -72,6 +72,19 @@ profile metadata to mirror the GTK experience. This is the recommended path when
 bootstrapping small teams that prefer to seed accounts during provisioning
 rather than waiting for users to sign in interactively.
 
+* **Shared safeguards** – Local onboarding and automation reuse the same PBKDF2
+  hashing, login attempt auditing, and lockout handling provided by
+  `UserAccountService`, so small teams inherit enterprise controls even before
+  directory integrations come online.【F:modules/user_accounts/user_account_service.py†L65-L195】【F:docs/user-accounts.md†L6-L20】
+* **Tighten password complexity when scaling** – Raise
+  `ACCOUNT_PASSWORD_MIN_LENGTH` and confirm the uppercase, lowercase, digit, and
+  symbol requirements surfaced by `UserAccountService` before inviting larger
+  cohorts. The service reads these toggles from configuration (see
+  `ACCOUNT_PASSWORD_REQUIRE_UPPERCASE`, `ACCOUNT_PASSWORD_REQUIRE_LOWERCASE`,
+  `ACCOUNT_PASSWORD_REQUIRE_DIGIT`, `ACCOUNT_PASSWORD_REQUIRE_SYMBOL`, and
+  `ACCOUNT_PASSWORD_FORBID_WHITESPACE`), and the [password policy
+  reference](./password-policy.md) outlines enforcement guidance for each flag.【F:modules/user_accounts/user_account_service.py†L473-L518】【F:docs/password-policy.md†L3-L24】
+
 #### Password requirements
 
 The wizard mirrors the configurable password policy defined in
@@ -135,6 +148,20 @@ and API activity with tenant context.【F:modules/conversation_store/repository.
 Server-side enforcement continues to require tenant-scoped contexts, so routing
 modules remain aligned with the staged identifier even as you expand to
 additional tenants.【F:modules/Server/conversation_routes.py†L30-L209】【F:modules/Server/task_routes.py†L33-L252】
+
+* **Shared safeguards** – Tenancy defaults, retention windows, and scheduler
+  overrides surfaced in the wizard write directly to the same configuration read
+  by CLI automation and background workers, keeping fleet and bootstrap flows in
+  lockstep as environments grow.【F:ATLAS/setup/controller.py†L433-L451】【F:ATLAS/config/config_manager.py†L600-L720】
+* **Tighten retention and residency policies** – Increase
+  `conversation_database.retention.days`, lower
+  `conversation_database.retention.history_message_limit`, and align these
+  values with the [conversation retention runbook](./conversation_retention.md)
+  when serving regulated departments.【F:ATLAS/config/atlas_config.yaml†L102-L116】【F:docs/conversation_retention.md†L1-L34】
+* **Enable richer audit hooks** – Connect `modules.logging.audit` sinks to your
+  preferred SIEM or compliance pipeline after completing the wizard so persona,
+  skill, and API activity is captured with tenant context beyond the default
+  local logging path.【F:modules/logging/audit.py†L33-L126】【F:modules/conversation_store/repository.py†L2622-L2765】
 
 ## Preparing the Python environment
 
