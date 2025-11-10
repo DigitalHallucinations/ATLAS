@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from ATLAS.config import ConfigManager, _DEFAULT_CONVERSATION_STORE_DSN
@@ -180,11 +181,19 @@ class SetupWizardController:
         self,
         *,
         config_manager: Optional[ConfigManager] = None,
+        config_manager_factory: Callable[[], ConfigManager] | None = None,
         atlas: Any | None = None,
         bootstrap: Callable[[str], str] = bootstrap_conversation_store,
         request_privileged_password: Callable[[], str | None] | None = None,
     ) -> None:
-        self.config_manager = config_manager or ConfigManager()
+        if config_manager_factory is None:
+            if config_manager is not None:
+                config_manager_factory = config_manager.__class__  # type: ignore[assignment]
+            else:
+                config_manager_factory = ConfigManager
+        self._config_manager_factory = config_manager_factory
+
+        self.config_manager = config_manager or self._config_manager_factory()
         self.atlas = atlas
         self._bootstrap = bootstrap
         self._privileged_password_requester = self._wrap_privileged_password_requester(
@@ -196,6 +205,35 @@ class SetupWizardController:
         self._load_defaults()
 
     # -- state loaders -----------------------------------------------------
+
+    def export_config(self, path: str | Path) -> str:
+        """Persist the active YAML configuration to ``path`` and refresh state."""
+
+        destination = Path(path).expanduser()
+        self.config_manager._write_yaml_config()
+        exported = self.config_manager.export_yaml_config(destination)
+        self._refresh_from_disk()
+        return exported
+
+    def import_config(self, path: str | Path) -> str:
+        """Load configuration from ``path`` into the managed config and refresh state."""
+
+        source = Path(path).expanduser()
+        self.config_manager.import_yaml_config(source)
+        self._refresh_from_disk()
+        return str(source)
+
+    def _refresh_from_disk(self) -> None:
+        """Reload the configuration manager and wizard state from disk."""
+
+        try:
+            self.config_manager = self._config_manager_factory()
+        except Exception:  # pragma: no cover - fall back to default manager
+            self.config_manager = ConfigManager()
+        self.state = WizardState()
+        self._staged_admin_profile = None
+        self._staged_privileged_credentials = None
+        self._load_defaults()
 
     def _load_defaults(self) -> None:
         database_url = self.config_manager.get_conversation_database_config().get("url")
