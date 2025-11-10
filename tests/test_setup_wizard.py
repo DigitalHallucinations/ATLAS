@@ -42,6 +42,7 @@ class FakeController:
         self.summary = {"status": "ok"}
         self._staged_privileged_credentials = None
         self.setup_type_calls = []
+        self.next_import_host = "imported-host"
 
     def apply_setup_type(self, mode):
         normalized = (mode or "").strip().lower()
@@ -169,6 +170,15 @@ class FakeController:
     def build_summary(self):
         return self.summary
 
+    def export_config(self, path):
+        self.calls.append(("export_config", path))
+        return path
+
+    def import_config(self, path):
+        self.calls.append(("import_config", path))
+        self.state.database = DatabaseState(host=self.next_import_host)
+        return path
+
 
 def _complete_database_step(window):
     window._database_entries["host"].set_text("db.example.com")
@@ -239,6 +249,83 @@ def test_provider_keys_masked_by_default_and_toggle():
     assert stack.get_visible_child_name() == "visible"
     toggle.set_active(False)
     assert stack.get_visible_child_name() == "masked"
+
+    window.close()
+
+
+def test_export_config_menu_action_triggers_controller(monkeypatch):
+    application = Gtk.Application()
+    controller = FakeController()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    chosen = "/tmp/export-config.yaml"
+    monkeypatch.setattr(window, "_choose_export_path", lambda: chosen)
+
+    window._on_export_config_action(None, None)
+
+    assert ("export_config", chosen) in controller.calls
+    assert window._toast_history and window._toast_history[-1][0] == "success"
+
+    window.close()
+
+
+def test_import_config_menu_action_rebuilds_steps(monkeypatch):
+    application = Gtk.Application()
+    controller = FakeController()
+    controller.next_import_host = "imported-db"
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    monkeypatch.setattr(window, "_choose_import_path", lambda: "/tmp/import-config.yaml")
+
+    window._completed_steps.update({0, 1})
+    window._on_import_config_action(None, None)
+
+    assert ("import_config", "/tmp/import-config.yaml") in controller.calls
+    assert window._database_entries["host"].get_text() == "imported-db"
+    assert window._current_index == 0
+    assert not window._completed_steps
+    assert window._toast_history and window._toast_history[-1][0] == "success"
+
+    window.close()
+
+
+def test_import_config_menu_action_handles_error(monkeypatch):
+    application = Gtk.Application()
+
+    class ErrorController(FakeController):
+        def import_config(self, path):
+            raise ValueError("invalid YAML content")
+
+    controller = ErrorController()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    monkeypatch.setattr(window, "_choose_import_path", lambda: "/tmp/import-config.yaml")
+
+    window._on_import_config_action(None, None)
+
+    assert any("invalid YAML" in message for kind, message in window._toast_history if kind == "error")
+    assert "invalid YAML" in window._status_label.get_text()
 
     window.close()
 

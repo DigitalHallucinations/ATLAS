@@ -7,6 +7,7 @@ import json
 import os
 import shlex
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
 
 try:  # pragma: no cover - optional dependency handling for test environments
@@ -2762,6 +2763,49 @@ class ConfigManager:
         self.config['UI_TERMINAL_WRAP_ENABLED'] = normalized
         self._write_yaml_config()
         return normalized
+
+    def export_yaml_config(self, destination: str | os.PathLike[str] | Path) -> str:
+        """Write the current YAML configuration to ``destination``.
+
+        The exported file mirrors the structure persisted in ``config.yaml``. The
+        returned string is the absolute path written to disk.
+        """
+
+        path = Path(destination).expanduser().resolve()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as handle:
+            yaml.safe_dump(self.yaml_config, handle, sort_keys=False)
+        return str(path)
+
+    def import_yaml_config(self, source: str | os.PathLike[str] | Path) -> Dict[str, Any]:
+        """Load configuration data from ``source`` and persist it as the active YAML.
+
+        The parsed mapping becomes the in-memory ``yaml_config`` and is written to
+        the default ``config.yaml`` path. A dictionary copy of the loaded
+        configuration is returned.
+        """
+
+        path = Path(source).expanduser().resolve()
+        with path.open("r", encoding="utf-8") as handle:
+            try:
+                loaded = yaml.safe_load(handle) or {}
+            except yaml.YAMLError as exc:
+                raise ValueError(f"Invalid YAML in {path}: {exc}") from exc
+
+        if not isinstance(loaded, Mapping):
+            raise ValueError(f"Configuration file {path} must contain a mapping")
+
+        self.yaml_config = copy.deepcopy(dict(loaded))
+        self.config = {**self.env_config, **self.yaml_config}
+        self._model_cache = self._normalize_model_cache(
+            self.yaml_config.get("MODEL_CACHE")
+        )
+        self.config["MODEL_CACHE"] = copy.deepcopy(self._model_cache)
+        if "MODEL_CACHE" not in self.yaml_config:
+            self.yaml_config["MODEL_CACHE"] = copy.deepcopy(self._model_cache)
+
+        self._write_yaml_config()
+        return copy.deepcopy(self.yaml_config)
 
     def _write_yaml_config(self):
         """

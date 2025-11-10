@@ -12,7 +12,8 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("GLib", "2.0")
-from gi.repository import GLib, Gdk, Gtk
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib, Gdk, Gtk
 
 from ATLAS.setup import (
     AdminProfile,
@@ -32,6 +33,8 @@ from GTKUI.Utils.logging import GTKUILogHandler
 from GTKUI.Utils.styled_window import AtlasWindow
 from modules.conversation_store.bootstrap import BootstrapError
 from GTKUI.Setup.preflight import PreflightHelper, PreflightCheckResult
+
+logger = logging.getLogger(__name__)
 
 Callback = Callable[[], None]
 ErrorCallback = Callable[[BaseException], None]
@@ -211,6 +214,49 @@ class SetupWizardWindow(AtlasWindow):
                 except Exception:  # pragma: no cover - GTK fallback
                     continue
 
+        self._setup_actions = Gio.SimpleActionGroup()
+        try:
+            self.insert_action_group("setup", self._setup_actions)
+        except Exception:  # pragma: no cover - GTK fallback
+            pass
+
+        export_action = Gio.SimpleAction.new("export_config", None)
+        export_action.connect("activate", self._on_export_config_action)
+        self._setup_actions.add_action(export_action)
+
+        import_action = Gio.SimpleAction.new("import_config", None)
+        import_action.connect("activate", self._on_import_config_action)
+        self._setup_actions.add_action(import_action)
+
+        config_menu = Gio.Menu()
+        config_menu.append("Export config…", "setup.export_config")
+        config_menu.append("Import config…", "setup.import_config")
+
+        config_button = Gtk.MenuButton()
+        if hasattr(config_button, "set_menu_model"):
+            config_button.set_menu_model(config_menu)
+        if hasattr(config_button, "set_icon_name"):
+            try:
+                config_button.set_icon_name("open-menu-symbolic")
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+        if hasattr(config_button, "set_tooltip_text"):
+            config_button.set_tooltip_text("Import or export configuration")
+        if hasattr(config_button, "add_css_class"):
+            try:
+                config_button.add_css_class("flat")
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+        self._config_menu_button = config_button
+
+        for pack in (getattr(header_bar, "pack_end", None), getattr(header_bar, "add", None)):
+            if callable(pack):
+                try:
+                    pack(config_button)
+                    break
+                except Exception:  # pragma: no cover - GTK fallback
+                    continue
+
         title_label = Gtk.Label(label="ATLAS Setup — Guided Configuration")
         if hasattr(title_label, "add_css_class"):
             try:
@@ -243,21 +289,43 @@ class SetupWizardWindow(AtlasWindow):
         self._completed_steps: set[int] = set()
         self._step_rows: list[Gtk.ListBoxRow] = []
         self._step_list: Gtk.ListBox | None = None
+        self._toast_overlay: Gtk.Widget | None = None
+        self._toast_history: list[tuple[str, str]] = []
+        self._last_config_directory: Path | None = None
+        self._config_menu_button: Gtk.Widget | None = None
 
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        root.set_margin_top(18)
-        root.set_margin_bottom(18)
-        root.set_margin_start(18)
-        root.set_margin_end(18)
-        root.set_vexpand(True)
-        root.set_hexpand(True)
-        self.set_child(root)
+        root_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        root_box.set_margin_top(18)
+        root_box.set_margin_bottom(18)
+        root_box.set_margin_start(18)
+        root_box.set_margin_end(18)
+        root_box.set_vexpand(True)
+        root_box.set_hexpand(True)
+
+        overlay_cls = getattr(Gtk, "ToastOverlay", None)
+        overlay: Gtk.Widget | None = None
+        if overlay_cls is not None:
+            try:
+                overlay = overlay_cls()
+            except Exception:  # pragma: no cover - GTK fallback
+                overlay = None
+        if overlay is not None:
+            if hasattr(overlay, "set_child"):
+                overlay.set_child(root_box)
+            if hasattr(overlay, "set_hexpand"):
+                overlay.set_hexpand(True)
+            if hasattr(overlay, "set_vexpand"):
+                overlay.set_vexpand(True)
+            self._toast_overlay = overlay
+            self.set_child(overlay)
+        else:
+            self.set_child(root_box)
 
         # H layout: [Steps Sidebar] [Form Container] [Guidance]
         content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
         content.set_hexpand(True)
         content.set_vexpand(True)
-        root.append(content)
+        root_box.append(content)
 
         # --- Steps sidebar (left) ---
         steps_sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -578,7 +646,193 @@ class SetupWizardWindow(AtlasWindow):
         if hasattr(self._status_label, "remove_css_class"):
             self._status_label.remove_css_class("error-text")
 
+    def show_success_toast(self, message: str) -> None:
+        """Display a transient success toast, falling back to status updates."""
+
+        self._show_toast(message, kind="success")
+
+    def show_error_toast(self, message: str) -> None:
+        """Display a transient error toast, falling back to status updates."""
+
+        self._show_toast(message, kind="error")
+
+    def _show_toast(self, message: str, *, kind: str = "info") -> None:
+        if not message:
+            return
+        self._toast_history.append((kind, message))
+
+        overlay = self._toast_overlay
+        toast_cls = getattr(Gtk, "Toast", None)
+        if overlay is not None and toast_cls is not None:
+            try:
+                toast = toast_cls.new(message) if hasattr(toast_cls, "new") else toast_cls()
+                if hasattr(toast, "set_title"):
+                    toast.set_title(message)
+                elif hasattr(toast, "set_text"):
+                    toast.set_text(message)
+                if kind == "error":
+                    priority = getattr(Gtk.ToastPriority, "HIGH", None)
+                    setter = getattr(toast, "set_priority", None)
+                    if callable(setter) and priority is not None:
+                        setter(priority)
+                adder = getattr(overlay, "add_toast", None)
+                if callable(adder):
+                    adder(toast)
+                    return
+            except Exception:  # pragma: no cover - toast best-effort
+                logger.debug("Failed to present toast", exc_info=True)
+
+        # Fall back to status label when toasts are unavailable.
+        if kind == "error":
+            self.display_error(RuntimeError(message))
+        else:
+            self._set_status(message)
+
+    def _choose_config_path(
+        self,
+        *,
+        title: str,
+        action: str,
+        suggested_name: str | None = None,
+    ) -> Optional[str]:
+        chooser_cls = getattr(Gtk, "FileChooserNative", None)
+        action_enum = getattr(Gtk.FileChooserAction, action.upper(), None) if hasattr(Gtk, "FileChooserAction") else None
+        if chooser_cls is None or action_enum is None:
+            return None
+
+        chooser = chooser_cls(title=title, transient_for=self, modal=True, action=action_enum)
+        if suggested_name and hasattr(chooser, "set_current_name"):
+            try:
+                chooser.set_current_name(suggested_name)
+            except Exception:
+                pass
+
+        if self._last_config_directory and hasattr(chooser, "set_current_folder"):
+            try:
+                chooser.set_current_folder(str(self._last_config_directory))
+            except Exception:
+                pass
+
+        file_filter_cls = getattr(Gtk, "FileFilter", None)
+        if callable(file_filter_cls):
+            try:
+                yaml_filter = file_filter_cls()
+                if hasattr(yaml_filter, "set_name"):
+                    yaml_filter.set_name("YAML files")
+                if hasattr(yaml_filter, "add_pattern"):
+                    yaml_filter.add_pattern("*.yaml")
+                    yaml_filter.add_pattern("*.yml")
+                adder = getattr(chooser, "add_filter", None)
+                if callable(adder):
+                    adder(yaml_filter)
+            except Exception:  # pragma: no cover - GTK compatibility fallback
+                pass
+
+        response = None
+        if hasattr(chooser, "run"):
+            try:
+                response = chooser.run()
+            except Exception:
+                response = None
+        elif hasattr(chooser, "show"):
+            try:
+                chooser.show()
+                response = getattr(Gtk.ResponseType, "ACCEPT", 1)
+            except Exception:
+                response = None
+
+        accepted = {
+            getattr(Gtk.ResponseType, "ACCEPT", None),
+            getattr(Gtk.ResponseType, "OK", None),
+            getattr(Gtk.ResponseType, "YES", None),
+        }
+
+        filename: Optional[str] = None
+        if response in accepted:
+            file_obj = getattr(chooser, "get_file", None)
+            file_handle = file_obj() if callable(file_obj) else None
+            if file_handle is not None and hasattr(file_handle, "get_path"):
+                filename = file_handle.get_path()
+            else:
+                getter = getattr(chooser, "get_filename", None)
+                if callable(getter):
+                    filename = getter()
+
+        if hasattr(chooser, "destroy"):
+            try:
+                chooser.destroy()
+            except Exception:
+                pass
+
+        if not filename:
+            return None
+
+        path_obj = Path(filename).expanduser().resolve()
+        self._last_config_directory = path_obj.parent
+        return str(path_obj)
+
+    def _choose_export_path(self) -> Optional[str]:
+        return self._choose_config_path(
+            title="Export configuration",
+            action="SAVE",
+            suggested_name="atlas-config.yaml",
+        )
+
+    def _choose_import_path(self) -> Optional[str]:
+        return self._choose_config_path(
+            title="Import configuration",
+            action="OPEN",
+        )
+
+    def _on_export_config_action(self, *_: object) -> None:
+        path = self._choose_export_path()
+        if not path:
+            return
+        try:
+            exported = self.controller.export_config(path)
+        except Exception as exc:
+            logger.error("Failed to export configuration", exc_info=True)
+            self.display_error(exc)
+            self.show_error_toast("Failed to export configuration.")
+            return
+
+        self._set_status(f"Configuration exported to {exported}.")
+        self.show_success_toast(f"Exported configuration to {Path(exported).name}")
+
+    def _on_import_config_action(self, *_: object) -> None:
+        path = self._choose_import_path()
+        if not path:
+            return
+
+        try:
+            imported = self.controller.import_config(path)
+        except ValueError as exc:
+            logger.warning("Invalid configuration import: %s", exc)
+            self.display_error(exc)
+            self.show_error_toast(str(exc))
+            return
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Failed to import configuration", exc_info=True)
+            self.display_error(exc)
+            self.show_error_toast("Failed to import configuration.")
+            return
+
+        self._rebuild_steps_after_config_change()
+        self._set_status(f"Configuration imported from {imported}.")
+        self.show_success_toast(f"Imported configuration from {Path(imported).name}")
+
+    def _rebuild_steps_after_config_change(self) -> None:
+        """Recreate wizard pages so widgets reflect the controller state."""
+
+        self._instructions_by_widget.clear()
+        self._completed_steps.clear()
+        self._build_steps()
+        self._build_steps_sidebar()
+        self._refresh_validation_states()
+        self._go_to_step(0)
+
     def _build_steps(self) -> None:
+        self._instructions_by_widget.clear()
         try:
             children = list(self._stack.get_children())
         except AttributeError:  # pragma: no cover - GTK3 fallback

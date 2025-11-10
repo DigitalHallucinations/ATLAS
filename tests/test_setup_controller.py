@@ -1,4 +1,7 @@
 import dataclasses
+from pathlib import Path
+
+import pytest
 
 from ATLAS.setup import AdminProfile, KvStoreState, SetupWizardController
 
@@ -7,12 +10,20 @@ class _StubConfigManager:
     """Minimal stub providing the methods SetupWizardController expects."""
 
     UNSET = object()
+    write_calls = 0
+    export_paths: list[str] = []
+    import_paths: list[str] = []
+    current_host = "localhost"
+    next_import_host = "imported"
 
     def __init__(self):
         self.env_config = {}
+        self.yaml_config: dict[str, object] = {}
+        self.config: dict[str, object] = {}
 
     def get_conversation_database_config(self):
-        return {}
+        host = self.__class__.current_host
+        return {"url": f"postgresql://{host}/atlas"}
 
     def get_job_scheduling_settings(self):
         return {}
@@ -40,6 +51,20 @@ class _StubConfigManager:
 
     def get_conversation_retention_policies(self):
         return {}
+
+    def _write_yaml_config(self):
+        self.__class__.write_calls += 1
+
+    def export_yaml_config(self, path):
+        resolved = str(Path(path))
+        self.__class__.export_paths.append(resolved)
+        return resolved
+
+    def import_yaml_config(self, path):
+        resolved = str(Path(path))
+        self.__class__.import_paths.append(resolved)
+        self.__class__.current_host = self.__class__.next_import_host
+        return {"DATABASE": {"HOST": "imported"}}
 
 
 def test_build_summary_includes_kv_store_payload():
@@ -150,3 +175,50 @@ def test_apply_setup_type_switches_between_presets():
     controller.state.job_scheduling = custom_state
     controller.apply_setup_type("enterprise")
     assert controller.state.job_scheduling.queue_size == 5
+
+
+def test_export_config_writes_and_refreshes_state(tmp_path):
+    _StubConfigManager.write_calls = 0
+    _StubConfigManager.export_paths.clear()
+    _StubConfigManager.current_host = "initial"
+    manager = _StubConfigManager()
+    controller = SetupWizardController(config_manager=manager)
+
+    _StubConfigManager.current_host = "refreshed-host"
+    destination = tmp_path / "export.yaml"
+
+    result = controller.export_config(destination)
+
+    assert result == str(destination)
+    assert _StubConfigManager.write_calls >= 1
+    assert _StubConfigManager.export_paths[-1] == str(destination)
+    assert controller.config_manager is not manager
+    assert controller.state.database.host == "refreshed-host"
+
+
+def test_import_config_refreshes_state(tmp_path):
+    _StubConfigManager.import_paths.clear()
+    _StubConfigManager.current_host = "before"
+    _StubConfigManager.next_import_host = "restored"
+    controller = SetupWizardController(config_manager=_StubConfigManager())
+
+    source = tmp_path / "config.yaml"
+    result = controller.import_config(source)
+
+    assert result == str(source)
+    assert _StubConfigManager.import_paths[-1] == str(source)
+    assert controller.state.database.host == "restored"
+
+
+def test_import_config_propagates_yaml_errors():
+    class _FailingManager(_StubConfigManager):
+        def import_yaml_config(self, path):  # type: ignore[override]
+            raise ValueError("bad yaml")
+
+    controller = SetupWizardController(
+        config_manager=_FailingManager(),
+        config_manager_factory=_FailingManager,
+    )
+
+    with pytest.raises(ValueError):
+        controller.import_config("/tmp/config.yaml")
