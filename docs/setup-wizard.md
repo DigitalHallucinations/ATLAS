@@ -111,6 +111,31 @@ Each step mirrors the questions asked by the CLI setup utility:
 * **Optional settings** records tenant IDs, conversation retention limits,
   scheduler overrides, and the HTTP auto-start flag.
 
+### Organization setup
+
+Larger rollouts often rely on the optional step to seed tenancy and retention
+defaults before fleets begin connecting. The **Tenant identifier** field writes
+directly to the root `tenant_id` setting so API calls inherit the same context
+enforced by server routes that require the `X-Atlas-Tenant` header for every
+request.【F:ATLAS/setup/controller.py†L433-L451】【F:docs/server/api.md†L34-L59】 Use
+the retention inputs to populate the `conversation_database.retention` block
+(`days` and `history_message_limit`), ensuring pruning behaviour is consistent
+with the retention worker documented in the [conversation retention
+runbook](./conversation_retention.md).【F:ATLAS/setup/controller.py†L433-L451】【F:ATLAS/config/atlas_config.yaml†L108-L118】【F:docs/conversation_retention.md†L1-L34】
+Timezone and queue size controls map to `job_scheduling.timezone` and
+`job_scheduling.queue_size`, allowing operators to override the shared scheduler
+defaults that also drive task queue sizing.【F:ATLAS/setup/controller.py†L433-L451】【F:ATLAS/config/config_manager.py†L600-L720】
+
+For multi-tenant and auditing-heavy environments, complete the wizard and then
+review the configuration in `atlas_config.yaml` alongside the logging/audit
+modules. Tighten policies by setting stricter retention windows, enabling
+per-tenant limits (`tenant_limits`) through the conversation store, and
+configuring audit sinks via `modules.logging.audit` to capture persona, skill,
+and API activity with tenant context.【F:modules/conversation_store/repository.py†L2622-L2765】【F:modules/logging/audit.py†L33-L126】
+Server-side enforcement continues to require tenant-scoped contexts, so routing
+modules remain aligned with the staged identifier even as you expand to
+additional tenants.【F:modules/Server/conversation_routes.py†L30-L209】【F:modules/Server/task_routes.py†L33-L252】
+
 ## Preparing the Python environment
 
 Before running the setup wizard, create or update the virtual environment and
