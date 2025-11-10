@@ -20,6 +20,7 @@ from ATLAS.setup.controller import (
     MessageBusState,
     OptionalState,
     ProviderState,
+    SetupTypeState,
     SetupWizardController,
     SpeechState,
     UserState,
@@ -53,6 +54,7 @@ class SetupUtility:
     def run(self) -> Path:
         """Execute the full setup workflow."""
 
+        self.choose_setup_type()
         self.configure_user()
 
         self.install_postgresql()
@@ -73,6 +75,16 @@ class SetupUtility:
         marker_path = self.finalize(summary)
         self._print(f"Setup complete. Sentinel written to {marker_path}")
         return marker_path
+
+    def choose_setup_type(self) -> SetupTypeState:
+        """Prompt for and apply the desired setup preset."""
+
+        while True:
+            choice = self._ask("Setup type (personal/enterprise)", "personal")
+            normalized = choice.strip().lower() or "personal"
+            if normalized in {"personal", "enterprise"}:
+                return self.controller.apply_setup_type(normalized)
+            self._print("Please choose either 'personal' or 'enterprise'.")
 
     # -- environment helpers -------------------------------------------
 
