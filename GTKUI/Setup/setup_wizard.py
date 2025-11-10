@@ -31,6 +31,7 @@ from ATLAS.setup_marker import write_setup_marker
 from GTKUI.Utils.logging import GTKUILogHandler
 from GTKUI.Utils.styled_window import AtlasWindow
 from modules.conversation_store.bootstrap import BootstrapError
+from GTKUI.Setup.preflight import PreflightHelper, PreflightCheckResult
 
 Callback = Callable[[], None]
 ErrorCallback = Callable[[BaseException], None]
@@ -50,6 +51,13 @@ class WizardStep:
             self.subpages.insert(0, self.widget)
         if self.subpages:
             self.widget = self.subpages[0]
+
+
+@dataclass
+class PreflightRowWidgets:
+    status: Gtk.Label
+    message: Gtk.Label
+    button: Gtk.Button | None
 
 
 class SetupWizardLogWindow(AtlasWindow):
@@ -431,6 +439,13 @@ class SetupWizardWindow(AtlasWindow):
         self._validation_signal_ids: dict[Gtk.Widget, int] = {}
         self._validation_base_tooltips: dict[Gtk.Widget, str | None] = {}
         self._validation_base_descriptions: dict[Gtk.Widget, str | None] = {}
+        self._preflight_helper = PreflightHelper(
+            request_password=self._request_sudo_password
+        )
+        self._preflight_button: Gtk.Button | None = None
+        self._preflight_dialog: Gtk.Dialog | None = None
+        self._preflight_rows: dict[str, PreflightRowWidgets] = {}
+        self._preflight_results: dict[str, PreflightCheckResult] = {}
 
         if hasattr(debug_button, "connect"):
             try:
@@ -577,6 +592,9 @@ class SetupWizardWindow(AtlasWindow):
         self._step_containers = []
         self._step_page_stacks.clear()
         self._current_page_indices.clear()
+        self._preflight_button = None
+        self._preflight_rows.clear()
+        self._preflight_results.clear()
 
         self._setup_type_buttons.clear()
         provider_pages = self._build_provider_pages()
@@ -874,6 +892,25 @@ class SetupWizardWindow(AtlasWindow):
         )
         box.append(needs_callout)
 
+        preflight_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        preflight_box.set_hexpand(False)
+        preflight_label = Gtk.Label(
+            label=(
+                "Want to double-check your environment first? Run the preflight scan to test"
+                " PostgreSQL, Redis, and the project virtualenv."
+            )
+        )
+        preflight_label.set_wrap(True)
+        preflight_label.set_xalign(0.0)
+        preflight_box.append(preflight_label)
+
+        preflight_button = Gtk.Button(label="Run preflight checks")
+        preflight_button.set_halign(Gtk.Align.START)
+        preflight_button.connect("clicked", self._on_preflight_button_clicked)
+        preflight_box.append(preflight_button)
+        box.append(preflight_box)
+        self._preflight_button = preflight_button
+
         cli_label = Gtk.Label(
             label=(
                 "Prefer a terminal instead? Run scripts/setup_atlas.py to pick up the "
@@ -900,10 +937,218 @@ class SetupWizardWindow(AtlasWindow):
             "Gather these items now so the next few forms go quickly.",
         )
         self._register_instructions(
+            preflight_label,
+            "Use the scan if you're unsure whether supporting services are available before starting the forms.",
+        )
+        self._register_instructions(
+            preflight_button,
+            "Run the automated checks any time. You can trigger fixes directly from the results dialog.",
+        )
+        self._register_instructions(
             cli_label,
             "You can swap to the terminal helper at any point—the wizard keeps your progress in sync.",
         )
         return box
+
+    def _on_preflight_button_clicked(self, button: Gtk.Button) -> None:
+        self._start_preflight_checks(button)
+
+    def _start_preflight_checks(self, button: Gtk.Button | None) -> None:
+        if button is not None:
+            button.set_sensitive(False)
+        if self._preflight_dialog is not None:
+            try:
+                self._preflight_dialog.destroy()
+            except Exception:
+                pass
+            self._preflight_dialog = None
+        self._preflight_rows.clear()
+        self._preflight_results.clear()
+        self._set_status("Running preflight checks…")
+        try:
+            self._preflight_helper.run_checks(
+                on_update=self._on_preflight_update,
+                on_complete=self._on_preflight_complete,
+            )
+        except RuntimeError as exc:
+            self._set_status(str(exc))
+            if button is not None:
+                button.set_sensitive(True)
+
+    def _on_preflight_update(self, result: PreflightCheckResult) -> None:
+        self._preflight_results[result.identifier] = result
+        summary = (
+            f"{result.label} looks good."
+            if result.passed
+            else f"{result.label} needs attention."
+        )
+        self._set_status(summary)
+
+    def _on_preflight_complete(self, results: list[PreflightCheckResult]) -> None:
+        if self._preflight_button is not None:
+            self._preflight_button.set_sensitive(True)
+        if not results:
+            self._set_status("Preflight checks completed.")
+            return
+
+        pending = [result for result in results if not result.passed]
+        if pending:
+            self._set_status("Preflight checks found items to review.")
+        else:
+            self._set_status("All preflight checks passed.")
+        self._present_preflight_dialog(results)
+
+    def _present_preflight_dialog(self, results: list[PreflightCheckResult]) -> None:
+        if self._preflight_dialog is not None:
+            try:
+                self._preflight_dialog.destroy()
+            except Exception:
+                pass
+        dialog = Gtk.Dialog(transient_for=self, modal=True)
+        if hasattr(dialog, "set_title"):
+            dialog.set_title("System preflight results")
+        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+        dialog.set_default_size(560, 420)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content.set_margin_top(12)
+        content.set_margin_bottom(12)
+        content.set_margin_start(12)
+        content.set_margin_end(12)
+        dialog.set_child(content)
+
+        intro = Gtk.Label(
+            label=(
+                "Here's what we found. Use the Fix buttons to attempt an automated remedy,"
+                " or follow the guidance in the details."
+            )
+        )
+        intro.set_wrap(True)
+        intro.set_xalign(0.0)
+        content.append(intro)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_hexpand(True)
+        scroller.set_vexpand(True)
+        content.append(scroller)
+
+        rows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        rows_box.set_margin_top(6)
+        rows_box.set_margin_bottom(6)
+        rows_box.set_margin_start(6)
+        rows_box.set_margin_end(6)
+        scroller.set_child(rows_box)
+
+        self._preflight_rows.clear()
+        for result in results:
+            row = self._create_preflight_row(result)
+            rows_box.append(row)
+
+        dialog.connect("response", self._on_preflight_dialog_response)
+        dialog.present()
+        self._preflight_dialog = dialog
+
+    def _on_preflight_dialog_response(self, dialog: Gtk.Dialog, _response: int) -> None:
+        dialog.destroy()
+        if self._preflight_dialog is dialog:
+            self._preflight_dialog = None
+
+    def _create_preflight_row(self, result: PreflightCheckResult) -> Gtk.Widget:
+        frame = Gtk.Frame()
+        frame.set_hexpand(True)
+        frame.set_vexpand(False)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        header.set_hexpand(True)
+        box.append(header)
+
+        name_label = Gtk.Label(label=result.label)
+        name_label.set_xalign(0.0)
+        name_label.set_hexpand(True)
+        header.append(name_label)
+
+        status_label = Gtk.Label()
+        status_label.set_xalign(0.0)
+        status_label.set_hexpand(True)
+        header.append(status_label)
+
+        fix_button: Gtk.Button | None = None
+        if result.fix_label:
+            fix_button = Gtk.Button(label=result.fix_label)
+            fix_button.set_sensitive(not result.passed)
+            fix_button.connect("clicked", self._on_preflight_fix_clicked, result.identifier)
+            header.append(fix_button)
+
+        message_label = Gtk.Label()
+        message_label.set_wrap(True)
+        message_label.set_xalign(0.0)
+        box.append(message_label)
+
+        self._preflight_rows[result.identifier] = PreflightRowWidgets(
+            status=status_label,
+            message=message_label,
+            button=fix_button,
+        )
+        self._update_preflight_row(result)
+        return frame
+
+    def _update_preflight_row(self, result: PreflightCheckResult) -> None:
+        widgets = self._preflight_rows.get(result.identifier)
+        if widgets is None:
+            return
+
+        status_text = "Ready" if result.passed else "Needs attention"
+        widgets.status.set_text(status_text)
+        if hasattr(widgets.status, "remove_css_class"):
+            try:
+                widgets.status.remove_css_class("error-text")
+                widgets.status.remove_css_class("success-text")
+            except Exception:
+                pass
+            target = "success-text" if result.passed else "error-text"
+            try:
+                widgets.status.add_css_class(target)
+            except Exception:
+                pass
+
+        widgets.message.set_text(result.message)
+        if widgets.button is not None:
+            widgets.button.set_sensitive(not result.passed)
+
+    def _on_preflight_fix_clicked(self, button: Gtk.Button, identifier: str) -> None:
+        widgets = self._preflight_rows.get(identifier)
+        if widgets is None:
+            return
+
+        widgets.message.set_text("Attempting fix…")
+        button.set_sensitive(False)
+        result = self._preflight_results.get(identifier)
+        if result is not None:
+            self._set_status(f"Applying fix for {result.label}…")
+
+        def _handle_result(updated: PreflightCheckResult) -> None:
+            self._preflight_results[identifier] = updated
+            self._update_preflight_row(updated)
+            if updated.passed:
+                self._set_status(f"{updated.label} is ready after the fix.")
+            else:
+                self._set_status(f"{updated.label} still needs attention.")
+                if widgets.button is not None:
+                    widgets.button.set_sensitive(True)
+
+        try:
+            self._preflight_helper.run_fix(identifier, _handle_result)
+        except RuntimeError as exc:
+            widgets.message.set_text(str(exc))
+            button.set_sensitive(True)
 
     def _build_setup_type_page(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
