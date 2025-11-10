@@ -428,7 +428,7 @@ class SetupWizardWindow(AtlasWindow):
         controls.set_hexpand(True)
         if hasattr(controls, "add_css_class"):
             controls.add_css_class("setup-wizard-controls")
-        root.append(controls)
+        root_box.append(controls)
 
         self._step_status_label = Gtk.Label()
         self._step_status_label.set_xalign(0.0)
