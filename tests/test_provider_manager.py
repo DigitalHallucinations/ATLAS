@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import URLError
 from weakref import WeakKeyDictionary
 
+from ATLAS.providers import openai as openai_module
+
 # Ensure the HuggingFace base configuration defaults are available for tests
 from modules.Providers.HuggingFace.config.base_config import BaseConfig
 needs_stub = True
@@ -1879,45 +1881,66 @@ def test_huggingface_default_provider_startup_defers_loading(tmp_path, monkeypat
 def test_huggingface_backend_helpers(provider_manager, monkeypatch):
     search_calls = {}
 
-    async def fake_search(generator, query, filters=None, limit=10):
-        search_calls["args"] = (generator, query, filters, limit)
-        return [{"id": "zeta", "tags": ["tag"], "downloads": 42, "likes": 5}]
+    async def fake_search(ensure_ready, supplier, query, *, filters=None, limit=10, logger=None):
+        search_calls["ensure_result"] = ensure_ready()
+        search_calls["generator"] = supplier()
+        search_calls["query"] = query
+        search_calls["filters"] = filters
+        search_calls["limit"] = limit
+        return provider_manager_module.build_result(
+            True,
+            data=[{"id": "zeta", "tags": ["tag"], "downloads": 42, "likes": 5}],
+            message="Search completed.",
+        )
 
     download_calls = []
 
-    async def fake_download(generator, model_id, force=False):
-        download_calls.append((generator, model_id, force))
-        return {"model_id": model_id}
+    async def fake_download(ensure_ready, supplier, model_id, *, force=False, logger=None):
+        download_calls.append((ensure_ready(), supplier(), model_id, force))
+        return provider_manager_module.build_result(
+            True, message=f"Model '{model_id}' downloaded successfully."
+        )
 
     updated_settings = {}
 
-    def fake_update(generator, settings):
+    async def fake_update(ensure_ready, supplier, settings, *, logger=None):
+        updated_settings["ensure"] = ensure_ready()
+        updated_settings["generator"] = supplier()
         updated_settings["settings"] = dict(settings)
         payload = dict(BaseConfig.DEFAULT_MODEL_SETTINGS)
         payload.update(settings)
-        return payload
+        return provider_manager_module.build_result(
+            True, data=payload, message="Settings updated successfully."
+        )
 
     clear_calls = []
 
-    def fake_clear(generator):
-        clear_calls.append(generator)
+    async def fake_clear(ensure_ready, supplier, *, logger=None):
+        clear_calls.append((ensure_ready(), supplier()))
+        return provider_manager_module.build_result(
+            True, message="HuggingFace cache cleared."
+        )
 
-    monkeypatch.setattr(provider_manager_module, "hf_search_models", fake_search)
-    monkeypatch.setattr(provider_manager_module, "hf_download_model", fake_download)
-    monkeypatch.setattr(provider_manager_module, "hf_update_model_settings", fake_update)
-    monkeypatch.setattr(provider_manager_module, "hf_clear_cache", fake_clear)
+    monkeypatch.setattr(provider_manager_module, "hf_search_adapter", fake_search)
+    monkeypatch.setattr(provider_manager_module, "hf_download_adapter", fake_download)
+    monkeypatch.setattr(provider_manager_module, "hf_update_adapter", fake_update)
+    monkeypatch.setattr(provider_manager_module, "hf_clear_cache_adapter", fake_clear)
 
     async def exercise():
         result = await provider_manager.search_huggingface_models("llama", {"pipeline_tag": "text-generation"}, limit=5)
         assert result["success"] is True
         assert result["data"][0]["id"] == "zeta"
-        assert search_calls["args"][1] == "llama"
-        assert search_calls["args"][2]["pipeline_tag"] == "text-generation"
-        assert search_calls["args"][0] is provider_manager.huggingface_generator
+        assert search_calls["query"] == "llama"
+        assert search_calls["filters"]["pipeline_tag"] == "text-generation"
+        assert search_calls["generator"] is provider_manager.huggingface_generator
 
         download_result = await provider_manager.download_huggingface_model("omega", force=True)
         assert download_result["success"] is True
-        assert download_calls[0] == (provider_manager.huggingface_generator, "omega", True)
+        ensure_payload, generator_obj, model_name, force_flag = download_calls[0]
+        assert ensure_payload["success"] is True
+        assert generator_obj is provider_manager.huggingface_generator
+        assert model_name == "omega"
+        assert force_flag is True
 
     asyncio.run(exercise())
 
@@ -1931,7 +1954,7 @@ def test_huggingface_backend_helpers(provider_manager, monkeypatch):
 
     clear_result = provider_manager.clear_huggingface_cache()
     assert clear_result["success"] is True
-    assert clear_calls[0] is provider_manager.huggingface_generator
+    assert clear_calls[0][1] is provider_manager.huggingface_generator
 
 
 def test_list_openai_models_requires_api_key(provider_manager):
@@ -1955,7 +1978,7 @@ def test_list_openai_models_fetches_and_prioritizes(provider_manager, monkeypatc
     async def fake_to_thread(callable_, *args, **kwargs):  # pragma: no cover - test helper
         return payload
 
-    monkeypatch.setattr(provider_manager_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(openai_module.asyncio, "to_thread", fake_to_thread)
 
     result = asyncio.run(provider_manager.list_openai_models())
 
@@ -1978,7 +2001,7 @@ def test_list_openai_models_handles_network_error(provider_manager, monkeypatch)
     async def fake_to_thread(callable_, *args, **kwargs):  # pragma: no cover - test helper
         raise URLError("network down")
 
-    monkeypatch.setattr(provider_manager_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(openai_module.asyncio, "to_thread", fake_to_thread)
 
     result = asyncio.run(
         provider_manager.list_openai_models(

@@ -14,13 +14,16 @@ from huggingface_hub import HfApi
 from ATLAS.model_manager import ModelManager
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
-from modules.Providers.HuggingFace.HF_gen_response import (
-    HuggingFaceGenerator,
-    search_models as hf_search_models,
-    download_model as hf_download_model,
-    update_model_settings as hf_update_model_settings,
-    clear_cache as hf_clear_cache,
+from modules.Providers.HuggingFace.HF_gen_response import HuggingFaceGenerator
+from ATLAS.providers.base import build_result, get_invoker, register_invoker
+from ATLAS.providers.huggingface import (
+    clear_cache as hf_clear_cache_adapter,
+    download_model as hf_download_adapter,
+    search_models as hf_search_adapter,
+    update_settings as hf_update_adapter,
 )
+from ATLAS.providers.openai import list_models as openai_list_models
+from ATLAS.providers.anthropic import list_models as anthropic_list_models
 from modules.Providers.Grok.grok_generate_response import GrokGenerator
 
 # Import other necessary provider generators
@@ -79,14 +82,9 @@ class ProviderManager:
         self.current_conversation_id: Optional[str] = None
         self._pending_models: Dict[str, Optional[str]] = {}
         self._provider_model_ready: Dict[str, bool] = {}
-        self._provider_invocation_strategies: Dict[
-            str,
-            Callable[[Callable[..., Awaitable[Any]], Dict[str, Any]], Awaitable[Any]],
-        ] = {
-            "HuggingFace": self._invoke_huggingface_generator,
-            "Grok": self._invoke_grok_generator,
-        }
         self._config_injection_cache: Dict[Tuple[Any, bool], bool] = {}
+        register_invoker("HuggingFace", lambda manager, func, kwargs: manager._invoke_huggingface_generator(func, kwargs))
+        register_invoker("Grok", lambda manager, func, kwargs: manager._invoke_grok_generator(func, kwargs))
 
     @classmethod
     async def create(cls, config_manager: ConfigManager):
@@ -175,21 +173,6 @@ class ProviderManager:
                 "Primed cached OpenAI model list with %d entries during startup.",
                 len(models),
             )
-
-
-    @staticmethod
-    def _build_result(success: bool, *, message: str = "", error: str = "", data: Any = None) -> Dict[str, Any]:
-        """Create a structured result payload for provider actions."""
-        payload: Dict[str, Any] = {"success": success}
-        if success:
-            if message:
-                payload["message"] = message
-            if data is not None:
-                payload["data"] = data
-        else:
-            payload["error"] = error or message or "Unknown error"
-        return payload
-
     def _ensure_anthropic_generator(self) -> AnthropicGenerator:
         if self.anthropic_generator is None:
             self.anthropic_generator = AnthropicGenerator(self.config_manager)
@@ -225,6 +208,17 @@ class ProviderManager:
         if self._google_generator is None:
             self._google_generator = get_google_generator(self.config_manager)
         return self._google_generator
+
+    def _await_provider_task(self, coro: Awaitable[Dict[str, Any]]) -> Dict[str, Any]:
+        """Synchronously wait for a provider coroutine when no loop is active."""
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+        raise RuntimeError(
+            "Synchronous provider helpers cannot be invoked while the event loop is running."
+        )
 
     async def _close_generator(self, generator: Any, provider_name: str) -> None:
         """Attempt to close or aclose a provider generator instance."""
@@ -364,7 +358,9 @@ class ProviderManager:
         if not callable(adapter):
             raise ValueError("adapter must be callable")
         self._config_injection_cache.clear()
-        self._provider_invocation_strategies[provider_name] = adapter
+        register_invoker(
+            provider_name, lambda manager, func, kwargs: adapter(func, kwargs)
+        )
 
     async def _invoke_provider_callable(
         self,
@@ -372,10 +368,10 @@ class ProviderManager:
         func: Callable[..., Awaitable[Any]],
         call_kwargs: Dict[str, Any],
     ) -> Any:
-        strategy = self._provider_invocation_strategies.get(
-            provider_name, self._invoke_with_config_manager
-        )
-        return await strategy(func, call_kwargs)
+        strategy = get_invoker(provider_name)
+        if strategy is None:
+            return await self._invoke_with_config_manager(func, call_kwargs)
+        return await strategy(self, func, call_kwargs)
 
     def _filter_callable_kwargs(
         self,
@@ -483,7 +479,7 @@ class ProviderManager:
 
         normalized_key = (new_api_key or "").strip()
         if not normalized_key:
-            return self._build_result(False, error="API key cannot be empty.")
+            return build_result(False, error="API key cannot be empty.")
 
         try:
             self.config_manager.update_api_key(provider_name, normalized_key)
@@ -493,13 +489,13 @@ class ProviderManager:
                 provider_name,
                 exc_info=True,
             )
-            return self._build_result(
+            return build_result(
                 False,
                 error="Unable to save API key because the environment file could not be located.",
             )
         except ValueError as exc:
             self.logger.error("Rejected API key update for %s: %s", provider_name, exc)
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error(
                 "Unexpected error while updating API key for %s: %s",
@@ -507,7 +503,7 @@ class ProviderManager:
                 exc,
                 exc_info=True,
             )
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
         message = f"API Key for {provider_name} saved successfully."
 
@@ -522,13 +518,13 @@ class ProviderManager:
                     exc,
                     exc_info=True,
                 )
-                return self._build_result(
+                return build_result(
                     False,
                     error=f"API key saved but failed to refresh {provider_name}: {exc}",
                 )
 
         self.logger.info("API key for %s updated via provider manager.", provider_name)
-        return self._build_result(True, message=message)
+        return build_result(True, message=message)
 
     def set_openai_llm_settings(
         self,
@@ -579,7 +575,7 @@ class ProviderManager:
             )
         except Exception as exc:
             self.logger.error("Failed to persist OpenAI settings: %s", exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
         promoted_model = settings.get("model")
         if promoted_model:
@@ -593,7 +589,7 @@ class ProviderManager:
 
         message = "OpenAI settings saved."
         refreshed = self.get_openai_llm_settings()
-        return self._build_result(True, message=message, data=refreshed)
+        return build_result(True, message=message, data=refreshed)
 
     def get_openai_llm_settings(self) -> Dict[str, Any]:
         """Return configured OpenAI defaults or an empty payload on failure."""
@@ -658,7 +654,7 @@ class ProviderManager:
         setter = getattr(self.config_manager, "set_google_llm_settings", None)
         if not callable(setter):
             self.logger.error("Config manager does not expose Google settings setter.")
-            return self._build_result(
+            return build_result(
                 False,
                 error="Configuration backend does not support Google provider defaults.",
             )
@@ -686,7 +682,7 @@ class ProviderManager:
             )
         except Exception as exc:
             self.logger.error("Failed to persist Google settings: %s", exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
         promoted_model = settings.get("model") if isinstance(settings, dict) else None
         if isinstance(promoted_model, str) and promoted_model:
@@ -699,7 +695,7 @@ class ProviderManager:
                 self.current_model = promoted_model
 
         message = "Google settings saved."
-        return self._build_result(True, message=message, data=settings)
+        return build_result(True, message=message, data=settings)
 
     def get_google_llm_settings(self) -> Dict[str, Any]:
         """Return persisted Google Gemini defaults, if available."""
@@ -760,7 +756,7 @@ class ProviderManager:
             )
         except Exception as exc:
             self.logger.error("Failed to persist Anthropic settings: %s", exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
         generator: Optional[AnthropicGenerator] = None
         try:
@@ -811,7 +807,7 @@ class ProviderManager:
                 self.current_model = promoted_model
 
         message = "Anthropic settings saved."
-        return self._build_result(True, message=message, data=settings)
+        return build_result(True, message=message, data=settings)
 
     def get_anthropic_settings(self) -> Dict[str, Any]:
         """Retrieve Anthropic defaults, returning an empty mapping on failure."""
@@ -849,143 +845,13 @@ class ProviderManager:
         timeout: float = 15.0,
     ) -> Dict[str, Any]:
         """Discover Anthropic models using the configured credentials."""
-
-        getter = getattr(self.config_manager, "get_anthropic_api_key", None)
-        if not callable(getter):
-            self.logger.error(
-                "Configuration backend does not expose an Anthropic API key accessor."
-            )
-            return {
-                "models": [],
-                "error": "Anthropic credentials are unavailable.",
-                "base_url": base_url,
-            }
-
-        api_key = getter() or ""
-        if not api_key:
-            return {
-                "models": [],
-                "error": "Anthropic API key is not configured.",
-                "base_url": base_url,
-            }
-
-        effective_base_url = (base_url or "https://api.anthropic.com").rstrip("/")
-        endpoint = f"{effective_base_url}/v1/models"
-
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "accept": "application/json",
-        }
-
-        def _fetch_models() -> Any:
-            request = Request(endpoint, headers=headers, method="GET")
-            with urlopen(request, timeout=timeout) as response:  # noqa: S310 - trusted URL built from config
-                encoding = response.headers.get_content_charset("utf-8")
-                payload = response.read().decode(encoding)
-            return json.loads(payload)
-
-        try:
-            raw_response = await asyncio.to_thread(_fetch_models)
-        except HTTPError as exc:
-            detail = f"HTTP {exc.code}: {exc.reason}"
-            try:
-                body = exc.read()
-                if body:
-                    detail = f"{detail} - {body.decode('utf-8', 'ignore')}"
-            except Exception:  # pragma: no cover - best effort logging
-                pass
-            self.logger.error(
-                "Anthropic model listing failed with HTTP error: %s", detail, exc_info=True
-            )
-            return {
-                "models": [],
-                "error": detail,
-                "base_url": effective_base_url,
-            }
-        except URLError as exc:
-            detail = getattr(exc, "reason", None) or str(exc)
-            self.logger.error(
-                "Anthropic model listing failed with network error: %s", detail, exc_info=True
-            )
-            return {
-                "models": [],
-                "error": str(detail),
-                "base_url": effective_base_url,
-            }
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self.logger.error(
-                "Unexpected error while listing Anthropic models: %s", exc, exc_info=True
-            )
-            return {
-                "models": [],
-                "error": str(exc),
-                "base_url": effective_base_url,
-            }
-
-        entries: List[Any] = []
-        if isinstance(raw_response, dict):
-            entries = raw_response.get("data") or raw_response.get("models") or []
-        elif isinstance(raw_response, list):
-            entries = raw_response
-        else:
-            data = getattr(raw_response, "data", None)
-            if isinstance(data, list):
-                entries = data
-
-        seen: set[str] = set()
-        discovered: List[str] = []
-
-        for entry in entries:
-            model_id: Optional[str] = None
-            if isinstance(entry, str):
-                model_id = entry
-            elif isinstance(entry, Mapping):
-                candidate: Any = entry.get("id") or entry.get("model") or entry.get("name")
-                if candidate is not None:
-                    model_id = str(candidate)
-            else:
-                for attr in ("id", "model", "name"):
-                    value = getattr(entry, attr, None)
-                    if value is not None:
-                        model_id = str(value)
-                        break
-
-            if not model_id:
-                continue
-
-            normalized = model_id.strip()
-            if not normalized or normalized in seen:
-                continue
-
-            discovered.append(normalized)
-            seen.add(normalized)
-
-        cached_models: List[str] = list(discovered)
-        try:
-            cached_models = self.model_manager.update_models_for_provider("Anthropic", discovered)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self.logger.warning(
-                "Failed to update cached Anthropic models after discovery: %s",
-                exc,
-                exc_info=True,
-            )
-
-        if cached_models:
-            self.logger.info(
-                "Retrieved %d Anthropic model(s) via discovery.", len(cached_models)
-            )
-        else:
-            self.logger.info("Anthropic model discovery returned no models.")
-
-        result: Dict[str, Any] = {
-            "models": cached_models,
-            "error": None,
-            "base_url": effective_base_url,
-            "source": "anthropic",
-        }
-
-        return result
+        return await anthropic_list_models(
+            self.config_manager,
+            self.model_manager,
+            self.logger,
+            base_url=base_url,
+            timeout=timeout,
+        )
 
     async def list_openai_models(
         self,
@@ -995,129 +861,15 @@ class ProviderManager:
         timeout: float = 15.0,
     ) -> Dict[str, Any]:
         """Retrieve OpenAI models using stored credentials and optional overrides."""
-
-        settings = self.get_openai_llm_settings()
-        configured_base_url = settings.get("base_url") if isinstance(settings, dict) else None
-        configured_org = settings.get("organization") if isinstance(settings, dict) else None
-
-        effective_base_url = (base_url if base_url is not None else configured_base_url) or "https://api.openai.com/v1"
-        effective_org = organization if organization is not None else configured_org
-
-        getter = getattr(self.config_manager, "get_openai_api_key", None)
-        if not callable(getter):
-            self.logger.error("Configuration backend does not expose an OpenAI API key accessor.")
-            return {
-                "models": [],
-                "error": "OpenAI credentials are unavailable.",
-                "base_url": effective_base_url,
-                "organization": effective_org,
-            }
-
-        api_key = getter() or ""
-        if not api_key:
-            return {
-                "models": [],
-                "error": "OpenAI API key is not configured.",
-                "base_url": effective_base_url,
-                "organization": effective_org,
-            }
-
-        endpoint = f"{effective_base_url.rstrip('/')}/models"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        if effective_org:
-            headers["OpenAI-Organization"] = effective_org
-
-        def _fetch_models() -> Dict[str, Any]:
-            request = Request(endpoint, headers=headers, method="GET")
-            with urlopen(request, timeout=timeout) as response:  # noqa: S310 - trusted URL built from config
-                encoding = response.headers.get_content_charset("utf-8")
-                payload = response.read().decode(encoding)
-            return json.loads(payload)
-
-        try:
-            raw_response = await asyncio.to_thread(_fetch_models)
-        except HTTPError as exc:
-            detail = f"HTTP {exc.code}: {exc.reason}"
-            try:
-                body = exc.read()
-                if body:
-                    detail = f"{detail} - {body.decode('utf-8', 'ignore')}"
-            except Exception:  # pragma: no cover - best effort logging
-                pass
-            self.logger.error("OpenAI model listing failed with HTTP error: %s", detail, exc_info=True)
-            return {
-                "models": [],
-                "error": detail,
-                "base_url": effective_base_url,
-                "organization": effective_org,
-            }
-        except URLError as exc:
-            detail = getattr(exc, "reason", None) or str(exc)
-            self.logger.error("OpenAI model listing failed with network error: %s", detail, exc_info=True)
-            return {
-                "models": [],
-                "error": str(detail),
-                "base_url": effective_base_url,
-                "organization": effective_org,
-            }
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self.logger.error("Unexpected error while listing OpenAI models: %s", exc, exc_info=True)
-            return {
-                "models": [],
-                "error": str(exc),
-                "base_url": effective_base_url,
-                "organization": effective_org,
-            }
-
-        entries: List[Any] = []
-        if isinstance(raw_response, dict):
-            data = raw_response.get("data")
-            if isinstance(data, list):
-                entries = data
-        elif isinstance(raw_response, list):
-            entries = raw_response
-
-        models: List[str] = []
-        for entry in entries:
-            model_id = None
-            if isinstance(entry, dict):
-                model_id = entry.get("id")
-            else:
-                model_id = getattr(entry, "id", None)
-
-            if isinstance(model_id, str) and model_id:
-                models.append(model_id)
-
-        unique_models = sorted(set(models))
-        prioritized = [
-            name
-            for name in unique_models
-            if any(token in name for token in ("gpt", "omni", "o1", "o3", "chat"))
-        ]
-        if prioritized:
-            prioritized_set = set(prioritized)
-            trailing = [name for name in unique_models if name not in prioritized_set]
-            unique_models = prioritized + trailing
-
-        if unique_models:
-            try:
-                self.model_manager.update_models_for_provider("OpenAI", unique_models)
-            except Exception as exc:  # pragma: no cover - defensive logging
-                self.logger.warning(
-                    "Failed to update cached OpenAI models after discovery: %s",
-                    exc,
-                    exc_info=True,
-                )
-
-        return {
-            "models": unique_models,
-            "error": None,
-            "base_url": effective_base_url,
-            "organization": effective_org,
-        }
+        return await openai_list_models(
+            self.config_manager,
+            self.model_manager,
+            self.logger,
+            base_url=base_url,
+            organization=organization,
+            timeout=timeout,
+            settings=self.get_openai_llm_settings(),
+        )
 
     async def list_google_models(
         self,
@@ -1323,18 +1075,18 @@ class ProviderManager:
             self.logger.error(
                 "Mistral SDK is unavailable; cannot discover remote models."
             )
-            return self._build_result(False, error="Mistral SDK is not installed.")
+            return build_result(False, error="Mistral SDK is not installed.")
 
         getter = getattr(self.config_manager, "get_mistral_api_key", None)
         if not callable(getter):
             self.logger.error(
                 "Configuration backend does not expose a Mistral API key accessor."
             )
-            return self._build_result(False, error="Mistral credentials are unavailable.")
+            return build_result(False, error="Mistral credentials are unavailable.")
 
         api_key = getter() or ""
         if not api_key:
-            return self._build_result(False, error="Mistral API key is not configured.")
+            return build_result(False, error="Mistral API key is not configured.")
 
         settings: Dict[str, Any] = {}
         try:
@@ -1377,12 +1129,12 @@ class ProviderManager:
             self.logger.error(
                 "Mistral model listing failed with API error: %s", detail, exc_info=True
             )
-            return self._build_result(False, error=detail)
+            return build_result(False, error=detail)
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error(
                 "Unexpected error while listing Mistral models: %s", exc, exc_info=True
             )
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
         entries: List[Any] = []
         if isinstance(raw_response, dict):
@@ -1447,7 +1199,7 @@ class ProviderManager:
         if effective_base_url:
             data["base_url"] = effective_base_url
 
-        return self._build_result(True, message=message, data=data)
+        return build_result(True, message=message, data=data)
 
     @staticmethod
     def _mask_secret(secret: str) -> str:
@@ -1532,12 +1284,12 @@ class ProviderManager:
 
         normalized = (token or "").strip()
         if not normalized:
-            return self._build_result(False, error="Hugging Face token cannot be empty.")
+            return build_result(False, error="Hugging Face token cannot be empty.")
 
         setter = getattr(self.config_manager, "set_hf_token", None)
         if not callable(setter):
             self.logger.error("Config manager does not support saving Hugging Face tokens.")
-            return self._build_result(
+            return build_result(
                 False,
                 error="Configuration backend does not support saving a Hugging Face token.",
             )
@@ -1546,16 +1298,16 @@ class ProviderManager:
             setter(normalized)
         except FileNotFoundError as exc:
             self.logger.error("Failed to persist Hugging Face token: %s", exc, exc_info=True)
-            return self._build_result(
+            return build_result(
                 False,
                 error="Unable to save Hugging Face token because the .env file could not be located.",
             )
         except ValueError as exc:
             self.logger.error("Rejected Hugging Face token: %s", exc)
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Unexpected error while saving Hugging Face token: %s", exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
         refresh_message = ""
         if self.huggingface_generator is not None:
@@ -1579,7 +1331,7 @@ class ProviderManager:
                     refresh_result.get("error"),
                 )
                 self.huggingface_generator = previous_generator
-                return self._build_result(
+                return build_result(
                     False,
                     error="Hugging Face token saved but provider refresh failed: "
                     + refresh_result.get("error", "Unknown error"),
@@ -1591,21 +1343,21 @@ class ProviderManager:
             message = f"{message} {refresh_message}"
 
         self.logger.info("Hugging Face token updated and provider refreshed.")
-        return self._build_result(True, message=message)
+        return build_result(True, message=message)
 
     def ensure_huggingface_ready(self) -> Dict[str, Any]:
         """Create the HuggingFace generator if it does not already exist."""
         if self.huggingface_generator is not None:
-            return self._build_result(True, message="HuggingFace generator already initialized.")
+            return build_result(True, message="HuggingFace generator already initialized.")
 
         try:
             self.huggingface_generator = HuggingFaceGenerator(self.config_manager)
             self.logger.debug("HuggingFace generator initialized successfully.")
-            return self._build_result(True, message="HuggingFace generator initialized.")
+            return build_result(True, message="HuggingFace generator initialized.")
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to initialize HuggingFace generator: %s", exc, exc_info=True)
             self.huggingface_generator = None
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
     async def test_huggingface_token(self, token: Optional[str]) -> Dict[str, Any]:
         """Validate a HuggingFace token using the hub API."""
@@ -1621,7 +1373,7 @@ class ProviderManager:
                 configured_token = getter() or ""
 
         if not configured_token:
-            return self._build_result(False, error="No HuggingFace token provided.")
+            return build_result(False, error="No HuggingFace token provided.")
 
         try:
             api = HfApi()
@@ -1637,10 +1389,10 @@ class ProviderManager:
             message = "Token verified successfully."
             if display_name:
                 message = f"Token OK. Signed in as: {display_name}"
-            return self._build_result(True, message=message, data=whoami_data)
+            return build_result(True, message=message, data=whoami_data)
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to validate HuggingFace token: %s", exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
     async def load_hf_model(self, model_name: str, force_download: bool = False) -> Dict[str, Any]:
         """Load a HuggingFace model, instantiating the generator when needed."""
@@ -1656,25 +1408,25 @@ class ProviderManager:
             self._provider_model_ready["HuggingFace"] = True
             self._pending_models.pop("HuggingFace", None)
             message = f"Model '{model_name}' loaded successfully."
-            return self._build_result(True, message=message)
+            return build_result(True, message=message)
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to load HuggingFace model %s: %s", model_name, exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
     async def unload_hf_model(self) -> Dict[str, Any]:
         """Unload the currently active HuggingFace model if one is loaded."""
         if not self.huggingface_generator:
-            return self._build_result(True, message="No HuggingFace model loaded.")
+            return build_result(True, message="No HuggingFace model loaded.")
 
         try:
             await asyncio.to_thread(self.huggingface_generator.unload_model)
             if self.current_llm_provider == "HuggingFace":
                 self.current_model = None
             self._provider_model_ready["HuggingFace"] = False
-            return self._build_result(True, message="HuggingFace model unloaded.")
+            return build_result(True, message="HuggingFace model unloaded.")
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to unload HuggingFace model: %s", exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
     async def remove_hf_model(self, model_name: str) -> Dict[str, Any]:
         """Remove a cached HuggingFace model from disk."""
@@ -1688,10 +1440,10 @@ class ProviderManager:
                 model_name,
             )
             message = f"Model '{model_name}' removed successfully."
-            return self._build_result(True, message=message)
+            return build_result(True, message=message)
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to remove HuggingFace model %s: %s", model_name, exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
     def list_hf_models(self) -> Dict[str, Any]:
         """List installed HuggingFace models."""
@@ -1701,10 +1453,10 @@ class ProviderManager:
 
         try:
             models = self.huggingface_generator.get_installed_models()
-            return self._build_result(True, data=models, message="Retrieved installed HuggingFace models.")
+            return build_result(True, data=models, message="Retrieved installed HuggingFace models.")
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to list HuggingFace models: %s", exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+            return build_result(False, error=str(exc))
 
     async def search_huggingface_models(
         self,
@@ -1714,59 +1466,48 @@ class ProviderManager:
     ) -> Dict[str, Any]:
         """Search HuggingFace models using shared backend helpers."""
 
-        ensure_result = self.ensure_huggingface_ready()
-        if not ensure_result.get("success"):
-            return ensure_result
-
-        try:
-            results = await hf_search_models(self.huggingface_generator, search_query, filters, limit)
-            return self._build_result(True, data=results, message="Search completed.")
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self.logger.error("Failed to search HuggingFace models '%s': %s", search_query, exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+        return await hf_search_adapter(
+            self.ensure_huggingface_ready,
+            lambda: self.huggingface_generator,
+            search_query,
+            filters=filters,
+            limit=limit,
+            logger=self.logger,
+        )
 
     async def download_huggingface_model(self, model_id: str, force: bool = False) -> Dict[str, Any]:
         """Download a HuggingFace model without loading it into memory."""
 
-        ensure_result = self.ensure_huggingface_ready()
-        if not ensure_result.get("success"):
-            return ensure_result
-
-        try:
-            await hf_download_model(self.huggingface_generator, model_id, force)
-            message = f"Model '{model_id}' downloaded successfully."
-            return self._build_result(True, message=message)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self.logger.error("Failed to download HuggingFace model %s: %s", model_id, exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+        return await hf_download_adapter(
+            self.ensure_huggingface_ready,
+            lambda: self.huggingface_generator,
+            model_id,
+            force=force,
+            logger=self.logger,
+        )
 
     def update_huggingface_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Persist HuggingFace model settings via shared helper."""
 
-        ensure_result = self.ensure_huggingface_ready()
-        if not ensure_result.get("success"):
-            return ensure_result
-
-        try:
-            updated = hf_update_model_settings(self.huggingface_generator, settings)
-            return self._build_result(True, data=updated, message="Settings updated successfully.")
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self.logger.error("Failed to update HuggingFace settings: %s", exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+        return self._await_provider_task(
+            hf_update_adapter(
+                self.ensure_huggingface_ready,
+                lambda: self.huggingface_generator,
+                settings,
+                logger=self.logger,
+            )
+        )
 
     def clear_huggingface_cache(self) -> Dict[str, Any]:
         """Clear HuggingFace caches using shared helper."""
 
-        ensure_result = self.ensure_huggingface_ready()
-        if not ensure_result.get("success"):
-            return ensure_result
-
-        try:
-            hf_clear_cache(self.huggingface_generator)
-            return self._build_result(True, message="HuggingFace cache cleared.")
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self.logger.error("Failed to clear HuggingFace cache: %s", exc, exc_info=True)
-            return self._build_result(False, error=str(exc))
+        return self._await_provider_task(
+            hf_clear_cache_adapter(
+                self.ensure_huggingface_ready,
+                lambda: self.huggingface_generator,
+                logger=self.logger,
+            )
+        )
 
     @classmethod
     def providers(cls) -> List[str]:
