@@ -81,6 +81,7 @@ from ATLAS.setup.controller import (
     MessageBusState,
     PrivilegedCredentialState,
     ProviderState,
+    SetupTypeState,
     SpeechState,
 )
 
@@ -96,6 +97,7 @@ class DummyController:
             speech=SpeechState(),
             user=UserState(),
             optional=OptionalState(),
+            setup_type=SetupTypeState(),
         )
         self.applied_database_states: list[DatabaseState] = []
         self.privileged_credentials: list[tuple[str | None, str | None] | None] = []
@@ -104,6 +106,7 @@ class DummyController:
         self.staged_profiles: list[AdminProfile] = []
         self._privileged_credentials: tuple[str | None, str | None] | None = None
         self.set_privileged_credentials_calls: list[tuple[str | None, str | None] | None] = []
+        self.applied_setup_modes: list[str] = []
 
     def apply_database_settings(
         self,
@@ -145,6 +148,81 @@ class DummyController:
     def apply_optional_settings(self, state: OptionalState):  # pragma: no cover - not needed
         self.state.optional = dataclasses.replace(state)
         return self.state.optional
+
+    def apply_setup_type(self, mode: str) -> SetupTypeState:
+        normalized = (mode or "").strip().lower()
+        self.applied_setup_modes.append(normalized)
+        if normalized == "personal":
+            self.state.message_bus = dataclasses.replace(
+                self.state.message_bus,
+                backend="in_memory",
+                redis_url=None,
+                stream_prefix=None,
+            )
+            current_job = self.state.job_scheduling
+            self.state.job_scheduling = dataclasses.replace(
+                current_job,
+                enabled=False,
+                job_store_url=None,
+                max_workers=None,
+                retry_policy=dataclasses.replace(current_job.retry_policy),
+                timezone=None,
+                queue_size=None,
+            )
+            self.state.kv_store = dataclasses.replace(
+                self.state.kv_store,
+                reuse_conversation_store=True,
+                url=None,
+            )
+            self.state.optional = dataclasses.replace(
+                self.state.optional,
+                retention_days=None,
+                retention_history_limit=None,
+                http_auto_start=True,
+            )
+            setup_state = SetupTypeState(mode="personal", applied=True)
+        elif normalized == "enterprise":
+            current_message_bus = self.state.message_bus
+            redis_url = current_message_bus.redis_url or "redis://localhost:6379/0"
+            stream_prefix = current_message_bus.stream_prefix or "atlas"
+            self.state.message_bus = dataclasses.replace(
+                current_message_bus,
+                backend="redis",
+                redis_url=redis_url,
+                stream_prefix=stream_prefix,
+            )
+            current_job = self.state.job_scheduling
+            job_store_url = current_job.job_store_url or (
+                "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
+            )
+            self.state.job_scheduling = dataclasses.replace(
+                current_job,
+                enabled=True,
+                job_store_url=job_store_url,
+                max_workers=current_job.max_workers or 4,
+                retry_policy=dataclasses.replace(current_job.retry_policy),
+                timezone=current_job.timezone or "UTC",
+                queue_size=current_job.queue_size or 100,
+            )
+            self.state.kv_store = dataclasses.replace(
+                self.state.kv_store,
+                reuse_conversation_store=False,
+                url=self.state.kv_store.url
+                or "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_cache",
+            )
+            self.state.optional = dataclasses.replace(
+                self.state.optional,
+                retention_days=30,
+                retention_history_limit=500,
+                http_auto_start=False,
+            )
+            setup_state = SetupTypeState(mode="enterprise", applied=True)
+        else:
+            fallback_mode = normalized or "custom"
+            setup_state = SetupTypeState(mode=fallback_mode, applied=False)
+
+        self.state.setup_type = dataclasses.replace(setup_state)
+        return self.state.setup_type
 
     def register_user(self, state: UserState):
         self.registered_users.append(dataclasses.replace(state))
@@ -198,6 +276,86 @@ class DummyController:
 
     def build_summary(self):  # pragma: no cover - not needed
         return {}
+
+
+def test_choose_setup_type_defaults_to_personal_settings():
+    controller = DummyController()
+    controller.state.message_bus = dataclasses.replace(
+        controller.state.message_bus,
+        backend="redis",
+        redis_url="redis://example",
+        stream_prefix="custom",
+    )
+    controller.state.job_scheduling = dataclasses.replace(
+        controller.state.job_scheduling,
+        enabled=True,
+        job_store_url="postgresql+psycopg://other",
+        max_workers=8,
+        timezone="UTC",
+        queue_size=50,
+    )
+    controller.state.kv_store = dataclasses.replace(
+        controller.state.kv_store,
+        reuse_conversation_store=False,
+        url="postgresql+psycopg://cache",
+    )
+    controller.state.optional = dataclasses.replace(
+        controller.state.optional,
+        retention_days=10,
+        retention_history_limit=100,
+        http_auto_start=False,
+    )
+
+    utility = SetupUtility(
+        controller=controller,
+        input_func=lambda prompt: "",  # accept default personal
+        getpass_func=lambda prompt: "",
+        print_func=lambda message: None,
+    )
+
+    result = utility.choose_setup_type()
+
+    assert controller.applied_setup_modes == ["personal"]
+    assert result.mode == "personal"
+    assert controller.state.message_bus.backend == "in_memory"
+    assert controller.state.message_bus.redis_url is None
+    assert controller.state.job_scheduling.enabled is False
+    assert controller.state.job_scheduling.job_store_url is None
+    assert controller.state.kv_store.reuse_conversation_store is True
+    assert controller.state.kv_store.url is None
+    assert controller.state.optional.http_auto_start is True
+
+
+def test_choose_setup_type_switches_to_enterprise_defaults():
+    controller = DummyController()
+
+    utility = SetupUtility(
+        controller=controller,
+        input_func=lambda prompt: "enterprise",
+        getpass_func=lambda prompt: "",
+        print_func=lambda message: None,
+    )
+
+    result = utility.choose_setup_type()
+
+    assert controller.applied_setup_modes == ["enterprise"]
+    assert result.mode == "enterprise"
+    assert controller.state.message_bus.backend == "redis"
+    assert controller.state.message_bus.redis_url == "redis://localhost:6379/0"
+    assert controller.state.job_scheduling.enabled is True
+    assert (
+        controller.state.job_scheduling.job_store_url
+        == "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
+    )
+    assert controller.state.job_scheduling.max_workers == 4
+    assert controller.state.job_scheduling.timezone == "UTC"
+    assert controller.state.job_scheduling.queue_size == 100
+    assert controller.state.kv_store.reuse_conversation_store is False
+    assert (
+        controller.state.kv_store.url
+        == "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_cache"
+    )
+    assert controller.state.optional.http_auto_start is False
 
 
 def test_configure_database_persists_dsn():
@@ -423,6 +581,11 @@ def test_run_skips_virtualenv_and_focuses_on_configuration(monkeypatch):
         return _
 
     monkeypatch.setattr(utility, "ensure_virtualenv", Mock(side_effect=AssertionError("should not be called")))
+    monkeypatch.setattr(
+        utility,
+        "choose_setup_type",
+        recorder("choose_setup_type", SetupTypeState(mode="personal", applied=True)),
+    )
     monkeypatch.setattr(utility, "configure_user", recorder("configure_user", {}))
     monkeypatch.setattr(utility, "install_postgresql", recorder("install_postgresql", None))
     monkeypatch.setattr(utility, "configure_database", recorder("configure_database", "dsn"))
@@ -441,6 +604,7 @@ def test_run_skips_virtualenv_and_focuses_on_configuration(monkeypatch):
 
     assert result == sentinel
     assert order == [
+        "choose_setup_type",
         "configure_user",
         "install_postgresql",
         "configure_database",
