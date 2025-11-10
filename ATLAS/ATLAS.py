@@ -4,7 +4,6 @@ import base64
 import binascii
 import copy
 from dataclasses import asdict
-import getpass
 import inspect
 import json
 from datetime import datetime
@@ -41,6 +40,7 @@ from modules.orchestration.blackboard import (
     get_blackboard as _get_blackboard,
     stream_blackboard as _stream_blackboard,
 )
+from modules.user_accounts.user_account_facade import UserAccountFacade
 from modules.user_accounts.user_account_service import PasswordRequirements
 from modules.Server import AtlasServer
 from modules.Skills import load_skill_metadata
@@ -65,16 +65,13 @@ class ATLAS:
         self.logger = setup_logger(__name__)
         self.persona_path = self.config_manager.get_app_root()
         self.current_persona = None
-        self._user_identifier: Optional[str] = None
-        self._user_display_name: Optional[str] = None
-        self._user_account_service = None
+        self.user_account_facade: UserAccountFacade | None = None
         self.provider_manager = None
         self.persona_manager = None
         self.chat_session = None
         self.speech_manager = SpeechManager(self.config_manager)  # Instantiate SpeechManager with ConfigManager
         self._initialized = False
         self._provider_change_listeners: List[Callable[[Dict[str, str]], None]] = []
-        self._active_user_change_listeners: List[Callable[[str, str], None]] = []
         self._persona_change_listeners: List[Callable[[Dict[str, Any]], None]] = []
         self._message_dispatchers: List[Callable[[str, str], None]] = []
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
@@ -124,144 +121,49 @@ class ATLAS:
             raise
         else:
             self.conversation_repository = repository
+            self.user_account_facade = UserAccountFacade(
+                config_manager=self.config_manager,
+                conversation_repository=self.conversation_repository,
+                logger=self.logger,
+            )
+            self.user_account_facade.add_active_user_change_listener(
+                self._handle_active_user_change
+            )
+
+    def _require_user_account_facade(self) -> UserAccountFacade:
+        """Return the initialized user account facade."""
+
+        if self.user_account_facade is None:
+            raise RuntimeError("User account facade is not initialized.")
+
+        return self.user_account_facade
 
     def _resolve_user_identity(self, *, prefer_generic: bool = False) -> Tuple[str, str]:
-        """Return best-effort user identifier and display name."""
+        return self._require_user_account_facade().resolve_user_identity(
+            prefer_generic=prefer_generic
+        )
 
-        username: Optional[str] = None
-        display_name: Optional[str] = None
-
-        account_service = None
-        try:
-            account_service = self._get_user_account_service()
-        except Exception as exc:  # pragma: no cover - optional dependency issues
-            self.logger.debug("User account service unavailable: %s", exc)
-        else:
-            try:
-                preferred = account_service.get_active_user()
-                users = account_service.list_users()
-                account_record = None
-
-                if preferred:
-                    account_record = next(
-                        (record for record in users if record.get("username") == preferred),
-                        None,
-                    )
-
-                if account_record is None and users and not prefer_generic:
-                    account_record = users[0]
-
-                if account_record:
-                    username = account_record.get("username") or username
-                    recorded_name = account_record.get("name")
-                    if recorded_name:
-                        display_name = str(recorded_name)
-            except Exception as exc:  # pragma: no cover - defensive logging only
-                self.logger.debug("User account lookup failed: %s", exc)
-
-        repository = self.conversation_repository
-        if repository is not None:
-            try:
-                if username:
-                    record = repository.get_user_profile(username)
-                    if record:
-                        stored_username = record.get("username")
-                        if stored_username:
-                            username = stored_username
-                        profile_data = record.get("profile") or {}
-                        candidate_name = (
-                            record.get("display_name")
-                            or profile_data.get("Full Name")
-                            or profile_data.get("full_name")
-                            or profile_data.get("Display Name")
-                            or profile_data.get("display_name")
-                            or profile_data.get("name")
-                            or profile_data.get("Username")
-                        )
-                        if candidate_name:
-                            display_name = str(candidate_name)
-                elif not prefer_generic:
-                    profiles = repository.list_user_profiles()
-                    for record in profiles:
-                        profile_data = record.get("profile") or {}
-                        stored_username = record.get("username")
-                        candidate_name = (
-                            record.get("display_name")
-                            or profile_data.get("Full Name")
-                            or profile_data.get("full_name")
-                            or profile_data.get("Display Name")
-                            or profile_data.get("display_name")
-                            or profile_data.get("name")
-                            or profile_data.get("Username")
-                        )
-                        if stored_username and not username:
-                            username = stored_username
-                        if candidate_name:
-                            display_name = str(candidate_name)
-                            break
-            except Exception as exc:  # pragma: no cover - repository lookup issues
-                self.logger.debug("User profile lookup failed: %s", exc)
-
-        if not username:
-            try:
-                username = getpass.getuser()
-            except Exception:  # pragma: no cover - system specific failures
-                username = None
-
-        if not username:
-            username = "User"
-
-        if not display_name:
-            display_name = username
-
-        return username, display_name
-
-    def _refresh_active_user_identity(self, *, prefer_generic: bool = False) -> Tuple[str, str]:
-        """Refresh cached user metadata when the active account changes."""
-
-        previous_username = self._user_identifier
-        previous_display = self._user_display_name
-
-        username, display_name = self._resolve_user_identity(prefer_generic=prefer_generic)
-        self._user_identifier = username
-        self._user_display_name = display_name
-
-        if (
-            username != previous_username
-            or display_name != previous_display
-        ):
-            self._update_persona_manager_user(username)
-            self._dispatch_active_user_change(username, display_name)
-
+    def _refresh_active_user_identity(
+        self, *, prefer_generic: bool = False
+    ) -> Tuple[str, str]:
+        username, display_name = self._require_user_account_facade().refresh_active_user_identity(
+            prefer_generic=prefer_generic
+        )
         return username, display_name
 
     def _ensure_user_identity(self) -> Tuple[str, str]:
-        """Ensure user identifier and display name are loaded."""
-
-        if not self._user_identifier or not self._user_display_name:
-            self._refresh_active_user_identity()
-
-        return self._user_identifier, self._user_display_name
+        return self._require_user_account_facade().ensure_user_identity()
 
     def get_user_display_name(self) -> str:
-        """Return the friendly name for the active user."""
-
-        _, display_name = self._ensure_user_identity()
-        return display_name
+        return self._require_user_account_facade().get_user_display_name()
 
     @property
     def user(self) -> str:
-        """Backward-compatible accessor for the user display name."""
-
         return self.get_user_display_name()
 
     @user.setter
     def user(self, value: str) -> None:
-        sanitized = (value or "").strip()
-        if not sanitized:
-            sanitized = "User"
-        self._user_identifier = sanitized
-        self._user_display_name = sanitized
+        self._require_user_account_facade().override_user_identity(value)
 
     @staticmethod
     def _serialize_tool_health(health: Mapping[str, Any]) -> Dict[str, Any]:
@@ -715,56 +617,19 @@ class ATLAS:
         self._refresh_skill_caches()
         return status
 
-    def _get_user_account_service(self):
-        """Return the lazily-initialized user account service."""
-
-        if self._user_account_service is None:
-            from modules.user_accounts.user_account_service import UserAccountService
-
-            self._user_account_service = UserAccountService(
-                config_manager=self.config_manager,
-                conversation_repository=self.conversation_repository,
-            )
-
-        return self._user_account_service
-
     def add_active_user_change_listener(
         self, listener: Callable[[str, str], None]
     ) -> None:
         """Register a callback notified whenever the active user changes."""
 
-        if not callable(listener):
-            raise TypeError("Listener must be callable")
-
-        if listener not in self._active_user_change_listeners:
-            self._active_user_change_listeners.append(listener)
-
-        username, display_name = self._ensure_user_identity()
-        try:
-            listener(username, display_name)
-        except Exception:  # pragma: no cover - listener exceptions are logged elsewhere
-            self.logger.debug("Active user listener raised during registration", exc_info=True)
+        self._require_user_account_facade().add_active_user_change_listener(listener)
 
     def remove_active_user_change_listener(
         self, listener: Callable[[str, str], None]
     ) -> None:
         """Remove a previously registered active user listener."""
 
-        try:
-            self._active_user_change_listeners.remove(listener)
-        except ValueError:
-            pass
-
-    def _dispatch_active_user_change(self, username: str, display_name: str) -> None:
-        """Notify registered listeners about an active user update."""
-
-        for listener in list(self._active_user_change_listeners):
-            try:
-                listener(username, display_name)
-            except Exception:  # pragma: no cover - listener failures are logged defensively
-                self.logger.error(
-                    "Active user listener %s raised an exception", listener, exc_info=True
-                )
+        self._require_user_account_facade().remove_active_user_change_listener(listener)
 
     def _update_persona_manager_user(self, username: str) -> None:
         """Propagate active user changes to the persona manager if available."""
@@ -786,36 +651,35 @@ class ATLAS:
         else:
             self._notify_persona_change_listeners()
 
+    def _handle_active_user_change(self, username: str, _display_name: str) -> None:
+        """Internal bridge between the facade event and persona updates."""
+
+        self._update_persona_manager_user(username)
+
     async def list_user_accounts(self) -> List[Dict[str, object]]:
         """Return stored user accounts without blocking the event loop."""
 
-        service = self._get_user_account_service()
-        return await run_async_in_thread(service.list_users)
+        return await self._require_user_account_facade().list_user_accounts()
 
     async def search_user_accounts(self, query_text: str) -> List[Dict[str, object]]:
         """Search stored user accounts using the service layer."""
 
-        service = self._get_user_account_service()
-        return await run_async_in_thread(service.search_users, query_text)
+        return await self._require_user_account_facade().search_user_accounts(query_text)
 
     async def get_user_account_details(self, username: str) -> Optional[Dict[str, object]]:
         """Retrieve a single account record for display purposes."""
 
-        service = self._get_user_account_service()
-        return await run_async_in_thread(service.get_user_details, username)
+        return await self._require_user_account_facade().get_user_account_details(username)
 
     async def get_user_account_overview(self) -> Dict[str, object]:
         """Return aggregated statistics for stored user accounts."""
 
-        service = self._get_user_account_service()
-        return await run_async_in_thread(service.get_user_overview)
+        return await self._require_user_account_facade().get_user_account_overview()
 
     async def activate_user_account(self, username: str) -> None:
         """Activate an existing user account without credential prompts."""
 
-        service = self._get_user_account_service()
-        await run_async_in_thread(service.set_active_user, username)
-        self._refresh_active_user_identity()
+        await self._require_user_account_facade().activate_user_account(username)
 
     async def register_user_account(
         self,
@@ -827,27 +691,13 @@ class ATLAS:
     ) -> Dict[str, object]:
         """Register a new user account through the dedicated service."""
 
-        service = self._get_user_account_service()
-
-        account = await run_async_in_thread(
-            service.register_user,
+        return await self._require_user_account_facade().register_user_account(
             username,
             password,
             email,
             name,
             dob,
         )
-
-        await run_async_in_thread(service.set_active_user, account.username)
-        self._refresh_active_user_identity()
-        return {
-            "id": account.id,
-            "username": account.username,
-            "email": account.email,
-            "name": account.name,
-            "dob": account.dob,
-            "display_name": account.name or account.username,
-        }
 
     async def update_user_account(
         self,
@@ -861,12 +711,7 @@ class ATLAS:
     ) -> Dict[str, object]:
         """Update an existing user account and refresh cached identity."""
 
-        service = self._get_user_account_service()
-
-        active_username = await run_async_in_thread(service.get_active_user)
-
-        account = await run_async_in_thread(
-            service.update_user,
+        return await self._require_user_account_facade().update_user_account(
             username,
             password=password,
             current_password=current_password,
@@ -875,64 +720,33 @@ class ATLAS:
             dob=dob,
         )
 
-        if active_username and account.username == active_username:
-            await run_async_in_thread(service.set_active_user, account.username)
-
-        self._refresh_active_user_identity()
-        return {
-            "id": account.id,
-            "username": account.username,
-            "email": account.email,
-            "name": account.name,
-            "dob": account.dob,
-            "display_name": account.name or account.username,
-        }
-
     def get_user_password_requirements(self) -> PasswordRequirements:
         """Return the password policy enforced for user accounts."""
 
-        service = self._get_user_account_service()
-        return service.get_password_requirements()
+        return self._require_user_account_facade().get_user_password_requirements()
 
     def describe_user_password_requirements(self) -> str:
         """Return a human-readable description of the password policy."""
 
-        service = self._get_user_account_service()
-        return service.describe_password_requirements()
+        return self._require_user_account_facade().describe_user_password_requirements()
 
     async def login_user_account(self, username: str, password: str) -> bool:
         """Validate credentials and mark the account as active."""
 
-        service = self._get_user_account_service()
-        success = await run_async_in_thread(service.authenticate_user, username, password)
-        if success:
-            await run_async_in_thread(service.set_active_user, username)
-            self._refresh_active_user_identity()
-        return bool(success)
+        return await self._require_user_account_facade().login_user_account(
+            username,
+            password,
+        )
 
     async def request_password_reset(self, identifier: str) -> Optional[Dict[str, object]]:
         """Initiate a password reset flow for the supplied identifier."""
 
-        service = self._get_user_account_service()
-        challenge = await run_async_in_thread(
-            service.initiate_password_reset,
-            identifier,
-        )
-        if not challenge:
-            return None
-
-        return {
-            "username": challenge.username,
-            "token": challenge.token,
-            "expires_at": challenge.expires_at_iso(),
-        }
+        return await self._require_user_account_facade().request_password_reset(identifier)
 
     async def verify_password_reset_token(self, username: str, token: str) -> bool:
         """Check whether the supplied password reset token remains valid."""
 
-        service = self._get_user_account_service()
-        return await run_async_in_thread(
-            service.verify_password_reset_token,
+        return await self._require_user_account_facade().verify_password_reset_token(
             username,
             token,
         )
@@ -942,9 +756,7 @@ class ATLAS:
     ) -> bool:
         """Finish the password reset process by storing a new password."""
 
-        service = self._get_user_account_service()
-        return await run_async_in_thread(
-            service.complete_password_reset,
+        return await self._require_user_account_facade().complete_password_reset(
             username,
             token,
             new_password,
@@ -953,20 +765,12 @@ class ATLAS:
     async def logout_active_user(self) -> None:
         """Clear any active account selection."""
 
-        service = self._get_user_account_service()
-        await run_async_in_thread(service.set_active_user, None)
-        self._refresh_active_user_identity(prefer_generic=True)
+        await self._require_user_account_facade().logout_active_user()
 
     async def delete_user_account(self, username: str) -> None:
         """Delete a stored user account via the service layer."""
 
-        service = self._get_user_account_service()
-        deleted = await run_async_in_thread(service.delete_user, username)
-
-        if not deleted:
-            raise ValueError(f"Unknown user: {username}")
-
-        self._refresh_active_user_identity(prefer_generic=True)
+        await self._require_user_account_facade().delete_user_account(username)
 
     def _require_provider_manager(self) -> ProviderManager:
         """Return the initialized provider manager or raise an error if unavailable."""

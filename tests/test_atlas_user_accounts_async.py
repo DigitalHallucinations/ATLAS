@@ -50,7 +50,7 @@ class _StubService:
 
 def _make_atlas_with_service(users):
     atlas = ATLAS()
-    atlas._user_account_service = _StubService(users)
+    atlas.user_account_facade._user_account_service = _StubService(users)
     return atlas
 
 
