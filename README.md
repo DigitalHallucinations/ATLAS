@@ -99,12 +99,21 @@ brew install gtk4 libadwaita gobject-introspection
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
+# Install dependencies (base runtime)
 pip install -r requirements.txt
+
+# Optional: install Hugging Face fine-tuning, local Whisper STT, and accelerator extras
+# (Skip this step on CPU-only hosts.)
+pip install -r requirements-accelerators.txt
 
 # Confirm GTK bindings are available
 python -c "import gi"
 ```
+
+> 💡 Use `python3 scripts/install_environment.py --with-accelerators` to automate both the
+> virtualenv creation and optional accelerator extras installation. The extras layer pulls in
+> Torch, Hugging Face fine-tuning stacks, and local Whisper tooling—run without the flag on
+> CPU-only hosts to skip those GPU-focused packages.
 
 ---
 
