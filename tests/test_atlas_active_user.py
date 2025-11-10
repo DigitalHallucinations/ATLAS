@@ -28,6 +28,7 @@ from modules.conversation_store import ConversationStoreRepository
 
 from ATLAS import ATLAS as atlas_module
 from ATLAS.ATLAS import ATLAS
+from modules.user_accounts import user_account_facade as user_account_facade_module
 
 
 @pytest.fixture(autouse=True)
@@ -52,6 +53,11 @@ def patch_run_async_in_thread(monkeypatch):
         return result
 
     monkeypatch.setattr(atlas_module, "run_async_in_thread", immediate)
+    monkeypatch.setattr(
+        user_account_facade_module,
+        "run_async_in_thread",
+        immediate,
+    )
 
 
 class _AccountServiceStub:
@@ -111,7 +117,7 @@ def test_active_user_listener_receives_register_and_login_updates():
     atlas = ATLAS()
     service = _AccountServiceStub()
     persona_manager = _PersonaManagerStub()
-    atlas._user_account_service = service
+    atlas.user_account_facade._user_account_service = service
     atlas.persona_manager = persona_manager
 
     events = []
@@ -137,7 +143,7 @@ def test_logout_notifies_listeners_with_generic_identity():
     atlas = ATLAS()
     service = _AccountServiceStub()
     persona_manager = _PersonaManagerStub()
-    atlas._user_account_service = service
+    atlas.user_account_facade._user_account_service = service
     atlas.persona_manager = persona_manager
 
     events = []
