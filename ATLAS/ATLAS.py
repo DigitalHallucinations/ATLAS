@@ -48,6 +48,7 @@ from modules.orchestration.job_scheduler import JobScheduler
 from modules.orchestration.task_manager import TaskManager
 from ATLAS.services.tooling import ToolingService
 from ATLAS.services.conversations import ConversationService
+from ATLAS.services.providers import ProviderService
 
 class ATLAS:
     """
@@ -66,11 +67,14 @@ class ATLAS:
         self.current_persona = None
         self.user_account_facade: UserAccountFacade | None = None
         self.provider_manager = None
+        self.provider_facade: ProviderService | None = None
         self._persona_manager: PersonaManager | None = None
         self.chat_session = None
         self.speech_manager = SpeechManager(self.config_manager)  # Instantiate SpeechManager with ConfigManager
         self._initialized = False
-        self._provider_change_listeners: List[Callable[[Dict[str, str]], None]] = []
+        self._pending_provider_change_listeners: List[
+            Callable[[Dict[str, str]], None]
+        ] = []
         self._persona_change_listeners: List[Callable[[Dict[str, Any]], None]] = []
         self._message_dispatchers: List[Callable[[str, str], None]] = []
         self.message_dispatcher: Optional[Callable[[str, str], None]] = None
@@ -404,6 +408,27 @@ class ATLAS:
 
         return self.provider_manager
 
+    def _require_provider_facade(self) -> ProviderService:
+        """Return the provider service facade once it has been initialised."""
+
+        if self.provider_facade is None:
+            if self.provider_manager is None:
+                raise RuntimeError("Provider facade is not initialized.")
+
+            self.provider_facade = ProviderService(
+                provider_manager=self.provider_manager,
+                config_manager=getattr(self, "config_manager", None),
+                logger=getattr(self, "logger", None),
+                chat_session=getattr(self, "chat_session", None),
+                speech_manager=getattr(self, "speech_manager", None),
+            )
+            if self._pending_provider_change_listeners:
+                for listener in self._pending_provider_change_listeners:
+                    self.provider_facade.add_provider_change_listener(listener)
+                self._pending_provider_change_listeners.clear()
+
+        return self.provider_facade
+
     async def initialize(self):
         """
         Asynchronously initialize the ATLAS instance.
@@ -412,6 +437,17 @@ class ATLAS:
         user_identifier, _ = self._ensure_user_identity()
         self.persona_manager = PersonaManager(master=self, user=user_identifier, config_manager=self.config_manager)
         self.chat_session = ChatSession(self)
+        self.provider_facade = ProviderService(
+            provider_manager=self.provider_manager,
+            config_manager=self.config_manager,
+            logger=self.logger,
+            chat_session=self.chat_session,
+            speech_manager=self.speech_manager,
+        )
+        if self._pending_provider_change_listeners:
+            for listener in self._pending_provider_change_listeners:
+                self.provider_facade.add_provider_change_listener(listener)
+            self._pending_provider_change_listeners.clear()
         try:
             self.provider_manager.set_conversation_manager(self.chat_session)
         except AttributeError:
@@ -424,7 +460,7 @@ class ATLAS:
 
         default_provider = self.config_manager.get_default_provider()
         if self.config_manager.is_default_provider_ready():
-            await self.provider_manager.set_current_provider(default_provider)
+            await self.provider_facade.set_current_provider(default_provider)
             self.logger.debug(
                 "Default provider set to: %s",
                 self.provider_manager.get_current_provider(),
@@ -1160,39 +1196,41 @@ class ATLAS:
         Returns:
             List[str]: A list of provider names.
         """
-        return self.provider_manager.get_available_providers()
+        return self._require_provider_facade().get_available_providers()
 
     async def test_huggingface_token(self, token: Optional[str] = None) -> Dict[str, Any]:
         """Validate a HuggingFace API token via the provider manager."""
 
-        return await self.provider_manager.test_huggingface_token(token)
+        return await self._require_provider_facade().test_huggingface_token(token)
 
     def list_hf_models(self) -> Dict[str, Any]:
         """List installed HuggingFace models via the provider manager."""
 
-        return self._require_provider_manager().list_hf_models()
+        return self._require_provider_facade().list_hf_models()
 
     async def load_hf_model(self, model_name: str, force_download: bool = False) -> Dict[str, Any]:
         """Load a HuggingFace model using the provider manager helper."""
 
-        return await self._require_provider_manager().load_hf_model(
+        return await self._require_provider_facade().load_hf_model(
             model_name, force_download=force_download
         )
 
     async def unload_hf_model(self) -> Dict[str, Any]:
         """Unload the active HuggingFace model via the provider manager."""
 
-        return await self._require_provider_manager().unload_hf_model()
+        return await self._require_provider_facade().unload_hf_model()
 
     async def remove_hf_model(self, model_name: str) -> Dict[str, Any]:
         """Remove a cached HuggingFace model through the provider manager."""
 
-        return await self._require_provider_manager().remove_hf_model(model_name)
+        return await self._require_provider_facade().remove_hf_model(model_name)
 
     async def download_hf_model(self, model_id: str, force: bool = False) -> Dict[str, Any]:
         """Download a HuggingFace model through the provider manager."""
 
-        return await self._require_provider_manager().download_huggingface_model(model_id, force=force)
+        return await self._require_provider_facade().download_hf_model(
+            model_id, force=force
+        )
 
     async def search_hf_models(
         self,
@@ -1202,7 +1240,7 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Search HuggingFace models using the provider manager helper."""
 
-        return await self._require_provider_manager().search_huggingface_models(
+        return await self._require_provider_facade().search_hf_models(
             search_query,
             filters,
             limit=limit,
@@ -1211,36 +1249,36 @@ class ATLAS:
     def update_hf_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Persist HuggingFace settings via the provider manager."""
 
-        return self._require_provider_manager().update_huggingface_settings(settings)
+        return self._require_provider_facade().update_hf_settings(settings)
 
     def clear_hf_cache(self) -> Dict[str, Any]:
         """Clear cached HuggingFace artefacts through the provider manager."""
 
-        return self._require_provider_manager().clear_huggingface_cache()
+        return self._require_provider_facade().clear_hf_cache()
 
     def save_hf_token(self, token: Optional[str]) -> Dict[str, Any]:
         """Save a Hugging Face token via the provider manager."""
 
-        return self._require_provider_manager().save_huggingface_token(token)
+        return self._require_provider_facade().save_hf_token(token)
 
     def get_provider_api_key_status(self, provider_name: str) -> Dict[str, Any]:
         """Fetch credential metadata for a provider using the provider manager."""
 
-        return self._require_provider_manager().get_provider_api_key_status(provider_name)
+        return self._require_provider_facade().get_provider_api_key_status(provider_name)
 
     async def update_provider_api_key(
         self, provider_name: str, new_api_key: Optional[str]
     ) -> Dict[str, Any]:
         """Persist a provider API key through the provider manager facade."""
 
-        return await self._require_provider_manager().update_provider_api_key(
+        return await self._require_provider_facade().update_provider_api_key(
             provider_name, new_api_key
         )
 
     def ensure_huggingface_ready(self) -> Dict[str, Any]:
         """Ensure the HuggingFace helper is initialized via the provider manager."""
 
-        return self._require_provider_manager().ensure_huggingface_ready()
+        return self._require_provider_facade().ensure_huggingface_ready()
 
     def run_in_background(
         self,
@@ -1251,6 +1289,14 @@ class ATLAS:
         thread_name: Optional[str] = None,
     ) -> Future:
         """Execute an awaitable in a background thread using the shared task helper."""
+
+        if self.provider_facade is not None:
+            return self.provider_facade.run_in_background(
+                coroutine_factory,
+                on_success=on_success,
+                on_error=on_error,
+                thread_name=thread_name,
+            )
 
         return run_async_in_thread(
             coroutine_factory,
@@ -1270,7 +1316,7 @@ class ATLAS:
     ) -> Future:
         """Schedule a provider-manager coroutine using the shared background runner."""
 
-        return self.run_in_background(
+        return self._require_provider_facade().run_provider_manager_task(
             coroutine_factory,
             on_success=on_success,
             on_error=on_error,
@@ -1286,12 +1332,10 @@ class ATLAS:
     ) -> Future:
         """Schedule a provider switch without blocking the caller."""
 
-        thread_name = f"set-provider-{provider}" if provider else None
-        return self.run_in_background(
-            lambda: self.set_current_provider(provider),
+        return self._require_provider_facade().set_current_provider_in_background(
+            provider,
             on_success=on_success,
             on_error=on_error,
-            thread_name=thread_name,
         )
 
     def update_provider_api_key_in_background(
@@ -1304,12 +1348,11 @@ class ATLAS:
     ) -> Future:
         """Persist provider credentials using a background worker thread."""
 
-        thread_name = f"update-api-key-{provider_name}" if provider_name else None
-        return self.run_in_background(
-            lambda: self.update_provider_api_key(provider_name, new_api_key),
+        return self._require_provider_facade().update_provider_api_key_in_background(
+            provider_name,
+            new_api_key,
             on_success=on_success,
             on_error=on_error,
-            thread_name=thread_name,
         )
 
     async def refresh_current_provider(
@@ -1317,77 +1360,41 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Reload the active provider configuration when the names align."""
 
-        manager = self._require_provider_manager()
-        active_provider = manager.get_current_provider()
-        target_provider = provider_name or active_provider
-
-        if not target_provider:
-            return {
-                "success": False,
-                "error": "No active provider is configured.",
-            }
-
-        if target_provider != active_provider:
-            return {
-                "success": False,
-                "error": f"Provider '{target_provider}' is not the active provider.",
-                "active_provider": active_provider,
-            }
-
-        await manager.set_current_provider(active_provider)
-        return {
-            "success": True,
-            "message": f"Provider {active_provider} refreshed.",
-            "provider": active_provider,
-        }
+        return await self._require_provider_facade().refresh_current_provider(
+            provider_name
+        )
 
     async def set_current_provider(self, provider: str):
         """
         Asynchronously set the current provider in the ProviderManager.
         """
-        try:
-            await self.provider_manager.set_current_provider(provider)
-        except Exception as exc:
-            self.logger.error("Failed to set provider %s: %s", provider, exc, exc_info=True)
-            raise
-
-        self.chat_session.set_provider(provider)
-        current_model = self.provider_manager.get_current_model()
-        self.chat_session.set_model(current_model)
-
-        # Log the updates
-        self.logger.debug("Current provider set to %s with model %s", provider, current_model)
-        # Notify any observers (e.g., UI components) about the change
-        self._notify_provider_change_listeners()
+        await self._require_provider_facade().set_current_provider(provider)
 
     def add_provider_change_listener(self, listener: Callable[[Dict[str, str]], None]) -> None:
         """Register a callback to be notified when the provider or model changes."""
 
-        if not callable(listener):
-            raise TypeError("listener must be callable")
-
-        if listener in self._provider_change_listeners:
-            return
-
-        self._provider_change_listeners.append(listener)
+        if self.provider_facade is not None:
+            self.provider_facade.add_provider_change_listener(listener)
+        else:
+            if not callable(listener):
+                raise TypeError("listener must be callable")
+            if listener in self._pending_provider_change_listeners:
+                return
+            self._pending_provider_change_listeners.append(listener)
 
     def remove_provider_change_listener(self, listener: Callable[[Dict[str, str]], None]) -> None:
         """Remove a previously registered provider change callback if present."""
 
-        if listener in self._provider_change_listeners:
-            self._provider_change_listeners.remove(listener)
+        if self.provider_facade is not None:
+            self.provider_facade.remove_provider_change_listener(listener)
+        elif listener in self._pending_provider_change_listeners:
+            self._pending_provider_change_listeners.remove(listener)
 
     def _notify_provider_change_listeners(self) -> None:
         """Invoke all registered provider change callbacks."""
 
-        summary = self.get_chat_status_summary()
-        for listener in list(self._provider_change_listeners):
-            try:
-                listener(summary)
-            except Exception as exc:
-                self.logger.error(
-                    "Provider change listener %s failed: %s", listener, exc, exc_info=True
-                )
+        if self.provider_facade is not None:
+            self.provider_facade.notify_provider_change_listeners()
 
     def add_persona_change_listener(self, listener: Callable[[Dict[str, Any]], None]) -> None:
         """Register callbacks that react to persona prompt/context updates."""
@@ -1489,7 +1496,13 @@ class ATLAS:
         Returns:
             str: The name of the default provider.
         """
-        return self.provider_manager.get_current_provider()
+        if self.provider_facade is not None:
+            provider = self.provider_facade.get_default_provider()
+        elif self.provider_manager is not None:
+            provider = self.provider_manager.get_current_provider()
+        else:
+            provider = None
+        return provider or ""
 
     def get_default_model(self) -> str:
         """
@@ -1498,25 +1511,28 @@ class ATLAS:
         Returns:
             str: The name of the default model.
         """
-        return self.provider_manager.get_current_model()
+        if self.provider_facade is not None:
+            model = self.provider_facade.get_default_model()
+        elif self.provider_manager is not None:
+            model = self.provider_manager.get_current_model()
+        else:
+            model = None
+        return model or ""
 
     def get_openai_llm_settings(self) -> Dict[str, Any]:
         """Expose the persisted OpenAI LLM defaults via the provider manager."""
 
-        settings = self._require_provider_manager().get_openai_llm_settings()
-        return dict(settings)
+        return self._require_provider_facade().get_openai_llm_settings()
 
     def get_google_llm_settings(self) -> Dict[str, Any]:
         """Expose the persisted Google Gemini defaults via the provider manager."""
 
-        settings = self._require_provider_manager().get_google_llm_settings()
-        return dict(settings)
+        return self._require_provider_facade().get_google_llm_settings()
 
     def get_anthropic_settings(self) -> Dict[str, Any]:
         """Return Anthropic defaults via the provider manager facade."""
 
-        settings = self._require_provider_manager().get_anthropic_settings()
-        return dict(settings)
+        return self._require_provider_facade().get_anthropic_settings()
 
     async def list_openai_models(
         self,
@@ -1526,7 +1542,7 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Fetch available OpenAI models through the provider manager facade."""
 
-        return await self._require_provider_manager().list_openai_models(
+        return await self._require_provider_facade().list_openai_models(
             base_url=base_url,
             organization=organization,
         )
@@ -1538,7 +1554,7 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Fetch available Anthropic models through the provider manager facade."""
 
-        return await self._require_provider_manager().list_anthropic_models(
+        return await self._require_provider_facade().list_anthropic_models(
             base_url=base_url,
         )
 
@@ -1549,7 +1565,7 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Fetch available Google Gemini models through the provider manager facade."""
 
-        return await self._require_provider_manager().list_google_models(
+        return await self._require_provider_facade().list_google_models(
             base_url=base_url,
         )
 
@@ -1576,12 +1592,7 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Persist OpenAI defaults through the provider manager facade."""
 
-        manager = self._require_provider_manager()
-        setter = getattr(manager, "set_openai_llm_settings", None)
-        if not callable(setter):
-            raise AttributeError("Provider manager does not support OpenAI settings updates.")
-
-        return setter(
+        return self._require_provider_facade().set_openai_llm_settings(
             model=model,
             temperature=temperature,
             top_p=top_p,
@@ -1625,12 +1636,7 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Persist Google defaults through the provider manager facade."""
 
-        manager = self._require_provider_manager()
-        setter = getattr(manager, "set_google_llm_settings", None)
-        if not callable(setter):
-            raise AttributeError("Provider manager does not support Google settings updates.")
-
-        return setter(
+        return self._require_provider_facade().set_google_llm_settings(
             model=model,
             temperature=temperature,
             top_p=top_p,
@@ -1668,12 +1674,7 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Persist Anthropic defaults through the provider manager facade."""
 
-        manager = self._require_provider_manager()
-        setter = getattr(manager, "set_anthropic_settings", None)
-        if not callable(setter):
-            raise AttributeError("Provider manager does not support Anthropic settings updates.")
-
-        return setter(
+        return self._require_provider_facade().set_anthropic_settings(
             model=model,
             stream=stream,
             function_calling=function_calling,
@@ -1690,103 +1691,17 @@ class ATLAS:
     def get_models_for_provider(self, provider: str) -> List[str]:
         """Return cached model names for the requested provider."""
 
-        manager = self._require_provider_manager()
-        getter = getattr(manager, "get_models_for_provider", None)
-        if not callable(getter):
-            return []
-        return getter(provider)
+        return self._require_provider_facade().get_models_for_provider(provider)
 
     def get_chat_status_summary(self) -> Dict[str, str]:
         """Return a consolidated snapshot of chat-related status information."""
 
-        summary: Dict[str, str] = {
-            "llm_provider": "Unknown",
-            "llm_model": "No model selected",
-            "tts_provider": "None",
-            "tts_voice": "Not Set",
-        }
-
-        provider_manager = getattr(self, "provider_manager", None)
-        if provider_manager is not None:
-            try:
-                provider_name = provider_manager.get_current_provider()
-                if provider_name:
-                    summary["llm_provider"] = provider_name
-            except Exception as exc:
-                self.logger.error("Failed to read current LLM provider: %s", exc, exc_info=True)
-
-            try:
-                model_name = provider_manager.get_current_model()
-                if model_name:
-                    summary["llm_model"] = model_name
-            except Exception as exc:
-                self.logger.error("Failed to read current LLM model: %s", exc, exc_info=True)
-
-        speech_manager = getattr(self, "speech_manager", None)
-        if speech_manager is not None:
-            try:
-                tts_provider, tts_voice = speech_manager.get_active_tts_summary()
-            except Exception as exc:
-                self.logger.error("Failed to read active TTS configuration: %s", exc, exc_info=True)
-            else:
-                summary["tts_provider"] = tts_provider or summary["tts_provider"]
-                summary["tts_voice"] = tts_voice or summary["tts_voice"]
-
-        config_manager = getattr(self, "config_manager", None)
-        if config_manager is not None:
-            try:
-                warnings = config_manager.get_pending_provider_warnings()
-            except Exception as exc:
-                self.logger.error(
-                    "Failed to read pending provider warnings: %s",
-                    exc,
-                    exc_info=True,
-                )
-            else:
-                provider_warning = warnings.get(summary.get("llm_provider"))
-                if not provider_warning:
-                    default_provider = config_manager.get_default_provider()
-                    provider_warning = warnings.get(default_provider)
-                    if provider_warning and (
-                        not summary.get("llm_provider")
-                        or summary.get("llm_provider") == "Unknown"
-                    ):
-                        summary["llm_provider"] = f"{default_provider} (Not Configured)"
-
-                if provider_warning:
-                    summary["llm_warning"] = provider_warning
-                    if summary.get("llm_model") in (None, "No model selected"):
-                        summary["llm_model"] = "Unavailable"
-
-        return summary
+        return self._require_provider_facade().get_chat_status_summary()
 
     def format_chat_status(self, status_summary: Optional[Dict[str, str]] = None) -> str:
         """Generate the human-readable chat status message for display."""
 
-        summary: Dict[str, str]
-        if status_summary is None:
-            try:
-                summary = self.get_chat_status_summary()
-            except Exception as exc:
-                self.logger.error("Failed to obtain chat status summary: %s", exc, exc_info=True)
-                summary = {}
-        else:
-            summary = status_summary
-
-        llm_provider = summary.get("llm_provider") or "Unknown"
-        llm_model = summary.get("llm_model") or "No model selected"
-        tts_provider = summary.get("tts_provider") or "None"
-        tts_voice = summary.get("tts_voice") or "Not Set"
-        status_text = (
-            f"LLM: {llm_provider} • Model: {llm_model} • "
-            f"TTS: {tts_provider} (Voice: {tts_voice})"
-        )
-
-        llm_warning = summary.get("llm_warning")
-        if llm_warning:
-            status_text = f"{status_text} • Warning: {llm_warning}"
-
-        return status_text
+        return self._require_provider_facade().format_chat_status(status_summary)
 
     def get_speech_defaults(self) -> Dict[str, Any]:
         """Expose global speech defaults for UI consumers."""
