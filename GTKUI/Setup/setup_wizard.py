@@ -780,9 +780,79 @@ class SetupWizardWindow(AtlasWindow):
         sidebar_hint.set_xalign(0.0)
         box.append(sidebar_hint)
 
+        callout_frame = Gtk.Frame()
+        callout_frame.set_hexpand(True)
+        callout_frame.set_margin_top(6)
+        callout_frame.set_margin_bottom(6)
+        callout_frame.set_margin_start(6)
+        callout_frame.set_margin_end(6)
+        if hasattr(callout_frame, "set_label"):
+            callout_frame.set_label("Prefer the command line?")
+        if hasattr(callout_frame, "set_label_align"):
+            try:
+                callout_frame.set_label_align(0.0, 0.5)
+            except Exception:  # pragma: no cover - GTK3 fallback
+                pass
+
+        callout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        callout_box.set_margin_top(12)
+        callout_box.set_margin_bottom(12)
+        callout_box.set_margin_start(18)
+        callout_box.set_margin_end(18)
+
+        callout_label = Gtk.Label(
+            label=(
+                "You can run the same guided experience from a terminal with "
+                "scripts/setup_atlas.py. The wizard stages your inputs so you can finish "
+                "here or at the command line."
+            )
+        )
+        callout_label.set_wrap(True)
+        callout_label.set_xalign(0.0)
+        callout_box.append(callout_label)
+
+        script_path = Path(__file__).resolve().parents[2] / "scripts" / "setup_atlas.py"
+        try:
+            script_uri = script_path.as_uri()
+        except ValueError:
+            script_uri = f"file://{script_path}"
+
+        link_label = "Open scripts/setup_atlas.py"
+        link_button: Gtk.Widget
+        link_button_cls = getattr(Gtk, "LinkButton", None)
+        if link_button_cls is not None and hasattr(link_button_cls, "new_with_label"):
+            link_button = link_button_cls.new_with_label(script_uri, link_label)
+        elif link_button_cls is not None:
+            try:
+                link_button = link_button_cls.new(script_uri)
+            except Exception:  # pragma: no cover - fallback guard
+                link_button = Gtk.Button(label=link_label)
+            else:
+                if hasattr(link_button, "set_label"):
+                    link_button.set_label(link_label)
+        else:  # pragma: no cover - GTK fallback guard
+            link_button = Gtk.Button(label=link_label)
+        if hasattr(link_button, "set_halign"):
+            link_button.set_halign(Gtk.Align.START)
+        callout_box.append(link_button)
+
+        if hasattr(callout_frame, "set_child"):
+            callout_frame.set_child(callout_box)
+        else:  # pragma: no cover - GTK3 fallback
+            callout_frame.add(callout_box)
+
+        box.append(callout_frame)
+
         self._register_instructions(
             box,
-            "Read the introduction, then continue to enter the administrator details.",
+            (
+                "Read the introduction, review the command-line helper information, "
+                "then continue to enter the administrator details."
+            ),
+        )
+        self._register_instructions(
+            callout_frame,
+            "Prefer a terminal workflow? Launch scripts/setup_atlas.py to step through the same setup on the command line.",
         )
         return box
 
@@ -816,10 +886,14 @@ class SetupWizardWindow(AtlasWindow):
                 "Create the first administrator so that ATLAS has a trusted owner. The "
                 "email address and password you provide will be required to sign in and "
                 "complete future changes.",
-                "Have a secure password ready. If you are connecting ATLAS to an existing "
-                "deployment, matching credentials will allow the wizard to reuse them.",
+                "The wizard stages this administrator profile so later steps can reuse the "
+                "same contact information and credentials before registration is finalized. "
+                "Have a secure password ready to keep the staged profile protected.",
             ],
-            "Review what information you need for the administrator before moving to the form.",
+            (
+                "Review what information you need for the administrator and how the wizard "
+                "will stage those details for reuse before moving to the form."
+            ),
         )
 
     def _build_database_intro_page(self) -> Gtk.Widget:
@@ -1260,7 +1334,8 @@ class SetupWizardWindow(AtlasWindow):
         instructions = (
             "Provide details for the administrator account, including contact information, "
             "an optional organization domain, and the credentials needed for privileged "
-            "operations."
+            "operations. The wizard stages these details for later steps before final "
+            "registration."
         )
 
         form = self._wrap_with_instructions(grid, instructions)
