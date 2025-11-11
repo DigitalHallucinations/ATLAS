@@ -65,6 +65,49 @@ def _session_scope(session_factory: sessionmaker) -> Iterator[Session]:
         session.close()
 
 
+class BaseStoreRepository:
+    """Base helper shared by store repositories built on SQLAlchemy."""
+
+    def __init__(self, session_factory: sessionmaker) -> None:
+        self._session_factory = session_factory
+
+    @contextlib.contextmanager
+    def _session_scope(self) -> Iterator[Session]:
+        with _session_scope(self._session_factory) as session:
+            yield session
+
+    # -- schema helpers -------------------------------------------------
+
+    def _get_schema_metadata(self) -> Any:  # pragma: no cover - abstract hook
+        raise NotImplementedError("Repositories must provide schema metadata")
+
+    def _ensure_additional_schema(self, engine: Any) -> None:  # pragma: no cover - extension hook
+        """Allow subclasses to run additional schema setup after metadata creation."""
+
+        pass
+
+    def _resolve_engine(self) -> Any:
+        engine = getattr(self._session_factory, "bind", None)
+        if engine is None:
+            with contextlib.ExitStack() as stack:
+                try:
+                    session = stack.enter_context(self._session_factory())
+                except Exception as exc:  # pragma: no cover - defensive fallback
+                    raise RuntimeError("Session factory must be bound to an engine") from exc
+                engine = session.get_bind()
+        if engine is None:
+            raise RuntimeError("Session factory must be bound to an engine")
+        return engine
+
+    def create_schema(self) -> None:
+        metadata = self._get_schema_metadata()
+        if metadata is None or not hasattr(metadata, "create_all"):
+            raise RuntimeError("Repository metadata must define a create_all method")
+        engine = self._resolve_engine()
+        metadata.create_all(engine)
+        self._ensure_additional_schema(engine)
+
+
 EnumT = TypeVar("EnumT", bound=Enum)
 
 
@@ -192,6 +235,7 @@ def _normalize_enum_value(
 
 
 __all__ = [
+    "BaseStoreRepository",
     "IntegrityError",
     "Session",
     "and_",
