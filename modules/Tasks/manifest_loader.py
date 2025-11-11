@@ -9,73 +9,12 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 
-try:  # Prefer the real jsonschema implementation when available
-    from jsonschema import Draft7Validator, ValidationError
-except (ModuleNotFoundError, ImportError):  # pragma: no cover - lightweight fallback
-    class ValidationError(Exception):
-        """Minimal substitute mirroring :class:`jsonschema.ValidationError`."""
-
-        def __init__(self, message: str, path: Optional[List[Any]] = None):
-            super().__init__(message)
-            self.message = message
-            self.path = tuple(path or [])
-
-    class Draft7Validator:
-        """Very small subset of :class:`jsonschema.Draft7Validator` used in tests."""
-
-        def __init__(self, schema: dict[str, Any]):
-            self.schema = schema
-
-        def iter_errors(self, instance: Any):
-            yield from _validate_with_schema(instance, self.schema, [])
-
-    def _validate_with_schema(instance: Any, schema: dict[str, Any], path: List[Any]):
-        schema_type = schema.get("type")
-
-        if schema_type == "object":
-            if not isinstance(instance, dict):
-                yield ValidationError("Expected object", path)
-                return
-
-            required = schema.get("required", [])
-            for key in required:
-                if key not in instance:
-                    yield ValidationError(f"'{key}' is a required property", path + [key])
-
-            properties = schema.get("properties", {})
-            allow_additional = schema.get("additionalProperties", True)
-            for key, value in instance.items():
-                subschema = properties.get(key)
-                if subschema is None:
-                    if not allow_additional:
-                        yield ValidationError(
-                            f"Additional property '{key}' is not allowed", path + [key]
-                        )
-                    continue
-                yield from _validate_with_schema(value, subschema, path + [key])
-
-        elif schema_type == "array":
-            if not isinstance(instance, list):
-                yield ValidationError("Expected array", path)
-                return
-
-            item_schema = schema.get("items")
-            if item_schema is not None:
-                for index, item in enumerate(instance):
-                    yield from _validate_with_schema(item, item_schema, path + [index])
-
-        elif schema_type == "string":
-            if not isinstance(instance, str):
-                yield ValidationError("Expected string", path)
-                return
-            min_length = schema.get("minLength")
-            if min_length and len(instance) < min_length:
-                yield ValidationError("String is too short", path)
-
-        else:
-            return
-
-from modules.store_common.manifest_utils import get_manifest_logger, resolve_app_root
+from modules.store_common.manifest_utils import (
+    Draft7Validator,
+    ValidationError,
+    get_manifest_logger,
+    resolve_app_root,
+)
 
 
 logger = get_manifest_logger(__name__)
