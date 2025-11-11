@@ -13,17 +13,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _normalize_list(values: Optional[Sequence[str]]) -> tuple[str, ...]:
-    if not values:
-        return tuple()
-    normalized: list[str] = []
-    for value in values:
-        if not isinstance(value, str):
-            continue
-        candidate = value.strip()
-        if candidate:
-            normalized.append(candidate)
-    return tuple(dict.fromkeys(normalized))
+from ATLAS.utils.collections import dedupe_strings
 
 
 def _score_signal(region: str, skill: str, timeframe: str) -> float:
@@ -52,8 +42,8 @@ async def fetch_labor_market_signals(
 
     await asyncio.sleep(0)
 
-    normalized_regions = _normalize_list(regions)
-    normalized_skills = _normalize_list(skills)
+    normalized_regions = dedupe_strings(regions)
+    normalized_skills = dedupe_strings(skills)
     if not normalized_regions or not normalized_skills:
         raise ValueError("Unable to normalise regions or skills.")
 

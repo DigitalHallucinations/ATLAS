@@ -18,6 +18,8 @@ from typing import Any, AsyncIterator, Dict, Iterable, List, Mapping, Optional
 
 from modules.orchestration.message_bus import MessagePriority, get_message_bus
 
+from ATLAS.utils.collections import dedupe_strings
+
 _BLACKBOARD_EVENT_TOPIC = "blackboard.events"
 _SUPPORTED_CATEGORIES = {"hypothesis", "claim", "artifact"}
 _SUPPORTED_SCOPE_TYPES = {"conversation", "project"}
@@ -367,12 +369,8 @@ def _normalize_category(category: Optional[str]) -> str:
 def _normalize_tags(tags: Optional[Iterable[str]]) -> tuple[str, ...]:
     if not tags:
         return tuple()
-    normalized: List[str] = []
-    for tag in tags:
-        token = str(tag).strip()
-        if token:
-            normalized.append(token)
-    return tuple(dict.fromkeys(normalized))
+    coerced = [str(tag) for tag in tags]
+    return dedupe_strings(coerced)
 
 
 def _topic_for(scope_type: str, scope_id: str) -> str:

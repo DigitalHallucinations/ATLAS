@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Mapping, MutableMapping
 from typing import Any
+
+from ATLAS.utils.collections import dedupe_strings
 
 __all__ = [
     "dedupe_strings",
@@ -11,35 +13,6 @@ __all__ = [
     "normalize_metrics",
     "normalize_mapping_keys",
 ]
-
-
-def dedupe_strings(sequence: Sequence[Any] | None, *, lower: bool = False) -> tuple[str, ...]:
-    """Return a tuple of unique, cleaned string values.
-
-    Args:
-        sequence: Potential sequence of string-like values to normalise.
-        lower: When ``True`` the resulting strings are coerced to lowercase.
-
-    Returns:
-        A tuple containing the unique cleaned strings in order of first
-        appearance. Non-string or empty entries are ignored.
-    """
-
-    if not sequence:
-        return tuple()
-
-    normalised: list[str] = []
-    for value in sequence:
-        if not isinstance(value, str):
-            continue
-        candidate = value.strip()
-        if not candidate:
-            continue
-        if lower:
-            candidate = candidate.lower()
-        normalised.append(candidate)
-
-    return tuple(dict.fromkeys(normalised))
 
 
 def coerce_metadata(mapping: Mapping[Any, Any] | None) -> Mapping[str, Any]:

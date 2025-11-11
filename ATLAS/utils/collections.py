@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterable, Mapping
-from typing import Any, Callable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any, Callable
 
 _StringTypes = (str, bytes, bytearray)
 
@@ -91,4 +91,33 @@ def normalize_sequence(
     return tuple(result) if as_tuple else result
 
 
-__all__ = ["normalize_sequence"]
+__all__ = ["normalize_sequence", "dedupe_strings"]
+
+
+def dedupe_strings(sequence: Sequence[Any] | None, *, lower: bool = False) -> tuple[str, ...]:
+    """Return a tuple of unique, cleaned string values.
+
+    Args:
+        sequence: Potential sequence of string-like values to normalise.
+        lower: When ``True`` the resulting strings are coerced to lowercase.
+
+    Returns:
+        A tuple containing the unique cleaned strings in order of first
+        appearance. Non-string or empty entries are ignored.
+    """
+
+    if not sequence:
+        return tuple()
+
+    normalised: list[str] = []
+    for value in sequence:
+        if not isinstance(value, str):
+            continue
+        candidate = value.strip()
+        if not candidate:
+            continue
+        if lower:
+            candidate = candidate.lower()
+        normalised.append(candidate)
+
+    return tuple(dict.fromkeys(normalised))

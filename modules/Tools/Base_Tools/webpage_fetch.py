@@ -16,6 +16,45 @@ if TYPE_CHECKING:  # pragma: no cover
     from ATLAS.config import ConfigManager
 
 
+from modules.Tools.Base_Tools.utils import dedupe_strings
+
+
+_ClientTimeout = getattr(aiohttp, "ClientTimeout", None)
+if _ClientTimeout is None:  # pragma: no cover - exercised when dependency is stubbed
+    class _ClientTimeout:  # type: ignore[no-redef]
+        def __init__(self, total=None):
+            self.total = total
+
+    aiohttp.ClientTimeout = _ClientTimeout  # type: ignore[attr-defined]
+
+_ClientError = getattr(aiohttp, "ClientError", None)
+if _ClientError is None:  # pragma: no cover - exercised when dependency is stubbed
+    class _ClientError(Exception):  # type: ignore[no-redef]
+        pass
+
+    aiohttp.ClientError = _ClientError  # type: ignore[attr-defined]
+
+_ClientResponseError = getattr(aiohttp, "ClientResponseError", None)
+if _ClientResponseError is None:  # pragma: no cover - exercised when dependency is stubbed
+    class _ClientResponseError(_ClientError):  # type: ignore[no-redef]
+        def __init__(
+            self,
+            request_info=None,
+            history=(),
+            *,
+            status: int = 0,
+            message: str = "",
+            headers=None,
+        ) -> None:
+            super().__init__(message)
+            self.status = status
+            self.request_info = request_info
+            self.history = history
+            self.headers = headers
+
+    aiohttp.ClientResponseError = _ClientResponseError  # type: ignore[attr-defined]
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -152,12 +191,7 @@ class WebpageFetcher:
         configured = safety_block.get("network_allowlist")
         if not configured:
             return ()
-        normalized: list[str] = []
-        for entry in configured:
-            host = str(entry).strip().lower()
-            if host:
-                normalized.append(host)
-        return tuple(dict.fromkeys(normalized))
+        return dedupe_strings([str(entry) for entry in configured], lower=True)
 
     def _merge_allowlists(
         self,
@@ -165,15 +199,15 @@ class WebpageFetcher:
         configured: tuple[str, ...],
     ) -> tuple[str, ...]:
         entries: list[str] = []
-        for source in (provided, configured):
-            if not source:
-                continue
-            for domain in source:
-                if not domain:
-                    continue
-                candidate = str(domain).strip().lower()
-                if candidate and candidate not in entries:
-                    entries.append(candidate)
+
+        if provided:
+            entries.extend(dedupe_strings([str(domain) for domain in provided], lower=True))
+
+        if configured:
+            for domain in configured:
+                if domain and domain not in entries:
+                    entries.append(domain)
+
         return tuple(entries)
 
     def _is_domain_allowed(self, hostname: Optional[str]) -> bool:
