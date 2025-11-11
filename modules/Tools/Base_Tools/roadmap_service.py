@@ -11,6 +11,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from .utils import dedupe_strings
+
 
 @dataclass(frozen=True)
 class RoadmapItem:
@@ -23,19 +25,6 @@ class RoadmapItem:
     milestones: tuple[str, ...]
     updated_at: str
     notes: str
-
-
-def _normalize_milestones(milestones: Optional[Sequence[str]]) -> tuple[str, ...]:
-    if not milestones:
-        return tuple()
-    normalized: list[str] = []
-    for milestone in milestones:
-        if not isinstance(milestone, str):
-            continue
-        candidate = milestone.strip()
-        if candidate:
-            normalized.append(candidate)
-    return tuple(dict.fromkeys(normalized))
 
 
 class RoadmapService:
@@ -68,7 +57,7 @@ class RoadmapService:
             title=title.strip(),
             status=status.strip().lower() or "planned",
             owner=owner.strip(),
-            milestones=_normalize_milestones(milestones),
+            milestones=dedupe_strings(milestones),
             updated_at=datetime.now(timezone.utc).isoformat(),
             notes=(notes or "").strip(),
         )

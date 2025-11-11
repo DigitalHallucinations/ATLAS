@@ -19,6 +19,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from .utils import coerce_metadata, dedupe_strings
+
 
 @dataclass(frozen=True)
 class NotebookEntry:
@@ -31,25 +33,6 @@ class NotebookEntry:
     created_at: str
 
 
-def _normalize_tags(tags: Optional[Sequence[str]]) -> tuple[str, ...]:
-    if not tags:
-        return tuple()
-    normalized: list[str] = []
-    for tag in tags:
-        if not isinstance(tag, str):
-            continue
-        candidate = tag.strip()
-        if candidate:
-            normalized.append(candidate.lower())
-    return tuple(dict.fromkeys(normalized))
-
-
-def _normalize_metadata(metadata: Optional[Mapping[str, object]]) -> Mapping[str, object]:
-    if metadata is None:
-        return {}
-    if isinstance(metadata, MutableMapping):
-        return dict(metadata)
-    return {str(key): value for key, value in metadata.items()}
 
 
 class NotebookTool:
@@ -79,8 +62,8 @@ class NotebookTool:
 
         normalized_id = notebook_id.strip()
         normalized_content = content.strip()
-        tag_tuple = _normalize_tags(tags)
-        metadata_map = _normalize_metadata(metadata)
+        tag_tuple = dedupe_strings(tags, lower=True)
+        metadata_map = coerce_metadata(metadata)
 
         if replace:
             logger.debug("Replacing notebook %s with a single entry", normalized_id)

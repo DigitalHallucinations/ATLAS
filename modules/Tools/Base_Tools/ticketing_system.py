@@ -12,6 +12,8 @@ import itertools
 
 logger = logging.getLogger(__name__)
 
+from .utils import dedupe_strings
+
 
 @dataclass(frozen=True)
 class TicketRecord:
@@ -25,19 +27,6 @@ class TicketRecord:
     tags: tuple[str, ...]
     created_at: str
     status: str
-
-
-def _normalize_people(entries: Optional[Sequence[str]]) -> tuple[str, ...]:
-    if not entries:
-        return tuple()
-    normalized: list[str] = []
-    for entry in entries:
-        if not isinstance(entry, str):
-            continue
-        candidate = entry.strip()
-        if candidate:
-            normalized.append(candidate)
-    return tuple(dict.fromkeys(normalized))
 
 
 class TicketingSystem:
@@ -70,8 +59,8 @@ class TicketingSystem:
             title=title.strip(),
             description=description.strip(),
             priority=priority.strip().lower() or "medium",
-            assignees=_normalize_people(assignees),
-            tags=_normalize_people(tags),
+            assignees=dedupe_strings(assignees),
+            tags=dedupe_strings(tags),
             created_at=datetime.now(timezone.utc).isoformat(),
             status=status.strip().lower() or "open",
         )

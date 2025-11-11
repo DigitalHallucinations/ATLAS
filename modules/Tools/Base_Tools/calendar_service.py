@@ -11,6 +11,8 @@ from typing import Mapping, MutableMapping, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
+from .utils import coerce_metadata, dedupe_strings
+
 
 def _parse_timestamp(value: str) -> datetime:
     """Parse an ISO 8601 timestamp into an aware ``datetime`` instance."""
@@ -29,25 +31,6 @@ def _parse_timestamp(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _normalize_attendees(attendees: Optional[Sequence[str]]) -> tuple[str, ...]:
-    if not attendees:
-        return tuple()
-    normalised: list[str] = []
-    for attendee in attendees:
-        if not isinstance(attendee, str):
-            continue
-        candidate = attendee.strip()
-        if candidate:
-            normalised.append(candidate)
-    return tuple(dict.fromkeys(normalised))
-
-
-def _normalise_metadata(metadata: Optional[Mapping[str, object]]) -> Mapping[str, object]:
-    if metadata is None:
-        return {}
-    if isinstance(metadata, MutableMapping):
-        return dict(metadata)
-    return {str(key): value for key, value in metadata.items()}
 
 
 @dataclass(frozen=True)
@@ -139,8 +122,8 @@ class CalendarService:
                 created_at=datetime.now(timezone.utc),
                 description=(description or "").strip(),
                 location=(location or "").strip() or None,
-                attendees=_normalize_attendees(attendees),
-                metadata=_normalise_metadata(metadata),
+                attendees=dedupe_strings(attendees),
+                metadata=coerce_metadata(metadata),
             )
             slots[slot.slot_id] = slot
 
