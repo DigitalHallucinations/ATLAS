@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import contextlib
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, Iterator, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
 
 from modules.conversation_store.models import Conversation
 from modules.store_common.repository_utils import (
-    Session,
+    BaseStoreRepository,
     _coerce_dt,
     _coerce_uuid,
     _dt_to_iso,
     _normalize_enum_value,
     _normalize_meta,
     _normalize_tenant_id,
-    _session_scope,
     and_,
     joinedload,
     or_,
@@ -99,31 +97,18 @@ def _serialize_event(event: TaskEvent) -> Dict[str, Any]:
     }
 
 
-class TaskStoreRepository:
+class TaskStoreRepository(BaseStoreRepository):
     """Persistence helper around :mod:`modules.task_store` models."""
 
     def __init__(self, session_factory: sessionmaker) -> None:
-        self._session_factory = session_factory
-
-    @contextlib.contextmanager
-    def _session_scope(self) -> Iterator[Session]:
-        with _session_scope(self._session_factory) as session:
-            yield session
+        super().__init__(session_factory)
 
     # -- schema helpers -------------------------------------------------
 
-    def create_schema(self) -> None:
-        engine = getattr(self._session_factory, "bind", None)
-        if engine is None:
-            with contextlib.ExitStack() as stack:
-                try:
-                    session = stack.enter_context(self._session_factory())
-                except Exception as exc:  # pragma: no cover - defensive fallback
-                    raise RuntimeError("Session factory must be bound to an engine") from exc
-                engine = session.get_bind()
-        if engine is None:
-            raise RuntimeError("Session factory must be bound to an engine")
-        Base.metadata.create_all(engine)
+    def _get_schema_metadata(self) -> Any:
+        return Base.metadata
+
+    def _ensure_additional_schema(self, engine: Any) -> None:
         ensure_task_schema(engine)
         from modules.job_store import ensure_job_schema  # local import to avoid circular dependency
 
