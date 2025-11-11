@@ -169,6 +169,39 @@ class BaseStoreRepository:
             payload["events"] = [event_serializer(event)]
             return payload
 
+    def _record_event(
+        self,
+        *,
+        aggregate_loader: Callable[[Session], ModelT | None],
+        not_found_error_factory: Callable[[], Exception],
+        event_model_cls: Type[EventModelT],
+        event_serializer: Callable[[EventModelT], Dict[str, Any]],
+        foreign_key_field: str,
+        event_type: EnumT,
+        payload: Mapping[str, Any] | None,
+        triggered_by_id: uuid.UUID | None,
+        session_id: uuid.UUID | None,
+    ) -> Dict[str, Any]:
+        """Persist an event linked to an aggregate after verifying tenancy."""
+
+        with self._session_scope() as session:
+            aggregate = aggregate_loader(session)
+            if aggregate is None:
+                raise not_found_error_factory()
+
+            event = event_model_cls(
+                **{
+                    foreign_key_field: getattr(aggregate, "id"),
+                    "event_type": event_type,
+                    "triggered_by_id": triggered_by_id,
+                    "session_id": session_id,
+                    "payload": dict(payload or {}),
+                }
+            )
+            session.add(event)
+            session.flush()
+            return event_serializer(event)
+
     def _update_with_optimistic_lock(
         self,
         *,

@@ -425,24 +425,22 @@ class TaskStoreRepository(BaseStoreRepository):
         if task_uuid is None:
             raise TaskNotFoundError("Task identifier is required")
 
-        with self._session_scope() as session:
-            stmt = (
+        triggered_uuid = _coerce_uuid(triggered_by_id)
+        session_uuid = _coerce_uuid(session_id)
+
+        return self._record_event(
+            aggregate_loader=lambda session: session.execute(
                 select(Task)
                 .join(Conversation, Task.conversation_id == Conversation.id)
                 .where(Task.id == task_uuid)
                 .where(Conversation.tenant_id == tenant_key)
-            )
-            task = session.execute(stmt).scalar_one_or_none()
-            if task is None:
-                raise TaskNotFoundError("Task not found for tenant")
-
-            event = TaskEvent(
-                task_id=task.id,
-                event_type=event_type,
-                triggered_by_id=_coerce_uuid(triggered_by_id),
-                session_id=_coerce_uuid(session_id),
-                payload=dict(payload or {}),
-            )
-            session.add(event)
-            session.flush()
-            return _serialize_event(event)
+            ).scalar_one_or_none(),
+            not_found_error_factory=lambda: TaskNotFoundError("Task not found for tenant"),
+            event_model_cls=TaskEvent,
+            event_serializer=_serialize_event,
+            foreign_key_field="task_id",
+            event_type=event_type,
+            payload=payload,
+            triggered_by_id=triggered_uuid,
+            session_id=session_uuid,
+        )
