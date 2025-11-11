@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import enum
-import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import (
@@ -23,7 +21,9 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import relationship
 
-from modules.conversation_store.models import Base as ConversationBase, PortableJSON
+from modules.conversation_store.models import Base as ConversationBase
+from modules.conversation_store.models import PortableJSON
+from modules.store_common.model_utils import generate_uuid, utcnow
 
 try:  # pragma: no cover - optional dependency for task relationships
     from modules.task_store.models import Task as _Task  # noqa: F401
@@ -32,16 +32,6 @@ except Exception:  # pragma: no cover - fallback when task store unavailable
 
 
 Base = ConversationBase
-
-
-def _uuid() -> uuid.UUID:
-    return uuid.uuid4()
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 class JobStatus(str, enum.Enum):
     """Enumerates supported lifecycle states for a job."""
 
@@ -89,7 +79,7 @@ class Job(Base):
         Index("ix_jobs_owner_status", "owner_id", "status"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     status = Column(
@@ -103,9 +93,9 @@ class Job(Base):
     )
     tenant_id = Column(String(255), nullable=False, index=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     owner = relationship("User", foreign_keys=[owner_id])
@@ -150,7 +140,7 @@ class JobRun(Base):
         Index("ix_job_runs_job_started", "job_id", "started_at"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"))
     run_number = Column(Integer, nullable=False, default=1)
     status = Column(
@@ -161,9 +151,9 @@ class JobRun(Base):
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     job = relationship("Job", back_populates="runs", foreign_keys=[job_id])
@@ -176,12 +166,12 @@ class JobTaskLink(Base):
         Index("ix_job_task_links_task", "task_id"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"))
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"))
     relationship_type = Column(String(64), nullable=False, default="relates_to")
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
     job = relationship("Job", back_populates="tasks", foreign_keys=[job_id])
     task = relationship("Task", foreign_keys=[task_id])
@@ -196,7 +186,7 @@ class JobAssignment(Base):
         Index("ix_job_assignments_status", "job_id", "status"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"))
     assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     role = Column(String(64), nullable=False, default="participant")
@@ -206,9 +196,9 @@ class JobAssignment(Base):
         default=JobAssignmentStatus.PENDING,
     )
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     job = relationship("Job", back_populates="assignments", foreign_keys=[job_id])
@@ -221,16 +211,16 @@ class JobSchedule(Base):
         UniqueConstraint("job_id", name="uq_job_schedule_unique"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"))
     schedule_type = Column(String(64), nullable=False, default="cron")
     expression = Column(String(255), nullable=False)
     timezone = Column(String(64), nullable=False, default="UTC")
     next_run_at = Column(DateTime(timezone=True), nullable=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     job = relationship("Job", back_populates="schedule", foreign_keys=[job_id])
@@ -242,7 +232,7 @@ class JobEvent(Base):
         Index("ix_job_events_job_created", "job_id", "created_at"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"))
     event_type = Column(
         Enum(JobEventType, name="job_event_type", validate_strings=True),
@@ -251,7 +241,7 @@ class JobEvent(Base):
     triggered_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
     payload = Column(PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
     job = relationship("Job", back_populates="events", foreign_keys=[job_id])
     triggered_by = relationship("User", foreign_keys=[triggered_by_id])

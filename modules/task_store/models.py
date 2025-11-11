@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import enum
-import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import (
@@ -23,20 +21,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import relationship
 
-from modules.conversation_store.models import Base as ConversationBase, PortableJSON
-
+from modules.conversation_store.models import Base as ConversationBase
+from modules.conversation_store.models import PortableJSON
+from modules.store_common.model_utils import generate_uuid, utcnow
 
 Base = ConversationBase
-
-
-def _uuid() -> uuid.UUID:
-    return uuid.uuid4()
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 class TaskStatus(str, enum.Enum):
     """Enumerates supported lifecycle states for a task."""
 
@@ -74,7 +63,7 @@ class Task(Base):
         Index("ix_tasks_owner_status", "owner_id", "status"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     status = Column(
@@ -90,9 +79,9 @@ class Task(Base):
     )
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     due_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     owner = relationship("User", foreign_keys=[owner_id])
@@ -135,7 +124,7 @@ class TaskAssignment(Base):
         Index("ix_task_assignments_status", "task_id", "status"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"))
     assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     role = Column(String(64), nullable=False, default="participant")
@@ -145,9 +134,9 @@ class TaskAssignment(Base):
         default=TaskAssignmentStatus.PENDING,
     )
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     task = relationship("Task", back_populates="assignments", foreign_keys=[task_id])
@@ -161,13 +150,13 @@ class TaskDependency(Base):
         Index("ix_task_dependencies_depends_on", "depends_on_id"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"))
     depends_on_id = Column(
         UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE")
     )
     relationship_type = Column(String(64), nullable=False, default="blocks")
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
     task = relationship(
         "Task",
@@ -187,7 +176,7 @@ class TaskEvent(Base):
         Index("ix_task_events_task_created", "task_id", "created_at"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"))
     event_type = Column(
         Enum(TaskEventType, name="task_event_type", validate_strings=True),
@@ -198,7 +187,7 @@ class TaskEvent(Base):
     )
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
     payload = Column(PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
     task = relationship("Task", back_populates="events", foreign_keys=[task_id])
     triggered_by = relationship("User", foreign_keys=[triggered_by_id])
