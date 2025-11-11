@@ -892,6 +892,27 @@ def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
     assert mistral_payload[-1]["tool_call_id"] == "call_1"
 
 
+def test_mistral_process_response_uses_shared_collector(monkeypatch):
+    calls = {}
+
+    async def fake_collect(payload):
+        calls["payload"] = payload
+        return "merged"
+
+    monkeypatch.setattr(mistral_module, "collect_response_chunks", fake_collect)
+
+    result = asyncio.run(mistral_module.process_response("text"))
+    assert result == "merged"
+    assert calls["payload"] == "text"
+
+    monkeypatch.setattr(mistral_module, "collect_response_chunks", fake_collect)
+
+    generator = _build_generator(DummyConfig({}))
+    result = asyncio.run(generator.process_response("stream"))
+    assert result == "merged"
+    assert calls["payload"] == "stream"
+
+
 def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
     settings = {
         "model": "mistral-large-latest",
