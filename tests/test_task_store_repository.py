@@ -124,3 +124,14 @@ def test_dependency_statuses_reflect_current_state(repository, identity, session
 
     statuses = repository.dependency_statuses(primary["id"], tenant_id=identity["tenant_id"])
     assert statuses == [TaskStatus.DONE.value]
+
+
+def test_create_task_accepts_string_status(repository, identity):
+    record = repository.create_task(
+        "Ready Task",
+        tenant_id=identity["tenant_id"],
+        conversation_id=identity["conversation_id"],
+        status="READY",
+    )
+
+    assert record["status"] == TaskStatus.READY.value

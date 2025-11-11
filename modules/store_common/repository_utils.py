@@ -5,7 +5,8 @@ from __future__ import annotations
 import contextlib
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, Mapping, Optional
+from enum import Enum
+from typing import Any, Dict, Iterator, Mapping, Optional, Type, TypeVar
 
 try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
     from sqlalchemy import and_, or_, select
@@ -62,6 +63,9 @@ def _session_scope(session_factory: sessionmaker) -> Iterator[Session]:
         raise
     finally:
         session.close()
+
+
+EnumT = TypeVar("EnumT", bound=Enum)
 
 
 def _coerce_uuid(value: Any | None) -> Optional[uuid.UUID]:
@@ -129,6 +133,64 @@ def _normalize_meta(
     return dict(metadata)
 
 
+def _normalize_enum_value(
+    value: Any | None,
+    enum_cls: Type[EnumT],
+    default_member: EnumT,
+) -> EnumT:
+    """Normalize arbitrary input into an enum member.
+
+    Parameters
+    ----------
+    value:
+        Raw value that may be ``None``, an enum member, a string, or other primitive.
+    enum_cls:
+        Enumeration class to coerce into.
+    default_member:
+        Fallback enum member used when ``value`` is ``None`` or empty.
+
+    Returns
+    -------
+    EnumT
+        A member of ``enum_cls`` corresponding to the provided ``value``.
+    """
+
+    if value is None:
+        return default_member
+    if isinstance(value, enum_cls):
+        return value
+
+    text = str(value).strip()
+    if not text:
+        return default_member
+
+    candidates: list[str] = []
+    # For string-based enums we prefer a case-insensitive lookup.
+    if issubclass(enum_cls, str):
+        lowered = text.lower()
+        if lowered not in candidates:
+            candidates.append(lowered)
+    if text not in candidates:
+        candidates.append(text)
+    uppered = text.upper()
+    if uppered not in candidates:
+        candidates.append(uppered)
+
+    for candidate in candidates:
+        try:
+            return enum_cls(candidate)
+        except ValueError:
+            continue
+
+    normalized_name = text.lower()
+    for member in enum_cls:
+        if member.name.lower() == normalized_name:
+            return member
+
+    # Allow the enum class to raise the canonical ValueError for unknown values.
+    return enum_cls(text)
+
+
 __all__ = [
     "IntegrityError",
     "Session",
@@ -141,6 +203,7 @@ __all__ = [
     "_coerce_optional_dt",
     "_coerce_uuid",
     "_dt_to_iso",
+    "_normalize_enum_value",
     "_normalize_meta",
     "_normalize_tenant_id",
     "_session_scope",

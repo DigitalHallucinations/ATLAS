@@ -13,6 +13,7 @@ from modules.store_common.repository_utils import (
     _coerce_dt,
     _coerce_uuid,
     _dt_to_iso,
+    _normalize_enum_value,
     _normalize_meta,
     _normalize_tenant_id,
     _session_scope,
@@ -46,14 +47,7 @@ class TaskConcurrencyError(TaskStoreError):
 
 
 def _normalize_status(value: Any | None) -> TaskStatus:
-    if value is None:
-        return TaskStatus.DRAFT
-    if isinstance(value, TaskStatus):
-        return value
-    text = str(value).strip().lower()
-    if not text:
-        return TaskStatus.DRAFT
-    return TaskStatus(text)
+    return _normalize_enum_value(value, TaskStatus, TaskStatus.DRAFT)
 
 
 def _normalize_title(value: Any) -> str:
