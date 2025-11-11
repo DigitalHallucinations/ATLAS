@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 from ATLAS import ToolManager as ToolManagerModule
 from ATLAS.config import ConfigManager
 from ATLAS.persona_manager import PersonaManager
+from ATLAS.utils import normalize_sequence
 from modules.Skills import load_skill_metadata
 from modules.orchestration.capability_registry import get_capability_registry
 from modules.orchestration.job_manager import JobManager
@@ -112,17 +113,16 @@ class ToolingService:
                 return manifest.get(field, default)
             return getattr(manifest, field, default)
 
-        def _normalize_sequence(value: Any) -> List[Any]:
-            if value is None:
-                return []
-            if isinstance(value, (str, bytes, bytearray)):
-                return [value]
-            if isinstance(value, Sequence):
-                return [copy.deepcopy(item) for item in value]
-            try:
-                return [copy.deepcopy(item) for item in list(value)]
-            except TypeError:
-                return [value] if value is not None else []
+        sequence_normalizer = lambda candidate: list(
+            normalize_sequence(
+                candidate,
+                allow_strings=True,
+                accept_scalar=True,
+                copy_items=True,
+                coerce_mapping_values=False,
+                filter_none=True,
+            )
+        )
 
         raw_collaboration = _read("collaboration")
         collaboration_block = (
@@ -139,14 +139,14 @@ class ToolingService:
             "persona": _read("persona"),
             "version": _read("version"),
             "instruction_prompt": _read("instruction_prompt"),
-            "required_tools": _normalize_sequence(_read("required_tools")),
-            "required_capabilities": _normalize_sequence(
+            "required_tools": sequence_normalizer(_read("required_tools")),
+            "required_capabilities": sequence_normalizer(
                 _read("required_capabilities")
             ),
             "safety_notes": _read("safety_notes"),
             "summary": _read("summary"),
             "category": _read("category"),
-            "capability_tags": _normalize_sequence(_read("capability_tags")),
+            "capability_tags": sequence_normalizer(_read("capability_tags")),
             "source": _read("source"),
             "collaboration": collaboration_block,
             "auth": auth_block,

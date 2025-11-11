@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from typing import Any, Mapping, MutableMapping, Optional, Sequence
 
+from ATLAS.utils import normalize_sequence
 from modules.orchestration.capability_registry import get_capability_registry
 
 _DEFAULT_CAPABILITY_TYPES = ("summary",)
@@ -51,19 +52,19 @@ def registry_capability(
     elif refresh:
         refreshed = bool(registry.refresh(force=False))
 
-    persona_tokens = _normalize_sequence(persona_filters)
+    persona_tokens = _normalize_filter_tokens(persona_filters)
     if persona_tokens is None and persona is not None:
         persona_tokens = [persona]
     elif persona is not None and persona not in (persona_tokens or []):
         persona_tokens = (persona_tokens or []) + [persona]
 
-    capability_tokens = _normalize_sequence(capability_filters)
-    provider_tokens = _normalize_sequence(provider_filters)
-    task_skill_tokens = _normalize_sequence(task_required_skills)
-    task_tool_tokens = _normalize_sequence(task_required_tools)
-    task_tag_tokens = _normalize_sequence(task_tag_filters)
-    job_capability_tokens = _normalize_sequence(job_required_capabilities)
-    job_skill_tokens = _normalize_sequence(job_required_skills)
+    capability_tokens = _normalize_filter_tokens(capability_filters)
+    provider_tokens = _normalize_filter_tokens(provider_filters)
+    task_skill_tokens = _normalize_filter_tokens(task_required_skills)
+    task_tool_tokens = _normalize_filter_tokens(task_required_tools)
+    task_tag_tokens = _normalize_filter_tokens(task_tag_filters)
+    job_capability_tokens = _normalize_filter_tokens(job_required_capabilities)
+    job_skill_tokens = _normalize_filter_tokens(job_required_skills)
 
     requested_types = _normalize_capability_types(capability_types)
     if include_summary is False:
@@ -168,18 +169,14 @@ def registry_capability(
 
     return response
 
-
-def _normalize_sequence(values: Optional[Sequence[Any]]) -> Optional[list[str]]:
-    if not values:
-        return None
-    tokens: list[str] = []
-    for value in values:
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            tokens.append(text)
-    return tokens or None
+def _normalize_filter_tokens(values: Optional[Sequence[Any]]) -> Optional[list[str]]:
+    tokens = normalize_sequence(
+        values,
+        transform=lambda item: str(item).strip(),
+        filter_falsy=True,
+        accept_scalar=False,
+    )
+    return list(tokens) or None
 
 
 def _normalize_capability_types(

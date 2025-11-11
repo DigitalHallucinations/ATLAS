@@ -17,6 +17,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
+from ATLAS.utils import normalize_sequence
+
 logger = logging.getLogger(__name__)
 
 
@@ -737,22 +739,21 @@ class SkillManagement:
         summary_source = entry.get("summary") or entry.get("description")
         summary = str(summary_source).strip() if summary_source else "No description available."
 
-        def _normalize_sequence(value: Any) -> List[str]:
-            result: List[str] = []
-            if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
-                for item in value:
-                    text = str(item).strip()
-                    if text:
-                        result.append(text)
-            return result
-
         persona = entry.get("persona")
         category = entry.get("category")
         safety_notes = entry.get("safety_notes")
         version = entry.get("version")
-        required_tools = _normalize_sequence(entry.get("required_tools"))
-        required_capabilities = _normalize_sequence(entry.get("required_capabilities"))
-        capability_tags = _normalize_sequence(entry.get("capability_tags"))
+        token_normalizer = lambda value: list(
+            normalize_sequence(
+                value,
+                transform=lambda item: str(item).strip(),
+                filter_falsy=True,
+                accept_scalar=False,
+            )
+        )
+        required_tools = token_normalizer(entry.get("required_tools"))
+        required_capabilities = token_normalizer(entry.get("required_capabilities"))
+        capability_tags = token_normalizer(entry.get("capability_tags"))
         source = entry.get("source")
 
         metadata_payload = entry.get("metadata") if isinstance(entry.get("metadata"), Mapping) else None
