@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from typing import Any, Iterable, Mapping, MutableMapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
+
+from modules.Tools.Base_Tools.utils.normalization import normalize_mapping_keys
 
 __all__ = ["IncidentSummarizer", "IncidentEvent"]
 
@@ -36,8 +38,8 @@ class IncidentSummarizer:
         normalized_timeline = [_normalize_event(item) for item in timeline]
         normalized_timeline.sort(key=lambda event: event.timestamp)
 
-        normalized_impact = _normalize_mapping(impact or {})
-        normalized_actions = [_normalize_mapping(action) for action in (actions or [])]
+        normalized_impact = normalize_mapping_keys(impact)
+        normalized_actions = [normalize_mapping_keys(action) for action in (actions or [])]
 
         headline = _derive_headline(normalized_timeline, normalized_impact)
         recommendations = (
@@ -68,16 +70,9 @@ def _normalize_event(event: Mapping[str, Any]) -> IncidentEvent:
     if not description:
         description = "Event recorded"
 
-    metadata = _normalize_mapping(event)
+    metadata = normalize_mapping_keys(event)
     metadata.setdefault("description", description)
     return IncidentEvent(timestamp=timestamp, description=description, metadata=metadata)
-
-
-def _normalize_mapping(payload: Mapping[str, Any]) -> Mapping[str, Any]:
-    normalized: MutableMapping[str, Any] = {}
-    for key, value in payload.items():
-        normalized[str(key)] = value
-    return dict(normalized)
 
 
 def _derive_headline(timeline: Sequence[IncidentEvent], impact: Mapping[str, Any]) -> str:
