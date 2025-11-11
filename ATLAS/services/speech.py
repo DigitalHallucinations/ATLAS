@@ -24,6 +24,10 @@ class SpeechService:
         self._logger = logger
         self._status_summary_getter = status_summary_getter
         self._default_status_tooltip = default_status_tooltip
+        self._transcript_export_preferences: Dict[str, Any] = {
+            "formats": [],
+            "directory": None,
+        }
 
     # ------------------------------------------------------------------
     # helpers
@@ -166,6 +170,87 @@ class SpeechService:
         return self._resolve_manager().get_transcription_history(formatted=formatted)
 
     # ------------------------------------------------------------------
+    # transcript export preferences
+    def get_transcript_export_preferences(self) -> Dict[str, Any]:
+        preferences = self._transcript_export_preferences
+        return {
+            "formats": list(preferences.get("formats") or []),
+            "directory": preferences.get("directory"),
+        }
+
+    def update_transcript_export_preferences(
+        self,
+        *,
+        formats: Iterable[str] | None = None,
+        directory: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        normalized_formats: List[str] = []
+        if formats is not None:
+            seen = set()
+            for fmt in formats:
+                if not isinstance(fmt, str):
+                    continue
+                normalized = fmt.strip().lower()
+                if not normalized or normalized in seen:
+                    continue
+                if normalized not in {"txt", "json", "srt"}:
+                    raise ValueError(f"Unsupported transcript export format: {fmt}")
+                seen.add(normalized)
+                normalized_formats.append(normalized)
+        else:
+            normalized_formats = list(self._transcript_export_preferences.get("formats") or [])
+
+        normalized_directory = None
+        if directory is None:
+            normalized_directory = self._transcript_export_preferences.get("directory")
+        elif isinstance(directory, str):
+            stripped = directory.strip()
+            normalized_directory = stripped or None
+        else:
+            raise ValueError("directory must be a string path or None")
+
+        self._transcript_export_preferences = {
+            "formats": normalized_formats,
+            "directory": normalized_directory,
+        }
+
+        return self.get_transcript_export_preferences()
+
+    def _build_export_payload(
+        self,
+        *,
+        export_formats: Optional[Iterable[str]],
+        export_directory: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        formats = None
+        if export_formats is not None:
+            seen = set()
+            normalized: List[str] = []
+            for fmt in export_formats:
+                if not isinstance(fmt, str):
+                    continue
+                stripped = fmt.strip().lower()
+                if not stripped or stripped in seen:
+                    continue
+                seen.add(stripped)
+                normalized.append(stripped)
+            formats = normalized
+        else:
+            formats = list(self._transcript_export_preferences.get("formats") or [])
+
+        if not formats:
+            return None
+
+        directory = export_directory
+        if directory is None:
+            directory = self._transcript_export_preferences.get("directory")
+
+        payload: Dict[str, Any] = {"formats": formats}
+        if directory:
+            payload["destination"] = directory
+        return payload
+
+    # ------------------------------------------------------------------
     # stt orchestration
     def start_stt_listening(self) -> Dict[str, Any]:
         try:
@@ -231,7 +316,12 @@ class SpeechService:
             "status_summary": self._status_summary(),
         }
 
-    def stop_stt_and_transcribe(self) -> Dict[str, Any]:
+    def stop_stt_and_transcribe(
+        self,
+        *,
+        export_formats: Optional[Iterable[str]] = None,
+        export_directory: Optional[str] = None,
+    ) -> Dict[str, Any]:
         try:
             manager = self._resolve_manager()
         except RuntimeError as exc:
@@ -310,6 +400,11 @@ class SpeechService:
                 }
             return payload
 
+        export_payload = self._build_export_payload(
+            export_formats=export_formats,
+            export_directory=export_directory,
+        )
+
         def _on_success(transcript: str) -> None:
             payload = _finalize_payload(transcript=transcript)
             if not result_future.done():
@@ -324,6 +419,7 @@ class SpeechService:
         try:
             manager.stop_and_transcribe_in_background(
                 provider_key,
+                export_options=export_payload,
                 on_success=_on_success,
                 on_error=_on_error,
                 thread_name="SpeechTranscriptionWorker",

@@ -14,6 +14,7 @@ from typing import (
     Awaitable,
     Callable,
     Dict,
+    Iterable,
     List,
     Mapping,
     Optional,
@@ -1830,6 +1831,24 @@ class ATLAS:
             formatted=formatted
         )
 
+    def get_transcript_export_preferences(self) -> Dict[str, Any]:
+        """Expose configured transcript export preferences for UI rendering."""
+
+        return self._require_speech_facade().get_transcript_export_preferences()
+
+    def update_transcript_export_preferences(
+        self,
+        *,
+        formats: Iterable[str] | None = None,
+        directory: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist transcript export preferences supplied by the UI."""
+
+        return self._require_speech_facade().update_transcript_export_preferences(
+            formats=formats,
+            directory=directory,
+        )
+
     class _LegacySubscriptionHandle:
         """Wrapper for legacy event system subscriptions."""
 
@@ -1974,14 +1993,22 @@ class ATLAS:
         """
         return self._require_speech_facade().start_stt_listening()
 
-    def stop_stt_and_transcribe(self) -> Dict[str, Any]:
+    def stop_stt_and_transcribe(
+        self,
+        *,
+        export_formats: Optional[Iterable[str]] = None,
+        export_directory: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Stop recording (if active) and transcribe in the background.
 
         Returns:
             Dict[str, Any]: Structured payload with an attached transcription future.
         """
 
-        return self._require_speech_facade().stop_stt_and_transcribe()
+        return self._require_speech_facade().stop_stt_and_transcribe(
+            export_formats=export_formats,
+            export_directory=export_directory,
+        )
 
     async def generate_response(
         self, messages: List[Dict[str, str]]

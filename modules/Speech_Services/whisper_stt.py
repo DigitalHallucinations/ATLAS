@@ -34,6 +34,8 @@ try:
 except ImportError:
     PYDUB_AVAILABLE = False
 
+from .whisper_utils import export_to_json, export_to_srt, export_to_txt
+
 logger = logging.getLogger(__name__)
 
 class WhisperSTT:
@@ -188,7 +190,65 @@ class WhisperSTT:
                 logger.warning("pydub not available. Cannot convert audio to WAV.")
         return audio_file
 
-    def transcribe(self, audio_file=None, language=None, task="transcribe", initial_prompt=None, return_segments=False) -> str:
+    def export_transcript(self, transcript_text, segments=None, export_options=None):
+        """Persist a transcript to the requested formats."""
+
+        if not export_options:
+            return []
+
+        formats = export_options.get("formats") if isinstance(export_options, dict) else None
+        if not formats:
+            return []
+
+        destination = export_options.get("destination") if isinstance(export_options, dict) else None
+        if not destination:
+            destination = os.getcwd()
+
+        try:
+            os.makedirs(destination, exist_ok=True)
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.error("Failed to create transcript export directory %s: %s", destination, exc)
+            return []
+
+        base_filename = export_options.get("base_filename") if isinstance(export_options, dict) else None
+        if not base_filename:
+            base_filename = "transcript"
+
+        metadata = export_options.get("metadata") if isinstance(export_options, dict) else None
+
+        created_files = []
+        for fmt in formats:
+            if not isinstance(fmt, str):
+                continue
+            normalized = fmt.strip().lower()
+            if not normalized:
+                continue
+
+            filename = os.path.join(destination, f"{base_filename}.{normalized}")
+
+            try:
+                if normalized == "txt":
+                    export_to_txt(transcript_text or "", filename, metadata=metadata)
+                elif normalized == "json":
+                    export_to_json({"text": transcript_text or "", "segments": segments or []}, filename, metadata=metadata)
+                elif normalized == "srt":
+                    if isinstance(segments, list) and segments:
+                        export_to_srt(segments, filename)
+                    else:
+                        logger.debug("Skipping SRT export due to missing segment data.")
+                        continue
+                else:
+                    logger.debug("Skipping unsupported export format '%s'.", normalized)
+                    continue
+            except Exception as exc:
+                logger.error("Failed to export transcript to %s: %s", filename, exc)
+                continue
+
+            created_files.append(filename)
+
+        return created_files
+
+    def transcribe(self, audio_file=None, language=None, task="transcribe", initial_prompt=None, return_segments=False, export_options=None) -> str:
         """
         Transcribes an audio file with optional noise reduction and format conversion.
         Also logs the transcription duration.
@@ -216,7 +276,9 @@ class WhisperSTT:
                 logger.error(f"Error during noise reduction: {e}")
 
         start_time = time.time()
-        transcript = ""
+        transcript_output = ""
+        transcript_text = ""
+        transcript_segments = []
         if self.mode == "local":
             try:
                 result = self.model.transcribe(
@@ -225,28 +287,40 @@ class WhisperSTT:
                     task=task,
                     initial_prompt=initial_prompt
                 )
-                transcript = result['segments'] if return_segments else result.get("text", "")
+                transcript_text = result.get("text", "") or ""
+                transcript_segments = result.get("segments", []) or []
+                transcript_output = transcript_segments if return_segments else transcript_text
                 logger.debug("Local Whisper transcription complete.")
             except Exception as e:
                 logger.error(f"Error during local transcription: {e}")
                 if self.fallback_online and self.online_configured:
                     logger.debug("Falling back to online transcription.")
-                    transcript = self._transcribe_online(audio_file, language, task, initial_prompt)
+                    transcript_text = self._transcribe_online(audio_file, language, task, initial_prompt) or ""
+                    transcript_output = transcript_segments if return_segments else transcript_text
         else:
             if not getattr(self, "online_configured", False):
                 logger.error("Online mode is not configured (missing API key).")
-                transcript = "Online transcription unavailable (API key missing)"
+                transcript_text = "Online transcription unavailable (API key missing)"
+                transcript_output = transcript_text
             else:
-                transcript = self._transcribe_online(audio_file, language, task, initial_prompt)
+                transcript_text = self._transcribe_online(audio_file, language, task, initial_prompt) or ""
+                transcript_output = transcript_segments if return_segments else transcript_text
         duration = time.time() - start_time
         logger.debug("Transcription duration: %.2f seconds.", duration)
+
+        if export_options:
+            try:
+                self.export_transcript(transcript_text, transcript_segments, export_options)
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                logger.error("Transcript export failed: %s", exc)
+
         # Clean up temporary file if created.
         if temp_file:
             try:
                 os.remove(temp_file)
             except Exception as e:
                 logger.warning(f"Could not delete temporary file: {e}")
-        return transcript
+        return transcript_output
 
     def _transcribe_online(self, audio_file, language, task, initial_prompt):
         try:
