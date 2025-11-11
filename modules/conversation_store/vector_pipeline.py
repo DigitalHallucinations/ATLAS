@@ -16,7 +16,7 @@ from modules.Tools.Base_Tools.vector_store import (
 )
 
 from .repository import ConversationStoreRepository
-from ._shared import _coerce_uuid, _default_vector_key
+from ._shared import _coerce_uuid, _coerce_vector_payload
 
 logger = setup_logger(__name__)
 
@@ -327,57 +327,15 @@ class ConversationVectorPipeline:
         message_uuid: uuid.UUID,
         conversation_uuid: uuid.UUID,
     ) -> Optional[Dict[str, Any]]:
-        values = raw.get("values")
-        if values is None:
-            values = raw.get("embedding")
-        if values is None:
+        try:
+            coerced = _coerce_vector_payload(message_uuid, conversation_uuid, raw)
+        except ValueError:
             return None
-        if not isinstance(values, Sequence) or isinstance(values, (bytes, bytearray, str)):
-            raise TypeError("Vector values must be provided as a numeric sequence.")
-
-        numeric_values = [float(component) for component in values]
-        if not numeric_values:
-            return None
-
-        provider = raw.get("provider")
-        provider_str = str(provider).strip() if provider is not None else None
-
-        model = raw.get("model") or raw.get("embedding_model")
-        model_str = str(model).strip() if model is not None else None
-
-        version = raw.get("model_version") or raw.get("embedding_model_version")
-        version_str = str(version).strip() if version is not None else None
-
-        vector_id = raw.get("id") or raw.get("vector_key")
-        vector_key = str(vector_id).strip() if vector_id is not None else ""
-        if not vector_key:
-            vector_key = _default_vector_key(message_uuid, provider_str, model_str, version_str)
-
-        metadata = dict(raw.get("metadata") or {})
-        metadata.setdefault("namespace", str(conversation_uuid))
-        metadata.setdefault("conversation_id", str(conversation_uuid))
-        metadata.setdefault("message_id", str(message_uuid))
-        if provider_str:
-            metadata.setdefault("provider", provider_str)
-        if model_str:
-            metadata.setdefault("model", model_str)
-            metadata.setdefault("embedding_model", model_str)
-        if version_str:
-            metadata.setdefault("model_version", version_str)
-            metadata.setdefault("embedding_model_version", version_str)
-
-        checksum = raw.get("checksum") or raw.get("embedding_checksum")
-        if checksum is not None:
-            metadata.setdefault("checksum", checksum)
-            metadata.setdefault("embedding_checksum", checksum)
-
-        metadata.setdefault("vector_key", vector_key)
-        metadata.setdefault("dimensions", len(numeric_values))
 
         return {
-            "id": vector_key,
-            "values": numeric_values,
-            "metadata": metadata,
+            "id": coerced.vector_key,
+            "values": list(coerced.embedding),
+            "metadata": dict(coerced.metadata),
         }
 
 

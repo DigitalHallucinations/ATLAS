@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import struct
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, List, Mapping, Optional, Sequence
 
@@ -165,6 +166,100 @@ def _hash_vector(values: Sequence[float]) -> str:
     return hasher.hexdigest()
 
 
+@dataclass(frozen=True)
+class _CoercedVectorPayload:
+    embedding: List[float]
+    vector_key: str
+    checksum: str
+    metadata: dict[str, Any]
+    provider: Optional[str]
+    model: Optional[str]
+    version: Optional[str]
+
+
+def _coerce_vector_payload(
+    message_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+    raw_vector: Mapping[str, Any],
+) -> _CoercedVectorPayload:
+    if not isinstance(raw_vector, Mapping):
+        raise TypeError("Vector payloads must be mappings containing embedding data.")
+
+    provider = raw_vector.get("provider")
+    if provider is not None:
+        provider_str = str(provider).strip() or None
+    else:
+        provider_str = None
+
+    model = raw_vector.get("model") or raw_vector.get("embedding_model")
+    if model is not None:
+        model_str = str(model).strip() or None
+    else:
+        model_str = None
+
+    version = raw_vector.get("model_version") or raw_vector.get("embedding_model_version")
+    if version is not None:
+        version_str = str(version).strip() or None
+    else:
+        version_str = None
+
+    values = raw_vector.get("embedding")
+    if values is None:
+        values = raw_vector.get("values")
+    if values is None:
+        raise ValueError("Vector payloads must include 'embedding' or 'values'.")
+    if not isinstance(values, Sequence) or isinstance(values, (bytes, bytearray, str)):
+        raise TypeError("Vector embeddings must be provided as a numeric sequence.")
+
+    embedding: List[float] = [float(component) for component in values]
+    if not embedding:
+        raise ValueError("Vector embeddings must contain at least one component.")
+
+    checksum = raw_vector.get("checksum") or raw_vector.get("embedding_checksum")
+    checksum_str = str(checksum).strip() if checksum is not None else ""
+    if not checksum_str:
+        checksum_str = _hash_vector(embedding)
+
+    raw_vector_key = raw_vector.get("vector_key") or raw_vector.get("id")
+    vector_key = str(raw_vector_key).strip() if raw_vector_key is not None else ""
+    if not vector_key:
+        vector_key = _default_vector_key(message_id, provider_str, model_str, version_str)
+
+    metadata = dict(raw_vector.get("metadata") or {})
+
+    namespace = metadata.get("namespace")
+    if namespace is not None:
+        metadata["namespace"] = str(namespace).strip() or str(conversation_id)
+    else:
+        metadata["namespace"] = str(conversation_id)
+    metadata.setdefault("conversation_id", str(conversation_id))
+    metadata.setdefault("message_id", str(message_id))
+
+    if provider_str:
+        metadata.setdefault("provider", provider_str)
+    if model_str:
+        metadata.setdefault("model", model_str)
+        metadata.setdefault("embedding_model", model_str)
+    if version_str:
+        metadata.setdefault("model_version", version_str)
+        metadata.setdefault("embedding_model_version", version_str)
+
+    metadata.setdefault("vector_key", vector_key)
+    metadata.setdefault("checksum", checksum_str)
+    metadata.setdefault("embedding_checksum", checksum_str)
+    metadata.setdefault("dimensions", len(embedding))
+
+    return _CoercedVectorPayload(
+        embedding=embedding,
+        vector_key=vector_key,
+        checksum=checksum_str,
+        metadata=metadata,
+        provider=provider_str,
+        model=model_str,
+        version=version_str,
+    )
+
+
 def _default_vector_key(
     message_id: uuid.UUID,
     provider: Optional[str],
@@ -178,6 +273,7 @@ def _default_vector_key(
 
 
 __all__ = [
+    "_coerce_vector_payload",
     "_coerce_dt",
     "_coerce_uuid",
     "_default_vector_key",
