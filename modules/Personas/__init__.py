@@ -46,6 +46,7 @@ except Exception:  # pragma: no cover - fallback for minimal test environments
 from modules.Skills import SkillMetadata as SkillManifestEntry, load_skill_metadata
 from modules.logging.audit import PersonaAuditLogger, get_persona_audit_logger
 from modules.logging.logger import setup_logger
+from modules.store_common.manifest_utils import resolve_app_root
 
 try:  # ConfigManager is heavy but required for accurate path resolution.
     from ATLAS.config import ConfigManager
@@ -140,27 +141,7 @@ def _verify_signature(payload: Mapping[str, Any], *, signature: str, signing_key
 def _resolve_app_root(config_manager=None) -> Path:
     """Return the repository/application root for persona files."""
 
-    if config_manager is not None:
-        getter = getattr(config_manager, "get_app_root", None)
-        if callable(getter):
-            try:
-                root = getter()
-            except Exception:  # pragma: no cover - defensive logging only
-                logger.warning("Failed to resolve app root from provided config manager", exc_info=True)
-            else:
-                if root:
-                    return Path(root).expanduser().resolve()
-
-    if ConfigManager is not None:
-        try:
-            manager = config_manager or ConfigManager()
-            root = manager.get_app_root()
-            if root:
-                return Path(root).expanduser().resolve()
-        except Exception:  # pragma: no cover - fallback to repository discovery
-            logger.warning("ConfigManager failed to resolve app root", exc_info=True)
-
-    return Path(__file__).resolve().parents[2]
+    return resolve_app_root(config_manager, logger=logger)
 
 
 def _persona_file_path(persona_name: str, *, config_manager=None) -> Path:
