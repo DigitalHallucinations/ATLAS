@@ -173,3 +173,19 @@ def test_webpage_fetch_enforces_content_length(monkeypatch):
 
     with pytest.raises(ContentTooLargeError):
         asyncio.run(fetcher.fetch("https://example.com/large"))
+
+
+def test_webpage_fetch_merges_allowlists_without_duplicates(monkeypatch):
+    class _StubConfigManager:
+        def get_config(self, key, default):
+            assert key == "tool_safety"
+            return {"network_allowlist": ["example.com", "Example.org", ""]}
+
+    _patch_session(monkeypatch, response=_MockResponse(text="<html></html>"))
+
+    fetcher = WebpageFetcher(
+        allowed_domains=["Example.com", "Sub.Example.org", "example.com"],
+        config_manager=_StubConfigManager(),
+    )
+
+    assert fetcher._allowed_domains == ("example.com", "sub.example.org", "example.org")

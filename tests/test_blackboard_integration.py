@@ -138,3 +138,26 @@ def test_blackboard_stream_receives_updates(_reset_blackboard):
         await stream.aclose()
 
     asyncio.run(_run())
+
+
+def test_blackboard_normalizes_tags(_reset_blackboard):
+    store = configure_blackboard()
+
+    entry = store.create_entry(
+        "scope-x",
+        category="hypothesis",
+        title="Observation",
+        content="Investigate duplicates",
+        tags=["Alpha", "Alpha", "  ", 101],  # type: ignore[list-item]
+    )
+
+    assert entry.tags == ("Alpha", "101")
+
+    updated = store.update_entry(
+        entry.entry_id,
+        scope_id="scope-x",
+        tags=["Beta", " beta ", "Beta"],
+    )
+
+    assert updated is not None
+    assert updated.tags == ("Beta", "beta")

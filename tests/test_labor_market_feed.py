@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 from pathlib import Path
 import subprocess
@@ -34,3 +35,15 @@ def test_score_signal_is_deterministic_across_processes() -> None:
     score_subprocess = float(output.decode().strip())
 
     assert score_main == score_subprocess
+
+
+def test_fetch_labor_market_signals_dedupes_inputs() -> None:
+    result = asyncio.run(
+        labor_market_feed.fetch_labor_market_signals(
+            regions=[" New York ", "New York", ""],
+            skills=["Python", None, "Python "],  # type: ignore[arg-type]
+        )
+    )
+
+    assert result["regions"] == ("New York",)
+    assert result["skills"] == ("Python",)

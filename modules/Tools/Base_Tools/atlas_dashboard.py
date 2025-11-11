@@ -11,7 +11,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from .utils import normalize_metrics
+from modules.Tools.Base_Tools.utils import dedupe_strings, normalize_metrics
 
 
 @dataclass(frozen=True)
@@ -24,21 +24,6 @@ class AtlasDashboardUpdate:
     metrics: Mapping[str, float]
     stakeholders: tuple[str, ...]
     captured_at: str
-
-
-def _normalize_stakeholders(stakeholders: Optional[Sequence[str]]) -> tuple[str, ...]:
-    if not stakeholders:
-        return tuple()
-    normalized: list[str] = []
-    for entry in stakeholders:
-        if not isinstance(entry, str):
-            continue
-        candidate = entry.strip()
-        if candidate:
-            normalized.append(candidate)
-    return tuple(dict.fromkeys(normalized))
-
-
 class AtlasDashboardClient:
     """Collect initiative level signals for ATLAS specific dashboards."""
 
@@ -68,7 +53,7 @@ class AtlasDashboardClient:
             health=health.strip().lower(),
             summary=summary.strip(),
             metrics=normalize_metrics(metrics),
-            stakeholders=_normalize_stakeholders(stakeholders),
+            stakeholders=dedupe_strings(stakeholders or ()),
             captured_at=datetime.now(timezone.utc).isoformat(),
         )
 
