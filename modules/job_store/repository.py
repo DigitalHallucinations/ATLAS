@@ -773,26 +773,24 @@ class JobStoreRepository(BaseStoreRepository):
         if job_uuid is None:
             raise JobNotFoundError("Job identifier is required")
 
-        with self._session_scope() as session:
-            stmt = (
+        triggered_uuid = _coerce_uuid(triggered_by_id)
+        session_uuid = _coerce_uuid(session_id)
+
+        return self._record_event(
+            aggregate_loader=lambda session: session.execute(
                 select(Job)
                 .where(Job.id == job_uuid)
                 .where(Job.tenant_id == tenant_key)
-            )
-            job = session.execute(stmt).scalar_one_or_none()
-            if job is None:
-                raise JobNotFoundError("Job not found for tenant")
-
-            event = JobEvent(
-                job_id=job.id,
-                event_type=event_type,
-                triggered_by_id=_coerce_uuid(triggered_by_id),
-                session_id=_coerce_uuid(session_id),
-                payload=dict(payload or {}),
-            )
-            session.add(event)
-            session.flush()
-            return _serialize_event(event)
+            ).scalar_one_or_none(),
+            not_found_error_factory=lambda: JobNotFoundError("Job not found for tenant"),
+            event_model_cls=JobEvent,
+            event_serializer=_serialize_event,
+            foreign_key_field="job_id",
+            event_type=event_type,
+            payload=payload,
+            triggered_by_id=triggered_uuid,
+            session_id=session_uuid,
+        )
 
     # -- task linking helpers ------------------------------------------
 
