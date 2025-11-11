@@ -84,7 +84,7 @@ The task domain model defines the following lifecycle states (`modules/task_stor
 
 ## Service APIs
 
-`TaskService` exposes `create_task`, `update_task`, and `transition_task`, delegating persistence to `TaskStoreRepository`. Each operation records lifecycle analytics using `modules.analytics.persona_metrics.record_task_lifecycle_event`, which persists metrics in `TaskLifecycleEvent` records and publishes `task_metrics.lifecycle` messages.
+`TaskService` exposes `create_task`, `update_task`, and `transition_task`, delegating persistence to `TaskStoreRepository`. Each operation records lifecycle analytics using `modules.analytics.persona_metrics.record_task_lifecycle_event`, which persists metrics in unified `LifecycleEvent` records and publishes `task_metrics.lifecycle` messages.
 
 ## Analytics and rollups
 
