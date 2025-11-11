@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
 
 from modules.conversation_store.models import Conversation
 from modules.store_common.repository_utils import (
     BaseStoreRepository,
+    Session,
     _coerce_dt,
     _coerce_uuid,
     _dt_to_iso,
@@ -274,7 +275,7 @@ class TaskStoreRepository(BaseStoreRepository):
         if task_uuid is None:
             raise TaskNotFoundError("Task identifier is required")
 
-        with self._session_scope() as session:
+        def load_record(session: Session) -> Task:
             stmt = (
                 select(Task)
                 .options(joinedload(Task.conversation))
@@ -286,70 +287,111 @@ class TaskStoreRepository(BaseStoreRepository):
             record = session.execute(stmt).scalar_one_or_none()
             if record is None:
                 raise TaskNotFoundError("Task not found for tenant")
+            return record
 
-            if expected_updated_at is not None:
-                expected = _coerce_dt(expected_updated_at)
-                current = record.updated_at.astimezone(timezone.utc)
-                if current != expected:
-                    raise TaskConcurrencyError("Task was modified by another transaction")
+        def context_factory(record: Task) -> Dict[str, Any]:
+            return {"status_before": record.status, "status_changed": False}
 
-            events: list[TaskEvent] = []
-            status_changed = False
-            status_before = record.status
+        def mutate_title(
+            record: Task, value: Any, _session: Session, _context: Dict[str, Any]
+        ) -> None:
+            record.title = _normalize_title(value)
 
-            for field, value in changes.items():
-                if field == "title":
-                    record.title = _normalize_title(value)
-                elif field == "description":
-                    record.description = str(value).strip() if value is not None else None
-                elif field == "status":
-                    new_status = _normalize_status(value)
-                    if new_status != record.status:
-                        record.status = new_status
-                        status_changed = True
-                elif field == "priority":
-                    record.priority = _normalize_priority(value)
-                elif field == "owner_id":
-                    record.owner_id = _coerce_uuid(value)
-                elif field == "session_id":
-                    record.session_id = _coerce_uuid(value)
-                elif field == "metadata":
-                    record.meta = _normalize_meta(
-                        value, error_message="Task metadata must be a mapping"
-                    )
-                elif field == "due_at":
-                    record.due_at = _normalize_due_at(value)
-                else:
-                    raise ValueError(f"Unsupported task attribute: {field}")
+        def mutate_description(
+            record: Task, value: Any, _session: Session, _context: Dict[str, Any]
+        ) -> None:
+            record.description = str(value).strip() if value is not None else None
 
-            session.flush()
-            payload = _serialize_task(record)
+        def mutate_status(
+            record: Task, value: Any, _session: Session, context: Dict[str, Any]
+        ) -> None:
+            new_status = _normalize_status(value)
+            if new_status != record.status:
+                record.status = new_status
+                context["status_changed"] = True
 
-            event_payload = {"changes": dict(changes)}
-            events.append(
+        def mutate_priority(
+            record: Task, value: Any, _session: Session, _context: Dict[str, Any]
+        ) -> None:
+            record.priority = _normalize_priority(value)
+
+        def mutate_owner(
+            record: Task, value: Any, _session: Session, _context: Dict[str, Any]
+        ) -> None:
+            record.owner_id = _coerce_uuid(value)
+
+        def mutate_session(
+            record: Task, value: Any, _session: Session, _context: Dict[str, Any]
+        ) -> None:
+            record.session_id = _coerce_uuid(value)
+
+        def mutate_metadata(
+            record: Task, value: Any, _session: Session, _context: Dict[str, Any]
+        ) -> None:
+            record.meta = _normalize_meta(
+                value, error_message="Task metadata must be a mapping"
+            )
+
+        def mutate_due_at(
+            record: Task, value: Any, _session: Session, _context: Dict[str, Any]
+        ) -> None:
+            record.due_at = _normalize_due_at(value)
+
+        def build_change_event(
+            record: Task, update_changes: Mapping[str, Any], _context: Dict[str, Any]
+        ) -> Sequence[TaskEvent]:
+            return [
                 TaskEvent(
                     task_id=record.id,
                     event_type=TaskEventType.UPDATED,
-                    payload=event_payload,
+                    payload={"changes": dict(update_changes)},
                 )
-            )
-            if status_changed:
-                events.append(
-                    TaskEvent(
-                        task_id=record.id,
-                        event_type=TaskEventType.STATUS_CHANGED,
-                        payload={
-                            "from": status_before.value,
-                            "to": record.status.value,
-                        },
-                    )
-                )
+            ]
 
-            for event in events:
-                session.add(event)
-            session.flush()
-            payload["events"] = [_serialize_event(event) for event in events]
-            return payload
+        def build_status_event(
+            record: Task, _update_changes: Mapping[str, Any], context: Dict[str, Any]
+        ) -> Sequence[TaskEvent]:
+            if not context.get("status_changed"):
+                return []
+            status_before = context.get("status_before")
+            return [
+                TaskEvent(
+                    task_id=record.id,
+                    event_type=TaskEventType.STATUS_CHANGED,
+                    payload={
+                        "from": status_before.value,
+                        "to": record.status.value,
+                    },
+                )
+            ]
+
+        field_mutators = {
+            "title": mutate_title,
+            "description": mutate_description,
+            "status": mutate_status,
+            "priority": mutate_priority,
+            "owner_id": mutate_owner,
+            "session_id": mutate_session,
+            "metadata": mutate_metadata,
+            "due_at": mutate_due_at,
+        }
+
+        return self._update_with_optimistic_lock(
+            load_record=load_record,
+            expected_updated_at=expected_updated_at,
+            concurrency_error_factory=lambda: TaskConcurrencyError(
+                "Task was modified by another transaction"
+            ),
+            changes=changes,
+            field_mutators=field_mutators,
+            serializer=_serialize_task,
+            event_factories=[build_change_event, build_status_event],
+            event_serializer=_serialize_event,
+            unknown_field_error_factory=lambda field: ValueError(
+                f"Unsupported task attribute: {field}"
+            ),
+            context_factory=context_factory,
+        )
 
     def dependency_statuses(self, task_id: Any, *, tenant_id: Any) -> list[str]:
         tenant_key = _normalize_tenant_id(tenant_id)

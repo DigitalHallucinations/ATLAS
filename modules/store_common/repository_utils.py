@@ -6,7 +6,17 @@ import contextlib
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, Iterator, Mapping, Optional, Type, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    Mapping,
+    Optional,
+    Sequence,
+    Type,
+    TypeVar,
+)
 
 from modules.conversation_store.models import Conversation
 
@@ -157,6 +167,72 @@ class BaseStoreRepository:
             session.flush()
 
             payload["events"] = [event_serializer(event)]
+            return payload
+
+    def _update_with_optimistic_lock(
+        self,
+        *,
+        load_record: Callable[[Session], ModelT],
+        expected_updated_at: Any | None,
+        concurrency_error_factory: Callable[[], Exception],
+        changes: Mapping[str, Any],
+        field_mutators: Mapping[
+            str, Callable[[ModelT, Any, Session, Dict[str, Any]], None]
+        ],
+        serializer: Callable[[ModelT], Dict[str, Any]],
+        event_factories: Sequence[
+            Callable[[ModelT, Mapping[str, Any], Dict[str, Any]], Sequence[EventModelT]]
+        ],
+        event_serializer: Callable[[EventModelT], Dict[str, Any]],
+        unknown_field_error_factory: Callable[[str], Exception],
+        context_factory: Optional[Callable[[ModelT], Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        with self._session_scope() as session:
+            record = load_record(session)
+
+            if expected_updated_at is not None:
+                expected = _coerce_dt(expected_updated_at)
+                current = getattr(record, "updated_at", None)
+                if current is None:
+                    raise concurrency_error_factory()
+                if current.tzinfo is None:
+                    current = current.replace(tzinfo=timezone.utc)
+                else:
+                    current = current.astimezone(timezone.utc)
+                if current != expected:
+                    raise concurrency_error_factory()
+
+            context: Dict[str, Any]
+            if context_factory is None:
+                context = {}
+            else:
+                context = dict(context_factory(record))
+
+            for field, value in changes.items():
+                mutator = field_mutators.get(field)
+                if mutator is None:
+                    raise unknown_field_error_factory(field)
+                mutator(record, value, session, context)
+
+            session.flush()
+            payload = serializer(record)
+
+            events: list[EventModelT] = []
+            for factory in event_factories:
+                produced = factory(record, changes, context)
+                if not produced:
+                    continue
+                events.extend(list(produced))
+
+            for event in events:
+                session.add(event)
+
+            if events:
+                session.flush()
+                payload["events"] = [event_serializer(event) for event in events]
+            else:
+                payload["events"] = []
+
             return payload
 
 
