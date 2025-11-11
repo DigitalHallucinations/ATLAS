@@ -14,6 +14,8 @@ from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
 
 from modules.Tools.tool_event_system import publish_bus_event
 
+from ._evaluation_utils import _normalize_event_name
+
 __all__ = ["eval_regression"]
 
 
@@ -88,7 +90,7 @@ def eval_regression(
         "metadata": normalized_metadata,
     }
 
-    topic = _normalize_event_name(event_name)
+    topic = _normalize_event_name(event_name, default=_DEFAULT_EVENT_NAME)
     correlation = publish_bus_event(topic, payload)
 
     return {
@@ -101,14 +103,6 @@ def eval_regression(
         "summary": summary_payload,
         "metadata": normalized_metadata,
     }
-
-
-def _normalize_event_name(event_name: str | None) -> str:
-    if isinstance(event_name, str) and event_name.strip():
-        return event_name.strip()
-    return _DEFAULT_EVENT_NAME
-
-
 def _resolve_artifact(
     source: Mapping[str, Any] | str,
     artifact_store: Mapping[str, Mapping[str, Any]] | None,

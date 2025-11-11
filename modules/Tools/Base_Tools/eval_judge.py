@@ -14,6 +14,8 @@ from typing import Any, Callable, Iterable, Mapping, MutableMapping, Sequence
 
 from modules.Tools.tool_event_system import publish_bus_event
 
+from ._evaluation_utils import _normalize_event_name
+
 __all__ = ["eval_judge", "register_evaluator", "EvaluatorNotFoundError"]
 
 
@@ -177,7 +179,7 @@ def eval_judge(
         "passed": overall_passed,
     }
 
-    topic = _normalize_event_name(event_name)
+    topic = _normalize_event_name(event_name, default=_DEFAULT_EVENT_NAME)
     correlation = publish_bus_event(topic, payload)
 
     for hook in analytics_hooks:
@@ -194,14 +196,6 @@ def eval_judge(
         "metadata": normalized_metadata,
         "passed": overall_passed,
     }
-
-
-def _normalize_event_name(event_name: str | None) -> str:
-    if not isinstance(event_name, str) or not event_name.strip():
-        return _DEFAULT_EVENT_NAME
-    return event_name.strip()
-
-
 def _normalize_records(
     entries: Sequence[Any] | Mapping[str, Any] | None,
     *,
