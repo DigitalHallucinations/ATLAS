@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 
-__all__ = ["dedupe_strings", "coerce_metadata"]
+__all__ = ["dedupe_strings", "coerce_metadata", "normalize_metrics"]
 
 
 def dedupe_strings(sequence: Sequence[Any] | None, *, lower: bool = False) -> tuple[str, ...]:
@@ -45,3 +45,34 @@ def coerce_metadata(mapping: Mapping[Any, Any] | None) -> Mapping[str, Any]:
     if isinstance(mapping, MutableMapping):
         return dict(mapping)
     return {str(key): value for key, value in mapping.items()}
+
+
+def normalize_metrics(
+    metrics: Mapping[Any, Any] | None,
+) -> Mapping[str, float]:
+    """Return numeric metrics from an optional mapping.
+
+    Args:
+        metrics: Mapping of potential metric values. Non-string keys or values
+            that cannot be coerced to ``float`` are ignored. ``None`` inputs are
+            treated as empty mappings so callers handling optional metrics do
+            not need to special-case the absence of values.
+
+    Returns:
+        A dictionary containing only the metrics that could be converted to
+        ``float`` values.
+    """
+
+    if not metrics:
+        return {}
+
+    normalized: MutableMapping[str, float] = {}
+    for key, value in metrics.items():
+        if not isinstance(key, str):
+            continue
+        try:
+            normalized[key] = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+
+    return dict(normalized)
