@@ -1,8 +1,9 @@
-"""Shared helpers for provider generator caching."""
+"""Shared helpers for provider generator caching and cleanup."""
 
 from __future__ import annotations
 
-from typing import Callable, Optional, TypeVar
+import inspect
+from typing import Any, Callable, Optional, TypeVar
 from weakref import WeakKeyDictionary
 
 from ATLAS.config import ConfigManager
@@ -39,3 +40,28 @@ def get_or_create_generator(
     ) is not model_manager:
         generator.model_manager = model_manager
     return generator
+
+
+async def close_client(client: Any, logger: Any, label: str) -> None:
+    """Attempt to close an SDK client gracefully, logging on failure."""
+
+    if client is None:
+        return
+
+    async_close = getattr(client, "aclose", None)
+    sync_close = getattr(client, "close", None) if not callable(async_close) else None
+
+    try:
+        if callable(async_close):
+            maybe_result = async_close()
+            if inspect.isawaitable(maybe_result):
+                await maybe_result
+        elif callable(sync_close):
+            maybe_result = sync_close()
+            if inspect.isawaitable(maybe_result):
+                await maybe_result
+    except Exception as exc:  # pragma: no cover - defensive cleanup
+        if logger is not None:
+            logger.warning(
+                "Failed to close %s client cleanly: %s", label, exc, exc_info=True
+            )
