@@ -4,6 +4,8 @@ import types
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
+
 sqlalchemy_module = types.ModuleType("sqlalchemy")
 sqlalchemy_engine_module = types.ModuleType("sqlalchemy.engine")
 sqlalchemy_url_module = types.ModuleType("sqlalchemy.engine.url")
@@ -617,3 +619,105 @@ def test_run_skips_virtualenv_and_focuses_on_configuration(monkeypatch):
         "register_user",
         "finalize",
     ]
+
+
+def test_run_non_interactive_consumes_environment(monkeypatch, tmp_path):
+    controller = DummyController()
+    env = {
+        "ATLAS_SETUP_TYPE": "enterprise",
+        "ATLAS_ADMIN_USERNAME": "admin",
+        "ATLAS_ADMIN_EMAIL": "admin@example.com",
+        "ATLAS_ADMIN_PASSWORD": "secret",
+        "ATLAS_ADMIN_FULL_NAME": "Admin User",
+        "ATLAS_ADMIN_DISPLAY_NAME": "Administrator",
+        "ATLAS_ADMIN_DOMAIN": "example.com",
+        "ATLAS_ADMIN_DOB": "2000-01-02",
+        "ATLAS_SUDO_USERNAME": "root",
+        "ATLAS_SUDO_PASSWORD": "sudo-secret",
+        "ATLAS_DATABASE_HOST": "db.example.com",
+        "ATLAS_DATABASE_PORT": "5433",
+        "ATLAS_DATABASE_NAME": "atlas_prod",
+        "ATLAS_DATABASE_USER": "atlas_user",
+        "ATLAS_DATABASE_PASSWORD": "db-pass",
+        "ATLAS_DATABASE_PRIVILEGED_USER": "postgres",
+        "ATLAS_DATABASE_PRIVILEGED_PASSWORD": "pg-pass",
+        "ATLAS_OPTIONAL_TENANT_ID": "tenant-123",
+        "ATLAS_OPTIONAL_HTTP_AUTO_START": "true",
+        "ATLAS_PROVIDER_DEFAULT": "openai",
+        "ATLAS_PROVIDER_KEY_OPENAI": "api-key",
+    }
+
+    sentinel = tmp_path / "sentinel.json"
+
+    utility = SetupUtility(
+        controller=controller,
+        print_func=lambda message: None,
+        env=env,
+    )
+
+    def register_user_stub(self, state=None):
+        self.registered_users.append(dataclasses.replace(self.state.user))
+        return {"username": self.state.user.username}
+
+    controller.register_user = types.MethodType(register_user_stub, controller)
+    monkeypatch.setattr(utility, "finalize", lambda summary: sentinel)
+
+    result = utility.run(non_interactive=True)
+
+    assert result == sentinel
+    assert controller.applied_setup_modes == ["enterprise"]
+    assert controller.registered_users and controller.registered_users[0].username == "admin"
+
+    db_state = controller.applied_database_states[-1]
+    assert db_state.host == "db.example.com"
+    assert db_state.port == 5433
+    assert db_state.database == "atlas_prod"
+    assert db_state.user == "atlas_user"
+    assert db_state.password == "db-pass"
+    assert controller.privileged_credentials[-1] == ("postgres", "pg-pass")
+
+    provider_state = controller.state.providers
+    assert provider_state.default_provider == "openai"
+    assert provider_state.api_keys["openai"] == "api-key"
+
+    optional_state = controller.state.optional
+    assert optional_state.tenant_id == "tenant-123"
+    assert optional_state.http_auto_start is True
+
+
+def test_run_non_interactive_missing_required_fields():
+    controller = DummyController()
+    env = {
+        "ATLAS_ADMIN_USERNAME": "admin",
+        "ATLAS_ADMIN_EMAIL": "admin@example.com",
+        # password intentionally omitted
+    }
+    utility = SetupUtility(
+        controller=controller,
+        print_func=lambda message: None,
+        env=env,
+    )
+
+    with pytest.raises(RuntimeError, match="ATLAS_ADMIN_PASSWORD"):
+        utility.run(non_interactive=True)
+
+
+def test_setup_script_non_interactive_invokes_utility(monkeypatch):
+    from scripts import setup_atlas
+
+    calls: dict[str, object] = {}
+
+    class StubUtility:
+        def __init__(self):
+            calls["instantiated"] = True
+
+        def run(self, *, non_interactive: bool = False):
+            calls["non_interactive"] = non_interactive
+            return Path("/tmp/sentinel.json")
+
+    monkeypatch.setattr(setup_atlas, "SetupUtility", StubUtility)
+
+    exit_code = setup_atlas.main(["--non-interactive"])
+
+    assert exit_code == 0
+    assert calls == {"instantiated": True, "non_interactive": True}

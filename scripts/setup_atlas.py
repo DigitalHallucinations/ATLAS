@@ -20,16 +20,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--non-interactive",
         action="store_true",
-        help="Reserved for future automation hooks (currently unused).",
+        help=(
+            "Run setup without prompts using environment variables or a configuration "
+            "file. See ATLAS.setup.cli.SetupUtility for supported inputs."
+        ),
     )
     args = parser.parse_args(argv)
 
-    if args.non_interactive:
-        parser.error("Non-interactive mode is not implemented yet.")
-
     utility = SetupUtility()
     try:
-        utility.run()
+        utility.run(non_interactive=args.non_interactive)
     except Exception as exc:  # pragma: no cover - surfaced to the caller
         print(f"Setup failed: {exc}", file=sys.stderr)
         return 1
