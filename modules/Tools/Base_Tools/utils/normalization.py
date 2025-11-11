@@ -5,7 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 
-__all__ = ["dedupe_strings", "coerce_metadata", "normalize_metrics"]
+__all__ = [
+    "dedupe_strings",
+    "coerce_metadata",
+    "normalize_metrics",
+    "normalize_mapping_keys",
+]
 
 
 def dedupe_strings(sequence: Sequence[Any] | None, *, lower: bool = False) -> tuple[str, ...]:
@@ -76,3 +81,24 @@ def normalize_metrics(
             continue
 
     return dict(normalized)
+
+
+def normalize_mapping_keys(mapping: Mapping[Any, Any] | None) -> Mapping[str, Any]:
+    """Return a ``dict`` with string keys for the provided mapping.
+
+    Args:
+        mapping: Mapping containing arbitrary key types. ``None`` inputs are
+            treated as empty mappings so callers do not need to special-case the
+            absence of values.
+
+    Returns:
+        A dictionary whose keys have been coerced to strings.
+    """
+
+    if not mapping:
+        return {}
+
+    normalized: dict[str, Any] = {}
+    for key, value in mapping.items():
+        normalized[str(key)] = value
+    return normalized

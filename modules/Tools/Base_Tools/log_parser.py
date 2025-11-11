@@ -8,6 +8,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Any, Mapping, MutableMapping, Sequence
 
+from modules.Tools.Base_Tools.utils.normalization import normalize_mapping_keys
+
 __all__ = ["LogParser", "ParsedLogEntry"]
 
 
@@ -158,7 +160,7 @@ class LogParser:
         if not isinstance(candidate, Mapping):
             return None
 
-        normalized = _normalize_mapping(candidate)
+        normalized = normalize_mapping_keys(candidate)
         timestamp = self._extract_timestamp(normalized)
         severity = self._extract_severity(normalized)
         message = self._extract_message(normalized, default=line.strip())
@@ -254,15 +256,6 @@ class LogParser:
             if isinstance(value, str) and value.strip():
                 return value.strip()
         return default
-
-
-def _normalize_mapping(payload: Mapping[str, Any]) -> Mapping[str, Any]:
-    normalized: dict[str, Any] = {}
-    for key, value in payload.items():
-        normalized[str(key)] = value
-    return normalized
-
-
 def _parse_datetime(value: Any) -> datetime | None:
     if not isinstance(value, str):
         return None

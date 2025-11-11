@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from typing import Any, Mapping, MutableMapping, Sequence
+from typing import Any, Mapping, Sequence
+
+from modules.Tools.Base_Tools.utils.normalization import normalize_mapping_keys
 
 __all__ = ["SysSnapshot", "SnapshotHost"]
 
@@ -30,7 +32,7 @@ class SysSnapshot:
         """Return a structured situational snapshot."""
 
         normalized_hosts = [_normalize_host(entry) for entry in (hosts or [])]
-        normalized_metrics = _normalize_mapping(metrics or {})
+        normalized_metrics = normalize_mapping_keys(metrics)
         normalized_tags = sorted({tag.strip() for tag in (tags or []) if isinstance(tag, str) and tag.strip()})
         normalized_observations = [
             note.strip()
@@ -57,17 +59,10 @@ def _normalize_host(entry: Any) -> SnapshotHost:
         return entry
     if isinstance(entry, Mapping):
         name = str(entry.get("name") or entry.get("hostname") or entry.get("id") or "unknown").strip()
-        metadata = _normalize_mapping(entry)
+        metadata = normalize_mapping_keys(entry)
         metadata.setdefault("name", name)
         return SnapshotHost(name=name or "unknown", metadata=metadata)
     if isinstance(entry, str):
         name = entry.strip()
         return SnapshotHost(name=name or "unknown", metadata={"name": name or "unknown"})
     return SnapshotHost(name="unknown", metadata={"name": "unknown"})
-
-
-def _normalize_mapping(payload: Mapping[str, Any]) -> Mapping[str, Any]:
-    normalized: MutableMapping[str, Any] = {}
-    for key, value in payload.items():
-        normalized[str(key)] = value
-    return dict(normalized)

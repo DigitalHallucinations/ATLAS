@@ -14,8 +14,10 @@ def _load_tool_module(name: str):
     base_pkg = sys.modules.get("modules.Tools.Base_Tools")
     if base_pkg is None:
         base_pkg = types.ModuleType("modules.Tools.Base_Tools")
-        base_pkg.__path__ = []  # type: ignore[attr-defined]
+        base_pkg.__path__ = [str(base.resolve())]  # type: ignore[attr-defined]
         sys.modules["modules.Tools.Base_Tools"] = base_pkg
+    elif not getattr(base_pkg, "__path__", None):
+        base_pkg.__path__ = [str(base.resolve())]  # type: ignore[attr-defined]
     spec = importlib_util.spec_from_file_location(f"tests.dynamic.{name}", base / f"{name}.py")
     if spec is None or spec.loader is None:
         raise ImportError(f"Unable to load tool module {name}")
