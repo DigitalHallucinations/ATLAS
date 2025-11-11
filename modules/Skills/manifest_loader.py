@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional
@@ -78,23 +77,14 @@ except (ModuleNotFoundError, ImportError):  # pragma: no cover - lightweight fal
             return
 
 
-if "yaml" not in sys.modules:
-    from types import SimpleNamespace
-
-    sys.modules["yaml"] = SimpleNamespace(
-        safe_load=lambda *_args, **_kwargs: {},
-        dump=lambda *_args, **_kwargs: None,
-    )
-
-from modules.logging.logger import setup_logger
-
-try:  # ConfigManager may not be available in certain test scenarios
-    from ATLAS.config import ConfigManager
-except Exception:  # pragma: no cover - defensive import guard
-    ConfigManager = None  # type: ignore
+from modules.store_common.manifest_utils import get_manifest_logger, resolve_app_root
 
 
-logger = setup_logger(__name__)
+logger = get_manifest_logger(__name__)
+
+
+def _resolve_app_root(config_manager, logger=logger):
+    return resolve_app_root(config_manager, logger=logger)
 
 _SCHEMA_PATH = Path(__file__).resolve().with_name("schema.json")
 try:
@@ -152,32 +142,6 @@ def load_skill_metadata(*, config_manager=None) -> List[SkillMetadata]:
 
     skills.sort(key=lambda entry: ((entry.persona or ""), entry.name.lower()))
     return skills
-
-
-def _resolve_app_root(config_manager) -> Path:
-    if config_manager is not None:
-        getter = getattr(config_manager, "get_app_root", None)
-        if callable(getter):
-            try:
-                return Path(getter()).expanduser().resolve()
-            except Exception:  # pragma: no cover - defensive guard
-                logger.warning(
-                    "Failed to resolve app root from supplied config manager", exc_info=True
-                )
-
-    if ConfigManager is not None:
-        try:
-            manager = config_manager or ConfigManager()
-            root = getattr(manager, "get_app_root", lambda: None)()
-            if root:
-                return Path(root).expanduser().resolve()
-        except Exception:  # pragma: no cover - defensive guard
-            logger.warning("Unable to resolve app root via ConfigManager", exc_info=True)
-
-    fallback = Path(__file__).resolve().parents[2]
-    logger.debug("Falling back to computed app root at %s", fallback)
-    return fallback
-
 
 def _load_skill_file(path: Path, *, persona: Optional[str], app_root: Path) -> Iterable[SkillMetadata]:
     if not path.exists():
