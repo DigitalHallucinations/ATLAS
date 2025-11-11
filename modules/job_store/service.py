@@ -5,12 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
-from modules.Tools.tool_event_system import publish_bus_event
 from modules.analytics.persona_metrics import record_job_lifecycle_event
 from modules.task_store import TaskStatus
 from modules.store_common.service_utils import (
+    LifecycleServiceBase,
     coerce_enum_value,
-    normalize_owner_identifier as _normalize_owner_identifier,
     parse_timestamp as _parse_timestamp,
 )
 
@@ -139,7 +138,7 @@ def _normalize_task_status(value: Any) -> Optional[TaskStatus]:
         return None
 
 
-class JobService:
+class JobService(LifecycleServiceBase):
     """Application service that coordinates job lifecycle rules."""
 
     def __init__(
@@ -148,15 +147,8 @@ class JobService:
         *,
         event_emitter: Optional[Callable[[str, Mapping[str, Any]], Any]] = None,
     ) -> None:
+        super().__init__(event_emitter=event_emitter)
         self._repository = repository
-        if event_emitter is None:
-            self._emit: Callable[[str, Mapping[str, Any]], Any] = self._default_emit
-        else:
-            self._emit = event_emitter
-
-    @staticmethod
-    def _default_emit(event_name: str, payload: Mapping[str, Any]) -> None:
-        publish_bus_event(event_name, dict(payload))
 
     # -- Repository proxies -------------------------------------------------
 
@@ -285,28 +277,19 @@ class JobService:
 
         snapshot = self._repository.get_job(job_id, tenant_id=tenant_id)
 
-        owner_changed = False
-        if "owner_id" in change_payload:
-            existing_owner = _normalize_owner_identifier(snapshot.get("owner_id"))
-            requested_owner = _normalize_owner_identifier(change_payload["owner_id"])
-            if existing_owner == requested_owner:
-                change_payload.pop("owner_id")
-            else:
-                owner_changed = True
+        change_payload, owner_changed = self.apply_owner_change(
+            snapshot=snapshot,
+            changes=change_payload,
+        )
 
         if not change_payload:
-            if expected_updated_at is not None:
-                expected_timestamp = _parse_timestamp(expected_updated_at)
-                current_timestamp = _parse_timestamp(snapshot.get("updated_at"))
-                if (
-                    expected_timestamp is None
-                    or current_timestamp is None
-                    or current_timestamp != expected_timestamp
-                ):
-                    raise JobConcurrencyError("Job was modified by another transaction")
-            snapshot_payload = dict(snapshot)
-            snapshot_payload.setdefault("events", [])
-            return snapshot_payload
+            return self.prepare_noop_update(
+                snapshot=snapshot,
+                expected_updated_at=expected_updated_at,
+                concurrency_error=JobConcurrencyError,
+                error_message="Job was modified by another transaction",
+                events_field="events",
+            )
 
         updated = self._repository.update_job(
             job_id,
