@@ -9,8 +9,7 @@ from typing import Any, Callable, ContextManager, Dict, Iterator, List, Mapping,
 from ._compat import Session, delete, joinedload, select
 from ._shared import (
     _coerce_uuid,
-    _default_vector_key,
-    _hash_vector,
+    _coerce_vector_payload,
     _normalize_tenant_id,
 )
 from .models import Message, MessageVector
@@ -45,72 +44,19 @@ class VectorStore:
 
     @staticmethod
     def _normalize_vector_payload(message: Message, vector: Mapping[str, Any]) -> _VectorPayload:
-        if not isinstance(vector, Mapping):
-            raise TypeError("Vector payloads must be mappings containing embedding data.")
+        coerced = _coerce_vector_payload(message.id, message.conversation_id, vector)
 
-        provider = vector.get("provider")
-        if provider is not None:
-            provider = str(provider).strip() or None
-
-        model = vector.get("model") or vector.get("embedding_model")
-        if model is not None:
-            model = str(model).strip() or None
-
-        version = vector.get("model_version") or vector.get("embedding_model_version")
-        if version is not None:
-            version = str(version).strip() or None
-
-        raw_values = vector.get("embedding")
-        if raw_values is None:
-            raw_values = vector.get("values")
-        if raw_values is None:
-            raise ValueError("Vector payloads must include 'embedding' or 'values'.")
-        if not isinstance(raw_values, Sequence) or isinstance(raw_values, (bytes, bytearray, str)):
-            raise TypeError("Vector embeddings must be a sequence of numeric values.")
-
-        embedding: List[float] = []
-        for component in raw_values:
-            embedding.append(float(component))
-        if not embedding:
-            raise ValueError("Vector embeddings must contain at least one component.")
-
-        checksum = vector.get("checksum") or vector.get("embedding_checksum")
-        if checksum is None or not str(checksum).strip():
-            checksum = _hash_vector(embedding)
-        else:
-            checksum = str(checksum)
-
-        raw_vector_key = vector.get("vector_key") or vector.get("id")
-        vector_key = str(raw_vector_key).strip() if raw_vector_key is not None else ""
-        if not vector_key:
-            vector_key = _default_vector_key(message.id, provider, model, version)
-
-        metadata = dict(vector.get("metadata") or {})
-        metadata.setdefault("conversation_id", str(message.conversation_id))
-        metadata.setdefault("message_id", str(message.id))
-        metadata.setdefault("namespace", metadata.get("namespace") or str(message.conversation_id))
-        if provider:
-            metadata.setdefault("provider", provider)
-        if model:
-            metadata.setdefault("model", model)
-            metadata.setdefault("embedding_model", model)
-        if version:
-            metadata.setdefault("model_version", version)
-            metadata.setdefault("embedding_model_version", version)
-        metadata.setdefault("vector_key", vector_key)
-        metadata.setdefault("checksum", checksum)
-        metadata.setdefault("embedding_checksum", checksum)
-        metadata.setdefault("dimensions", len(embedding))
+        metadata = dict(coerced.metadata)
 
         return _VectorPayload(
-            provider=provider,
-            vector_key=vector_key,
-            embedding=embedding,
+            provider=coerced.provider,
+            vector_key=coerced.vector_key,
+            embedding=list(coerced.embedding),
             metadata=metadata,
-            model=model,
-            version=version,
-            checksum=str(checksum),
-            dimensions=len(embedding),
+            model=coerced.model,
+            version=coerced.version,
+            checksum=coerced.checksum,
+            dimensions=len(coerced.embedding),
         )
 
     @staticmethod
