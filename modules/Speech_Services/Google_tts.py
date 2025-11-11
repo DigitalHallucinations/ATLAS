@@ -2,13 +2,10 @@
 # Description: Text to speech module using Google Cloud Text-to-Speech
 
 import asyncio
-import os
-import re
 import tempfile
 import threading
 from typing import Any, Optional, Tuple
 
-import pygame
 from google.cloud import texttospeech
 from modules.logging.logger import setup_logger
 from .base import BaseTTS
@@ -28,45 +25,19 @@ class GoogleTTS(BaseTTS):
         self.client = texttospeech.TextToSpeechClient()
         self._playback_thread: Optional[threading.Thread] = None
 
-    def play_audio(self, filename):
-        logger.debug("Playing audio file: %s", filename)
-        try:
-            pygame.mixer.init()
-        except Exception as exc:
-            logger.error(f"Failed to initialize pygame mixer: {exc}")
-            self._cleanup_temp_file(filename)
-            return
-
-        try:
-            pygame.mixer.music.load(filename)
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy():
-                pygame.time.Clock().tick(10)
-            logger.debug("Audio playback finished.")
-        except Exception as exc:
-            logger.error(f"Error during audio playback: {exc}")
-        finally:
-            self._cleanup_temp_file(filename)
-
-    def _cleanup_temp_file(self, filename: str) -> None:
-        try:
-            os.remove(filename)
-            logger.debug(f"Removed temporary audio file: {filename}")
-        except OSError as exc:
-            logger.warning(f"Failed to remove temporary audio file {filename}: {exc}")
-
-    def contains_code(self, text: str) -> bool:
-        logger.debug(f"Checking if text contains code: {text}")
-        return "<code>" in text
-
     async def text_to_speech(self, text: str):
         if not self._use_tts:
             logger.debug("TTS is turned off.")
             return
 
-        if self.contains_code(text):
-            logger.debug("Skipping TTS as the text contains code.")
-            text = re.sub(r"`[^`]*`", "", text)
+        stripped_text = self.strip_code_blocks(text)
+        if stripped_text != text:
+            logger.debug("Skipping code snippets in Google TTS request payload.")
+            text = stripped_text
+
+        if not text:
+            logger.debug("No text remaining after removing code; skipping Google TTS synthesis.")
+            return
 
         synthesis_input = texttospeech.SynthesisInput(text=text)
         audio_config = texttospeech.AudioConfig(
@@ -97,6 +68,14 @@ class GoogleTTS(BaseTTS):
         )
         self._playback_thread = playback_thread
         playback_thread.start()
+
+    def play_audio(self, filename):
+        logger.debug("Playing audio file: %s", filename)
+        self.play_audio_file(
+            filename,
+            logger=logger,
+            cleanup=lambda path: self.safe_remove_file(path, logger=logger),
+        )
 
     def _normalize_voice_payload(self, voice: Any) -> Tuple[Optional[str], Optional[str]]:
         if isinstance(voice, dict):
