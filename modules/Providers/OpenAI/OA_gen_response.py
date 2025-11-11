@@ -14,6 +14,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import List, Dict, Union, AsyncIterator, Optional, Any, Set, Mapping
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
+from modules.Providers.common import get_or_create_generator
 from ATLAS.ToolManager import (
     ToolExecutionError,
     load_function_map_from_current_persona,
@@ -2073,13 +2074,12 @@ def get_generator(
     config_manager: ConfigManager,
     model_manager: Optional[ModelManager] = None,
 ) -> OpenAIGenerator:
-    generator = _GENERATOR_CACHE.get(config_manager)
-    if generator is None:
-        generator = OpenAIGenerator(config_manager, model_manager=model_manager)
-        _GENERATOR_CACHE[config_manager] = generator
-    elif model_manager is not None and generator.model_manager is not model_manager:
-        generator.model_manager = model_manager
-    return generator
+    return get_or_create_generator(
+        config_manager=config_manager,
+        cache=_GENERATOR_CACHE,
+        factory=OpenAIGenerator,
+        model_manager=model_manager,
+    )
 
 
 async def generate_response(

@@ -21,6 +21,7 @@ from ATLAS.ToolManager import (
     use_tool,
 )
 from modules.logging.logger import setup_logger
+from modules.Providers.common import get_or_create_generator
 
 _SUPPORTED_PROMPT_MODES = {"reasoning"}
 
@@ -1195,13 +1196,12 @@ def get_generator(
     config_manager: ConfigManager,
     model_manager: Optional[ModelManager] = None,
 ) -> MistralGenerator:
-    generator = _GENERATOR_CACHE.get(config_manager)
-    if generator is None:
-        generator = MistralGenerator(config_manager, model_manager=model_manager)
-        _GENERATOR_CACHE[config_manager] = generator
-    elif model_manager is not None and generator.model_manager is not model_manager:
-        generator.model_manager = model_manager
-    return generator
+    return get_or_create_generator(
+        config_manager=config_manager,
+        cache=_GENERATOR_CACHE,
+        factory=MistralGenerator,
+        model_manager=model_manager,
+    )
 
 
 def setup_mistral_generator(config_manager: ConfigManager):
