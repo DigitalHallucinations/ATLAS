@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, MutableMapping, Optional
+from typing import Any, Callable, Dict, MutableMapping, Optional, Tuple
 from collections.abc import Mapping
+from urllib.parse import urlparse
+
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.engine.url import make_url
+from sqlalchemy.orm import sessionmaker
+
+from modules.job_store import JobService
+from modules.job_store.repository import JobStoreRepository
+from modules.task_store import TaskService, TaskStoreRepository
+from modules.Tools.Base_Tools.task_queue import (
+    TaskQueueService,
+    get_default_task_queue_service,
+)
+
+from .core import _DEFAULT_CONVERSATION_STORE_DSN, _UNSET
 
 
 KV_STORE_UNSET = object()
@@ -77,6 +94,493 @@ class PersistenceConfigSection:
 
         self.kv_store.apply()
         self.conversation.apply()
+
+
+class PersistenceConfigMixin:
+    """Mixin exposing persistence and task-queue helpers for ConfigManager."""
+
+    def get_kv_store_settings(self) -> Dict[str, Any]:
+        """Return normalized configuration for the key-value store adapter."""
+
+        return copy.deepcopy(self.persistence.kv_store.get_settings())
+
+    def set_kv_store_settings(
+        self,
+        *,
+        url: Any = _UNSET,
+        reuse_conversation_store: Optional[bool] = None,
+        namespace_quota_bytes: Any = _UNSET,
+        global_quota_bytes: Any = _UNSET,
+        pool: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Persist configuration for the PostgreSQL-backed key-value store."""
+
+        updated = self.persistence.kv_store.set_settings(
+            url=url if url is not _UNSET else KV_STORE_UNSET,
+            reuse_conversation_store=reuse_conversation_store,
+            namespace_quota_bytes=(
+                namespace_quota_bytes if namespace_quota_bytes is not _UNSET else KV_STORE_UNSET
+            ),
+            global_quota_bytes=(
+                global_quota_bytes if global_quota_bytes is not _UNSET else KV_STORE_UNSET
+            ),
+            pool=pool,
+        )
+        return copy.deepcopy(updated)
+
+    def get_kv_store_engine(
+        self,
+        *,
+        adapter_config: Optional[Mapping[str, Any]] = None,
+    ) -> Engine | None:
+        """Return a SQLAlchemy engine configured for the KV store."""
+
+        return self.persistence.kv_store.get_engine(adapter_config=adapter_config)
+
+    def get_conversation_database_config(self) -> Dict[str, Any]:
+        """Return the merged configuration block for the conversation database."""
+
+        return self.persistence.conversation.get_config()
+
+    def ensure_postgres_conversation_store(self) -> str:
+        """Verify the configured PostgreSQL conversation store without provisioning it."""
+
+        return self.persistence.conversation.ensure_postgres_store()
+
+    def _conversation_store_required_tables(self) -> set[str]:
+        """Return the set of tables that must exist in the conversation database."""
+
+        from modules.conversation_store.models import Base as ConversationBase
+
+        return {table.name for table in ConversationBase.metadata.tables.values()}
+
+    def is_conversation_store_verified(self) -> bool:
+        """Return ``True`` if the conversation store connection has been verified."""
+
+        return self.persistence.conversation.is_verified()
+
+    def get_conversation_retention_policies(self) -> Dict[str, Any]:
+        """Return configured retention policies for the conversation store."""
+
+        return self.persistence.conversation.get_retention_policies()
+
+    def set_conversation_retention(
+        self,
+        *,
+        days: Optional[int] = None,
+        history_limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Persist conversation retention settings under the conversation block."""
+
+        return self.persistence.conversation.set_retention(
+            days=days,
+            history_limit=history_limit,
+        )
+
+    def get_conversation_store_engine(self) -> Engine | None:
+        """Return a configured SQLAlchemy engine for the conversation store."""
+
+        return self.persistence.conversation.get_engine()
+
+    def get_conversation_store_session_factory(self) -> sessionmaker | None:
+        """Return a configured session factory for the conversation store."""
+
+        return self.persistence.conversation.get_session_factory()
+
+    def get_task_store_session_factory(self) -> sessionmaker | None:
+        """Return a session factory for task persistence that shares the conversation engine."""
+
+        if self._task_session_factory is not None:
+            return self._task_session_factory
+
+        conversation_factory = self.get_conversation_store_session_factory()
+        if conversation_factory is None:
+            return None
+
+        self._task_session_factory = conversation_factory
+        return conversation_factory
+
+    def get_task_repository(self) -> TaskStoreRepository | None:
+        """Return a configured repository for task persistence."""
+
+        if self._task_repository is not None:
+            return self._task_repository
+
+        factory = self.get_task_store_session_factory()
+        if factory is None:
+            return None
+
+        repository = TaskStoreRepository(factory)
+        try:
+            repository.create_schema()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.warning("Failed to initialize task store schema: %s", exc)
+        self._task_repository = repository
+        return repository
+
+    def get_task_service(self) -> TaskService | None:
+        """Return the task lifecycle service backed by the repository."""
+
+        if self._task_service is not None:
+            return self._task_service
+
+        repository = self.get_task_repository()
+        if repository is None:
+            return None
+
+        service = TaskService(repository)
+        self._task_service = service
+        return service
+
+    def get_job_repository(self) -> JobStoreRepository | None:
+        """Return a configured repository for scheduled job persistence."""
+
+        if self._job_repository is not None:
+            return self._job_repository
+
+        factory = self.get_task_store_session_factory()
+        if factory is None:
+            return None
+
+        repository = JobStoreRepository(factory)
+        try:
+            repository.create_schema()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.warning("Failed to initialize job store schema: %s", exc)
+        self._job_repository = repository
+        return repository
+
+    def get_job_service(self) -> JobService | None:
+        """Return the job orchestration service backed by the repository."""
+
+        if self._job_service is not None:
+            return self._job_service
+
+        repository = self.get_job_repository()
+        if repository is None:
+            return None
+
+        service = JobService(repository)
+        self._job_service = service
+        return service
+
+    def get_job_manager(self) -> "JobManager" | None:
+        """Return the active job manager registered with the configuration."""
+
+        return self._job_manager
+
+    def set_job_manager(self, manager: "JobManager" | None) -> None:
+        """Record the active job manager for downstream consumers."""
+
+        self._job_manager = manager
+
+    def get_job_scheduler(self) -> "JobScheduler" | None:
+        """Return the active job scheduler registered with the configuration."""
+
+        return self._job_scheduler
+
+    def set_job_scheduler(self, scheduler: "JobScheduler" | None) -> None:
+        """Record the active job scheduler for downstream consumers."""
+
+        self._job_scheduler = scheduler
+
+    def get_default_task_queue_service(self) -> TaskQueueService | None:
+        """Return the shared task queue service used for scheduled jobs."""
+
+        if self._task_queue_service is not None:
+            return self._task_queue_service
+
+        if not self.is_job_scheduling_enabled():
+            self.logger.debug("Job scheduling disabled; skipping task queue initialisation")
+            return None
+
+        try:
+            service = get_default_task_queue_service(config_manager=self)
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            self.logger.warning("Failed to initialize task queue service: %s", exc)
+            return None
+
+        self._task_queue_service = service
+        return service
+
+    def _build_conversation_store_session_factory(
+        self,
+    ) -> Tuple[Engine | None, sessionmaker | None]:
+        ensured_url = self.ensure_postgres_conversation_store()
+
+        config = self.get_conversation_database_config()
+        url = ensured_url
+
+        try:
+            parsed_url = make_url(url)
+        except Exception as exc:
+            message = f"Invalid conversation database URL {url!r}: {exc}"
+            self.logger.error(message)
+            raise RuntimeError(message) from exc
+
+        drivername = (parsed_url.drivername or "").lower()
+        dialect = drivername.split("+", 1)[0]
+        if dialect != "postgresql":
+            message = (
+                "Conversation database URL must use the 'postgresql' dialect; "
+                f"received '{parsed_url.drivername}'."
+            )
+            self.logger.error(message)
+            raise RuntimeError(message)
+
+        pool_config = config.get("pool") or {}
+        engine_kwargs: Dict[str, Any] = {}
+        if isinstance(pool_config, Mapping):
+            size = pool_config.get("size")
+            if size is not None:
+                engine_kwargs["pool_size"] = int(size)
+            max_overflow = pool_config.get("max_overflow")
+            if max_overflow is not None:
+                engine_kwargs["max_overflow"] = int(max_overflow)
+            timeout = pool_config.get("timeout")
+            if timeout is not None:
+                engine_kwargs["pool_timeout"] = int(timeout)
+
+        engine = create_engine(url, future=True, **engine_kwargs)
+        factory = sessionmaker(bind=engine, future=True)
+        return engine, factory
+
+    def get_job_scheduling_settings(self) -> Dict[str, Any]:
+        """Return the merged configuration for job scheduling defaults."""
+
+        settings: Dict[str, Any] = {}
+        stored = self.config.get('job_scheduling')
+        if isinstance(stored, Mapping):
+            settings.update(stored)
+
+        job_store_value = settings.get('job_store_url')
+        if isinstance(job_store_value, str) and job_store_value.strip():
+            try:
+                settings['job_store_url'] = self._normalize_job_store_url(
+                    job_store_value,
+                    'job_scheduling.job_store_url',
+                )
+            except ValueError as exc:
+                self.logger.warning("Ignoring invalid job scheduling job store URL: %s", exc)
+                settings.pop('job_store_url', None)
+
+        queue_block = self.config.get('task_queue')
+        if isinstance(queue_block, Mapping):
+            if 'job_store_url' not in settings and queue_block.get('jobstore_url'):
+                settings['job_store_url'] = queue_block.get('jobstore_url')
+            if 'max_workers' not in settings and queue_block.get('max_workers') is not None:
+                settings['max_workers'] = queue_block.get('max_workers')
+            if 'timezone' not in settings and queue_block.get('timezone'):
+                settings['timezone'] = queue_block.get('timezone')
+            if 'queue_size' not in settings and queue_block.get('queue_size') is not None:
+                settings['queue_size'] = queue_block.get('queue_size')
+            if 'retry_policy' not in settings and queue_block.get('retry_policy'):
+                settings['retry_policy'] = queue_block.get('retry_policy')
+
+        if 'job_store_url' not in settings or not settings['job_store_url']:
+            try:
+                default_job_store = self.get_job_store_url(require=False)
+            except RuntimeError:
+                default_job_store = ''
+            if default_job_store:
+                settings['job_store_url'] = default_job_store
+
+        settings['enabled'] = bool(settings.get('enabled'))
+
+        if settings.get('max_workers') is not None:
+            try:
+                settings['max_workers'] = int(settings['max_workers'])
+            except (TypeError, ValueError):
+                settings.pop('max_workers', None)
+
+        if settings.get('queue_size') is not None:
+            try:
+                settings['queue_size'] = int(settings['queue_size'])
+            except (TypeError, ValueError):
+                settings.pop('queue_size', None)
+
+        retry = settings.get('retry_policy')
+        if isinstance(retry, Mapping):
+            settings['retry_policy'] = {
+                'max_attempts': int(retry.get('max_attempts', 3) or 3),
+                'backoff_seconds': float(retry.get('backoff_seconds', 30.0) or 30.0),
+                'jitter_seconds': float(retry.get('jitter_seconds', 5.0) or 5.0),
+                'backoff_multiplier': float(retry.get('backoff_multiplier', 2.0) or 2.0),
+            }
+        else:
+            settings['retry_policy'] = {
+                'max_attempts': 3,
+                'backoff_seconds': 30.0,
+                'jitter_seconds': 5.0,
+                'backoff_multiplier': 2.0,
+            }
+
+        return settings
+
+    def set_job_scheduling_settings(
+        self,
+        *,
+        enabled: Optional[bool] = None,
+        job_store_url: Any = _UNSET,
+        max_workers: Any = _UNSET,
+        retry_policy: Optional[Mapping[str, Any]] = None,
+        timezone: Any = _UNSET,
+        queue_size: Any = _UNSET,
+    ) -> Dict[str, Any]:
+        """Persist job scheduling defaults and mirror them to task queue settings."""
+
+        existing = self.get_job_scheduling_settings()
+        updated = dict(existing)
+
+        if enabled is not None:
+            updated['enabled'] = bool(enabled)
+
+        if job_store_url is not _UNSET:
+            text = str(job_store_url).strip() if isinstance(job_store_url, str) else str(job_store_url or '')
+            if text:
+                normalized = self._normalize_job_store_url(text, 'job_scheduling.job_store_url')
+                updated['job_store_url'] = normalized
+            else:
+                updated.pop('job_store_url', None)
+
+        if max_workers is not _UNSET:
+            if max_workers in (None, ''):
+                updated.pop('max_workers', None)
+            else:
+                updated['max_workers'] = int(max_workers)
+
+        if timezone is not _UNSET:
+            if timezone in (None, ''):
+                updated.pop('timezone', None)
+            else:
+                updated['timezone'] = str(timezone).strip()
+
+        if queue_size is not _UNSET:
+            if queue_size in (None, ''):
+                updated.pop('queue_size', None)
+            else:
+                updated['queue_size'] = int(queue_size)
+
+        if retry_policy is not None:
+            normalized_retry = {}
+            normalized_retry['max_attempts'] = int(retry_policy.get('max_attempts', 3) or 3)
+            normalized_retry['backoff_seconds'] = float(retry_policy.get('backoff_seconds', 30.0) or 30.0)
+            normalized_retry['jitter_seconds'] = float(retry_policy.get('jitter_seconds', 5.0) or 5.0)
+            normalized_retry['backoff_multiplier'] = float(retry_policy.get('backoff_multiplier', 2.0) or 2.0)
+            updated['retry_policy'] = normalized_retry
+
+        self.yaml_config['job_scheduling'] = dict(updated)
+        self.config['job_scheduling'] = dict(updated)
+
+        queue_block = dict(self.yaml_config.get('task_queue', {}))
+        if updated.get('job_store_url'):
+            queue_block['jobstore_url'] = updated['job_store_url']
+        else:
+            queue_block.pop('jobstore_url', None)
+
+        if updated.get('max_workers') is not None:
+            queue_block['max_workers'] = updated['max_workers']
+        else:
+            queue_block.pop('max_workers', None)
+
+        if updated.get('timezone'):
+            queue_block['timezone'] = updated['timezone']
+        else:
+            queue_block.pop('timezone', None)
+
+        if updated.get('queue_size') is not None:
+            queue_block['queue_size'] = updated['queue_size']
+        else:
+            queue_block.pop('queue_size', None)
+
+        if updated.get('retry_policy'):
+            queue_block['retry_policy'] = dict(updated['retry_policy'])
+        else:
+            queue_block.pop('retry_policy', None)
+
+        if queue_block:
+            self.yaml_config['task_queue'] = dict(queue_block)
+            self.config['task_queue'] = dict(queue_block)
+        else:
+            self.yaml_config.pop('task_queue', None)
+            self.config.pop('task_queue', None)
+
+        self._write_yaml_config()
+        return dict(updated)
+
+    def is_job_scheduling_enabled(self) -> bool:
+        """Return True when job scheduling should be initialised."""
+
+        settings = self.get_job_scheduling_settings()
+        return bool(settings.get('enabled'))
+
+    def get_job_store_url(self, require: bool = True) -> str:
+        """Return the configured PostgreSQL job store URL for the task queue."""
+
+        candidates: list[tuple[str, Any]] = []
+
+        stored = self.config.get('job_scheduling')
+        if isinstance(stored, Mapping):
+            candidates.append(('job_scheduling.job_store_url', stored.get('job_store_url')))
+
+        queue_block = self.config.get('task_queue')
+        if isinstance(queue_block, Mapping):
+            candidates.append(('task_queue.jobstore_url', queue_block.get('jobstore_url')))
+
+        env_url = self.env_config.get('TASK_QUEUE_JOBSTORE_URL')
+        if env_url is None:
+            env_url = self.config.get('TASK_QUEUE_JOBSTORE_URL')
+        candidates.append(('TASK_QUEUE_JOBSTORE_URL', env_url))
+
+        for source, value in candidates:
+            if value is None:
+                continue
+            try:
+                return self._normalize_job_store_url(value, source)
+            except ValueError as exc:
+                self.logger.debug("Skipping %s for job store URL: %s", source, exc)
+
+        conversation_config = self.get_conversation_database_config()
+        conversation_url = conversation_config.get('url')
+        if conversation_url:
+            try:
+                return self._normalize_job_store_url(conversation_url, 'conversation_database.url')
+            except ValueError as exc:
+                self.logger.debug("Conversation store URL unsuitable for job store: %s", exc)
+
+        try:
+            return self._normalize_job_store_url(
+                _DEFAULT_CONVERSATION_STORE_DSN,
+                'default conversation store DSN',
+            )
+        except ValueError:
+            if require:
+                raise RuntimeError(
+                    "Task queue requires a PostgreSQL job store URL. "
+                    "Set `job_scheduling.job_store_url` or `task_queue.jobstore_url` "
+                    "to a PostgreSQL DSN."
+                )
+            return ''
+
+    @staticmethod
+    def _normalize_job_store_url(url: Any, source: str) -> str:
+        """Validate and normalize PostgreSQL job store URLs."""
+
+        if not isinstance(url, str):
+            raise ValueError(f"{source} must be a string")
+
+        candidate = url.strip()
+        if not candidate:
+            raise ValueError(f"{source} must not be empty")
+
+        parsed = urlparse(candidate)
+        scheme = (parsed.scheme or '').lower()
+        if not scheme.startswith('postgresql'):
+            raise ValueError(
+                f"{source} must use the 'postgresql' dialect; received '{parsed.scheme or 'missing'}'"
+            )
+
+        return candidate
 
 
 @dataclass(kw_only=True)

@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, MutableMapping
+from typing import Any, Callable, MutableMapping, Tuple
 from collections.abc import Mapping
+
+from modules.orchestration.message_bus import (
+    InMemoryQueueBackend,
+    MessageBus,
+    RedisStreamBackend,
+    configure_message_bus,
+)
 
 
 @dataclass
@@ -61,3 +68,27 @@ class MessagingConfigSection:
         self.config["messaging"] = dict(block)
         self.write_yaml_callback()
         return dict(block)
+
+
+def setup_message_bus(settings: Mapping[str, Any], *, logger: Any) -> Tuple[Any, MessageBus]:
+    """Instantiate a message bus backend according to the provided settings."""
+
+    backend_name = str(settings.get("backend", "in_memory") or "in_memory").lower()
+
+    backend: Any
+    if backend_name == "redis":
+        redis_url = settings.get("redis_url")
+        stream_prefix = settings.get("stream_prefix", "atlas_bus")
+        try:
+            backend = RedisStreamBackend(str(redis_url), stream_prefix=str(stream_prefix))
+        except Exception as exc:  # pragma: no cover - Redis optional dependency
+            logger.warning(
+                "Falling back to in-memory message bus backend due to Redis configuration error: %s",
+                exc,
+            )
+            backend = InMemoryQueueBackend()
+    else:
+        backend = InMemoryQueueBackend()
+
+    bus = configure_message_bus(backend)
+    return backend, bus

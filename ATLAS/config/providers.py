@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import copy
 import json
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
+from .core import _UNSET
 
 PROVIDER_UNSET = object()
 
@@ -1764,3 +1765,1028 @@ class MistralProviderConfig:
 
         return copy.deepcopy(settings)
 
+
+
+
+class ProviderConfigMixin:
+    """Mixin exposing provider-related helpers for ConfigManager."""
+
+    _DEFAULT_HUGGINGFACE_GENERATION_SETTINGS: Dict[str, Any] = {
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "top_k": 50,
+        "max_tokens": 100,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "repetition_penalty": 1.0,
+        "length_penalty": 1.0,
+        "early_stopping": False,
+        "do_sample": False,
+    }
+
+    def get_llm_fallback_config(self) -> Dict[str, Any]:
+        """Return the configured fallback provider settings with sensible defaults."""
+
+        return self.providers.get_llm_fallback_config()
+
+    def set_google_credentials(self, credentials_path: str):
+        """Persist Google application credentials and refresh process state."""
+
+        self.providers.google.set_credentials(credentials_path)
+
+    def get_pending_provider_warnings(self) -> Dict[str, str]:
+        """Return provider credential warnings that should be surfaced to operators."""
+        return self.providers.get_pending_provider_warnings()
+
+    def is_default_provider_ready(self) -> bool:
+        """Return True when the configured default provider has a usable credential."""
+        return self.providers.is_default_provider_ready()
+
+    def get_google_speech_settings(self) -> Dict[str, Any]:
+        """Return persisted Google speech preferences when available."""
+        return self.providers.google.get_speech_settings()
+
+    def set_google_speech_settings(
+        self,
+        *,
+        tts_voice: Optional[str] = None,
+        stt_language: Optional[str] = None,
+        auto_punctuation: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Persist Google speech preferences to the YAML configuration."""
+        return self.providers.google.set_speech_settings(
+            tts_voice=tts_voice,
+            stt_language=stt_language,
+            auto_punctuation=auto_punctuation,
+        )
+
+    def set_hf_token(self, token: str):
+        """Persist the Hugging Face access token."""
+
+        if not token:
+            raise ValueError("Hugging Face token cannot be empty.")
+
+        self._persist_env_value("HUGGINGFACE_API_KEY", token)
+        self.logger.info("Hugging Face token updated.")
+
+    def set_elevenlabs_api_key(self, api_key: str):
+        """Persist the ElevenLabs access token."""
+
+        if not api_key:
+            raise ValueError("ElevenLabs API key cannot be empty.")
+
+        self._persist_env_value("XI_API_KEY", api_key)
+        self.logger.info("ElevenLabs API key updated.")
+
+    def set_openai_speech_config(
+        self,
+        *,
+        api_key: Optional[str] = None,
+        stt_provider: Optional[str] = None,
+        tts_provider: Optional[str] = None,
+        language: Optional[str] = None,
+        task: Optional[str] = None,
+        initial_prompt: Optional[str] = None,
+    ):
+        """Persist OpenAI speech configuration values."""
+        self.providers.openai.set_speech_config(
+            api_key=api_key,
+            stt_provider=stt_provider,
+            tts_provider=tts_provider,
+            language=language,
+            task=task,
+            initial_prompt=initial_prompt,
+        )
+
+    def set_openai_llm_settings(
+        self,
+        *,
+        model: Optional[str],
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        max_output_tokens: Optional[int] = None,
+        stream: Optional[bool] = None,
+        function_calling: Optional[bool] = None,
+        parallel_tool_calls: Optional[bool] = None,
+        tool_choice: Optional[str] = None,
+        enable_code_interpreter: Optional[bool] = None,
+        enable_file_search: Optional[bool] = None,
+        base_url: Optional[str] = None,
+        organization: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
+        json_mode: Optional[Any] = None,
+        json_schema: Optional[Any] = None,
+        audio_enabled: Optional[bool] = None,
+        audio_voice: Optional[str] = None,
+        audio_format: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist OpenAI chat-completion defaults and related metadata."""
+        return self.providers.openai.set_llm_settings(
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            max_tokens=max_tokens,
+            max_output_tokens=max_output_tokens,
+            stream=stream,
+            function_calling=function_calling,
+            parallel_tool_calls=parallel_tool_calls,
+            tool_choice=tool_choice,
+            enable_code_interpreter=enable_code_interpreter,
+            enable_file_search=enable_file_search,
+            base_url=base_url,
+            organization=organization,
+            reasoning_effort=reasoning_effort,
+            json_mode=json_mode,
+            json_schema=json_schema,
+            audio_enabled=audio_enabled,
+            audio_voice=audio_voice,
+            audio_format=audio_format,
+        )
+
+    def get_google_llm_settings(self) -> Dict[str, Any]:
+        """Return the persisted Google LLM defaults, if configured."""
+
+        return self.providers.google.get_llm_settings()
+
+    def set_google_llm_settings(
+        self,
+        *,
+        model: str,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        top_k: Optional[Any] = None,
+        candidate_count: Optional[Any] = None,
+        max_output_tokens: Optional[Any] = None,
+        stop_sequences: Optional[Any] = None,
+        safety_settings: Optional[Any] = None,
+        response_mime_type: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+        stream: Optional[bool] = None,
+        function_calling: Optional[bool] = None,
+        function_call_mode: Optional[str] = None,
+        allowed_function_names: Optional[Any] = None,
+        response_schema: Optional[Any] = None,
+        cached_allowed_function_names: Any = _UNSET,
+        seed: Optional[Any] = None,
+        response_logprobs: Optional[bool] = None,
+        base_url: Any = _UNSET,
+    ) -> Dict[str, Any]:
+        """Persist default configuration for the Google Gemini provider.
+
+        Args:
+            model: Default Gemini model identifier.
+        """
+
+        return self.providers.google.set_llm_settings(
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            candidate_count=candidate_count,
+            max_output_tokens=max_output_tokens,
+            stop_sequences=stop_sequences,
+            safety_settings=safety_settings,
+            response_mime_type=response_mime_type,
+            system_instruction=system_instruction,
+            stream=stream,
+            function_calling=function_calling,
+            function_call_mode=function_call_mode,
+            allowed_function_names=allowed_function_names,
+            response_schema=response_schema,
+            cached_allowed_function_names=cached_allowed_function_names,
+            seed=seed,
+            response_logprobs=response_logprobs,
+            base_url=base_url,
+        )
+
+    def get_default_provider(self) -> Optional[str]:
+        """Return the configured default provider name, if set."""
+
+        value = self.get_config("DEFAULT_PROVIDER")
+        if isinstance(value, str):
+            token = value.strip()
+            return token or None
+        return None
+
+    def get_default_model(self) -> Optional[str]:
+        """Return the configured default LLM model identifier, if set."""
+
+        value = self.get_config("DEFAULT_MODEL")
+        if isinstance(value, str):
+            token = value.strip()
+            return token or None
+        return None
+
+    def set_default_provider(self, provider: Optional[str]) -> Optional[str]:
+        """Persist the default provider across configuration stores."""
+
+        normalized = provider.strip() if isinstance(provider, str) else None
+        if not normalized:
+            normalized = None
+
+        if normalized is None:
+            self.yaml_config.pop("DEFAULT_PROVIDER", None)
+            self.config.pop("DEFAULT_PROVIDER", None)
+        else:
+            self.yaml_config["DEFAULT_PROVIDER"] = normalized
+            self.config["DEFAULT_PROVIDER"] = normalized
+
+        self._persist_env_value("DEFAULT_PROVIDER", normalized)
+        self.env_config["DEFAULT_PROVIDER"] = normalized
+        self._write_yaml_config()
+        return normalized
+
+    def set_default_model(self, model: Optional[str]) -> Optional[str]:
+        """Persist the default model selection across configuration stores."""
+
+        normalized = model.strip() if isinstance(model, str) else None
+        if not normalized:
+            normalized = None
+
+        if normalized is None:
+            self.yaml_config.pop("DEFAULT_MODEL", None)
+            self.config.pop("DEFAULT_MODEL", None)
+        else:
+            self.yaml_config["DEFAULT_MODEL"] = normalized
+            self.config["DEFAULT_MODEL"] = normalized
+
+        self._persist_env_value("DEFAULT_MODEL", normalized)
+        self.env_config["DEFAULT_MODEL"] = normalized
+        self._write_yaml_config()
+        return normalized
+
+    def get_mistral_llm_settings(self) -> Dict[str, Any]:
+        """Return persisted defaults for the Mistral chat provider."""
+
+        return self.providers.mistral.get_llm_settings()
+
+    def set_mistral_llm_settings(
+        self,
+        *,
+        model: str,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        safe_prompt: Optional[bool] = None,
+        stream: Optional[bool] = None,
+        random_seed: Optional[Any] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
+        tool_choice: Optional[Any] = None,
+        parallel_tool_calls: Optional[bool] = None,
+        stop_sequences: Any = _UNSET,
+        json_mode: Optional[Any] = None,
+        json_schema: Optional[Any] = None,
+        max_retries: Optional[int] = None,
+        retry_min_seconds: Optional[int] = None,
+        retry_max_seconds: Optional[int] = None,
+        base_url: Any = _UNSET,
+        prompt_mode: Any = _UNSET,
+    ) -> Dict[str, Any]:
+        """Persist default configuration for the Mistral chat provider."""
+
+        return self.providers.mistral.set_llm_settings(
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            safe_prompt=safe_prompt,
+            stream=stream,
+            random_seed=random_seed,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            tool_choice=tool_choice,
+            parallel_tool_calls=parallel_tool_calls,
+            stop_sequences=stop_sequences,
+            json_mode=json_mode,
+            json_schema=json_schema,
+            max_retries=max_retries,
+            retry_min_seconds=retry_min_seconds,
+            retry_max_seconds=retry_max_seconds,
+            base_url=base_url,
+            prompt_mode=prompt_mode,
+        )
+
+    def get_huggingface_generation_settings(self) -> Dict[str, Any]:
+        """Return persisted Hugging Face generation defaults."""
+
+        defaults = copy.deepcopy(self._DEFAULT_HUGGINGFACE_GENERATION_SETTINGS)
+        block = self.config.get("HUGGINGFACE")
+        stored: Optional[Mapping[str, Any]]
+        if isinstance(block, Mapping):
+            stored = block.get("generation_settings")  # type: ignore[assignment]
+        else:
+            stored = None
+
+        if isinstance(stored, Mapping):
+            for key, value in stored.items():
+                if key in defaults:
+                    defaults[key] = value
+
+        return defaults
+
+    def set_huggingface_generation_settings(self, settings: Mapping[str, Any]) -> Dict[str, Any]:
+        """Persist Hugging Face generation defaults with validation."""
+
+        if not isinstance(settings, Mapping):
+            raise ValueError("Settings must be provided as a mapping")
+
+        normalized = copy.deepcopy(self.get_huggingface_generation_settings())
+
+        def _coerce_bool(value: Any) -> bool:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                normalized_str = value.strip().lower()
+                if normalized_str in {"1", "true", "yes", "on"}:
+                    return True
+                if normalized_str in {"0", "false", "no", "off"}:
+                    return False
+            return bool(value)
+
+        def _normalize_value(key: str, value: Any) -> Any:
+            if value is None:
+                raise ValueError(f"{key.replace('_', ' ').title()} cannot be None")
+
+            if key == "temperature":
+                numeric = float(value)
+                if not 0.0 <= numeric <= 2.0:
+                    raise ValueError("Temperature must be between 0.0 and 2.0")
+                return numeric
+            if key == "top_p":
+                numeric = float(value)
+                if not 0.0 <= numeric <= 1.0:
+                    raise ValueError("Top-p must be between 0.0 and 1.0")
+                return numeric
+            if key == "top_k":
+                integer = int(value)
+                if integer < 0:
+                    raise ValueError("Top-k must be greater than or equal to 0")
+                return integer
+            if key == "max_tokens":
+                integer = int(value)
+                if integer <= 0:
+                    raise ValueError("Max tokens must be a positive integer")
+                return integer
+            if key in {"presence_penalty", "frequency_penalty"}:
+                numeric = float(value)
+                if not -2.0 <= numeric <= 2.0:
+                    raise ValueError(
+                        f"{key.replace('_', ' ').title()} must be between -2.0 and 2.0"
+                    )
+                return numeric
+            if key == "repetition_penalty":
+                numeric = float(value)
+                if numeric <= 0:
+                    raise ValueError("Repetition penalty must be greater than 0")
+                return numeric
+            if key == "length_penalty":
+                numeric = float(value)
+                if numeric < 0:
+                    raise ValueError("Length penalty must be non-negative")
+                return numeric
+            if key in {"early_stopping", "do_sample"}:
+                return _coerce_bool(value)
+
+            raise ValueError(f"Unsupported Hugging Face setting '{key}'")
+
+        for key in self._DEFAULT_HUGGINGFACE_GENERATION_SETTINGS:
+            if key not in settings:
+                continue
+            normalized[key] = _normalize_value(key, settings[key])
+
+        block = self.yaml_config.get("HUGGINGFACE")
+        if isinstance(block, Mapping):
+            block_dict: Dict[str, Any] = dict(block)
+        else:
+            block_dict = {}
+
+        block_dict["generation_settings"] = copy.deepcopy(normalized)
+        self.yaml_config["HUGGINGFACE"] = copy.deepcopy(block_dict)
+        self.config["HUGGINGFACE"] = copy.deepcopy(block_dict)
+
+        self._write_yaml_config()
+
+        return copy.deepcopy(normalized)
+
+    def set_anthropic_settings(
+        self,
+        *,
+        model: Optional[str] = None,
+        stream: Optional[bool] = None,
+        function_calling: Optional[bool] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        top_k: Any = _UNSET,
+        max_output_tokens: Optional[int] = None,
+        timeout: Optional[int] = None,
+        max_retries: Optional[int] = None,
+        retry_delay: Optional[int] = None,
+        stop_sequences: Any = _UNSET,
+        tool_choice: Any = _UNSET,
+        tool_choice_name: Any = _UNSET,
+        metadata: Any = _UNSET,
+        thinking: Optional[bool] = None,
+        thinking_budget: Any = _UNSET,
+    ) -> Dict[str, Any]:
+        """Persist Anthropic defaults while validating incoming payloads."""
+
+        defaults = {
+            'model': 'claude-3-opus-20240229',
+            'stream': True,
+            'function_calling': False,
+            'temperature': 0.0,
+            'top_p': 1.0,
+            'top_k': None,
+            'max_output_tokens': None,
+            'timeout': 60,
+            'max_retries': 3,
+            'retry_delay': 5,
+            'stop_sequences': [],
+            'tool_choice': 'auto',
+            'tool_choice_name': None,
+            'metadata': {},
+            'thinking': False,
+            'thinking_budget': None,
+        }
+
+        settings_block = dict(defaults)
+        existing = self.yaml_config.get('ANTHROPIC_LLM')
+        if isinstance(existing, dict):
+            for key in settings_block.keys():
+                if key in existing and existing[key] is not None:
+                    try:
+                        if key == 'top_k':
+                            settings_block[key] = self._coerce_optional_bounded_int(
+                                existing[key],
+                                field='Top-k',
+                                minimum=1,
+                                maximum=500,
+                            )
+                        elif key == 'stop_sequences':
+                            settings_block[key] = self._coerce_stop_sequences(existing[key])
+                        elif key == 'metadata':
+                            settings_block[key] = self._coerce_metadata(existing[key])
+                        else:
+                            settings_block[key] = existing[key]
+                    except ValueError as exc:  # pragma: no cover - defensive logging
+                        self.logger.warning(
+                            "Ignoring persisted Anthropic %s override: %s",
+                            key,
+                            exc,
+                        )
+
+        def _normalize_model(value: Optional[str], previous: Optional[str]) -> str:
+            if value is None:
+                return previous or defaults['model']
+            if not isinstance(value, str):
+                raise ValueError("Model must be provided as a string.")
+            cleaned = value.strip()
+            if not cleaned:
+                raise ValueError("Model cannot be empty.")
+            return cleaned
+
+        def _normalize_bool(value: Optional[bool], previous: bool) -> bool:
+            if value is None:
+                return bool(previous)
+            return bool(value)
+
+        def _normalize_float(
+            value: Optional[Any],
+            previous: float,
+            *,
+            field: str,
+            minimum: float,
+            maximum: float,
+        ) -> float:
+            candidate: Optional[float]
+            if value is None:
+                candidate = float(previous)
+            else:
+                try:
+                    candidate = float(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{field} must be a number.") from exc
+            if candidate is None or not minimum <= candidate <= maximum:
+                raise ValueError(
+                    f"{field} must be between {minimum} and {maximum}."
+                )
+            return candidate
+
+        def _normalize_optional_int(
+            value: Optional[Any],
+            previous: Optional[int],
+            *,
+            field: str,
+            minimum: int,
+        ) -> Optional[int]:
+            if value is None:
+                candidate = previous
+            elif value == "":
+                candidate = None
+            else:
+                try:
+                    candidate = int(value)  # type: ignore[assignment]
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{field} must be an integer or left blank.") from exc
+            if candidate is None:
+                return None
+            if candidate < minimum:
+                raise ValueError(f"{field} must be >= {minimum}.")
+            return candidate
+
+        def _normalize_int(
+            value: Optional[Any],
+            previous: int,
+            *,
+            field: str,
+            minimum: int,
+        ) -> int:
+            if value is None:
+                return int(previous)
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{field} must be an integer.") from exc
+            if parsed < minimum:
+                raise ValueError(f"{field} must be >= {minimum}.")
+            return parsed
+
+        settings_block['model'] = _normalize_model(model, settings_block.get('model'))
+        settings_block['stream'] = _normalize_bool(stream, settings_block.get('stream', True))
+        settings_block['function_calling'] = _normalize_bool(
+            function_calling,
+            settings_block.get('function_calling', False),
+        )
+        settings_block['temperature'] = _normalize_float(
+            temperature,
+            float(settings_block.get('temperature', defaults['temperature'])),
+            field='Temperature',
+            minimum=0.0,
+            maximum=1.0,
+        )
+        settings_block['top_p'] = _normalize_float(
+            top_p,
+            float(settings_block.get('top_p', defaults['top_p'])),
+            field='Top-p',
+            minimum=0.0,
+            maximum=1.0,
+        )
+        if top_k is not _UNSET:
+            settings_block['top_k'] = self._coerce_optional_bounded_int(
+                top_k,
+                field='Top-k',
+                minimum=1,
+                maximum=500,
+            )
+        settings_block['max_output_tokens'] = _normalize_optional_int(
+            max_output_tokens,
+            settings_block.get('max_output_tokens', defaults['max_output_tokens']),
+            field='Max output tokens',
+            minimum=1,
+        )
+        settings_block['timeout'] = _normalize_int(
+            timeout,
+            settings_block.get('timeout', defaults['timeout']),
+            field='Timeout',
+            minimum=1,
+        )
+        settings_block['max_retries'] = _normalize_int(
+            max_retries,
+            settings_block.get('max_retries', defaults['max_retries']),
+            field='Additional retries (after first attempt)',
+            minimum=0,
+        )
+        settings_block['retry_delay'] = _normalize_int(
+            retry_delay,
+            settings_block.get('retry_delay', defaults['retry_delay']),
+            field='Retry delay',
+            minimum=0,
+        )
+        if stop_sequences is not _UNSET:
+            settings_block['stop_sequences'] = self._coerce_stop_sequences(stop_sequences)
+
+        if tool_choice is not _UNSET:
+            choice, choice_name = self._normalise_tool_choice(
+                tool_choice,
+                tool_choice_name if tool_choice_name is not _UNSET else settings_block.get('tool_choice_name'),
+                previous_choice=settings_block.get('tool_choice'),
+                previous_name=settings_block.get('tool_choice_name'),
+            )
+            settings_block['tool_choice'] = choice
+            settings_block['tool_choice_name'] = choice_name
+
+        if metadata is not _UNSET:
+            settings_block['metadata'] = self._coerce_metadata(metadata)
+
+        if thinking is not None:
+            settings_block['thinking'] = bool(thinking)
+
+        if thinking_budget is not _UNSET:
+            settings_block['thinking_budget'] = _normalize_optional_int(
+                thinking_budget,
+                settings_block.get('thinking_budget'),
+                field='Thinking budget tokens',
+                minimum=1,
+            )
+
+        self.yaml_config['ANTHROPIC_LLM'] = dict(settings_block)
+        self.config['ANTHROPIC_LLM'] = dict(settings_block)
+
+        self._write_yaml_config()
+
+        return dict(settings_block)
+
+    def get_anthropic_settings(self) -> Dict[str, Any]:
+        """Return Anthropic defaults merged with persisted overrides."""
+
+        defaults = {
+            'model': 'claude-3-opus-20240229',
+            'stream': True,
+            'function_calling': False,
+            'temperature': 0.0,
+            'top_p': 1.0,
+            'top_k': None,
+            'max_output_tokens': None,
+            'timeout': 60,
+            'max_retries': 3,
+            'retry_delay': 5,
+            'stop_sequences': [],
+            'tool_choice': 'auto',
+            'tool_choice_name': None,
+            'metadata': {},
+            'thinking': False,
+            'thinking_budget': None,
+        }
+
+        stored = self.get_config('ANTHROPIC_LLM')
+        if isinstance(stored, dict):
+            for key in defaults.keys():
+                if key in stored and stored[key] is not None:
+                    try:
+                        if key == 'top_k':
+                            defaults[key] = self._coerce_optional_bounded_int(
+                                stored[key],
+                                field='Top-k',
+                                minimum=1,
+                                maximum=500,
+                            )
+                        elif key == 'stop_sequences':
+                            defaults[key] = self._coerce_stop_sequences(stored[key])
+                        elif key == 'metadata':
+                            defaults[key] = self._coerce_metadata(stored[key])
+                        else:
+                            defaults[key] = stored[key]
+                    except ValueError as exc:  # pragma: no cover - defensive logging
+                        self.logger.warning(
+                            "Ignoring persisted Anthropic %s override while loading: %s",
+                            key,
+                            exc,
+                        )
+
+        return defaults
+
+    @staticmethod
+    def _coerce_optional_bounded_int(
+        value: Any,
+        *,
+        field: str,
+        minimum: int,
+        maximum: int,
+    ) -> Optional[int]:
+        """Validate an optional integer ensuring it falls within provided bounds."""
+
+        if value in {None, ""}:
+            return None
+
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field} must be an integer or left blank.") from exc
+
+        if parsed < minimum or parsed > maximum:
+            raise ValueError(
+                f"{field} must be between {minimum} and {maximum}."
+            )
+
+        return parsed
+
+    @staticmethod
+    def _coerce_stop_sequences(value: Any) -> List[str]:
+        """Coerce stop sequences supplied as a CSV string or list of strings."""
+
+        if value is None or value == "":
+            return []
+
+        tokens: List[str] = []
+        if isinstance(value, str):
+            tokens = [part.strip() for part in value.split(',') if part.strip()]
+        elif isinstance(value, (list, tuple, set)):
+            for item in value:
+                if item in {None, ""}:
+                    continue
+                if not isinstance(item, str):
+                    raise ValueError("Stop sequences must be strings.")
+                cleaned = item.strip()
+                if cleaned:
+                    tokens.append(cleaned)
+        else:
+            raise ValueError(
+                "Stop sequences must be provided as a comma-separated string or list of strings."
+            )
+
+        if len(tokens) > 4:
+            raise ValueError("Stop sequences cannot contain more than 4 entries.")
+
+        return tokens
+
+    @staticmethod
+    def _coerce_function_call_mode(value: Any, *, default: str) -> str:
+        """Validate Gemini function call mode values against supported options."""
+
+        valid_modes = {"auto", "any", "none", "require"}
+
+        if value in {None, ""}:
+            return default
+
+        if isinstance(value, str):
+            candidate = value.strip().lower()
+            if candidate in valid_modes:
+                return candidate
+        raise ValueError("Function call mode must be one of: auto, any, none, require.")
+
+    @staticmethod
+    def _coerce_allowed_function_names(value: Any) -> List[str]:
+        """Normalise allowed function names as a list of distinct strings."""
+
+        if value in (None, "", []):
+            return []
+
+        names: List[str] = []
+        if isinstance(value, str):
+            tokens = [part.strip() for part in value.split(',') if part and part.strip()]
+            names.extend(tokens)
+        elif isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+            for item in value:
+                if item in {None, ""}:
+                    continue
+                if not isinstance(item, str):
+                    raise ValueError("Allowed function names must be strings.")
+                cleaned = item.strip()
+                if cleaned:
+                    names.append(cleaned)
+        else:
+            raise ValueError(
+                "Allowed function names must be provided as a comma-separated string or sequence of strings."
+            )
+
+        seen = set()
+        deduped: List[str] = []
+        for name in names:
+            if name not in seen:
+                deduped.append(name)
+                seen.add(name)
+        return deduped
+
+    def _normalise_tool_choice(
+        self,
+        value: Any,
+        provided_name: Any,
+        *,
+        previous_choice: Optional[str],
+        previous_name: Optional[str],
+    ) -> Tuple[str, Optional[str]]:
+        """Validate tool choice inputs and map to Anthropic API expectations."""
+
+        alias_map = {
+            "required": "any",
+        }
+
+        choice_value: Optional[str]
+        name_value: Optional[str] = None
+
+        if isinstance(value, Mapping):
+            raw_type = str(value.get("type", "")).strip().lower()
+            choice_value = alias_map.get(raw_type, raw_type)
+            if value.get("name") is not None:
+                provided_name = value.get("name")
+        elif isinstance(value, str):
+            cleaned = value.strip().lower()
+            choice_value = alias_map.get(cleaned, cleaned)
+        elif value in {None, ""}:
+            choice_value = None
+        else:
+            choice_value = None
+
+        if choice_value not in {"auto", "any", "none", "tool"}:
+            choice_value = previous_choice or "auto"
+
+        if choice_value == "tool":
+            name_candidate: Optional[str]
+            if provided_name in {None, ""}:
+                name_candidate = previous_name
+            else:
+                name_candidate = str(provided_name).strip()
+
+            if not name_candidate:
+                self.logger.warning(
+                    "Specific Anthropic tool choice ignored because no tool name was provided.",
+                )
+                return "auto", None
+
+            name_value = name_candidate
+        else:
+            name_value = None
+
+        return choice_value or "auto", name_value
+
+    @staticmethod
+    def _coerce_metadata(value: Any) -> Dict[str, str]:
+        """Normalise metadata payloads to a mapping of string keys and values."""
+
+        if value is None or value == "" or (isinstance(value, Mapping) and not value):
+            return {}
+
+        items: List[Tuple[Any, Any]] = []
+
+        def _append_from_mapping(mapping: Mapping[Any, Any]) -> None:
+            for key, val in mapping.items():
+                items.append((key, val))
+
+        if isinstance(value, Mapping):
+            _append_from_mapping(value)
+        elif isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return {}
+            parsed: Any
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+
+            if isinstance(parsed, Mapping):
+                _append_from_mapping(parsed)
+            elif isinstance(parsed, Sequence) and not isinstance(parsed, (str, bytes, bytearray)):
+                for entry in parsed:
+                    if isinstance(entry, Mapping):
+                        _append_from_mapping(entry)
+                    elif isinstance(entry, Sequence) and len(entry) == 2:
+                        items.append((entry[0], entry[1]))
+                    else:
+                        raise ValueError(
+                            "Metadata entries supplied as a list must be key/value pairs.",
+                        )
+            else:
+                segments = [segment.strip() for segment in text.replace("\n", ",").split(",")]
+                for segment in segments:
+                    if not segment:
+                        continue
+                    if "=" not in segment:
+                        raise ValueError(
+                            "Metadata text must use key=value syntax or valid JSON.",
+                        )
+                    key, val = segment.split("=", 1)
+                    items.append((key, val))
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            for entry in value:
+                if isinstance(entry, Mapping):
+                    _append_from_mapping(entry)
+                elif isinstance(entry, Sequence) and len(entry) == 2:
+                    items.append((entry[0], entry[1]))
+                else:
+                    raise ValueError(
+                        "Metadata entries supplied as a list must be key/value pairs.",
+                    )
+        else:
+            raise ValueError(
+                "Metadata must be a mapping, JSON string, or iterable of key/value pairs.",
+            )
+
+        metadata: Dict[str, str] = {}
+        for key, val in items:
+            if key in {None, ""}:
+                raise ValueError("Metadata keys must be non-empty strings.")
+            cleaned_key = str(key).strip()
+            if not cleaned_key:
+                raise ValueError("Metadata keys must be non-empty strings.")
+            cleaned_val = "" if val is None else str(val).strip()
+            metadata[cleaned_key] = cleaned_val
+
+        if len(metadata) > 16:
+            raise ValueError("Metadata cannot contain more than 16 entries.")
+
+        return metadata
+
+    def get_openai_api_key(self) -> str:
+        """
+        Retrieves the OpenAI API key from the configuration.
+
+        Returns:
+            str: The OpenAI API key.
+        """
+        return self.get_config('OPENAI_API_KEY')
+
+    def get_mistral_api_key(self) -> str:
+        """
+        Retrieves the Mistral API key from the configuration.
+
+        Returns:
+            str: The Mistral API key.
+        """
+        return self.get_config('MISTRAL_API_KEY')
+
+    def get_huggingface_api_key(self) -> str:
+        """
+        Retrieves the HuggingFace API key from the configuration.
+
+        Returns:
+            str: The HuggingFace API key.
+        """
+        return self.get_config('HUGGINGFACE_API_KEY')
+
+    def get_google_api_key(self) -> str:
+        """
+        Retrieves the Google API key from the configuration.
+
+        Returns:
+            str: The Google API key.
+        """
+        return self.get_config('GOOGLE_API_KEY')
+
+    def get_anthropic_api_key(self) -> str:
+        """
+        Retrieves the Anthropic API key from the configuration.
+
+        Returns:
+            str: The Anthropic API key.
+        """
+        return self.get_config('ANTHROPIC_API_KEY')
+
+    def get_grok_api_key(self) -> str:
+        """
+        Retrieves the Grok API key from the configuration.
+
+        Returns:
+            str: The Grok API key.
+        """
+        return self.get_config('GROK_API_KEY')
+
+    def update_api_key(self, provider_name: str, new_api_key: str):
+        """
+        Updates the API key for a specified provider in the .env file and reloads
+        the environment variables to reflect the changes immediately.
+
+        Args:
+            provider_name (str): The name of the provider whose API key is to be updated.
+            new_api_key (str): The new API key to set for the provider.
+
+        Raises:
+            FileNotFoundError: If the .env file is not found.
+            ValueError: If the provider name does not have a corresponding API key mapping.
+        """
+
+        self.providers.update_api_key(provider_name, new_api_key)
+
+    def has_provider_api_key(self, provider_name: str) -> bool:
+        """
+        Determine whether an API key is configured for the given provider.
+
+        Args:
+            provider_name (str): The name of the provider to check.
+
+        Returns:
+            bool: True if an API key exists for the provider, False otherwise.
+        """
+
+        return self.providers.has_provider_api_key(provider_name)
+
+    def _is_api_key_set(self, provider_name: str) -> bool:
+        """
+        Checks if the API key for a specified provider is set.
+
+        Args:
+            provider_name (str): The name of the provider.
+
+        Returns:
+            bool: True if the API key is set, False otherwise.
+        """
+
+        return self.providers.is_api_key_set(provider_name)
+
+    def get_available_providers(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Retrieves metadata for available providers without exposing raw secrets.
+
+        Returns:
+            Dict[str, Dict[str, Any]]: A dictionary where keys are provider names and values contain
+            availability metadata such as whether the credential is set, a masked hint, and the
+            stored length.
+        """
+
+        return self.providers.get_available_providers()
