@@ -10,7 +10,9 @@ from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional
 from modules.store_common.manifest_utils import (
     Draft7Validator,
     ValidationError,
+    coerce_string,
     get_manifest_logger,
+    iter_persona_manifest_paths,
     resolve_app_root,
 )
 
@@ -67,13 +69,12 @@ def load_skill_metadata(*, config_manager=None) -> List[SkillMetadata]:
     shared_manifest = app_root / "modules" / "Skills" / "skills.json"
     skills.extend(_load_skill_file(shared_manifest, persona=None, app_root=app_root))
 
-    personas_root = app_root / "modules" / "Personas"
-    if personas_root.is_dir():
-        for persona_dir in sorted(p for p in personas_root.iterdir() if p.is_dir()):
-            manifest_path = persona_dir / "Skills" / "skills.json"
-            skills.extend(
-                _load_skill_file(manifest_path, persona=persona_dir.name, app_root=app_root)
-            )
+    for persona_name, manifest_path in iter_persona_manifest_paths(
+        app_root, "Skills", "skills.json"
+    ):
+        skills.extend(
+            _load_skill_file(manifest_path, persona=persona_name, app_root=app_root)
+        )
 
     skills.sort(key=lambda entry: ((entry.persona or ""), entry.name.lower()))
     return skills
@@ -137,14 +138,14 @@ def _missing_required_fields(entry: Mapping[str, Any]) -> List[str]:
 def _normalize_entry(
     entry: dict[str, Any], *, persona: Optional[str], source: Path, app_root: Path
 ) -> SkillMetadata:
-    name = _coerce_string(entry.get("name"))
-    version = _coerce_string(entry.get("version"))
-    instruction_prompt = _coerce_string(entry.get("instruction_prompt"))
+    name = coerce_string(entry.get("name"))
+    version = coerce_string(entry.get("version"))
+    instruction_prompt = coerce_string(entry.get("instruction_prompt"))
     required_tools = _coerce_string_list(entry.get("required_tools"))
     required_capabilities = _coerce_string_list(entry.get("required_capabilities"))
-    safety_notes = _coerce_string(entry.get("safety_notes"))
-    summary = _coerce_string(entry.get("summary"))
-    category = _coerce_string(entry.get("category"))
+    safety_notes = coerce_string(entry.get("safety_notes"))
+    summary = coerce_string(entry.get("summary"))
+    category = coerce_string(entry.get("category"))
     capability_tags = _coerce_string_list(entry.get("capability_tags"))
     collaboration = _normalize_collaboration(entry.get("collaboration"))
 
@@ -162,14 +163,6 @@ def _normalize_entry(
         source=_relative_source(source, app_root),
         collaboration=collaboration,
     )
-
-
-def _coerce_string(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
 def _coerce_string_list(value: Any) -> List[str]:
     if not value:
         return []
@@ -177,7 +170,7 @@ def _coerce_string_list(value: Any) -> List[str]:
         value = [value]
     result = []
     for item in value:
-        text = _coerce_string(item)
+        text = coerce_string(item)
         if text:
             result.append(text)
     return result

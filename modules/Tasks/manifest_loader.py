@@ -12,7 +12,11 @@ from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 from modules.store_common.manifest_utils import (
     Draft7Validator,
     ValidationError,
+    coerce_string,
+    coerce_string_tuple,
     get_manifest_logger,
+    iter_persona_manifest_paths,
+    merge_with_base,
     resolve_app_root,
 )
 
@@ -62,17 +66,16 @@ def load_task_metadata(*, config_manager=None) -> List[TaskMetadata]:
     )
     tasks.extend(shared_entries)
 
-    personas_root = app_root / "modules" / "Personas"
-    if personas_root.is_dir():
-        for persona_dir in sorted(p for p in personas_root.iterdir() if p.is_dir()):
-            manifest_path = persona_dir / "Tasks" / "tasks.json"
-            persona_entries, _ = _load_task_file(
-                manifest_path,
-                persona=persona_dir.name,
-                app_root=app_root,
-                base_entries=shared_lookup,
-            )
-            tasks.extend(persona_entries)
+    for persona_name, manifest_path in iter_persona_manifest_paths(
+        app_root, "Tasks", "tasks.json"
+    ):
+        persona_entries, _ = _load_task_file(
+            manifest_path,
+            persona=persona_name,
+            app_root=app_root,
+            base_entries=shared_lookup,
+        )
+        tasks.extend(persona_entries)
 
     tasks.sort(key=lambda entry: ((entry.persona or ""), entry.name.lower()))
     return tasks
@@ -109,7 +112,7 @@ def _load_task_file(
     persona_entries: Dict[str, Mapping[str, Any]] = {}
 
     for index, raw_entry in enumerate(_iter_task_entries(payload)):
-        merged_entry = _merge_with_base(raw_entry, known_entries)
+        merged_entry = merge_with_base(raw_entry, known_entries)
         if merged_entry is None:
             logger.error(
                 "Task manifest entry %s in %s references unknown base", index, path
@@ -157,52 +160,22 @@ def _iter_task_entries(payload: List[Any]) -> Iterator[Mapping[str, Any]]:
             logger.error("Task manifest entries must be objects; skipping %r", item)
 
 
-def _merge_with_base(
-    entry: Mapping[str, Any], known_entries: Mapping[str, Mapping[str, Any]]
-) -> Optional[Dict[str, Any]]:
-    name_value = entry.get("name")
-    extends_value = entry.get("extends")
-
-    base_key: Optional[str] = None
-    if isinstance(extends_value, str) and extends_value.strip():
-        base_key = extends_value.strip()
-    elif isinstance(name_value, str) and name_value.strip() in known_entries:
-        base_key = name_value.strip()
-
-    merged: Dict[str, Any]
-    if base_key:
-        base_entry = known_entries.get(base_key)
-        if base_entry is None:
-            return None
-        merged = copy.deepcopy(dict(base_entry))
-    else:
-        merged = {}
-
-    merged.update({k: v for k, v in entry.items() if k != "extends"})
-
-    if "name" not in merged and isinstance(name_value, str):
-        merged["name"] = name_value
-
-    merged.pop("extends", None)
-    return merged
-
-
 def _normalize_entry(
     entry: Mapping[str, Any], *, persona: Optional[str], source: Path, app_root: Path
 ) -> TaskMetadata:
-    name = _coerce_string(entry.get("name"))
-    summary = _coerce_string(entry.get("summary"))
-    description = _coerce_string(entry.get("description"))
-    priority = _coerce_string(entry.get("priority"))
+    name = coerce_string(entry.get("name"))
+    summary = coerce_string(entry.get("summary"))
+    description = coerce_string(entry.get("description"))
+    priority = coerce_string(entry.get("priority"))
 
-    required_skills = _coerce_string_tuple(entry.get("required_skills"))
-    required_tools = _coerce_string_tuple(entry.get("required_tools"))
-    acceptance_criteria = _coerce_string_tuple(entry.get("acceptance_criteria"))
-    tags = _coerce_string_tuple(entry.get("tags"))
+    required_skills = coerce_string_tuple(entry.get("required_skills"))
+    required_tools = coerce_string_tuple(entry.get("required_tools"))
+    acceptance_criteria = coerce_string_tuple(entry.get("acceptance_criteria"))
+    tags = coerce_string_tuple(entry.get("tags"))
 
     escalation_policy = _normalize_escalation_policy(entry.get("escalation_policy"))
 
-    resolved_persona = persona or (_coerce_string(entry.get("persona")) or None)
+    resolved_persona = persona or (coerce_string(entry.get("persona")) or None)
 
     return TaskMetadata(
         name=name,
@@ -217,27 +190,6 @@ def _normalize_entry(
         persona=resolved_persona,
         source=_relative_source(source, app_root),
     )
-
-
-def _coerce_string(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
-def _coerce_string_tuple(value: Any) -> Tuple[str, ...]:
-    if not value:
-        return tuple()
-    if isinstance(value, str):
-        value = [value]
-    result: List[str] = []
-    for item in value:
-        text = _coerce_string(item)
-        if text:
-            result.append(text)
-    return tuple(result)
-
-
 def _coerce_bool(value: Any) -> bool:
     if isinstance(value, str):
         lowered = value.strip().lower()
@@ -253,23 +205,23 @@ def _normalize_escalation_policy(value: Any) -> Dict[str, Any]:
         return {"level": "", "contact": ""}
 
     policy: Dict[str, Any] = {
-        "level": _coerce_string(value.get("level")),
-        "contact": _coerce_string(value.get("contact")),
+        "level": coerce_string(value.get("level")),
+        "contact": coerce_string(value.get("contact")),
     }
 
-    timeframe = _coerce_string(value.get("timeframe"))
+    timeframe = coerce_string(value.get("timeframe"))
     if timeframe:
         policy["timeframe"] = timeframe
 
-    triggers = list(_coerce_string_tuple(value.get("triggers")))
+    triggers = list(coerce_string_tuple(value.get("triggers")))
     if triggers:
         policy["triggers"] = triggers
 
-    actions = list(_coerce_string_tuple(value.get("actions")))
+    actions = list(coerce_string_tuple(value.get("actions")))
     if actions:
         policy["actions"] = actions
 
-    notes = _coerce_string(value.get("notes"))
+    notes = coerce_string(value.get("notes"))
     if notes:
         policy["notes"] = notes
 
