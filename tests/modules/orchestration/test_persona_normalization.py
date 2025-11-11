@@ -8,7 +8,10 @@ from modules.orchestration.capability_registry import (
     _job_persona_matches,
     _persona_filter_matches,
 )
-from modules.orchestration.utils import normalize_persona_identifier
+from modules.orchestration.utils import (
+    normalize_persona_identifier,
+    persona_matches_filter,
+)
 
 
 @dataclass
@@ -41,6 +44,24 @@ def test_capability_registry_persona_filters_use_normalized_keys() -> None:
     assert _persona_filter_matches(persona_key, tokens)
     assert _job_persona_matches(["Atlas", "Beta"], tokens)
     assert not _job_persona_matches(["Beta"], tokens)
+
+
+def test_persona_matches_filter_shared_tokens() -> None:
+    tokens: Sequence[str] = ("atlas", "-shared")
+
+    assert persona_matches_filter("Atlas", tokens)
+    assert not persona_matches_filter(None, tokens)
+    assert not persona_matches_filter("shared", tokens)
+
+
+def test_persona_matches_filter_allows_non_shared_when_excluding_shared() -> None:
+    tokens: Sequence[str] = ("-shared",)
+
+    assert persona_matches_filter("Atlas", tokens)
+    assert persona_matches_filter("Beta", tokens)
+    assert persona_matches_filter("atlas", tokens)
+    assert persona_matches_filter("beta", tokens)
+    assert not persona_matches_filter(None, tokens)
 
 
 def test_job_manager_task_resolver_normalizes_persona_keys(monkeypatch) -> None:

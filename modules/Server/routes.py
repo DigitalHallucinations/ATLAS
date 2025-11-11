@@ -42,6 +42,7 @@ from modules.orchestration.capability_registry import (
     SkillCapabilityView,
     get_capability_registry,
 )
+from modules.orchestration.utils import persona_matches_filter
 from modules.orchestration.job_manager import JobManager
 from modules.orchestration.job_scheduler import JobScheduler
 from modules.orchestration.message_bus import MessageBus
@@ -2389,23 +2390,7 @@ def _safety_matches(entry: Any, tokens: List[str]) -> bool:
 
 
 def _persona_matches(entry: Any, tokens: List[str]) -> bool:
-    persona_value = getattr(entry, "persona", None)
-    persona_token = (persona_value or "shared").lower()
-    shared_exclusions = {
-        "-shared",
-        "!shared",
-        "no-shared",
-        "without-shared",
-        "shared=false",
-        "shared:false",
-    }
-    exclude_shared = any(token in shared_exclusions for token in tokens)
-    positive_tokens = [token for token in tokens if token not in shared_exclusions]
-    if persona_token == "shared":
-        return not exclude_shared
-    if not positive_tokens:
-        return True
-    return persona_token in positive_tokens
+    return persona_matches_filter(getattr(entry, "persona", None), tokens)
 
 
 def _normalize_filters(values: Optional[Any]) -> List[str]:
