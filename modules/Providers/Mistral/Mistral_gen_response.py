@@ -21,7 +21,11 @@ from ATLAS.ToolManager import (
     use_tool,
 )
 from modules.logging.logger import setup_logger
-from modules.Providers.common import close_client, get_or_create_generator
+from modules.Providers.common import (
+    close_client,
+    collect_response_chunks,
+    get_or_create_generator,
+)
 
 _SUPPORTED_PROMPT_MODES = {"reasoning"}
 
@@ -1167,13 +1171,7 @@ class MistralGenerator:
         return None
 
     async def process_response(self, response: Union[str, AsyncIterator[str]]) -> str:
-        if isinstance(response, str):
-            return response
-        else:
-            full_response = ""
-            async for chunk in response:
-                full_response += chunk
-            return full_response
+        return await collect_response_chunks(response)
 
 
 _GENERATOR_CACHE: "WeakKeyDictionary[ConfigManager, MistralGenerator]" = WeakKeyDictionary()
@@ -1208,13 +1206,7 @@ async def generate_response(
     return await generator.generate_response(messages, model, max_tokens, temperature, stream, current_persona, functions)
 
 async def process_response(response: Union[str, AsyncIterator[str]]) -> str:
-    if isinstance(response, str):
-        return response
-
-    chunks: List[str] = []
-    async for chunk in response:
-        chunks.append(chunk)
-    return "".join(chunks)
+    return await collect_response_chunks(response)
 
 def generate_response_sync(config_manager: ConfigManager, messages: List[Dict[str, str]], model: str = "mistral-large-latest", stream: bool = False) -> str:
     """

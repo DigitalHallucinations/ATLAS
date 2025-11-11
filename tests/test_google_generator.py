@@ -1126,3 +1126,26 @@ def test_google_generator_skips_tool_payload_when_disabled(monkeypatch):
     kwargs = DummyModel.captured["kwargs"]
     assert "tools" not in kwargs
 
+
+def test_google_process_response_uses_shared_collector(monkeypatch):
+    monkeypatch.setattr(genai, "configure", lambda **_: None)
+
+    calls = {}
+
+    async def fake_collect(payload):
+        calls["payload"] = payload
+        return "collected"
+
+    monkeypatch.setattr(google_module, "collect_response_chunks", fake_collect)
+
+    result = asyncio.run(google_module.process_response("initial"))
+    assert result == "collected"
+    assert calls["payload"] == "initial"
+
+    monkeypatch.setattr(google_module, "collect_response_chunks", fake_collect)
+
+    generator = google_module.GoogleGeminiGenerator(DummyConfig())
+    result = asyncio.run(generator.process_response("streamed"))
+    assert result == "collected"
+    assert calls["payload"] == "streamed"
+

@@ -22,7 +22,7 @@ from ATLAS.ToolManager import (
 from ATLAS.config import ConfigManager
 from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
 from modules.logging.logger import setup_logger
-from modules.Providers.common import get_or_create_generator
+from modules.Providers.common import collect_response_chunks, get_or_create_generator
 
 
 class GoogleGeminiGenerator:
@@ -940,14 +940,7 @@ class GoogleGeminiGenerator:
                 await producer_task
 
     async def process_response(self, response) -> str:
-        if isinstance(response, AsyncIterator):
-            full_response = ""
-            async for chunk in response:
-                if isinstance(chunk, str):
-                    full_response += chunk
-            return full_response
-        else:
-            return response
+        return await collect_response_chunks(response)
 
 
 _GENERATOR_CACHE: "WeakKeyDictionary[ConfigManager, GoogleGeminiGenerator]" = WeakKeyDictionary()
@@ -1011,14 +1004,5 @@ async def generate_response(
 
 
 async def process_response(response: Union[str, AsyncIterator[str]]) -> str:
-    if isinstance(response, str):
-        return response
-    elif isinstance(response, AsyncIterator):
-        full_response = ""
-        async for chunk in response:
-            if isinstance(chunk, str):
-                full_response += chunk
-        return full_response
-    else:
-        raise ValueError(f"Unexpected response type: {type(response)}")
+    return await collect_response_chunks(response)
 
