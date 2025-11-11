@@ -6,7 +6,9 @@ import contextlib
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Iterator, Mapping, Optional, Type, TypeVar
+from typing import Any, Callable, Dict, Iterator, Mapping, Optional, Type, TypeVar
+
+from modules.conversation_store.models import Conversation
 
 try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
     from sqlalchemy import and_, or_, select
@@ -107,8 +109,60 @@ class BaseStoreRepository:
         metadata.create_all(engine)
         self._ensure_additional_schema(engine)
 
+    def _create_with_created_event(
+        self,
+        *,
+        model_cls: Type[ModelT],
+        model_kwargs: Mapping[str, Any],
+        serializer: Callable[[ModelT], Dict[str, Any]],
+        event_model_cls: Type[EventModelT],
+        event_enum: Type[EnumT],
+        event_serializer: Callable[[EventModelT], Dict[str, Any]],
+        event_foreign_key: str,
+        tenant_id: str,
+        conversation_id: Optional[uuid.UUID],
+        require_conversation: bool = False,
+        event_payload_factory: Optional[Callable[[ModelT], Mapping[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        with self._session_scope() as session:
+            if conversation_id is None:
+                if require_conversation:
+                    raise ValueError("Conversation identifier is required")
+            else:
+                conversation = session.get(Conversation, conversation_id)
+                if conversation is None:
+                    raise ValueError("Conversation does not exist")
+                if conversation.tenant_id != tenant_id:
+                    raise ValueError("Conversation belongs to a different tenant")
+
+            record = model_cls(**dict(model_kwargs))
+            session.add(record)
+            session.flush()
+            session.refresh(record)
+            payload = serializer(record)
+
+            if event_payload_factory is None:
+                event_payload: Dict[str, Any] = {}
+            else:
+                event_payload = dict(event_payload_factory(record))
+
+            event = event_model_cls(
+                **{
+                    event_foreign_key: getattr(record, "id"),
+                    "event_type": event_enum.CREATED,
+                    "payload": event_payload,
+                }
+            )
+            session.add(event)
+            session.flush()
+
+            payload["events"] = [event_serializer(event)]
+            return payload
+
 
 EnumT = TypeVar("EnumT", bound=Enum)
+ModelT = TypeVar("ModelT")
+EventModelT = TypeVar("EventModelT")
 
 
 def _coerce_uuid(value: Any | None) -> Optional[uuid.UUID]:

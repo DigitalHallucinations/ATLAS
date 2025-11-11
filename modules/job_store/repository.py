@@ -354,38 +354,30 @@ class JobStoreRepository(BaseStoreRepository):
         owner_uuid = _coerce_uuid(owner_id)
         conversation_uuid = _coerce_uuid(conversation_id)
         metadata_dict = _normalize_meta(metadata)
-
-        with self._session_scope() as session:
-            if conversation_uuid is not None:
-                conversation = session.get(Conversation, conversation_uuid)
-                if conversation is None:
-                    raise ValueError("Conversation does not exist")
-                if conversation.tenant_id != tenant_key:
-                    raise ValueError("Conversation belongs to a different tenant")
-
-            record = Job(
-                name=name_text,
-                description=str(description).strip() if description is not None else None,
-                status=status_value,
-                owner_id=owner_uuid,
-                conversation_id=conversation_uuid,
-                tenant_id=tenant_key,
-                meta=metadata_dict,
-            )
-            session.add(record)
-            session.flush()
-            session.refresh(record)
-            payload = _serialize_job(record)
-
-            event = JobEvent(
-                job_id=record.id,
-                event_type=JobEventType.CREATED,
-                payload={"status": record.status.value},
-            )
-            session.add(event)
-            session.flush()
-            payload["events"] = [_serialize_event(event)]
-            return payload
+        return self._create_with_created_event(
+            model_cls=Job,
+            model_kwargs={
+                "name": name_text,
+                "description": str(description).strip() if description is not None else None,
+                "status": status_value,
+                "owner_id": owner_uuid,
+                "conversation_id": conversation_uuid,
+                "tenant_id": tenant_key,
+                "meta": metadata_dict,
+            },
+            serializer=_serialize_job,
+            event_model_cls=JobEvent,
+            event_enum=JobEventType,
+            event_serializer=_serialize_event,
+            event_foreign_key="job_id",
+            tenant_id=tenant_key,
+            conversation_id=conversation_uuid,
+            event_payload_factory=lambda record: {
+                "status": record.status.value
+                if isinstance(record.status, JobStatus)
+                else str(record.status)
+            },
+        )
 
     def update_job(
         self,

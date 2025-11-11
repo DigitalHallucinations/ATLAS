@@ -12,6 +12,7 @@ from modules.job_store.repository import (
     JobStoreRepository,
     JobTransitionError,
 )
+from modules.task_store import TaskEventType, TaskStatus
 from modules.task_store.repository import TaskStoreRepository
 
 
@@ -299,4 +300,31 @@ def test_run_transition_rules(job_repository, identity):
             expected_updated_at=finished["updated_at"],
         )
 
+
+def test_create_job_and_task_emit_matching_created_events(
+    job_repository, task_repository, identity
+):
+    job = job_repository.create_job(
+        "Eventful Job",
+        tenant_id=identity["tenant_id"],
+        conversation_id=identity["conversation_id"],
+    )
+
+    task = task_repository.create_task(
+        "Eventful Task",
+        tenant_id=identity["tenant_id"],
+        conversation_id=identity["conversation_id"],
+    )
+
+    assert job["events"]
+    assert task["events"]
+
+    job_event = job["events"][0]
+    task_event = task["events"][0]
+
+    assert job_event["event_type"] == JobEventType.CREATED.value
+    assert task_event["event_type"] == TaskEventType.CREATED.value
+    assert job_event["payload"] == task_event["payload"] == {
+        "status": TaskStatus.DRAFT.value
+    }
 

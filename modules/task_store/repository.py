@@ -228,43 +228,35 @@ class TaskStoreRepository(BaseStoreRepository):
         owner_uuid = _coerce_uuid(owner_id)
         session_uuid = _coerce_uuid(session_id)
         conversation_uuid = _coerce_uuid(conversation_id)
-        if conversation_uuid is None:
-            raise ValueError("Conversation identifier is required")
         due_at_value = _normalize_due_at(due_at)
         metadata_dict = _normalize_meta(metadata, error_message="Task metadata must be a mapping")
-
-        with self._session_scope() as session:
-            conversation = session.get(Conversation, conversation_uuid)
-            if conversation is None:
-                raise ValueError("Conversation does not exist")
-            if conversation.tenant_id != tenant_key:
-                raise ValueError("Conversation belongs to a different tenant")
-
-            record = Task(
-                title=title_text,
-                description=str(description).strip() if description is not None else None,
-                status=task_status,
-                priority=priority_value,
-                owner_id=owner_uuid,
-                session_id=session_uuid,
-                conversation_id=conversation_uuid,
-                meta=metadata_dict,
-                due_at=due_at_value,
-            )
-            session.add(record)
-            session.flush()
-            session.refresh(record)
-            payload = _serialize_task(record)
-
-            event = TaskEvent(
-                task_id=record.id,
-                event_type=TaskEventType.CREATED,
-                payload={"status": record.status.value},
-            )
-            session.add(event)
-            session.flush()
-            payload["events"] = [_serialize_event(event)]
-            return payload
+        return self._create_with_created_event(
+            model_cls=Task,
+            model_kwargs={
+                "title": title_text,
+                "description": str(description).strip() if description is not None else None,
+                "status": task_status,
+                "priority": priority_value,
+                "owner_id": owner_uuid,
+                "session_id": session_uuid,
+                "conversation_id": conversation_uuid,
+                "meta": metadata_dict,
+                "due_at": due_at_value,
+            },
+            serializer=_serialize_task,
+            event_model_cls=TaskEvent,
+            event_enum=TaskEventType,
+            event_serializer=_serialize_event,
+            event_foreign_key="task_id",
+            tenant_id=tenant_key,
+            conversation_id=conversation_uuid,
+            require_conversation=True,
+            event_payload_factory=lambda record: {
+                "status": record.status.value
+                if isinstance(record.status, TaskStatus)
+                else str(record.status)
+            },
+        )
 
     def update_task(
         self,
