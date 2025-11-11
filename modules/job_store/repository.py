@@ -11,6 +11,7 @@ from modules.conversation_store.models import Conversation
 from modules.store_common.repository_utils import (
     BaseStoreRepository,
     IntegrityError,
+    Session,
     _coerce_dt,
     _coerce_optional_dt,
     _coerce_uuid,
@@ -395,7 +396,7 @@ class JobStoreRepository(BaseStoreRepository):
         if job_uuid is None:
             raise JobNotFoundError("Job identifier is required")
 
-        with self._session_scope() as session:
+        def load_record(session: Session) -> Job:
             stmt = (
                 select(Job)
                 .where(Job.id == job_uuid)
@@ -405,72 +406,121 @@ class JobStoreRepository(BaseStoreRepository):
             record = session.execute(stmt).scalar_one_or_none()
             if record is None:
                 raise JobNotFoundError("Job not found for tenant")
+            return record
 
-            if expected_updated_at is not None:
-                expected = _coerce_dt(expected_updated_at)
-                current = record.updated_at.astimezone(timezone.utc)
-                if current != expected:
-                    raise JobConcurrencyError("Job was modified by another transaction")
-
-            events: list[JobEvent] = []
-            status_before = record.status if isinstance(record.status, JobStatus) else JobStatus(str(record.status))
-            status_changed = False
-
-            for field, value in changes.items():
-                if field == "name":
-                    record.name = _normalize_name(value)
-                elif field == "description":
-                    record.description = str(value).strip() if value is not None else None
-                elif field == "status":
-                    new_status = _normalize_status(value)
-                    current_status = record.status if isinstance(record.status, JobStatus) else JobStatus(str(record.status))
-                    if new_status != current_status:
-                        if not _valid_job_transition(current_status, new_status):
-                            raise JobTransitionError("Unsupported job status transition")
-                        record.status = new_status
-                        status_changed = True
-                elif field == "owner_id":
-                    record.owner_id = _coerce_uuid(value)
-                elif field == "conversation_id":
-                    conversation_uuid = _coerce_uuid(value)
-                    if conversation_uuid is not None:
-                        conversation = session.get(Conversation, conversation_uuid)
-                        if conversation is None:
-                            raise ValueError("Conversation does not exist")
-                        if conversation.tenant_id != tenant_key:
-                            raise ValueError("Conversation belongs to a different tenant")
-                    record.conversation_id = conversation_uuid
-                elif field == "metadata":
-                    record.meta = _normalize_meta(value)
-                else:
-                    raise ValueError(f"Unsupported job attribute: {field}")
-
-            session.flush()
-            payload = _serialize_job(record)
-
-            change_event = JobEvent(
-                job_id=record.id,
-                event_type=JobEventType.UPDATED,
-                payload={"changes": dict(changes)},
+        def context_factory(record: Job) -> Dict[str, Any]:
+            status_value = (
+                record.status
+                if isinstance(record.status, JobStatus)
+                else JobStatus(str(record.status))
             )
-            session.add(change_event)
-            events.append(change_event)
+            return {"status_before": status_value, "status_changed": False}
 
-            if status_changed:
-                status_event = JobEvent(
+        def mutate_name(record: Job, value: Any, _session: Session, _context: Dict[str, Any]) -> None:
+            record.name = _normalize_name(value)
+
+        def mutate_description(
+            record: Job, value: Any, _session: Session, _context: Dict[str, Any]
+        ) -> None:
+            record.description = str(value).strip() if value is not None else None
+
+        def mutate_status(
+            record: Job, value: Any, _session: Session, context: Dict[str, Any]
+        ) -> None:
+            new_status = _normalize_status(value)
+            current_status = (
+                record.status
+                if isinstance(record.status, JobStatus)
+                else JobStatus(str(record.status))
+            )
+            if new_status != current_status:
+                if not _valid_job_transition(current_status, new_status):
+                    raise JobTransitionError("Unsupported job status transition")
+                record.status = new_status
+                context["status_changed"] = True
+
+        def mutate_owner(
+            record: Job, value: Any, _session: Session, _context: Dict[str, Any]
+        ) -> None:
+            record.owner_id = _coerce_uuid(value)
+
+        def mutate_conversation(
+            record: Job, value: Any, session: Session, _context: Dict[str, Any]
+        ) -> None:
+            conversation_uuid = _coerce_uuid(value)
+            if conversation_uuid is not None:
+                conversation = session.get(Conversation, conversation_uuid)
+                if conversation is None:
+                    raise ValueError("Conversation does not exist")
+                if conversation.tenant_id != tenant_key:
+                    raise ValueError("Conversation belongs to a different tenant")
+            record.conversation_id = conversation_uuid
+
+        def mutate_metadata(
+            record: Job, value: Any, _session: Session, _context: Dict[str, Any]
+        ) -> None:
+            record.meta = _normalize_meta(value)
+
+        def build_change_event(
+            record: Job, update_changes: Mapping[str, Any], _context: Dict[str, Any]
+        ) -> Sequence[JobEvent]:
+            return [
+                JobEvent(
+                    job_id=record.id,
+                    event_type=JobEventType.UPDATED,
+                    payload={"changes": dict(update_changes)},
+                )
+            ]
+
+        def build_status_event(
+            record: Job, _update_changes: Mapping[str, Any], context: Dict[str, Any]
+        ) -> Sequence[JobEvent]:
+            if not context.get("status_changed"):
+                return []
+            status_before = context.get("status_before")
+            before_value = (
+                status_before.value
+                if isinstance(status_before, JobStatus)
+                else str(status_before)
+            )
+            after_value = (
+                record.status.value
+                if isinstance(record.status, JobStatus)
+                else str(record.status)
+            )
+            return [
+                JobEvent(
                     job_id=record.id,
                     event_type=JobEventType.STATUS_CHANGED,
-                    payload={
-                        "from": status_before.value if isinstance(status_before, JobStatus) else str(status_before),
-                        "to": record.status.value if isinstance(record.status, JobStatus) else str(record.status),
-                    },
+                    payload={"from": before_value, "to": after_value},
                 )
-                session.add(status_event)
-                events.append(status_event)
+            ]
 
-            session.flush()
-            payload["events"] = [_serialize_event(event) for event in events]
-            return payload
+        field_mutators = {
+            "name": mutate_name,
+            "description": mutate_description,
+            "status": mutate_status,
+            "owner_id": mutate_owner,
+            "conversation_id": mutate_conversation,
+            "metadata": mutate_metadata,
+        }
+
+        return self._update_with_optimistic_lock(
+            load_record=load_record,
+            expected_updated_at=expected_updated_at,
+            concurrency_error_factory=lambda: JobConcurrencyError(
+                "Job was modified by another transaction"
+            ),
+            changes=changes,
+            field_mutators=field_mutators,
+            serializer=_serialize_job,
+            event_factories=[build_change_event, build_status_event],
+            event_serializer=_serialize_event,
+            unknown_field_error_factory=lambda field: ValueError(
+                f"Unsupported job attribute: {field}"
+            ),
+            context_factory=context_factory,
+        )
 
     # -- schedule helpers -----------------------------------------------
 
