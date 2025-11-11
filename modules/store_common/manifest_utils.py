@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Iterable, List, Optional
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 
 
 __all__ = [
@@ -15,6 +16,10 @@ __all__ = [
     "ValidationError",
     "ensure_yaml_stub",
     "get_manifest_logger",
+    "coerce_string",
+    "coerce_string_tuple",
+    "iter_persona_manifest_paths",
+    "merge_with_base",
     "resolve_app_root",
 ]
 
@@ -221,6 +226,80 @@ def resolve_app_root(config_manager=None, *, logger: Optional[logging.Logger] = 
     fallback = Path(__file__).resolve().parents[2]
     active_logger.debug("Falling back to computed app root at %s", fallback)
     return fallback
+
+
+def coerce_string(value: Any) -> str:
+    """Return a trimmed string representation for manifest fields."""
+
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def coerce_string_tuple(value: Any) -> Tuple[str, ...]:
+    """Normalize manifest values that should be sequences of strings."""
+
+    if not value:
+        return tuple()
+    if isinstance(value, str):
+        value = [value]
+
+    result: List[str] = []
+    for item in value:
+        text = coerce_string(item)
+        if text:
+            result.append(text)
+    return tuple(result)
+
+
+def merge_with_base(
+    entry: Mapping[str, Any], known_entries: Mapping[str, Mapping[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """Merge manifest entries with a referenced base entry when present."""
+
+    name_value = entry.get("name")
+    extends_value = entry.get("extends")
+
+    base_key: Optional[str] = None
+    if isinstance(extends_value, str) and extends_value.strip():
+        base_key = extends_value.strip()
+    elif isinstance(name_value, str) and name_value.strip() in known_entries:
+        base_key = name_value.strip()
+
+    merged: Dict[str, Any]
+    if base_key:
+        base_entry = known_entries.get(base_key)
+        if base_entry is None:
+            return None
+        merged = copy.deepcopy(dict(base_entry))
+    else:
+        merged = {}
+
+    merged.update({k: v for k, v in entry.items() if k != "extends"})
+
+    if "name" not in merged and isinstance(name_value, str):
+        merged["name"] = name_value
+
+    merged.pop("extends", None)
+    return merged
+
+
+def iter_persona_manifest_paths(
+    app_root: Path, *relative_parts: str
+) -> Iterator[Tuple[str, Path]]:
+    """Yield persona names with the corresponding manifest path."""
+
+    personas_root = app_root / "modules" / "Personas"
+    if not personas_root.is_dir():
+        return
+
+    for persona_dir in sorted(personas_root.iterdir()):
+        if not persona_dir.is_dir():
+            continue
+        manifest_path = persona_dir
+        if relative_parts:
+            manifest_path = manifest_path.joinpath(*relative_parts)
+        yield persona_dir.name, manifest_path
 
 
 def _validate_app_root(root: Optional[str]) -> Optional[Path]:
