@@ -22,6 +22,7 @@ from ATLAS.ToolManager import (
 from ATLAS.config import ConfigManager
 from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
 from modules.logging.logger import setup_logger
+from modules.Providers.common import get_or_create_generator
 
 
 class GoogleGeminiGenerator:
@@ -953,11 +954,11 @@ _GENERATOR_CACHE: "WeakKeyDictionary[ConfigManager, GoogleGeminiGenerator]" = We
 
 
 def get_generator(config_manager: ConfigManager) -> GoogleGeminiGenerator:
-    generator = _GENERATOR_CACHE.get(config_manager)
-    if generator is None:
-        generator = GoogleGeminiGenerator(config_manager)
-        _GENERATOR_CACHE[config_manager] = generator
-    return generator
+    return get_or_create_generator(
+        config_manager=config_manager,
+        cache=_GENERATOR_CACHE,
+        factory=lambda cfg, _mm: GoogleGeminiGenerator(cfg),
+    )
 
 
 def setup_google_gemini_generator(config_manager: ConfigManager):

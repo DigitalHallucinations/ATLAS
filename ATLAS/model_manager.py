@@ -1,7 +1,8 @@
 # ATLAS/model_manager.py
 
 import threading
-from typing import Dict, List, Tuple
+import types
+from typing import Dict, List, Optional, Tuple
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
 
@@ -19,7 +20,47 @@ class ModelManager:
         self.current_provider = None
         self.models = {}
         self.lock = threading.Lock()  # Add a lock for thread safety
+        self._ensure_config_cache_helpers()
         self.load_models()
+
+    def _ensure_config_cache_helpers(self) -> None:
+        """Attach fallback cache helpers when the config manager lacks them."""
+
+        fallback_store = getattr(self.config_manager, "_model_cache_fallback", None)
+        if fallback_store is None:
+            fallback_store = {}
+            setattr(self.config_manager, "_model_cache_fallback", fallback_store)
+
+        if not hasattr(self.config_manager, "get_cached_models"):
+
+            def _get_cached_models(
+                self, provider: Optional[str] = None
+            ) -> Dict[str, List[str]]:
+                store = getattr(self, "_model_cache_fallback", {})
+                if provider is None:
+                    return {name: list(models) for name, models in store.items()}
+                if isinstance(provider, str):
+                    return {provider: list(store.get(provider, []))}
+                return {}
+
+            setattr(
+                self.config_manager,
+                "get_cached_models",
+                types.MethodType(_get_cached_models, self.config_manager),
+            )
+
+        if not hasattr(self.config_manager, "set_cached_models"):
+
+            def _set_cached_models(self, provider: str, models: List[str]) -> List[str]:
+                store = getattr(self, "_model_cache_fallback", {})
+                store[provider] = list(models)
+                return list(store.get(provider, []))
+
+            setattr(
+                self.config_manager,
+                "set_cached_models",
+                types.MethodType(_set_cached_models, self.config_manager),
+            )
 
     def _normalize_models(self, models: List[str]) -> List[str]:
         """Return a de-duplicated, stripped list of model names."""
