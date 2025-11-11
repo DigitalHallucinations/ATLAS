@@ -16,6 +16,7 @@ from modules.store_common.repository_utils import (
     _coerce_optional_dt,
     _coerce_uuid,
     _dt_to_iso,
+    _normalize_enum_value,
     _normalize_meta,
     _normalize_tenant_id,
     _session_scope,
@@ -64,25 +65,11 @@ class _Cursor:
 
 
 def _normalize_status(value: Any | None) -> JobStatus:
-    if value is None:
-        return JobStatus.DRAFT
-    if isinstance(value, JobStatus):
-        return value
-    text = str(value).strip().lower()
-    if not text:
-        return JobStatus.DRAFT
-    return JobStatus(text)
+    return _normalize_enum_value(value, JobStatus, JobStatus.DRAFT)
 
 
 def _normalize_run_status(value: Any | None) -> JobRunStatus:
-    if value is None:
-        return JobRunStatus.SCHEDULED
-    if isinstance(value, JobRunStatus):
-        return value
-    text = str(value).strip().lower()
-    if not text:
-        return JobRunStatus.SCHEDULED
-    return JobRunStatus(text)
+    return _normalize_enum_value(value, JobRunStatus, JobRunStatus.SCHEDULED)
 
 
 def _normalize_name(value: Any) -> str:

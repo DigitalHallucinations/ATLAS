@@ -93,7 +93,7 @@ def test_update_job_uses_optimistic_concurrency(job_repository, identity):
     updated = job_repository.update_job(
         record["id"],
         tenant_id=identity["tenant_id"],
-        changes={"name": "Renamed Job", "status": JobStatus.RUNNING},
+        changes={"name": "Renamed Job", "status": "RUNNING"},
         expected_updated_at=record["updated_at"],
     )
 
@@ -195,6 +195,22 @@ def test_attach_task_requires_matching_tenant(job_repository, task_repository, i
             other_task["id"],
             tenant_id=identity["tenant_id"],
         )
+
+
+def test_create_run_accepts_string_status(job_repository, identity):
+    job = job_repository.create_job(
+        "Runnable Job",
+        tenant_id=identity["tenant_id"],
+        conversation_id=identity["conversation_id"],
+    )
+
+    run = job_repository.create_run(
+        job["id"],
+        tenant_id=identity["tenant_id"],
+        status="RUNNING",
+    )
+
+    assert run["status"] == JobRunStatus.RUNNING.value
 
 
 def test_job_serialization_includes_schedule_runs_events(job_repository, identity):
