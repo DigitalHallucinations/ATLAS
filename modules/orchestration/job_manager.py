@@ -23,6 +23,7 @@ from modules.orchestration.blackboard import BlackboardClient
 from modules.orchestration.message_bus import MessageBus, MessagePriority, get_message_bus
 from modules.orchestration.planner import ExecutionPlan, PlanStep, PlanStepStatus
 from modules.orchestration.task_manager import TaskManager
+from modules.orchestration.utils import normalize_persona_identifier
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ def build_task_manifest_resolver(*, config_manager=None) -> Callable[[str, Optio
             casefold_cache = {}
             entries = task_manifest_loader.load_task_metadata(config_manager=config_manager)
             for entry in entries:
-                persona_key = _normalize_persona(entry.persona)
+                persona_key = normalize_persona_identifier(entry.persona)
                 manifest = _manifest_from_metadata(entry)
                 manifest_cache.setdefault(persona_key, {})[entry.name] = manifest
                 casefold_cache.setdefault(persona_key, {})[entry.name.lower()] = manifest
@@ -127,7 +128,7 @@ def build_task_manifest_resolver(*, config_manager=None) -> Callable[[str, Optio
         if not normalized_id:
             return None
 
-        persona_key = _normalize_persona(persona)
+        persona_key = normalize_persona_identifier(persona)
         manifest = _lookup(normalized_id, persona_key)
         if manifest is None and persona_key is not None:
             manifest = _lookup(normalized_id, None)
@@ -136,13 +137,6 @@ def build_task_manifest_resolver(*, config_manager=None) -> Callable[[str, Optio
         return dict(manifest)
 
     return _resolver
-
-
-def _normalize_persona(persona: Optional[str]) -> Optional[str]:
-    if persona is None:
-        return None
-    text = str(persona).strip().lower()
-    return text or None
 
 
 def _manifest_from_metadata(metadata: task_manifest_loader.TaskMetadata) -> Dict[str, Any]:
