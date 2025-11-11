@@ -14,7 +14,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import List, Dict, Union, AsyncIterator, Optional, Any, Set, Mapping
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
-from modules.Providers.common import get_or_create_generator
+from modules.Providers.common import close_client, get_or_create_generator
 from ATLAS.ToolManager import (
     ToolExecutionError,
     load_function_map_from_current_persona,
@@ -56,20 +56,8 @@ class OpenAIGenerator:
         if client is None:
             return
 
-        closer = getattr(client, "aclose", None)
-        try:
-            if callable(closer):
-                await closer()
-            else:
-                closer = getattr(client, "close", None)
-                if callable(closer):
-                    result = closer()
-                    if inspect.isawaitable(result):
-                        await result
-        except Exception as exc:  # pragma: no cover - defensive cleanup
-            self.logger.warning("Failed to close OpenAI client cleanly: %s", exc, exc_info=True)
-        finally:
-            self.client = None
+        await close_client(client, self.logger, "OpenAI")
+        self.client = None
 
     async def close(self) -> None:
         """Compatibility alias that awaits :meth:`aclose`."""

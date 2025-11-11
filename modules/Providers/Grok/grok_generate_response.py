@@ -26,6 +26,7 @@ from ATLAS.ToolManager import (
 )
 from ATLAS.config import ConfigManager
 from modules.logging.logger import setup_logger
+from modules.Providers.common import close_client
 
 
 class GrokStreamResponse:
@@ -643,20 +644,6 @@ class GrokGenerator:
             self.logger.debug("Grok client already released; nothing to unload.")
             return
 
-        async_close = getattr(client, "aclose", None)
-        sync_close = getattr(client, "close", None)
-
-        try:
-            if callable(async_close):
-                maybe_coro = async_close()
-                if inspect.isawaitable(maybe_coro):
-                    await maybe_coro
-            elif callable(sync_close):
-                maybe_result = sync_close()
-                if inspect.isawaitable(maybe_result):
-                    await maybe_result
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self.logger.warning("Failed to close Grok client cleanly: %s", exc, exc_info=True)
-        finally:
-            self.client = None
-            self.logger.debug("Grok client unloaded.")
+        await close_client(client, self.logger, "Grok")
+        self.client = None
+        self.logger.debug("Grok client unloaded.")
