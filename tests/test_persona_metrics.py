@@ -6,14 +6,13 @@ import threading
 import pytest
 
 from modules.analytics.persona_metrics import (
+    LifecycleEvent,
     PersonaMetricEvent,
     PersonaMetricsStore,
-    TaskLifecycleEvent,
-    JobLifecycleEvent,
-    get_task_lifecycle_metrics,
     get_job_lifecycle_metrics,
-    record_task_lifecycle_event,
+    get_task_lifecycle_metrics,
     record_job_lifecycle_event,
+    record_task_lifecycle_event,
 )
 
 
@@ -177,22 +176,24 @@ def test_record_event_concurrent_persistence(metrics_store):
 def test_task_lifecycle_metrics_aggregation(metrics_store):
     base = datetime(2024, 3, 1, 8, 0, tzinfo=timezone.utc)
     metrics_store.record_task_event(
-        TaskLifecycleEvent(
-            task_id="task-1",
+        LifecycleEvent(
+            entity_id="task-1",
+            entity_key="task_id",
             event="created",
             persona="Atlas",
             tenant_id="tenant-a",
             to_status="ready",
             success=None,
             latency_ms=None,
-            reassignments=0,
             timestamp=base,
             metadata={"source": "unit"},
+            extra={"reassignments": 0},
         )
     )
     metrics_store.record_task_event(
-        TaskLifecycleEvent(
-            task_id="task-1",
+        LifecycleEvent(
+            entity_id="task-1",
+            entity_key="task_id",
             event="completed",
             persona="Atlas",
             tenant_id="tenant-a",
@@ -200,13 +201,14 @@ def test_task_lifecycle_metrics_aggregation(metrics_store):
             to_status="done",
             success=True,
             latency_ms=540.0,
-            reassignments=0,
             timestamp=base + timedelta(minutes=30),
+            extra={"reassignments": 0},
         )
     )
     metrics_store.record_task_event(
-        TaskLifecycleEvent(
-            task_id="task-1",
+        LifecycleEvent(
+            entity_id="task-1",
+            entity_key="task_id",
             event="reassigned",
             persona="Atlas",
             tenant_id="tenant-a",
@@ -214,13 +216,14 @@ def test_task_lifecycle_metrics_aggregation(metrics_store):
             to_status="done",
             success=None,
             latency_ms=None,
-            reassignments=1,
             timestamp=base + timedelta(hours=1),
+            extra={"reassignments": 1},
         )
     )
     metrics_store.record_task_event(
-        TaskLifecycleEvent(
-            task_id="other",
+        LifecycleEvent(
+            entity_id="other",
+            entity_key="task_id",
             event="cancelled",
             persona="Other",
             tenant_id="tenant-b",
@@ -228,8 +231,8 @@ def test_task_lifecycle_metrics_aggregation(metrics_store):
             to_status="cancelled",
             success=False,
             latency_ms=200.0,
-            reassignments=0,
             timestamp=base + timedelta(hours=2),
+            extra={"reassignments": 0},
         )
     )
 
@@ -295,8 +298,9 @@ def test_record_task_lifecycle_event_publishes(monkeypatch, metrics_store):
 def test_job_lifecycle_metrics_aggregation(metrics_store):
     base = datetime(2024, 5, 1, 12, 0, tzinfo=timezone.utc)
     metrics_store.record_job_event(
-        JobLifecycleEvent(
-            job_id="job-1",
+        LifecycleEvent(
+            entity_id="job-1",
+            entity_key="job_id",
             event="created",
             persona="Atlas",
             tenant_id="tenant-a",
@@ -307,8 +311,9 @@ def test_job_lifecycle_metrics_aggregation(metrics_store):
         )
     )
     metrics_store.record_job_event(
-        JobLifecycleEvent(
-            job_id="job-1",
+        LifecycleEvent(
+            entity_id="job-1",
+            entity_key="job_id",
             event="completed",
             persona="Atlas",
             tenant_id="tenant-a",
@@ -321,8 +326,9 @@ def test_job_lifecycle_metrics_aggregation(metrics_store):
         )
     )
     metrics_store.record_job_event(
-        JobLifecycleEvent(
-            job_id="job-2",
+        LifecycleEvent(
+            entity_id="job-2",
+            entity_key="job_id",
             event="failed",
             persona="Atlas",
             tenant_id="tenant-a",
@@ -335,8 +341,9 @@ def test_job_lifecycle_metrics_aggregation(metrics_store):
         )
     )
     metrics_store.record_job_event(
-        JobLifecycleEvent(
-            job_id="other",
+        LifecycleEvent(
+            entity_id="other",
+            entity_key="job_id",
             event="completed",
             persona="Other",
             tenant_id="tenant-b",

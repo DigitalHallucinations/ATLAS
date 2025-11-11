@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
@@ -15,8 +15,7 @@ from modules.orchestration.message_bus import MessagePriority
 __all__ = [
     "PersonaMetricEvent",
     "PersonaMetricsStore",
-    "TaskLifecycleEvent",
-    "JobLifecycleEvent",
+    "LifecycleEvent",
     "record_persona_tool_event",
     "record_persona_skill_event",
     "record_task_lifecycle_event",
@@ -104,49 +103,11 @@ class PersonaMetricEvent:
 
 
 @dataclass(frozen=True)
-class TaskLifecycleEvent:
-    """Represents a lifecycle transition or assignment change for a task."""
+class LifecycleEvent:
+    """Represents a lifecycle transition for a task, job, or similar entity."""
 
-    task_id: str
-    event: str
-    persona: Optional[str] = None
-    tenant_id: Optional[str] = None
-    from_status: Optional[str] = None
-    to_status: Optional[str] = None
-    success: Optional[bool] = None
-    latency_ms: Optional[float] = None
-    reassignments: int = 0
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    metadata: Optional[Mapping[str, Any]] = None
-
-    def __post_init__(self) -> None:
-        event_name = str(self.event or "").strip().lower()
-        object.__setattr__(self, "event", event_name or "status_changed")
-        if self.metadata is None:
-            object.__setattr__(self, "metadata", {})
-
-    def as_dict(self) -> Dict[str, Any]:
-        payload = {
-            "task_id": self.task_id,
-            "event": self.event,
-            "persona": self.persona,
-            "tenant_id": self.tenant_id,
-            "from_status": self.from_status,
-            "to_status": self.to_status,
-            "success": self.success,
-            "latency_ms": float(self.latency_ms) if self.latency_ms is not None else None,
-            "reassignments": int(self.reassignments or 0),
-            "timestamp": _isoformat(self.timestamp),
-            "metadata": dict(self.metadata or {}),
-        }
-        return payload
-
-
-@dataclass(frozen=True)
-class JobLifecycleEvent:
-    """Represents a lifecycle transition for a job entity."""
-
-    job_id: str
+    entity_id: str
+    entity_key: str
     event: str
     persona: Optional[str] = None
     tenant_id: Optional[str] = None
@@ -156,16 +117,30 @@ class JobLifecycleEvent:
     latency_ms: Optional[float] = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Optional[Mapping[str, Any]] = None
+    extra: Optional[Mapping[str, Any]] = None
 
     def __post_init__(self) -> None:
         event_name = str(self.event or "").strip().lower()
         object.__setattr__(self, "event", event_name or "status_changed")
-        if self.metadata is None:
-            object.__setattr__(self, "metadata", {})
+        metadata: Mapping[str, Any]
+        if isinstance(self.metadata, Mapping):
+            metadata = self.metadata
+        else:
+            metadata = {}
+        object.__setattr__(self, "metadata", dict(metadata))
+
+        extras: Mapping[str, Any]
+        if isinstance(self.extra, Mapping):
+            extras = self.extra
+        else:
+            extras = {}
+        object.__setattr__(self, "extra", dict(extras))
+        entity_key = str(self.entity_key or "").strip() or "entity_id"
+        object.__setattr__(self, "entity_key", entity_key)
 
     def as_dict(self) -> Dict[str, Any]:
         payload = {
-            "job_id": self.job_id,
+            self.entity_key: self.entity_id,
             "event": self.event,
             "persona": self.persona,
             "tenant_id": self.tenant_id,
@@ -176,6 +151,7 @@ class JobLifecycleEvent:
             "timestamp": _isoformat(self.timestamp),
             "metadata": dict(self.metadata or {}),
         }
+        payload.update(dict(self.extra or {}))
         return payload
 
 
@@ -217,7 +193,7 @@ class PersonaMetricsStore:
             payload = {"events": [], "task_events": [], "job_events": []}
             self._write_payload(payload)
 
-    def record_task_event(self, event: TaskLifecycleEvent) -> None:
+    def record_task_event(self, event: LifecycleEvent) -> None:
         """Append ``event`` to the persisted task lifecycle log."""
 
         with self._lock:
@@ -236,7 +212,7 @@ class PersonaMetricsStore:
             payload.setdefault("job_events", payload.get("job_events", []))
             self._write_payload(payload)
 
-    def record_job_event(self, event: JobLifecycleEvent) -> None:
+    def record_job_event(self, event: LifecycleEvent) -> None:
         """Append ``event`` to the persisted job lifecycle log."""
 
         with self._lock:
@@ -847,6 +823,37 @@ def record_persona_skill_event(
     )
 
 
+def _build_lifecycle_event(
+    *,
+    entity_key: str,
+    entity_id: str,
+    event: str,
+    persona: Optional[str],
+    tenant_id: Optional[str],
+    from_status: Optional[str],
+    to_status: Optional[str],
+    success: Optional[bool],
+    latency_ms: Optional[float],
+    timestamp: Optional[datetime],
+    metadata: Optional[Mapping[str, Any]],
+    extra: Optional[Mapping[str, Any]] = None,
+) -> LifecycleEvent:
+    return LifecycleEvent(
+        entity_id=entity_id,
+        entity_key=entity_key,
+        event=event,
+        persona=persona,
+        tenant_id=tenant_id,
+        from_status=from_status,
+        to_status=to_status,
+        success=success,
+        latency_ms=float(latency_ms) if latency_ms is not None else None,
+        timestamp=timestamp or datetime.now(timezone.utc),
+        metadata=metadata,
+        extra=extra,
+    )
+
+
 def record_task_lifecycle_event(
     *,
     task_id: Optional[str],
@@ -877,30 +884,34 @@ def record_task_lifecycle_event(
         text = str(tenant_id).strip()
         tenant_value = text or None
 
-    event_payload = TaskLifecycleEvent(
-        task_id=str(task_id),
+    event_payload = _build_lifecycle_event(
+        entity_key="task_id",
+        entity_id=str(task_id),
         event=event,
         persona=persona_value,
         tenant_id=tenant_value,
         from_status=from_status,
         to_status=to_status,
         success=success,
-        latency_ms=float(latency_ms) if latency_ms is not None else None,
-        reassignments=int(reassignments or 0),
-        timestamp=timestamp or datetime.now(timezone.utc),
+        latency_ms=latency_ms,
+        timestamp=timestamp,
         metadata=metadata,
     )
+    task_event = replace(
+        event_payload,
+        extra={**event_payload.extra, "reassignments": int(reassignments or 0)},
+    )
     store = _get_store(config_manager)
-    store.record_task_event(event_payload)
+    store.record_task_event(task_event)
     publish_bus_event(
         "task_metrics.lifecycle",
-        event_payload.as_dict(),
+        task_event.as_dict(),
         priority=MessagePriority.LOW,
         correlation_id=str(task_id),
         tracing={
-            "persona": event_payload.persona,
-            "event": event_payload.event,
-            "success": event_payload.success,
+            "persona": task_event.persona,
+            "event": task_event.event,
+            "success": task_event.success,
         },
         metadata={"component": "analytics"},
         emit_legacy=False,
@@ -936,16 +947,17 @@ def record_job_lifecycle_event(
         text = str(tenant_id).strip()
         tenant_value = text or None
 
-    event_payload = JobLifecycleEvent(
-        job_id=str(job_id),
+    event_payload = _build_lifecycle_event(
+        entity_key="job_id",
+        entity_id=str(job_id),
         event=event,
         persona=persona_value,
         tenant_id=tenant_value,
         from_status=from_status,
         to_status=to_status,
         success=success,
-        latency_ms=float(latency_ms) if latency_ms is not None else None,
-        timestamp=timestamp or datetime.now(timezone.utc),
+        latency_ms=latency_ms,
+        timestamp=timestamp,
         metadata=metadata,
     )
     store = _get_store(config_manager)
