@@ -12,6 +12,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
+from ATLAS.utils import normalize_sequence
+
 from .widgets import clear_container, create_badge, create_badge_container, sync_badge_section
 
 logger = logging.getLogger(__name__)
@@ -437,18 +439,13 @@ class TaskManagement:
         else:
             metadata_dict = {}
 
-        def _normalize_sequence(value: Any) -> Tuple[str, ...]:
-            if isinstance(value, Mapping):
-                iterable = value.values()
-            else:
-                iterable = value
-            tokens: List[str] = []
-            if isinstance(iterable, Iterable) and not isinstance(iterable, (str, bytes)):
-                for item in iterable:
-                    text = str(item).strip()
-                    if text:
-                        tokens.append(text)
-            return tuple(tokens)
+        token_normalizer = lambda value: normalize_sequence(
+            value,
+            as_tuple=True,
+            transform=lambda item: str(item).strip(),
+            filter_falsy=True,
+            accept_scalar=False,
+        )
 
         def _normalize_dependencies(value: Any) -> Tuple[Any, ...]:
             dependencies: List[Any] = []
@@ -496,9 +493,9 @@ class TaskManagement:
             conversation_id=str(payload.get("conversation_id")).strip() if payload.get("conversation_id") else None,
             persona=persona,
             metadata=metadata_dict,
-            required_skills=_normalize_sequence(metadata_dict.get("required_skills")),
-            required_tools=_normalize_sequence(metadata_dict.get("required_tools")),
-            acceptance_criteria=_normalize_sequence(metadata_dict.get("acceptance_criteria")),
+            required_skills=token_normalizer(metadata_dict.get("required_skills")),
+            required_tools=token_normalizer(metadata_dict.get("required_tools")),
+            acceptance_criteria=token_normalizer(metadata_dict.get("acceptance_criteria")),
             dependencies=_normalize_dependencies(metadata_dict.get("dependencies")),
             created_at=self._coerce_timestamp(payload.get("created_at")),
             updated_at=self._coerce_timestamp(payload.get("updated_at")),
