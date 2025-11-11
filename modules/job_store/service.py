@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 from modules.Tools.tool_event_system import publish_bus_event
 from modules.analytics.persona_metrics import record_job_lifecycle_event
 from modules.task_store import TaskStatus
+from modules.store_common.service_utils import (
+    coerce_enum_value,
+    normalize_owner_identifier as _normalize_owner_identifier,
+    parse_timestamp as _parse_timestamp,
+)
 
 from .models import JobRunStatus, JobStatus
 from .repository import (
@@ -49,48 +53,7 @@ _DEPENDENCY_REQUIRED_STATUSES = {JobStatus.RUNNING, JobStatus.SUCCEEDED}
 
 
 def _coerce_status(value: Any) -> JobStatus:
-    if isinstance(value, JobStatus):
-        return value
-    text = str(value).strip().lower()
-    return JobStatus(text)
-
-
-def _parse_timestamp(value: Any) -> Optional[datetime]:
-    if isinstance(value, datetime):
-        timestamp = value
-    elif value is None:
-        return None
-    else:
-        text = str(value).strip()
-        if not text:
-            return None
-        if text.endswith("Z"):
-            text = text[:-1] + "+00:00"
-        try:
-            timestamp = datetime.fromisoformat(text)
-        except ValueError:
-            return None
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=timezone.utc)
-    else:
-        timestamp = timestamp.astimezone(timezone.utc)
-    return timestamp
-
-
-def _normalize_owner_identifier(value: Any) -> Optional[str]:
-    if value is None or value == "":
-        return None
-    if isinstance(value, uuid.UUID):
-        return str(value)
-    if isinstance(value, bytes):
-        return str(uuid.UUID(bytes=value))
-    text = str(value).strip()
-    if not text:
-        return None
-    try:
-        return str(uuid.UUID(text))
-    except ValueError:
-        return str(uuid.UUID(hex=text.replace("-", "")))
+    return coerce_enum_value(value, JobStatus)
 
 
 def _extract_metadata(payload: Mapping[str, Any]) -> Mapping[str, Any]:
