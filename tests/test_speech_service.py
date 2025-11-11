@@ -97,8 +97,13 @@ def test_stop_stt_and_transcribe_success_sets_future_result():
         def get_active_stt_provider(self):
             return "openai"
 
-        def stop_and_transcribe_in_background(self, provider, *, on_success, on_error, thread_name):
-            captured.update({"success": on_success, "error": on_error, "thread": thread_name})
+        def stop_and_transcribe_in_background(self, provider, *, export_options, on_success, on_error, thread_name):
+            captured.update({
+                "success": on_success,
+                "error": on_error,
+                "thread": thread_name,
+                "export_options": export_options,
+            })
 
     manager = _Manager()
     service, summary_getter, _ = _make_service(manager, summary={"mode": "chat"})
@@ -115,6 +120,7 @@ def test_stop_stt_and_transcribe_success_sets_future_result():
     captured["success"]("  hello  ")
     result = future.result()
     assert result["transcript"] == "hello"
+    assert captured["export_options"] is None
     summary_getter.assert_called()
 
 
@@ -145,6 +151,40 @@ def test_stop_stt_and_transcribe_failure_returns_error_payload():
         exc_info=True,
     )
     summary_getter.assert_called()
+
+
+def test_stop_stt_and_transcribe_uses_export_preferences():
+    captured = {}
+
+    class _Manager:
+        def get_active_stt_provider(self):
+            return "openai"
+
+        def stop_and_transcribe_in_background(self, provider, *, export_options, on_success, on_error, thread_name):
+            captured.update({
+                "export_options": export_options,
+                "thread": thread_name,
+            })
+            return Mock()
+
+    manager = _Manager()
+    service, _, _ = _make_service(manager)
+    service.update_transcript_export_preferences(formats=["txt", "json"], directory="/tmp/logs")
+
+    payload = service.stop_stt_and_transcribe()
+
+    assert payload["provider"] == "openai"
+    assert captured["export_options"] == {
+        "formats": ["txt", "json"],
+        "destination": "/tmp/logs",
+    }
+
+
+def test_update_transcript_export_preferences_validates_formats():
+    service, _, _ = _make_service(SimpleNamespace())
+
+    with pytest.raises(ValueError):
+        service.update_transcript_export_preferences(formats=["xml"], directory=None)
 
 
 def test_maybe_text_to_speech_skips_when_disabled():

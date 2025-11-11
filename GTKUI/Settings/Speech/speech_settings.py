@@ -875,6 +875,15 @@ class SpeechSettings(Gtk.Box):
 
         option_sets = self.ATLAS.get_openai_speech_options()
         openai_config = self.ATLAS.get_openai_speech_configuration()
+        try:
+            export_prefs = self.ATLAS.get_transcript_export_preferences()
+        except Exception as exc:  # pragma: no cover - UI failsafe
+            logger.error(
+                "Failed to load transcript export preferences: %s", exc, exc_info=True
+            )
+            export_prefs = {"formats": [], "directory": None}
+        export_formats = set((export_prefs or {}).get("formats") or [])
+        export_directory = (export_prefs or {}).get("directory")
 
         # --- STT Settings Frame ---
         stt_frame = Gtk.Frame(label="Open AI STT Settings")
@@ -962,6 +971,51 @@ class SpeechSettings(Gtk.Box):
         stt_frame.set_child(stt_box)
         openai_box.append(stt_frame)
 
+        export_frame = Gtk.Frame(label="Transcription Export")
+        export_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        export_box.set_margin_top(6)
+        export_box.set_margin_bottom(6)
+        export_box.set_margin_start(6)
+        export_box.set_margin_end(6)
+
+        formats_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.export_txt_toggle = Gtk.CheckButton(label="Save transcript as TXT")
+        self.export_txt_toggle.set_tooltip_text("Write the recognized text to a .txt file.")
+        self.export_txt_toggle.set_active("txt" in export_formats)
+        formats_box.append(self.export_txt_toggle)
+
+        self.export_json_toggle = Gtk.CheckButton(label="Save transcript metadata as JSON")
+        self.export_json_toggle.set_tooltip_text("Store transcript text, segments, and metadata in JSON format.")
+        self.export_json_toggle.set_active("json" in export_formats)
+        formats_box.append(self.export_json_toggle)
+
+        self.export_srt_toggle = Gtk.CheckButton(label="Save subtitle track as SRT")
+        self.export_srt_toggle.set_tooltip_text("Generate an .srt subtitle file when Whisper segments are available.")
+        self.export_srt_toggle.set_active("srt" in export_formats)
+        formats_box.append(self.export_srt_toggle)
+
+        export_box.append(formats_box)
+
+        directory_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        directory_label = Gtk.Label(label="Export directory:")
+        directory_label.set_tooltip_text("Folder where transcript exports will be saved.")
+        directory_label.set_xalign(0)
+        self.export_directory_entry = Gtk.Entry()
+        self.export_directory_entry.set_hexpand(True)
+        self.export_directory_entry.set_placeholder_text("Use default working directory")
+        if isinstance(export_directory, str) and export_directory:
+            self.export_directory_entry.set_text(export_directory)
+        browse_button = Gtk.Button(label="Browse…")
+        browse_button.set_tooltip_text("Choose a folder for transcript exports.")
+        browse_button.connect("clicked", self.on_export_directory_browse)
+        directory_row.append(directory_label)
+        directory_row.append(self.export_directory_entry)
+        directory_row.append(browse_button)
+
+        export_box.append(directory_row)
+        export_frame.set_child(export_box)
+        openai_box.append(export_frame)
+
         # --- TTS Settings Frame ---
         tts_frame = Gtk.Frame(label="Open AI TTS Settings")
         tts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -1017,6 +1071,10 @@ class SpeechSettings(Gtk.Box):
         self.openai_prompt_entry.connect("notify::text", lambda w, ps: self.mark_dirty(3))
         self.openai_tts_combo.connect("changed", lambda w: self.mark_dirty(3))
         self.openai_api_entry.connect("notify::text", lambda w, ps: self.mark_dirty(3))
+        self.export_txt_toggle.connect("toggled", lambda w: self.mark_dirty(3))
+        self.export_json_toggle.connect("toggled", lambda w: self.mark_dirty(3))
+        self.export_srt_toggle.connect("toggled", lambda w: self.mark_dirty(3))
+        self.export_directory_entry.connect("notify::text", lambda w, ps: self.mark_dirty(3))
 
         openai_scroller = Gtk.ScrolledWindow()
         openai_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -1061,6 +1119,38 @@ class SpeechSettings(Gtk.Box):
             )
             return
 
+        selected_formats = []
+        if self.export_txt_toggle.get_active():
+            selected_formats.append("txt")
+        if self.export_json_toggle.get_active():
+            selected_formats.append("json")
+        if self.export_srt_toggle.get_active():
+            selected_formats.append("srt")
+        export_directory = self.export_directory_entry.get_text().strip()
+        directory_value = export_directory or None
+
+        try:
+            self.ATLAS.update_transcript_export_preferences(
+                formats=selected_formats,
+                directory=directory_value,
+            )
+        except ValueError as exc:
+            logger.error("Invalid transcript export settings: %s", exc, exc_info=True)
+            self._show_message(
+                "Error",
+                f"Invalid transcript export settings: {exc}",
+                Gtk.MessageType.ERROR,
+            )
+            return
+        except Exception as exc:
+            logger.error("Failed to update transcript export settings: %s", exc, exc_info=True)
+            self._show_message(
+                "Error",
+                f"Failed to update transcript export settings: {exc}",
+                Gtk.MessageType.ERROR,
+            )
+            return
+
         logger.debug("Open AI STT provider set to %s", prepared_settings.get("stt_provider"))
         logger.debug("Open AI TTS provider set to %s", prepared_settings.get("tts_provider"))
 
@@ -1098,6 +1188,25 @@ class SpeechSettings(Gtk.Box):
             file_path = dialog.get_filename()
             self.selected_file_label.set_text(file_path)
             self.selected_audio_file = file_path
+        dialog.destroy()
+
+    def on_export_directory_browse(self, _widget):
+        dialog = Gtk.FileChooserNative(
+            title="Select Export Directory",
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+            transient_for=self._parent_window()
+        )
+        current_path = self.export_directory_entry.get_text()
+        if isinstance(current_path, str) and current_path:
+            try:
+                dialog.set_current_folder(current_path)
+            except Exception:
+                pass
+        response = dialog.run()
+        if response == Gtk.ResponseType.ACCEPT:
+            folder_path = dialog.get_filename()
+            if folder_path:
+                self.export_directory_entry.set_text(folder_path)
         dialog.destroy()
 
     def show_history(self, widget):

@@ -15,12 +15,13 @@ Date: 05-11-2025
 """
 
 import inspect
-from typing import Dict, Any, List, Optional, Tuple, Callable
+from typing import Dict, Any, List, Optional, Tuple, Callable, TYPE_CHECKING
 from concurrent.futures import Future
 import os
 import asyncio
 import time
 from datetime import datetime
+import copy
 from .elevenlabs_tts import ElevenLabsTTS
 from .Google_tts import GoogleTTS
 from .Google_stt import GoogleSTT
@@ -29,6 +30,9 @@ from ATLAS.config import ConfigManager
 from modules.background_tasks import run_async_in_thread
 
 logger = setup_logger('speech_manager.py')
+
+if TYPE_CHECKING:  # pragma: no cover
+    from modules.Speech_Services.whisper_stt import WhisperSTT
 
 
 _OPENAI_STT_PROVIDER_OPTIONS: List[Tuple[str, str]] = [
@@ -1630,6 +1634,73 @@ class SpeechManager:
 
         return formatted_history
 
+    def _is_whisper_provider(self, provider_instance: Any) -> bool:
+        try:
+            from modules.Speech_Services.whisper_stt import WhisperSTT
+        except Exception:  # pragma: no cover - optional dependency guard
+            return False
+        return isinstance(provider_instance, WhisperSTT)
+
+    def _prepare_export_options(
+        self,
+        provider: str,
+        audio_file: str,
+        export_options: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        if not export_options:
+            return None
+
+        if not isinstance(export_options, dict):
+            raise ValueError("export_options must be a mapping")
+
+        prepared: Dict[str, Any] = copy.deepcopy(export_options)
+
+        raw_formats = prepared.get("formats")
+        if raw_formats is None:
+            return None
+
+        if isinstance(raw_formats, (str, bytes)):
+            raw_formats = [raw_formats]
+
+        sanitized_formats: List[str] = []
+        seen: set = set()
+        for fmt in raw_formats:
+            if not isinstance(fmt, str):
+                continue
+            normalized = fmt.strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            sanitized_formats.append(normalized)
+
+        if not sanitized_formats:
+            return None
+
+        prepared["formats"] = sanitized_formats
+
+        destination = prepared.get("destination") or prepared.get("directory")
+        if destination:
+            prepared["destination"] = destination
+
+        base_filename = prepared.get("base_filename")
+        if not base_filename and isinstance(audio_file, str):
+            base_filename = os.path.splitext(os.path.basename(audio_file))[0]
+        prepared["base_filename"] = base_filename or "transcript"
+
+        metadata = prepared.get("metadata")
+        if isinstance(metadata, dict):
+            metadata = copy.deepcopy(metadata)
+        else:
+            metadata = {}
+
+        metadata.setdefault("timestamp", datetime.utcnow().isoformat() + "Z")
+        metadata.setdefault("provider", provider)
+        metadata.setdefault("audio_file", audio_file)
+
+        prepared["metadata"] = metadata
+
+        return prepared
+
     def listen(self, provider: str = None) -> bool:
         """
         Starts speech recognition by invoking the active STT provider's listen method.
@@ -1686,13 +1757,20 @@ class SpeechManager:
         logger.debug("Listening stopped for provider '%s'.", provider)
         return audio_reference
 
-    def transcribe(self, audio_file: str, provider: str = None) -> str:
+    def transcribe(
+        self,
+        audio_file: str,
+        provider: str = None,
+        *,
+        export_options: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """
         Transcribes an audio file using the active STT provider.
 
         Args:
             audio_file (str): Path to the audio file.
             provider (str, optional): STT provider key.
+            export_options (dict, optional): Whisper export configuration.
 
         Returns:
             str: Transcribed text.
@@ -1703,7 +1781,17 @@ class SpeechManager:
             logger.error(f"STT provider '{provider}' not found.")
             return ""
         # Synchronous transcription call wrapped for simplicity.
-        transcript = stt.transcribe(audio_file)
+        is_whisper = self._is_whisper_provider(stt)
+        prepared_export = (
+            self._prepare_export_options(provider, audio_file, export_options)
+            if is_whisper
+            else None
+        )
+
+        if prepared_export:
+            transcript = stt.transcribe(audio_file, export_options=prepared_export)
+        else:
+            transcript = stt.transcribe(audio_file)
         # Log transcription history
         self.transcription_history.append({
             "audio_file": audio_file,
@@ -1712,13 +1800,21 @@ class SpeechManager:
         })
         return transcript
 
-    async def batch_transcribe(self, audio_files: List[str], provider: str = None, **kwargs) -> List[str]:
+    async def batch_transcribe(
+        self,
+        audio_files: List[str],
+        provider: str = None,
+        *,
+        export_options: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> List[str]:
         """
         Asynchronously transcribes a batch of audio files.
 
         Args:
             audio_files (List[str]): List of audio file paths.
             provider (str, optional): STT provider key.
+            export_options (dict, optional): Whisper export configuration.
             kwargs: Additional parameters for transcription.
 
         Returns:
@@ -1729,7 +1825,15 @@ class SpeechManager:
         if not stt:
             logger.error(f"STT provider '{provider}' not found.")
             return []
-        tasks = [asyncio.to_thread(stt.transcribe, af, **kwargs) for af in audio_files]
+        is_whisper = self._is_whisper_provider(stt)
+        tasks = []
+        for af in audio_files:
+            call_kwargs = dict(kwargs)
+            if is_whisper:
+                prepared_export = self._prepare_export_options(provider, af, export_options)
+                if prepared_export:
+                    call_kwargs["export_options"] = prepared_export
+            tasks.append(asyncio.to_thread(stt.transcribe, af, **call_kwargs))
         transcripts = await asyncio.gather(*tasks)
         for af, transcript in zip(audio_files, transcripts):
             self.transcription_history.append({
@@ -1849,7 +1953,12 @@ class SpeechManager:
 
         return None
 
-    async def stop_and_transcribe(self, provider: str | None = None) -> str:
+    async def stop_and_transcribe(
+        self,
+        provider: str | None = None,
+        *,
+        export_options: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """Stop recording (if active) and return the resulting transcript string."""
         provider_key = provider or self._recording_provider or self.get_default_stt_provider()
         if not provider_key:
@@ -1872,7 +1981,12 @@ class SpeechManager:
             return ""
 
         try:
-            transcript = await asyncio.to_thread(self.transcribe, audio_reference, provider_key)
+            transcript = await asyncio.to_thread(
+                self.transcribe,
+                audio_reference,
+                provider_key,
+                export_options=export_options,
+            )
             return transcript or ""
         except Exception as exc:
             logger.error(f"Error transcribing audio with provider '{provider_key}': {exc}")
@@ -1882,6 +1996,7 @@ class SpeechManager:
         self,
         provider: str | None = None,
         *,
+        export_options: Optional[Dict[str, Any]] = None,
         on_success: Callable[[str], None] | None = None,
         on_error: Callable[[Exception], None] | None = None,
         thread_name: str | None = None,
@@ -1889,7 +2004,7 @@ class SpeechManager:
         """Run :meth:`stop_and_transcribe` on a worker thread and return a ``Future``."""
 
         return run_async_in_thread(
-            lambda: self.stop_and_transcribe(provider),
+            lambda: self.stop_and_transcribe(provider, export_options=export_options),
             on_success=on_success,
             on_error=on_error,
             logger=logger,
