@@ -11,6 +11,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from .utils import coerce_metadata, dedupe_strings
+
 
 @dataclass(frozen=True)
 class InteractionRecord:
@@ -24,25 +26,6 @@ class InteractionRecord:
     metadata: Mapping[str, object]
 
 
-def _normalize_tags(tags: Optional[Sequence[str]]) -> tuple[str, ...]:
-    if not tags:
-        return tuple()
-    normalized: list[str] = []
-    for tag in tags:
-        if not isinstance(tag, str):
-            continue
-        candidate = tag.strip()
-        if candidate:
-            normalized.append(candidate.lower())
-    return tuple(dict.fromkeys(normalized))
-
-
-def _normalize_metadata(metadata: Optional[Mapping[str, object]]) -> Mapping[str, object]:
-    if metadata is None:
-        return {}
-    if isinstance(metadata, MutableMapping):
-        return dict(metadata)
-    return {str(key): value for key, value in metadata.items()}
 
 
 class CRMService:
@@ -73,9 +56,9 @@ class CRMService:
             contact_id=contact_id.strip(),
             interaction_type=interaction_type.strip().lower(),
             summary=summary.strip(),
-            tags=_normalize_tags(tags),
+            tags=dedupe_strings(tags, lower=True),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            metadata=_normalize_metadata(metadata),
+            metadata=coerce_metadata(metadata),
         )
 
         interactions = self._interactions.setdefault(record.contact_id, [])

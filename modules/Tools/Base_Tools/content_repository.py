@@ -11,6 +11,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from .utils import coerce_metadata, dedupe_strings
+
 
 @dataclass(frozen=True)
 class ContentRecord:
@@ -25,38 +27,6 @@ class ContentRecord:
     updated_at: str
 
 
-def _normalize_tags(tags: Optional[Sequence[str]]) -> tuple[str, ...]:
-    if not tags:
-        return tuple()
-    normalized: list[str] = []
-    for tag in tags:
-        if not isinstance(tag, str):
-            continue
-        candidate = tag.strip()
-        if candidate:
-            normalized.append(candidate.lower())
-    return tuple(dict.fromkeys(normalized))
-
-
-def _normalize_attachments(attachments: Optional[Sequence[str]]) -> tuple[str, ...]:
-    if not attachments:
-        return tuple()
-    normalized: list[str] = []
-    for item in attachments:
-        if not isinstance(item, str):
-            continue
-        candidate = item.strip()
-        if candidate:
-            normalized.append(candidate)
-    return tuple(dict.fromkeys(normalized))
-
-
-def _normalize_metadata(metadata: Optional[Mapping[str, object]]) -> Mapping[str, object]:
-    if metadata is None:
-        return {}
-    if isinstance(metadata, MutableMapping):
-        return dict(metadata)
-    return {str(key): value for key, value in metadata.items()}
 
 
 class ContentRepository:
@@ -88,9 +58,9 @@ class ContentRepository:
             content_id=content_id.strip(),
             title=title.strip(),
             body=body.strip(),
-            tags=_normalize_tags(tags),
-            attachments=_normalize_attachments(attachments),
-            metadata=_normalize_metadata(metadata),
+            tags=dedupe_strings(tags, lower=True),
+            attachments=dedupe_strings(attachments),
+            metadata=coerce_metadata(metadata),
             updated_at=datetime.now(timezone.utc).isoformat(),
         )
 

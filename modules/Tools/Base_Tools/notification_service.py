@@ -4,32 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Mapping, MutableMapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def _normalize_recipients(recipients: Optional[Sequence[str]]) -> tuple[str, ...]:
-    if not recipients:
-        return tuple()
-    normalized = []
-    for value in recipients:
-        if not isinstance(value, str):
-            continue
-        candidate = value.strip()
-        if candidate:
-            normalized.append(candidate)
-    return tuple(dict.fromkeys(normalized))
-
-
-def _normalize_metadata(metadata: Optional[Mapping[str, object]]) -> Mapping[str, object]:
-    if metadata is None:
-        return {}
-    if isinstance(metadata, MutableMapping):
-        return dict(metadata)
-    return {str(key): value for key, value in metadata.items()}
+from .utils import coerce_metadata, dedupe_strings
 
 
 async def send_notification(
@@ -52,9 +34,9 @@ async def send_notification(
     payload = {
         "channel": channel.strip(),
         "message": message.strip(),
-        "recipients": _normalize_recipients(recipients),
+        "recipients": dedupe_strings(recipients),
         "urgency": urgency.strip().lower() if isinstance(urgency, str) else "normal",
-        "metadata": _normalize_metadata(metadata),
+        "metadata": coerce_metadata(metadata),
         "dispatched_at": datetime.now(timezone.utc).isoformat(),
     }
 

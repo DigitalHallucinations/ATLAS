@@ -11,6 +11,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from .utils import coerce_metadata, dedupe_strings
+
 
 @dataclass(frozen=True)
 class AnalyticsSnapshot:
@@ -37,19 +39,6 @@ def _normalize_metrics(metrics: Mapping[str, object]) -> Mapping[str, float]:
     return dict(normalized)
 
 
-def _normalize_tags(tags: Optional[Sequence[str]]) -> tuple[str, ...]:
-    if not tags:
-        return tuple()
-    normalized: list[str] = []
-    for tag in tags:
-        if not isinstance(tag, str):
-            continue
-        candidate = tag.strip()
-        if candidate:
-            normalized.append(candidate.lower())
-    return tuple(dict.fromkeys(normalized))
-
-
 def _normalize_segments(segments: Optional[Sequence[Mapping[str, object]]]) -> tuple[Mapping[str, object], ...]:
     if not segments:
         return tuple()
@@ -59,14 +48,6 @@ def _normalize_segments(segments: Optional[Sequence[Mapping[str, object]]]) -> t
             continue
         normalized.append({str(key): value for key, value in entry.items()})
     return tuple(normalized)
-
-
-def _normalize_metadata(metadata: Optional[Mapping[str, object]]) -> Mapping[str, object]:
-    if metadata is None:
-        return {}
-    if isinstance(metadata, MutableMapping):
-        return dict(metadata)
-    return {str(key): value for key, value in metadata.items()}
 
 
 class AnalyticsDashboardClient:
@@ -107,8 +88,8 @@ class AnalyticsDashboardClient:
             summary=summary.strip(),
             metrics=normalized_metrics,
             segments=_normalize_segments(segments),
-            tags=_normalize_tags(tags),
-            metadata=_normalize_metadata(metadata),
+            tags=dedupe_strings(tags, lower=True),
+            metadata=coerce_metadata(metadata),
             refreshed_at=datetime.now(timezone.utc).isoformat(),
         )
 
