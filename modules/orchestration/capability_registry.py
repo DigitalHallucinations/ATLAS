@@ -22,7 +22,11 @@ from modules.Skills.manifest_loader import SkillMetadata, load_skill_metadata
 from modules.Tasks.manifest_loader import TaskMetadata, load_task_metadata
 from modules.Jobs.manifest_loader import JobMetadata, load_job_metadata
 from modules.logging.logger import setup_logger
-from modules.orchestration.utils import normalize_persona_identifier
+from modules.orchestration.utils import (
+    SHARED_PERSONA_EXCLUSION_TOKENS,
+    normalize_persona_identifier,
+    persona_matches_filter,
+)
 
 try:  # ConfigManager may not be available in certain test scenarios
     from ATLAS.config import ConfigManager
@@ -71,31 +75,8 @@ def _dedupe_sequence(values: Iterable[str]) -> Tuple[str, ...]:
     return tuple(result)
 
 
-_SHARED_PERSONA_EXCLUSION_TOKENS = {
-    "-shared",
-    "!shared",
-    "no-shared",
-    "without-shared",
-    "shared=false",
-    "shared:false",
-}
-
-
 def _persona_filter_matches(persona: Optional[str], tokens: Sequence[str]) -> bool:
-    if not tokens:
-        return True
-
-    persona_token = (persona or "shared").strip().lower() or "shared"
-    exclude_shared = any(token in _SHARED_PERSONA_EXCLUSION_TOKENS for token in tokens)
-    positive_tokens = [token for token in tokens if token not in _SHARED_PERSONA_EXCLUSION_TOKENS]
-
-    if persona_token == "shared":
-        return not exclude_shared
-
-    if not positive_tokens:
-        return True
-
-    return persona_token in positive_tokens
+    return persona_matches_filter(persona, tokens)
 
 
 def _job_persona_matches(personas: Sequence[str], tokens: Sequence[str]) -> bool:
@@ -111,7 +92,7 @@ def _job_persona_matches(personas: Sequence[str], tokens: Sequence[str]) -> bool
     positive_tokens = [
         token
         for token in tokens
-        if token not in _SHARED_PERSONA_EXCLUSION_TOKENS
+        if token not in SHARED_PERSONA_EXCLUSION_TOKENS
     ]
 
     if not positive_tokens:
