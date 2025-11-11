@@ -17,7 +17,6 @@ Date: 05-11-2025
 
 import asyncio
 import os
-import re
 import threading
 from typing import Optional
 
@@ -157,27 +156,6 @@ class ElevenLabsTTS(BaseTTS):
             else:
                 self._initialization_error = None
 
-    def play_audio(self, filename):
-        """
-        Plays the specified audio file.
-        """
-        logger.debug("Playing audio file: %s", filename)
-        if not self._ensure_mixer_ready():
-            logger.warning("Skipping audio playback because the mixer could not be initialized.")
-            return
-
-        try:
-            pygame.mixer.music.load(filename)
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy():
-                pygame.time.Clock().tick(10)
-            logger.debug("Audio playback finished.")
-        except Exception:
-            logger.exception("Error occurred during audio playback.")
-        finally:
-            if pygame.mixer.get_init():
-                pygame.mixer.music.stop()
-
     def contains_code(self, text: str) -> bool:
         """
         Checks if the provided text contains any code blocks.
@@ -189,7 +167,7 @@ class ElevenLabsTTS(BaseTTS):
             bool: True if code is detected, False otherwise.
         """
         logger.debug(f"Checking if text contains code: {text}")
-        return "<code>" in text
+        return text != self.strip_code_blocks(text)
 
     async def text_to_speech(self, text: str):
         """
@@ -213,9 +191,14 @@ class ElevenLabsTTS(BaseTTS):
             logger.error("Eleven Labs TTS is not configured (missing API key).")
             return
 
-        if self.contains_code(text):
-            logger.debug("Skipping TTS as the text contains code.")
-            text = re.sub(r"`[^`]*`", "", text)
+        stripped_text = self.strip_code_blocks(text)
+        if stripped_text != text:
+            logger.debug("Skipping code snippets in Eleven Labs TTS request payload.")
+            text = stripped_text
+
+        if not text:
+            logger.debug("No text remaining after removing code; skipping Eleven Labs TTS synthesis.")
+            return
 
         if not self.voice_ids:
             logger.error("No voice IDs available for Eleven Labs TTS.")
@@ -311,6 +294,16 @@ class ElevenLabsTTS(BaseTTS):
             return
 
         await asyncio.to_thread(self.play_audio, output_path)
+
+    def play_audio(self, filename):
+        """Retained for backwards compatibility with tests and callers."""
+
+        logger.debug("Playing audio file: %s", filename)
+        self.play_audio_file(
+            filename,
+            logger=logger,
+            ensure_mixer_ready=self._ensure_mixer_ready,
+        )
 
     def _resolve_output_dir(self) -> str:
         """Determine where Eleven Labs speech files should be written."""

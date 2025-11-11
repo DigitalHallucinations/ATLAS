@@ -1910,7 +1910,7 @@ class SpeechManager:
                 if inspect.isawaitable(result):
                     await result
 
-                logger.debug("Closed %s provider '%s'.", label, name)
+                logger.info("Closed %s provider '%s'.", label, name)
 
         # Close TTS and STT services while respecting synchronous and asynchronous closers.
         await _shutdown(self.tts_services, "TTS")
