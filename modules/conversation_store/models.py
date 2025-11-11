@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
-
 from sqlalchemy import (
     Boolean,
     Column,
@@ -18,7 +15,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID, TSVECTOR
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID
 from sqlalchemy.types import JSON, TypeDecorator
 
 try:  # pragma: no cover - optional dependency for pgvector support
@@ -27,6 +24,7 @@ except Exception:  # pragma: no cover - fallback when pgvector is unavailable
     PGVector = None  # type: ignore
 from sqlalchemy.orm import declarative_base, relationship
 
+from modules.store_common.model_utils import generate_uuid, utcnow
 
 Base = declarative_base()
 
@@ -46,25 +44,17 @@ class PortableJSON(TypeDecorator):
         return dialect.type_descriptor(self._json_impl)
 
 
-def _uuid() -> uuid.UUID:
-    return uuid.uuid4()
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     external_id = Column(String(255), unique=False, nullable=True)
     tenant_id = Column(String(255), nullable=True, index=True)
     display_name = Column(String(255), nullable=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
@@ -101,9 +91,9 @@ class UserCredential(Base):
     last_login = Column(DateTime(timezone=True), nullable=True)
     failed_attempts = Column(PortableJSON(), nullable=False, default=list)
     lockout_until = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     user = relationship("User", back_populates="credentials")
@@ -151,7 +141,7 @@ class UserLoginAttempt(Base):
         nullable=True,
     )
     username = Column(String(255), nullable=True, index=True)
-    attempted_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    attempted_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     successful = Column(Boolean, nullable=False, default=False)
     reason = Column(String(255), nullable=True)
 
@@ -171,7 +161,7 @@ class PasswordResetToken(Base):
     username = Column(String(255), nullable=False, unique=True)
     token_hash = Column(String(128), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
     credential = relationship("UserCredential", back_populates="reset_token")
 
@@ -179,11 +169,11 @@ class PasswordResetToken(Base):
 class Session(Base):
     __tablename__ = "sessions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     external_id = Column(String(255), unique=True, nullable=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     expires_at = Column(DateTime(timezone=True), nullable=True)
 
     user = relationship("User", back_populates="sessions")
@@ -196,12 +186,12 @@ class Session(Base):
 class Conversation(Base):
     __tablename__ = "conversations"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
     title = Column(String(255), nullable=True)
     tenant_id = Column(String(255), nullable=False, index=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     archived_at = Column(DateTime(timezone=True), nullable=True)
 
     session = relationship("Session", back_populates="conversations")
@@ -218,7 +208,7 @@ class Conversation(Base):
 class Message(Base):
     __tablename__ = "messages"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     conversation_id = Column(
         UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
@@ -242,9 +232,9 @@ class Message(Base):
     extra = Column(PortableJSON(), nullable=False, default=dict)
     client_message_id = Column(String(255), nullable=True)
     message_text_tsv = Column(TSVECTOR, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -286,7 +276,7 @@ class Message(Base):
 class EpisodicMemory(Base):
     __tablename__ = "episodic_memories"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(255), nullable=False, index=True)
     conversation_id = Column(
         UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
@@ -299,11 +289,11 @@ class EpisodicMemory(Base):
     content = Column(PortableJSON(), nullable=False)
     tags = Column(PortableJSON(), nullable=False, default=list)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    occurred_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    occurred_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     expires_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     conversation = relationship("Conversation")
@@ -320,7 +310,7 @@ class EpisodicMemory(Base):
 class MessageAsset(Base):
     __tablename__ = "message_assets"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     conversation_id = Column(
         UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
@@ -331,7 +321,7 @@ class MessageAsset(Base):
     asset_type = Column(String(64), nullable=False)
     uri = Column(Text, nullable=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
     message = relationship("Message", back_populates="assets")
 
@@ -359,7 +349,7 @@ else:
 class MessageVector(Base):
     __tablename__ = "message_vectors"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     conversation_id = Column(
         UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
@@ -375,9 +365,9 @@ class MessageVector(Base):
     embedding_checksum = Column(String(128), nullable=True)
     dimensions = Column(Integer, nullable=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     message = relationship("Message", back_populates="vectors")
@@ -412,7 +402,7 @@ class MessageVector(Base):
 class MessageEvent(Base):
     __tablename__ = "message_events"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     conversation_id = Column(
         UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
@@ -422,7 +412,7 @@ class MessageEvent(Base):
     tenant_id = Column(String(255), nullable=False, index=True)
     event_type = Column(String(64), nullable=False)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
     message = relationship("Message", back_populates="events")
 
@@ -443,15 +433,15 @@ class MessageEvent(Base):
 class GraphNode(Base):
     __tablename__ = "memory_graph_nodes"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(255), nullable=False, index=True)
     node_key = Column(String(255), nullable=False)
     label = Column(String(255), nullable=True)
     node_type = Column(String(64), nullable=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     outgoing_edges = relationship(
@@ -484,7 +474,7 @@ class GraphNode(Base):
 class GraphEdge(Base):
     __tablename__ = "memory_graph_edges"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(255), nullable=False, index=True)
     edge_key = Column(String(255), nullable=True)
     source_id = Column(
@@ -500,9 +490,9 @@ class GraphEdge(Base):
     edge_type = Column(String(64), nullable=True)
     weight = Column(Float, nullable=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
     source = relationship(
