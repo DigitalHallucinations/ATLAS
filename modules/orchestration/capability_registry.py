@@ -22,6 +22,7 @@ from modules.Skills.manifest_loader import SkillMetadata, load_skill_metadata
 from modules.Tasks.manifest_loader import TaskMetadata, load_task_metadata
 from modules.Jobs.manifest_loader import JobMetadata, load_job_metadata
 from modules.logging.logger import setup_logger
+from modules.orchestration.utils import normalize_persona_identifier
 
 try:  # ConfigManager may not be available in certain test scenarios
     from ATLAS.config import ConfigManager
@@ -46,13 +47,6 @@ _EMPTY_METRIC_SUMMARY = MappingProxyType(
         "last_sample_at": None,
     }
 )
-
-
-def _normalize_persona(persona: Optional[str]) -> Optional[str]:
-    if persona is None:
-        return None
-    text = str(persona).strip()
-    return text or None
 
 
 def _coerce_string_sequence(values: Iterable[Any]) -> Tuple[str, ...]:
@@ -110,9 +104,9 @@ def _job_persona_matches(personas: Sequence[str], tokens: Sequence[str]) -> bool
 
     normalized_personas: set[str] = set()
     for persona in personas:
-        normalized = _normalize_persona(persona)
+        normalized = normalize_persona_identifier(persona)
         if normalized:
-            normalized_personas.add(normalized.lower())
+            normalized_personas.add(normalized)
 
     positive_tokens = [
         token
@@ -215,8 +209,8 @@ def _compatibility_flags(
     requested_persona: Optional[str],
     allowlist: Optional[Iterable[Any]] = None,
 ) -> Mapping[str, Any]:
-    entry_key = _normalize_persona(entry_persona)
-    requested_key = _normalize_persona(requested_persona)
+    entry_key = normalize_persona_identifier(entry_persona)
+    requested_key = normalize_persona_identifier(requested_persona)
     tokens = [
         str(token).strip()
         for token in allowlist or []
@@ -410,7 +404,7 @@ class CapabilityRegistry:
             tool_records: List[_ToolRecord] = []
 
             for entry in tool_entries:
-                persona_key = _normalize_persona(entry.persona)
+                persona_key = normalize_persona_identifier(entry.persona)
                 name_key = entry.name
                 raw_entry = payload_lookup.get(persona_key, {}).get(name_key)
                 if raw_entry is None and persona_key is not None:
@@ -433,7 +427,7 @@ class CapabilityRegistry:
             skill_records: List[_SkillRecord] = []
             skill_lookup: Dict[Tuple[Optional[str], str], _SkillRecord] = {}
             for entry in skill_entries:
-                persona_key = _normalize_persona(entry.persona)
+                persona_key = normalize_persona_identifier(entry.persona)
                 record = _SkillRecord(
                     manifest=entry,
                     capability_tags=_coerce_string_sequence(entry.capability_tags),
@@ -446,7 +440,7 @@ class CapabilityRegistry:
             task_records: List[_TaskRecord] = []
             task_lookup: Dict[Tuple[Optional[str], str], _TaskRecord] = {}
             for entry in task_entries:
-                persona_key = _normalize_persona(entry.persona)
+                persona_key = normalize_persona_identifier(entry.persona)
                 record = _TaskRecord(
                     manifest=entry,
                     required_skills=_coerce_string_sequence(entry.required_skills),
@@ -460,7 +454,7 @@ class CapabilityRegistry:
             job_records: List[_JobRecord] = []
             job_lookup: Dict[Tuple[Optional[str], str], _JobRecord] = {}
             for entry in job_entries:
-                persona_key = _normalize_persona(entry.persona)
+                persona_key = normalize_persona_identifier(entry.persona)
                 personas = _dedupe_sequence(entry.personas)
                 required_skills = _coerce_string_sequence(entry.required_skills)
                 required_tools = _coerce_string_sequence(entry.required_tools)
@@ -554,7 +548,7 @@ class CapabilityRegistry:
             results: List[ToolCapabilityView] = []
             for record in self._tool_records:
                 manifest = record.manifest
-                persona_key = _normalize_persona(manifest.persona)
+                persona_key = normalize_persona_identifier(manifest.persona)
                 if persona_tokens and not _persona_filter_matches(persona_key, persona_tokens):
                     continue
                 if capability_tokens:
@@ -632,7 +626,7 @@ class CapabilityRegistry:
             results: List[SkillCapabilityView] = []
             for record in self._skill_records:
                 manifest = record.manifest
-                persona_key = _normalize_persona(manifest.persona)
+                persona_key = normalize_persona_identifier(manifest.persona)
                 if persona_tokens and not _persona_filter_matches(persona_key, persona_tokens):
                     continue
                 if capability_tokens:
@@ -684,7 +678,7 @@ class CapabilityRegistry:
             results: List[TaskCapabilityView] = []
             for record in self._task_records:
                 manifest = record.manifest
-                persona_key = _normalize_persona(manifest.persona)
+                persona_key = normalize_persona_identifier(manifest.persona)
                 if persona_tokens and not _persona_filter_matches(persona_key, persona_tokens):
                     continue
                 if skill_tokens:
@@ -738,7 +732,7 @@ class CapabilityRegistry:
             results: List[JobCapabilityView] = []
             for record in self._job_records:
                 manifest = record.manifest
-                persona_key = _normalize_persona(manifest.persona)
+                persona_key = normalize_persona_identifier(manifest.persona)
                 if persona_tokens and not _persona_filter_matches(persona_key, persona_tokens):
                     continue
                 if persona_tokens and not _job_persona_matches(record.personas, persona_tokens):
@@ -771,17 +765,17 @@ class CapabilityRegistry:
     def get_task_catalog(self, persona: Optional[str]) -> List[TaskCapabilityView]:
         with self._lock:
             self.refresh_if_stale()
-            persona_key = _normalize_persona(persona)
+            persona_key = normalize_persona_identifier(persona)
 
             catalog: Dict[str, _TaskRecord] = {}
             for record in self._task_records:
-                record_persona = _normalize_persona(record.manifest.persona)
+                record_persona = normalize_persona_identifier(record.manifest.persona)
                 if record_persona is None:
                     catalog[record.manifest.name] = record
 
             if persona_key is not None:
                 for record in self._task_records:
-                    if _normalize_persona(record.manifest.persona) == persona_key:
+                    if normalize_persona_identifier(record.manifest.persona) == persona_key:
                         catalog[record.manifest.name] = record
 
             ordered = sorted(catalog.values(), key=lambda rec: rec.manifest.name.lower())
@@ -924,10 +918,15 @@ class CapabilityRegistry:
     ) -> Dict[str, Mapping[str, Any]]:
         with self._lock:
             self.refresh_if_stale()
-            persona_key = _normalize_persona(persona)
+            persona_key = normalize_persona_identifier(persona)
             requested = {name for name in names or [] if isinstance(name, str)}
             if not requested:
-                requested = {record.manifest.name for record in self._tool_records if _normalize_persona(record.manifest.persona) == persona_key or persona_key is None}
+                requested = {
+                    record.manifest.name
+                    for record in self._tool_records
+                    if normalize_persona_identifier(record.manifest.persona) == persona_key
+                    or persona_key is None
+                }
 
             lookup: Dict[str, Mapping[str, Any]] = {}
             for name in requested:
@@ -965,7 +964,7 @@ class CapabilityRegistry:
     ) -> Optional[List[Mapping[str, Any]]]:
         with self._lock:
             self.refresh_if_stale()
-            persona_key = _normalize_persona(persona)
+            persona_key = normalize_persona_identifier(persona)
             allowed: Optional[List[str]]
             if allowed_names is None:
                 allowed = None
@@ -1001,7 +1000,7 @@ class CapabilityRegistry:
     def persona_has_tool_manifest(self, persona: Optional[str]) -> bool:
         with self._lock:
             self.refresh_if_stale()
-            persona_key = _normalize_persona(persona)
+            persona_key = normalize_persona_identifier(persona)
             return bool(self._persona_tool_sources.get(persona_key))
 
     # ------------------------------------------------------------------
@@ -1016,7 +1015,7 @@ class CapabilityRegistry:
         latency_ms: Optional[float] = None,
         timestamp: Optional[float] = None,
     ) -> None:
-        persona_key = _normalize_persona(persona)
+        persona_key = normalize_persona_identifier(persona)
         tool_key = (persona_key, tool_name)
         with self._lock:
             window = self._tool_metrics.get(tool_key)
@@ -1032,7 +1031,7 @@ class CapabilityRegistry:
         tool_name: str,
         summary: Mapping[str, Any],
     ) -> None:
-        persona_key = _normalize_persona(persona)
+        persona_key = normalize_persona_identifier(persona)
         selected = str(summary.get("selected") or "").strip()
         success = bool(summary.get("success"))
         providers = summary.get("providers")
@@ -1061,7 +1060,7 @@ class CapabilityRegistry:
         latency_ms: Optional[float] = None,
         timestamp: Optional[float] = None,
     ) -> None:
-        persona_key = _normalize_persona(persona)
+        persona_key = normalize_persona_identifier(persona)
         job_key = (persona_key, job_name)
         with self._lock:
             window = self._job_metrics.get(job_key)
@@ -1156,7 +1155,7 @@ class CapabilityRegistry:
                 persona_name = persona_dir.name
                 manifest_path = persona_dir / "Toolbox" / "functions.json"
                 entries, exists = self._read_tool_manifest(manifest_path)
-                persona_key = _normalize_persona(persona_name)
+                persona_key = normalize_persona_identifier(persona_name)
                 if entries:
                     payloads[persona_key] = entries
                     lookup[persona_key] = {
