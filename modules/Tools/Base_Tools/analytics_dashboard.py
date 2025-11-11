@@ -11,7 +11,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from .utils import coerce_metadata, dedupe_strings
+from .utils import coerce_metadata, dedupe_strings, normalize_metrics
 
 
 @dataclass(frozen=True)
@@ -25,18 +25,6 @@ class AnalyticsSnapshot:
     tags: tuple[str, ...]
     metadata: Mapping[str, object]
     refreshed_at: str
-
-
-def _normalize_metrics(metrics: Mapping[str, object]) -> Mapping[str, float]:
-    normalized: MutableMapping[str, float] = {}
-    for key, value in metrics.items():
-        if not isinstance(key, str):
-            continue
-        try:
-            normalized[key] = float(value)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            continue
-    return dict(normalized)
 
 
 def _normalize_segments(segments: Optional[Sequence[Mapping[str, object]]]) -> tuple[Mapping[str, object], ...]:
@@ -79,7 +67,7 @@ class AnalyticsDashboardClient:
 
         await asyncio.sleep(0)
 
-        normalized_metrics = _normalize_metrics(metrics)
+        normalized_metrics = normalize_metrics(metrics)
         if not normalized_metrics:
             raise ValueError("Provided metrics did not contain numeric values.")
 

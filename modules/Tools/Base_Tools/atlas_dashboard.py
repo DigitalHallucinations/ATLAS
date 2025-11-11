@@ -11,6 +11,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from .utils import normalize_metrics
+
 
 @dataclass(frozen=True)
 class AtlasDashboardUpdate:
@@ -22,20 +24,6 @@ class AtlasDashboardUpdate:
     metrics: Mapping[str, float]
     stakeholders: tuple[str, ...]
     captured_at: str
-
-
-def _normalize_metrics(metrics: Optional[Mapping[str, object]]) -> Mapping[str, float]:
-    normalized: MutableMapping[str, float] = {}
-    if not metrics:
-        return {}
-    for key, value in metrics.items():
-        if not isinstance(key, str):
-            continue
-        try:
-            normalized[key] = float(value)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            continue
-    return dict(normalized)
 
 
 def _normalize_stakeholders(stakeholders: Optional[Sequence[str]]) -> tuple[str, ...]:
@@ -79,7 +67,7 @@ class AtlasDashboardClient:
             initiative=initiative.strip(),
             health=health.strip().lower(),
             summary=summary.strip(),
-            metrics=_normalize_metrics(metrics),
+            metrics=normalize_metrics(metrics),
             stakeholders=_normalize_stakeholders(stakeholders),
             captured_at=datetime.now(timezone.utc).isoformat(),
         )

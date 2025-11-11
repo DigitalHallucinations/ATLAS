@@ -11,6 +11,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from .utils import normalize_metrics
+
 
 @dataclass(frozen=True)
 class DashboardSnapshot:
@@ -20,18 +22,6 @@ class DashboardSnapshot:
     metrics: Mapping[str, float]
     notes: str
     published_at: str
-
-
-def _normalize_metrics(metrics: Mapping[str, object]) -> Mapping[str, float]:
-    normalized: MutableMapping[str, float] = {}
-    for key, value in metrics.items():
-        if not isinstance(key, str):
-            continue
-        try:
-            normalized[key] = float(value)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            continue
-    return dict(normalized)
 
 
 class DashboardService:
@@ -56,7 +46,7 @@ class DashboardService:
         await asyncio.sleep(0)
 
         normalized_id = dashboard_id.strip()
-        normalized_metrics = _normalize_metrics(metrics)
+        normalized_metrics = normalize_metrics(metrics)
         if not normalized_metrics:
             raise ValueError("Provided metrics did not contain numeric values.")
 
