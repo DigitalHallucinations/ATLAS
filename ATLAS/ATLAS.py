@@ -145,9 +145,118 @@ class ATLAS:
                 conversation_repository=self.conversation_repository,
                 logger=self.logger,
             )
-            self.user_account_facade.add_active_user_change_listener(
-                self._handle_active_user_change
-            )
+        self.user_account_facade.add_active_user_change_listener(
+            self._handle_active_user_change
+        )
+
+    # ------------------------------------------------------------------
+    # Task operations
+    # ------------------------------------------------------------------
+    def search_tasks(
+        self,
+        *,
+        text: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+        status: Optional[str] = None,
+        owner_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+        offset: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Fetch task listings using the server search or pagination routes."""
+
+        server = getattr(self, "server", None)
+        if server is None:
+            raise RuntimeError("ATLAS server is not configured.")
+
+        tenant_id = self.tenant_id or "default"
+        context: Dict[str, Any] = {"tenant_id": tenant_id}
+
+        base_filters: Dict[str, Any] = {}
+        if status:
+            base_filters["status"] = status
+        if owner_id:
+            base_filters["owner_id"] = owner_id
+        if conversation_id:
+            base_filters["conversation_id"] = conversation_id
+
+        text_query = str(text or "").strip()
+        metadata_mapping: Optional[Dict[str, Any]]
+        if isinstance(metadata, Mapping):
+            metadata_mapping = {
+                str(key): value
+                for key, value in metadata.items()
+                if str(key).strip()
+            }
+        else:
+            metadata_mapping = None
+
+        use_search_route = bool(text_query or metadata_mapping)
+
+        if use_search_route:
+            search_method = getattr(server, "search_tasks", None)
+            if not callable(search_method):
+                raise RuntimeError("Server search_tasks route is unavailable.")
+
+            payload: Dict[str, Any] = dict(base_filters)
+            if text_query:
+                payload["text"] = text_query
+            if metadata_mapping:
+                payload["metadata"] = metadata_mapping
+
+            if offset is not None:
+                try:
+                    offset_value = int(offset)
+                except (TypeError, ValueError):
+                    offset_value = 0
+                payload["offset"] = max(0, offset_value)
+
+            if limit is not None:
+                try:
+                    limit_value = int(limit)
+                except (TypeError, ValueError):
+                    limit_value = None
+                else:
+                    if limit_value > 0:
+                        payload["limit"] = limit_value
+
+            response = search_method(payload, context=context)
+        else:
+            list_method = getattr(server, "list_tasks", None)
+            if not callable(list_method):
+                raise RuntimeError("Server list_tasks route is unavailable.")
+
+            params: Dict[str, Any] = dict(base_filters)
+            if cursor:
+                params["cursor"] = cursor
+
+            if limit is not None:
+                try:
+                    page_size = int(limit)
+                except (TypeError, ValueError):
+                    page_size = None
+                else:
+                    if page_size > 0:
+                        params["page_size"] = page_size
+
+            response = list_method(params, context=context)
+
+        if isinstance(response, Mapping):
+            return dict(response)
+
+        items: List[Any]
+        if isinstance(response, Iterable) and not isinstance(response, (str, bytes)):
+            items = list(response)
+        else:
+            items = []
+
+        payload: Dict[str, Any] = {"items": items}
+        if use_search_route:
+            payload["count"] = len(items)
+        else:
+            payload["page"] = {"next_cursor": None, "count": len(items)}
+        return payload
 
     def _require_user_account_facade(self) -> UserAccountFacade:
         """Return the initialized user account facade."""

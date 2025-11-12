@@ -3,6 +3,21 @@ from typing import Any
 import types
 import sys
 
+if "ATLAS.ToolManager" not in sys.modules:
+    tool_manager_stub = types.ModuleType("ATLAS.ToolManager")
+    tool_manager_stub.load_function_map_from_current_persona = lambda *_args, **_kwargs: {}
+    tool_manager_stub.load_functions_from_json = lambda *_args, **_kwargs: {}
+    tool_manager_stub.compute_tool_policy_snapshot = lambda *_args, **_kwargs: {}
+    tool_manager_stub._resolve_function_callable = (
+        lambda *_args, **_kwargs: lambda *_inner_args, **_inner_kwargs: None
+    )
+    tool_manager_stub.get_tool_activity_log = lambda *_args, **_kwargs: []
+    tool_manager_stub.ToolPolicyDecision = type("ToolPolicyDecision", (), {})
+    tool_manager_stub.SandboxedToolRunner = type("SandboxedToolRunner", (), {})
+    tool_manager_stub.use_tool = lambda *_args, **_kwargs: None
+    tool_manager_stub.call_model_with_new_prompt = lambda *_args, **_kwargs: None
+    sys.modules["ATLAS.ToolManager"] = tool_manager_stub
+
 sys.modules.setdefault("tests.test_provider_manager", types.ModuleType("tests.test_provider_manager"))
 sys.modules.setdefault("tests.test_speech_settings_facade", types.ModuleType("tests.test_speech_settings_facade"))
 gi_stub = sys.modules.setdefault("gi", types.ModuleType("gi"))
@@ -123,6 +138,64 @@ def test_task_management_workspace_loads_and_filters(monkeypatch):
     assert all(
         template.get("persona") is None for template in manager._catalog_entries
     )
+
+
+def test_task_management_search_filters(monkeypatch):
+    _register_bus_stub(monkeypatch)
+    atlas = _AtlasStub()
+    parent = _ParentWindowStub()
+
+    manager = TaskManagement(atlas, parent)
+    manager.get_embeddable_widget()
+
+    search_entry = manager._search_entry
+    assert search_entry is not None
+    search_entry.set_text("deep")
+    manager._apply_search_filters()
+
+    assert {entry.task_id for entry in manager._display_entries} == {"task-2"}
+    assert atlas.task_search_requests
+    payload = atlas.task_search_requests[-1]
+    assert payload.get("text") == "deep"
+
+    # Apply metadata filter
+    search_entry.set_text("")
+    rows = manager._metadata_filter_rows
+    assert rows
+    key_entry = rows[0].get("key")
+    value_entry = rows[0].get("value")
+    assert key_entry is not None and value_entry is not None
+    key_entry.set_text("persona")
+    value_entry.set_text("Atlas")
+    manager._apply_search_filters()
+
+    assert {entry.task_id for entry in manager._display_entries} == {"task-1"}
+    metadata_payload = atlas.task_search_requests[-1]
+    assert metadata_payload.get("metadata") == {"persona": "Atlas"}
+
+    clear_button = manager._search_clear_button
+    if clear_button is not None:
+        _click(clear_button)
+
+    owner_combo = manager._owner_filter_combo
+    assert owner_combo is not None
+    owner_items = list(getattr(owner_combo, "_items", []))
+    assert "user-1" in owner_items
+    owner_combo.set_active(owner_items.index("user-1"))
+    manager._on_owner_filter_changed(owner_combo)
+    assert all(entry.owner_id == "user-1" for entry in manager._display_entries)
+    owner_payload = atlas.task_search_requests[-1]
+    assert owner_payload.get("owner_id") == "user-1"
+
+    conversation_combo = manager._conversation_filter_combo
+    assert conversation_combo is not None
+    conversation_items = list(getattr(conversation_combo, "_items", []))
+    assert "conv-2" in conversation_items
+    conversation_combo.set_active(conversation_items.index("conv-2"))
+    manager._on_conversation_filter_changed(conversation_combo)
+    assert {entry.conversation_id for entry in manager._display_entries} == {"conv-2"}
+    conversation_payload = atlas.task_search_requests[-1]
+    assert conversation_payload.get("conversation_id") == "conv-2"
 
 
 def test_task_management_transition_updates_state(monkeypatch):
