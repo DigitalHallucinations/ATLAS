@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import types
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
 from GTKUI.Task_manager.widgets import (
+    append_badge,
     clear_container,
     create_badge,
     create_badge_container,
@@ -75,6 +77,7 @@ class JobManagement:
         self._persona_badges: Optional[Gtk.Widget] = None
         self._schedule_box: Optional[Gtk.Widget] = None
         self._linked_tasks_box: Optional[Gtk.Widget] = None
+        self._link_task_button: Optional[Gtk.Button] = None
         self._escalation_box: Optional[Gtk.Widget] = None
         self._action_box: Optional[Gtk.Box] = None
         self._start_button: Optional[Gtk.Button] = None
@@ -104,6 +107,7 @@ class JobManagement:
         self._current_schedule_badges: List[str] = []
         self._current_linked_task_badges: List[str] = []
         self._current_escalation_badges: List[str] = []
+        self._linked_task_action_lookup: List[Tuple[Mapping[str, Any], Gtk.Button]] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -255,7 +259,7 @@ class JobManagement:
 
         self._persona_badges = self._add_badge_section(detail_panel, "Persona roster")
         self._schedule_box = self._add_badge_section(detail_panel, "Schedule")
-        self._linked_tasks_box = self._add_badge_section(detail_panel, "Linked tasks")
+        self._linked_tasks_box = self._add_linked_tasks_section(detail_panel)
         self._escalation_box = self._add_badge_section(detail_panel, "Escalation policy")
 
         detail_panel.connect("destroy", lambda *_args: self._on_close_request())
@@ -278,6 +282,25 @@ class JobManagement:
         header = Gtk.Label(label=title)
         header.set_xalign(0.0)
         container.append(header)
+
+        badge_container = create_badge_container()
+        badge_container.set_visible(False)
+        container.append(badge_container)
+        return badge_container
+
+    def _add_linked_tasks_section(self, container: Gtk.Box) -> Gtk.Widget:
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+        header_label = Gtk.Label(label="Linked tasks")
+        header_label.set_xalign(0.0)
+        header_box.append(header_label)
+
+        link_button = Gtk.Button(label="Link task…")
+        link_button.connect("clicked", self._on_link_task_clicked)
+        header_box.append(link_button)
+        self._link_task_button = link_button
+
+        container.append(header_box)
 
         badge_container = create_badge_container()
         badge_container.set_visible(False)
@@ -793,7 +816,7 @@ class JobManagement:
             persona_badges.append((persona, ("tag-badge", "status-warning")))
         sync_badge_section(self._persona_badges, persona_badges, fallback="No personas assigned")
 
-        linked_badges: List[Tuple[str, Sequence[str]]] = []
+        linked_badges: List[Tuple[str, Sequence[str], Mapping[str, Any]]] = []
         for record in linked_tasks:
             if not isinstance(record, Mapping):
                 continue
@@ -814,12 +837,12 @@ class JobManagement:
                     badge_text = f"{badge_text} – {relationship}"
                 if summary:
                     badge_text = f"{badge_text} – {summary}"
-                linked_badges.append((badge_text, self._task_status_css(status)))
+                linked_badges.append((badge_text, self._task_status_css(status), record))
             else:
                 task_id = str(record.get("task_id") or "").strip() or "Unknown task"
-                linked_badges.append((task_id, ("tag-badge", "status-unknown")))
-        sync_badge_section(self._linked_tasks_box, linked_badges, fallback="No linked tasks")
-        self._current_linked_task_badges = [text for text, _css in linked_badges]
+                linked_badges.append((task_id, ("tag-badge", "status-unknown"), record))
+        self._sync_linked_task_badges(linked_badges)
+        self._current_linked_task_badges = [text for text, _css, _record in linked_badges]
 
         metadata = detail.get("metadata") if isinstance(detail, Mapping) else entry.metadata
         if not isinstance(metadata, Mapping):
@@ -882,6 +905,45 @@ class JobManagement:
             except Exception as exc:
                 logger.debug("Failed to load linked tasks for %s: %s", entry.job_id, exc, exc_info=True)
         return detail, linked
+
+    def _sync_linked_task_badges(
+        self,
+        badges: Sequence[Tuple[str, Sequence[str], Mapping[str, Any]]],
+    ) -> None:
+        container = self._linked_tasks_box
+        if container is None:
+            return
+
+        clear_container(container)
+        self._linked_task_action_lookup = []
+
+        has_badges = False
+        for text, css_classes, record in badges:
+            badge_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            badge = create_badge(text, css_classes)
+            badge_row.append(badge)
+
+            record_copy: Mapping[str, Any] = copy.deepcopy(record)
+
+            unlink_button = Gtk.Button(label="Unlink")
+            unlink_button.connect(
+                "clicked",
+                lambda _button, payload=record_copy: self._on_unlink_task_clicked(_button, payload),
+            )
+            setattr(unlink_button, "_link_record", record_copy)
+            badge_row.append(unlink_button)
+
+            append_badge(container, badge_row)
+            self._linked_task_action_lookup.append((record_copy, unlink_button))
+            has_badges = True
+
+        if not has_badges:
+            fallback = create_badge("No linked tasks", ("tag-badge", "status-unknown"))
+            append_badge(container, fallback)
+            has_badges = True
+
+        if hasattr(container, "set_visible"):
+            container.set_visible(has_badges)
 
     def _set_label(self, widget: Optional[Gtk.Label], text: str) -> None:
         if widget is None:
@@ -959,6 +1021,61 @@ class JobManagement:
 
     def _on_rerun_clicked(self, _button: Gtk.Button) -> None:
         self._trigger_action("rerun")
+
+    def _on_link_task_clicked(self, _button: Gtk.Button) -> None:
+        if not self._active_job or self._active_job not in self._entry_lookup:
+            return
+
+        entry = self._entry_lookup[self._active_job]
+        payload = self._prompt_link_job_task(entry.job_id)
+        if not isinstance(payload, Mapping):
+            return
+
+        task_id = payload.get("task_id")
+        if not task_id:
+            return
+
+        try:
+            self._call_link_job_task(entry, payload)
+        except Exception as exc:
+            logger.error(
+                "Failed to link task %s to job %s: %s",
+                task_id,
+                entry.job_id,
+                exc,
+                exc_info=True,
+            )
+            self._handle_backend_error("Unable to link the task to this job.")
+            return
+
+        self._notify_success("Task linked to job.")
+        self._pending_focus_job = entry.job_id
+        self._refresh_state()
+
+    def _on_unlink_task_clicked(self, _button: Gtk.Button, record: Mapping[str, Any]) -> None:
+        if not self._active_job or self._active_job not in self._entry_lookup:
+            return
+
+        entry = self._entry_lookup[self._active_job]
+        link_id = record.get("id")
+        task_id = record.get("task_id")
+
+        try:
+            self._call_unlink_job_task(entry, link_id=link_id, task_id=task_id)
+        except Exception as exc:
+            logger.error(
+                "Failed to unlink task %s from job %s: %s",
+                task_id,
+                entry.job_id,
+                exc,
+                exc_info=True,
+            )
+            self._handle_backend_error("Unable to unlink the task from this job.")
+            return
+
+        self._notify_success("Task unlinked from job.")
+        self._pending_focus_job = entry.job_id
+        self._refresh_state()
 
     def _should_offer_resume(self, entry: _JobEntry) -> bool:
         status = (entry.status or "").strip().lower()
@@ -1216,6 +1333,80 @@ class JobManagement:
             handler(message)
         else:
             logger.error("Job management error: %s", message)
+
+    def _notify_success(self, message: str) -> None:
+        handler = getattr(self.parent_window, "show_success_toast", None)
+        if callable(handler):
+            handler(message)
+
+    def _prompt_link_job_task(self, job_id: str) -> Optional[Mapping[str, Any]]:
+        prompt = getattr(self.parent_window, "prompt_link_job_task", None)
+        if callable(prompt):
+            try:
+                result = prompt(job_id)
+            except Exception as exc:
+                logger.error("Failed to prompt for task link: %s", exc, exc_info=True)
+                self._handle_backend_error("Unable to gather task link details.")
+                return None
+            if isinstance(result, Mapping):
+                return result
+        return None
+
+    def _call_link_job_task(
+        self,
+        entry: _JobEntry,
+        payload: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        atlas = self.ATLAS
+        handler = getattr(atlas, "link_job_task", None)
+        if callable(handler):
+            return handler(
+                entry.job_id,
+                payload.get("task_id"),
+                relationship_type=payload.get("relationship_type"),
+                metadata=payload.get("metadata") if isinstance(payload.get("metadata"), Mapping) else None,
+            )
+
+        server = getattr(atlas, "server", None)
+        link_route = getattr(server, "link_job_task", None)
+        if not callable(link_route):
+            raise RuntimeError("Task linking is unavailable.")
+
+        request: Dict[str, Any] = {"task_id": payload.get("task_id")}
+        relationship = payload.get("relationship_type")
+        if relationship:
+            request["relationship_type"] = relationship
+        metadata = payload.get("metadata")
+        if isinstance(metadata, Mapping):
+            request["metadata"] = dict(metadata)
+
+        context = {"tenant_id": getattr(atlas, "tenant_id", "default")}
+        return link_route(entry.job_id, request, context=context)
+
+    def _call_unlink_job_task(
+        self,
+        entry: _JobEntry,
+        *,
+        link_id: Any | None,
+        task_id: Any | None,
+    ) -> Mapping[str, Any]:
+        atlas = self.ATLAS
+        handler = getattr(atlas, "unlink_job_task", None)
+        if callable(handler):
+            return handler(entry.job_id, link_id=link_id, task_id=task_id)
+
+        server = getattr(atlas, "server", None)
+        unlink_route = getattr(server, "unlink_job_task", None)
+        if not callable(unlink_route):
+            raise RuntimeError("Task unlinking is unavailable.")
+
+        context = {"tenant_id": getattr(atlas, "tenant_id", "default")}
+        return unlink_route(
+            entry.job_id,
+            context=context,
+            link_id=link_id,
+            task_id=task_id,
+        )
 
 
 __all__ = ["JobManagement"]
