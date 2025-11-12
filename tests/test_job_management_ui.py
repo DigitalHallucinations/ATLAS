@@ -48,6 +48,51 @@ sys.modules["jsonschema.exceptions"] = jsonschema_stub.exceptions
 
 import pytest
 
+execution_module = sys.modules.get("ATLAS.tools.execution")
+if execution_module is None:
+    execution_module = types.ModuleType("ATLAS.tools.execution")
+    execution_module.ToolPolicyDecision = type("ToolPolicyDecision", (), {})
+    execution_module.SandboxedToolRunner = type("SandboxedToolRunner", (), {})
+
+    def _stub_function(*_args, **_kwargs):  # pragma: no cover - placeholder
+        return None
+
+    for name in (
+        "compute_tool_policy_snapshot",
+        "use_tool",
+        "call_model_with_new_prompt",
+        "_freeze_generation_settings",
+        "_extract_text_and_audio",
+        "_store_assistant_message",
+        "_proxy_streaming_response",
+        "_resolve_provider_manager",
+        "get_required_args",
+        "_freeze_metadata",
+        "_extract_persona_name",
+        "_normalize_persona_allowlist",
+        "_join_with_and",
+        "_normalize_requires_flags",
+        "_coerce_persona_flag_value",
+        "_persona_flag_enabled",
+        "_collect_missing_flag_requirements",
+        "_format_operation_flag_reason",
+        "_format_denied_operations_summary",
+        "_build_persona_context_snapshot",
+        "_has_tool_consent",
+        "_request_tool_consent",
+        "_evaluate_tool_policy",
+        "_get_sandbox_runner",
+        "_resolve_tool_timeout_seconds",
+        "_generate_idempotency_key",
+        "_is_tool_idempotent",
+        "_apply_idempotent_retry_backoff",
+        "_run_with_timeout",
+        "_resolve_function_callable",
+    ):
+        setattr(execution_module, name, _stub_function)
+    sys.modules["ATLAS.tools.execution"] = execution_module
+
+
 import tests.test_chat_async_helper  # noqa: F401 - ensure GTK stubs are loaded
 
 from GTKUI.Job_manager.job_management import JobManagement
@@ -147,6 +192,8 @@ class _JobServerStub:
                 }
             ]
         }
+        self.link_events: list[dict[str, object]] = []
+        self.unlink_events: list[dict[str, object]] = []
         self.transitions: list[dict[str, object]] = []
 
     def list_jobs(self, params=None, *, context):
@@ -180,6 +227,58 @@ class _JobServerStub:
     def list_job_tasks(self, job_id: str, *, context):
         tasks = self.linked_tasks.get(job_id, [])
         return [copy.deepcopy(entry) for entry in tasks]
+
+    def link_job_task(self, job_id: str, payload: Mapping[str, object], *, context):
+        record = {
+            "id": f"link-{len(self.link_events) + len(self.linked_tasks.get(job_id, [])) + 1}",
+            "task_id": payload.get("task_id"),
+            "relationship_type": payload.get("relationship_type"),
+            "metadata": copy.deepcopy(
+                payload.get("metadata") if isinstance(payload.get("metadata"), Mapping) else {}
+            ),
+            "task": {
+                "id": payload.get("task_id"),
+                "title": f"Task {payload.get('task_id')}",
+                "status": "ready",
+            },
+        }
+        bucket = self.linked_tasks.setdefault(job_id, [])
+        bucket.append(record)
+        event = {
+            "job_id": job_id,
+            "payload": copy.deepcopy(payload),
+            "tenant": context.get("tenant_id") if isinstance(context, Mapping) else None,
+        }
+        self.link_events.append(event)
+        return copy.deepcopy(record)
+
+    def unlink_job_task(
+        self,
+        job_id: str,
+        *,
+        context,
+        link_id: object | None = None,
+        task_id: object | None = None,
+    ):
+        records = self.linked_tasks.get(job_id, [])
+        removed = None
+        for item in list(records):
+            if link_id is not None and item.get("id") == link_id:
+                records.remove(item)
+                removed = item
+                break
+            if task_id is not None and item.get("task_id") == task_id:
+                records.remove(item)
+                removed = item
+                break
+        event = {
+            "job_id": job_id,
+            "link_id": link_id,
+            "task_id": task_id,
+            "tenant": context.get("tenant_id") if isinstance(context, Mapping) else None,
+        }
+        self.unlink_events.append(event)
+        return copy.deepcopy(removed) if removed is not None else {}
 
     def pause_job_schedule(self, job_id: str, *, context, expected_updated_at: str | None = None):
         for job in self.jobs:
@@ -313,18 +412,55 @@ class _AtlasStub:
         self.job_detail_fetches = 0
         self.server = _JobServerStub(self)
 
+    def link_job_task(
+        self,
+        job_id: str,
+        task_id: str,
+        *,
+        relationship_type: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ):
+        payload = {"task_id": task_id}
+        if relationship_type:
+            payload["relationship_type"] = relationship_type
+        if metadata:
+            payload["metadata"] = dict(metadata)
+        return self.server.link_job_task(
+            job_id,
+            payload,
+            context={"tenant_id": self.tenant_id},
+        )
+
+    def unlink_job_task(
+        self,
+        job_id: str,
+        *,
+        link_id: object | None = None,
+        task_id: object | None = None,
+    ):
+        return self.server.unlink_job_task(
+            job_id,
+            context={"tenant_id": self.tenant_id},
+            link_id=link_id,
+            task_id=task_id,
+        )
+
 
 class _ParentWindowStub:
     def __init__(self, atlas: _AtlasStub) -> None:
         self.ATLAS = atlas
         self.errors: list[str] = []
         self.toasts: list[str] = []
+        self.prompt_result: Mapping[str, object] | None = None
 
     def show_error_dialog(self, message: str) -> None:
         self.errors.append(message)
 
     def show_success_toast(self, message: str) -> None:
         self.toasts.append(message)
+
+    def prompt_link_job_task(self, _job_id: str):
+        return copy.deepcopy(self.prompt_result)
 
     def _transition_job(self, job_id: str, target_status: str, updated_at: str | None):
         return self.ATLAS.server.transition_job(
@@ -648,3 +784,60 @@ def test_job_management_job_created_event(monkeypatch):
                 loop.close()
 
     assert atlas.job_fetches > initial_fetches, "job.created should trigger refresh"
+
+
+def test_job_management_link_and_unlink_tasks(monkeypatch):
+    _register_bus_stub(monkeypatch)
+    atlas = _AtlasStub()
+    parent = _ParentWindowStub(atlas)
+
+    manager = JobManagement(atlas, parent)
+    manager.get_embeddable_widget()
+    manager._select_job("job-1")
+
+    parent.prompt_result = {
+        "task_id": "task-9",
+        "relationship_type": "relates",
+        "metadata": {"summary": "Draft brief"},
+    }
+
+    link_button = manager._link_task_button
+    assert link_button is not None
+    _click(link_button)
+
+    assert any("Task task-9" in badge for badge in manager._current_linked_task_badges)
+    assert parent.toasts and parent.toasts[-1] == "Task linked to job."
+
+    actions = list(manager._linked_task_action_lookup)
+    assert actions, "Linked task actions should be tracked"
+    _, unlink_button = actions[-1]
+    _click(unlink_button)
+
+    assert all("task-9" not in badge for badge in manager._current_linked_task_badges)
+    assert parent.toasts and parent.toasts[-1] == "Task unlinked from job."
+    assert atlas.server.link_events, "Link route should be invoked"
+    assert atlas.server.unlink_events, "Unlink route should be invoked"
+
+
+def test_job_management_link_task_error(monkeypatch):
+    _register_bus_stub(monkeypatch)
+    atlas = _AtlasStub()
+    parent = _ParentWindowStub(atlas)
+
+    def failing_link(*_args, **_kwargs):
+        raise RuntimeError("backend failure")
+
+    atlas.link_job_task = failing_link  # type: ignore[assignment]
+
+    manager = JobManagement(atlas, parent)
+    manager.get_embeddable_widget()
+    manager._select_job("job-1")
+
+    parent.prompt_result = {"task_id": "task-err"}
+
+    link_button = manager._link_task_button
+    assert link_button is not None
+    _click(link_button)
+
+    assert parent.errors, "Errors should surface to the user"
+    assert all("task-err" not in badge for badge in manager._current_linked_task_badges)

@@ -313,6 +313,58 @@ class ATLAS:
     def job_service(self):
         return self.tooling_service.job_service
 
+    def _require_server(self) -> AtlasServer:
+        server = getattr(self, "server", None)
+        if server is None:
+            raise RuntimeError("ATLAS server is not configured.")
+        return server
+
+    def link_job_task(
+        self,
+        job_id: str,
+        task_id: Any,
+        *,
+        relationship_type: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Attach ``task_id`` to ``job_id`` via the server routes."""
+
+        payload: Dict[str, Any] = {"task_id": str(task_id)}
+
+        relationship = str(relationship_type or "").strip()
+        if relationship:
+            payload["relationship_type"] = relationship
+
+        if metadata is not None:
+            if not isinstance(metadata, Mapping):
+                raise TypeError("metadata must be a mapping")
+            payload["metadata"] = dict(metadata)
+
+        context = {"tenant_id": self.tenant_id or "default"}
+        server = self._require_server()
+        return server.link_job_task(str(job_id), payload, context=context)
+
+    def unlink_job_task(
+        self,
+        job_id: str,
+        *,
+        link_id: Any | None = None,
+        task_id: Any | None = None,
+    ) -> Dict[str, Any]:
+        """Detach a linked task from ``job_id`` using the server routes."""
+
+        if link_id is None and task_id is None:
+            raise ValueError("Either link_id or task_id must be provided")
+
+        context = {"tenant_id": self.tenant_id or "default"}
+        server = self._require_server()
+        return server.unlink_job_task(
+            str(job_id),
+            context=context,
+            link_id=link_id,
+            task_id=task_id,
+        )
+
     @property
     def persona_manager(self) -> PersonaManager | None:
         return self._persona_manager
