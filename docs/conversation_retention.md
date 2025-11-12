@@ -32,3 +32,14 @@ Administrative tooling can invoke retention on demand through
 context must include an `admin` or `system` role; otherwise a
 `ConversationAuthorizationError` is raised. The method returns the aggregated
 retention statistics reported by the repository.
+
+## Desktop trigger
+
+The GTK conversation history page now exposes a **Run retention** button for
+administrators. ATLAS evaluates whether the current user has an `admin` or
+`system` role (configured through the active user's role list) and whether the
+server facade is available before enabling the control. When roles are missing
+the button remains disabled and the UI presents an explanatory tooltip that the
+feature requires administrative privileges. Attempts to invoke retention without
+the necessary role return a descriptive error so operators immediately know why
+the action was blocked.

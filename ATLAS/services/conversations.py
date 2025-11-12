@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from modules.Server.conversation_routes import ConversationAuthorizationError
+
 if TYPE_CHECKING:  # pragma: no cover - typing helper for optional dependency
     from modules.Chat.chat_session import ChatSession
     from modules.conversation_store import ConversationStoreRepository
@@ -402,6 +404,70 @@ class ConversationService:
         windowed = ordered[offset_value : offset_value + limit_value]
         return {"count": len(windowed), "items": windowed}
 
+    # ------------------------------------------------------------------
+    # Retention helpers
+    # ------------------------------------------------------------------
+    def assess_retention_availability(
+        self,
+        *,
+        runner: Optional[Callable[..., Mapping[str, Any]]],
+        context: Optional[Mapping[str, Any]] = None,
+    ) -> tuple[bool, Optional[str], Dict[str, Any]]:
+        """Return whether retention can run along with a normalised context."""
+
+        normalized_context, normalized_roles = self._normalize_retention_context(context)
+
+        if not callable(runner):
+            return (
+                False,
+                "Conversation retention endpoint is not available.",
+                normalized_context,
+            )
+
+        if not normalized_roles.intersection({"admin", "system"}):
+            return (
+                False,
+                "Administrative role required to trigger retention policies.",
+                normalized_context,
+            )
+
+        return True, None, normalized_context
+
+    def run_conversation_retention(
+        self,
+        *,
+        runner: Optional[Callable[..., Mapping[str, Any]]],
+        context: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Invoke the server-backed retention route when permitted."""
+
+        available, reason, normalized_context = self.assess_retention_availability(
+            runner=runner,
+            context=context,
+        )
+
+        if not available:
+            return {"success": False, "error": reason or "Retention is unavailable."}
+
+        try:
+            result = runner(context=normalized_context)  # type: ignore[misc]
+        except ConversationAuthorizationError as exc:
+            message = str(exc).strip() or "Administrative role required to trigger retention policies."
+            return {"success": False, "error": message}
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            if hasattr(self._logger, "error"):
+                self._logger.error(
+                    "Conversation retention execution failed: %s",
+                    exc,
+                    exc_info=True,
+                )
+            return {"success": False, "error": "Conversation retention failed."}
+
+        if isinstance(result, Mapping):
+            return {"success": True, "stats": dict(result)}
+
+        return {"success": True, "result": result}
+
     @staticmethod
     def _cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
         if not left or not right:
@@ -430,6 +496,57 @@ class ConversationService:
         if moment.tzinfo is None:
             moment = moment.replace(tzinfo=timezone.utc)
         return moment.timestamp()
+
+    def _normalize_retention_context(
+        self,
+        context: Optional[Mapping[str, Any]],
+    ) -> tuple[Dict[str, Any], set[str]]:
+        payload: Dict[str, Any] = {"tenant_id": self._conversation_tenant()}
+        roles_value: Any = ()
+
+        if isinstance(context, Mapping):
+            for key, value in context.items():
+                if value is None:
+                    continue
+                if key == "roles":
+                    roles_value = value
+                    continue
+                if key == "tenant_id":
+                    token = str(value).strip()
+                    if token:
+                        payload["tenant_id"] = token
+                    continue
+                payload[key] = value
+
+        roles_list = self._sanitize_roles(roles_value)
+        if roles_list:
+            payload["roles"] = tuple(roles_list)
+
+        normalized_roles = {role.lower() for role in roles_list}
+        return payload, normalized_roles
+
+    @staticmethod
+    def _sanitize_roles(raw_value: Any) -> List[str]:
+        if raw_value is None:
+            return []
+
+        if isinstance(raw_value, str):
+            candidates: Iterable[Any] = raw_value.replace(";", ",").split(",")
+        elif isinstance(raw_value, Mapping):
+            candidates = raw_value.values()
+        elif isinstance(raw_value, Iterable):
+            candidates = raw_value
+        else:
+            return []
+
+        roles: List[str] = []
+        for candidate in candidates:
+            text = str(candidate).strip()
+            if not text:
+                continue
+            if text not in roles:
+                roles.append(text)
+        return roles
 
     # ------------------------------------------------------------------
     # Chat session helpers

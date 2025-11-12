@@ -26,10 +26,13 @@ class ConversationHistoryPage(Gtk.Box):
         self._selected_id: Optional[str] = None
         self._pending_focus: Optional[str] = None
         self._conversation_listener = None
+        self._active_user_listener = None
         self._search_timeout_id: int = 0
         self._search_query: str = ""
         self._search_active: bool = False
         self._search_results: List[Dict[str, Any]] = []
+        self._retention_backend_disabled = False
+        self._retention_failure_reason: Optional[str] = None
 
         self.set_margin_top(12)
         self.set_margin_bottom(12)
@@ -58,6 +61,11 @@ class ConversationHistoryPage(Gtk.Box):
         self.delete_button.connect("clicked", self._on_delete_clicked)
         self.delete_button.set_sensitive(False)
         header.append(self.delete_button)
+
+        self.retention_button = Gtk.Button(label="Run retention")
+        self.retention_button.connect("clicked", self._on_retention_clicked)
+        self.retention_button.set_sensitive(False)
+        header.append(self.retention_button)
 
         self.append(header)
 
@@ -136,6 +144,9 @@ class ConversationHistoryPage(Gtk.Box):
             callback = lambda event: GLib.idle_add(self._handle_conversation_event, event)
             listener(callback)
             self._conversation_listener = callback
+
+        self._register_active_user_listener()
+        self._update_retention_button_state()
         self.connect("unrealize", self._on_unrealize)
 
         self._reload_conversations()
@@ -470,6 +481,98 @@ class ConversationHistoryPage(Gtk.Box):
         self.reset_button.set_sensitive(has_selection)
         self.delete_button.set_sensitive(has_selection)
 
+    def _register_active_user_listener(self) -> None:
+        if self._active_user_listener is not None:
+            return
+
+        adder = getattr(self.ATLAS, "add_active_user_change_listener", None)
+        if not callable(adder):
+            return
+
+        def _listener(_username: str, _display_name: str) -> None:
+            GLib.idle_add(self._update_retention_button_state)
+
+        adder(_listener)
+        self._active_user_listener = _listener
+
+    def _update_retention_button_state(self) -> bool:
+        available = False
+        tooltip: Optional[str] = None
+
+        status_getter = getattr(self.ATLAS, "conversation_retention_status", None)
+        if callable(status_getter):
+            status = status_getter()
+            available = bool(status.get("available"))
+            reason = status.get("reason")
+            if not available:
+                tooltip = str(reason) if reason else "Administrator role required to run retention."
+        else:
+            tooltip = "Retention endpoint unavailable."
+
+        if self._retention_backend_disabled:
+            available = False
+            if self._retention_failure_reason:
+                tooltip = self._retention_failure_reason
+            elif tooltip is None:
+                tooltip = "Retention temporarily disabled after a failed attempt."
+
+        if available:
+            tooltip = "Run conversation retention policies now."
+
+        self.retention_button.set_sensitive(available)
+        self.retention_button.set_tooltip_text(tooltip)
+        return False
+
+    def _on_retention_clicked(self, _button: Gtk.Button) -> None:
+        self._set_status("Running conversation retention…")
+        self.retention_button.set_sensitive(False)
+
+        try:
+            result = self.ATLAS.run_conversation_retention()
+        except Exception as exc:  # pragma: no cover - defensive logging upstream
+            message = f"Retention failed: {exc}"
+            self._set_status(message)
+            self._retention_backend_disabled = True
+            self._retention_failure_reason = message
+            self._update_retention_button_state()
+            return
+
+        if result.get("success"):
+            stats = result.get("stats") or result.get("result")
+            summary = self._format_retention_summary(stats)
+            self._set_status(summary)
+            self._retention_backend_disabled = False
+            self._retention_failure_reason = None
+            self._reload_conversations(preserve_selection=True)
+        else:
+            error = result.get("error") or "Unable to run retention."
+            self._set_status(error)
+            self._retention_backend_disabled = True
+            self._retention_failure_reason = str(error)
+
+        self._update_retention_button_state()
+
+    def _format_retention_summary(self, stats: Any) -> str:
+        if not isinstance(stats, Mapping):
+            return "Conversation retention completed."
+
+        fragments: List[str] = []
+        for section in ("messages", "conversations"):
+            counts = stats.get(section)
+            if not isinstance(counts, Mapping):
+                continue
+            components = []
+            for key, value in sorted(counts.items()):
+                if isinstance(value, (int, float)):
+                    components.append(f"{key}={value}")
+            if components:
+                fragments.append(f"{section.capitalize()}: {', '.join(components)}")
+
+        if not fragments:
+            return "Conversation retention completed."
+
+        return f"Retention complete. {'; '.join(fragments)}"
+
     def _set_status(self, message: str) -> None:
         self.status_label.set_label(message or "")
 
@@ -478,6 +581,10 @@ class ConversationHistoryPage(Gtk.Box):
         if callable(remover) and self._conversation_listener is not None:
             remover(self._conversation_listener)
             self._conversation_listener = None
+        user_remover = getattr(self.ATLAS, "remove_active_user_change_listener", None)
+        if callable(user_remover) and self._active_user_listener is not None:
+            user_remover(self._active_user_listener)
+            self._active_user_listener = None
         if self._search_timeout_id:
             GLib.source_remove(self._search_timeout_id)
             self._search_timeout_id = 0

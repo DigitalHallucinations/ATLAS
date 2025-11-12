@@ -843,6 +843,46 @@ class ATLAS:
             return []
         return service.get_chat_history_snapshot()
 
+    def get_active_user_roles(self) -> Tuple[str, ...]:
+        """Return the configured roles for the active user."""
+
+        return self._resolve_active_user_roles()
+
+    def can_run_conversation_retention(self) -> bool:
+        """Return ``True`` when the retention trigger is available to the user."""
+
+        status = self.conversation_retention_status()
+        return bool(status.get("available"))
+
+    def conversation_retention_status(self) -> Dict[str, Any]:
+        """Summarise whether the retention trigger can be used."""
+
+        try:
+            service = self._get_conversation_service()
+        except RuntimeError:
+            return {"available": False, "reason": "Conversation store unavailable."}
+
+        runner = getattr(self.server, "run_conversation_retention", None)
+        available, reason, _ = service.assess_retention_availability(
+            runner=runner,
+            context=self._build_retention_context(),
+        )
+        return {"available": available, "reason": reason}
+
+    def run_conversation_retention(self) -> Dict[str, Any]:
+        """Trigger conversation retention using the server facade."""
+
+        try:
+            service = self._get_conversation_service()
+        except RuntimeError:
+            return {"success": False, "error": "Conversation store unavailable."}
+
+        runner = getattr(self.server, "run_conversation_retention", None)
+        return service.run_conversation_retention(
+            runner=runner,
+            context=self._build_retention_context(),
+        )
+
     # ------------------------------------------------------------------
     # Conversation repository helpers
     # ------------------------------------------------------------------
@@ -980,6 +1020,69 @@ class ATLAS:
         except RuntimeError:
             return []
         return service.get_negotiation_log()
+
+    def _build_retention_context(self) -> Dict[str, Any]:
+        tenant_id = self.tenant_id or "default"
+        context: Dict[str, Any] = {"tenant_id": tenant_id}
+
+        roles = list(self._resolve_active_user_roles())
+        if roles:
+            context["roles"] = tuple(roles)
+
+        try:
+            username, display_name = self._ensure_user_identity()
+        except Exception:  # pragma: no cover - defensive fallback
+            username = None
+            display_name = None
+
+        if username:
+            context["user_id"] = username
+
+        metadata: Dict[str, Any] = {}
+        if display_name:
+            metadata["user_display_name"] = display_name
+        if metadata:
+            context["metadata"] = metadata
+
+        return context
+
+    def _resolve_active_user_roles(self) -> Tuple[str, ...]:
+        manager = self.config_manager
+        roles: List[str] = []
+
+        for source in (getattr(manager, "env_config", None), getattr(manager, "config", None)):
+            if not isinstance(source, Mapping):
+                continue
+            for key in ("ATLAS_ACTIVE_USER_ROLES", "ACTIVE_USER_ROLES", "UI_ACTIVE_ROLES"):
+                raw_value = source.get(key)
+                for role in self._sanitize_role_tokens(raw_value):
+                    if role not in roles:
+                        roles.append(role)
+
+        return tuple(roles)
+
+    @staticmethod
+    def _sanitize_role_tokens(value: Any) -> List[str]:
+        if value is None:
+            return []
+
+        if isinstance(value, str):
+            candidates: Iterable[Any] = value.replace(";", ",").split(",")
+        elif isinstance(value, Mapping):
+            candidates = value.values()
+        elif isinstance(value, Iterable):
+            candidates = value
+        else:
+            return []
+
+        roles: List[str] = []
+        for candidate in candidates:
+            text = str(candidate).strip()
+            if not text:
+                continue
+            if text not in roles:
+                roles.append(text)
+        return roles
 
     def compute_persona_locked_content(
         self,

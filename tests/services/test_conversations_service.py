@@ -101,3 +101,45 @@ def test_listener_invocation_and_cleanup() -> None:
     service.notify_updated("identifier")
 
     assert len(events) == 1
+
+
+def test_retention_runner_unavailable_returns_error() -> None:
+    service = _service()
+
+    available, reason, context = service.assess_retention_availability(runner=None)
+    assert available is False
+    assert "endpoint" in (reason or "").lower()
+    assert context["tenant_id"] == "tenant"
+
+    result = service.run_conversation_retention(runner=None)
+    assert result["success"] is False
+    assert "available" in result["error"].lower()
+
+
+def test_retention_requires_admin_role_before_invoking_runner() -> None:
+    runner = Mock()
+    service = _service()
+
+    result = service.run_conversation_retention(runner=runner, context={"roles": ["user"]})
+
+    runner.assert_not_called()
+    assert result["success"] is False
+    assert "admin" in result["error"].lower()
+
+
+def test_retention_runs_when_authorised_and_returns_stats() -> None:
+    runner = Mock(return_value={"messages": {"deleted": 2}})
+    service = _service()
+
+    result = service.run_conversation_retention(
+        runner=runner,
+        context={"roles": ["admin"], "tenant_id": "custom", "user_id": "alice"},
+    )
+
+    runner.assert_called_once()
+    call = runner.call_args
+    assert call.kwargs["context"]["tenant_id"] == "custom"
+    assert call.kwargs["context"]["roles"] == ("admin",)
+    assert call.kwargs["context"]["user_id"] == "alice"
+    assert result["success"] is True
+    assert result["stats"] == {"messages": {"deleted": 2}}
