@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import types
 from dataclasses import dataclass
@@ -83,6 +84,8 @@ class JobManagement:
         self._start_button: Optional[Gtk.Button] = None
         self._pause_button: Optional[Gtk.Button] = None
         self._rerun_button: Optional[Gtk.Button] = None
+        self._new_job_button: Optional[Gtk.Button] = None
+        self._job_creation_dialog: Optional[Gtk.Widget] = None
 
         self._entries: List[_JobEntry] = []
         self._entry_lookup: Dict[str, _JobEntry] = {}
@@ -189,6 +192,12 @@ class JobManagement:
         self._recurrence_filter_combo = recurrence_combo
         self._populate_recurrence_filter_options()
 
+        new_job_button = Gtk.Button(label="New job…")
+        new_job_button.set_hexpand(True)
+        new_job_button.connect("clicked", self._on_new_job_clicked)
+        sidebar.append(new_job_button)
+        self._new_job_button = new_job_button
+
         scroller = Gtk.ScrolledWindow()
         scroller.set_hexpand(False)
         scroller.set_vexpand(True)
@@ -264,6 +273,182 @@ class JobManagement:
 
         detail_panel.connect("destroy", lambda *_args: self._on_close_request())
         return root
+
+    def _on_new_job_clicked(self, _button: Gtk.Button) -> None:
+        self.prompt_new_job()
+
+    def prompt_new_job(self) -> None:
+        details = self._collect_new_job_details()
+        if details is not None:
+            self._handle_new_job_submission(details)
+            return
+        self._show_new_job_dialog()
+
+    def _collect_new_job_details(self) -> Optional[Mapping[str, Any]]:
+        prompt = getattr(self.parent_window, "prompt_new_job_details", None)
+        if callable(prompt):
+            try:
+                result = prompt()
+            except Exception as exc:
+                logger.error("Failed to collect new job details: %s", exc, exc_info=True)
+                self._handle_backend_error("Unable to gather job details.")
+                return None
+            if isinstance(result, Mapping):
+                return result
+        return None
+
+    def _show_new_job_dialog(self) -> None:
+        if self._job_creation_dialog is not None:
+            presenter = getattr(self._job_creation_dialog, "present", None)
+            if callable(presenter):
+                presenter()
+            return
+        dialog = _NewJobDialog(self)
+        dialog.connect("destroy", lambda *_args: self._on_job_dialog_closed(dialog))
+        presenter = getattr(dialog, "present", None)
+        if callable(presenter):
+            presenter()
+        self._job_creation_dialog = dialog
+
+    def _on_job_dialog_closed(self, dialog: Gtk.Widget) -> None:
+        if dialog is self._job_creation_dialog:
+            self._job_creation_dialog = None
+
+    def _handle_new_job_submission(self, details: Mapping[str, Any]) -> bool:
+        payload = self._normalize_new_job_payload(details)
+        if payload is None:
+            return False
+
+        create_job = getattr(self.ATLAS, "create_job", None)
+        if not callable(create_job):
+            self._handle_backend_error("Job creation is not supported by this backend.")
+            return False
+
+        try:
+            response = create_job(**payload)
+        except (TypeError, ValueError) as exc:
+            logger.error("Invalid job payload: %s", exc, exc_info=True)
+            self._handle_backend_error(str(exc) or "Unable to create the job.")
+            return False
+        except Exception as exc:
+            logger.error("Failed to create job: %s", exc, exc_info=True)
+            self._handle_backend_error("Unable to create the job.")
+            return False
+
+        job_id: Optional[str] = None
+        if isinstance(response, Mapping):
+            raw_id = response.get("id") or response.get("job_id")
+            if raw_id:
+                job_id = str(raw_id).strip() or None
+
+        if job_id:
+            self._pending_focus_job = job_id
+        self._refresh_state()
+        if job_id:
+            self.focus_job(job_id)
+        self._notify_success("Job created.")
+        return True
+
+    def _normalize_new_job_payload(
+        self, details: Mapping[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        name = str(details.get("name") or "").strip()
+        if not name:
+            self._handle_backend_error("Job name is required.")
+            return None
+
+        description = str(details.get("description") or "").strip() or None
+
+        metadata_value = details.get("metadata")
+        metadata_payload = dict(metadata_value) if isinstance(metadata_value, Mapping) else {}
+
+        roster_value = details.get("personas") or details.get("persona_roster")
+        roster, roster_error = self._parse_persona_roster_field(roster_value)
+        if roster_error:
+            self._handle_backend_error(roster_error)
+            return None
+
+        schedule_source = details.get("schedule") or details.get("schedule_metadata")
+        if schedule_source is None and "schedule" in metadata_payload:
+            schedule_source = metadata_payload.pop("schedule")
+        schedule, schedule_error = self._parse_schedule_metadata_field(schedule_source)
+        if schedule_error:
+            self._handle_backend_error(schedule_error)
+            return None
+
+        payload: Dict[str, Any] = {"name": name}
+        if description is not None:
+            payload["description"] = description
+        if roster:
+            payload["personas"] = roster
+        if schedule is not None:
+            payload["schedule"] = schedule
+        if metadata_payload:
+            payload["metadata"] = metadata_payload
+        return payload
+
+    def _parse_persona_roster_field(
+        self, value: Any
+    ) -> Tuple[Tuple[str, ...], Optional[str]]:
+        if value is None:
+            return tuple(), None
+
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return tuple(), None
+            try:
+                decoded = json.loads(text)
+            except json.JSONDecodeError:
+                items = [segment.strip() for segment in text.split(",") if segment.strip()]
+                return tuple(dict.fromkeys(items)), None
+            return self._parse_persona_roster_field(decoded)
+
+        if isinstance(value, Mapping):
+            raw = value.get("name") or value.get("persona") or value.get("id")
+            text = str(raw).strip() if raw else ""
+            return ((text,) if text else tuple(), None)
+
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+            combined: List[str] = []
+            for entry in value:
+                roster, error = self._parse_persona_roster_field(entry)
+                if error:
+                    return tuple(), error
+                combined.extend(roster)
+            deduped: List[str] = []
+            seen: set[str] = set()
+            for persona in combined:
+                if persona not in seen:
+                    deduped.append(persona)
+                    seen.add(persona)
+            return tuple(deduped), None
+
+        text = str(value).strip()
+        return ((text,) if text else tuple(), None)
+
+    def _parse_schedule_metadata_field(
+        self, value: Any
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        if value is None:
+            return None, None
+
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None, None
+            try:
+                decoded = json.loads(text)
+            except json.JSONDecodeError as exc:
+                return None, f"Schedule metadata must be valid JSON: {exc.msg}"
+            value = decoded
+
+        if isinstance(value, Mapping):
+            return dict(value), None
+
+        return None, "Schedule metadata must be a mapping or JSON object."
+
+
 
     def _add_info_row(self, grid: Gtk.Grid, row: int, title: str) -> Gtk.Label:
         label_widget = Gtk.Label(label=title)
@@ -1407,6 +1592,125 @@ class JobManagement:
             link_id=link_id,
             task_id=task_id,
         )
+
+
+class _NewJobDialog(Gtk.Window):
+    """Simple modal dialog to gather basic job information."""
+
+    def __init__(self, controller: JobManagement) -> None:
+        super().__init__(title="New job")
+        self._controller = controller
+
+        if hasattr(self, "set_modal"):
+            try:
+                self.set_modal(True)
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+        if hasattr(self, "set_default_size"):
+            try:
+                self.set_default_size(420, 280)
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+        parent = getattr(controller, "parent_window", None)
+        transient = getattr(self, "set_transient_for", None)
+        if callable(transient) and isinstance(parent, Gtk.Widget):
+            try:
+                transient(parent)
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        for setter_name in (
+            "set_margin_top",
+            "set_margin_bottom",
+            "set_margin_start",
+            "set_margin_end",
+        ):
+            setter = getattr(root, setter_name, None)
+            if callable(setter):
+                try:
+                    setter(12)
+                except Exception:  # pragma: no cover - GTK fallback
+                    continue
+        self.set_child(root)
+
+        self._name_entry = self._add_entry_row(root, "Job name", placeholder="Weekly sync")
+        self._description_entry = self._add_entry_row(
+            root, "Description", placeholder="Describe the outcome"
+        )
+        self._personas_entry = self._add_entry_row(
+            root,
+            "Persona roster",
+            placeholder="Comma-separated names or JSON list",
+        )
+        self._schedule_entry = self._add_entry_row(
+            root,
+            "Schedule metadata",
+            placeholder="JSON (e.g., {\"frequency\": \"weekly\"})",
+        )
+
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        root.append(action_box)
+
+        cancel_button = Gtk.Button(label="Cancel")
+        cancel_button.connect("clicked", self._on_cancel_clicked)
+        action_box.append(cancel_button)
+
+        create_button = Gtk.Button(label="Create job")
+        create_button.connect("clicked", self._on_create_clicked)
+        action_box.append(create_button)
+
+    def _add_entry_row(
+        self, container: Gtk.Box, label: str, *, placeholder: str = ""
+    ) -> Gtk.Entry:
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        container.append(row)
+
+        label_widget = Gtk.Label(label=label)
+        label_widget.set_xalign(0.0)
+        row.append(label_widget)
+
+        entry = Gtk.Entry()
+        if placeholder:
+            entry.set_placeholder_text(placeholder)
+        row.append(entry)
+        return entry
+
+    def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
+        self._close()
+
+    def _on_create_clicked(self, _button: Gtk.Button) -> None:
+        payload: Dict[str, Any] = {
+            "name": self._name_entry.get_text(),
+            "description": self._description_entry.get_text(),
+        }
+        personas = self._personas_entry.get_text()
+        if personas.strip():
+            payload["personas"] = personas
+        schedule = self._schedule_entry.get_text()
+        if schedule.strip():
+            payload["schedule"] = schedule
+        success = self._controller._handle_new_job_submission(payload)
+        if success:
+            self._close()
+
+    def _close(self) -> None:
+        closer = getattr(self, "close", None)
+        if callable(closer):
+            try:
+                closer()
+                return
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+        destroyer = getattr(self, "destroy", None)
+        if callable(destroyer):
+            try:
+                destroyer()
+                return
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+        self.set_visible(False)
 
 
 __all__ = ["JobManagement"]

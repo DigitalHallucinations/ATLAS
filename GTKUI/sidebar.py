@@ -145,6 +145,14 @@ class MainWindow(AtlasWindow):
             if job_id:
                 GLib.idle_add(self._focus_job_in_manager, job_id)
 
+    def create_new_job(self) -> None:
+        if not self._ensure_initialized():
+            return
+        self.show_job_workspace()
+        creator = getattr(self.job_management, "prompt_new_job", None)
+        if callable(creator):
+            creator()
+
     def show_skills_menu(self, skill_name: str | None = None) -> None:
         if not self._ensure_initialized():
             return
@@ -709,6 +717,12 @@ class _NavigationSidebar(Gtk.Box):
             "Jobs",
             self.main_window.show_job_workspace,
             tooltip="Jobs",
+        )
+        self._create_nav_item(
+            None,
+            "New job",
+            self.main_window.create_new_job,
+            tooltip="Create a new job",
         )
         self._create_nav_item(
             "skills",

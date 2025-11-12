@@ -2,7 +2,7 @@ import asyncio
 import copy
 import sys
 import types
-from typing import Mapping
+from typing import Iterable, Mapping
 
 sys.modules.setdefault("tests.test_provider_manager", types.ModuleType("tests.test_provider_manager"))
 sys.modules.setdefault("tests.test_speech_settings_facade", types.ModuleType("tests.test_speech_settings_facade"))
@@ -195,6 +195,7 @@ class _JobServerStub:
         self.link_events: list[dict[str, object]] = []
         self.unlink_events: list[dict[str, object]] = []
         self.transitions: list[dict[str, object]] = []
+        self.created_jobs: list[dict[str, object]] = []
 
     def list_jobs(self, params=None, *, context):
         self._atlas.job_fetches += 1
@@ -379,6 +380,20 @@ class _JobServerStub:
                 return copy.deepcopy(job)
         raise RuntimeError("Job not found")
 
+    def create_job(self, payload: Mapping[str, object], *, context):
+        record = dict(payload)
+        record.setdefault("metadata", {})
+        if not isinstance(record["metadata"], Mapping):
+            record["metadata"] = {}
+        job_index = len(self.jobs) + 1
+        record.setdefault("id", f"job-{job_index}")
+        record.setdefault("status", "draft")
+        record["tenant_id"] = context.get("tenant_id")
+        record["metadata"] = copy.deepcopy(record["metadata"])
+        self.jobs.append(copy.deepcopy(record))
+        self.created_jobs.append(copy.deepcopy(record))
+        return copy.deepcopy(record)
+
     def rerun_job(
         self,
         job_id: str,
@@ -445,6 +460,29 @@ class _AtlasStub:
             task_id=task_id,
         )
 
+    def create_job(
+        self,
+        name: str,
+        *,
+        description: str | None = None,
+        personas: Iterable[str] | None = None,
+        schedule: Mapping[str, object] | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ):
+        payload: dict[str, object] = {"name": name}
+        if description:
+            payload["description"] = description
+        metadata_payload: dict[str, object] = {}
+        if metadata:
+            metadata_payload.update(metadata)
+        if personas:
+            metadata_payload.setdefault("personas", list(personas))
+        if schedule:
+            metadata_payload["schedule"] = dict(schedule)
+        if metadata_payload:
+            payload["metadata"] = metadata_payload
+        return self.server.create_job(payload, context={"tenant_id": self.tenant_id})
+
 
 class _ParentWindowStub:
     def __init__(self, atlas: _AtlasStub) -> None:
@@ -452,6 +490,7 @@ class _ParentWindowStub:
         self.errors: list[str] = []
         self.toasts: list[str] = []
         self.prompt_result: Mapping[str, object] | None = None
+        self.new_job_details: Mapping[str, object] | None = None
 
     def show_error_dialog(self, message: str) -> None:
         self.errors.append(message)
@@ -461,6 +500,9 @@ class _ParentWindowStub:
 
     def prompt_link_job_task(self, _job_id: str):
         return copy.deepcopy(self.prompt_result)
+
+    def prompt_new_job_details(self):
+        return copy.deepcopy(self.new_job_details)
 
     def _transition_job(self, job_id: str, target_status: str, updated_at: str | None):
         return self.ATLAS.server.transition_job(
@@ -841,3 +883,30 @@ def test_job_management_link_task_error(monkeypatch):
 
     assert parent.errors, "Errors should surface to the user"
     assert all("task-err" not in badge for badge in manager._current_linked_task_badges)
+
+
+def test_job_management_create_job(monkeypatch):
+    _register_bus_stub(monkeypatch)
+    atlas = _AtlasStub()
+    parent = _ParentWindowStub(atlas)
+    parent.new_job_details = {
+        "name": "Nightly sync",
+        "description": "Sync CRM data",
+        "personas": ["Atlas", "Researcher"],
+        "schedule": {"frequency": "daily", "interval": "1"},
+    }
+
+    manager = JobManagement(atlas, parent)
+    manager.get_embeddable_widget()
+
+    new_button = manager._new_job_button
+    assert new_button is not None
+    _click(new_button)
+
+    assert atlas.server.created_jobs, "Create job route should be invoked"
+    created = atlas.server.created_jobs[-1]
+    assert created["name"] == "Nightly sync"
+    assert created["metadata"].get("schedule", {}).get("frequency") == "daily"
+    assert created["metadata"].get("personas") == ["Atlas", "Researcher"]
+    assert manager._active_job == created["id"], "New job should be focused"
+    assert parent.toasts and parent.toasts[-1] == "Job created."

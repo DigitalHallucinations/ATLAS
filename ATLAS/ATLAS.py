@@ -365,6 +365,97 @@ class ATLAS:
             task_id=task_id,
         )
 
+    def create_job(
+        self,
+        name: str,
+        *,
+        description: Optional[str] = None,
+        personas: Optional[Iterable[Any]] = None,
+        schedule: Optional[Mapping[str, Any]] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Create a job using the active tenant context."""
+
+        normalized_name = self._require_non_empty_text(name, field_name="name")
+
+        payload: Dict[str, Any] = {"name": normalized_name}
+        description_text = self._normalize_optional_text(description)
+        if description_text is not None:
+            payload["description"] = description_text
+
+        metadata_payload: Dict[str, Any] = {}
+        if metadata is not None:
+            if not isinstance(metadata, Mapping):
+                raise TypeError("metadata must be a mapping")
+            metadata_payload.update(dict(metadata))
+
+        roster = self._normalize_persona_roster(personas)
+        if roster:
+            metadata_payload.setdefault("personas", roster)
+
+        if schedule is not None:
+            metadata_payload["schedule"] = self._normalize_mapping(
+                schedule, field_name="schedule"
+            )
+
+        if metadata_payload:
+            payload["metadata"] = metadata_payload
+
+        context = {"tenant_id": self.tenant_id or "default"}
+        server = self._require_server()
+        return server.create_job(payload, context=context)
+
+    def _normalize_mapping(
+        self, value: Mapping[str, Any] | None, *, field_name: str
+    ) -> Dict[str, Any]:
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping):
+            raise TypeError(f"{field_name} must be a mapping")
+        return dict(value)
+
+    def _normalize_persona_roster(
+        self, roster: Optional[Iterable[Any]]
+    ) -> List[str]:
+        if roster is None:
+            return []
+
+        if isinstance(roster, (str, bytes)):
+            text = str(roster).strip()
+            return [text] if text else []
+
+        names: List[str] = []
+        for entry in roster:
+            value: Optional[str]
+            if isinstance(entry, Mapping):
+                raw = entry.get("name") or entry.get("persona") or entry.get("id")
+                value = str(raw).strip() if raw else None
+            elif entry is not None:
+                value = str(entry).strip()
+            else:
+                value = None
+            if value:
+                names.append(value)
+        seen: set[str] = set()
+        unique_names: List[str] = []
+        for name in names:
+            if name not in seen:
+                unique_names.append(name)
+                seen.add(name)
+        return unique_names
+
+    def _require_non_empty_text(self, value: Any, *, field_name: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError(f"{field_name} is required")
+        return text
+
+    def _normalize_optional_text(self, value: Any | None) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
     @property
     def persona_manager(self) -> PersonaManager | None:
         return self._persona_manager
