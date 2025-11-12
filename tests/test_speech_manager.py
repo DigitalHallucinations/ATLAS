@@ -1349,6 +1349,72 @@ def test_set_openai_speech_config_factory_failure_rolls_back(speech_manager, mon
     assert speech_manager.config_manager.openai_calls == []
 
 
+def test_gpt4o_stt_listen_and_stop_updates_audio_reference(speech_manager, monkeypatch, tmp_path):
+    from modules.Speech_Services import gpt4o_stt
+    import types
+
+    monkeypatch.setenv("OPENAI_API_KEY", "unit-test-key")
+
+    fake_openai = types.SimpleNamespace(Audio=types.SimpleNamespace(transcribe=lambda **kwargs: {"text": ""}))
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
+
+    class DummyStream:
+        def __init__(self, *, callback, channels, samplerate):
+            self.callback = callback
+            self.channels = channels
+            self.samplerate = samplerate
+            self.started = False
+            self.stopped = False
+            self.closed = False
+
+        def start(self):
+            self.started = True
+
+        def stop(self):
+            self.stopped = True
+
+        def close(self):
+            self.closed = True
+
+    class DummySD:
+        def __init__(self):
+            self.streams = []
+
+        def InputStream(self, **kwargs):
+            stream = DummyStream(**kwargs)
+            self.streams.append(stream)
+            return stream
+
+    written = {}
+
+    def fake_write(path, data, samplerate):
+        written["path"] = path
+        written["shape"] = getattr(data, "shape", None)
+        written["samplerate"] = samplerate
+
+    monkeypatch.setattr(gpt4o_stt, "sd", DummySD())
+    monkeypatch.setattr(gpt4o_stt, "sf", types.SimpleNamespace(write=fake_write))
+
+    stt_provider = gpt4o_stt.GPT4oSTT()
+    stt_provider.output_dir = str(tmp_path)
+
+    speech_manager.stt_services["openai_stt"] = stt_provider
+    speech_manager.set_default_speech_providers(stt_provider="openai_stt")
+
+    assert speech_manager.listen(provider="openai_stt") is True
+
+    stt_provider.frames = [[[0.0]]]
+
+    audio_path = speech_manager.stop_listening(provider="openai_stt")
+
+    assert audio_path is not None
+    assert stt_provider.recording is False
+    assert stt_provider.last_audio_path == audio_path
+    assert stt_provider.get_audio_file() == audio_path
+    assert speech_manager._last_audio_path == audio_path
+    assert written["path"] == audio_path
+    assert written["samplerate"] == stt_provider.sample_rate
+
 def test_prepare_openai_settings_normalizes_and_validates():
     payload = {
         "api_key": "  secret-key  ",

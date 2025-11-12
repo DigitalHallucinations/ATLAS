@@ -137,6 +137,7 @@ Tool discovery endpoints (e.g., `/tools`) and capability registries feed downstr
 * 🌐 Multi-Provider Layer — dynamically select between OpenAI, Anthropic, xAI, or local LLMs.
 * 🧩 Extensible Tools — universal tool API for integrating retrieval, scheduling, or external modules.
 * 🪶 GTK Interface — sleek, native desktop environment for agent orchestration.
+* 🎙️ GPT-4o Live Speech-to-Text — capture microphone audio in-app for GPT-4o transcription (requires `sounddevice`/`soundfile`).
 * 🔐 Privacy & Local Autonomy — all control stays local; no enforced cloud dependency.
 * 🔄 Persistent Context — PostgreSQL-backed state and modular message-bus design.
 * 🧭 Unified Orchestration — conversations, jobs, and automations share a single runtime.
