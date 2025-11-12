@@ -20,11 +20,16 @@ class ConversationHistoryPage(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.ATLAS = atlas
         self._conversations: List[Dict[str, Any]] = []
+        self._all_conversations: List[Dict[str, Any]] = []
         self._row_lookup: Dict[Gtk.ListBoxRow, str] = {}
         self._id_to_row: Dict[str, Gtk.ListBoxRow] = {}
         self._selected_id: Optional[str] = None
         self._pending_focus: Optional[str] = None
         self._conversation_listener = None
+        self._search_timeout_id: int = 0
+        self._search_query: str = ""
+        self._search_active: bool = False
+        self._search_results: List[Dict[str, Any]] = []
 
         self.set_margin_top(12)
         self.set_margin_bottom(12)
@@ -55,6 +60,31 @@ class ConversationHistoryPage(Gtk.Box):
         header.append(self.delete_button)
 
         self.append(header)
+
+        search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        search_box.set_hexpand(True)
+
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.set_placeholder_text("Search conversations…")
+        self.search_entry.set_hexpand(True)
+        self.search_entry.connect("search-changed", self._on_search_changed)
+        self.search_entry.connect("stop-search", self._on_search_cleared)
+        self.search_entry.connect("activate", self._on_search_activate)
+        search_box.append(self.search_entry)
+
+        self.metadata_toggle = Gtk.CheckButton(label="Metadata filter")
+        self.metadata_toggle.connect("toggled", self._on_metadata_toggled)
+        search_box.append(self.metadata_toggle)
+
+        self.metadata_entry = Gtk.Entry()
+        self.metadata_entry.set_placeholder_text("Filter metadata (JSON object)")
+        self.metadata_entry.set_hexpand(True)
+        self.metadata_entry.set_visible(False)
+        self.metadata_entry.connect("changed", self._on_metadata_changed)
+        self.metadata_entry.connect("activate", self._on_metadata_activate)
+        search_box.append(self.metadata_entry)
+
+        self.append(search_box)
 
         self.status_label = Gtk.Label(label="")
         self.status_label.set_xalign(0.0)
@@ -168,7 +198,10 @@ class ConversationHistoryPage(Gtk.Box):
     # Data loading helpers
     # ------------------------------------------------------------------
     def _handle_conversation_event(self, _event: Mapping[str, Any]) -> bool:
-        self._reload_conversations(preserve_selection=True)
+        if self._search_active and self._search_query:
+            self._execute_search(force=True)
+        else:
+            self._reload_conversations(preserve_selection=True)
         return False
 
     def _reload_conversations(self, *, preserve_selection: bool = False) -> None:
@@ -179,7 +212,9 @@ class ConversationHistoryPage(Gtk.Box):
             self._set_status(f"Failed to load conversations: {exc}")
             records = []
 
-        self._populate_conversation_list(records)
+        self._populate_conversation_list(records, store_source=True)
+        if not self._search_active:
+            self._set_status("")
 
         target = self._pending_focus or previous
         self._pending_focus = None
@@ -188,7 +223,11 @@ class ConversationHistoryPage(Gtk.Box):
             if row is not None:
                 self.conversation_list.select_row(row)
 
-    def _populate_conversation_list(self, records: List[Dict[str, Any]]) -> None:
+    def _populate_conversation_list(
+        self, records: List[Dict[str, Any]], *, store_source: bool = False
+    ) -> None:
+        if store_source:
+            self._all_conversations = list(records)
         self._conversations = list(records)
         self._row_lookup.clear()
         self._id_to_row.clear()
@@ -213,7 +252,12 @@ class ConversationHistoryPage(Gtk.Box):
             box.set_margin_bottom(6)
             box.set_margin_start(12)
             box.set_margin_end(12)
-            label = Gtk.Label(label="No stored conversations yet.")
+            placeholder_text = (
+                "No conversations matched the current query."
+                if self._search_active and self._search_query
+                else "No stored conversations yet."
+            )
+            label = Gtk.Label(label=placeholder_text)
             label.set_xalign(0.0)
             label.add_css_class("history-placeholder")
             box.append(label)
@@ -245,6 +289,17 @@ class ConversationHistoryPage(Gtk.Box):
             timestamp_label.set_xalign(0.0)
             timestamp_label.add_css_class("history-nav-subtitle")
             box.append(timestamp_label)
+
+            search_hit = record.get("__search_hit__") if isinstance(record, Mapping) else None
+            if isinstance(search_hit, Mapping):
+                snippet = search_hit.get("snippet")
+                if isinstance(snippet, str) and snippet.strip():
+                    snippet_label = Gtk.Label(label=snippet.strip())
+                    snippet_label.set_xalign(0.0)
+                    snippet_label.set_wrap(True)
+                    snippet_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                    snippet_label.add_css_class("history-nav-subtitle")
+                    box.append(snippet_label)
 
             row.set_child(box)
 
@@ -423,4 +478,166 @@ class ConversationHistoryPage(Gtk.Box):
         if callable(remover) and self._conversation_listener is not None:
             remover(self._conversation_listener)
             self._conversation_listener = None
+        if self._search_timeout_id:
+            GLib.source_remove(self._search_timeout_id)
+            self._search_timeout_id = 0
+
+    # ------------------------------------------------------------------
+    # Search helpers
+    # ------------------------------------------------------------------
+    def _on_search_changed(self, entry: Gtk.Entry) -> None:
+        self._search_query = entry.get_text().strip()
+        if not self._search_query:
+            self._clear_search()
+            return
+        self._schedule_search()
+
+    def _on_search_activate(self, entry: Gtk.Entry) -> None:
+        self._search_query = entry.get_text().strip()
+        if not self._search_query:
+            self._clear_search()
+            return
+        self._execute_search(force=True)
+
+    def _on_search_cleared(self, entry: Gtk.Entry) -> None:
+        entry.set_text("")
+        self._clear_search()
+
+    def _on_metadata_toggled(self, button: Gtk.CheckButton) -> None:
+        active = bool(button.get_active())
+        self.metadata_entry.set_visible(active)
+        if not active:
+            self.metadata_entry.set_text("")
+        if self._search_query:
+            if active:
+                self._schedule_search()
+            else:
+                self._execute_search(force=True)
+
+    def _on_metadata_changed(self, _entry: Gtk.Entry) -> None:
+        if self._search_query:
+            self._schedule_search()
+
+    def _on_metadata_activate(self, _entry: Gtk.Entry) -> None:
+        if self._search_query:
+            self._execute_search(force=True)
+
+    def _schedule_search(self) -> None:
+        if self._search_timeout_id:
+            GLib.source_remove(self._search_timeout_id)
+        self._search_timeout_id = GLib.timeout_add(350, self._execute_search)
+
+    def _clear_search(self) -> None:
+        if self._search_timeout_id:
+            GLib.source_remove(self._search_timeout_id)
+            self._search_timeout_id = 0
+        self._search_query = ""
+        self._search_active = False
+        self._search_results = []
+        self._set_status("")
+        self._reload_conversations(preserve_selection=True)
+
+    def _execute_search(self, *_args, force: bool = False) -> bool:
+        if self._search_timeout_id:
+            GLib.source_remove(self._search_timeout_id)
+            self._search_timeout_id = 0
+
+        query = self._search_query.strip()
+        if not query:
+            if force:
+                self._clear_search()
+            return False
+
+        metadata_filter = None
+        if self.metadata_toggle.get_active():
+            raw_metadata = self.metadata_entry.get_text().strip()
+            if raw_metadata:
+                try:
+                    parsed = json.loads(raw_metadata)
+                except json.JSONDecodeError as exc:
+                    self._set_status(f"Metadata filter must be valid JSON: {exc}")
+                    return False
+                if isinstance(parsed, Mapping):
+                    metadata_filter = parsed
+                else:
+                    self._set_status("Metadata filter must be a JSON object.")
+                    return False
+
+        payload: Dict[str, Any] = {"text": query, "limit": 50}
+        if metadata_filter is not None:
+            payload["metadata"] = metadata_filter
+
+        try:
+            response = self.ATLAS.search_conversations(payload)
+        except Exception as exc:  # pragma: no cover - defensive logging upstream
+            self._set_status(f"Search failed: {exc}")
+            return False
+
+        if not isinstance(response, Mapping):
+            self._set_status("Unexpected search response.")
+            return False
+
+        items = response.get("items")
+        if not isinstance(items, list):
+            items = []
+
+        self._search_active = True
+        prepared = self._prepare_search_records(items)
+        self._search_results = prepared
+        self._populate_conversation_list(prepared)
+
+        count = len(prepared)
+        if count:
+            self._set_status(f"Found {count} conversation{'s' if count != 1 else ''} for '{query}'.")
+        else:
+            self._set_status(f"No conversations matched '{query}'.")
+
+        return False
+
+    def _prepare_search_records(self, hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        lookup = {
+            str(record.get("id")): record
+            for record in self._all_conversations
+            if isinstance(record, Mapping) and record.get("id")
+        }
+        aggregated: Dict[str, Dict[str, Any]] = {}
+        order: List[str] = []
+        for entry in hits:
+            if not isinstance(entry, Mapping):
+                continue
+            conversation_id = str(entry.get("conversation_id") or "")
+            if not conversation_id:
+                continue
+            message = entry.get("message")
+            if not isinstance(message, Mapping):
+                continue
+            base = lookup.get(conversation_id, {})
+            metadata = dict(base.get("metadata") or {}) if isinstance(base, Mapping) else {}
+            created_at = (
+                message.get("created_at")
+                or message.get("timestamp")
+                or base.get("created_at")
+                if isinstance(base, Mapping)
+                else None
+            )
+            score = float(entry.get("score") or 0.0)
+            snippet = self._format_content(message.get("content"))
+            record = {
+                "id": conversation_id,
+                "metadata": metadata,
+                "created_at": created_at,
+                "__search_hit__": {
+                    "message": dict(message),
+                    "score": score,
+                    "snippet": snippet,
+                },
+            }
+            title = base.get("title") if isinstance(base, Mapping) else None
+            if isinstance(title, str):
+                record["title"] = title
+            if conversation_id not in aggregated or score > aggregated[conversation_id]["__search_hit__"]["score"]:
+                aggregated[conversation_id] = record
+            if conversation_id not in order:
+                order.append(conversation_id)
+        return [aggregated[identifier] for identifier in order]
 
