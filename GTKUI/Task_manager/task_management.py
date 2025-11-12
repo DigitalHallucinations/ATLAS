@@ -53,6 +53,7 @@ class TaskManagement:
         "done",
         "cancelled",
     )
+    _FETCH_PAGE_SIZE = 50
     _ADVANCE_ACTIONS: Mapping[str, Tuple[Tuple[str, str], ...]] = {
         "draft": (("Mark ready", "ready"), ("Cancel task", "cancelled")),
         "ready": (("Start work", "in_progress"), ("Cancel task", "cancelled")),
@@ -70,6 +71,15 @@ class TaskManagement:
         self._task_list: Optional[Gtk.ListBox] = None
         self._persona_filter_combo: Optional[Gtk.ComboBoxText] = None
         self._status_filter_combo: Optional[Gtk.ComboBoxText] = None
+        self._owner_filter_combo: Optional[Gtk.ComboBoxText] = None
+        self._conversation_filter_combo: Optional[Gtk.ComboBoxText] = None
+        self._owner_option_lookup: List[Optional[str]] = []
+        self._conversation_option_lookup: List[Optional[str]] = []
+        self._search_entry: Optional[Gtk.Entry] = None
+        self._search_apply_button: Optional[Gtk.Button] = None
+        self._search_clear_button: Optional[Gtk.Button] = None
+        self._metadata_filter_container: Optional[Gtk.Box] = None
+        self._metadata_filter_rows: List[Dict[str, Gtk.Widget]] = []
         self._title_label: Optional[Gtk.Label] = None
         self._status_label: Optional[Gtk.Label] = None
         self._description_label: Optional[Gtk.Label] = None
@@ -102,6 +112,12 @@ class TaskManagement:
         self._catalog_entries: List[Mapping[str, Any]] = []
         self._catalog_container: Optional[Gtk.Widget] = None
         self._catalog_hint_label: Optional[Gtk.Label] = None
+        self._search_text: str = ""
+        self._metadata_filter: Dict[str, Any] = {}
+        self._owner_filter: Optional[str] = None
+        self._conversation_filter: Optional[str] = None
+        self._suppress_owner_filter_event = False
+        self._suppress_conversation_filter_event = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -176,6 +192,64 @@ class TaskManagement:
         filter_box.append(status_combo)
         self._status_filter_combo = status_combo
         self._populate_status_filter_options()
+
+        owner_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        owner_label = Gtk.Label(label="Owner")
+        owner_label.set_xalign(0.0)
+        owner_box.append(owner_label)
+        owner_combo = Gtk.ComboBoxText()
+        owner_combo.set_hexpand(True)
+        owner_combo.connect("changed", self._on_owner_filter_changed)
+        owner_box.append(owner_combo)
+        filter_box.append(owner_box)
+        self._owner_filter_combo = owner_combo
+
+        conversation_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        conversation_label = Gtk.Label(label="Conversation")
+        conversation_label.set_xalign(0.0)
+        conversation_box.append(conversation_label)
+        conversation_combo = Gtk.ComboBoxText()
+        conversation_combo.set_hexpand(True)
+        conversation_combo.connect("changed", self._on_conversation_filter_changed)
+        conversation_box.append(conversation_combo)
+        filter_box.append(conversation_box)
+        self._conversation_filter_combo = conversation_combo
+
+        search_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        filter_box.append(search_row)
+
+        search_entry = Gtk.Entry()
+        search_entry.set_placeholder_text("Search tasks")
+        search_entry.set_hexpand(True)
+        search_entry.connect("activate", self._on_search_activate)
+        search_row.append(search_entry)
+        self._search_entry = search_entry
+
+        apply_button = Gtk.Button(label="Apply")
+        apply_button.connect("clicked", self._on_search_apply)
+        search_row.append(apply_button)
+        self._search_apply_button = apply_button
+
+        clear_button = Gtk.Button(label="Clear")
+        clear_button.connect("clicked", self._on_search_clear)
+        search_row.append(clear_button)
+        self._search_clear_button = clear_button
+
+        metadata_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        filter_box.append(metadata_section)
+
+        metadata_label = Gtk.Label(label="Metadata filters")
+        metadata_label.set_xalign(0.0)
+        metadata_section.append(metadata_label)
+
+        metadata_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        metadata_container.set_hexpand(True)
+        metadata_section.append(metadata_container)
+        self._metadata_filter_container = metadata_container
+
+        add_metadata_button = Gtk.Button(label="Add filter")
+        add_metadata_button.connect("clicked", self._on_add_metadata_filter)
+        metadata_section.append(add_metadata_button)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_hexpand(False)
@@ -299,6 +373,7 @@ class TaskManagement:
         self._catalog_container = catalog_container
 
         detail_panel.connect("destroy", lambda *_args: self._on_close_request())
+        self._update_search_widgets()
         return root
 
     def _add_info_row(self, grid: Gtk.Grid, row: int, title: str) -> Gtk.Label:
@@ -332,6 +407,9 @@ class TaskManagement:
         self._entries = entries
         self._entry_lookup = {entry.task_id: entry for entry in entries}
         self._populate_persona_filter_options()
+        self._populate_owner_filter_options()
+        self._populate_conversation_filter_options()
+        self._update_search_widgets()
         self._rebuild_task_list()
         self._refresh_task_catalog()
 
@@ -353,34 +431,144 @@ class TaskManagement:
             _callback()
 
     def _load_task_entries(self) -> List[_TaskEntry]:
-        server = getattr(self.ATLAS, "server", None)
-        list_tasks = getattr(server, "list_tasks", None)
-        if not callable(list_tasks):
-            logger.warning("ATLAS server does not expose list_tasks; returning empty workspace")
+        atlas = getattr(self, "ATLAS", None)
+        search_helper = getattr(atlas, "search_tasks", None)
+        server = getattr(atlas, "server", None)
+        list_tasks = getattr(server, "list_tasks", None) if server is not None else None
+
+        use_helper = callable(search_helper)
+        if not use_helper and not callable(list_tasks):
+            logger.warning("ATLAS task search helpers are unavailable; returning empty workspace")
             return []
 
-        params: Dict[str, Any] = {}
+        base_filters: Dict[str, Any] = {}
         if self._status_filter:
-            params["status"] = self._status_filter
+            base_filters["status"] = self._status_filter
+        if self._owner_filter:
+            base_filters["owner_id"] = self._owner_filter
+        if self._conversation_filter:
+            base_filters["conversation_id"] = self._conversation_filter
 
-        context = {"tenant_id": getattr(self.ATLAS, "tenant_id", "default")}
-        try:
-            response = list_tasks(params, context=context)
-        except Exception as exc:
-            logger.error("Failed to load task list: %s", exc, exc_info=True)
-            self._handle_backend_error("Unable to load tasks from ATLAS.")
-            return []
+        text_query = str(self._search_text or "").strip()
+        metadata_filter = {
+            str(key): value
+            for key, value in (self._metadata_filter or {}).items()
+            if str(key).strip()
+        }
+        if not metadata_filter:
+            metadata_filter = {}
 
-        items: Iterable[Any]
-        if isinstance(response, Mapping):
-            items = response.get("items", [])
-        elif isinstance(response, Iterable):
-            items = response
-        else:
-            items = []
+        use_search_filters = bool(text_query or metadata_filter)
+
+        aggregated: List[Mapping[str, Any]] = []
+        cursor: Optional[str] = None
+        offset = 0
+        iterations = 0
+        max_iterations = 50
+        page_size = self._FETCH_PAGE_SIZE
+        context = {"tenant_id": getattr(atlas, "tenant_id", "default")}
+
+        while True:
+            iterations += 1
+            if iterations > max_iterations:
+                break
+
+            request_params: Dict[str, Any] = dict(base_filters)
+            if use_search_filters:
+                if text_query:
+                    request_params["text"] = text_query
+                if metadata_filter:
+                    request_params["metadata"] = metadata_filter
+                request_params["limit"] = page_size
+                request_params["offset"] = offset
+            else:
+                request_params["limit"] = page_size
+                if cursor:
+                    request_params["cursor"] = cursor
+
+            try:
+                if use_helper:
+                    payload = {key: value for key, value in request_params.items() if value not in (None, "")}
+                    response = search_helper(**payload)
+                else:
+                    list_params = {key: value for key, value in request_params.items() if key not in {"limit"}}
+                    list_params["page_size"] = request_params.get("limit", page_size)
+                    response = list_tasks(list_params, context=context)
+            except Exception as exc:
+                logger.error("Failed to load task list: %s", exc, exc_info=True)
+                self._handle_backend_error("Unable to load tasks from ATLAS.")
+                return []
+
+            mapping_response = response if isinstance(response, Mapping) else None
+            items_payload: Any
+            if isinstance(mapping_response, Mapping):
+                items_payload = mapping_response.get("items")
+            else:
+                items_payload = response
+
+            if isinstance(items_payload, Mapping):
+                iterator: Iterable[Any] = items_payload.values()
+            else:
+                iterator = items_payload if isinstance(items_payload, Iterable) else []
+
+            batch: List[Mapping[str, Any]] = []
+            if isinstance(iterator, Iterable) and not isinstance(iterator, (str, bytes)):
+                for entry in iterator:
+                    if isinstance(entry, Mapping):
+                        batch.append(dict(entry))
+
+            aggregated.extend(batch)
+
+            if use_search_filters:
+                offset += len(batch)
+                total_count: Optional[int] = None
+                if isinstance(mapping_response, Mapping):
+                    count_value = mapping_response.get("count")
+                    if isinstance(count_value, int):
+                        total_count = count_value
+                if not batch:
+                    break
+                if total_count is not None and offset >= total_count:
+                    break
+                if len(batch) < page_size:
+                    break
+            else:
+                next_cursor: Optional[str] = None
+                if isinstance(mapping_response, Mapping):
+                    page_info = mapping_response.get("page")
+                    if isinstance(page_info, Mapping):
+                        raw_cursor = page_info.get("next_cursor")
+                        if raw_cursor:
+                            next_cursor = str(raw_cursor)
+                if not batch or not next_cursor:
+                    break
+                cursor = next_cursor
+
+        raw_entries: List[Mapping[str, Any]] = aggregated
+        if use_search_filters and not use_helper:
+            text_lower = text_query.lower()
+            metadata_copy = dict(metadata_filter)
+
+            filtered: List[Mapping[str, Any]] = []
+            for entry in raw_entries:
+                if text_lower:
+                    haystack = " ".join(
+                        [
+                            str(entry.get("title") or ""),
+                            str(entry.get("description") or ""),
+                        ]
+                    ).lower()
+                    if text_lower not in haystack:
+                        continue
+                if metadata_copy:
+                    metadata_block = entry.get("metadata") if isinstance(entry.get("metadata"), Mapping) else {}
+                    if not all(metadata_block.get(key) == value for key, value in metadata_copy.items()):
+                        continue
+                filtered.append(entry)
+            raw_entries = filtered
 
         entries: List[_TaskEntry] = []
-        for raw_entry in items:
+        for raw_entry in raw_entries:
             normalized = self._normalize_entry(raw_entry)
             if normalized is not None:
                 entries.append(normalized)
@@ -565,6 +753,54 @@ class TaskManagement:
             combo.set_active(0)
             self._status_filter = None
 
+    def _populate_owner_filter_options(self) -> None:
+        combo = self._owner_filter_combo
+        if combo is None:
+            return
+        if hasattr(combo, "remove_all"):
+            combo.remove_all()
+
+        owners = sorted({entry.owner_id for entry in self._entries if entry.owner_id})
+        options: List[Tuple[Optional[str], str]] = [(None, "All owners")]
+        options.extend((owner, owner) for owner in owners)
+
+        self._owner_option_lookup = []
+        self._suppress_owner_filter_event = True
+        for index, (value, label) in enumerate(options):
+            combo.append_text(label)
+            self._owner_option_lookup.append(value)
+            if value == self._owner_filter:
+                combo.set_active(index)
+
+        if combo.get_active_text() is None:
+            combo.set_active(0)
+            self._owner_filter = None
+        self._suppress_owner_filter_event = False
+
+    def _populate_conversation_filter_options(self) -> None:
+        combo = self._conversation_filter_combo
+        if combo is None:
+            return
+        if hasattr(combo, "remove_all"):
+            combo.remove_all()
+
+        conversations = sorted({entry.conversation_id for entry in self._entries if entry.conversation_id})
+        options: List[Tuple[Optional[str], str]] = [(None, "All conversations")]
+        options.extend((conversation, conversation) for conversation in conversations)
+
+        self._conversation_option_lookup = []
+        self._suppress_conversation_filter_event = True
+        for index, (value, label) in enumerate(options):
+            combo.append_text(label)
+            self._conversation_option_lookup.append(value)
+            if value == self._conversation_filter:
+                combo.set_active(index)
+
+        if combo.get_active_text() is None:
+            combo.set_active(0)
+            self._conversation_filter = None
+        self._suppress_conversation_filter_event = False
+
     def _on_persona_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
         index = self._combo_active_index(combo)
         if 0 <= index < len(self._persona_option_lookup):
@@ -582,6 +818,26 @@ class TaskManagement:
             self._status_filter = None
         self._refresh_state()
 
+    def _on_owner_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_owner_filter_event:
+            return
+        index = self._combo_active_index(combo)
+        if 0 <= index < len(self._owner_option_lookup):
+            self._owner_filter = self._owner_option_lookup[index]
+        else:
+            self._owner_filter = None
+        self._refresh_state()
+
+    def _on_conversation_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_conversation_filter_event:
+            return
+        index = self._combo_active_index(combo)
+        if 0 <= index < len(self._conversation_option_lookup):
+            self._conversation_filter = self._conversation_option_lookup[index]
+        else:
+            self._conversation_filter = None
+        self._refresh_state()
+
     def _combo_active_index(self, combo: Gtk.ComboBoxText) -> int:
         getter = getattr(combo, "get_active", None)
         if callable(getter):
@@ -597,6 +853,118 @@ class TaskManagement:
         if active_text in items:
             return items.index(active_text)
         return -1
+
+    def _update_search_widgets(self) -> None:
+        entry = self._search_entry
+        if entry is not None:
+            desired = self._search_text or ""
+            current = getattr(entry, "get_text", lambda: "")()
+            if current != desired:
+                entry.set_text(desired)
+
+        container = self._metadata_filter_container
+        if container is None:
+            return
+
+        clear_container(container)
+        self._metadata_filter_rows = []
+
+        if self._metadata_filter:
+            for key in sorted(self._metadata_filter):
+                value = self._metadata_filter[key]
+                self._add_metadata_filter_row(str(key), str(value))
+        else:
+            self._add_metadata_filter_row()
+
+    def _collect_metadata_filters(self) -> Dict[str, Any]:
+        filters: Dict[str, Any] = {}
+        for record in self._metadata_filter_rows:
+            key_entry = record.get("key")
+            value_entry = record.get("value")
+            if key_entry is None or value_entry is None:
+                continue
+            key_text = getattr(key_entry, "get_text", lambda: "")().strip()
+            if not key_text:
+                continue
+            value_text = getattr(value_entry, "get_text", lambda: "")().strip()
+            filters[key_text] = value_text
+        return filters
+
+    def _add_metadata_filter_row(self, key: str = "", value: str = "") -> None:
+        container = self._metadata_filter_container
+        if container is None:
+            return
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        container.append(row)
+
+        key_entry = Gtk.Entry()
+        key_entry.set_placeholder_text("Key")
+        key_entry.set_hexpand(True)
+        if key:
+            key_entry.set_text(key)
+        key_entry.connect("activate", self._on_metadata_entry_activate)
+        row.append(key_entry)
+
+        value_entry = Gtk.Entry()
+        value_entry.set_placeholder_text("Value")
+        value_entry.set_hexpand(True)
+        if value:
+            value_entry.set_text(value)
+        value_entry.connect("activate", self._on_metadata_entry_activate)
+        row.append(value_entry)
+
+        remove_button = Gtk.Button(label="Remove")
+        remove_button.connect("clicked", self._on_remove_metadata_filter, row)
+        row.append(remove_button)
+
+        self._metadata_filter_rows.append({"row": row, "key": key_entry, "value": value_entry})
+
+    def _on_add_metadata_filter(self, _button: Gtk.Button) -> None:
+        self._add_metadata_filter_row()
+
+    def _on_remove_metadata_filter(self, _button: Gtk.Button, row: Gtk.Widget) -> None:
+        container = self._metadata_filter_container
+        if container is None:
+            return
+
+        self._metadata_filter_rows = [
+            record for record in self._metadata_filter_rows if record.get("row") is not row
+        ]
+
+        remover = getattr(container, "remove", None)
+        if callable(remover):
+            remover(row)
+        else:  # pragma: no cover - GTK fallback
+            getattr(row, "set_parent", lambda *_args: None)(None)
+
+        if not self._metadata_filter_rows:
+            self._add_metadata_filter_row()
+
+    def _on_metadata_entry_activate(self, _entry: Gtk.Entry) -> None:
+        self._apply_search_filters()
+
+    def _on_search_activate(self, _entry: Gtk.Entry) -> None:
+        self._apply_search_filters()
+
+    def _on_search_apply(self, _button: Gtk.Button) -> None:
+        self._apply_search_filters()
+
+    def _on_search_clear(self, _button: Gtk.Button) -> None:
+        self._search_text = ""
+        self._metadata_filter = {}
+        entry = self._search_entry
+        if entry is not None:
+            entry.set_text("")
+        self._update_search_widgets()
+        self._refresh_state()
+
+    def _apply_search_filters(self) -> None:
+        entry = self._search_entry
+        text = getattr(entry, "get_text", lambda: "")().strip() if entry is not None else ""
+        self._search_text = text
+        self._metadata_filter = self._collect_metadata_filters()
+        self._refresh_state()
 
     # ------------------------------------------------------------------
     # List management

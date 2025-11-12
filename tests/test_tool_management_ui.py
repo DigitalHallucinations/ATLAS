@@ -3,13 +3,28 @@ import json
 import sys
 import types
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 
 import pytest
 
 import tests.test_chat_async_helper  # noqa: F401 - ensure GTK stubs are loaded
 
 from gi.repository import Gtk
+
+if "ATLAS.ToolManager" not in sys.modules:
+    tool_manager_stub = types.ModuleType("ATLAS.ToolManager")
+    tool_manager_stub.load_function_map_from_current_persona = lambda *_args, **_kwargs: {}
+    tool_manager_stub.load_functions_from_json = lambda *_args, **_kwargs: {}
+    tool_manager_stub.compute_tool_policy_snapshot = lambda *_args, **_kwargs: {}
+    tool_manager_stub._resolve_function_callable = (
+        lambda *_args, **_kwargs: lambda *_inner_args, **_inner_kwargs: None
+    )
+    tool_manager_stub.get_tool_activity_log = lambda *_args, **_kwargs: []
+    tool_manager_stub.ToolPolicyDecision = type("ToolPolicyDecision", (), {})
+    tool_manager_stub.SandboxedToolRunner = type("SandboxedToolRunner", (), {})
+    tool_manager_stub.use_tool = lambda *_args, **_kwargs: None
+    tool_manager_stub.call_model_with_new_prompt = lambda *_args, **_kwargs: None
+    sys.modules["ATLAS.ToolManager"] = tool_manager_stub
 
 pango_module = sys.modules.setdefault("gi.repository.Pango", types.ModuleType("Pango"))
 sys.modules.setdefault("Pango", pango_module)
@@ -192,6 +207,7 @@ class _AtlasStub:
         self.tool_requests: list[Dict[str, Any]] = []
         self.skill_requests: list[Dict[str, Any]] = []
         self.task_requests: list[Dict[str, Any]] = []
+        self.task_search_requests: list[Dict[str, Any]] = []
         self.task_transitions: list[Dict[str, Any]] = []
         self.task_contexts: list[Any] = []
         self.settings_updates: list[Dict[str, Any]] = []
@@ -391,6 +407,7 @@ class _AtlasStub:
             list_tasks=self._list_tasks,
             get_task=self._get_task,
             transition_task=self._transition_task,
+            search_tasks=lambda payload, *, context=None: self.search_tasks(**payload),
         )
 
     def is_initialized(self) -> bool:
@@ -499,6 +516,71 @@ class _AtlasStub:
         return {
             "items": items,
             "page": {"next_cursor": None, "page_size": len(items), "count": len(items)},
+        }
+
+    def search_tasks(self, **kwargs: Any) -> Dict[str, Any]:
+        payload = {key: copy.deepcopy(value) for key, value in kwargs.items()}
+        self.task_search_requests.append(payload)
+
+        status_filter = payload.get("status")
+        owner_filter = payload.get("owner_id")
+        conversation_filter = payload.get("conversation_id")
+        text_query = str(payload.get("text") or "").strip().lower()
+        metadata_payload = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        limit = payload.get("limit")
+        offset = int(payload.get("offset") or 0)
+
+        def _matches(entry: Mapping[str, Any]) -> bool:
+            if status_filter and entry.get("status") != status_filter:
+                return False
+            if owner_filter and entry.get("owner_id") != owner_filter:
+                return False
+            if conversation_filter and entry.get("conversation_id") != conversation_filter:
+                return False
+            if text_query:
+                haystack = " ".join(
+                    [
+                        str(entry.get("title") or ""),
+                        str(entry.get("description") or ""),
+                    ]
+                ).lower()
+                if text_query not in haystack:
+                    return False
+            if metadata_payload:
+                metadata = entry.get("metadata") if isinstance(entry.get("metadata"), Mapping) else {}
+                for key, value in metadata_payload.items():
+                    if metadata.get(key) != value:
+                        return False
+            return True
+
+        filtered = [copy.deepcopy(entry) for entry in self._task_catalog if _matches(entry)]
+        self.task_fetches += 1
+
+        use_search_filters = bool(text_query or metadata_payload)
+        if use_search_filters:
+            if limit is None:
+                limit = len(filtered) or 1
+            size = max(0, int(limit))
+            start = max(0, offset)
+            slice_items = filtered[start : start + size]
+            return {"items": slice_items, "count": len(filtered)}
+
+        page_items = filtered
+        if limit is not None:
+            try:
+                size = int(limit)
+            except (TypeError, ValueError):
+                size = len(filtered)
+            else:
+                if size > 0:
+                    page_items = filtered[:size]
+        return {
+            "items": page_items,
+            "page": {
+                "next_cursor": None,
+                "page_size": len(page_items),
+                "count": len(page_items),
+            },
         }
 
     def get_task_catalog(
