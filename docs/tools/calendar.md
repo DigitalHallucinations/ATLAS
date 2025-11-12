@@ -3,8 +3,8 @@
 The Debian 12 calendar tool exposes the desktop calendar so personas can
 review upcoming events, inspect meeting details, search for entries by
 keyword, and now create or modify calendar entries.  The tool is
-intentionally lightweight and operates entirely on-device using the local
-Debian 12 calendar backends.
+intentionally lightweight and operates entirely on-device using either the
+local Debian 12 `.ics` files or the desktop DBus calendar service.
 
 For installations that are not connected to a Debian calendar backend,
 `calendar_service` offers an in-memory alternative so personas can still
@@ -20,18 +20,23 @@ equivalent environment variables.  The module accepts the following keys:
 
 | Key | Type | Description |
 | --- | ---- | ----------- |
-| `DEBIAN12_CALENDAR_PATHS` | string or array | One or more absolute paths to Debian 12 `.ics` files.  Multiple values can be supplied as an array in YAML or separated by colons in an environment variable.  Paths must be writable to enable create/update/delete operations. |
+| `DEBIAN12_CALENDAR_BACKEND` | string | Selects which backend to use.  Defaults to the file-based `ics` backend.  Set to `dbus` to route all calls through the Debian 12 calendar DBus service. |
+| `DEBIAN12_CALENDAR_DBUS_FACTORY` | string | Optional dotted path (either `package.module:callable` or `package.module.callable`) used to instantiate a DBus client when the backend is set to `dbus`.  The callable must return an object that implements the backend CRUD methods. |
+| `DEBIAN12_CALENDAR_PATHS` | string or array | One or more absolute paths to Debian 12 `.ics` files.  Multiple values can be supplied as an array in YAML or separated by colons in an environment variable.  Paths must be writable to enable create/update/delete operations when using the `ics` backend. |
 | `DEBIAN12_CALENDAR_TZ` | string | Optional default timezone identifier (IANA/Olson style, e.g., `America/Chicago`).  Falls back to `UTC` when omitted. |
 
 When these values are populated the tool automatically loads events from
 the configured sources.  Per-installation deployments can also provide the
-paths through the `ConfigManager` overrides used in automated tests.
+paths through the `ConfigManager` overrides used in automated tests.  When
+`DEBIAN12_CALENDAR_BACKEND` is set to `dbus` the tool relies entirely on the
+DBus client returned by the configured factory (or one supplied directly to
+`Debian12CalendarTool`) and ignores the `.ics` path settings.
 
 Write operations acquire an exclusive advisory lock around the targeted
 `.ics` file before applying modifications so concurrent tool invocations do
-not corrupt the calendar.  Installations that integrate with a DBus-backed
-provider can supply a custom `CalendarBackend` that implements the same
-`create_event`, `update_event`, and `delete_event` APIs.
+not corrupt the calendar when running against local files.  The DBus backend
+delegates writes to the desktop calendar service instead; create, update, and
+delete actions are available as soon as the DBus client successfully connects.
 
 ## Persona Access
 

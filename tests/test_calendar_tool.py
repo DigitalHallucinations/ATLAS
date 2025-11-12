@@ -9,6 +9,7 @@ import sys
 import types
 from pathlib import Path
 from typing import Any, Sequence
+from uuid import uuid4
 
 import pytest
 
@@ -121,6 +122,65 @@ class _DummyBackend(CalendarBackend):
                 self._events.pop(index)
                 return None
         raise EventNotFoundError(event_id)
+
+
+class _StubDBusClient:
+    def __init__(self) -> None:
+        self.calls = {
+            "create": [],
+            "update": [],
+            "delete": [],
+        }
+        self._store: dict[str, dict[str, Any]] = {}
+
+    async def list_events(self, start: Any, end: Any, calendar: Any = None):
+        return [dict(value) for value in self._store.values()]
+
+    async def get_event(self, event_id: str, calendar: Any = None):
+        try:
+            return dict(self._store[event_id])
+        except KeyError as exc:
+            raise EventNotFoundError(event_id) from exc
+
+    async def search_events(self, query: str, start: Any, end: Any, calendar: Any = None):
+        if not query:
+            return await self.list_events(start, end, calendar)
+        needle = query.lower()
+        results = []
+        for record in self._store.values():
+            title = str(record.get("title") or "").lower()
+            description = str(record.get("description") or "").lower()
+            if needle in title or needle in description:
+                results.append(dict(record))
+        return results
+
+    async def create_event(self, payload: Any, calendar: Any = None):
+        event_payload = dict(payload)
+        event_id = str(event_payload.get("id") or uuid4())
+        event_payload["id"] = event_id
+        event_payload["calendar"] = calendar or event_payload.get("calendar") or "primary"
+        self._store[event_id] = event_payload
+        self.calls["create"].append((dict(payload), calendar))
+        return dict(event_payload)
+
+    async def update_event(self, event_id: str, payload: Any, calendar: Any = None):
+        if event_id not in self._store:
+            raise EventNotFoundError(event_id)
+        update_payload = dict(payload)
+        record = dict(self._store[event_id])
+        record.update(update_payload)
+        if calendar:
+            record["calendar"] = calendar
+        self._store[event_id] = record
+        self.calls["update"].append((event_id, dict(payload), calendar))
+        return dict(record)
+
+    async def delete_event(self, event_id: str, calendar: Any = None):
+        if event_id not in self._store:
+            raise EventNotFoundError(event_id)
+        self._store.pop(event_id)
+        self.calls["delete"].append((event_id, calendar))
+        return None
 
 
 def _make_event(event_id: str, title: str = "Demo") -> CalendarEvent:
@@ -347,3 +407,42 @@ def test_run_dispatch_supports_write_operations() -> None:
     deleted = asyncio.run(tool.run("delete", event_id="new"))
     assert deleted["status"] == "deleted"
 
+
+def test_dbus_backend_round_trip_operations() -> None:
+    client = _StubDBusClient()
+    manager = _StubConfigManager(DEBIAN12_CALENDAR_BACKEND="dbus")
+    tool = Debian12CalendarTool(config_manager=manager, dbus_client=client)
+
+    created = asyncio.run(
+        tool.create_event(
+            title="Sync",
+            start="2024-05-01T09:00:00+00:00",
+            end="2024-05-01T09:30:00+00:00",
+            description="Morning sync",
+        )
+    )
+
+    assert client.calls["create"]
+    create_payload, create_calendar = client.calls["create"][0]
+    assert create_calendar is None
+    assert create_payload["start"].endswith("+00:00")
+
+    updated = asyncio.run(
+        tool.update_event(
+            created["id"],
+            title="Sync (Updated)",
+            description="Agenda updated",
+        )
+    )
+
+    assert updated["title"] == "Sync (Updated)"
+    update_event_id, update_payload, update_calendar = client.calls["update"][0]
+    assert update_event_id == created["id"]
+    assert "title" in update_payload
+
+    listed = asyncio.run(tool.list_events())
+    assert listed and listed[0]["title"] == "Sync (Updated)"
+
+    deleted = asyncio.run(tool.delete_event(created["id"]))
+    assert deleted == {"status": "deleted", "event_id": created["id"]}
+    assert client.calls["delete"]
