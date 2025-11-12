@@ -891,6 +891,48 @@ class ATLAS:
             return []
         return service.list_all_conversations(order=order)
 
+    def search_conversations(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        """Search stored conversations using the server route when available."""
+
+        if not isinstance(payload, Mapping):
+            raise TypeError("payload must be a mapping")
+
+        request_payload = dict(payload)
+
+        server_method = getattr(self.server, "search_conversations", None)
+        if callable(server_method):
+            context = {"tenant_id": self.tenant_id or "default"}
+            try:
+                response = server_method(request_payload, context=context)
+            except Exception as exc:  # pragma: no cover - logged for diagnostics
+                if hasattr(self.logger, "warning"):
+                    self.logger.warning(
+                        "Server conversation search failed, falling back to repository: %s",
+                        exc,
+                        exc_info=True,
+                    )
+            else:
+                if isinstance(response, Mapping):
+                    return dict(response)
+
+        try:
+            service = self._get_conversation_service()
+        except RuntimeError:
+            return {"count": 0, "items": []}
+
+        allowed_keys = {
+            "text",
+            "metadata",
+            "vector",
+            "conversation_ids",
+            "limit",
+            "offset",
+            "order",
+            "top_k",
+        }
+        filtered = {key: request_payload[key] for key in allowed_keys if key in request_payload}
+        return service.search_conversations(**filtered)
+
     def get_conversation_messages(
         self,
         conversation_id: Any,
