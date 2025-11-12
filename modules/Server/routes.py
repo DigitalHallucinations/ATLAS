@@ -1222,6 +1222,8 @@ class AtlasServer:
         scope_type: str,
         scope_id: str,
         payload: Mapping[str, Any],
+        *,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         """Persist a new blackboard entry and return the serialized record."""
 
@@ -1233,14 +1235,30 @@ class AtlasServer:
         if not title or not content:
             raise ValueError("title and content are required")
 
+        payload_map = dict(payload)
+        metadata_payload: Dict[str, Any] | None = None
+        raw_metadata = payload_map.get("metadata")
+        if isinstance(raw_metadata, Mapping):
+            metadata_payload = dict(raw_metadata)
+        request_context = None
+        if context is not None:
+            request_context = self._resolve_request_context(context)
+        if request_context is not None:
+            metadata_payload = metadata_payload or {}
+            metadata_payload.setdefault("tenant_id", request_context.tenant_id)
+        if metadata_payload:
+            payload_map["metadata"] = metadata_payload
+        else:
+            payload_map.pop("metadata", None)
+
         client = get_blackboard().client_for(scope_id, scope_type=scope_type)
         entry = client.publish(
             category,
             str(title),
             str(content),
-            author=payload.get("author"),
-            tags=payload.get("tags"),
-            metadata=payload.get("metadata"),
+            author=payload_map.get("author"),
+            tags=payload_map.get("tags"),
+            metadata=payload_map.get("metadata"),
         )
 
         return {"success": True, "entry": entry}
@@ -1251,16 +1269,32 @@ class AtlasServer:
         scope_id: str,
         entry_id: str,
         payload: Mapping[str, Any],
+        *,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         """Update an existing blackboard entry."""
+
+        payload_map = dict(payload)
+        metadata_payload = None
+        raw_metadata = payload_map.get("metadata")
+        if isinstance(raw_metadata, Mapping):
+            metadata_payload = dict(raw_metadata)
+        request_context = None
+        if context is not None:
+            request_context = self._resolve_request_context(context)
+        if request_context is not None and metadata_payload is not None:
+            metadata_payload.setdefault("tenant_id", request_context.tenant_id)
+            payload_map["metadata"] = metadata_payload
+        elif metadata_payload is None:
+            payload_map.pop("metadata", None)
 
         client = get_blackboard().client_for(scope_id, scope_type=scope_type)
         entry = client.update_entry(
             entry_id,
-            title=payload.get("title"),
-            content=payload.get("content"),
-            tags=payload.get("tags"),
-            metadata=payload.get("metadata"),
+            title=payload_map.get("title"),
+            content=payload_map.get("content"),
+            tags=payload_map.get("tags"),
+            metadata=payload_map.get("metadata"),
         )
         if entry is None:
             raise KeyError(f"Unknown blackboard entry: {entry_id}")
@@ -1271,9 +1305,13 @@ class AtlasServer:
         scope_type: str,
         scope_id: str,
         entry_id: str,
+        *,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         """Delete the requested blackboard entry."""
 
+        if context is not None:
+            self._resolve_request_context(context)
         client = get_blackboard().client_for(scope_id, scope_type=scope_type)
         success = client.delete_entry(entry_id)
         return {"success": bool(success)}
@@ -1529,7 +1567,7 @@ class AtlasServer:
             return self._handle_post(path, query, context=context)
 
         if method_upper == "PATCH":
-            return self._handle_patch(path, query)
+            return self._handle_patch(path, query, context=context)
 
         if method_upper == "DELETE":
             return self._handle_delete(path, query, context=context)
@@ -1558,7 +1596,12 @@ class AtlasServer:
             scope_type, scope_id, entry_id = self._parse_blackboard_path(path)
             if entry_id:
                 raise ValueError("POST requests should not target a specific entry")
-            return self.create_blackboard_entry(scope_type, scope_id, payload)
+            return self.create_blackboard_entry(
+                scope_type,
+                scope_id,
+                payload,
+                context=context,
+            )
 
         if path.startswith("/personas/") and path.endswith("/tools"):
             components = [part for part in path.strip("/").split("/") if part]
@@ -1638,12 +1681,20 @@ class AtlasServer:
         self,
         path: str,
         payload: Mapping[str, Any],
+        *,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         if path.startswith("/blackboard/"):
             scope_type, scope_id, entry_id = self._parse_blackboard_path(path)
             if not entry_id:
                 raise ValueError("PATCH requests must target a specific entry")
-            return self.update_blackboard_entry(scope_type, scope_id, entry_id, payload)
+            return self.update_blackboard_entry(
+                scope_type,
+                scope_id,
+                entry_id,
+                payload,
+                context=context,
+            )
         if path.startswith("/skills/") and path.endswith("/metadata"):
             components = [part for part in path.strip("/").split("/") if part]
             if len(components) != 3:
@@ -1683,7 +1734,12 @@ class AtlasServer:
             scope_type, scope_id, entry_id = self._parse_blackboard_path(path)
             if not entry_id:
                 raise ValueError("DELETE requests must target a specific entry")
-            return self.delete_blackboard_entry(scope_type, scope_id, entry_id)
+            return self.delete_blackboard_entry(
+                scope_type,
+                scope_id,
+                entry_id,
+                context=context,
+            )
         raise ValueError(f"Unsupported path: {path}")
 
     @staticmethod

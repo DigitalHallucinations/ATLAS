@@ -18,7 +18,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 from concurrent.futures import Future
 from datetime import datetime
 import gi
@@ -133,6 +133,11 @@ class ChatPage(Gtk.Box):
         self.blackboard_summary_label.add_css_class("body")
         self.blackboard_tab_box.append(self.blackboard_summary_label)
 
+        self._blackboard_category_options = ["hypothesis", "claim", "artifact"]
+        self._blackboard_editing_entry_id: Optional[str] = None
+        self._blackboard_entries_snapshot: Dict[str, Mapping[str, Any]] = {}
+        self._build_blackboard_authoring_controls()
+
         self.blackboard_list = Gtk.ListBox()
         self.blackboard_list.set_selection_mode(Gtk.SelectionMode.NONE)
         self.blackboard_list.add_css_class("boxed-list")
@@ -151,12 +156,25 @@ class ChatPage(Gtk.Box):
 
         # Text input area.
         self.input_buffer = Gtk.TextBuffer()
-        self.input_textview = Gtk.TextView.new_with_buffer(self.input_buffer)
-        self.input_textview.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.input_textview.set_top_margin(6)
-        self.input_textview.set_bottom_margin(6)
-        self.input_textview.set_left_margin(6)
-        self.input_textview.set_right_margin(6)
+        self.input_textview = self._text_view_with_buffer(self.input_buffer)
+        wrap_mode_setter = getattr(self.input_textview, "set_wrap_mode", None)
+        if callable(wrap_mode_setter):
+            try:
+                wrap_mode_setter(Gtk.WrapMode.WORD_CHAR)
+            except Exception:  # pragma: no cover - stub fallback
+                pass
+        for setter_name, value in (
+            ("set_top_margin", 6),
+            ("set_bottom_margin", 6),
+            ("set_left_margin", 6),
+            ("set_right_margin", 6),
+        ):
+            setter = getattr(self.input_textview, setter_name, None)
+            if callable(setter):
+                try:
+                    setter(value)
+                except Exception:  # pragma: no cover - stub fallback
+                    continue
         self.input_textview.set_tooltip_text(
             "Enter to send • Shift+Enter for newline • Ctrl/⌘+L to refocus this field"
         )
@@ -173,12 +191,22 @@ class ChatPage(Gtk.Box):
         # Keyboard controller for Enter/Shift+Enter handling within the text view.
         textview_keyctl = Gtk.EventControllerKey()
         textview_keyctl.connect("key-pressed", self.on_textview_key_pressed)
-        self.input_textview.add_controller(textview_keyctl)
+        add_controller = getattr(self.input_textview, "add_controller", None)
+        if callable(add_controller):
+            try:
+                add_controller(textview_keyctl)
+            except Exception:  # pragma: no cover - stub fallback
+                pass
 
         # Keyboard controller for global shortcuts (e.g., Ctrl/⌘+L focus)
         keyctl = Gtk.EventControllerKey()
         keyctl.connect("key-pressed", self.on_key_pressed)
-        self.add_controller(keyctl)
+        page_add_controller = getattr(self, "add_controller", None)
+        if callable(page_add_controller):
+            try:
+                page_add_controller(keyctl)
+            except Exception:  # pragma: no cover - stub fallback
+                pass
 
         # Microphone button for speech-to-text.
         self.mic_button = Gtk.Button()
@@ -293,7 +321,7 @@ class ChatPage(Gtk.Box):
         self.thinking_expander.set_expanded(False)
 
         self.thinking_buffer = Gtk.TextBuffer()
-        self.thinking_text_view = Gtk.TextView.new_with_buffer(self.thinking_buffer)
+        self.thinking_text_view = self._text_view_with_buffer(self.thinking_buffer)
         self.thinking_text_view.set_editable(False)
         self.thinking_text_view.set_cursor_visible(False)
         self.thinking_text_view.set_wrap_mode(self._get_terminal_wrap_mode())
@@ -397,6 +425,24 @@ class ChatPage(Gtk.Box):
     def _set_button_icon(self, button: Gtk.Button, rel_path: str, fallback_icon_name: str):
         button.set_child(self._make_icon(rel_path, fallback_icon_name))
 
+    def _text_view_with_buffer(self, buffer: Gtk.TextBuffer) -> Gtk.TextView:
+        """Return a text view bound to *buffer* with GTK stub fallbacks."""
+
+        factory = getattr(Gtk.TextView, "new_with_buffer", None)
+        if callable(factory):
+            try:
+                return factory(buffer)
+            except Exception:  # pragma: no cover - defensive fallback
+                pass
+        view = Gtk.TextView()
+        setter = getattr(view, "set_buffer", None)
+        if callable(setter):
+            try:
+                setter(buffer)
+            except Exception:  # pragma: no cover - stub fallback
+                pass
+        return view
+
     # --------------------------- Terminal tab helpers ---------------------------
 
     def _build_terminal_tab(self) -> None:
@@ -424,7 +470,7 @@ class ChatPage(Gtk.Box):
         """Return an expander and backing text buffer for a terminal section."""
 
         buffer = Gtk.TextBuffer()
-        text_view = Gtk.TextView.new_with_buffer(buffer)
+        text_view = self._text_view_with_buffer(buffer)
         text_view.set_editable(False)
         text_view.set_cursor_visible(False)
         text_view.set_wrap_mode(self._get_terminal_wrap_mode())
@@ -775,7 +821,14 @@ class ChatPage(Gtk.Box):
                 "Blackboard entries will appear once a conversation is active."
             )
             list_widget.append(placeholder)
+            submit_button = getattr(self, "blackboard_submit_button", None)
+            if submit_button is not None:
+                submit_button.set_sensitive(False)
             return
+
+        submit_button = getattr(self, "blackboard_submit_button", None)
+        if submit_button is not None:
+            submit_button.set_sensitive(True)
 
         try:
             summary = self.ATLAS.get_blackboard_summary(scope_id)
@@ -795,57 +848,29 @@ class ChatPage(Gtk.Box):
             entries = []
 
         self._clear_blackboard_list(list_widget)
+        entries_snapshot: Dict[str, Mapping[str, Any]] = {}
         if not entries:
             empty_label = Gtk.Label(xalign=0)
             empty_label.set_wrap(True)
             empty_label.set_text("No shared posts yet.")
             list_widget.append(empty_label)
-            return
+        else:
+            for entry in entries:
+                if not isinstance(entry, Mapping):
+                    continue
+                entry_map: Dict[str, Any] = dict(entry)
+                entry_id = str(
+                    entry_map.get("id") or entry_map.get("entry_id") or ""
+                ).strip()
+                if entry_id:
+                    entries_snapshot[entry_id] = entry_map
+                row = self._build_blackboard_entry_row(entry_map)
+                list_widget.append(row)
 
-        for entry in entries:
-            if not isinstance(entry, Mapping):
-                continue
-            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            row.set_margin_bottom(6)
-            heading = Gtk.Label(xalign=0)
-            heading.set_wrap(True)
-            heading.add_css_class("heading")
-            heading.set_text(
-                f"[{str(entry.get('category') or '').title()}] {entry.get('title') or ''}"
-            )
-            row.append(heading)
-
-            content_label = Gtk.Label(xalign=0)
-            content_label.set_wrap(True)
-            content_label.set_text(str(entry.get("content") or ""))
-            row.append(content_label)
-
-            meta_bits: list[str] = []
-            author = entry.get("author")
-            if author:
-                meta_bits.append(f"Author: {author}")
-            created_at = entry.get("created_at")
-            if isinstance(created_at, (int, float)):
-                try:
-                    created_dt = datetime.fromtimestamp(created_at)
-                except Exception:
-                    created_dt = None
-                if created_dt is not None:
-                    meta_bits.append(created_dt.strftime("%Y-%m-%d %H:%M"))
-            tags = entry.get("tags")
-            if isinstance(tags, list) and tags:
-                meta_bits.append("Tags: " + ", ".join(str(tag) for tag in tags))
-
-            meta_label = Gtk.Label(xalign=0)
-            meta_label.add_css_class("caption")
-            meta_label.set_wrap(True)
-            if meta_bits:
-                meta_label.set_text(" • ".join(meta_bits))
-            else:
-                meta_label.set_text("Shared item")
-            row.append(meta_label)
-
-            list_widget.append(row)
+        self._blackboard_entries_snapshot = entries_snapshot
+        editing_id = self._blackboard_editing_entry_id
+        if editing_id and editing_id not in self._blackboard_entries_snapshot:
+            self._clear_blackboard_form()
 
     def _clear_blackboard_list(self, list_widget: Optional[Gtk.ListBox] = None) -> None:
         if list_widget is None:
@@ -858,6 +883,366 @@ class ChatPage(Gtk.Box):
             next_child = child.get_next_sibling()
             list_widget.remove(child)
             child = next_child
+
+    def _build_blackboard_authoring_controls(self) -> None:
+        form_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        form_box.set_margin_top(6)
+        form_box.set_margin_bottom(6)
+
+        heading = Gtk.Label(xalign=0)
+        heading.set_wrap(True)
+        heading.add_css_class("heading")
+        heading.set_text("Share insights with your collaborators")
+        form_box.append(heading)
+
+        category_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        category_row.set_hexpand(True)
+        category_label = Gtk.Label(label="Category", xalign=0)
+        category_label.set_hexpand(True)
+        category_row.append(category_label)
+
+        self.blackboard_category_combo = Gtk.ComboBoxText()
+        for option in self._blackboard_category_options:
+            self.blackboard_category_combo.append_text(option.title())
+        if self._blackboard_category_options:
+            self.blackboard_category_combo.set_active(0)
+        category_row.append(self.blackboard_category_combo)
+        form_box.append(category_row)
+
+        title_entry = Gtk.Entry()
+        title_entry.set_placeholder_text("Title")
+        self.blackboard_title_entry = title_entry
+        form_box.append(title_entry)
+
+        self.blackboard_content_buffer = Gtk.TextBuffer()
+        content_view = self._text_view_with_buffer(self.blackboard_content_buffer)
+        wrap_mode_setter = getattr(content_view, "set_wrap_mode", None)
+        if callable(wrap_mode_setter):
+            try:
+                wrap_mode_setter(Gtk.WrapMode.WORD_CHAR)
+            except Exception:  # pragma: no cover - stub fallback
+                pass
+        for setter_name, value in (
+            ("set_top_margin", 4),
+            ("set_bottom_margin", 4),
+            ("set_left_margin", 4),
+            ("set_right_margin", 4),
+        ):
+            setter = getattr(content_view, setter_name, None)
+            if callable(setter):
+                try:
+                    setter(value)
+                except Exception:  # pragma: no cover - stub fallback
+                    continue
+        self.blackboard_content_view = content_view
+        form_box.append(content_view)
+
+        author_entry = Gtk.Entry()
+        author_entry.set_placeholder_text("Author (optional)")
+        self.blackboard_author_entry = author_entry
+        form_box.append(author_entry)
+
+        controls_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        controls_row.set_hexpand(True)
+
+        controls_spacer = Gtk.Box()
+        controls_spacer.set_hexpand(True)
+        controls_row.append(controls_spacer)
+
+        cancel_button = Gtk.Button(label="Cancel")
+        cancel_button.add_css_class("flat")
+        cancel_button.set_visible(False)
+        cancel_button.connect("clicked", self._on_blackboard_cancel_edit)
+        self.blackboard_cancel_button = cancel_button
+        controls_row.append(cancel_button)
+
+        submit_button = Gtk.Button(label="Share Entry")
+        submit_button.add_css_class("suggested-action")
+        submit_button.connect("clicked", self._on_blackboard_submit)
+        self.blackboard_submit_button = submit_button
+        controls_row.append(submit_button)
+
+        form_box.append(controls_row)
+
+        self.blackboard_tab_box.append(form_box)
+
+    def _on_blackboard_submit(self, _button: Optional[Gtk.Button] = None) -> None:
+        scope_id = self._get_active_conversation_id()
+        if not scope_id:
+            self._show_blackboard_error("No active conversation is available for sharing.")
+            return
+
+        title_entry = getattr(self, "blackboard_title_entry", None)
+        content_buffer = getattr(self, "blackboard_content_buffer", None)
+        author_entry = getattr(self, "blackboard_author_entry", None)
+        category_combo = getattr(self, "blackboard_category_combo", None)
+        if None in (title_entry, content_buffer, author_entry, category_combo):
+            return
+
+        title_text = str(title_entry.get_text() or "").strip()
+        content_text = self._get_textbuffer_content(content_buffer).strip()
+        if not title_text or not content_text:
+            self._show_blackboard_error("Title and content are required.")
+            return
+
+        editing_id = self._blackboard_editing_entry_id
+        try:
+            if editing_id:
+                self.ATLAS.update_blackboard_entry(
+                    scope_id,
+                    editing_id,
+                    title=title_text,
+                    content=content_text,
+                )
+            else:
+                category_label = category_combo.get_active_text()
+                category_value = str(category_label or "").strip().lower()
+                if not category_value:
+                    self._show_blackboard_error("A category must be selected.")
+                    return
+                author_text = str(author_entry.get_text() or "").strip()
+                self.ATLAS.create_blackboard_entry(
+                    scope_id,
+                    category=category_value,
+                    title=title_text,
+                    content=content_text,
+                    author=author_text or None,
+                )
+        except Exception as exc:
+            message = str(exc) or "Failed to save blackboard entry."
+            self._show_blackboard_error(message)
+            return
+
+        self._clear_blackboard_form()
+        self._refresh_blackboard_tab()
+
+    def _on_blackboard_cancel_edit(self, _button: Optional[Gtk.Button] = None) -> None:
+        self._clear_blackboard_form()
+
+    def _clear_blackboard_form(self) -> None:
+        self._blackboard_editing_entry_id = None
+        category_combo = getattr(self, "blackboard_category_combo", None)
+        if category_combo is not None:
+            category_combo.set_sensitive(True)
+            if self._blackboard_category_options:
+                self._set_blackboard_category(self._blackboard_category_options[0])
+
+        title_entry = getattr(self, "blackboard_title_entry", None)
+        if title_entry is not None:
+            title_entry.set_text("")
+
+        content_buffer = getattr(self, "blackboard_content_buffer", None)
+        if content_buffer is not None:
+            content_buffer.set_text("")
+
+        author_entry = getattr(self, "blackboard_author_entry", None)
+        if author_entry is not None:
+            author_entry.set_text("")
+
+        submit_button = getattr(self, "blackboard_submit_button", None)
+        if submit_button is not None:
+            submit_button.set_label("Share Entry")
+
+        cancel_button = getattr(self, "blackboard_cancel_button", None)
+        if cancel_button is not None:
+            cancel_button.set_visible(False)
+
+    def _populate_blackboard_form_from_entry(self, entry: Mapping[str, Any]) -> None:
+        entry_id = str(entry.get("id") or entry.get("entry_id") or "").strip()
+        if not entry_id:
+            return
+
+        self._blackboard_editing_entry_id = entry_id
+        category_value = str(entry.get("category") or "").strip()
+        if category_value:
+            self._set_blackboard_category(category_value)
+
+        category_combo = getattr(self, "blackboard_category_combo", None)
+        if category_combo is not None:
+            category_combo.set_sensitive(False)
+
+        title_entry = getattr(self, "blackboard_title_entry", None)
+        if title_entry is not None:
+            title_entry.set_text(str(entry.get("title") or ""))
+
+        content_buffer = getattr(self, "blackboard_content_buffer", None)
+        if content_buffer is not None:
+            content_buffer.set_text(str(entry.get("content") or ""))
+
+        author_entry = getattr(self, "blackboard_author_entry", None)
+        if author_entry is not None:
+            author_entry.set_text(str(entry.get("author") or ""))
+
+        submit_button = getattr(self, "blackboard_submit_button", None)
+        if submit_button is not None:
+            submit_button.set_label("Save Changes")
+
+        cancel_button = getattr(self, "blackboard_cancel_button", None)
+        if cancel_button is not None:
+            cancel_button.set_visible(True)
+
+    def _build_blackboard_entry_row(self, entry: Mapping[str, Any]) -> Gtk.Widget:
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        row.set_margin_bottom(6)
+
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        header_box.set_hexpand(True)
+
+        heading = Gtk.Label(xalign=0)
+        heading.set_wrap(True)
+        heading.add_css_class("heading")
+        heading.set_hexpand(True)
+        heading.set_text(
+            f"[{str(entry.get('category') or '').title()}] {entry.get('title') or ''}"
+        )
+        header_box.append(heading)
+
+        actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+
+        entry_payload = dict(entry)
+        edit_button = Gtk.Button(label="Edit")
+        edit_button.add_css_class("flat")
+        edit_button.connect(
+            "clicked",
+            lambda _btn, payload=entry_payload: self._populate_blackboard_form_from_entry(
+                payload
+            ),
+        )
+        actions_box.append(edit_button)
+
+        delete_button = Gtk.Button(label="Delete")
+        delete_button.add_css_class("flat")
+        delete_button.connect(
+            "clicked",
+            lambda _btn, payload=entry_payload: self._handle_blackboard_delete(payload),
+        )
+        actions_box.append(delete_button)
+
+        header_box.append(actions_box)
+        row.append(header_box)
+
+        content_label = Gtk.Label(xalign=0)
+        content_label.set_wrap(True)
+        content_label.set_text(str(entry.get("content") or ""))
+        row.append(content_label)
+
+        meta_bits: list[str] = []
+        author = entry.get("author")
+        if author:
+            meta_bits.append(f"Author: {author}")
+        created_at = entry.get("created_at")
+        if isinstance(created_at, (int, float)):
+            try:
+                created_dt = datetime.fromtimestamp(created_at)
+            except Exception:
+                created_dt = None
+            if created_dt is not None:
+                meta_bits.append(created_dt.strftime("%Y-%m-%d %H:%M"))
+        tags = entry.get("tags")
+        if isinstance(tags, list) and tags:
+            meta_bits.append("Tags: " + ", ".join(str(tag) for tag in tags))
+
+        meta_label = Gtk.Label(xalign=0)
+        meta_label.add_css_class("caption")
+        meta_label.set_wrap(True)
+        if meta_bits:
+            meta_label.set_text(" • ".join(meta_bits))
+        else:
+            meta_label.set_text("Shared item")
+        row.append(meta_label)
+
+        return row
+
+    def _handle_blackboard_delete(self, entry: Mapping[str, Any]) -> None:
+        entry_id = str(entry.get("id") or entry.get("entry_id") or "").strip()
+        if not entry_id:
+            return
+        scope_id = self._get_active_conversation_id()
+        if not scope_id:
+            self._show_blackboard_error("No active conversation is available for deletion.")
+            return
+        try:
+            self.ATLAS.delete_blackboard_entry(scope_id, entry_id)
+        except Exception as exc:
+            message = str(exc) or "Failed to delete blackboard entry."
+            self._show_blackboard_error(message)
+            return
+
+        if self._blackboard_editing_entry_id == entry_id:
+            self._clear_blackboard_form()
+        self._refresh_blackboard_tab()
+
+    def _set_blackboard_category(self, category: str) -> None:
+        combo = getattr(self, "blackboard_category_combo", None)
+        if combo is None:
+            return
+
+        target = str(category or "").strip().lower()
+        if not target:
+            return
+
+        items = list(getattr(combo, "_items", []))
+        if not items:
+            return
+
+        for index, label in enumerate(items):
+            if str(label or "").strip().lower() == target:
+                combo.set_active(index)
+                return
+
+        combo.set_active(0)
+
+    def _get_textbuffer_content(self, buffer: Gtk.TextBuffer) -> str:
+        getter = getattr(buffer, "get_text", None)
+        if callable(getter):
+            try:
+                start_iter = buffer.get_start_iter()
+                end_iter = buffer.get_end_iter()
+                if start_iter is not None and end_iter is not None:
+                    try:
+                        return getter(start_iter, end_iter, True)
+                    except TypeError:
+                        pass
+            except Exception:
+                pass
+            try:
+                return getter()
+            except TypeError:
+                pass
+        text_value = getattr(buffer, "_text", None)
+        if text_value is not None:
+            return str(text_value)
+        return ""
+
+    def _show_blackboard_error(self, message: str) -> None:
+        target = None
+        getter = getattr(self, "get_root", None)
+        if callable(getter):
+            try:
+                target = getter()
+            except Exception:
+                target = None
+
+        for candidate in (target, getattr(self, "_parent_window", None), getattr(self, "ATLAS", None)):
+            if candidate is None:
+                continue
+            for attribute in (
+                "show_error_toast",
+                "show_toast",
+                "show_error_dialog",
+                "show_notification",
+            ):
+                handler = getattr(candidate, attribute, None)
+                if callable(handler):
+                    try:
+                        handler(message)
+                        return
+                    except Exception:  # pragma: no cover - toast best effort
+                        logger.debug(
+                            "Failed to dispatch blackboard error via %s", attribute,
+                            exc_info=True,
+                        )
+        logger.warning("Blackboard action failed: %s", message)
 
     def _get_active_conversation_id(self) -> Optional[str]:
         session = getattr(self.ATLAS, "chat_session", None)
@@ -1219,7 +1604,7 @@ class ChatPage(Gtk.Box):
         controls.append(self.debug_retention_spin)
 
         self.debug_log_buffer = Gtk.TextBuffer()
-        self.debug_log_view = Gtk.TextView.new_with_buffer(self.debug_log_buffer)
+        self.debug_log_view = self._text_view_with_buffer(self.debug_log_buffer)
         self.debug_log_view.set_editable(False)
         self.debug_log_view.set_cursor_visible(False)
         self.debug_log_view.set_wrap_mode(self._get_terminal_wrap_mode())

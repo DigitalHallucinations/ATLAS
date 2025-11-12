@@ -2232,6 +2232,170 @@ class ATLAS:
             except Exception as exc:  # pragma: no cover - defensive cancellation
                 self.logger.debug("Legacy unsubscribe failed: %s", exc, exc_info=True)
 
+    def create_blackboard_entry(
+        self,
+        scope_id: str,
+        *,
+        scope_type: str = "conversation",
+        category: str,
+        title: str,
+        content: str,
+        author: Optional[str] = None,
+        tags: Optional[Iterable[str]] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Persist a new blackboard entry for the active tenant."""
+
+        scope_token = str(scope_id or "").strip()
+        if not scope_token:
+            raise ValueError("scope_id is required")
+
+        category_token = str(category or "").strip()
+        if not category_token:
+            raise ValueError("category is required")
+
+        title_text = str(title or "").strip()
+        content_text = str(content or "").strip()
+        if not title_text or not content_text:
+            raise ValueError("title and content are required")
+
+        payload: Dict[str, Any] = {
+            "category": category_token,
+            "title": title_text,
+            "content": content_text,
+        }
+
+        if author is not None:
+            author_text = str(author).strip()
+            if author_text:
+                payload["author"] = author_text
+
+        if tags is not None:
+            if isinstance(tags, (str, bytes, bytearray)):
+                raise TypeError("tags must be an iterable of strings")
+            normalized_tags = [
+                str(tag).strip()
+                for tag in tags
+                if str(tag or "").strip()
+            ]
+            payload["tags"] = normalized_tags
+
+        metadata_payload: Dict[str, Any] | None
+        if metadata is not None:
+            if not isinstance(metadata, Mapping):
+                raise TypeError("metadata must be a mapping")
+            metadata_payload = dict(metadata)
+        else:
+            metadata_payload = {}
+
+        tenant_id = self.tenant_id or "default"
+        if metadata_payload is not None:
+            metadata_payload.setdefault("tenant_id", tenant_id)
+            if metadata_payload:
+                payload["metadata"] = metadata_payload
+
+        server = self._require_server()
+        context = {"tenant_id": tenant_id}
+        return server.create_blackboard_entry(
+            str(scope_type or "conversation"),
+            scope_token,
+            payload,
+            context=context,
+        )
+
+    def update_blackboard_entry(
+        self,
+        scope_id: str,
+        entry_id: str,
+        *,
+        scope_type: str = "conversation",
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        tags: Optional[Iterable[str]] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Update a previously created blackboard entry."""
+
+        scope_token = str(scope_id or "").strip()
+        if not scope_token:
+            raise ValueError("scope_id is required")
+
+        entry_token = str(entry_id or "").strip()
+        if not entry_token:
+            raise ValueError("entry_id is required")
+
+        payload: Dict[str, Any] = {}
+        if title is not None:
+            title_text = str(title or "").strip()
+            if not title_text:
+                raise ValueError("title must not be empty")
+            payload["title"] = title_text
+
+        if content is not None:
+            content_text = str(content or "").strip()
+            if not content_text:
+                raise ValueError("content must not be empty")
+            payload["content"] = content_text
+
+        if tags is not None:
+            if isinstance(tags, (str, bytes, bytearray)):
+                raise TypeError("tags must be an iterable of strings")
+            payload["tags"] = [
+                str(tag).strip()
+                for tag in tags
+                if str(tag or "").strip()
+            ]
+
+        metadata_payload: Optional[Dict[str, Any]] = None
+        if metadata is not None:
+            if not isinstance(metadata, Mapping):
+                raise TypeError("metadata must be a mapping")
+            metadata_payload = dict(metadata)
+
+        tenant_id = self.tenant_id or "default"
+        if metadata_payload is not None:
+            metadata_payload.setdefault("tenant_id", tenant_id)
+            payload["metadata"] = metadata_payload
+
+        if not payload:
+            raise ValueError("At least one field must be provided for update")
+
+        server = self._require_server()
+        context = {"tenant_id": tenant_id}
+        return server.update_blackboard_entry(
+            str(scope_type or "conversation"),
+            scope_token,
+            entry_token,
+            payload,
+            context=context,
+        )
+
+    def delete_blackboard_entry(
+        self,
+        scope_id: str,
+        entry_id: str,
+        *,
+        scope_type: str = "conversation",
+    ) -> Dict[str, Any]:
+        """Remove a blackboard entry for the active tenant."""
+
+        scope_token = str(scope_id or "").strip()
+        if not scope_token:
+            raise ValueError("scope_id is required")
+
+        entry_token = str(entry_id or "").strip()
+        if not entry_token:
+            raise ValueError("entry_id is required")
+
+        server = self._require_server()
+        context = {"tenant_id": self.tenant_id or "default"}
+        return server.delete_blackboard_entry(
+            str(scope_type or "conversation"),
+            scope_token,
+            entry_token,
+            context=context,
+        )
+
     def get_blackboard_summary(
         self,
         scope_id: str,
