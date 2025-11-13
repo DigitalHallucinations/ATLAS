@@ -640,14 +640,14 @@ def test_set_google_llm_settings_caches_allowlist_when_disabled(config_manager):
     assert disabled["allowed_function_names"] == []
     assert disabled["cached_allowed_function_names"] == ["alpha", "beta"]
 
-    reenabled = config_manager.providers.google.set_llm_settings(
+    re_enabled = config_manager.providers.google.set_llm_settings(
         model="gemini-1.5-pro",
         function_calling=True,
         function_call_mode="auto",
     )
 
-    assert reenabled["allowed_function_names"] == ["alpha", "beta"]
-    assert reenabled["cached_allowed_function_names"] == ["alpha", "beta"]
+    assert re_enabled["allowed_function_names"] == ["alpha", "beta"]
+    assert re_enabled["cached_allowed_function_names"] == ["alpha", "beta"]
 
 
 def test_set_openai_llm_settings_updates_state(config_manager):
