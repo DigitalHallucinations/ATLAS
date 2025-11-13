@@ -189,6 +189,18 @@ def test_webpage_fetch_ignores_malformed_content_length(monkeypatch):
     assert "ok" in result.text.lower()
 
 
+def test_webpage_fetch_allows_bogus_content_length(monkeypatch):
+    payload = "<html><body>hello</body></html>"
+    response = _MockResponse(text=payload, headers={"Content-Length": "bogus"})
+    _patch_session(monkeypatch, response=response)
+
+    fetcher = WebpageFetcher(allowed_domains=("example.com",))
+
+    result = asyncio.run(fetcher.fetch("https://example.com/bogus-length"))
+
+    assert "hello" in result.text.lower()
+
+
 def test_webpage_fetch_merges_allowlists_without_duplicates(monkeypatch):
     class _StubConfigManager:
         def get_config(self, key, default):
