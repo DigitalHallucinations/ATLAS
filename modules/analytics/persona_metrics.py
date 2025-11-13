@@ -8,7 +8,7 @@ import os
 import threading
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from modules.Tools.tool_event_system import publish_bus_event
 from modules.orchestration.message_bus import MessagePriority
@@ -166,6 +166,12 @@ class PersonaMetricsStore:
     _baseline_z_threshold = 3.0
     _baseline_min_stddev = 1e-3
     _max_anomalies = 200
+    _sla_forecast_alpha = 0.35
+    _sla_forecast_window = 25
+    _sla_forecast_min_points = 3
+    _sla_forecast_horizon = 5
+    _sla_forecast_medium_threshold = 0.3
+    _sla_forecast_high_threshold = 0.6
 
     def __init__(
         self,
@@ -733,6 +739,8 @@ class PersonaMetricsStore:
         completion_timestamps: List[datetime] = []
         sla_checks = 0
         sla_breaches = 0
+        sla_outcomes: List[Tuple[Optional[datetime], int, int]] = []
+        event_order = 0
 
         for event, timestamp in filtered:
             status = str(event.get("to_status") or "").strip().lower() or "unknown"
@@ -789,12 +797,16 @@ class PersonaMetricsStore:
                     sla_checks += 1
                     if sla_flag:
                         sla_breaches += 1
+                    outcome_value = 1 if sla_flag else 0
+                    sla_outcomes.append((timestamp, event_order, outcome_value))
 
             if (
                 timestamp is not None
                 and event.get("event") in {"completed", "failed", "cancelled"}
             ):
                 completion_timestamps.append(timestamp)
+
+            event_order += 1
 
         status_summary = sorted(status_totals.values(), key=lambda item: item["status"])
         job_summary = sorted(job_totals.values(), key=lambda item: item["job_id"])
@@ -837,6 +849,8 @@ class PersonaMetricsStore:
         if sla_checks:
             sla_adherence = (sla_checks - sla_breaches) / sla_checks
 
+        sla_forecast = self._compute_sla_forecast(sla_outcomes)
+
         return {
             "persona": persona,
             "tenant_id": tenant_id,
@@ -855,7 +869,87 @@ class PersonaMetricsStore:
                 "checks": sla_checks,
                 "breaches": sla_breaches,
                 "adherence_rate": sla_adherence if sla_checks else None,
+                "forecast": sla_forecast,
             },
+        }
+
+    def _compute_sla_forecast(
+        self, outcomes: Sequence[Tuple[Optional[datetime], int, int]]
+    ) -> Dict[str, Any]:
+        if not outcomes:
+            return {
+                "window": 0,
+                "samples": 0,
+                "alpha": self._sla_forecast_alpha,
+                "breach_probability": None,
+                "expected_breaches": None,
+                "horizon": 0,
+                "risk_level": None,
+            }
+
+        ordered = sorted(
+            outcomes,
+            key=lambda entry: (
+                entry[0] is None,
+                entry[0] or datetime.min.replace(tzinfo=timezone.utc),
+                entry[1],
+            ),
+        )
+
+        window_size = min(len(ordered), self._sla_forecast_window)
+        window = ordered[-window_size:]
+        values = [value for _timestamp, _index, value in window]
+        sample_count = len(values)
+
+        if sample_count < self._sla_forecast_min_points:
+            return {
+                "window": sample_count,
+                "samples": sample_count,
+                "alpha": self._sla_forecast_alpha,
+                "breach_probability": None,
+                "expected_breaches": None,
+                "horizon": 0,
+                "risk_level": None,
+            }
+
+        alpha = self._sla_forecast_alpha
+        smoothed: Optional[float] = None
+        for value in values:
+            if smoothed is None:
+                smoothed = float(value)
+            else:
+                smoothed = alpha * float(value) + (1.0 - alpha) * smoothed
+
+        probability: Optional[float]
+        if smoothed is None:
+            probability = None
+        else:
+            probability = max(0.0, min(1.0, smoothed))
+
+        horizon = min(self._sla_forecast_horizon, sample_count)
+        expected_breaches: Optional[float]
+        if probability is None or horizon <= 0:
+            expected_breaches = None
+        else:
+            expected_breaches = probability * horizon
+
+        risk_level: Optional[str] = None
+        if probability is not None:
+            if probability >= self._sla_forecast_high_threshold:
+                risk_level = "high"
+            elif probability >= self._sla_forecast_medium_threshold:
+                risk_level = "medium"
+            else:
+                risk_level = "low"
+
+        return {
+            "window": sample_count,
+            "samples": sample_count,
+            "alpha": alpha,
+            "breach_probability": probability,
+            "expected_breaches": expected_breaches,
+            "horizon": horizon,
+            "risk_level": risk_level,
         }
 
     def _normalize_event_dict(self, payload: Mapping[str, Any]) -> Dict[str, Any]:

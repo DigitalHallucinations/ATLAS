@@ -25,6 +25,7 @@ from modules.Personas import (
     _validate_persona_payload,
 )
 from modules.analytics.persona_metrics import (
+    get_job_lifecycle_metrics,
     get_persona_comparison_summary,
     get_persona_metrics,
 )
@@ -750,6 +751,32 @@ class AtlasServer:
                 "recent": [],
             }
         return payload
+
+    def get_job_metrics(
+        self,
+        persona_name: str,
+        *,
+        tenant_id: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Return aggregated job lifecycle analytics for ``persona_name``."""
+
+        if not persona_name:
+            raise ValueError("Persona name is required for job analytics")
+
+        try:
+            limit_value = int(limit) if limit is not None else 50
+        except (TypeError, ValueError):
+            limit_value = 50
+
+        limit_value = max(1, min(limit_value, 200))
+
+        return get_job_lifecycle_metrics(
+            persona=persona_name,
+            tenant_id=tenant_id,
+            limit_recent=limit_value,
+            config_manager=self._config_manager,
+        )
 
     def get_persona_comparison_summary(
         self,

@@ -621,6 +621,8 @@ def test_job_lifecycle_metrics_aggregation(metrics_store):
     assert sla_summary["checks"] == 2
     assert sla_summary["breaches"] == 1
     assert sla_summary["adherence_rate"] == pytest.approx(0.5)
+    assert sla_summary["forecast"]["breach_probability"] is None
+    assert sla_summary["forecast"]["expected_breaches"] is None
 
     recent_first = metrics["recent"][0]
     assert recent_first["event"] == "failed"
@@ -665,6 +667,39 @@ def test_record_job_lifecycle_event_publishes(monkeypatch, metrics_store):
     assert metrics["totals"]["events"] == 1
     assert metrics["success_rate"] == pytest.approx(1.0)
     assert metrics["recent"][0]["metadata"]["sla_met"] is True
+
+
+def test_job_metrics_sla_forecast(metrics_store):
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    breach_sequence = [False, False, True, False, True, True]
+    for index, breached in enumerate(breach_sequence):
+        success = not breached
+        event_name = "completed" if success else "failed"
+        metadata = {"sla_met": not breached, "sla_breached": breached}
+        metrics_store.record_job_event(
+            LifecycleEvent(
+                entity_id=f"job-{index}",
+                entity_key="job_id",
+                event=event_name,
+                persona="Atlas",
+                tenant_id="tenant-a",
+                to_status="completed" if success else "failed",
+                success=success,
+                latency_ms=500 + index * 10,
+                timestamp=base + timedelta(minutes=index * 5),
+                metadata=metadata,
+            )
+        )
+
+    metrics = metrics_store.get_job_metrics(persona="Atlas")
+    sla_forecast = metrics["sla"].get("forecast")
+    assert sla_forecast is not None
+    assert sla_forecast["samples"] == len(breach_sequence)
+    assert sla_forecast["window"] == len(breach_sequence)
+    assert sla_forecast["horizon"] == 5
+    assert sla_forecast["risk_level"] == "high"
+    assert sla_forecast["breach_probability"] == pytest.approx(0.67, rel=1e-2)
+    assert sla_forecast["expected_breaches"] == pytest.approx(3.37, rel=1e-2)
 
 def test_persona_metrics_server_endpoint(tmp_path):
     pytest.importorskip("jsonschema")
