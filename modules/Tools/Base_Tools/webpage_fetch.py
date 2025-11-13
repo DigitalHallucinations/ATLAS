@@ -241,10 +241,14 @@ class WebpageFetcher:
                 async with session.get(url, headers=headers) as response:
                     response.raise_for_status()
                     declared_length = response.headers.get("Content-Length")
-                    if declared_length and int(declared_length) > self._max_content_length:
-                        raise ContentTooLargeError(
-                            "Remote content-length exceeds configured maximum."
-                        )
+                    if declared_length:
+                        try:
+                            if int(declared_length) > self._max_content_length:
+                                raise ContentTooLargeError(
+                                    "Remote content-length exceeds configured maximum."
+                                )
+                        except ValueError:
+                            pass
 
                     body = await self._read_body(response)
                     text, title = self._sanitize_html(body)
