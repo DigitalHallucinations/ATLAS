@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from .General_Tab.general_tab import GeneralTab
 from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
+from .analytics_charts import AnomalyHeatmap, LatencyTimeline
 from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css
 
@@ -72,6 +73,12 @@ class PersonaManagement:
         self._analytics_anomaly_placeholder: Optional[Gtk.Widget] = None
         self._analytics_recent_list: Optional[Gtk.ListBox] = None
         self._analytics_recent_placeholder: Optional[Gtk.Widget] = None
+        self._analytics_anomaly_heatmap: Optional[AnomalyHeatmap] = None
+        self._analytics_latency_chart: Optional[LatencyTimeline] = None
+        self._analytics_anomaly_rows: Dict[Gtk.ListBoxRow, Dict[str, Any]] = {}
+        self._analytics_anomaly_entries: List[Dict[str, Any]] = []
+        self._analytics_recent_entries: List[Dict[str, Any]] = []
+        self._theme_monitor_connected: bool = False
         self._review_banner_box: Optional[Gtk.Box] = None
         self._review_banner_label: Optional[Gtk.Label] = None
         self._review_mark_complete_button: Optional[Gtk.Button] = None
@@ -91,6 +98,52 @@ class PersonaManagement:
         context = dialog.get_style_context()
         context.add_class("chat-page")
         context.add_class("sidebar")
+
+    def _ensure_theme_monitoring(self) -> None:
+        if self._theme_monitor_connected:
+            return
+        settings = Gtk.Settings.get_default()
+        if settings is None:
+            return
+        try:
+            settings.connect("notify::gtk-theme-name", self._on_theme_setting_changed)
+            settings.connect(
+                "notify::gtk-application-prefer-dark-theme",
+                self._on_theme_setting_changed,
+            )
+            self._theme_monitor_connected = True
+        except Exception:
+            # Theme notifications are best-effort; ignore if unsupported.
+            self._theme_monitor_connected = False
+
+    def _on_theme_setting_changed(self, *_args: Any) -> None:
+        self._apply_chart_theme()
+
+    def _apply_chart_theme(self) -> None:
+        is_dark = self._is_dark_theme()
+        if self._analytics_anomaly_heatmap is not None:
+            self._analytics_anomaly_heatmap.set_dark_mode(is_dark)
+        if self._analytics_latency_chart is not None:
+            self._analytics_latency_chart.set_dark_mode(is_dark)
+
+    def _is_dark_theme(self) -> bool:
+        settings = Gtk.Settings.get_default()
+        if settings is None:
+            return True
+        prefer_dark = False
+        try:
+            prefer_dark = bool(settings.props.gtk_application_prefer_dark_theme)
+        except Exception:
+            prefer_dark = False
+        if prefer_dark:
+            return True
+        try:
+            theme_name = settings.props.gtk_theme_name
+        except Exception:
+            theme_name = ""
+        if isinstance(theme_name, str) and "dark" in theme_name.lower():
+            return True
+        return False
 
     def _handle_persona_message(self, role: str, message: str) -> None:
         """Surface persona manager messages via a modal dialog."""
@@ -1979,6 +2032,113 @@ class PersonaManagement:
             parsed = parsed.astimezone(timezone.utc)
         return (parsed, True)
 
+    def _parse_analytics_timestamp(self, value: Any) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, (int, float)):
+            try:
+                parsed = datetime.fromtimestamp(float(value), timezone.utc)
+            except (TypeError, ValueError):
+                return None
+        elif isinstance(value, str):
+            candidate = value.strip()
+            if not candidate:
+                return None
+            if candidate.endswith("Z"):
+                candidate = candidate[:-1] + "+00:00"
+            try:
+                parsed = datetime.fromisoformat(candidate)
+            except ValueError:
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+                    try:
+                        parsed = datetime.strptime(candidate, fmt)
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    return None
+        else:
+            return None
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+        return parsed
+
+    def _select_anomaly_by_timestamp(
+        self, timestamp: datetime, tolerance_seconds: float = 3600.0
+    ) -> bool:
+        if not isinstance(self._analytics_anomaly_list, Gtk.ListBox):
+            return False
+        target = timestamp.astimezone(timezone.utc)
+        best_row: Optional[Gtk.ListBoxRow] = None
+        best_delta: Optional[float] = None
+        for row, entry in self._analytics_anomaly_rows.items():
+            entry_ts = self._parse_analytics_timestamp(entry.get("timestamp"))
+            if entry_ts is None:
+                continue
+            delta = abs((entry_ts - target).total_seconds())
+            if best_delta is None or delta < best_delta:
+                best_delta = delta
+                best_row = row
+        if best_row is not None and best_delta is not None and best_delta <= tolerance_seconds:
+            try:
+                self._analytics_anomaly_list.select_row(best_row)
+            except Exception:
+                return False
+            return True
+        return False
+
+    def _on_anomaly_row_selected(
+        self, _list_box: Gtk.ListBox, row: Optional[Gtk.ListBoxRow]
+    ) -> None:
+        if row is None:
+            if self._analytics_anomaly_heatmap is not None:
+                self._analytics_anomaly_heatmap.highlight_date(None)
+            if self._analytics_latency_chart is not None:
+                self._analytics_latency_chart.highlight_timestamp(None)
+            return
+        entry = self._analytics_anomaly_rows.get(row)
+        if not entry:
+            return
+        timestamp = self._parse_analytics_timestamp(entry.get("timestamp"))
+        if timestamp is None:
+            if self._analytics_anomaly_heatmap is not None:
+                self._analytics_anomaly_heatmap.highlight_date(None)
+            if self._analytics_latency_chart is not None:
+                self._analytics_latency_chart.highlight_timestamp(None)
+            return
+        if self._analytics_anomaly_heatmap is not None:
+            self._analytics_anomaly_heatmap.highlight_date(timestamp)
+        if self._analytics_latency_chart is not None:
+            self._analytics_latency_chart.highlight_timestamp(timestamp)
+
+    def _on_heatmap_day_selected(self, timestamp: datetime) -> None:
+        if not isinstance(self._analytics_anomaly_list, Gtk.ListBox):
+            return
+        target_date = timestamp.date()
+        for row, entry in self._analytics_anomaly_rows.items():
+            entry_ts = self._parse_analytics_timestamp(entry.get("timestamp"))
+            if entry_ts is not None and entry_ts.date() == target_date:
+                try:
+                    self._analytics_anomaly_list.select_row(row)
+                except Exception:
+                    pass
+                return
+        if self._analytics_anomaly_heatmap is not None:
+            self._analytics_anomaly_heatmap.highlight_date(timestamp)
+        if self._analytics_latency_chart is not None:
+            self._analytics_latency_chart.highlight_timestamp(None)
+
+    def _on_timeline_point_selected(self, timestamp: datetime) -> None:
+        if self._select_anomaly_by_timestamp(timestamp):
+            return
+        if self._analytics_latency_chart is not None:
+            self._analytics_latency_chart.highlight_timestamp(timestamp)
+        if self._analytics_anomaly_heatmap is not None:
+            self._analytics_anomaly_heatmap.highlight_date(timestamp)
+
     def _format_analytics_timestamp(self, value: Optional[str]) -> str:
         if not value:
             return "Unknown"
@@ -2196,6 +2356,12 @@ class PersonaManagement:
             deduped_anomalies.append(entry)
         anomaly_entries = deduped_anomalies
 
+        if self._analytics_anomaly_heatmap is not None:
+            self._analytics_anomaly_heatmap.update_anomalies(
+                anomaly_entries, start_value, end_value
+            )
+        self._analytics_anomaly_entries = list(anomaly_entries)
+
         self._clear_list_box(self._analytics_anomaly_list)
         if self._analytics_anomaly_placeholder is not None:
             placeholder_parent = getattr(
@@ -2208,12 +2374,23 @@ class PersonaManagement:
                     pass
             self._analytics_anomaly_placeholder = None
 
+        self._analytics_anomaly_rows.clear()
+        if isinstance(self._analytics_anomaly_list, Gtk.ListBox):
+            try:
+                self._analytics_anomaly_list.unselect_all()
+            except Exception:
+                pass
+
         if not anomaly_entries:
-            placeholder = Gtk.Label(label="No anomalies detected in this range.")
-            placeholder.set_xalign(0.0)
+            placeholder_label = Gtk.Label(label="No anomalies detected in this range.")
+            placeholder_label.set_xalign(0.0)
             if isinstance(self._analytics_anomaly_list, Gtk.ListBox):
-                self._analytics_anomaly_list.append(placeholder)
-            self._analytics_anomaly_placeholder = placeholder
+                placeholder_row = Gtk.ListBoxRow()
+                placeholder_row.set_selectable(False)
+                placeholder_row.set_activatable(False)
+                placeholder_row.set_child(placeholder_label)
+                self._analytics_anomaly_list.append(placeholder_row)
+                self._analytics_anomaly_placeholder = placeholder_row
         else:
             for entry in anomaly_entries:
                 metric_name = str(entry.get('metric') or entry.get('category') or 'Metric')
@@ -2283,6 +2460,7 @@ class PersonaManagement:
                 row.set_child(row_box)
                 if isinstance(self._analytics_anomaly_list, Gtk.ListBox):
                     self._analytics_anomaly_list.append(row)
+                    self._analytics_anomaly_rows[row] = entry
 
         tool_entries = metrics.get('totals_by_tool') if isinstance(metrics, dict) else []
         if not isinstance(tool_entries, list):
@@ -2395,6 +2573,12 @@ class PersonaManagement:
         if not isinstance(recent_entries, list):
             recent_entries = []
 
+        if self._analytics_latency_chart is not None:
+            self._analytics_latency_chart.update_samples(
+                recent_entries, start_value, end_value
+            )
+        self._analytics_recent_entries = list(recent_entries)
+
         self._clear_list_box(self._analytics_recent_list)
         if self._analytics_recent_placeholder is not None:
             placeholder_parent = getattr(
@@ -2500,6 +2684,21 @@ class PersonaManagement:
 
         container.append(summary_grid)
 
+        chart_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        chart_row.set_hexpand(True)
+        chart_row.set_vexpand(False)
+        chart_row.set_homogeneous(True)
+
+        heatmap = AnomalyHeatmap()
+        heatmap.set_activate_handler(self._on_heatmap_day_selected)
+        chart_row.append(heatmap)
+
+        latency_chart = LatencyTimeline()
+        latency_chart.set_activate_handler(self._on_timeline_point_selected)
+        chart_row.append(latency_chart)
+
+        container.append(chart_row)
+
         comparison_label = Gtk.Label(label="Comparison Highlights")
         comparison_label.set_xalign(0.0)
         container.append(comparison_label)
@@ -2535,8 +2734,9 @@ class PersonaManagement:
         anomaly_scroll.set_hexpand(True)
         anomaly_scroll.set_vexpand(True)
         anomaly_list = Gtk.ListBox()
-        anomaly_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        anomaly_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
         anomaly_list.add_css_class('boxed-list')
+        anomaly_list.connect('row-selected', self._on_anomaly_row_selected)
         anomaly_scroll.set_child(anomaly_list)
         container.append(anomaly_scroll)
 
@@ -2602,6 +2802,11 @@ class PersonaManagement:
         self._analytics_skill_placeholder = None
         self._analytics_recent_placeholder = None
         self._analytics_anomaly_placeholder = None
+        self._analytics_anomaly_heatmap = heatmap
+        self._analytics_latency_chart = latency_chart
+
+        self._ensure_theme_monitoring()
+        self._apply_chart_theme()
 
         self._refresh_persona_analytics(show_errors=False)
 
