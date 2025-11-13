@@ -481,10 +481,14 @@ class ATLAS:
         if hasattr(self, "tooling_service"):
             self.tooling_service.set_persona_manager(value)
 
-    def list_tools(self) -> List[Dict[str, Any]]:
+    def list_tools(
+        self, *, include_provider_health: bool = True
+    ) -> List[Dict[str, Any]]:
         """Return merged tool metadata with persisted configuration state."""
 
-        return self.tooling_service.list_tools()
+        return self.tooling_service.list_tools(
+            include_provider_health=include_provider_health
+        )
 
     def update_tool_settings(self, tool_name: str, settings: Mapping[str, Any]) -> Dict[str, Any]:
         """Persist tool settings and refresh dependent caches."""

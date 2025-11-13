@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Optional
 
@@ -191,6 +192,8 @@ def test_registry_records_provider_metrics(capability_root: Path) -> None:
         "tool": "provider_tool",
         "selected": "primary",
         "success": True,
+        "latency_ms": 42.0,
+        "timestamp": 123.0,
         "providers": {
             "primary": {
                 "successes": 1,
@@ -211,6 +214,11 @@ def test_registry_records_provider_metrics(capability_root: Path) -> None:
     assert provider_health["total"] == 1
     assert provider_health["success"] == 1
     assert provider_health["failure"] == 0
+    last_call = view.health["providers"]["primary"].get("last_call")
+    assert isinstance(last_call, Mapping)
+    assert last_call.get("latency_ms") == 42.0
+    assert last_call.get("success") is True
+    assert view.health.get("last_invocation", {}).get("provider") == "primary"
 
 
 def test_query_tools_includes_shared_persona_when_filtered(capability_root: Path) -> None:

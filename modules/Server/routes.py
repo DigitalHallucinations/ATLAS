@@ -579,6 +579,7 @@ class AtlasServer:
         provider: Optional[Any] = None,
         version: Optional[Any] = None,
         min_success_rate: Optional[Any] = None,
+        include_provider_health: bool = True,
     ) -> Dict[str, Any]:
         """Return merged tool metadata, optionally filtered."""
 
@@ -610,7 +611,9 @@ class AtlasServer:
         serialized: List[Dict[str, Any]] = []
         manifest_lookup: Dict[str, Dict[str, Any]] = {}
         for entry in filtered:
-            payload = _serialize_entry(entry)
+            payload = _serialize_entry(
+                entry, include_provider_health=include_provider_health
+            )
             serialized.append(payload)
 
             name = payload.get("name") if isinstance(payload, Mapping) else None
@@ -1587,6 +1590,11 @@ class AtlasServer:
                 )
             if path != "/tools":
                 raise ValueError(f"Unsupported path: {path}")
+            include_health_value = (
+                _as_bool(query.get("include_provider_health"))
+                if "include_provider_health" in query
+                else True
+            )
             return self.get_tools(
                 capability=query.get("capability"),
                 safety_level=query.get("safety_level"),
@@ -1594,6 +1602,7 @@ class AtlasServer:
                 provider=query.get("provider"),
                 version=query.get("version"),
                 min_success_rate=query.get("min_success_rate"),
+                include_provider_health=include_health_value,
             )
 
         if method_upper == "POST":
@@ -2520,29 +2529,45 @@ def _parse_success_rate(raw_value: Optional[Any]) -> Optional[float]:
     return max(0.0, min(value, 1.0))
 
 
-def _serialize_health(health: Mapping[str, Any]) -> Dict[str, Any]:
+def _serialize_health(
+    health: Mapping[str, Any], *, include_provider_health: bool = True
+) -> Dict[str, Any]:
     tool_metrics = health.get("tool") if isinstance(health, Mapping) else None
     providers = health.get("providers") if isinstance(health, Mapping) else None
+    last_invocation = (
+        health.get("last_invocation") if isinstance(health, Mapping) else None
+    )
 
     serialized_providers: Dict[str, Any] = {}
-    if isinstance(providers, Mapping):
+    if include_provider_health and isinstance(providers, Mapping):
         for name, payload in providers.items():
             if not isinstance(payload, Mapping):
                 continue
             metrics = payload.get("metrics")
             router = payload.get("router")
+            last_call = payload.get("last_call")
             serialized_providers[str(name)] = {
                 "metrics": dict(metrics) if isinstance(metrics, Mapping) else {},
                 "router": dict(router) if isinstance(router, Mapping) else {},
+                "last_call": dict(last_call) if isinstance(last_call, Mapping) else {},
             }
 
-    return {
+    serialized_last_invocation = (
+        dict(last_invocation) if isinstance(last_invocation, Mapping) else {}
+    )
+
+    payload = {
         "tool": dict(tool_metrics) if isinstance(tool_metrics, Mapping) else {},
         "providers": serialized_providers,
     }
+    if serialized_last_invocation or include_provider_health:
+        payload["last_invocation"] = serialized_last_invocation
+    return payload
 
 
-def _serialize_entry(view: ToolCapabilityView) -> Dict[str, Any]:
+def _serialize_entry(
+    view: ToolCapabilityView, *, include_provider_health: bool
+) -> Dict[str, Any]:
     entry = view.manifest
     payload = {
         "name": entry.name,
@@ -2565,7 +2590,9 @@ def _serialize_entry(view: ToolCapabilityView) -> Dict[str, Any]:
         "source": entry.source,
         "capability_tags": list(view.capability_tags),
         "auth_scopes": list(view.auth_scopes),
-        "health": _serialize_health(view.health),
+        "health": _serialize_health(
+            view.health, include_provider_health=include_provider_health
+        ),
     }
     return payload
 

@@ -169,7 +169,13 @@ persona manifests, analytics, and review state.【F:modules/Server/routes.py†L
 | `POST /personas/{persona}/export` | Optional `signing_key`. | Produces a signed bundle of the persona definition for distribution.【F:modules/Server/routes.py†L733-L748】【F:modules/Server/routes.py†L980-L1010】 |
 | `POST /personas/import` | Body must include base64 `bundle`; optional `signing_key` and `rationale`. | Imports a persona bundle and persists it after validation.【F:modules/Server/routes.py†L749-L758】【F:modules/Server/routes.py†L1012-L1033】 |
 | `GET /skills` | Optional `persona` filter. | Returns skill registry entries filtered by persona allowlists.【F:modules/Server/routes.py†L672-L687】【F:modules/Server/routes.py†L387-L427】 |
-| `GET /tools` | Query filters `capability`, `safety_level`, `persona`. | Lists tool manifests after applying capability, safety, and persona filters.【F:modules/Server/routes.py†L688-L704】【F:modules/Server/routes.py†L294-L333】 |
+| `GET /tools` | Query filters `capability`, `safety_level`, `persona`, optional `include_provider_health`. | Lists tool manifests after applying capability, safety, and persona filters. When `include_provider_health` is truthy each entry's `health` block includes the most recent provider routing snapshot, per-provider `last_call` metrics, and a `last_invocation` summary for dashboards.【F:modules/Server/routes.py†L688-L712】【F:modules/Server/routes.py†L2523-L2550】 |
+
+When provider health is requested the serialized response includes a `health.last_invocation`
+object tracking the last provider selected, whether it succeeded, the measured
+latency, and the sampling timestamp, as well as `health.providers[NAME].last_call`
+records reflecting per-provider latency and success history to keep dashboards in
+sync with router decisions.【F:modules/orchestration/capability_registry.py†L1008-L1038】【F:modules/Server/routes.py†L2523-L2550】
 
 **Example** – update persona tooling:
 

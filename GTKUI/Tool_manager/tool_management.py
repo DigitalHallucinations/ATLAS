@@ -636,7 +636,27 @@ class ToolManagement:
         list_getter = getattr(self.ATLAS, "list_tools", None)
         if callable(list_getter) and not prefer_backend:
             try:
-                response = list_getter()
+                response = list_getter(include_provider_health=True)
+            except TypeError:
+                try:
+                    response = list_getter()
+                except Exception as exc:  # pragma: no cover - backend failure logging
+                    logger.error("Failed to load tool metadata via list_tools: %s", exc, exc_info=True)
+                else:
+                    tools_candidate: Any
+                    if isinstance(response, Mapping):
+                        tools_candidate = response.get("tools")
+                    else:
+                        tools_candidate = response
+
+                    if isinstance(tools_candidate, Iterable) and not isinstance(
+                        tools_candidate, (str, bytes, bytearray)
+                    ):
+                        tools_payload = list(tools_candidate)
+                    else:
+                        logger.warning(
+                            "ATLAS.list_tools returned unexpected payload; falling back to server.get_tools"
+                        )
             except Exception as exc:  # pragma: no cover - backend failure logging
                 logger.error("Failed to load tool metadata via list_tools: %s", exc, exc_info=True)
             else:
@@ -672,6 +692,8 @@ class ToolManagement:
                 if key in self._unsupported_remote_filters:
                     continue
                 kwargs[key] = value
+
+            kwargs["include_provider_health"] = True
 
             try:
                 response = getter(**kwargs)

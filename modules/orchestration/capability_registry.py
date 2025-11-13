@@ -345,6 +345,10 @@ class CapabilityRegistry:
         self._tool_metrics: Dict[Tuple[Optional[str], str], RollingMetricWindow] = {}
         self._provider_metrics: Dict[Tuple[Optional[str], str, str], RollingMetricWindow] = {}
         self._provider_snapshots: Dict[Tuple[Optional[str], str, str], Mapping[str, Any]] = {}
+        self._provider_last_outcome: Dict[
+            Tuple[Optional[str], str, str], Mapping[str, Any]
+        ] = {}
+        self._tool_last_invocation: Dict[Tuple[Optional[str], str], Mapping[str, Any]] = {}
         self._skill_records: List[_SkillRecord] = []
         self._skill_lookup: Dict[Tuple[Optional[str], str], _SkillRecord] = {}
         self._task_records: List[_TaskRecord] = []
@@ -563,13 +567,20 @@ class CapabilityRegistry:
                     provider_key = (persona_key, manifest.name, provider_name.lower())
                     metrics = self._provider_metrics.get(provider_key)
                     snapshot = self._provider_snapshots.get(provider_key, MappingProxyType({}))
+                    last_outcome = self._provider_last_outcome.get(
+                        provider_key, MappingProxyType({})
+                    )
                     provider_health[provider_name] = MappingProxyType(
                         {
                             "metrics": metrics.summary() if metrics else _EMPTY_METRIC_SUMMARY,
                             "router": snapshot,
+                            "last_call": last_outcome,
                         }
                     )
 
+                last_invocation = self._tool_last_invocation.get(
+                    (persona_key, manifest.name), MappingProxyType({})
+                )
                 results.append(
                     ToolCapabilityView(
                         manifest=manifest,
@@ -578,6 +589,7 @@ class CapabilityRegistry:
                         health=MappingProxyType({
                             "tool": tool_summary,
                             "providers": MappingProxyType(provider_health),
+                            "last_invocation": last_invocation,
                         }),
                     )
                 )
@@ -1016,12 +1028,30 @@ class CapabilityRegistry:
         selected = str(summary.get("selected") or "").strip()
         success = bool(summary.get("success"))
         providers = summary.get("providers")
-        timestamp = time.time()
+        timestamp_value = summary.get("timestamp")
+        try:
+            timestamp = float(timestamp_value) if timestamp_value is not None else time.time()
+        except (TypeError, ValueError):
+            timestamp = time.time()
+        latency_value = summary.get("latency_ms")
+        try:
+            latency_ms = float(latency_value) if latency_value is not None else None
+        except (TypeError, ValueError):
+            latency_ms = None
 
         if not isinstance(providers, Mapping):
             providers = {}
 
         with self._lock:
+            tool_key = (persona_key, tool_name)
+            self._tool_last_invocation[tool_key] = MappingProxyType(
+                {
+                    "provider": selected or None,
+                    "success": success,
+                    "latency_ms": latency_ms,
+                    "timestamp": timestamp,
+                }
+            )
             for provider_name, snapshot in providers.items():
                 provider_key = (persona_key, tool_name, str(provider_name).strip().lower())
                 if provider_name == selected and selected:
@@ -1029,7 +1059,14 @@ class CapabilityRegistry:
                     if window is None:
                         window = RollingMetricWindow()
                         self._provider_metrics[provider_key] = window
-                    window.add(success=success, latency_ms=None, timestamp=timestamp)
+                    window.add(success=success, latency_ms=latency_ms, timestamp=timestamp)
+                    self._provider_last_outcome[provider_key] = MappingProxyType(
+                        {
+                            "success": success,
+                            "latency_ms": latency_ms,
+                            "timestamp": timestamp,
+                        }
+                    )
                 self._provider_snapshots[provider_key] = MappingProxyType(dict(snapshot))
 
     def record_job_execution(
