@@ -298,6 +298,46 @@ headerbar.setup-wizard-header button.setup-wizard-debug-button image {
     opacity: 0.75;
 }
 
+/* Analytics chart styling */
+.analytics-chart {
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.analytics-chart.dark {
+    background-color: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+    color: #f5f5f5;
+}
+
+.analytics-chart.light {
+    background-color: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.08);
+    color: #1f1f1f;
+}
+
+.analytics-chart .chart-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.analytics-chart .chart-placeholder {
+    opacity: 0.75;
+    text-align: center;
+    padding: 8px 12px;
+}
+
+.analytics-chart.dark .chart-placeholder {
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.analytics-chart.light .chart-placeholder {
+    color: rgba(0, 0, 0, 0.6);
+}
+
 .validation-error {
     border: 1px solid rgba(198, 40, 40, 0.8);
     box-shadow: 0 0 0 2px rgba(198, 40, 40, 0.25);
