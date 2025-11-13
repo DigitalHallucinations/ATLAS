@@ -8,7 +8,7 @@ from modules.Personas.WeatherGenius.Toolbox.weather import get_current_weather
 from modules.Personas.WeatherGenius.Toolbox.historical_weather import get_historical_weather
 from modules.Personas.WeatherGenius.Toolbox.daily_summary import get_daily_weather_summary
 from modules.Personas.WeatherGenius.Toolbox.alerts import weather_alert_feed
-from modules.Personas.WeatherGenius.Toolbox.weather_vizualization import (
+from modules.Personas.WeatherGenius.Toolbox.weather_visualization import (
     render_weather_visualization,
 )
 
