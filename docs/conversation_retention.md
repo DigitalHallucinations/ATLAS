@@ -25,6 +25,21 @@ threaded scheduler that repeatedly calls `ConversationStoreRepository.run_retent
 at a fixed interval (default: one hour). The worker can also be triggered
 manually through `run_once()` to execute an immediate retention pass.
 
+### Conversation summaries and episodic memories
+
+`ConversationSummaryWorker` listens for conversation message events (or polls the
+store when no bus is configured), batches activity per conversation, and stores a
+structured snapshot through `EpisodicMemoryTool`.【F:modules/background_tasks/conversation_summary.py†L61-L206】【F:modules/background_tasks/conversation_summary.py†L267-L314】【F:modules/Tools/Base_Tools/memory_episodic.py†L74-L107】 The
+resulting episodic records land in `append_episodic_memory` and are queryable via
+the existing episodic memory APIs, so long-term conversation context appears next
+to manually captured memories when issuing `memory_episodic_query` requests.【F:modules/conversation_store/conversations.py†L772-L838】【F:modules/Tools/Base_Tools/memory_episodic.py†L108-L137】 Each summary includes
+metadata describing the batch window and participants, enabling downstream tools
+to filter or expire snapshots independently of the raw chat history.【F:modules/background_tasks/conversation_summary.py†L267-L314】 Operators can control the cadence, batch
+size, and retention window through the `conversation_summary` configuration block
+documented in [configuration.md](configuration.md).【F:ATLAS/config/conversation_summary.py†L9-L96】 Once enabled, summaries become
+visible in memory queries alongside other episodic entries, providing a concise
+timeline that survives message-level retention policies.
+
 ## Administrative trigger
 
 Administrative tooling can invoke retention on demand through

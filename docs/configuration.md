@@ -73,6 +73,17 @@ Review the [conversation store data model](conversation-store.md) for table-leve
 | `redis_url` | Redis connection URI; defaults to `.env` `REDIS_URL` when backend is `redis`, otherwise optional.【F:ATLAS/config/messaging.py†L27-L34】 | `REDIS_URL`. | Redis-backed message bus initialisation. See [messaging bus operations](ops/messaging.md).【F:ATLAS/config/config_manager.py†L246-L288】【F:docs/ops/messaging.md†L3-L41】 |
 | `stream_prefix` | String; defaults to `atlas_bus` for Redis backends.【F:ATLAS/config/messaging.py†L27-L34】 | None. | Namespaces Redis streams created by the bus.【F:ATLAS/config/config_manager.py†L246-L288】 |
 
+### `conversation_summary`
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `enabled` | Boolean; defaults to `false` so episodic summaries are opt-in.【F:ATLAS/config/conversation_summary.py†L9-L46】 | None. | Enables the background worker when true.【F:modules/background_tasks/conversation_summary.py†L61-L93】 |
+| `cadence_seconds` | Positive float; defaults to `300`. Controls the minimum gap between summaries per conversation.【F:ATLAS/config/conversation_summary.py†L38-L46】【F:modules/background_tasks/conversation_summary.py†L238-L266】 | None. | Evaluated by `ConversationSummaryWorker` when deciding whether to flush a batch.【F:modules/background_tasks/conversation_summary.py†L238-L266】 |
+| `window_seconds` | Positive float; defaults to `300`. Batches are flushed when the window elapses even if the batch size is not met.【F:ATLAS/config/conversation_summary.py†L38-L46】【F:modules/background_tasks/conversation_summary.py†L238-L266】 | None. | Same as above. |
+| `batch_size` | Integer ≥1; defaults to `10`. Determines how many messages trigger an immediate summary.【F:ATLAS/config/conversation_summary.py†L38-L46】【F:modules/background_tasks/conversation_summary.py†L238-L266】 | None. | Same as above. |
+| `tool` / `persona` | Optional strings naming the summarisation tool or persona. Defaults to `context_tracker`; persona is unset by default.【F:ATLAS/config/conversation_summary.py†L38-L46】 | None. | Currently the worker invokes the `context_tracker` tool but records the configured persona for analytics metadata.【F:modules/background_tasks/conversation_summary.py†L287-L314】 |
+| `retention.default_days` | Optional integer TTL applied to episodic summaries when no tenant override exists.【F:ATLAS/config/conversation_summary.py†L48-L66】【F:modules/background_tasks/conversation_summary.py†L292-L314】 | None. | Converted to `expires_at` for `EpisodicMemoryTool.store`.【F:modules/background_tasks/conversation_summary.py†L292-L314】 |
+| `tenants.*` | Mapping of tenant-specific overrides for cadence, window, batch size, persona/tool, and retention days.【F:ATLAS/config/conversation_summary.py†L68-L96】 | None. | Overrides resolved per tenant during batch evaluation and TTL calculation.【F:modules/background_tasks/conversation_summary.py†L238-L314】 |
+
 ### `task_queue`
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
