@@ -24,7 +24,10 @@ from modules.Personas import (
     import_persona_bundle_bytes,
     _validate_persona_payload,
 )
-from modules.analytics.persona_metrics import get_persona_metrics
+from modules.analytics.persona_metrics import (
+    get_persona_comparison_summary,
+    get_persona_metrics,
+)
 from modules.conversation_store import ConversationStoreRepository
 from modules.logging.audit import (
     PersonaAuditEntry,
@@ -747,6 +750,45 @@ class AtlasServer:
                 "recent": [],
             }
         return payload
+
+    def get_persona_comparison_summary(
+        self,
+        *,
+        category: Optional[str] = None,
+        personas: Optional[Iterable[str]] = None,
+        search: Optional[str] = None,
+        recent: Optional[Any] = None,
+        page: Optional[Any] = None,
+        page_size: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Return persona comparison analytics with ranking highlights."""
+
+        category_value = str(category or "tool").strip().lower()
+
+        try:
+            recent_limit = int(recent) if recent is not None else 5
+        except (TypeError, ValueError):
+            recent_limit = 5
+
+        try:
+            page_number = int(page) if page is not None else 1
+        except (TypeError, ValueError):
+            page_number = 1
+
+        try:
+            size_value = int(page_size) if page_size is not None else 25
+        except (TypeError, ValueError):
+            size_value = 25
+
+        return get_persona_comparison_summary(
+            category=category_value,
+            personas=personas,
+            search=search,
+            limit_recent=recent_limit,
+            page=page_number,
+            page_size=size_value,
+            config_manager=self._config_manager,
+        )
 
     def get_skills(
         self,
@@ -1552,6 +1594,18 @@ class AtlasServer:
                     end=end,
                     limit=limit,
                     metric_type=metric_type,
+                )
+            if path == "/personas/analytics/comparison":
+                persona_filters = _normalize_filters(query.get("persona"))
+                category = query.get("type") or query.get("category")
+                search = query.get("search")
+                return self.get_persona_comparison_summary(
+                    category=category,
+                    personas=persona_filters or None,
+                    search=search,
+                    recent=query.get("recent"),
+                    page=query.get("page"),
+                    page_size=query.get("page_size"),
                 )
             if path.startswith("/personas/") and path.endswith("/review"):
                 components = [part for part in path.strip("/").split("/") if part]

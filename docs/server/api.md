@@ -162,6 +162,7 @@ persona manifests, analytics, and review state.【F:modules/Server/routes.py†L
 | Method & Path | Required fields | Notes |
 | --- | --- | --- |
 | `GET /personas/{persona}/analytics` | Query accepts ISO `start`, `end`, optional integer `limit`, and metric `type`. | Returns aggregated persona metrics for dashboards.【F:modules/Server/routes.py†L630-L655】【F:modules/Server/routes.py†L526-L575】 |
+| `GET /personas/analytics/comparison` | Optional query `type`, `persona`, `search`, `recent`, `page`, `page_size`. | Returns cross-persona comparison rankings (top performers, failure rates, latency leaders) for dashboards.【F:modules/Server/routes.py†L630-L705】【F:modules/analytics/persona_metrics.py†L210-L345】 |
 | `GET /personas/{persona}/review` | None. | Retrieves the current review status including expiry calculations.【F:modules/Server/routes.py†L656-L671】【F:modules/Server/routes.py†L575-L618】 |
 | `POST /personas/{persona}/review` | Body may include `reviewer`, `expires_at` or `expires_in_days`, and optional `notes`. | Records a review attestation, updates the audit trail, and recomputes status.【F:modules/Server/routes.py†L712-L759】【F:modules/Server/routes.py†L600-L618】 |
 | `POST /personas/{persona}/tools` | Body accepts `tools` (string/array/object) and optional `rationale`. | Normalizes tool identifiers, validates against known catalogs, persists the manifest update, and returns the sanitized list.【F:modules/Server/routes.py†L666-L723】【F:modules/Server/routes.py†L772-L841】 |

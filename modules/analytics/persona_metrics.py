@@ -8,7 +8,7 @@ import os
 import threading
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from modules.Tools.tool_event_system import publish_bus_event
 from modules.orchestration.message_bus import MessagePriority
@@ -22,6 +22,7 @@ __all__ = [
     "record_task_lifecycle_event",
     "record_job_lifecycle_event",
     "get_persona_metrics",
+    "get_persona_comparison_summary",
     "get_task_lifecycle_metrics",
     "get_job_lifecycle_metrics",
     "reset_persona_metrics",
@@ -333,6 +334,221 @@ class PersonaMetricsStore:
             _dispatch_persona_metric_alert(alert)
 
         return result
+
+    def get_persona_comparison_summary(
+        self,
+        *,
+        category: str = "tool",
+        personas: Optional[Iterable[str]] = None,
+        search: Optional[str] = None,
+        limit_recent: int = 5,
+        page: int = 1,
+        page_size: int = 25,
+    ) -> Dict[str, Any]:
+        """Return a consolidated comparison payload across personas.
+
+        Parameters
+        ----------
+        category:
+            Aggregate either ``"tool"`` or ``"skill"`` events when building
+            per-persona summaries.
+        personas:
+            Optional iterable of persona identifiers to include. Matching is
+            case-insensitive and trimmed; when omitted all personas are
+            considered.
+        search:
+            Optional substring filter (case-insensitive) applied to persona
+            names after normalization.
+        limit_recent:
+            Number of recent executions to retain per persona in the returned
+            payload. This value is clamped between 1 and 200.
+        page / page_size:
+            Pagination controls applied to the detailed ``results`` section.
+        """
+
+        normalized_category = str(category or "tool").strip().lower()
+        if normalized_category not in {"tool", "skill"}:
+            normalized_category = "tool"
+
+        try:
+            recent_limit = int(limit_recent)
+        except (TypeError, ValueError):
+            recent_limit = 5
+        recent_limit = max(1, min(recent_limit, 200))
+
+        try:
+            page_number = int(page)
+        except (TypeError, ValueError):
+            page_number = 1
+        page_number = max(page_number, 1)
+
+        try:
+            size_value = int(page_size)
+        except (TypeError, ValueError):
+            size_value = 25
+        size_value = max(1, min(size_value, 200))
+
+        persona_filters: Optional[set[str]] = None
+        if personas is not None:
+            persona_filters = {
+                str(value).strip().lower()
+                for value in personas
+                if isinstance(value, str) and str(value).strip()
+            }
+            if not persona_filters:
+                persona_filters = None
+
+        search_token = str(search or "").strip().lower()
+        if not search_token:
+            search_token = ""
+
+        with self._lock:
+            payload = self._load_payload()
+
+        raw_events = payload.get("events") or []
+        persona_buckets: Dict[str, List[Tuple[Dict[str, Any], Optional[datetime]]]] = {}
+        for item in raw_events:
+            if not isinstance(item, Mapping):
+                continue
+            persona_name = str(item.get("persona") or "").strip()
+            if not persona_name:
+                continue
+            persona_token = persona_name.lower()
+            if persona_filters is not None and persona_token not in persona_filters:
+                continue
+            if search_token and search_token not in persona_token:
+                continue
+            event = self._normalize_event_dict(item)
+            timestamp = _parse_iso(event.get("timestamp"))
+            persona_buckets.setdefault(persona_name, []).append((event, timestamp))
+
+        name_key = "skill" if normalized_category == "skill" else "tool"
+        label = name_key
+
+        persona_summaries: List[Dict[str, Any]] = []
+        for persona_name in sorted(persona_buckets):
+            events = persona_buckets[persona_name]
+            metrics = self._aggregate_category(
+                events,
+                category=normalized_category,
+                name_key=name_key,
+                label=label,
+                limit_recent=recent_limit,
+            )
+            totals = metrics.get("totals") if isinstance(metrics, Mapping) else {}
+            if not isinstance(totals, Mapping):
+                totals = {}
+            calls = int(totals.get("calls") or 0)
+            success_count = int(totals.get("success") or 0)
+            failure_count = int(totals.get("failure") or 0)
+            failure_rate = failure_count / calls if calls else 0.0
+
+            recent_entries = metrics.get("recent")
+            if not isinstance(recent_entries, list):
+                recent_entries = []
+
+            breakdown_key = f"totals_by_{label}"
+            breakdown_entries = metrics.get(breakdown_key)
+            if not isinstance(breakdown_entries, list):
+                breakdown_entries = []
+
+            persona_summaries.append(
+                {
+                    "persona": persona_name,
+                    "category": normalized_category,
+                    "totals": {
+                        "calls": calls,
+                        "success": success_count,
+                        "failure": failure_count,
+                    },
+                    "success_rate": (
+                        float(metrics.get("success_rate") or 0.0)
+                    ),
+                    "failure_rate": failure_rate,
+                    "average_latency_ms": float(
+                        metrics.get("average_latency_ms") or 0.0
+                    ),
+                    breakdown_key: breakdown_entries,
+                    "recent": recent_entries[:recent_limit],
+                }
+            )
+
+        total_results = len(persona_summaries)
+        total_pages = math.ceil(total_results / size_value) if total_results else 0
+        if total_pages:
+            page_number = min(page_number, total_pages)
+        start_index = (page_number - 1) * size_value
+        end_index = start_index + size_value
+        paginated_results = persona_summaries[start_index:end_index]
+
+        def _ranking_projection(entry: Mapping[str, Any]) -> Dict[str, Any]:
+            totals_map = entry.get("totals") if isinstance(entry, Mapping) else {}
+            if not isinstance(totals_map, Mapping):
+                totals_map = {}
+            calls_value = int(totals_map.get("calls") or 0)
+            success_value = int(totals_map.get("success") or 0)
+            failure_value = int(totals_map.get("failure") or 0)
+            return {
+                "persona": entry.get("persona"),
+                "success_rate": float(entry.get("success_rate") or 0.0),
+                "failure_rate": float(entry.get("failure_rate") or 0.0),
+                "average_latency_ms": float(
+                    entry.get("average_latency_ms") or 0.0
+                ),
+                "calls": calls_value,
+                "success": success_value,
+                "failure": failure_value,
+            }
+
+        active_entries = [
+            item for item in persona_summaries if int(item["totals"]["calls"]) > 0
+        ]
+
+        top_performers = sorted(
+            (_ranking_projection(item) for item in active_entries),
+            key=lambda data: (data["success_rate"], data["calls"]),
+            reverse=True,
+        )[:5]
+
+        worst_failure = sorted(
+            (_ranking_projection(item) for item in active_entries),
+            key=lambda data: (data["failure_rate"], data["calls"]),
+            reverse=True,
+        )[:5]
+
+        latency_candidates = [
+            projection
+            for projection in (_ranking_projection(item) for item in active_entries)
+            if projection["calls"] > 0
+        ]
+
+        fastest_latency = sorted(
+            latency_candidates,
+            key=lambda data: data["average_latency_ms"],
+        )[:5]
+
+        slowest_latency = sorted(
+            latency_candidates,
+            key=lambda data: data["average_latency_ms"],
+            reverse=True,
+        )[:5]
+
+        return {
+            "category": normalized_category,
+            "results": paginated_results,
+            "pagination": {
+                "page": page_number,
+                "page_size": size_value,
+                "total": total_results,
+                "total_pages": total_pages,
+            },
+            "rankings": {
+                "top_performers": top_performers,
+                "worst_failure_rates": worst_failure,
+                "fastest_latency": fastest_latency,
+                "slowest_latency": slowest_latency,
+            },
+        }
 
     def get_task_metrics(
         self,
@@ -1232,6 +1448,29 @@ def get_persona_metrics(
 
     store = _get_store(config_manager)
     return store.get_metrics(persona, start=start, end=end, limit_recent=limit_recent)
+
+
+def get_persona_comparison_summary(
+    *,
+    category: str = "tool",
+    personas: Optional[Iterable[str]] = None,
+    search: Optional[str] = None,
+    limit_recent: int = 5,
+    page: int = 1,
+    page_size: int = 25,
+    config_manager: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Return a consolidated persona comparison summary from the shared store."""
+
+    store = _get_store(config_manager)
+    return store.get_persona_comparison_summary(
+        category=category,
+        personas=personas,
+        search=search,
+        limit_recent=limit_recent,
+        page=page,
+        page_size=page_size,
+    )
 
 
 def get_task_lifecycle_metrics(
