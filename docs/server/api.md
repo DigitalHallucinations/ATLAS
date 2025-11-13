@@ -180,6 +180,13 @@ persona manifests, analytics, and review state.【F:modules/Server/routes.py†L
 }
 ```
 
+Persona analytics payloads now expose `anomalies` (scoped to the requested metric
+category) and `recent_anomalies` collections summarizing the latest threshold
+breaches. When an anomaly is recorded the service publishes a
+`persona_metrics.alert` event containing the persona identifier, metric name,
+observed value, current baseline statistics, and suggested remediation steps so
+dashboards can subscribe for proactive notifications.【F:modules/Server/routes.py†L630-L685】【F:modules/analytics/persona_metrics.py†L115-L225】
+
 ## Blackboard endpoints
 
 The shared blackboard supports collaborative annotations keyed by scope type and

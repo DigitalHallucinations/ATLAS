@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 from dataclasses import dataclass, field, replace
@@ -159,6 +160,11 @@ class PersonaMetricsStore:
     """Persist persona/tool metrics and expose aggregation helpers."""
 
     _default_filename = "persona_metrics.json"
+    _baseline_alpha = 0.3
+    _baseline_min_points = 5
+    _baseline_z_threshold = 3.0
+    _baseline_min_stddev = 1e-3
+    _max_anomalies = 200
 
     def __init__(
         self,
@@ -190,7 +196,13 @@ class PersonaMetricsStore:
         """Remove all recorded metrics."""
 
         with self._lock:
-            payload = {"events": [], "task_events": [], "job_events": []}
+            payload = {
+                "events": [],
+                "task_events": [],
+                "job_events": [],
+                "baselines": {},
+                "anomalies": [],
+            }
             self._write_payload(payload)
 
     def record_task_event(self, event: LifecycleEvent) -> None:
@@ -210,6 +222,8 @@ class PersonaMetricsStore:
             payload.setdefault("events", payload.get("events", []))
             payload["task_events"] = []
             payload.setdefault("job_events", payload.get("job_events", []))
+            payload.setdefault("baselines", payload.get("baselines", {}))
+            payload.setdefault("anomalies", payload.get("anomalies", []))
             self._write_payload(payload)
 
     def record_job_event(self, event: LifecycleEvent) -> None:
@@ -233,46 +247,91 @@ class PersonaMetricsStore:
     ) -> Dict[str, Any]:
         """Return aggregated metrics for ``persona`` within an optional window."""
 
+        alerts_to_dispatch: List[Dict[str, Any]] = []
+
         with self._lock:
             payload = self._load_payload()
-        raw_events = payload.get("events") or []
-        filtered: List[Tuple[Dict[str, Any], Optional[datetime]]] = []
-        for item in raw_events:
-            if not isinstance(item, Mapping):
-                continue
-            if item.get("persona") != persona:
-                continue
-            timestamp = _parse_iso(str(item.get("timestamp")))
-            if start and (timestamp is None or timestamp < start):
-                continue
-            if end and (timestamp is None or timestamp > end):
-                continue
-            filtered.append((self._normalize_event_dict(item), timestamp))
+            raw_events = payload.get("events") or []
+            filtered: List[Tuple[Dict[str, Any], Optional[datetime]]] = []
+            for item in raw_events:
+                if not isinstance(item, Mapping):
+                    continue
+                if item.get("persona") != persona:
+                    continue
+                timestamp = _parse_iso(str(item.get("timestamp")))
+                if start and (timestamp is None or timestamp < start):
+                    continue
+                if end and (timestamp is None or timestamp > end):
+                    continue
+                filtered.append((self._normalize_event_dict(item), timestamp))
 
-        tool_metrics = self._aggregate_category(
-            filtered,
-            category="tool",
-            name_key="tool",
-            label="tool",
-            limit_recent=limit_recent,
-        )
-        skill_metrics = self._aggregate_category(
-            filtered,
-            category="skill",
-            name_key="skill",
-            label="skill",
-            limit_recent=limit_recent,
-        )
+            tool_metrics = self._aggregate_category(
+                filtered,
+                category="tool",
+                name_key="tool",
+                label="tool",
+                limit_recent=limit_recent,
+            )
+            skill_metrics = self._aggregate_category(
+                filtered,
+                category="skill",
+                name_key="skill",
+                label="skill",
+                limit_recent=limit_recent,
+            )
 
-        result = {
-            "persona": persona,
-            "window": {
-                "start": _isoformat(start) if start else None,
-                "end": _isoformat(end) if end else None,
-            },
-        }
-        result.update(tool_metrics)
-        result["skills"] = skill_metrics
+            payload_dirty = False
+            for category_name, metrics in (
+                ("tool", tool_metrics),
+                ("skill", skill_metrics),
+            ):
+                detected, updated = self._evaluate_category_anomalies(
+                    payload,
+                    persona,
+                    category_name,
+                    metrics,
+                )
+                if detected:
+                    alerts_to_dispatch.extend(detected)
+                if updated:
+                    payload_dirty = True
+
+            persona_anomalies = self._collect_recent_anomalies(payload, persona)
+
+            tool_anomalies = [
+                dict(item)
+                for item in persona_anomalies
+                if (item.get("category") or "").lower() == "tool"
+            ]
+            skill_anomalies = [
+                dict(item)
+                for item in persona_anomalies
+                if (item.get("category") or "").lower() == "skill"
+            ]
+
+            tool_metrics["anomalies"] = tool_anomalies
+            tool_metrics["recent_anomalies"] = tool_anomalies
+            skill_metrics["anomalies"] = skill_anomalies
+            skill_metrics["recent_anomalies"] = skill_anomalies
+
+            result = {
+                "persona": persona,
+                "window": {
+                    "start": _isoformat(start) if start else None,
+                    "end": _isoformat(end) if end else None,
+                },
+            }
+            result.update(tool_metrics)
+            result["anomalies"] = tool_anomalies
+            result["recent_anomalies"] = persona_anomalies
+            result["skills"] = skill_metrics
+
+            if payload_dirty:
+                self._write_payload(payload)
+
+        for alert in alerts_to_dispatch:
+            _dispatch_persona_metric_alert(alert)
+
         return result
 
     def get_task_metrics(
@@ -657,10 +716,13 @@ class PersonaMetricsStore:
         total_calls = len(category_events)
         success_count = sum(1 for event, _ in category_events if bool(event.get("success")))
         failure_count = total_calls - success_count
-        latency_sum = sum(
-            float(event.get("latency_ms") or 0.0) for event, _ in category_events
-        )
-        average_latency = latency_sum / total_calls if total_calls else 0.0
+        latencies = [
+            float(event.get("latency_ms"))
+            for event, _ in category_events
+            if event.get("latency_ms") is not None
+        ]
+        average_latency = sum(latencies) / len(latencies) if latencies else 0.0
+        latency_samples = len(latencies)
 
         totals_by_name: Dict[str, Dict[str, Any]] = {}
         for event, _ in category_events:
@@ -705,6 +767,7 @@ class PersonaMetricsStore:
             },
             "success_rate": success_count / total_calls if total_calls else 0.0,
             "average_latency_ms": average_latency,
+            "latency_samples": latency_samples,
             f"totals_by_{label}": sorted(
                 totals_by_name.values(), key=lambda bucket: bucket[label]
             ),
@@ -715,18 +778,198 @@ class PersonaMetricsStore:
 
     def _load_payload(self) -> Dict[str, Any]:
         if not os.path.exists(self._storage_path):
-            return {"events": [], "task_events": [], "job_events": []}
+            return {
+                "events": [],
+                "task_events": [],
+                "job_events": [],
+                "baselines": {},
+                "anomalies": [],
+            }
         try:
             with open(self._storage_path, "r", encoding="utf-8") as handle:
-                return json.load(handle)
+                payload = json.load(handle)
         except json.JSONDecodeError:
-            return {"events": [], "task_events": [], "job_events": []}
+            return {
+                "events": [],
+                "task_events": [],
+                "job_events": [],
+                "baselines": {},
+                "anomalies": [],
+            }
+
+        if not isinstance(payload, dict):
+            payload = {}
+        payload.setdefault("events", [])
+        payload.setdefault("task_events", [])
+        payload.setdefault("job_events", [])
+        payload.setdefault("baselines", {})
+        payload.setdefault("anomalies", [])
+        return payload
 
     def _write_payload(self, payload: Dict[str, Any]) -> None:
         tmp_path = f"{self._storage_path}.tmp"
         with open(tmp_path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
         os.replace(tmp_path, self._storage_path)
+
+    def _evaluate_category_anomalies(
+        self,
+        payload: Dict[str, Any],
+        persona: str,
+        category: str,
+        metrics: Mapping[str, Any],
+    ) -> Tuple[List[Dict[str, Any]], bool]:
+        totals = metrics.get("totals") if isinstance(metrics, Mapping) else {}
+        if not isinstance(totals, Mapping):
+            totals = {}
+
+        calls = int(totals.get("calls") or 0)
+        if calls <= 0:
+            return ([], False)
+
+        triggered: List[Dict[str, Any]] = []
+        payload_dirty = False
+
+        failures = int(totals.get("failure") or 0)
+        failure_rate = failures / calls if calls else 0.0
+        failure_actions = [
+            "Inspect recent failures for errors or regressions.",
+            "Consider disabling problematic tools until stability improves.",
+        ]
+        anomaly, updated = self._check_metric_anomaly(
+            payload,
+            persona,
+            category,
+            "failure_rate",
+            failure_rate,
+            failure_actions,
+        )
+        if updated:
+            payload_dirty = True
+        if anomaly:
+            if self._record_anomaly(payload, anomaly):
+                payload_dirty = True
+            triggered.append(anomaly)
+
+        latency_samples = int(metrics.get("latency_samples") or 0)
+        if latency_samples > 0:
+            latency_value = float(metrics.get("average_latency_ms") or 0.0)
+            latency_actions = [
+                "Review recent latency spikes and adjust scaling or timeouts.",
+                "Audit upstream providers for degraded performance.",
+            ]
+            anomaly, updated = self._check_metric_anomaly(
+                payload,
+                persona,
+                category,
+                "latency_ms",
+                latency_value,
+                latency_actions,
+            )
+            if updated:
+                payload_dirty = True
+            if anomaly:
+                if self._record_anomaly(payload, anomaly):
+                    payload_dirty = True
+                triggered.append(anomaly)
+
+        return (triggered, payload_dirty)
+
+    def _check_metric_anomaly(
+        self,
+        payload: Dict[str, Any],
+        persona: str,
+        category: str,
+        metric: str,
+        value: float,
+        actions: List[str],
+    ) -> Tuple[Optional[Dict[str, Any]], bool]:
+        if not math.isfinite(value):
+            return (None, False)
+
+        baseline_bucket = self._get_baseline_bucket(payload, persona, category, metric)
+        count = int(baseline_bucket.get("count") or 0)
+        mean = float(baseline_bucket.get("mean") or 0.0)
+        variance = float(baseline_bucket.get("variance") or 0.0)
+
+        anomaly: Optional[Dict[str, Any]] = None
+        stddev = math.sqrt(max(variance, self._baseline_min_stddev ** 2))
+        if count >= self._baseline_min_points:
+            z_score = abs(value - mean) / stddev if stddev > 0 else 0.0
+            if z_score >= self._baseline_z_threshold:
+                anomaly = {
+                    "persona": persona,
+                    "category": category,
+                    "metric": f"{category}.{metric}",
+                    "observed": value,
+                    "baseline": {
+                        "mean": mean,
+                        "stddev": stddev,
+                        "z_score": z_score,
+                        "threshold_z": self._baseline_z_threshold,
+                    },
+                    "suggested_actions": list(actions),
+                    "timestamp": _isoformat(datetime.now(timezone.utc)),
+                }
+
+        # Update EWMA baseline after evaluating anomaly status.
+        if count == 0:
+            new_mean = value
+            new_variance = max(self._baseline_min_stddev ** 2, 0.0)
+        else:
+            delta = value - mean
+            new_mean = mean + self._baseline_alpha * delta
+            new_variance = (1 - self._baseline_alpha) * (
+                variance + self._baseline_alpha * (delta ** 2)
+            )
+            new_variance = max(new_variance, self._baseline_min_stddev ** 2)
+
+        baseline_bucket.update(
+            {
+                "mean": new_mean,
+                "variance": new_variance,
+                "count": count + 1,
+                "last_observed": value,
+                "updated_at": _isoformat(datetime.now(timezone.utc)),
+            }
+        )
+
+        return (anomaly, True)
+
+    def _get_baseline_bucket(
+        self,
+        payload: Dict[str, Any],
+        persona: str,
+        category: str,
+        metric: str,
+    ) -> Dict[str, Any]:
+        baselines = payload.setdefault("baselines", {})
+        persona_bucket = baselines.setdefault(persona, {})
+        category_bucket = persona_bucket.setdefault(category, {})
+        metric_bucket = category_bucket.setdefault(metric, {})
+        return metric_bucket
+
+    def _record_anomaly(self, payload: Dict[str, Any], anomaly: Dict[str, Any]) -> bool:
+        anomalies = payload.setdefault("anomalies", [])
+        anomalies.append(anomaly)
+        if len(anomalies) > self._max_anomalies:
+            del anomalies[:-self._max_anomalies]
+        return True
+
+    def _collect_recent_anomalies(
+        self, payload: Mapping[str, Any], persona: str, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        entries = payload.get("anomalies") if isinstance(payload, Mapping) else []
+        if not isinstance(entries, list):
+            return []
+        filtered = [
+            dict(item)
+            for item in entries
+            if isinstance(item, Mapping) and item.get("persona") == persona
+        ]
+        recent = filtered[-limit:]
+        recent.reverse()
+        return recent
 
 
 _default_store: Optional[PersonaMetricsStore] = None
@@ -1033,3 +1276,33 @@ def reset_task_metrics(*, config_manager: Optional[Any] = None) -> None:
 
     store = _get_store(config_manager)
     store.reset_task_metrics()
+
+
+def _dispatch_persona_metric_alert(alert: Mapping[str, Any]) -> None:
+    if not isinstance(alert, Mapping):
+        return
+
+    persona = alert.get("persona")
+    metric = alert.get("metric")
+    if not persona or not metric:
+        return
+
+    payload = {
+        "persona": persona,
+        "metric": metric,
+        "category": alert.get("category"),
+        "observed": alert.get("observed"),
+        "baseline": dict(alert.get("baseline") or {}),
+        "timestamp": alert.get("timestamp"),
+        "suggested_actions": list(alert.get("suggested_actions") or []),
+    }
+
+    publish_bus_event(
+        "persona_metrics.alert",
+        payload,
+        priority=MessagePriority.HIGH,
+        correlation_id=f"{persona}:{metric}",
+        tracing={"persona": persona, "metric": metric},
+        metadata={"component": "analytics"},
+        emit_legacy=False,
+    )

@@ -67,6 +67,8 @@ class PersonaManagement:
         self._analytics_summary_labels: Dict[str, Gtk.Label] = {}
         self._analytics_tool_list: Optional[Gtk.ListBox] = None
         self._analytics_tool_placeholder: Optional[Gtk.Widget] = None
+        self._analytics_anomaly_list: Optional[Gtk.ListBox] = None
+        self._analytics_anomaly_placeholder: Optional[Gtk.Widget] = None
         self._analytics_recent_list: Optional[Gtk.ListBox] = None
         self._analytics_recent_placeholder: Optional[Gtk.Widget] = None
         self._review_banner_box: Optional[Gtk.Box] = None
@@ -2074,6 +2076,124 @@ class PersonaManagement:
         if isinstance(latency_label, Gtk.Label):
             latency_label.set_text(f"{avg_latency:.1f} ms")
 
+        anomaly_entries: List[Dict[str, Any]] = []
+        if isinstance(metrics, dict):
+            anomaly_source = metrics.get('recent_anomalies')
+            if not isinstance(anomaly_source, list):
+                anomaly_source = metrics.get('anomalies')
+            if isinstance(anomaly_source, list):
+                anomaly_entries.extend(
+                    [entry for entry in anomaly_source if isinstance(entry, dict)]
+                )
+        if not anomaly_entries and isinstance(skill_metrics, dict):
+            skill_anomaly_source = skill_metrics.get('recent_anomalies')
+            if not isinstance(skill_anomaly_source, list):
+                skill_anomaly_source = skill_metrics.get('anomalies')
+            if isinstance(skill_anomaly_source, list):
+                anomaly_entries.extend(
+                    [entry for entry in skill_anomaly_source if isinstance(entry, dict)]
+                )
+
+        seen_keys = set()
+        deduped_anomalies: List[Dict[str, Any]] = []
+        for entry in anomaly_entries:
+            metric_name = str(entry.get('metric') or entry.get('category') or '')
+            timestamp_key = str(entry.get('timestamp') or '')
+            key = (metric_name, timestamp_key)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            deduped_anomalies.append(entry)
+        anomaly_entries = deduped_anomalies
+
+        self._clear_list_box(self._analytics_anomaly_list)
+        if self._analytics_anomaly_placeholder is not None:
+            placeholder_parent = getattr(
+                self._analytics_anomaly_placeholder, 'get_parent', lambda: None
+            )()
+            if placeholder_parent is not None:
+                try:
+                    placeholder_parent.remove(self._analytics_anomaly_placeholder)
+                except Exception:
+                    pass
+            self._analytics_anomaly_placeholder = None
+
+        if not anomaly_entries:
+            placeholder = Gtk.Label(label="No anomalies detected in this range.")
+            placeholder.set_xalign(0.0)
+            if isinstance(self._analytics_anomaly_list, Gtk.ListBox):
+                self._analytics_anomaly_list.append(placeholder)
+            self._analytics_anomaly_placeholder = placeholder
+        else:
+            for entry in anomaly_entries:
+                metric_name = str(entry.get('metric') or entry.get('category') or 'Metric')
+                timestamp = self._format_analytics_timestamp(entry.get('timestamp'))
+                observed = entry.get('observed')
+                baseline = entry.get('baseline') if isinstance(entry.get('baseline'), dict) else {}
+                baseline_mean = baseline.get('mean') if isinstance(baseline, dict) else None
+                z_score = baseline.get('z_score') if isinstance(baseline, dict) else None
+
+                if isinstance(observed, (int, float)):
+                    if 'failure_rate' in metric_name:
+                        observed_text = f"{observed * 100:.1f}% failure"
+                        if isinstance(baseline_mean, (int, float)):
+                            baseline_text = f"{baseline_mean * 100:.1f}% avg"
+                        else:
+                            baseline_text = "baseline n/a"
+                    else:
+                        observed_text = f"{observed:.1f}"
+                        if isinstance(baseline_mean, (int, float)):
+                            baseline_text = f"{baseline_mean:.1f} baseline"
+                        else:
+                            baseline_text = "baseline n/a"
+                else:
+                    observed_text = str(observed)
+                    baseline_text = (
+                        f"{baseline_mean}" if baseline_mean is not None else "baseline n/a"
+                    )
+
+                summary_parts = [f"Observed {observed_text} vs {baseline_text}"]
+                if isinstance(z_score, (int, float)):
+                    summary_parts.append(f"z-score {z_score:.2f}")
+                summary = " • ".join(summary_parts)
+
+                actions = entry.get('suggested_actions')
+                action_text = ""
+                if isinstance(actions, list):
+                    filtered_actions = [str(item) for item in actions if item]
+                    if filtered_actions:
+                        action_text = "; ".join(filtered_actions)
+
+                row = Gtk.ListBoxRow()
+                row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                metric_label = Gtk.Label(label=metric_name)
+                metric_label.set_xalign(0.0)
+                time_label = Gtk.Label(label=timestamp)
+                time_label.set_xalign(1.0)
+                time_label.get_style_context().add_class('dim-label')
+                header_box.append(metric_label)
+                header_box.append(time_label)
+
+                summary_label = Gtk.Label(label=summary)
+                summary_label.set_xalign(0.0)
+                summary_label.get_style_context().add_class('dim-label')
+                summary_label.set_wrap(True)
+
+                row_box.append(header_box)
+                row_box.append(summary_label)
+
+                if action_text:
+                    action_label = Gtk.Label(label=action_text)
+                    action_label.set_xalign(0.0)
+                    action_label.get_style_context().add_class('dim-label')
+                    action_label.set_wrap(True)
+                    row_box.append(action_label)
+
+                row.set_child(row_box)
+                if isinstance(self._analytics_anomaly_list, Gtk.ListBox):
+                    self._analytics_anomaly_list.append(row)
+
         tool_entries = metrics.get('totals_by_tool') if isinstance(metrics, dict) else []
         if not isinstance(tool_entries, list):
             tool_entries = []
@@ -2290,6 +2410,21 @@ class PersonaManagement:
 
         container.append(summary_grid)
 
+        anomaly_label = Gtk.Label(label="Recent Anomalies")
+        anomaly_label.set_xalign(0.0)
+        container.append(anomaly_label)
+
+        anomaly_scroll = Gtk.ScrolledWindow()
+        anomaly_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        anomaly_scroll.set_min_content_height(140)
+        anomaly_scroll.set_hexpand(True)
+        anomaly_scroll.set_vexpand(True)
+        anomaly_list = Gtk.ListBox()
+        anomaly_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        anomaly_list.add_css_class('boxed-list')
+        anomaly_scroll.set_child(anomaly_list)
+        container.append(anomaly_scroll)
+
         tool_label = Gtk.Label(label="Tool Breakdown")
         tool_label.set_xalign(0.0)
         container.append(tool_label)
@@ -2342,9 +2477,11 @@ class PersonaManagement:
         self._analytics_tool_list = tool_list
         self._analytics_skill_list = skill_list
         self._analytics_recent_list = recent_list
+        self._analytics_anomaly_list = anomaly_list
         self._analytics_tool_placeholder = None
         self._analytics_skill_placeholder = None
         self._analytics_recent_placeholder = None
+        self._analytics_anomaly_placeholder = None
 
         self._refresh_persona_analytics(show_errors=False)
 
