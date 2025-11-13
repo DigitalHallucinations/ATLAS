@@ -18,7 +18,7 @@ from modules.logging.audit import (
     PersonaReviewLogger,
     PersonaReviewQueue,
 )
-from modules.persona_review import PersonaReviewScheduler, compute_review_status
+from modules.Personas.persona_review import PersonaReviewScheduler, compute_review_status
 
 
 @pytest.fixture

@@ -7,7 +7,7 @@ import argparse
 from datetime import datetime, timezone
 from typing import Iterable, List, Optional
 
-from modules.persona_review import (
+from modules.Personas.persona_review import (
     REVIEW_INTERVAL_DAYS,
     PersonaReviewScheduler,
     compute_review_status,

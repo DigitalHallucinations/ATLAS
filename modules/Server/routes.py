@@ -50,7 +50,7 @@ from modules.orchestration.message_bus import MessageBus
 if TYPE_CHECKING:
     from modules.job_store.service import JobService
     from modules.task_store.service import TaskService
-from modules.persona_review import REVIEW_INTERVAL_DAYS, compute_review_status
+from modules.Personas.persona_review import REVIEW_INTERVAL_DAYS, compute_review_status
 from .conversation_routes import (
     ConversationAuthorizationError,
     ConversationRoutes,
