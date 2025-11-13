@@ -599,7 +599,8 @@ class PersonaMetricsStore:
 
         status_totals: Dict[str, Dict[str, Any]] = {}
         task_totals: Dict[str, Dict[str, Any]] = {}
-        for event, timestamp in filtered:
+        task_sequences: Dict[str, List[Tuple[Optional[datetime], int, Dict[str, Any]]]] = {}
+        for index, (event, timestamp) in enumerate(filtered):
             status = str(event.get("to_status") or "").strip().lower() or "unknown"
             status_bucket = status_totals.setdefault(
                 status,
@@ -639,8 +640,12 @@ class PersonaMetricsStore:
                 task_bucket["last_status"] = status
                 task_bucket["last_timestamp"] = _isoformat(timestamp)
 
+            task_sequences.setdefault(task_id, []).append((timestamp, index, event))
+
         status_summary = sorted(status_totals.values(), key=lambda item: item["status"])
         task_summary = sorted(task_totals.values(), key=lambda item: item["task_id"])
+
+        funnel_summary = self._summarize_task_funnel(task_sequences)
 
         filtered.sort(key=lambda pair: pair[1] or datetime.min)
         recent_pairs = filtered[-limit_recent:]
@@ -675,6 +680,7 @@ class PersonaMetricsStore:
             "status_totals": status_summary,
             "tasks": task_summary,
             "recent": recent_events,
+            "funnel": funnel_summary,
         }
 
     def get_job_metrics(
@@ -913,6 +919,137 @@ class PersonaMetricsStore:
         metadata = payload.get("metadata")
         event["metadata"] = metadata if isinstance(metadata, Mapping) else {}
         return event
+
+    def _summarize_task_funnel(
+        self,
+        sequences: Mapping[str, List[Tuple[Optional[datetime], int, Dict[str, Any]]]],
+    ) -> Dict[str, Any]:
+        stage_stats: Dict[str, Dict[str, Any]] = {}
+        stage_seen: Dict[str, Dict[str, Any]] = {}
+
+        order_counter = 0
+        for task_id, records in sequences.items():
+            if not records:
+                continue
+
+            records = sorted(
+                records,
+                key=lambda entry: (
+                    entry[0] is None,
+                    entry[0] or datetime.min.replace(tzinfo=timezone.utc),
+                    entry[1],
+                ),
+            )
+
+            stage_entries: List[Dict[str, Any]] = []
+            for timestamp, _, event in records:
+                status = str(event.get("to_status") or "").strip().lower() or "unknown"
+                success_value = event.get("success")
+                normalized_success: Optional[bool]
+                if success_value is None:
+                    normalized_success = None
+                else:
+                    normalized_success = bool(success_value)
+
+                if not stage_entries or stage_entries[-1]["status"] != status:
+                    stage_entries.append(
+                        {
+                            "status": status,
+                            "entry_time": timestamp,
+                            "success": normalized_success,
+                        }
+                    )
+                else:
+                    entry = stage_entries[-1]
+                    if entry.get("entry_time") is None and timestamp is not None:
+                        entry["entry_time"] = timestamp
+                    if normalized_success is not None:
+                        entry["success"] = normalized_success
+
+                if status not in stage_seen:
+                    stage_seen[status] = {
+                        "order": order_counter,
+                        "first_timestamp": timestamp,
+                    }
+                    order_counter += 1
+                elif timestamp is not None:
+                    first_timestamp = stage_seen[status].get("first_timestamp")
+                    if first_timestamp is None or timestamp < first_timestamp:
+                        stage_seen[status]["first_timestamp"] = timestamp
+
+            for index, entry in enumerate(stage_entries):
+                status = entry["status"]
+                stage_bucket = stage_stats.setdefault(
+                    status,
+                    {
+                        "entered": set(),
+                        "converted": set(),
+                        "abandoned": set(),
+                        "durations": [],
+                    },
+                )
+                stage_bucket["entered"].add(task_id)
+
+                next_entry = stage_entries[index + 1] if index + 1 < len(stage_entries) else None
+                entry_time = entry.get("entry_time")
+
+                if next_entry is not None:
+                    stage_bucket["converted"].add(task_id)
+                    next_time = next_entry.get("entry_time")
+                    if (
+                        entry_time is not None
+                        and next_time is not None
+                        and next_time >= entry_time
+                    ):
+                        duration = (next_time - entry_time).total_seconds() * 1000.0
+                        stage_bucket["durations"].append(duration)
+                    continue
+
+                success_value = entry.get("success")
+                if success_value is True:
+                    stage_bucket["converted"].add(task_id)
+                else:
+                    stage_bucket["abandoned"].add(task_id)
+
+        stages: List[Dict[str, Any]] = []
+
+        for status, bucket in stage_stats.items():
+            entered_count = len(bucket["entered"])
+            converted_count = len(bucket["converted"])
+            abandoned_count = len(bucket["abandoned"])
+            durations = bucket["durations"]
+            average_time = (
+                sum(durations) / len(durations)
+                if durations
+                else None
+            )
+
+            stage_metadata = stage_seen.get(status, {"order": len(stage_seen)})
+            first_timestamp = stage_metadata.get("first_timestamp")
+            order_value = stage_metadata.get("order", 0)
+
+            stages.append(
+                {
+                    "status": status,
+                    "entered": entered_count,
+                    "converted": converted_count,
+                    "abandoned": abandoned_count,
+                    "conversion_rate": converted_count / entered_count if entered_count else 0.0,
+                    "abandonment_rate": abandoned_count / entered_count if entered_count else 0.0,
+                    "average_time_ms": average_time,
+                    "samples": len(durations),
+                    "_order": (
+                        first_timestamp is None,
+                        first_timestamp
+                        or datetime.max.replace(tzinfo=timezone.utc),
+                        order_value,
+                    ),
+                }
+            )
+
+        stages.sort(key=lambda item: item.pop("_order"))
+
+        return {"stages": stages}
 
     def _aggregate_category(
         self,
