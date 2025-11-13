@@ -8,6 +8,7 @@ import time
 from typing import Any, Callable, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from modules.logging.logger import setup_logger
+from modules.orchestration.capability_registry import get_capability_registry
 
 from .base import ProviderHealth, ToolProvider, ToolProviderSpec
 from .registry import tool_provider_registry
@@ -51,13 +52,15 @@ class ToolProviderRouter:
         tool_name: str,
         provider_specs: Sequence[Mapping[str, Any]],
         fallback_callable: Optional[Callable[..., Any]] = None,
+        persona: Optional[str] = None,
     ) -> None:
         self._tool_name = tool_name
         self._logger = setup_logger(f"{__name__}.{tool_name}")
         self._fallback_callable = fallback_callable
         self._states: List[_ProviderState] = []
-        self._metrics_callback: Optional[Callable[[Mapping[str, Any]], None]] = None
+        self._metrics_callbacks: List[Callable[[Mapping[str, Any]], None]] = []
         self._lock = asyncio.Lock()
+        self._persona = persona
 
         for raw_spec in provider_specs:
             try:
@@ -86,9 +89,12 @@ class ToolProviderRouter:
             self._states.append(_ProviderState(provider, spec))
 
         self._states.sort(key=lambda state: (state.priority, state.name))
+        self._register_default_metrics_callback()
 
     def register_metrics_callback(self, callback: Callable[[Mapping[str, Any]], None]) -> None:
-        self._metrics_callback = callback
+        if callback is None:
+            return
+        self._metrics_callbacks.append(callback)
 
     async def call(self, **kwargs: Any) -> Any:
         errors: List[Exception] = []
@@ -102,35 +108,43 @@ class ToolProviderRouter:
                 attempted.add(state.name)
 
             try:
+                start = time.perf_counter()
                 result = await self._invoke_provider(state, kwargs)
+                elapsed_ms = (time.perf_counter() - start) * 1000.0
             except Exception as exc:
+                elapsed_ms = (time.perf_counter() - start) * 1000.0
                 errors.append(exc)
                 async with self._lock:
                     await self._record_failure(state, exc)
-                    self._emit_metrics(selected=state.name, success=False)
+                    self._emit_metrics(selected=state.name, success=False, latency_ms=elapsed_ms)
                 continue
             else:
                 async with self._lock:
                     await self._record_success(state)
-                    self._emit_metrics(selected=state.name, success=True)
+                    self._emit_metrics(selected=state.name, success=True, latency_ms=elapsed_ms)
                 return result
 
         if self._fallback_callable is not None:
             try:
+                start = time.perf_counter()
                 result = await _invoke_callable(self._fallback_callable, kwargs)
+                elapsed_ms = (time.perf_counter() - start) * 1000.0
             except Exception as exc:
+                elapsed_ms = (time.perf_counter() - start) * 1000.0
                 errors.append(exc)
+                async with self._lock:
+                    self._emit_metrics(selected="fallback", success=False, latency_ms=elapsed_ms)
             else:
                 self._logger.info(
                     "Executed fallback callable for tool '%s' after exhausting providers.",
                     self._tool_name,
                 )
                 async with self._lock:
-                    self._emit_metrics(selected="fallback", success=True)
+                    self._emit_metrics(selected="fallback", success=True, latency_ms=elapsed_ms)
                 return result
 
         async with self._lock:
-            self._emit_metrics(selected=None, success=False)
+            self._emit_metrics(selected=None, success=False, latency_ms=None)
         if errors:
             raise errors[-1]
         raise RuntimeError(f"No providers available for tool '{self._tool_name}'")
@@ -218,7 +232,7 @@ class ToolProviderRouter:
             failure_rate,
         )
 
-    def _emit_metrics(self, *, selected: Optional[str], success: bool) -> None:
+    def _emit_metrics(self, *, selected: Optional[str], success: bool, latency_ms: Optional[float]) -> None:
         summary = {
             "tool": self._tool_name,
             "selected": selected,
@@ -227,12 +241,38 @@ class ToolProviderRouter:
                 state.name: state.health.snapshot() for state in self._states
             },
         }
-        self._logger.debug("Provider health summary: %s", summary)
-        if self._metrics_callback is not None:
+        if latency_ms is not None:
             try:
-                self._metrics_callback(summary)
+                summary["latency_ms"] = float(latency_ms)
+            except (TypeError, ValueError):
+                summary["latency_ms"] = None
+        summary["timestamp"] = time.time()
+        self._logger.debug("Provider health summary: %s", summary)
+        for callback in list(self._metrics_callbacks):
+            try:
+                callback(summary)
             except Exception:  # pragma: no cover - defensive hook handling
-                self._logger.warning("Metrics callback for tool '%s' raised an exception", self._tool_name, exc_info=True)
+                self._logger.warning(
+                    "Metrics callback for tool '%s' raised an exception",
+                    self._tool_name,
+                    exc_info=True,
+                )
+
+    def _register_default_metrics_callback(self) -> None:
+        def _forward(summary: Mapping[str, Any]) -> None:
+            try:
+                registry = get_capability_registry()
+                registry.record_provider_metrics(
+                    persona=self._persona,
+                    tool_name=self._tool_name,
+                    summary=summary,
+                )
+            except Exception:  # pragma: no cover - defensive guard for registry lookup
+                self._logger.debug(
+                    "Failed to record provider metrics for tool '%s'", self._tool_name, exc_info=True
+                )
+
+        self.register_metrics_callback(_forward)
 
 
 __all__ = ["ToolProviderRouter"]

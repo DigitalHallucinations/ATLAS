@@ -52,30 +52,46 @@ class ToolingService:
         self.persona_manager = persona_manager
 
     @staticmethod
-    def _serialize_tool_health(health: Mapping[str, Any]) -> Dict[str, Any]:
+    def _serialize_tool_health(
+        health: Mapping[str, Any], *, include_provider_health: bool = True
+    ) -> Dict[str, Any]:
         """Return a JSON-safe view of tool health metrics."""
 
         tool_metrics = health.get("tool") if isinstance(health, Mapping) else None
         providers = health.get("providers") if isinstance(health, Mapping) else None
+        last_invocation = (
+            health.get("last_invocation") if isinstance(health, Mapping) else None
+        )
 
         serialized_providers: Dict[str, Any] = {}
-        if isinstance(providers, Mapping):
+        if include_provider_health and isinstance(providers, Mapping):
             for name, payload in providers.items():
                 if not isinstance(payload, Mapping):
                     continue
                 metrics = payload.get("metrics")
                 router = payload.get("router")
+                last_call = payload.get("last_call")
                 serialized_providers[str(name)] = {
                     "metrics": dict(metrics) if isinstance(metrics, Mapping) else {},
                     "router": dict(router) if isinstance(router, Mapping) else {},
+                    "last_call": dict(last_call) if isinstance(last_call, Mapping) else {},
                 }
 
-        return {
+        serialized_last_invocation = (
+            dict(last_invocation) if isinstance(last_invocation, Mapping) else {}
+        )
+
+        payload = {
             "tool": dict(tool_metrics) if isinstance(tool_metrics, Mapping) else {},
             "providers": serialized_providers,
         }
+        if serialized_last_invocation or include_provider_health:
+            payload["last_invocation"] = serialized_last_invocation
+        return payload
 
-    def _serialize_tool_entry(self, view: Any) -> Dict[str, Any]:
+    def _serialize_tool_entry(
+        self, view: Any, *, include_provider_health: bool
+    ) -> Dict[str, Any]:
         """Return manifest metadata for a tool capability registry view."""
 
         entry = view.manifest
@@ -102,7 +118,9 @@ class ToolingService:
             "source": entry.source,
             "capability_tags": list(view.capability_tags),
             "auth_scopes": list(view.auth_scopes),
-            "health": self._serialize_tool_health(view.health),
+            "health": self._serialize_tool_health(
+                view.health, include_provider_health=include_provider_health
+            ),
         }
 
     def _serialize_skill_entry(self, manifest: Any) -> Dict[str, Any]:
@@ -389,7 +407,7 @@ class ToolingService:
 
         return prepared
 
-    def list_tools(self) -> List[Dict[str, Any]]:
+    def list_tools(self, *, include_provider_health: bool = True) -> List[Dict[str, Any]]:
         """Return merged tool metadata with persisted configuration state."""
 
         registry = get_capability_registry(config_manager=self.config_manager)
@@ -399,7 +417,9 @@ class ToolingService:
         serialized_entries: List[Dict[str, Any]] = []
 
         for view in views:
-            payload = self._serialize_tool_entry(view)
+            payload = self._serialize_tool_entry(
+                view, include_provider_health=include_provider_health
+            )
             serialized_entries.append(payload)
             manifest_lookup[payload["name"]] = {"auth": payload.get("auth")}
 

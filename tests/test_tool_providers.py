@@ -1,7 +1,7 @@
 import asyncio
 import sys
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping, Optional
 
 import pytest
 
@@ -90,6 +90,48 @@ def test_provider_router_falls_back_to_healthiest_provider():
     assert metrics[-1]["success"] is True
     assert metrics[-1]["selected"] == "healthy"
     assert metrics[-1]["providers"]["failing"]["failures"] >= 1
+
+
+def test_router_records_metrics_with_default_callback(monkeypatch):
+    recorded: List[Mapping[str, Any]] = []
+
+    class _Recorder:
+        def record_provider_metrics(
+            self,
+            *,
+            persona: Optional[str],
+            tool_name: str,
+            summary: Mapping[str, Any],
+        ) -> None:
+            recorded.append(
+                {
+                    "persona": persona,
+                    "tool": tool_name,
+                    "summary": dict(summary),
+                }
+            )
+
+    dummy_registry = _Recorder()
+    monkeypatch.setattr(
+        "modules.Tools.providers.router.get_capability_registry",
+        lambda: dummy_registry,
+    )
+
+    with tool_provider_registry.temporary_provider("healthy", _HealthyProvider):
+        router = ToolProviderRouter(
+            tool_name="demo",
+            provider_specs=[{"name": "healthy", "priority": 1}],
+            persona="ops",
+        )
+        result = asyncio.run(router.call(value="ok"))
+        assert result == "ok"
+
+    assert recorded, "Registry callback should capture metrics"
+    payload = recorded[-1]
+    assert payload["persona"] == "ops"
+    assert payload["tool"] == "demo"
+    assert payload["summary"].get("selected") == "healthy"
+    assert payload["summary"].get("latency_ms") is not None
 
 
 def test_provider_router_skips_unhealthy_providers():
