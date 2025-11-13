@@ -50,6 +50,8 @@ class ConfigCore:
     def _load_env_config(self) -> Dict[str, Any]:
         """Load environment variables into the configuration dictionary."""
 
+        app_root = Path(__file__).resolve().parents[2]
+
         config = {
             "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
             "DEFAULT_PROVIDER": os.getenv("DEFAULT_PROVIDER", "OpenAI"),
@@ -65,7 +67,7 @@ class ConfigCore:
             "OPENAI_ORGANIZATION": os.getenv("OPENAI_ORGANIZATION"),
             "JAVASCRIPT_EXECUTOR_BIN": os.getenv("JAVASCRIPT_EXECUTOR_BIN"),
             "JAVASCRIPT_EXECUTOR_ARGS": os.getenv("JAVASCRIPT_EXECUTOR_ARGS"),
-            "APP_ROOT": os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "APP_ROOT": str(app_root),
         }
         self.logger.debug("APP_ROOT is set to: %s", config["APP_ROOT"])
         return config
@@ -119,7 +121,7 @@ class ConfigCore:
             else:
                 app_root = os.getenv("APP_ROOT")
             if not app_root:
-                app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                app_root = str(Path(__file__).resolve().parents[2])
 
             env_path = os.path.abspath(os.path.join(app_root, ".env"))
             os.makedirs(os.path.dirname(env_path), exist_ok=True)
