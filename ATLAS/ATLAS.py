@@ -1495,6 +1495,21 @@ class ATLAS:
             metric_type=metric_type,
         )
 
+    def get_job_metrics(
+        self,
+        persona_name: str,
+        *,
+        tenant_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """Return aggregated job lifecycle analytics via the server routes."""
+
+        return self.server.get_job_metrics(
+            persona_name,
+            tenant_id=tenant_id,
+            limit=limit,
+        )
+
     def get_persona_comparison_summary(
         self,
         *,

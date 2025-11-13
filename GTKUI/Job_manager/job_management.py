@@ -77,6 +77,7 @@ class JobManagement:
         self._updated_label: Optional[Gtk.Label] = None
         self._persona_badges: Optional[Gtk.Widget] = None
         self._schedule_box: Optional[Gtk.Widget] = None
+        self._risk_box: Optional[Gtk.Widget] = None
         self._linked_tasks_box: Optional[Gtk.Widget] = None
         self._link_task_button: Optional[Gtk.Button] = None
         self._escalation_box: Optional[Gtk.Widget] = None
@@ -108,6 +109,7 @@ class JobManagement:
 
         # Cached detail data for tests and scripted validation
         self._current_schedule_badges: List[str] = []
+        self._current_risk_badges: List[str] = []
         self._current_linked_task_badges: List[str] = []
         self._current_escalation_badges: List[str] = []
         self._linked_task_action_lookup: List[Tuple[Mapping[str, Any], Gtk.Button]] = []
@@ -268,6 +270,7 @@ class JobManagement:
 
         self._persona_badges = self._add_badge_section(detail_panel, "Persona roster")
         self._schedule_box = self._add_badge_section(detail_panel, "Schedule")
+        self._risk_box = self._add_badge_section(detail_panel, "SLA risk forecast")
         self._linked_tasks_box = self._add_linked_tasks_section(detail_panel)
         self._escalation_box = self._add_badge_section(detail_panel, "Escalation policy")
 
@@ -955,9 +958,11 @@ class JobManagement:
             self._set_label(self._updated_label, "-")
             sync_badge_section(self._persona_badges, [])
             sync_badge_section(self._schedule_box, [])
+            sync_badge_section(self._risk_box, [])
             sync_badge_section(self._linked_tasks_box, [])
             sync_badge_section(self._escalation_box, [])
             self._current_schedule_badges = []
+            self._current_risk_badges = []
             self._current_linked_task_badges = []
             self._current_escalation_badges = []
             self._update_action_buttons(None)
@@ -1000,6 +1005,46 @@ class JobManagement:
         for persona in entry.personas:
             persona_badges.append((persona, ("tag-badge", "status-warning")))
         sync_badge_section(self._persona_badges, persona_badges, fallback="No personas assigned")
+
+        forecast = self._load_sla_forecast(entry)
+        risk_badges: List[Tuple[str, Sequence[str]]] = []
+        probability_value = None
+        if isinstance(forecast, Mapping):
+            probability_candidate = forecast.get("breach_probability")
+            if isinstance(probability_candidate, (int, float)):
+                probability_value = float(probability_candidate)
+                risk_badges.append(
+                    (
+                        f"Breach probability: {probability_value * 100:.1f}%",
+                        self._risk_css(probability_value, forecast.get("risk_level")),
+                    )
+                )
+            expected_value = forecast.get("expected_breaches")
+            horizon_value = forecast.get("horizon")
+            css = self._risk_css(probability_value, forecast.get("risk_level"))
+            if isinstance(expected_value, (int, float)):
+                if isinstance(horizon_value, int) and horizon_value > 0:
+                    risk_badges.append(
+                        (
+                            f"Expected breaches next {horizon_value}: {expected_value:.1f}",
+                            css,
+                        )
+                    )
+                else:
+                    risk_badges.append((f"Expected breaches: {expected_value:.1f}", css))
+            risk_level_value = forecast.get("risk_level")
+            if isinstance(risk_level_value, str) and risk_level_value.strip():
+                css = self._risk_css(probability_value, risk_level_value)
+                risk_badges.append(
+                    (f"Risk level: {risk_level_value.strip().capitalize()}", css)
+                )
+
+        sync_badge_section(
+            self._risk_box,
+            risk_badges,
+            fallback="Insufficient SLA history",
+        )
+        self._current_risk_badges = [text for text, _css in risk_badges]
 
         linked_badges: List[Tuple[str, Sequence[str], Mapping[str, Any]]] = []
         for record in linked_tasks:
@@ -1187,6 +1232,69 @@ class JobManagement:
         if rerun is not None and status in {"succeeded", "failed", "cancelled"}:
             rerun.set_visible(True)
             rerun.set_sensitive(True)
+
+    def _risk_css(
+        self,
+        probability: Optional[float],
+        risk_level: Optional[str],
+    ) -> Tuple[str, ...]:
+        level = (risk_level or "").strip().lower()
+        if level == "high":
+            return ("tag-badge", "status-error")
+        if level == "medium":
+            return ("tag-badge", "status-warning")
+        if level == "low":
+            return ("tag-badge", "status-ok")
+        if isinstance(probability, (int, float)):
+            if probability >= 0.6:
+                return ("tag-badge", "status-error")
+            if probability >= 0.3:
+                return ("tag-badge", "status-warning")
+            return ("tag-badge", "status-ok")
+        return ("tag-badge", "status-unknown")
+
+    def _load_sla_forecast(self, entry: _JobEntry) -> Optional[Mapping[str, Any]]:
+        personas = list(entry.personas)
+        if not personas:
+            metadata = entry.metadata
+            if isinstance(metadata, Mapping):
+                persona_value = metadata.get("persona") or metadata.get("persona_name")
+                if persona_value:
+                    personas.append(str(persona_value))
+        if not personas:
+            return None
+
+        primary_persona = str(personas[0]).strip()
+        if not primary_persona:
+            return None
+
+        get_metrics = getattr(self.ATLAS, "get_job_metrics", None)
+        if not callable(get_metrics):
+            return None
+
+        tenant_id = getattr(self.ATLAS, "tenant_id", None)
+        try:
+            metrics = get_metrics(primary_persona, tenant_id=tenant_id, limit=50)
+        except Exception as exc:
+            logger.debug(
+                "Failed to load job metrics for persona %s: %s",
+                primary_persona,
+                exc,
+                exc_info=True,
+            )
+            return None
+
+        if not isinstance(metrics, Mapping):
+            return None
+
+        sla_section = metrics.get("sla")
+        if not isinstance(sla_section, Mapping):
+            return None
+
+        forecast = sla_section.get("forecast")
+        if isinstance(forecast, Mapping):
+            return dict(forecast)
+        return None
 
     def _on_start_clicked(self, button: Gtk.Button) -> None:
         entry = None

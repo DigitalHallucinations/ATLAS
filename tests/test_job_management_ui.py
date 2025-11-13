@@ -2,7 +2,7 @@ import asyncio
 import copy
 import sys
 import types
-from typing import Iterable, Mapping
+from typing import Iterable, Mapping, Optional
 
 sys.modules.setdefault("tests.test_provider_manager", types.ModuleType("tests.test_provider_manager"))
 sys.modules.setdefault("tests.test_speech_settings_facade", types.ModuleType("tests.test_speech_settings_facade"))
@@ -196,6 +196,37 @@ class _JobServerStub:
         self.unlink_events: list[dict[str, object]] = []
         self.transitions: list[dict[str, object]] = []
         self.created_jobs: list[dict[str, object]] = []
+        self.job_metrics_payloads: dict[str, dict[str, object]] = {
+            "atlas": {
+                "persona": "Atlas",
+                "tenant_id": atlas.tenant_id,
+                "totals": {
+                    "events": 12,
+                    "success_events": 6,
+                    "failure_events": 6,
+                },
+                "success_rate": 0.5,
+                "average_latency_ms": 1200.0,
+                "status_totals": [],
+                "jobs": [],
+                "recent": [],
+                "throughput_per_hour": 1.5,
+                "sla": {
+                    "checks": 10,
+                    "breaches": 6,
+                    "adherence_rate": 0.4,
+                    "forecast": {
+                        "window": 10,
+                        "samples": 10,
+                        "alpha": 0.35,
+                        "breach_probability": 0.72,
+                        "expected_breaches": 3.6,
+                        "horizon": 5,
+                        "risk_level": "high",
+                    },
+                },
+            }
+        }
 
     def list_jobs(self, params=None, *, context):
         self._atlas.job_fetches += 1
@@ -419,6 +450,47 @@ class _JobServerStub:
                 return copy.deepcopy(job)
         raise RuntimeError("Job not found")
 
+    def get_job_metrics(
+        self,
+        persona_name: str,
+        *,
+        tenant_id: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, object]:
+        key = str(persona_name or "").strip().lower()
+        payload = self.job_metrics_payloads.get(key)
+        if payload is None:
+            return {
+                "persona": persona_name,
+                "tenant_id": tenant_id,
+                "totals": {
+                    "events": 0,
+                    "success_events": 0,
+                    "failure_events": 0,
+                },
+                "success_rate": 0.0,
+                "average_latency_ms": 0.0,
+                "status_totals": [],
+                "jobs": [],
+                "recent": [],
+                "throughput_per_hour": 0.0,
+                "sla": {
+                    "checks": 0,
+                    "breaches": 0,
+                    "adherence_rate": None,
+                    "forecast": {
+                        "window": 0,
+                        "samples": 0,
+                        "alpha": 0.35,
+                        "breach_probability": None,
+                        "expected_breaches": None,
+                        "horizon": 0,
+                        "risk_level": None,
+                    },
+                },
+            }
+        return copy.deepcopy(payload)
+
 
 class _AtlasStub:
     def __init__(self) -> None:
@@ -426,6 +498,7 @@ class _AtlasStub:
         self.job_fetches = 0
         self.job_detail_fetches = 0
         self.server = _JobServerStub(self)
+        self.job_metric_requests: list[tuple[str, Optional[str]]] = []
 
     def link_job_task(
         self,
@@ -482,6 +555,20 @@ class _AtlasStub:
         if metadata_payload:
             payload["metadata"] = metadata_payload
         return self.server.create_job(payload, context={"tenant_id": self.tenant_id})
+
+    def get_job_metrics(
+        self,
+        persona_name: str,
+        *,
+        tenant_id: Optional[str] = None,
+        limit: int = 50,
+    ):
+        self.job_metric_requests.append((persona_name, tenant_id))
+        return self.server.get_job_metrics(
+            persona_name,
+            tenant_id=tenant_id,
+            limit=limit,
+        )
 
 
 class _ParentWindowStub:
@@ -646,15 +733,31 @@ def test_job_management_filters_and_actions(monkeypatch):
     persona_combo = manager._persona_filter_combo
     assert persona_combo is not None
     persona_items = list(getattr(persona_combo, "_items", []))
-    assert "Atlas" in persona_items
-    assert "Unassigned" in persona_items
+    assert any(
+        (item == "Atlas")
+        or (isinstance(item, tuple) and "Atlas" in item)
+        for item in persona_items
+    )
+    assert any(
+        (item == "Unassigned")
+        or (isinstance(item, tuple) and "Unassigned" in item)
+        for item in persona_items
+    )
 
-    atlas_index = persona_items.index("Atlas")
+    atlas_index = next(
+        index
+        for index, item in enumerate(persona_items)
+        if item == "Atlas" or (isinstance(item, tuple) and item[0] == "Atlas")
+    )
     persona_combo.set_active(atlas_index)
     manager._on_persona_filter_changed(persona_combo)
     assert {entry.job_id for entry in manager._display_entries} == {"job-1", "job-4"}
 
-    unassigned_index = persona_items.index("Unassigned")
+    unassigned_index = next(
+        index
+        for index, item in enumerate(persona_items)
+        if item == "Unassigned" or (isinstance(item, tuple) and item[0] == "Unassigned")
+    )
     persona_combo.set_active(unassigned_index)
     manager._on_persona_filter_changed(persona_combo)
     assert {entry.job_id for entry in manager._display_entries} == {"job-3"}
@@ -662,7 +765,11 @@ def test_job_management_filters_and_actions(monkeypatch):
     status_combo = manager._status_filter_combo
     assert status_combo is not None
     status_items = list(getattr(status_combo, "_items", []))
-    running_index = status_items.index("Running")
+    running_index = next(
+        index
+        for index, item in enumerate(status_items)
+        if item == "Running" or (isinstance(item, tuple) and item[0] == "Running")
+    )
     status_combo.set_active(running_index)
     manager._on_status_filter_changed(status_combo)
     assert {entry.job_id for entry in manager._display_entries} == {"job-2"}
@@ -670,8 +777,15 @@ def test_job_management_filters_and_actions(monkeypatch):
     recurrence_combo = manager._recurrence_filter_combo
     assert recurrence_combo is not None
     recurrence_items = list(getattr(recurrence_combo, "_items", []))
-    assert "Recurring" in recurrence_items
-    recurring_index = recurrence_items.index("Recurring")
+    assert any(
+        item == "Recurring" or (isinstance(item, tuple) and item[0] == "Recurring")
+        for item in recurrence_items
+    )
+    recurring_index = next(
+        index
+        for index, item in enumerate(recurrence_items)
+        if item == "Recurring" or (isinstance(item, tuple) and item[0] == "Recurring")
+    )
     recurrence_combo.set_active(recurring_index)
     manager._on_recurrence_filter_changed(recurrence_combo)
     assert {entry.job_id for entry in manager._display_entries} == {"job-1"}
@@ -682,6 +796,12 @@ def test_job_management_filters_and_actions(monkeypatch):
     assert any("Next run: 2024-01-08T09:00:00Z" == badge for badge in manager._current_schedule_badges)
     assert any("Initial research (Ready) – blocks – Discovery" == badge for badge in manager._current_linked_task_badges)
     assert any("Level: Ops Lead" == badge for badge in manager._current_escalation_badges)
+    assert any("Risk level: High" == badge for badge in manager._current_risk_badges)
+    assert any(
+        badge.startswith("Breach probability: 72.0%")
+        for badge in manager._current_risk_badges
+    )
+    assert atlas.job_metric_requests and atlas.job_metric_requests[-1][0] == "Atlas"
 
     start_button = manager._start_button
     assert start_button is not None and start_button.visible
@@ -750,8 +870,15 @@ def test_status_filter_set_active_triggers_single_refresh(monkeypatch):
     status_combo = manager._status_filter_combo
     assert status_combo is not None
     status_items = list(getattr(status_combo, "_items", []))
-    assert "Running" in status_items
-    running_index = status_items.index("Running")
+    assert any(
+        item == "Running" or (isinstance(item, tuple) and item[0] == "Running")
+        for item in status_items
+    )
+    running_index = next(
+        index
+        for index, item in enumerate(status_items)
+        if item == "Running" or (isinstance(item, tuple) and item[0] == "Running")
+    )
 
     initial_fetches = atlas.job_fetches
     status_combo.set_active(running_index)
