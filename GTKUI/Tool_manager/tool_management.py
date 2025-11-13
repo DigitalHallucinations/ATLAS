@@ -6,6 +6,7 @@ import copy
 import csv
 import json
 import logging
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -28,6 +29,10 @@ class _ToolEntry:
     title: str
     summary: str
     capabilities: List[str]
+    providers: List[str]
+    safety_level: Optional[str]
+    version: Optional[str]
+    success_rate: Optional[float]
     auth: Dict[str, Any]
     account_status: Optional[str]
     raw_metadata: Dict[str, Any]
@@ -44,6 +49,8 @@ class ToolManagement:
     ]
     _DEFAULT_SORT_KEY = "title_asc"
     _CAPABILITY_ALL_ID = "__all__"
+    _PROVIDER_ALL_ID = "__all__"
+    _SAFETY_ALL_ID = "__all__"
 
     def __init__(self, atlas: Any, parent_window: Any) -> None:
         self.ATLAS = atlas
@@ -90,6 +97,10 @@ class ToolManagement:
         self._search_entry: Optional[Gtk.SearchEntry] = None
         self._capability_selector: Optional[Gtk.ComboBoxText] = None
         self._sort_selector: Optional[Gtk.ComboBoxText] = None
+        self._provider_selector: Optional[Gtk.ComboBoxText] = None
+        self._safety_selector: Optional[Gtk.ComboBoxText] = None
+        self._version_entry: Optional[Gtk.Entry] = None
+        self._success_rate_scale: Optional[Gtk.Scale] = None
 
         self._entries: List[_ToolEntry] = []
         self._entry_lookup: Dict[str, _ToolEntry] = {}
@@ -112,10 +123,17 @@ class ToolManagement:
 
         self._filter_text = ""
         self._capability_filter: Optional[str] = None
+        self._provider_filter: Optional[str] = None
+        self._safety_filter: Optional[str] = None
+        self._version_filter = ""
+        self._success_rate_filter: Optional[float] = None
         self._sort_key = self._DEFAULT_SORT_KEY
         self._capability_options: List[str] = [self._CAPABILITY_ALL_ID]
+        self._provider_options: List[str] = [self._PROVIDER_ALL_ID]
+        self._safety_options: List[str] = [self._SAFETY_ALL_ID]
         self._sort_option_ids: List[str] = [key for key, _ in self._SORT_OPTIONS]
         self._preferences_loaded_key: Optional[str] = None
+        self._unsupported_remote_filters: set[str] = set()
 
     # ------------------------------------------------------------------
     # Public API
@@ -235,6 +253,20 @@ class ToolManagement:
         filter_row.append(capability_selector)
         self._capability_selector = capability_selector
 
+        provider_selector = Gtk.ComboBoxText()
+        provider_selector.set_hexpand(True)
+        provider_selector.connect("changed", self._on_provider_filter_changed)
+        provider_selector.set_tooltip_text("Filter tools by provider.")
+        filter_row.append(provider_selector)
+        self._provider_selector = provider_selector
+
+        safety_selector = Gtk.ComboBoxText()
+        safety_selector.set_hexpand(True)
+        safety_selector.connect("changed", self._on_safety_filter_changed)
+        safety_selector.set_tooltip_text("Filter tools by safety level.")
+        filter_row.append(safety_selector)
+        self._safety_selector = safety_selector
+
         sort_selector = Gtk.ComboBoxText()
         sort_selector.set_hexpand(False)
         sort_selector.connect("changed", self._on_sort_changed)
@@ -243,6 +275,60 @@ class ToolManagement:
         self._sort_selector = sort_selector
 
         left_panel.append(filter_row)
+
+        advanced_filter_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        advanced_filter_row.set_hexpand(True)
+
+        version_entry = Gtk.Entry()
+        version_entry.set_hexpand(True)
+        try:
+            version_entry.set_placeholder_text("Version constraint")
+        except Exception:  # pragma: no cover - GTK compatibility fallback
+            pass
+        version_entry.set_tooltip_text("Filter tools by version (e.g., '>=1.2').")
+        version_entry.connect("changed", self._on_version_filter_changed)
+        advanced_filter_row.append(version_entry)
+        self._version_entry = version_entry
+
+        adjustment_class = getattr(Gtk, "Adjustment", None)
+        if adjustment_class is not None:
+            try:
+                success_adjustment = adjustment_class(0.0, 0.0, 100.0, 1.0, 5.0, 0.0)
+            except TypeError:  # pragma: no cover - GTK stub fallback
+                success_adjustment = adjustment_class(0.0, 0.0, 100.0, 1.0, 5.0)
+        else:  # pragma: no cover - GTK fallback
+            success_adjustment = None
+
+        success_scale = Gtk.Scale(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            adjustment=success_adjustment,
+        ) if success_adjustment is not None else Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL)
+        if success_adjustment is None:
+            try:
+                success_scale.set_range(0.0, 100.0)
+            except Exception:  # pragma: no cover - GTK compatibility fallback
+                pass
+        success_scale.set_hexpand(True)
+        try:
+            success_scale.set_digits(0)
+        except Exception:  # pragma: no cover - GTK compatibility fallback
+            pass
+        try:
+            success_scale.set_draw_value(True)
+        except Exception:  # pragma: no cover - GTK compatibility fallback
+            pass
+        position_type = getattr(Gtk, "PositionType", None)
+        if position_type is not None:
+            try:
+                success_scale.set_value_pos(getattr(position_type, "RIGHT", None))
+            except Exception:  # pragma: no cover - GTK compatibility fallback
+                pass
+        success_scale.set_tooltip_text("Minimum success rate (%) required for tools.")
+        success_scale.connect("value-changed", self._on_success_rate_changed)
+        advanced_filter_row.append(success_scale)
+        self._success_rate_scale = success_scale
+
+        left_panel.append(advanced_filter_row)
 
         tool_list = Gtk.ListBox()
         tool_list.connect("row-selected", self._on_row_selected)
@@ -520,6 +606,8 @@ class ToolManagement:
         self._entries = entries
         self._entry_lookup = {entry.name: entry for entry in entries}
         self._bulk_selection.intersection_update(self._entry_lookup.keys())
+        self._populate_provider_selector()
+        self._populate_safety_selector()
         self._populate_capability_selector()
         self._populate_sort_selector()
         self._sync_filter_widgets()
@@ -543,8 +631,10 @@ class ToolManagement:
     def _load_tool_entries(self, persona: Optional[str]) -> List[_ToolEntry]:
         tools_payload: Optional[List[Any]] = None
 
+        prefer_backend = self._remote_filters_active()
+
         list_getter = getattr(self.ATLAS, "list_tools", None)
-        if callable(list_getter):
+        if callable(list_getter) and not prefer_backend:
             try:
                 response = list_getter()
             except Exception as exc:  # pragma: no cover - backend failure logging
@@ -578,8 +668,28 @@ class ToolManagement:
             if persona:
                 kwargs["persona"] = persona
 
+            for key, value in self._build_tool_query_filters().items():
+                if key in self._unsupported_remote_filters:
+                    continue
+                kwargs[key] = value
+
             try:
                 response = getter(**kwargs)
+            except TypeError as exc:
+                missing = self._extract_unexpected_keyword(exc)
+                if missing and missing in kwargs:
+                    self._unsupported_remote_filters.add(missing)
+                    kwargs.pop(missing, None)
+                    try:
+                        response = getter(**kwargs)
+                    except Exception as inner_exc:
+                        logger.error("Failed to load tool metadata: %s", inner_exc, exc_info=True)
+                        self._handle_backend_error("Unable to load tool metadata from ATLAS.")
+                        return []
+                else:
+                    logger.error("Failed to load tool metadata: %s", exc, exc_info=True)
+                    self._handle_backend_error("Unable to load tool metadata from ATLAS.")
+                    return []
             except Exception as exc:
                 logger.error("Failed to load tool metadata: %s", exc, exc_info=True)
                 self._handle_backend_error("Unable to load tool metadata from ATLAS.")
@@ -606,6 +716,55 @@ class ToolManagement:
             if entry is not None:
                 entries.append(entry)
         return entries
+
+    def _remote_filters_active(self) -> bool:
+        if self._provider_filter:
+            return True
+        if self._safety_filter:
+            return True
+        if self._success_rate_filter is not None and self._success_rate_filter > 0.0:
+            return True
+        if self._version_filter and self._version_filter.strip():
+            return True
+        return False
+
+    def _build_tool_query_filters(self) -> Dict[str, Any]:
+        filters: Dict[str, Any] = {}
+        if self._provider_filter:
+            filters["provider"] = self._provider_filter
+        if self._safety_filter:
+            filters["safety_level"] = self._safety_filter
+        version_text = self._version_filter.strip()
+        if version_text:
+            filters["version"] = version_text
+        if self._success_rate_filter is not None and self._success_rate_filter > 0.0:
+            filters["min_success_rate"] = self._success_rate_filter
+        return filters
+
+    def _extract_unexpected_keyword(self, error: TypeError) -> Optional[str]:
+        message = str(error)
+        match = re.search(r"unexpected keyword argument ['\"]([^'\"]+)['\"]", message)
+        if match:
+            return match.group(1)
+        return None
+
+    def _normalize_success_rate(self, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            numeric = float(str(value).strip())
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if numeric <= 0.0:
+            return None
+        if numeric > 1.0:
+            if numeric <= 100.0:
+                numeric /= 100.0
+            else:
+                numeric = 1.0
+        if numeric >= 1.0:
+            return 1.0
+        return numeric
 
     def _tool_matches_persona_scope(self, entry: Any, persona: str) -> bool:
         if not isinstance(entry, Mapping):
@@ -701,6 +860,53 @@ class ToolManagement:
                 if text:
                     capabilities.append(text)
 
+        providers: List[str] = []
+        providers_raw = entry.get("providers")
+        if isinstance(providers_raw, Mapping):
+            provider_iterable = providers_raw.values()
+        elif isinstance(providers_raw, Iterable) and not isinstance(
+            providers_raw, (str, bytes, bytearray)
+        ):
+            provider_iterable = providers_raw
+        else:
+            provider_iterable = []
+
+        seen_providers: set[str] = set()
+        for provider in provider_iterable:
+            if isinstance(provider, Mapping):
+                name_candidate = (
+                    provider.get("name")
+                    or provider.get("provider")
+                    or provider.get("id")
+                    or provider.get("label")
+                )
+                text = str(name_candidate).strip() if name_candidate else ""
+            else:
+                text = str(provider).strip()
+            if text:
+                lowered = text.casefold()
+                if lowered not in seen_providers:
+                    providers.append(text)
+                    seen_providers.add(lowered)
+
+        safety_value = entry.get("safety_level") or entry.get("safety")
+        safety_level = str(safety_value).strip() if isinstance(safety_value, str) and safety_value.strip() else None
+
+        version_value = entry.get("version")
+        version = str(version_value).strip() if isinstance(version_value, str) and version_value.strip() else None
+
+        success_rate = None
+        health_block = entry.get("health") if isinstance(entry.get("health"), Mapping) else None
+        if isinstance(health_block, Mapping):
+            tool_metrics = health_block.get("tool") if isinstance(health_block.get("tool"), Mapping) else None
+            if isinstance(tool_metrics, Mapping):
+                rate_value = (
+                    tool_metrics.get("success_rate")
+                    or tool_metrics.get("successRate")
+                    or tool_metrics.get("success-rate")
+                )
+                success_rate = self._normalize_success_rate(rate_value)
+
         auth = entry.get("auth") if isinstance(entry.get("auth"), Mapping) else {}
         account_status = entry.get("account_status")
 
@@ -718,6 +924,10 @@ class ToolManagement:
             title=title,
             summary=summary,
             capabilities=capabilities,
+            providers=providers,
+            safety_level=safety_level,
+            version=version,
+            success_rate=success_rate,
             auth=dict(auth) if isinstance(auth, Mapping) else {},
             account_status=str(account_status) if account_status else None,
             raw_metadata=normalized_metadata,
@@ -977,6 +1187,77 @@ class ToolManagement:
         self._capability_filter = normalized
         self._persist_view_preferences()
         self._rebuild_tool_list()
+
+    def _on_provider_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_filter_signals:
+            return
+
+        selected = self._get_combo_active_id(combo, self._provider_options)
+        normalized = None if not selected or selected == self._PROVIDER_ALL_ID else selected
+
+        if normalized == self._provider_filter:
+            return
+
+        self._provider_filter = normalized
+        self._persist_view_preferences()
+        self._refresh_state()
+
+    def _on_safety_filter_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_filter_signals:
+            return
+
+        selected = self._get_combo_active_id(combo, self._safety_options)
+        normalized = None if not selected or selected == self._SAFETY_ALL_ID else selected
+
+        if normalized == self._safety_filter:
+            return
+
+        self._safety_filter = normalized
+        self._persist_view_preferences()
+        self._refresh_state()
+
+    def _on_version_filter_changed(self, entry: Gtk.Entry) -> None:
+        if self._suppress_filter_signals:
+            return
+
+        getter = getattr(entry, "get_text", None)
+        try:
+            text = getter() if callable(getter) else None
+        except Exception:  # pragma: no cover - GTK compatibility fallback
+            text = None
+        if not isinstance(text, str):
+            text = getattr(entry, "text", None)
+        if not isinstance(text, str):
+            props = getattr(entry, "props", None)
+            text = getattr(props, "text", "") if props is not None else ""
+
+        normalized = text.strip()
+        if normalized == self._version_filter.strip():
+            return
+
+        self._version_filter = normalized
+        self._persist_view_preferences()
+        self._refresh_state()
+
+    def _on_success_rate_changed(self, scale: Gtk.Scale) -> None:
+        if self._suppress_filter_signals:
+            return
+
+        getter = getattr(scale, "get_value", None)
+        try:
+            value = float(getter()) if callable(getter) else 0.0
+        except Exception:  # pragma: no cover - GTK compatibility fallback
+            value = 0.0
+
+        value = max(0.0, min(100.0, value))
+        normalized = self._normalize_success_rate(value)
+
+        if normalized == self._success_rate_filter:
+            return
+
+        self._success_rate_filter = normalized
+        self._persist_view_preferences()
+        self._refresh_state()
 
     def _on_sort_changed(self, combo: Gtk.ComboBoxText) -> None:
         if self._suppress_filter_signals:
@@ -2515,6 +2796,60 @@ class ToolManagement:
             except Exception:  # pragma: no cover - GTK fallback
                 continue
 
+    def _populate_provider_selector(self) -> None:
+        providers = sorted({provider for entry in self._entries for provider in entry.providers})
+        options = [self._PROVIDER_ALL_ID] + providers
+        self._provider_options = options
+
+        if self._provider_filter and self._provider_filter not in providers:
+            self._provider_filter = None
+            if self._preferences_loaded_key is not None:
+                self._persist_view_preferences()
+
+        selector = self._provider_selector
+        if selector is None:
+            return
+
+        self._clear_combo_box(selector)
+        append = getattr(selector, "append", None)
+        append_text = getattr(selector, "append_text", None)
+        for option in options:
+            label = "All providers" if option == self._PROVIDER_ALL_ID else option
+            try:
+                if callable(append):
+                    append(option, label)
+                elif callable(append_text):
+                    append_text(label)
+            except Exception:  # pragma: no cover - GTK fallback
+                continue
+
+    def _populate_safety_selector(self) -> None:
+        safety_levels = sorted({entry.safety_level for entry in self._entries if entry.safety_level})
+        options = [self._SAFETY_ALL_ID] + safety_levels
+        self._safety_options = options
+
+        if self._safety_filter and self._safety_filter not in safety_levels:
+            self._safety_filter = None
+            if self._preferences_loaded_key is not None:
+                self._persist_view_preferences()
+
+        selector = self._safety_selector
+        if selector is None:
+            return
+
+        self._clear_combo_box(selector)
+        append = getattr(selector, "append", None)
+        append_text = getattr(selector, "append_text", None)
+        for option in options:
+            label = "All safety levels" if option == self._SAFETY_ALL_ID else option
+            try:
+                if callable(append):
+                    append(option, label)
+                elif callable(append_text):
+                    append_text(label)
+            except Exception:  # pragma: no cover - GTK fallback
+                continue
+
     def _populate_sort_selector(self) -> None:
         self._sort_option_ids = [key for key, _ in self._SORT_OPTIONS]
         selector = self._sort_selector
@@ -2537,7 +2872,17 @@ class ToolManagement:
         self._normalize_sort_key(persist=False)
 
     def _sync_filter_widgets(self) -> None:
-        if not any((self._search_entry, self._capability_selector, self._sort_selector)):
+        if not any(
+            (
+                self._search_entry,
+                self._capability_selector,
+                self._sort_selector,
+                self._provider_selector,
+                self._safety_selector,
+                self._version_entry,
+                self._success_rate_scale,
+            )
+        ):
             return
 
         self._suppress_filter_signals = True
@@ -2567,6 +2912,51 @@ class ToolManagement:
             if self._capability_selector is not None:
                 desired_capability = self._capability_filter or self._CAPABILITY_ALL_ID
                 self._set_combo_selection(self._capability_selector, self._capability_options, desired_capability)
+
+            if self._provider_selector is not None:
+                desired_provider = self._provider_filter or self._PROVIDER_ALL_ID
+                self._set_combo_selection(self._provider_selector, self._provider_options, desired_provider)
+
+            if self._safety_selector is not None:
+                desired_safety = self._safety_filter or self._SAFETY_ALL_ID
+                self._set_combo_selection(self._safety_selector, self._safety_options, desired_safety)
+
+            if self._version_entry is not None:
+                desired_version = self._version_filter or ""
+                setter = getattr(self._version_entry, "set_text", None)
+                getter = getattr(self._version_entry, "get_text", None)
+                current_version = ""
+                try:
+                    current_version = getter() if callable(getter) else ""
+                except Exception:  # pragma: no cover - GTK fallback
+                    current_version = ""
+                if not isinstance(current_version, str):
+                    current_version = getattr(self._version_entry, "text", "")
+                if current_version != desired_version:
+                    try:
+                        if callable(setter):
+                            setter(desired_version)
+                        else:
+                            setattr(self._version_entry, "text", desired_version)
+                    except Exception:  # pragma: no cover - GTK fallback
+                        pass
+
+            if self._success_rate_scale is not None:
+                desired_rate = (self._success_rate_filter or 0.0) * 100.0
+                getter = getattr(self._success_rate_scale, "get_value", None)
+                try:
+                    current_rate = float(getter()) if callable(getter) else 0.0
+                except Exception:  # pragma: no cover - GTK fallback
+                    current_rate = 0.0
+                if abs(current_rate - desired_rate) > 0.5:
+                    setter = getattr(self._success_rate_scale, "set_value", None)
+                    try:
+                        if callable(setter):
+                            setter(desired_rate)
+                        else:
+                            setattr(self._success_rate_scale, "value", desired_rate)
+                    except Exception:  # pragma: no cover - GTK fallback
+                        pass
 
             if self._sort_selector is not None:
                 desired_sort = self._normalize_sort_key(persist=False)
@@ -2641,6 +3031,10 @@ class ToolManagement:
     def _derive_visible_entries(self) -> List[_ToolEntry]:
         query = (self._filter_text or "").strip().casefold()
         capability = self._capability_filter
+        provider = self._provider_filter.casefold() if isinstance(self._provider_filter, str) else None
+        safety = self._safety_filter.casefold() if isinstance(self._safety_filter, str) else None
+        version_constraint = self._version_filter.strip()
+        success_threshold = self._success_rate_filter if self._success_rate_filter not in {None, 0.0} else None
 
         visible: List[_ToolEntry] = []
         for entry in self._entries:
@@ -2658,9 +3052,59 @@ class ToolManagement:
             if capability and capability not in entry.capabilities:
                 continue
 
+            if provider:
+                provider_tokens = {value.casefold() for value in entry.providers}
+                if provider not in provider_tokens:
+                    continue
+
+            if safety:
+                safety_value = (entry.safety_level or "").strip().casefold()
+                if safety_value != safety:
+                    continue
+
+            if version_constraint and not self._entry_matches_version(entry, version_constraint):
+                continue
+
+            if success_threshold is not None:
+                rate = entry.success_rate
+                if rate is None or rate + 1e-9 < success_threshold:
+                    continue
+
             visible.append(entry)
 
         return self._sort_entries(visible)
+
+    def _entry_matches_version(self, entry: _ToolEntry, constraint: str) -> bool:
+        constraint = constraint.strip()
+        if not constraint:
+            return True
+
+        version = (entry.version or "").strip()
+        if not version:
+            return False
+
+        lowered_constraint = constraint.lower()
+        comparator_tokens = ("<=", ">=", "==", "!=", "<", ">")
+        uses_specifier = any(lowered_constraint.startswith(token) for token in comparator_tokens) or "," in constraint
+
+        if uses_specifier:
+            try:
+                from packaging.specifiers import SpecifierSet  # type: ignore
+                from packaging.version import Version  # type: ignore
+            except Exception:  # pragma: no cover - optional dependency
+                return lowered_constraint in version.lower()
+
+            try:
+                spec = SpecifierSet(constraint)
+            except Exception:
+                return lowered_constraint in version.lower()
+
+            try:
+                return Version(version) in spec
+            except Exception:
+                return lowered_constraint in version.lower()
+
+        return lowered_constraint in version.lower()
 
     def _sort_entries(self, entries: List[_ToolEntry]) -> List[_ToolEntry]:
         if not entries:
@@ -2711,6 +3155,31 @@ class ToolManagement:
         else:
             self._capability_filter = None
 
+        provider_value = record.get("provider")
+        if provider_value:
+            text = str(provider_value).strip()
+            self._provider_filter = text or None
+        else:
+            self._provider_filter = None
+
+        safety_value = record.get("safety_level")
+        if safety_value:
+            text = str(safety_value).strip()
+            self._safety_filter = text or None
+        else:
+            self._safety_filter = None
+
+        version_value = record.get("version")
+        if isinstance(version_value, str):
+            self._version_filter = version_value.strip()
+        elif version_value is None:
+            self._version_filter = ""
+        else:
+            self._version_filter = str(version_value).strip()
+
+        success_value = record.get("success_rate")
+        self._success_rate_filter = self._normalize_success_rate(success_value)
+
         sort_value = record.get("sort_key")
         self._sort_key = str(sort_value) if isinstance(sort_value, str) else self._DEFAULT_SORT_KEY
 
@@ -2727,11 +3196,23 @@ class ToolManagement:
             if self._capability_filter is not None
             else None
         )
+        provider_value = self._provider_filter if self._provider_filter is not None else None
+        safety_value = self._safety_filter if self._safety_filter is not None else None
+        version_text = self._version_filter.strip()
+        success_value = (
+            float(self._success_rate_filter)
+            if self._success_rate_filter is not None and self._success_rate_filter > 0.0
+            else None
+        )
 
         payload = {
             "filter_text": str(self._filter_text or ""),
             "capability": capability_value,
             "sort_key": normalized_sort,
+            "provider": provider_value,
+            "safety_level": safety_value,
+            "version": version_text or None,
+            "success_rate": success_value,
         }
 
         storage[key] = payload

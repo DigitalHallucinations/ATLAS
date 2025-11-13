@@ -7,6 +7,44 @@ from typing import Any, Dict, Mapping
 
 import pytest
 
+tools_execution_module = sys.modules.setdefault(
+    "ATLAS.tools.execution", types.ModuleType("ATLAS.tools.execution")
+)
+tools_execution_module.ToolPolicyDecision = getattr(
+    tools_execution_module,
+    "ToolPolicyDecision",
+    type("ToolPolicyDecision", (), {}),
+)
+tools_execution_module.SandboxedToolRunner = getattr(
+    tools_execution_module,
+    "SandboxedToolRunner",
+    type("SandboxedToolRunner", (), {}),
+)
+tools_execution_module.compute_tool_policy_snapshot = getattr(
+    tools_execution_module,
+    "compute_tool_policy_snapshot",
+    lambda *args, **kwargs: {},
+)
+tools_execution_module.use_tool = getattr(
+    tools_execution_module, "use_tool", lambda *args, **kwargs: None
+)
+tools_execution_module.call_model_with_new_prompt = getattr(
+    tools_execution_module,
+    "call_model_with_new_prompt",
+    lambda *args, **kwargs: None,
+)
+tools_execution_module._coerce_persona_flag_value = getattr(
+    tools_execution_module,
+    "_coerce_persona_flag_value",
+    lambda *args, **kwargs: None,
+)
+
+if not hasattr(tools_execution_module, "__getattr__"):
+    def _tools_execution_getattr(_name: str):  # pragma: no cover - simple stub fallback
+        return lambda *args, **kwargs: None
+
+    tools_execution_module.__getattr__ = _tools_execution_getattr
+
 import tests.test_chat_async_helper  # noqa: F401 - ensure GTK stubs are loaded
 
 from gi.repository import Gtk
@@ -38,6 +76,36 @@ if _chat_helper is not None:
     dummy_base = getattr(_chat_helper, "_DummyWidget", object)
 else:  # pragma: no cover - fallback when helper is unavailable
     dummy_base = object
+
+if not hasattr(Gtk, "Scale"):
+    class _Scale(dummy_base):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._value = 0.0
+            self._range = (0.0, 1.0)
+            self._digits = 0
+            self._draw_value = False
+            self._value_pos = None
+
+        def set_value(self, value: float) -> None:
+            self._value = float(value)
+
+        def get_value(self) -> float:
+            return float(self._value)
+
+        def set_range(self, lower: float, upper: float) -> None:
+            self._range = (float(lower), float(upper))
+
+        def set_digits(self, digits: int) -> None:
+            self._digits = int(digits)
+
+        def set_draw_value(self, draw: bool) -> None:
+            self._draw_value = bool(draw)
+
+        def set_value_pos(self, position) -> None:
+            self._value_pos = position
+
+    Gtk.Scale = _Scale
 
 if not hasattr(Gtk, "Separator"):
     Gtk.Separator = type("Separator", (dummy_base,), {})
@@ -214,6 +282,7 @@ class _AtlasStub:
         self.credential_updates: list[Dict[str, Any]] = []
         self.persona_manager = _PersonaManagerStub()
         self.task_catalog_requests: list[Dict[str, Any]] = []
+        self._unsupported_filters: set[str] = set()
         self._tool_catalog: list[Dict[str, Any]] = [
             {
                 "name": "google_search",
@@ -222,6 +291,10 @@ class _AtlasStub:
                 "capabilities": ["web_search", "news"],
                 "persona": None,
                 "auth": {"required": True, "provider": "Google", "status": "Linked"},
+                "providers": [{"name": "Google"}],
+                "version": "1.4.0",
+                "safety_level": "standard",
+                "health": {"tool": {"success_rate": 0.9}},
                 "settings": {"enabled": True, "providers": ["primary"]},
                 "credentials": {
                     "GOOGLE_API_KEY": {
@@ -249,6 +322,10 @@ class _AtlasStub:
                 "capabilities": ["system"],
                 "persona": "Atlas",
                 "auth": {"required": False, "status": "Optional"},
+                "providers": [{"name": "Localhost"}],
+                "version": "2.0.0",
+                "safety_level": "elevated",
+                "health": {"tool": {"success_rate": 0.65}},
                 "settings": {"enabled": True, "shell": "bash"},
                 "credentials": {},
             },
@@ -260,6 +337,10 @@ class _AtlasStub:
                 "persona": None,
                 "persona_allowlist": ["Atlas", "Researcher"],
                 "auth": {"required": True, "provider": "Atlas", "status": "Linked"},
+                "providers": [{"name": "Atlas"}],
+                "version": "1.1.0",
+                "safety_level": "standard",
+                "health": {"tool": {"success_rate": 0.82}},
                 "settings": {"enabled": False},
                 "credentials": {},
             },
@@ -271,6 +352,10 @@ class _AtlasStub:
                 "persona": None,
                 "persona_allowlist": ["Researcher"],
                 "auth": {"required": False},
+                "providers": [{"name": "Localhost"}],
+                "version": "0.9.0",
+                "safety_level": "restricted",
+                "health": {"tool": {"success_rate": 0.4}},
                 "settings": {"enabled": False},
                 "credentials": {"TOKEN": {"configured": True}},
             },
@@ -286,6 +371,10 @@ class _AtlasStub:
                     "status": "Linked",
                     "type": "api_key",
                 },
+                "providers": [{"name": "Vector Store"}],
+                "version": "3.0.1",
+                "safety_level": "standard",
+                "health": {"tool": {"success_rate": 0.96}},
                 "settings": {"enabled": True, "providers": ["in_memory"]},
                 "credentials": {
                     key: {"configured": False, "hint": "", "source": "env"}
@@ -444,19 +533,100 @@ class _AtlasStub:
         return {"success": True}
 
     def _get_tools(self, **kwargs: Any) -> Dict[str, Any]:
-        self.tool_requests.append(dict(kwargs))
+        record = dict(kwargs)
+        self.tool_requests.append(record)
         self.tool_fetches += 1
-        persona = kwargs.get("persona")
+
+        for key in list(record.keys()):
+            if key in self._unsupported_filters:
+                raise TypeError(f"get_tools() got an unexpected keyword argument '{key}'")
+
+        persona = record.get("persona")
+        provider_filter = str(record.get("provider") or "").strip().lower() or None
+        safety_filter = str(record.get("safety_level") or "").strip().lower() or None
+        version_filter = str(record.get("version") or "").strip() or None
+
+        success_filter = record.get("min_success_rate")
+        min_success_rate: float | None
+        if success_filter is None:
+            min_success_rate = None
+        else:
+            try:
+                min_success_rate = float(success_filter)
+            except (TypeError, ValueError):
+                min_success_rate = None
+            else:
+                if min_success_rate > 1.0 and min_success_rate <= 100.0:
+                    min_success_rate /= 100.0
+                if min_success_rate <= 0.0:
+                    min_success_rate = None
 
         def _matches(entry: Dict[str, Any]) -> bool:
-            if not persona:
-                return True
-            scope = entry.get("persona")
-            if scope:
-                return scope == persona
-            allowlist = entry.get("persona_allowlist") or []
-            if allowlist:
-                return persona in allowlist
+            if persona:
+                scope = entry.get("persona")
+                if scope:
+                    if scope != persona:
+                        return False
+                else:
+                    allowlist = entry.get("persona_allowlist") or []
+                    if allowlist and persona not in allowlist:
+                        return False
+
+            if provider_filter:
+                providers_payload = entry.get("providers") or []
+                if isinstance(providers_payload, Mapping):
+                    provider_iterable = providers_payload.values()
+                elif isinstance(providers_payload, (list, tuple, set)):
+                    provider_iterable = providers_payload
+                else:
+                    provider_iterable = []
+                provider_names = set()
+                for provider in provider_iterable:
+                    if isinstance(provider, Mapping):
+                        name_candidate = (
+                            provider.get("name")
+                            or provider.get("provider")
+                            or provider.get("id")
+                            or provider.get("label")
+                        )
+                    else:
+                        name_candidate = provider
+                    if isinstance(name_candidate, str):
+                        token = name_candidate.strip().lower()
+                        if token:
+                            provider_names.add(token)
+                if provider_filter not in provider_names:
+                    return False
+
+            if safety_filter:
+                entry_safety = str(entry.get("safety_level") or "").strip().lower()
+                if entry_safety != safety_filter:
+                    return False
+
+            if version_filter:
+                entry_version = str(entry.get("version") or "")
+                if version_filter.lower() not in entry_version.lower():
+                    return False
+
+            if min_success_rate is not None:
+                health = entry.get("health") if isinstance(entry.get("health"), Mapping) else None
+                tool_metrics = health.get("tool") if isinstance(health, Mapping) else None
+                success_value = (
+                    tool_metrics.get("success_rate")
+                    if isinstance(tool_metrics, Mapping)
+                    else None
+                )
+                rate = None
+                if isinstance(success_value, (int, float)):
+                    rate = float(success_value)
+                else:
+                    try:
+                        rate = float(str(success_value))
+                    except (TypeError, ValueError):
+                        rate = None
+                if rate is None or rate < min_success_rate:
+                    return False
+
             return True
 
         tools = [copy.deepcopy(entry) for entry in self._tool_catalog if _matches(entry)]
@@ -916,6 +1086,77 @@ def test_tool_management_filter_modes():
     assert getattr(manager._credentials_apply_button, "_sensitive", False)
     persona_entries_after = {entry.name for entry in manager._entries}
     assert persona_entries_after == {"google_search", "terminal_command", "atlas_curated_search"}
+
+
+def test_tool_management_backend_filters_refresh_catalog():
+    from GTKUI.Tool_manager.tool_management import ToolManagement
+
+    parent = _ParentWindowStub()
+    atlas = _AtlasStub()
+    manager = ToolManagement(atlas, parent)
+
+    manager.get_embeddable_widget()
+    manager._tool_scope = "all"
+    manager._refresh_state()
+
+    assert manager._provider_selector is not None
+    manager._provider_filter = "Vector Store"
+    manager._persist_view_preferences()
+    manager._refresh_state()
+
+    assert atlas.tool_requests
+    assert atlas.tool_requests[-1]["provider"] == "Vector Store"
+    assert {entry.name for entry in manager._visible_entries} == {"upsert_vectors"}
+
+    manager._provider_filter = None
+    manager._persist_view_preferences()
+    manager._refresh_state()
+
+    assert manager._safety_selector is not None
+    manager._safety_filter = "restricted"
+    manager._persist_view_preferences()
+    manager._refresh_state()
+
+    assert atlas.tool_requests[-1]["safety_level"] == "restricted"
+    assert {entry.name for entry in manager._visible_entries} == {"restricted_calculator"}
+
+    manager._safety_filter = None
+    manager._persist_view_preferences()
+    manager._refresh_state()
+
+    scale = manager._success_rate_scale
+    assert scale is not None
+    scale.set_value(90)
+    manager._success_rate_filter = 0.9
+    manager._persist_view_preferences()
+    manager._refresh_state()
+
+    assert atlas.tool_requests[-1]["min_success_rate"] == pytest.approx(0.9)
+    assert {entry.name for entry in manager._visible_entries} == {"google_search", "upsert_vectors"}
+
+
+def test_tool_management_filter_fallback_when_backend_lacks_support():
+    from GTKUI.Tool_manager.tool_management import ToolManagement
+
+    parent = _ParentWindowStub()
+    atlas = _AtlasStub()
+    atlas._unsupported_filters.add("provider")
+    manager = ToolManagement(atlas, parent)
+
+    manager.get_embeddable_widget()
+    manager._tool_scope = "all"
+    manager._refresh_state()
+
+    initial_requests = len(atlas.tool_requests)
+    manager._provider_filter = "Vector Store"
+    manager._persist_view_preferences()
+    manager._refresh_state()
+
+    assert len(atlas.tool_requests) >= initial_requests + 2
+    assert atlas.tool_requests[-2]["provider"] == "Vector Store"
+    assert "provider" not in atlas.tool_requests[-1]
+    assert {entry.name for entry in manager._visible_entries} == {"upsert_vectors"}
+    assert not parent.errors
 
 
 def test_skill_management_renders_payloads():
