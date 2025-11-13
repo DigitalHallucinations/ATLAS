@@ -604,6 +604,21 @@ async def get_persona_metrics(persona_name: str, request: Request) -> Any:
     return result
 
 
+@app.get("/personas/analytics/comparison")
+async def get_persona_comparison(request: Request) -> Any:
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            "/personas/analytics/comparison",
+            method="GET",
+            query=request.query_params,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
 @app.get("/personas/{persona_name}/review")
 async def get_persona_review(persona_name: str, request: Request) -> Any:
     server = _get_server(request)

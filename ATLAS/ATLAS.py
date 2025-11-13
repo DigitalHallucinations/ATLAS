@@ -1495,6 +1495,27 @@ class ATLAS:
             metric_type=metric_type,
         )
 
+    def get_persona_comparison_summary(
+        self,
+        *,
+        category: str = "tool",
+        personas: Optional[List[str]] = None,
+        search: Optional[str] = None,
+        recent: int = 5,
+        page: int = 1,
+        page_size: int = 25,
+    ) -> Dict[str, Any]:
+        """Return persona comparison analytics for leaderboard-style widgets."""
+
+        return self.server.get_persona_comparison_summary(
+            category=category,
+            personas=personas,
+            search=search,
+            recent=recent,
+            page=page,
+            page_size=page_size,
+        )
+
     def get_persona_review_status(self, persona_name: str) -> Dict[str, Any]:
         """Return the review status payload for ``persona_name``."""
 

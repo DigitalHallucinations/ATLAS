@@ -65,6 +65,7 @@ class PersonaManagement:
         self._analytics_start_entry: Optional[Gtk.Entry] = None
         self._analytics_end_entry: Optional[Gtk.Entry] = None
         self._analytics_summary_labels: Dict[str, Gtk.Label] = {}
+        self._analytics_comparison_labels: Dict[str, Gtk.Label] = {}
         self._analytics_tool_list: Optional[Gtk.ListBox] = None
         self._analytics_tool_placeholder: Optional[Gtk.Widget] = None
         self._analytics_anomaly_list: Optional[Gtk.ListBox] = None
@@ -1994,6 +1995,79 @@ class PersonaManagement:
         except ValueError:
             return value
 
+    def _update_comparison_highlights(
+        self,
+        summary: Optional[Dict[str, Any]],
+        persona_name: Optional[str],
+    ) -> None:
+        """Update comparison highlight labels based on ranking payload."""
+
+        persona_token = str(persona_name or "").strip().lower()
+
+        def _set_label(key: str, text: str) -> None:
+            widget = self._analytics_comparison_labels.get(key)
+            if isinstance(widget, Gtk.Label):
+                widget.set_text(text)
+
+        _set_label("top", "Top Performer: —")
+        _set_label("worst", "Highest Failure Rate: —")
+        _set_label("fastest", "Fastest Avg Latency: —")
+
+        if not isinstance(summary, dict):
+            return
+
+        rankings = summary.get("rankings")
+        if not isinstance(rankings, dict):
+            return
+
+        def _first_entry(entries: Any) -> Optional[Dict[str, Any]]:
+            if not isinstance(entries, list):
+                return None
+            for item in entries:
+                if isinstance(item, dict) and item.get("persona"):
+                    return item
+            return None
+
+        def _highlight_suffix(candidate: Optional[str]) -> str:
+            if not persona_token or candidate is None:
+                return ""
+            candidate_token = str(candidate).strip().lower()
+            if candidate_token and candidate_token == persona_token:
+                return " • Current persona"
+            return ""
+
+        top_entry = _first_entry(rankings.get("top_performers"))
+        if top_entry:
+            name = str(top_entry.get("persona") or "Unknown")
+            success_rate = float(top_entry.get("success_rate") or 0.0) * 100
+            calls = int(top_entry.get("calls") or 0)
+            suffix = _highlight_suffix(name)
+            _set_label(
+                "top",
+                f"Top Performer: {name} ({success_rate:.1f}% success across {calls} calls){suffix}",
+            )
+
+        worst_entry = _first_entry(rankings.get("worst_failure_rates"))
+        if worst_entry:
+            name = str(worst_entry.get("persona") or "Unknown")
+            failure_rate = float(worst_entry.get("failure_rate") or 0.0) * 100
+            calls = int(worst_entry.get("calls") or 0)
+            suffix = _highlight_suffix(name)
+            _set_label(
+                "worst",
+                f"Highest Failure Rate: {name} ({failure_rate:.1f}% across {calls} calls){suffix}",
+            )
+
+        fastest_entry = _first_entry(rankings.get("fastest_latency"))
+        if fastest_entry:
+            name = str(fastest_entry.get("persona") or "Unknown")
+            latency = float(fastest_entry.get("average_latency_ms") or 0.0)
+            suffix = _highlight_suffix(name)
+            _set_label(
+                "fastest",
+                f"Fastest Avg Latency: {name} ({latency:.1f} ms){suffix}",
+            )
+
     def _refresh_persona_analytics(self, *, show_errors: bool = True) -> None:
         persona_name = self._analytics_persona_name
         if not persona_name:
@@ -2075,6 +2149,22 @@ class PersonaManagement:
         latency_label = self._analytics_summary_labels.get('average_latency_ms')
         if isinstance(latency_label, Gtk.Label):
             latency_label.set_text(f"{avg_latency:.1f} ms")
+
+        comparison_summary: Dict[str, Any] = {}
+        if hasattr(self.ATLAS, 'get_persona_comparison_summary'):
+            try:
+                comparison_summary = self.ATLAS.get_persona_comparison_summary(
+                    category='tool',
+                    recent=5,
+                )
+            except Exception:
+                comparison_summary = {}
+                if show_errors:
+                    self.ATLAS.show_persona_message(
+                        'warning',
+                        'Unable to load persona comparison analytics.',
+                    )
+        self._update_comparison_highlights(comparison_summary, persona_name)
 
         anomaly_entries: List[Dict[str, Any]] = []
         if isinstance(metrics, dict):
@@ -2410,6 +2500,31 @@ class PersonaManagement:
 
         container.append(summary_grid)
 
+        comparison_label = Gtk.Label(label="Comparison Highlights")
+        comparison_label.set_xalign(0.0)
+        container.append(comparison_label)
+
+        comparison_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        comparison_box.set_hexpand(True)
+        comparison_box.get_style_context().add_class('boxed-list')
+
+        top_label = Gtk.Label(label="Top Performer: —")
+        top_label.set_xalign(0.0)
+        top_label.get_style_context().add_class('dim-label')
+        comparison_box.append(top_label)
+
+        worst_label = Gtk.Label(label="Highest Failure Rate: —")
+        worst_label.set_xalign(0.0)
+        worst_label.get_style_context().add_class('dim-label')
+        comparison_box.append(worst_label)
+
+        fastest_label = Gtk.Label(label="Fastest Avg Latency: —")
+        fastest_label.set_xalign(0.0)
+        fastest_label.get_style_context().add_class('dim-label')
+        comparison_box.append(fastest_label)
+
+        container.append(comparison_box)
+
         anomaly_label = Gtk.Label(label="Recent Anomalies")
         anomaly_label.set_xalign(0.0)
         container.append(anomaly_label)
@@ -2474,6 +2589,11 @@ class PersonaManagement:
         self._analytics_start_entry = start_entry
         self._analytics_end_entry = end_entry
         self._analytics_summary_labels = summary_labels
+        self._analytics_comparison_labels = {
+            'top': top_label,
+            'worst': worst_label,
+            'fastest': fastest_label,
+        }
         self._analytics_tool_list = tool_list
         self._analytics_skill_list = skill_list
         self._analytics_recent_list = recent_list

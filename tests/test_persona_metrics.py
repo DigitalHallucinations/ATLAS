@@ -173,6 +173,136 @@ def test_record_event_concurrent_persistence(metrics_store):
     assert tools == {"alpha", "beta"}
 
 
+def test_persona_comparison_summary_rankings(metrics_store):
+    base = datetime(2024, 4, 1, tzinfo=timezone.utc)
+
+    metrics_store.record_event(
+        PersonaMetricEvent(
+            persona="Alpha",
+            tool="insight",
+            success=True,
+            latency_ms=50.0,
+            timestamp=base,
+        )
+    )
+    metrics_store.record_event(
+        PersonaMetricEvent(
+            persona="Alpha",
+            tool="insight",
+            success=True,
+            latency_ms=40.0,
+            timestamp=base + timedelta(minutes=1),
+        )
+    )
+
+    metrics_store.record_event(
+        PersonaMetricEvent(
+            persona="Beta",
+            tool="insight",
+            success=True,
+            latency_ms=200.0,
+            timestamp=base + timedelta(minutes=2),
+        )
+    )
+    metrics_store.record_event(
+        PersonaMetricEvent(
+            persona="Beta",
+            tool="insight",
+            success=True,
+            latency_ms=180.0,
+            timestamp=base + timedelta(minutes=3),
+        )
+    )
+    metrics_store.record_event(
+        PersonaMetricEvent(
+            persona="Beta",
+            tool="insight",
+            success=False,
+            latency_ms=220.0,
+            timestamp=base + timedelta(minutes=4),
+        )
+    )
+    metrics_store.record_event(
+        PersonaMetricEvent(
+            persona="Beta",
+            tool="insight",
+            success=True,
+            latency_ms=190.0,
+            timestamp=base + timedelta(minutes=5),
+        )
+    )
+
+    metrics_store.record_event(
+        PersonaMetricEvent(
+            persona="Gamma",
+            tool="insight",
+            success=False,
+            latency_ms=80.0,
+            timestamp=base + timedelta(minutes=6),
+        )
+    )
+    metrics_store.record_event(
+        PersonaMetricEvent(
+            persona="Gamma",
+            tool="insight",
+            success=False,
+            latency_ms=90.0,
+            timestamp=base + timedelta(minutes=7),
+        )
+    )
+    metrics_store.record_event(
+        PersonaMetricEvent(
+            persona="Gamma",
+            tool="insight",
+            success=True,
+            latency_ms=100.0,
+            timestamp=base + timedelta(minutes=8),
+        )
+    )
+
+    summary = metrics_store.get_persona_comparison_summary()
+    assert summary["pagination"]["total"] == 3
+
+    rankings = summary.get("rankings", {})
+    assert rankings["top_performers"][0]["persona"] == "Alpha"
+    assert rankings["worst_failure_rates"][0]["persona"] == "Gamma"
+    assert rankings["fastest_latency"][0]["persona"] == "Alpha"
+    assert rankings["slowest_latency"][0]["persona"] == "Beta"
+
+    results = summary["results"]
+    personas = [entry["persona"] for entry in results]
+    assert personas == ["Alpha", "Beta", "Gamma"]
+    assert results[0]["totals"]["calls"] == 2
+
+
+def test_persona_comparison_summary_filters(metrics_store):
+    base = datetime(2024, 5, 1, tzinfo=timezone.utc)
+    personas = ["Alpha", "Beta", "Gamma"]
+    for offset, persona in enumerate(personas):
+        metrics_store.record_event(
+            PersonaMetricEvent(
+                persona=persona,
+                tool="insight",
+                success=persona != "Gamma",
+                latency_ms=100.0 + offset,
+                timestamp=base + timedelta(minutes=offset),
+            )
+        )
+
+    summary = metrics_store.get_persona_comparison_summary(personas=["gamma"])
+    assert summary["pagination"]["total"] == 1
+    assert summary["results"][0]["persona"] == "Gamma"
+
+    summary = metrics_store.get_persona_comparison_summary(search="alp")
+    assert summary["pagination"]["total"] == 1
+    assert summary["results"][0]["persona"] == "Alpha"
+
+    paged = metrics_store.get_persona_comparison_summary(page=2, page_size=1)
+    assert paged["pagination"]["page"] == 2
+    assert len(paged["results"]) == 1
+    assert paged["results"][0]["persona"] == "Beta"
+
+
 def test_task_lifecycle_metrics_aggregation(metrics_store):
     base = datetime(2024, 3, 1, 8, 0, tzinfo=timezone.utc)
     metrics_store.record_task_event(
