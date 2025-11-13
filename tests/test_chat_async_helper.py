@@ -282,13 +282,16 @@ if not hasattr(Gtk, "Switch"):
 class _ComboBoxText(_DummyWidget):
     def __init__(self):
         super().__init__()
-        self._items: list[str] = []
+        self._items: list[tuple[str, str]] = []
         self._active = -1
         self._handlers: dict[int, tuple[str, Callable[["_ComboBoxText"], None]]] = {}
         self._next_handler_id = 1
 
     def append_text(self, text: str):
-        self._items.append(text)
+        self._items.append((text, text))
+
+    def append(self, option: str, text: str):
+        self._items.append((option, text))
 
     def remove_all(self):
         self._items.clear()
@@ -305,8 +308,16 @@ class _ComboBoxText(_DummyWidget):
 
     def get_active_text(self):
         if 0 <= self._active < len(self._items):
-            return self._items[self._active]
+            return self._items[self._active][1]
         return None
+
+    def get_active_id(self):
+        if 0 <= self._active < len(self._items):
+            return self._items[self._active][0]
+        return None
+
+    def get_active(self):
+        return self._active
 
     def connect(self, signal: str, callback):
         handler_id = self._next_handler_id
