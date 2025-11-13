@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 import threading
+from typing import Optional
 
 import pytest
 
@@ -379,6 +380,17 @@ def test_task_lifecycle_metrics_aggregation(metrics_store):
     assert task_summary["task-1"]["reassignments"] == 1
     assert task_summary["task-1"]["last_status"] == "done"
 
+    funnel = metrics.get("funnel") or {}
+    stages = funnel.get("stages") or []
+    stage_lookup = {stage["status"]: stage for stage in stages}
+    ready_stage = stage_lookup["ready"]
+    assert ready_stage["conversion_rate"] == pytest.approx(1.0)
+    assert ready_stage["average_time_ms"] == pytest.approx(1_800_000.0)
+    done_stage = stage_lookup["done"]
+    assert done_stage["conversion_rate"] == pytest.approx(1.0)
+    assert done_stage["abandonment_rate"] == pytest.approx(0.0)
+    assert done_stage["average_time_ms"] is None
+
     recent_first = metrics["recent"][0]
     assert recent_first["event"] == "reassigned"
     assert recent_first["task_id"] == "task-1"
@@ -423,6 +435,113 @@ def test_record_task_lifecycle_event_publishes(monkeypatch, metrics_store):
     assert metrics["totals"]["events"] == 1
     assert metrics["success_rate"] == pytest.approx(1.0)
     assert metrics["recent"][0]["metadata"]["source"] == "test"
+
+
+def test_task_funnel_conversion_and_dwell(metrics_store):
+    base = datetime(2024, 6, 1, 9, 0, tzinfo=timezone.utc)
+
+    def record(
+        task_id: str,
+        *,
+        event: str,
+        from_status: Optional[str],
+        to_status: str,
+        minutes: int,
+        success: Optional[bool],
+    ) -> None:
+        metrics_store.record_task_event(
+            LifecycleEvent(
+                entity_id=task_id,
+                entity_key="task_id",
+                event=event,
+                persona="Atlas",
+                tenant_id="tenant-a",
+                from_status=from_status,
+                to_status=to_status,
+                success=success,
+                timestamp=base + timedelta(minutes=minutes),
+            )
+        )
+
+    record("task-a", event="created", from_status=None, to_status="new", minutes=0, success=None)
+    record(
+        "task-a",
+        event="started",
+        from_status="new",
+        to_status="in_progress",
+        minutes=10,
+        success=None,
+    )
+    record(
+        "task-a",
+        event="review",
+        from_status="in_progress",
+        to_status="review",
+        minutes=30,
+        success=None,
+    )
+    record(
+        "task-a",
+        event="completed",
+        from_status="review",
+        to_status="done",
+        minutes=45,
+        success=True,
+    )
+
+    record("task-b", event="created", from_status=None, to_status="new", minutes=5, success=None)
+    record(
+        "task-b",
+        event="started",
+        from_status="new",
+        to_status="in_progress",
+        minutes=20,
+        success=None,
+    )
+    record(
+        "task-b",
+        event="failed",
+        from_status="in_progress",
+        to_status="failed",
+        minutes=40,
+        success=False,
+    )
+
+    record("task-c", event="created", from_status=None, to_status="new", minutes=12, success=None)
+
+    metrics = metrics_store.get_task_metrics(persona="Atlas")
+    funnel = metrics["funnel"]
+    stages = funnel["stages"]
+    stage_lookup = {stage["status"]: stage for stage in stages}
+
+    new_stage = stage_lookup["new"]
+    assert new_stage["entered"] == 3
+    assert new_stage["converted"] == 2
+    assert new_stage["abandoned"] == 1
+    assert new_stage["conversion_rate"] == pytest.approx(2 / 3, rel=1e-6)
+    assert new_stage["abandonment_rate"] == pytest.approx(1 / 3, rel=1e-6)
+    assert new_stage["average_time_ms"] == pytest.approx(750_000.0)
+    assert new_stage["samples"] == 2
+
+    in_progress_stage = stage_lookup["in_progress"]
+    assert in_progress_stage["converted"] == 2
+    assert in_progress_stage["abandonment_rate"] == pytest.approx(0.0)
+    assert in_progress_stage["average_time_ms"] == pytest.approx(1_200_000.0)
+
+    review_stage = stage_lookup["review"]
+    assert review_stage["converted"] == 1
+    assert review_stage["abandonment_rate"] == pytest.approx(0.0)
+    assert review_stage["average_time_ms"] == pytest.approx(900_000.0)
+
+    done_stage = stage_lookup["done"]
+    assert done_stage["converted"] == 1
+    assert done_stage["abandonment_rate"] == pytest.approx(0.0)
+    assert done_stage["average_time_ms"] is None
+
+    failed_stage = stage_lookup["failed"]
+    assert failed_stage["converted"] == 0
+    assert failed_stage["abandonment_rate"] == pytest.approx(1.0)
+    assert failed_stage["average_time_ms"] is None
 
 
 def test_job_lifecycle_metrics_aggregation(metrics_store):

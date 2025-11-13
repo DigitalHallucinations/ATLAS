@@ -88,7 +88,7 @@ The task domain model defines the following lifecycle states (`modules/task_stor
 
 ## Analytics and rollups
 
-Aggregated task metrics—including success rates, latency, reassignment counts, and recent activity—are available through `get_task_lifecycle_metrics`. The results surface in the `CapabilityRegistry.summary` payload alongside [job lifecycle analytics](../jobs/lifecycle.md). Operators can subscribe to both `task_metrics.lifecycle` and `jobs.metrics.lifecycle` to build composite funnels that track persona throughput from individual tasks up to recurring jobs.
+Aggregated task metrics—including success rates, latency, reassignment counts, recent activity, and a sequential funnel describing task status conversions—are available through `get_task_lifecycle_metrics`. The `funnel` block pairs stage-by-stage conversion/abandonment percentages with average dwell time (in milliseconds) for tasks that progressed to the next status. The results surface in the `CapabilityRegistry.summary` payload alongside [job lifecycle analytics](../jobs/lifecycle.md). Operators can subscribe to both `task_metrics.lifecycle` and `jobs.metrics.lifecycle` to build composite funnels that track persona throughput from individual tasks up to recurring jobs.
 
 ## UI and dashboards
 
