@@ -139,6 +139,7 @@ class ATLAS:
                 logger=self.logger,
                 tenant_id=self.tenant_id,
                 chat_session_getter=self._require_chat_session,
+                server_getter=lambda: getattr(self, "server", None),
             )
             self.user_account_facade = UserAccountFacade(
                 config_manager=self.config_manager,
@@ -1230,21 +1231,60 @@ class ATLAS:
         conversation_id: Any,
         *,
         limit: Optional[int] = None,
+        page_size: Optional[int] = None,
         include_deleted: bool = True,
         batch_size: int = 200,
-    ) -> List[Dict[str, Any]]:
-        """Return messages for ``conversation_id`` using the conversation store."""
+        cursor: Optional[str] = None,
+        direction: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+        message_types: Optional[Iterable[str]] = None,
+        statuses: Optional[Iterable[str]] = None,
+    ) -> Dict[str, Any]:
+        """Return messages for ``conversation_id`` using the conversation service."""
 
         try:
             service = self._get_conversation_service()
         except RuntimeError:
-            return []
-        return service.get_conversation_messages(
+            return {
+                "items": [],
+                "page": {
+                    "size": 0,
+                    "direction": str(direction or "forward"),
+                    "next_cursor": None,
+                    "previous_cursor": None,
+                },
+            }
+
+        result = service.get_conversation_messages(
             conversation_id,
             limit=limit,
+            page_size=page_size,
             include_deleted=include_deleted,
             batch_size=batch_size,
+            cursor=cursor,
+            direction=direction,
+            metadata=metadata,
+            message_types=message_types,
+            statuses=statuses,
         )
+
+        if isinstance(result, Mapping):
+            return dict(result)
+
+        if isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
+            messages = list(result)
+        else:
+            messages = []
+
+        return {
+            "items": messages,
+            "page": {
+                "size": len(messages),
+                "direction": str(direction or "forward"),
+                "next_cursor": None,
+                "previous_cursor": None,
+            },
+        }
 
     def reset_conversation_messages(self, conversation_id: Any) -> Dict[str, Any]:
         """Remove stored messages for ``conversation_id`` while preserving the record."""

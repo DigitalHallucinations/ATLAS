@@ -5,15 +5,22 @@ from unittest.mock import Mock
 from ATLAS.services.conversations import ConversationService
 
 
-def _service(repository=None, logger=None, tenant_id="tenant") -> ConversationService:
+def _service(
+    repository=None,
+    logger=None,
+    tenant_id="tenant",
+    server=None,
+) -> ConversationService:
     if repository is None:
         repository = Mock()
     if logger is None:
         logger = Mock()
+    server_getter = (lambda: server) if server is not None else None
     return ConversationService(
         repository=repository,
         logger=logger,
         tenant_id=tenant_id,
+        server_getter=server_getter,
     )
 
 
@@ -52,13 +59,13 @@ def test_get_conversation_messages_respects_limit_and_batch_size() -> None:
     )
 
     repository.stream_conversation_messages.assert_called_once_with(
-        "conv",
+        conversation_id="conv",
         tenant_id="tenant",
         batch_size=3,
-        direction="forward",
         include_deleted=False,
     )
-    assert result == [{"id": "m1"}, {"id": "m2"}]
+    assert result["items"] == [{"id": "m1"}, {"id": "m2"}]
+    assert result["page"]["size"] == 2
 
 
 def test_reset_conversation_messages_propagates_error_message() -> None:
@@ -101,6 +108,65 @@ def test_listener_invocation_and_cleanup() -> None:
     service.notify_updated("identifier")
 
     assert len(events) == 1
+
+
+def test_get_conversation_messages_uses_server_when_available() -> None:
+    server = Mock()
+    server.list_messages.return_value = {
+        "items": [{"id": "server"}],
+        "page": {
+            "size": 5,
+            "direction": "backward",
+            "next_cursor": "next-token",
+            "previous_cursor": None,
+        },
+    }
+
+    service = _service(server=server)
+
+    result = service.get_conversation_messages(
+        "conv",
+        page_size=5,
+        cursor="cursor-token",
+        direction="backward",
+        metadata={"scope": "unit"},
+        message_types=["note", "reply"],
+        statuses=["complete"],
+        include_deleted=False,
+    )
+
+    server.list_messages.assert_called_once()
+    call = server.list_messages.call_args
+    assert call.args[0] == "conv"
+    params = call.args[1]
+    assert params["page_size"] == 5
+    assert params["cursor"] == "cursor-token"
+    assert params["direction"] == "backward"
+    assert params["metadata"] == {"scope": "unit"}
+    assert params["message_types"] == ["note", "reply"]
+    assert params["statuses"] == ["complete"]
+    assert params["include_deleted"] is False
+    assert call.kwargs["context"]["tenant_id"] == "tenant"
+    assert result["page"]["next_cursor"] == "next-token"
+    assert result["items"] == [{"id": "server"}]
+
+
+def test_get_conversation_messages_falls_back_when_server_fails() -> None:
+    repository = Mock()
+    repository.stream_conversation_messages.return_value = [{"id": "fallback"}]
+    server = Mock()
+    server.list_messages.side_effect = RuntimeError("boom")
+
+    service = _service(repository=repository, server=server)
+
+    result = service.get_conversation_messages(
+        "conv",
+        page_size=1,
+        direction="backward",
+    )
+
+    repository.stream_conversation_messages.assert_called_once()
+    assert result["items"] == [{"id": "fallback"}]
 
 
 def test_retention_runner_unavailable_returns_error() -> None:

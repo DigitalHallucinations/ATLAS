@@ -24,11 +24,13 @@ class ConversationService:
         logger: Any,
         tenant_id: str,
         chat_session_getter: Optional[Callable[[], "ChatSession"]] = None,
+        server_getter: Optional[Callable[[], Any]] = None,
     ) -> None:
         self._repository = repository
         self._logger = logger
         self._tenant_id = str(tenant_id).strip() or "default"
         self._chat_session_getter = chat_session_getter
+        self._server_getter = server_getter
         self._listeners: List[Callable[[Dict[str, Any]], None]] = []
 
     # ------------------------------------------------------------------
@@ -123,22 +125,142 @@ class ConversationService:
         conversation_id: Any,
         *,
         limit: Optional[int] = None,
+        page_size: Optional[int] = None,
         include_deleted: bool = True,
         batch_size: int = 200,
-    ) -> List[Dict[str, Any]]:
-        """Return messages for ``conversation_id`` using the conversation store."""
+        cursor: Optional[str] = None,
+        direction: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+        message_types: Optional[Iterable[str]] = None,
+        statuses: Optional[Iterable[str]] = None,
+    ) -> Dict[str, Any]:
+        """Return messages for ``conversation_id`` using the best available pathway."""
+
+        tenant_id = self._conversation_tenant()
+
+        normalized_direction = str(direction or "forward").lower()
+        if normalized_direction not in {"forward", "backward"}:
+            normalized_direction = "forward"
+
+        window: Optional[int]
+        raw_page_size = page_size if page_size is not None else limit
+        if raw_page_size is None:
+            window = None
+        else:
+            try:
+                window = max(int(raw_page_size), 1)
+            except (TypeError, ValueError):
+                window = None
+
+        metadata_filter: Optional[Dict[str, Any]]
+        if isinstance(metadata, Mapping):
+            metadata_filter = {
+                str(key): value for key, value in metadata.items() if str(key).strip()
+            } or None
+        else:
+            metadata_filter = None
+
+        type_filter: List[str] = []
+        if isinstance(message_types, Iterable) and not isinstance(message_types, (str, bytes)):
+            seen_types: Dict[str, None] = {}
+            for value in message_types:
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if not text:
+                    continue
+                key = text
+                if key not in seen_types:
+                    seen_types[key] = None
+            type_filter = list(seen_types.keys())
+
+        status_filter: List[str] = []
+        if isinstance(statuses, Iterable) and not isinstance(statuses, (str, bytes)):
+            seen_statuses: Dict[str, None] = {}
+            for value in statuses:
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if not text:
+                    continue
+                key = text
+                if key not in seen_statuses:
+                    seen_statuses[key] = None
+            status_filter = list(seen_statuses.keys())
+
+        use_server = bool(
+            cursor
+            or metadata_filter
+            or type_filter
+            or status_filter
+            or window is not None
+            or direction is not None
+            or include_deleted is False
+        )
+
+        server = self._resolve_server()
+        if use_server and server is not None:
+            list_method = getattr(server, "list_messages", None)
+            if callable(list_method):
+                params: Dict[str, Any] = {"include_deleted": bool(include_deleted)}
+                if window is not None:
+                    params["page_size"] = window
+                if cursor:
+                    params["cursor"] = cursor
+                if direction is not None or normalized_direction != "forward":
+                    params["direction"] = normalized_direction
+                if metadata_filter:
+                    params["metadata"] = metadata_filter
+                if type_filter:
+                    params["message_types"] = type_filter
+                if status_filter:
+                    params["statuses"] = status_filter
+
+                try:
+                    response = list_method(
+                        str(conversation_id),
+                        params,
+                        context={"tenant_id": tenant_id},
+                    )
+                except ConversationAuthorizationError:
+                    raise
+                except Exception as exc:  # pragma: no cover - defensive logging only
+                    if hasattr(self._logger, "warning"):
+                        self._logger.warning(
+                            "Server list_messages failed for conversation %s: %s",
+                            conversation_id,
+                            exc,
+                            exc_info=True,
+                        )
+                else:
+                    if isinstance(response, Mapping):
+                        items = list(response.get("items") or [])
+                        page_info = response.get("page")
+                        if not isinstance(page_info, Mapping):
+                            page_info = {}
+                        return {
+                            "items": items,
+                            "page": {
+                                "size": page_info.get("size", window or len(items)),
+                                "direction": str(
+                                    page_info.get("direction") or normalized_direction
+                                ),
+                                "next_cursor": page_info.get("next_cursor"),
+                                "previous_cursor": page_info.get("previous_cursor"),
+                            },
+                        }
 
         repository = self._repository
         if repository is None:
-            return []
-
-        if limit is None:
-            remaining: Optional[int] = None
-        else:
-            try:
-                remaining = max(int(limit), 0)
-            except (TypeError, ValueError):
-                remaining = None
+            return {
+                "items": [],
+                "page": {
+                    "size": 0,
+                    "direction": normalized_direction,
+                    "next_cursor": None,
+                    "previous_cursor": None,
+                },
+            }
 
         try:
             chunk_size = max(int(batch_size), 1)
@@ -147,23 +269,11 @@ class ConversationService:
 
         try:
             stream: Iterable[Dict[str, Any]] = repository.stream_conversation_messages(
-                conversation_id,
-                tenant_id=self._conversation_tenant(),
+                conversation_id=conversation_id,
+                tenant_id=tenant_id,
                 batch_size=chunk_size,
-                direction="forward",
                 include_deleted=include_deleted,
             )
-
-            messages: List[Dict[str, Any]] = []
-            if remaining is None:
-                messages.extend(stream)
-            else:
-                for message in stream:
-                    if remaining <= 0:
-                        break
-                    messages.append(message)
-                    remaining -= 1
-            return messages
         except Exception as exc:  # pragma: no cover - persistence failures logged
             if hasattr(self._logger, "error"):
                 self._logger.error(
@@ -172,7 +282,66 @@ class ConversationService:
                     exc,
                     exc_info=True,
                 )
-            return []
+            return {
+                "items": [],
+                "page": {
+                    "size": 0,
+                    "direction": normalized_direction,
+                    "next_cursor": None,
+                    "previous_cursor": None,
+                },
+            }
+
+        messages = list(stream)
+
+        if metadata_filter:
+            messages = [
+                message
+                for message in messages
+                if _metadata_matches(message.get("metadata"), metadata_filter)
+            ]
+
+        if type_filter:
+            messages = [
+                message
+                for message in messages
+                if str(message.get("message_type") or "").strip() in type_filter
+            ]
+
+        if status_filter:
+            messages = [
+                message
+                for message in messages
+                if str(message.get("status") or "").strip() in status_filter
+            ]
+
+        if normalized_direction == "forward":
+            messages.sort(key=_message_sort_key)
+        else:
+            messages.sort(key=_message_sort_key, reverse=True)
+
+        if window is not None:
+            messages = messages[:window]
+
+        return {
+            "items": messages,
+            "page": {
+                "size": window or len(messages),
+                "direction": normalized_direction,
+                "next_cursor": None,
+                "previous_cursor": None,
+            },
+        }
+
+    def _resolve_server(self) -> Any | None:
+        if self._server_getter is None:
+            return None
+        try:
+            return self._server_getter()
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            if hasattr(self._logger, "debug"):
+                self._logger.debug("Server getter failed: %s", exc, exc_info=True)
+            return None
 
     def reset_conversation_messages(self, conversation_id: Any) -> Dict[str, Any]:
         """Remove stored messages for ``conversation_id`` while preserving the record."""
@@ -615,3 +784,33 @@ class ConversationService:
             return [dict(entry) for entry in history]
 
         return []
+
+
+def _metadata_matches(
+    candidate: Any,
+    expected: Mapping[str, Any],
+) -> bool:
+    if not isinstance(candidate, Mapping):
+        return False
+    for key, value in expected.items():
+        if candidate.get(key) != value:
+            return False
+    return True
+
+
+def _message_sort_key(message: Mapping[str, Any]) -> Any:
+    timestamp = message.get("created_at") or message.get("timestamp")
+    if not timestamp:
+        return (datetime.min.replace(tzinfo=timezone.utc), str(message.get("id")))
+    text = str(timestamp)
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return (datetime.min.replace(tzinfo=timezone.utc), str(message.get("id")))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return (parsed, str(message.get("id")))
