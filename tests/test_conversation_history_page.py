@@ -1,4 +1,6 @@
 import logging
+import logging
+from collections import deque
 import pytest
 import sys
 import types
@@ -97,6 +99,15 @@ def _install_gtk_stubs() -> None:
         def set_max_width_chars(self, *_args, **_kwargs):
             return None
 
+        def set_width_chars(self, *_args, **_kwargs):
+            return None
+
+        def set_placeholder_text(self, *_args, **_kwargs):
+            return None
+
+        def set_visible(self, *_args, **_kwargs):
+            return None
+
         def set_label(self, value):
             self._label = value
 
@@ -138,6 +149,28 @@ def _install_gtk_stubs() -> None:
             super().__init__(*args, **kwargs)
             self._label = kwargs.get("label", "")
 
+    class _Entry(_DummyWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._text = kwargs.get("text", "")
+
+        def set_text(self, value):
+            self._text = str(value)
+
+        def get_text(self):
+            return self._text
+
+    class _CheckButton(_Button):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._active = bool(kwargs.get("active", False))
+
+        def set_active(self, value):
+            self._active = bool(value)
+
+        def get_active(self):
+            return self._active
+
     class _Box(_DummyWidget):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
@@ -152,6 +185,9 @@ def _install_gtk_stubs() -> None:
     Gtk.Box = _Box
     Gtk.Label = _Label
     Gtk.Button = _Button
+    Gtk.Entry = _Entry
+    Gtk.SearchEntry = _Entry
+    Gtk.CheckButton = _CheckButton
     Gtk.ScrolledWindow = _ScrolledWindow
     Gtk.ListBox = _ListBox
     Gtk.ListBoxRow = _ListBoxRow
@@ -197,7 +233,6 @@ if getattr(create_engine, "__module__", "").startswith("tests.conftest"):
         allow_module_level=True,
     )
 
-from ATLAS.ATLAS import ATLAS
 from GTKUI.Chat.conversation_history_page import ConversationHistoryPage
 from modules.conversation_store import Base, ConversationStoreRepository
 
@@ -220,8 +255,6 @@ def repository(postgresql):
 class _HistoryAtlasStub:
     """Minimal ATLAS facade exposing conversation history primitives for tests."""
 
-    get_conversation_messages = ATLAS.get_conversation_messages
-
     def __init__(self, repository: ConversationStoreRepository) -> None:
         self.conversation_repository = repository
         self.logger = logging.getLogger("atlas.tests.history")
@@ -235,6 +268,75 @@ class _HistoryAtlasStub:
             self._conversation_tenant(),
             order=order,
         )
+
+    def get_conversation_messages(
+        self,
+        conversation_id,
+        *,
+        limit=None,
+        page_size=None,
+        include_deleted=True,
+        batch_size=200,
+        cursor=None,
+        direction=None,
+        metadata=None,
+        message_types=None,
+        statuses=None,
+    ):
+        batch = max(int(batch_size or 200), 1)
+        stream = self.conversation_repository.stream_conversation_messages(
+            conversation_id=conversation_id,
+            tenant_id=self._conversation_tenant(),
+            include_deleted=include_deleted,
+            batch_size=batch,
+        )
+        messages = list(stream)
+        window = page_size or limit
+        if window:
+            window = max(int(window), 1)
+            messages = messages[:window]
+        return {
+            "items": messages,
+            "page": {
+                "size": window or len(messages),
+                "direction": str(direction or "forward"),
+                "next_cursor": None,
+                "previous_cursor": None,
+            },
+        }
+
+
+class _PagingAtlasStub:
+    def __init__(self, responses):
+        self.logger = logging.getLogger("atlas.tests.history.pagination")
+        self._responses = deque(responses)
+        self.calls = []
+        self._conversation_id = str(uuid.uuid4())
+
+    def list_all_conversations(self, *, order: str = "desc"):
+        return [
+            {
+                "id": self._conversation_id,
+                "title": "Paged Conversation",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ]
+
+    def get_conversation_messages(self, conversation_id, **kwargs):
+        record = dict(kwargs)
+        record["conversation_id"] = conversation_id
+        self.calls.append(record)
+        if self._responses:
+            return self._responses.popleft()
+        return {
+            "items": [],
+            "page": {
+                "size": kwargs.get("page_size") or 0,
+                "direction": kwargs.get("direction") or "forward",
+                "next_cursor": None,
+                "previous_cursor": None,
+            },
+        }
 
 
 def test_history_page_renders_entire_conversation(repository):
@@ -267,7 +369,107 @@ def test_history_page_renders_entire_conversation(repository):
     assert len(limited_messages) == 500
 
     page = ConversationHistoryPage(atlas)
-    page._load_messages(str(conversation_id))
+    page._load_messages(str(conversation_id), reset_cursor=True)
 
     rendered_children = getattr(page.message_box, "children", [])
     assert len(rendered_children) == total_messages
+
+
+def test_history_page_supports_pagination_and_filters():
+    base_time = datetime.now(timezone.utc)
+    responses = deque(
+        [
+            {
+                "items": [
+                    {
+                        "id": "m3",
+                        "created_at": (base_time + timedelta(seconds=3)).isoformat(),
+                        "content": {"text": "latest"},
+                        "metadata": {"category": "support"},
+                    }
+                ],
+                "page": {
+                    "size": 1,
+                    "direction": "backward",
+                    "previous_cursor": "cursor-older",
+                    "next_cursor": None,
+                },
+            },
+            {
+                "items": [
+                    {
+                        "id": "m2",
+                        "created_at": (base_time + timedelta(seconds=2)).isoformat(),
+                        "content": {"text": "older"},
+                    }
+                ],
+                "page": {
+                    "size": 1,
+                    "direction": "backward",
+                    "previous_cursor": None,
+                    "next_cursor": "cursor-newer",
+                },
+            },
+            {
+                "items": [],
+                "page": {
+                    "size": 0,
+                    "direction": "backward",
+                    "previous_cursor": None,
+                    "next_cursor": None,
+                },
+            },
+            {
+                "items": [
+                    {
+                        "id": "m1",
+                        "created_at": (base_time + timedelta(seconds=1)).isoformat(),
+                        "content": {"text": "filtered"},
+                        "message_type": "note",
+                        "status": "complete",
+                    }
+                ],
+                "page": {
+                    "size": 1,
+                    "direction": "backward",
+                    "previous_cursor": None,
+                    "next_cursor": None,
+                },
+            },
+        ]
+    )
+
+    atlas = _PagingAtlasStub(responses)
+    page = ConversationHistoryPage(atlas)
+    conversation_id = atlas.list_all_conversations()[0]["id"]
+    page._selected_id = conversation_id
+
+    page._load_messages(conversation_id, reset_cursor=True)
+    first_call = atlas.calls[0]
+    assert first_call["cursor"] is None
+    assert first_call["direction"] == "backward"
+    assert first_call["include_deleted"] is False
+    assert first_call["page_size"] == 50
+    assert page.next_page_button._sensitive is True
+
+    page._on_next_page_clicked(page.next_page_button)
+    second_call = atlas.calls[1]
+    assert second_call["cursor"] == "cursor-older"
+    assert page.previous_page_button._sensitive is True
+
+    page.message_metadata_entry.set_text('{"category": "support"}')
+    page._on_message_metadata_activate(page.message_metadata_entry)
+    third_call = atlas.calls[2]
+    assert third_call["metadata"] == {"category": "support"}
+    assert third_call["cursor"] is None
+    assert page.previous_page_button._sensitive is False
+    assert len(page.message_box.children) == 1  # placeholder for empty page
+
+    page.message_type_entry.set_text("note, reply")
+    page.message_status_entry.set_text("complete")
+    page.include_deleted_toggle.set_active(True)
+    fourth_call = atlas.calls[3]
+    assert fourth_call["message_types"] == ["note", "reply"]
+    assert fourth_call["statuses"] == ["complete"]
+    assert fourth_call["include_deleted"] is True
+    assert len(page.message_box.children) == 1

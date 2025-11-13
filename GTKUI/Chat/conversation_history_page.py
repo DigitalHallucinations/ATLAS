@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Mapping, Optional
+from collections.abc import Iterable
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import gi
 
@@ -33,6 +34,10 @@ class ConversationHistoryPage(Gtk.Box):
         self._search_results: List[Dict[str, Any]] = []
         self._retention_backend_disabled = False
         self._retention_failure_reason: Optional[str] = None
+        self._message_cursor: Optional[str] = None
+        self._cursor_history: List[Optional[str]] = []
+        self._message_page_state: Dict[str, Any] = {}
+        self._default_page_size = 50
 
         self.set_margin_top(12)
         self.set_margin_bottom(12)
@@ -116,6 +121,67 @@ class ConversationHistoryPage(Gtk.Box):
         left_scroller.set_child(self.conversation_list)
         content.append(left_scroller)
 
+        right_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        right_panel.set_hexpand(True)
+        right_panel.set_vexpand(True)
+
+        controls_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        right_panel.append(controls_panel)
+
+        pagination_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        controls_panel.append(pagination_row)
+
+        page_size_label = Gtk.Label(label="Page size")
+        page_size_label.set_xalign(0.0)
+        pagination_row.append(page_size_label)
+
+        self.page_size_entry = Gtk.Entry()
+        self.page_size_entry.set_width_chars(4)
+        self.page_size_entry.set_text(str(self._default_page_size))
+        self.page_size_entry.connect("activate", self._on_page_size_activate)
+        pagination_row.append(self.page_size_entry)
+
+        self.direction_toggle = Gtk.CheckButton(label="Newest first")
+        self.direction_toggle.set_active(True)
+        self.direction_toggle.connect("toggled", self._on_direction_toggled)
+        pagination_row.append(self.direction_toggle)
+
+        self.include_deleted_toggle = Gtk.CheckButton(label="Include deleted")
+        self.include_deleted_toggle.set_active(False)
+        self.include_deleted_toggle.connect("toggled", self._on_include_deleted_toggled)
+        pagination_row.append(self.include_deleted_toggle)
+
+        self.previous_page_button = Gtk.Button(label="Previous page")
+        self.previous_page_button.set_sensitive(False)
+        self.previous_page_button.connect("clicked", self._on_previous_page_clicked)
+        pagination_row.append(self.previous_page_button)
+
+        self.next_page_button = Gtk.Button(label="Next page")
+        self.next_page_button.set_sensitive(False)
+        self.next_page_button.connect("clicked", self._on_next_page_clicked)
+        pagination_row.append(self.next_page_button)
+
+        filter_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        controls_panel.append(filter_row)
+
+        self.message_metadata_entry = Gtk.Entry()
+        self.message_metadata_entry.set_placeholder_text("Metadata filter (JSON)")
+        self.message_metadata_entry.set_hexpand(True)
+        self.message_metadata_entry.connect("activate", self._on_message_metadata_activate)
+        filter_row.append(self.message_metadata_entry)
+
+        self.message_type_entry = Gtk.Entry()
+        self.message_type_entry.set_placeholder_text("Message types")
+        self.message_type_entry.set_hexpand(True)
+        self.message_type_entry.connect("activate", self._on_message_type_activate)
+        filter_row.append(self.message_type_entry)
+
+        self.message_status_entry = Gtk.Entry()
+        self.message_status_entry.set_placeholder_text("Statuses")
+        self.message_status_entry.set_hexpand(True)
+        self.message_status_entry.connect("activate", self._on_message_status_activate)
+        filter_row.append(self.message_status_entry)
+
         right_scroller = Gtk.ScrolledWindow()
         right_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         right_scroller.set_hexpand(True)
@@ -127,7 +193,9 @@ class ConversationHistoryPage(Gtk.Box):
         self.message_box.set_margin_start(6)
         self.message_box.set_margin_end(6)
         right_scroller.set_child(self.message_box)
-        content.append(right_scroller)
+        right_panel.append(right_scroller)
+
+        content.append(right_panel)
 
         self.append(content)
 
@@ -149,6 +217,7 @@ class ConversationHistoryPage(Gtk.Box):
         self._update_retention_button_state()
         self.connect("unrealize", self._on_unrealize)
 
+        self._reset_message_pagination_state()
         self._reload_conversations()
 
     # ------------------------------------------------------------------
@@ -175,11 +244,12 @@ class ConversationHistoryPage(Gtk.Box):
             self._selected_id = None
             self._show_message_placeholder()
             self._update_action_buttons()
+            self._reset_message_pagination_state()
             return
 
         self._selected_id = identifier
         self._update_action_buttons()
-        self._load_messages(identifier)
+        self._load_messages(identifier, reset_cursor=True)
 
     def _on_reset_clicked(self, _button: Gtk.Button) -> None:
         if not self._selected_id:
@@ -327,9 +397,90 @@ class ConversationHistoryPage(Gtk.Box):
 
         self._update_action_buttons()
 
-    def _load_messages(self, conversation_id: str) -> None:
-        messages = self.ATLAS.get_conversation_messages(conversation_id)
-        self._render_messages(messages)
+    def _load_messages(self, conversation_id: str, *, reset_cursor: bool = False) -> None:
+        if reset_cursor:
+            self._reset_message_pagination_state()
+
+        request = self._build_message_request()
+        if request is None:
+            return
+
+        try:
+            response = self.ATLAS.get_conversation_messages(conversation_id, **request)
+        except Exception as exc:  # pragma: no cover - defensive logging upstream
+            self._set_status(f"Failed to load messages: {exc}")
+            self._render_messages([])
+            return
+
+        items, page_state = self._coerce_message_response(response, request)
+        self._message_page_state = page_state
+        self._set_status("")
+        self._render_messages(items)
+        self._update_page_buttons()
+
+    def _build_message_request(self) -> Optional[Dict[str, Any]]:
+        page_size = self._resolve_page_size()
+        metadata_filter, error = self._parse_metadata_filter()
+        if error:
+            self._set_status(error)
+            return None
+
+        message_types = self._parse_filter_values(self.message_type_entry)
+        statuses = self._parse_filter_values(self.message_status_entry)
+        include_deleted = bool(self.include_deleted_toggle.get_active())
+        direction = "backward" if self.direction_toggle.get_active() else "forward"
+
+        request: Dict[str, Any] = {
+            "page_size": page_size,
+            "include_deleted": include_deleted,
+            "direction": direction,
+            "cursor": self._message_cursor,
+        }
+
+        if metadata_filter:
+            request["metadata"] = metadata_filter
+        if message_types:
+            request["message_types"] = message_types
+        if statuses:
+            request["statuses"] = statuses
+
+        return request
+
+    def _coerce_message_response(
+        self,
+        response: Any,
+        request: Mapping[str, Any],
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        if isinstance(response, Mapping):
+            items = list(response.get("items") or [])
+            page_info = response.get("page")
+            if not isinstance(page_info, Mapping):
+                page_info = {}
+            direction = str(page_info.get("direction") or request.get("direction") or "forward")
+            return (
+                items,
+                {
+                    "size": page_info.get("size") or request.get("page_size") or len(items),
+                    "direction": direction,
+                    "next_cursor": page_info.get("next_cursor"),
+                    "previous_cursor": page_info.get("previous_cursor"),
+                },
+            )
+
+        if isinstance(response, Iterable) and not isinstance(response, (str, bytes)):
+            items = list(response)
+        else:
+            items = []
+
+        return (
+            items,
+            {
+                "size": request.get("page_size") or len(items),
+                "direction": str(request.get("direction") or "forward"),
+                "next_cursor": None,
+                "previous_cursor": None,
+            },
+        )
 
     def _render_messages(self, messages: List[Dict[str, Any]]) -> None:
         self._clear_message_box()
@@ -475,11 +626,25 @@ class ConversationHistoryPage(Gtk.Box):
         placeholder.set_wrap(True)
         placeholder.add_css_class("history-placeholder")
         self.message_box.append(placeholder)
+        self._update_page_buttons()
 
     def _update_action_buttons(self) -> None:
         has_selection = bool(self._selected_id)
         self.reset_button.set_sensitive(has_selection)
         self.delete_button.set_sensitive(has_selection)
+
+    def _update_page_buttons(self) -> None:
+        has_selection = bool(self._selected_id)
+        next_cursor = self._resolve_next_cursor() if has_selection else None
+        previous_available = bool(self._cursor_history)
+        self.next_page_button.set_sensitive(bool(next_cursor))
+        self.previous_page_button.set_sensitive(previous_available)
+
+    def _resolve_next_cursor(self) -> Optional[str]:
+        direction = str(self._message_page_state.get("direction") or "forward")
+        if direction == "forward":
+            return self._message_page_state.get("next_cursor")
+        return self._message_page_state.get("previous_cursor")
 
     def _register_active_user_listener(self) -> None:
         if self._active_user_listener is not None:
@@ -575,6 +740,91 @@ class ConversationHistoryPage(Gtk.Box):
 
     def _set_status(self, message: str) -> None:
         self.status_label.set_label(message or "")
+
+    def _reset_message_pagination_state(self) -> None:
+        self._message_cursor = None
+        self._cursor_history = []
+        self._message_page_state = {
+            "size": self._default_page_size,
+            "direction": "backward" if self.direction_toggle.get_active() else "forward",
+            "next_cursor": None,
+            "previous_cursor": None,
+        }
+        self._update_page_buttons()
+
+    def _refresh_message_list(self, *, reset_cursor: bool = False) -> None:
+        if not self._selected_id:
+            return
+        self._load_messages(self._selected_id, reset_cursor=reset_cursor)
+
+    def _resolve_page_size(self) -> int:
+        text = self.page_size_entry.get_text().strip()
+        if not text:
+            value = self._default_page_size
+        else:
+            try:
+                value = max(int(text), 1)
+            except (TypeError, ValueError):
+                value = self._default_page_size
+                self._set_status("Invalid page size; using default value.")
+        self.page_size_entry.set_text(str(value))
+        return value
+
+    def _parse_metadata_filter(self) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        raw_text = self.message_metadata_entry.get_text().strip()
+        if not raw_text:
+            return None, None
+        try:
+            parsed = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            return None, f"Metadata filter is not valid JSON: {exc}"
+        if not isinstance(parsed, Mapping):
+            return None, "Metadata filter must be a JSON object."
+        return dict(parsed), None
+
+    def _parse_filter_values(self, entry: Gtk.Entry) -> List[str]:
+        raw_text = entry.get_text().strip()
+        if not raw_text:
+            return []
+        values: List[str] = []
+        for chunk in raw_text.replace(";", ",").split(","):
+            text = chunk.strip()
+            if text and text not in values:
+                values.append(text)
+        return values
+
+    def _on_page_size_activate(self, _entry: Gtk.Entry) -> None:
+        self._refresh_message_list(reset_cursor=True)
+
+    def _on_direction_toggled(self, _button: Gtk.CheckButton) -> None:
+        self._refresh_message_list(reset_cursor=True)
+
+    def _on_include_deleted_toggled(self, _button: Gtk.CheckButton) -> None:
+        self._refresh_message_list(reset_cursor=True)
+
+    def _on_next_page_clicked(self, _button: Gtk.Button) -> None:
+        target = self._resolve_next_cursor()
+        if not target or not self._selected_id:
+            return
+        self._cursor_history.append(self._message_cursor)
+        self._message_cursor = target
+        self._load_messages(self._selected_id)
+
+    def _on_previous_page_clicked(self, _button: Gtk.Button) -> None:
+        if not self._cursor_history or not self._selected_id:
+            return
+        target = self._cursor_history.pop()
+        self._message_cursor = target
+        self._load_messages(self._selected_id)
+
+    def _on_message_metadata_activate(self, _entry: Gtk.Entry) -> None:
+        self._refresh_message_list(reset_cursor=True)
+
+    def _on_message_type_activate(self, _entry: Gtk.Entry) -> None:
+        self._refresh_message_list(reset_cursor=True)
+
+    def _on_message_status_activate(self, _entry: Gtk.Entry) -> None:
+        self._refresh_message_list(reset_cursor=True)
 
     def _on_unrealize(self, *_args) -> None:
         remover = getattr(self.ATLAS, "remove_conversation_history_listener", None)
