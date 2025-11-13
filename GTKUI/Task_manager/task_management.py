@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk
+from gi.repository import Gdk, GLib, Gtk
 
 from ATLAS.utils import normalize_sequence
 
@@ -69,6 +69,7 @@ class TaskManagement:
 
         self._widget: Optional[Gtk.Widget] = None
         self._task_list: Optional[Gtk.ListBox] = None
+        self._view_stack: Optional[Gtk.Stack] = None
         self._persona_filter_combo: Optional[Gtk.ComboBoxText] = None
         self._status_filter_combo: Optional[Gtk.ComboBoxText] = None
         self._owner_filter_combo: Optional[Gtk.ComboBoxText] = None
@@ -101,6 +102,13 @@ class TaskManagement:
         self._entry_lookup: Dict[str, _TaskEntry] = {}
         self._display_entries: List[_TaskEntry] = []
         self._row_lookup: Dict[str, Gtk.ListBoxRow] = {}
+        self._board_container: Optional[Gtk.Box] = None
+        self._board_columns: Dict[str, Gtk.Box] = {}
+        self._board_column_wrappers: Dict[str, Gtk.Widget] = {}
+        self._board_status_labels: Dict[str, Gtk.Label] = {}
+        self._board_card_lookup: Dict[str, Gtk.Widget] = {}
+        self._active_board_card: Optional[Gtk.Widget] = None
+        self._drag_in_progress_card: Optional[Gtk.Widget] = None
         self._persona_filter: Optional[str] = None
         self._status_filter: Optional[str] = None
         self._persona_option_lookup: List[Optional[str]] = []
@@ -251,17 +259,35 @@ class TaskManagement:
         add_metadata_button.connect("clicked", self._on_add_metadata_filter)
         metadata_section.append(add_metadata_button)
 
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_hexpand(False)
-        scroller.set_vexpand(True)
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        sidebar.append(scroller)
+        view_stack = Gtk.Stack()
+        view_stack.set_hexpand(False)
+        view_stack.set_vexpand(True)
+        if hasattr(view_stack, "set_transition_type"):
+            view_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        sidebar.append(view_stack)
+        self._view_stack = view_stack
+
+        view_switcher = Gtk.StackSwitcher()
+        view_switcher.set_stack(view_stack)
+        view_switcher.set_hexpand(True)
+        if hasattr(view_switcher, "set_halign"):
+            view_switcher.set_halign(Gtk.Align.FILL)
+        filter_box.append(view_switcher)
 
         listbox = Gtk.ListBox()
         listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
         listbox.connect("row-selected", self._on_row_selected)
-        scroller.set_child(listbox)
+        list_scroller = Gtk.ScrolledWindow()
+        list_scroller.set_hexpand(False)
+        list_scroller.set_vexpand(True)
+        list_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        list_scroller.set_child(listbox)
+        view_stack.add_titled(list_scroller, "list", "List")
         self._task_list = listbox
+
+        board_view = self._build_board_view()
+        view_stack.add_titled(board_view, "board", "Board")
+        view_stack.set_visible_child_name("list")
 
         detail_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         detail_panel.set_hexpand(True)
@@ -398,6 +424,241 @@ class TaskManagement:
         badge_container.set_visible(False)
         container.append(badge_container)
         return badge_container
+
+    # ------------------------------------------------------------------
+    # Board construction and interaction
+    # ------------------------------------------------------------------
+    def _build_board_view(self) -> Gtk.Widget:
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_hexpand(False)
+        scroller.set_vexpand(True)
+        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        if hasattr(scroller, "add_css_class"):
+            scroller.add_css_class("kanban-board")
+
+        container = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        container.set_margin_top(6)
+        container.set_margin_bottom(6)
+        container.set_margin_start(6)
+        container.set_margin_end(6)
+        container.set_hexpand(True)
+        container.set_vexpand(False)
+        scroller.set_child(container)
+
+        self._board_container = container
+        self._board_columns.clear()
+        self._board_column_wrappers.clear()
+        self._board_status_labels.clear()
+        for status in self._STATUS_SEQUENCE:
+            self._ensure_board_column(status)
+        return scroller
+
+    def _ensure_board_column(self, status: str) -> Gtk.Box:
+        container = self._board_container
+        if container is None:
+            raise RuntimeError("Board view has not been initialised")
+
+        if status in self._board_columns:
+            return self._board_columns[status]
+
+        wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        wrapper.set_hexpand(False)
+        wrapper.set_vexpand(True)
+        wrapper.set_size_request(240, -1)
+        if hasattr(wrapper, "add_css_class"):
+            wrapper.add_css_class("kanban-column")
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        header.set_hexpand(True)
+        if hasattr(header, "add_css_class"):
+            header.add_css_class("kanban-column-header")
+        title = Gtk.Label(label=self._format_status(status))
+        title.set_xalign(0.0)
+        title.set_hexpand(True)
+        header.append(title)
+
+        count_label = Gtk.Label(label="0")
+        count_label.set_xalign(1.0)
+        if hasattr(count_label, "add_css_class"):
+            count_label.add_css_class("kanban-column-count")
+        header.append(count_label)
+
+        column_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        column_box.set_hexpand(True)
+        column_box.set_vexpand(False)
+        if hasattr(column_box, "add_css_class"):
+            column_box.add_css_class("kanban-column-body")
+
+        wrapper.append(header)
+        wrapper.append(column_box)
+        container.append(wrapper)
+
+        drop_target = Gtk.DropTarget.new(str, Gdk.DragAction.MOVE)
+        drop_target.connect("enter", self._on_board_drag_enter, status)
+        drop_target.connect("leave", self._on_board_drag_leave, status)
+        drop_target.connect("drop", self._on_board_drop, status)
+        column_box.add_controller(drop_target)
+
+        self._board_columns[status] = column_box
+        self._board_column_wrappers[status] = wrapper
+        self._board_status_labels[status] = count_label
+        return column_box
+
+    def _rebuild_task_board(self, entries: Sequence[_TaskEntry]) -> None:
+        if not self._board_container:
+            return
+
+        for column in self._board_columns.values():
+            clear_container(column)
+        counts: Dict[str, int] = {status: 0 for status in self._board_columns}
+        self._board_card_lookup.clear()
+
+        for entry in entries:
+            column = self._ensure_board_column(entry.status)
+            card = self._create_board_card(entry)
+            column.append(card)
+            counts[entry.status] = counts.get(entry.status, 0) + 1
+            self._board_card_lookup[entry.task_id] = card
+
+        for status, label in self._board_status_labels.items():
+            label.set_text(str(counts.get(status, 0)))
+
+        self._update_board_selection(self._active_task)
+
+    def _create_board_card(self, entry: _TaskEntry) -> Gtk.Widget:
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        card.set_margin_top(4)
+        card.set_margin_bottom(4)
+        card.set_margin_start(4)
+        card.set_margin_end(4)
+        card.set_hexpand(True)
+        card._task_id = entry.task_id  # type: ignore[attr-defined]
+        if hasattr(card, "add_css_class"):
+            card.add_css_class("kanban-card")
+
+        title = Gtk.Label(label=entry.title or "Untitled task")
+        title.set_xalign(0.0)
+        title.set_wrap(True)
+        if hasattr(title, "add_css_class"):
+            title.add_css_class("kanban-card-title")
+        card.append(title)
+
+        persona_label = Gtk.Label(label=entry.persona or "Unassigned")
+        persona_label.set_xalign(0.0)
+        if entry.persona is None and hasattr(persona_label, "add_css_class"):
+            persona_label.add_css_class("dim-label")
+        if hasattr(persona_label, "add_css_class"):
+            persona_label.add_css_class("kanban-card-meta")
+        card.append(persona_label)
+
+        if entry.owner_id:
+            owner_label = Gtk.Label(label=f"Owner: {entry.owner_id}")
+            owner_label.set_xalign(0.0)
+            if hasattr(owner_label, "add_css_class"):
+                owner_label.add_css_class("kanban-card-meta")
+            card.append(owner_label)
+
+        summary = Gtk.Label(label=entry.description)
+        summary.set_xalign(0.0)
+        summary.set_wrap(True)
+        if hasattr(summary, "add_css_class"):
+            summary.add_css_class("kanban-card-summary")
+        card.append(summary)
+
+        gesture = Gtk.GestureClick()
+        gesture.connect("pressed", self._on_board_card_pressed, entry.task_id)
+        card.add_controller(gesture)
+
+        drag_source = Gtk.DragSource()
+        drag_source.set_actions(Gdk.DragAction.MOVE)
+        drag_source.connect("prepare", self._on_board_drag_prepare, card)
+        drag_source.connect("drag-begin", self._on_board_drag_begin, card)
+        drag_source.connect("drag-end", self._on_board_drag_end, card)
+        card.add_controller(drag_source)
+        return card
+
+    def _on_board_card_pressed(
+        self, gesture: Gtk.GestureClick, _n_press: int, _x: float, _y: float, task_id: str
+    ) -> None:
+        try:
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        except Exception:  # pragma: no cover - GTK fallback
+            pass
+        if task_id:
+            self._select_task(task_id)
+
+    def _on_board_drag_prepare(
+        self, _source: Gtk.DragSource, _x: float, _y: float, card: Gtk.Widget
+    ) -> Optional[Gdk.ContentProvider]:
+        task_id = getattr(card, "_task_id", None)
+        if isinstance(task_id, str):
+            return Gdk.ContentProvider.new_for_value(task_id)
+        return None
+
+    def _on_board_drag_begin(
+        self, _source: Gtk.DragSource, _drag: Gdk.Drag, card: Gtk.Widget
+    ) -> None:
+        self._drag_in_progress_card = card
+        if hasattr(card, "add_css_class"):
+            card.add_css_class("kanban-card-dragging")
+
+    def _on_board_drag_end(self, _source: Gtk.DragSource, _drag: Gdk.Drag, card: Gtk.Widget) -> None:
+        if self._drag_in_progress_card is card:
+            self._drag_in_progress_card = None
+        if hasattr(card, "remove_css_class"):
+            card.remove_css_class("kanban-card-dragging")
+
+    def _on_board_drag_enter(
+        self, _target: Gtk.DropTarget, _x: float, _y: float, status: str
+    ) -> Gdk.DragAction:
+        self._set_column_drop_state(status, True)
+        return Gdk.DragAction.MOVE
+
+    def _on_board_drag_leave(self, _target: Gtk.DropTarget, status: str) -> None:
+        self._set_column_drop_state(status, False)
+
+    def _on_board_drop(
+        self, _target: Gtk.DropTarget, value: Any, _x: float, _y: float, status: str
+    ) -> bool:
+        self._set_column_drop_state(status, False)
+        task_id = value if isinstance(value, str) else None
+        if task_id is None:
+            get_string = getattr(value, "get_string", None)
+            if callable(get_string):
+                try:
+                    task_id = str(get_string())
+                except Exception:  # pragma: no cover - GTK fallback
+                    task_id = None
+        if not task_id:
+            return False
+        entry = self._entry_lookup.get(task_id)
+        if entry is None:
+            return False
+        if entry.status == status:
+            return True
+        self._transition_task(entry, status)
+        return True
+
+    def _set_column_drop_state(self, status: str, active: bool) -> None:
+        wrapper = self._board_column_wrappers.get(status)
+        if wrapper is None:
+            return
+        if hasattr(wrapper, "add_css_class") and hasattr(wrapper, "remove_css_class"):
+            if active:
+                wrapper.add_css_class("kanban-drop-target")
+            else:
+                wrapper.remove_css_class("kanban-drop-target")
+
+    def _update_board_selection(self, task_id: Optional[str]) -> None:
+        desired = self._board_card_lookup.get(task_id) if task_id else None
+        current = self._active_board_card
+        if current is desired:
+            return
+        if current is not None and hasattr(current, "remove_css_class"):
+            current.remove_css_class("kanban-card-active")
+        self._active_board_card = desired
+        if desired is not None and hasattr(desired, "add_css_class"):
+            desired.add_css_class("kanban-card-active")
 
     # ------------------------------------------------------------------
     # Data loading and synchronization
@@ -989,6 +1250,8 @@ class TaskManagement:
             listbox.append(row)
             self._row_lookup[entry.task_id] = row
 
+        self._rebuild_task_board(filtered)
+
         target = self._pending_focus_task or self._active_task
         self._pending_focus_task = None
         if target and target in {entry.task_id for entry in filtered}:
@@ -1222,10 +1485,12 @@ class TaskManagement:
     def _select_task(self, task_id: Optional[str]) -> None:
         if not task_id:
             self._active_task = None
+            self._update_board_selection(None)
             self._update_detail(None)
             return
         entry = self._entry_lookup.get(task_id)
         if entry is None:
+            self._update_board_selection(None)
             return
         self._active_task = task_id
         row = self._row_lookup.get(task_id)
@@ -1248,6 +1513,7 @@ class TaskManagement:
                         setattr(listbox, "_selected_row", row)
                 else:
                     setattr(listbox, "_selected_row", row)
+        self._update_board_selection(task_id)
         self._update_detail(entry)
 
     # ------------------------------------------------------------------
