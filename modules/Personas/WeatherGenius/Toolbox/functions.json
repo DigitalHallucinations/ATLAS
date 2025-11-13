@@ -151,6 +151,54 @@
         "idempotency_key": false
     },
     {
+        "name": "render_weather_visualization",
+        "version": "1.0.0",
+        "side_effects": "none",
+        "default_timeout": 30,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": true,
+        "description": "Render a combined temperature and rainfall visualization from weather series data",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "dates": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Sequence of labels for the x-axis of the plot"
+                },
+                "temperatures": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "description": "Temperature values that align with each provided date"
+                },
+                "rainfall": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "description": "Rainfall measurements corresponding to each provided date"
+                },
+                "backend": {
+                    "type": "string",
+                    "default": "Agg",
+                    "description": "Optional Matplotlib backend override for rendering the plot"
+                }
+            },
+            "required": []
+        },
+        "idempotency_key": false,
+        "capabilities": [
+            "data_visualization",
+            "trend_analysis"
+        ]
+    },
+    {
         "name": "get_current_info",
         "version": "1.0.0",
         "side_effects": "none",

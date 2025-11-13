@@ -761,6 +761,116 @@ def test_persona_toolbox_manifest_includes_required_metadata(monkeypatch):
     assert debian_calendar_metadata["providers"][0]["name"] == "debian12_local"
 
 
+def test_weather_genius_manifest_includes_visualization_tool(monkeypatch):
+    _ensure_yaml(monkeypatch)
+    _ensure_dotenv(monkeypatch)
+    _ensure_pytz(monkeypatch)
+
+    job_store_stub = types.ModuleType("modules.job_store")
+    job_store_stub.JobService = object
+    job_store_stub.__path__ = []  # mark as package for submodule imports
+    monkeypatch.setitem(sys.modules, "modules.job_store", job_store_stub)
+
+    job_store_repository = types.ModuleType("modules.job_store.repository")
+    job_store_repository.JobStoreRepository = object
+    monkeypatch.setitem(
+        sys.modules, "modules.job_store.repository", job_store_repository
+    )
+
+    task_store_stub = types.ModuleType("modules.task_store")
+    task_store_stub.TaskService = object
+    task_store_stub.TaskStoreRepository = object
+    monkeypatch.setitem(sys.modules, "modules.task_store", task_store_stub)
+
+    base_tools_stub = types.ModuleType("modules.Tools.Base_Tools")
+    base_tools_stub.__path__ = []
+    monkeypatch.setitem(sys.modules, "modules.Tools.Base_Tools", base_tools_stub)
+
+    task_queue_stub = types.ModuleType("modules.Tools.Base_Tools.task_queue")
+    task_queue_stub.TaskQueueService = object
+    task_queue_stub.get_default_task_queue_service = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(
+        sys.modules, "modules.Tools.Base_Tools.task_queue", task_queue_stub
+    )
+
+    kv_store_stub = types.ModuleType("modules.Tools.Base_Tools.kv_store")
+    monkeypatch.setitem(sys.modules, "modules.Tools.Base_Tools.kv_store", kv_store_stub)
+
+    sys.modules.pop("sqlalchemy", None)
+    sys.modules.pop("sqlalchemy.orm", None)
+
+    if "sqlalchemy" not in sys.modules:
+        sqlalchemy_stub = types.ModuleType("sqlalchemy")
+
+        def _noop(*_args, **_kwargs):
+            return None
+
+        sqlalchemy_stub.Column = _noop
+        sqlalchemy_stub.Float = object
+        sqlalchemy_stub.Index = _noop
+        sqlalchemy_stub.Integer = object
+        sqlalchemy_stub.MetaData = _noop
+        sqlalchemy_stub.Table = _noop
+        sqlalchemy_stub.Text = object
+        sqlalchemy_stub.create_engine = _noop
+        sqlalchemy_stub.delete = _noop
+        sqlalchemy_stub.func = types.SimpleNamespace(now=_noop)
+        sqlalchemy_stub.select = _noop
+        monkeypatch.setitem(sys.modules, "sqlalchemy", sqlalchemy_stub)
+
+        engine_stub = types.ModuleType("sqlalchemy.engine")
+        engine_stub.Engine = object
+        monkeypatch.setitem(sys.modules, "sqlalchemy.engine", engine_stub)
+
+        orm_stub = types.ModuleType("sqlalchemy.orm")
+
+        class _Sessionmaker:
+            def __call__(self, *_args, **_kwargs):
+                return None
+
+        orm_stub.sessionmaker = _Sessionmaker
+        orm_stub.Session = object
+        orm_stub.joinedload = _noop
+        orm_stub.relationship = _noop
+        orm_stub.declarative_base = lambda *_args, **_kwargs: type("Base", (), {})
+        monkeypatch.setitem(sys.modules, "sqlalchemy.orm", orm_stub)
+
+    execution_module = importlib.import_module("ATLAS.tools.execution")
+    for attr in ("_coerce_persona_flag_value", "_persona_flag_enabled"):
+        if not hasattr(execution_module, attr):
+            setattr(execution_module, attr, lambda *_args, **_kwargs: None)
+
+    tool_manager = importlib.import_module("ATLAS.ToolManager")
+    tool_manager = importlib.reload(tool_manager)
+
+    monkeypatch.setattr(
+        tool_manager.ConfigManager,
+        "get_app_root",
+        lambda self: os.fspath(Path.cwd()),
+    )
+
+    persona_name = "WeatherGenius"
+    tool_manager._function_payload_cache.pop(persona_name, None)
+
+    entries = tool_manager.load_functions_from_json(
+        {"name": persona_name}, refresh=True
+    )
+
+    visualization_entry = next(
+        entry
+        for entry in entries
+        if entry["name"] == "render_weather_visualization"
+    )
+
+    assert visualization_entry["auth"]["required"] is False
+    assert visualization_entry["capabilities"] == [
+        "data_visualization",
+        "trend_analysis",
+    ]
+    backend_schema = visualization_entry["parameters"]["properties"]["backend"]
+    assert backend_schema["default"] == "Agg"
+
+
 def test_resume_genius_manifest_includes_ats_scoring(monkeypatch):
     _ensure_yaml(monkeypatch)
     _ensure_dotenv(monkeypatch)
