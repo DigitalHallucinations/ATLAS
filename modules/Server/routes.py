@@ -687,18 +687,51 @@ class AtlasServer:
             config_manager=self._config_manager,
         )
 
+        persona_anomalies = []
+        if isinstance(payload, Mapping):
+            source = payload.get("recent_anomalies")
+            if isinstance(source, list):
+                persona_anomalies = [
+                    dict(item)
+                    for item in source
+                    if isinstance(item, Mapping)
+                ]
+        else:
+            payload = {}
+
         category = (metric_type or "tool").strip().lower()
         if category == "skill":
             skill_metrics = dict(payload.get("skills") or {})
+            skill_source = skill_metrics.get("anomalies")
+            skill_anomalies = [
+                dict(item)
+                for item in persona_anomalies
+                if (item.get("category") or "").lower() == "skill"
+            ]
+            if not skill_anomalies and isinstance(skill_source, list):
+                skill_anomalies = [
+                    dict(item) for item in skill_source if isinstance(item, Mapping)
+                ]
             skill_metrics.setdefault("category", "skill")
             skill_metrics.setdefault("totals", {"calls": 0, "success": 0, "failure": 0})
             skill_metrics.setdefault("success_rate", 0.0)
             skill_metrics.setdefault("average_latency_ms", 0.0)
             skill_metrics.setdefault("totals_by_skill", [])
             skill_metrics.setdefault("recent", [])
+            skill_metrics["anomalies"] = skill_anomalies
+            skill_metrics["recent_anomalies"] = skill_anomalies
             skill_metrics["persona"] = payload.get("persona", persona_name)
             skill_metrics["window"] = payload.get("window", {"start": None, "end": None})
             return skill_metrics
+
+        if isinstance(payload, dict):
+            payload.setdefault("anomalies", [])
+            payload.setdefault("recent_anomalies", persona_anomalies)
+        else:
+            payload = {
+                "anomalies": [],
+                "recent_anomalies": [],
+            }
 
         payload.setdefault("category", "tool")
         if "skills" not in payload:
