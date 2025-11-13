@@ -175,6 +175,20 @@ def test_webpage_fetch_enforces_content_length(monkeypatch):
         asyncio.run(fetcher.fetch("https://example.com/large"))
 
 
+def test_webpage_fetch_ignores_malformed_content_length(monkeypatch):
+    payload = "<html><body>ok</body></html>"
+    response = _MockResponse(text=payload, headers={"Content-Length": "not-a-number"})
+    _patch_session(monkeypatch, response=response)
+
+    fetcher = WebpageFetcher(
+        allowed_domains=("example.com",), max_content_length=len(payload) * 2
+    )
+
+    result = asyncio.run(fetcher.fetch("https://example.com/malformed"))
+
+    assert "ok" in result.text.lower()
+
+
 def test_webpage_fetch_merges_allowlists_without_duplicates(monkeypatch):
     class _StubConfigManager:
         def get_config(self, key, default):
