@@ -50,6 +50,7 @@ from .core import (
     set_key,
     setup_logger,
 )
+from .conversation_summary import ConversationSummaryConfigSection
 from .messaging import MessagingConfigSection, setup_message_bus
 from .persistence import KV_STORE_UNSET, PersistenceConfigSection
 from .persistence import PersistenceConfigMixin
@@ -183,6 +184,15 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         )
         self.messaging.apply()
 
+        # --- Conversation summary defaults ----------------------------
+        self.conversation_summary = ConversationSummaryConfigSection(
+            config=self.config,
+            yaml_config=self.yaml_config,
+            logger=self.logger,
+            write_yaml_callback=self._write_yaml_config,
+        )
+        self.conversation_summary.apply()
+
         # Provider-specific sections manage their own persistence concerns
         self.providers = ProviderConfigSections(manager=self)
         self.providers.apply()
@@ -265,6 +275,16 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         self._message_backend = None
         self._message_bus = None
         return dict(block)
+
+    def get_conversation_summary_settings(self) -> Dict[str, Any]:
+        """Return the configured automatic conversation summary settings."""
+
+        return self.conversation_summary.get_settings()
+
+    def set_conversation_summary_settings(self, **settings: Any) -> Dict[str, Any]:
+        """Persist conversation summary preferences and update cached state."""
+
+        return self.conversation_summary.set_settings(**settings)
 
 
 

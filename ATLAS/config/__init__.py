@@ -9,6 +9,7 @@ from .core import (
     set_key,
     setup_logger,
 )
+from .conversation_summary import ConversationSummaryConfigSection
 from .messaging import MessagingConfigSection, setup_message_bus
 from .persistence import PersistenceConfigSection, PersistenceConfigMixin, KV_STORE_UNSET
 from .providers import ProviderConfigSections, ProviderConfigMixin
@@ -21,6 +22,7 @@ __all__ = [
     "ProviderConfigMixin",
     "ProviderConfigSections",
     "PersistenceConfigMixin",
+    "ConversationSummaryConfigSection",
     "MessagingConfigSection",
     "setup_message_bus",
     "PersistenceConfigSection",

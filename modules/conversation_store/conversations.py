@@ -1009,8 +1009,22 @@ class ConversationStore:
                     "updated_at": _dt_to_iso(row.updated_at),
                     "archived_at": _dt_to_iso(row.archived_at),
                 }
-            )
+        )
         return conversations
+
+    def list_known_tenants(self) -> List[Any]:
+        """Return tenant identifiers that have recorded conversations."""
+
+        with self._session_scope() as session:
+            rows = session.execute(
+                select(Conversation.tenant_id).distinct().order_by(Conversation.tenant_id)
+            ).all()
+
+        tenants: List[Any] = []
+        for tenant_id, in rows:
+            if tenant_id is not None:
+                tenants.append(tenant_id)
+        return tenants
 
     def fetch_messages(
         self,

@@ -384,6 +384,9 @@ class ConversationStoreRepository:
             include_archived=include_archived,
         )
 
+    def list_known_tenants(self) -> List[Any]:
+        return self._conversations.list_known_tenants()
+
     def fetch_messages(
         self,
         *,
