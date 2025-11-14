@@ -711,3 +711,163 @@ async def import_persona_bundle(request: Request) -> Any:
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
     return result
+
+
+@app.post("/tools/{tool_name}/export")
+async def export_tool_bundle(tool_name: str, request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            f"/tools/{tool_name}/export",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
+@app.post("/tools/import")
+async def import_tool_bundle(request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            "/tools/import",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
+@app.post("/skills/{skill_name}/export")
+async def export_skill_bundle(skill_name: str, request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            f"/skills/{skill_name}/export",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
+@app.post("/skills/import")
+async def import_skill_bundle(request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            "/skills/import",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
+@app.post("/jobs/{job_name}/export")
+async def export_job_bundle(job_name: str, request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            f"/jobs/{job_name}/export",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
+@app.post("/jobs/import")
+async def import_job_bundle(request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            "/jobs/import",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
+@app.post("/tasks/{task_name}/export")
+async def export_task_bundle(task_name: str, request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            f"/tasks/{task_name}/export",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
+@app.post("/tasks/import")
+async def import_task_bundle(request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            "/tasks/import",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
+@app.post("/packages/export")
+async def export_asset_package(request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            "/packages/export",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
+@app.post("/packages/import")
+async def import_asset_package(request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            "/packages/import",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result

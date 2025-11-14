@@ -1,4 +1,4 @@
-"""Tool metadata utilities and bundle import/export helpers."""
+"""Task manifest bundle export and import helpers."""
 
 from __future__ import annotations
 
@@ -15,19 +15,19 @@ from modules.store_common.bundle_utils import (
 )
 from modules.store_common.manifest_utils import resolve_app_root
 
-from .manifest_loader import ToolManifestEntry, load_manifest_entries
+from .manifest_loader import TaskMetadata, load_task_metadata
 
 __all__ = [
-    "ToolManifestEntry",
-    "load_manifest_entries",
-    "ToolBundleError",
-    "export_tool_bundle_bytes",
-    "import_tool_bundle_bytes",
+    "TaskMetadata",
+    "load_task_metadata",
+    "TaskBundleError",
+    "export_task_bundle_bytes",
+    "import_task_bundle_bytes",
 ]
 
 
-class ToolBundleError(ValueError):
-    """Raised when tool bundle export or import fails."""
+class TaskBundleError(ValueError):
+    """Raised when task bundle export or import fails."""
 
 
 _BUNDLE_VERSION = 1
@@ -37,10 +37,28 @@ def _resolve_app_root(config_manager=None) -> Path:
     return resolve_app_root(config_manager)
 
 
-def _normalize_tool_entry(entry: ToolManifestEntry) -> Dict[str, Any]:
-    payload = asdict(entry)
-    payload.pop("source", None)
-    return payload
+def _normalize_task_entry(entry: TaskMetadata) -> Dict[str, Any]:
+    return {
+        "name": entry.name,
+        "summary": entry.summary,
+        "description": entry.description,
+        "required_skills": list(entry.required_skills),
+        "required_tools": list(entry.required_tools),
+        "acceptance_criteria": list(entry.acceptance_criteria),
+        "escalation_policy": dict(entry.escalation_policy),
+        "tags": list(entry.tags),
+        "priority": entry.priority,
+        "persona": entry.persona,
+    }
+
+
+def _resolve_manifest_path(persona: Optional[str], *, config_manager=None) -> Path:
+    app_root = _resolve_app_root(config_manager)
+    if persona:
+        return (
+            app_root / "modules" / "Personas" / persona / "Tasks" / "tasks.json"
+        )
+    return app_root / "modules" / "Tasks" / "tasks.json"
 
 
 def _load_manifest_for_update(path: Path) -> List[Dict[str, Any]]:
@@ -50,7 +68,7 @@ def _load_manifest_for_update(path: Path) -> List[Dict[str, Any]]:
     try:
         raw = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ToolBundleError(f"Failed to read tool manifest at {path}.") from exc
+        raise TaskBundleError(f"Failed to read task manifest at {path}.") from exc
 
     if not raw.strip():
         return []
@@ -58,16 +76,14 @@ def _load_manifest_for_update(path: Path) -> List[Dict[str, Any]]:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ToolBundleError(f"Tool manifest at {path} is not valid JSON.") from exc
+        raise TaskBundleError(f"Task manifest at {path} is not valid JSON.") from exc
 
-    entries: Iterable[Mapping[str, Any]]
-    if isinstance(payload, list):
-        entries = (item for item in payload if isinstance(item, Mapping))
-    elif isinstance(payload, Mapping):
-        entries = (item for item in payload.values() if isinstance(item, Mapping))
-    else:
-        raise ToolBundleError("Tool manifest must be a JSON array or object.")
+    if not isinstance(payload, list):
+        raise TaskBundleError("Task manifest must be a JSON array.")
 
+    entries: Iterable[Mapping[str, Any]] = (
+        item for item in payload if isinstance(item, Mapping)
+    )
     return [dict(item) for item in entries]
 
 
@@ -79,53 +95,42 @@ def _persist_manifest(path: Path, entries: List[Mapping[str, Any]]) -> None:
             encoding="utf-8",
         )
     except OSError as exc:
-        raise ToolBundleError(f"Failed to write tool manifest to {path}.") from exc
+        raise TaskBundleError(f"Failed to write task manifest to {path}.") from exc
 
 
-def _resolve_manifest_path(persona: Optional[str], *, config_manager=None) -> Path:
-    app_root = _resolve_app_root(config_manager)
-    if persona:
-        return (
-            app_root
-            / "modules"
-            / "Personas"
-            / persona
-            / "Toolbox"
-            / "functions.json"
-        )
-    return app_root / "modules" / "Tools" / "tool_maps" / "functions.json"
-
-
-def export_tool_bundle_bytes(
-    tool_name: str,
+def export_task_bundle_bytes(
+    task_name: str,
     *,
     signing_key: str,
     persona: Optional[str] = None,
     config_manager=None,
 ) -> Tuple[bytes, Dict[str, Any]]:
-    """Return a signed bundle for ``tool_name`` as bytes."""
+    """Return a signed bundle for ``task_name`` as bytes."""
 
-    normalized_name = str(tool_name or "").strip()
+    normalized_name = str(task_name or "").strip()
     if not normalized_name:
-        raise ToolBundleError("Tool name is required for export.")
+        raise TaskBundleError("Task name is required for export.")
 
-    entries = load_manifest_entries(config_manager=config_manager)
+    entries = load_task_metadata(config_manager=config_manager)
     candidates = [entry for entry in entries if entry.name == normalized_name]
 
     if persona is not None:
         persona_normalized = persona.strip()
-        candidates = [entry for entry in candidates if (entry.persona or "") == persona_normalized]
+        candidates = [
+            entry for entry in candidates if (entry.persona or "") == persona_normalized
+        ]
     else:
         persona_normalized = None
 
     if not candidates:
-        raise ToolBundleError(f"Tool '{normalized_name}' was not found for export.")
+        raise TaskBundleError(f"Task '{normalized_name}' was not found for export.")
 
     if len(candidates) > 1:
         available_personas = sorted({entry.persona or "shared" for entry in candidates})
-        raise ToolBundleError(
-            "Multiple tool entries found; specify persona explicitly. Options: "
-            + ", ".join(available_personas)
+        options = ", ".join(available_personas)
+        raise TaskBundleError(
+            "Multiple task entries found; specify persona explicitly. Options: "
+            + options
         )
 
     entry = candidates[0]
@@ -135,7 +140,7 @@ def export_tool_bundle_bytes(
     metadata: Dict[str, Any] = {
         "version": _BUNDLE_VERSION,
         "exported_at": utcnow_isoformat(),
-        "asset_type": "tool",
+        "asset_type": "task",
         "name": entry.name,
         "persona": persona_owner,
         "manifest": str(manifest_path.relative_to(_resolve_app_root(config_manager))),
@@ -143,13 +148,13 @@ def export_tool_bundle_bytes(
 
     bundle_payload: Dict[str, Any] = {
         "metadata": metadata,
-        "tool": _normalize_tool_entry(entry),
+        "task": _normalize_task_entry(entry),
     }
 
     signature = sign_payload(
         bundle_payload,
         signing_key=signing_key,
-        error_cls=ToolBundleError,
+        error_cls=TaskBundleError,
     )
 
     signed_bundle = {
@@ -160,78 +165,78 @@ def export_tool_bundle_bytes(
         },
     }
 
-    return json.dumps(signed_bundle, indent=2).encode("utf-8"), bundle_payload["tool"]
+    return json.dumps(signed_bundle, indent=2).encode("utf-8"), bundle_payload["task"]
 
 
-def import_tool_bundle_bytes(
+def import_task_bundle_bytes(
     bundle_bytes: bytes,
     *,
     signing_key: str,
     config_manager=None,
-    rationale: str = "Imported tool bundle",
+    rationale: str = "Imported task bundle",
 ) -> Dict[str, Any]:
-    """Import ``bundle_bytes`` and persist the tool manifest entry."""
+    """Import ``bundle_bytes`` and persist the task manifest entry."""
 
     try:
         payload = json.loads(bundle_bytes.decode("utf-8"))
     except UnicodeDecodeError as exc:
-        raise ToolBundleError("Tool bundle is not valid UTF-8 data.") from exc
+        raise TaskBundleError("Task bundle is not valid UTF-8 data.") from exc
     except json.JSONDecodeError as exc:
-        raise ToolBundleError("Tool bundle payload is not valid JSON.") from exc
+        raise TaskBundleError("Task bundle payload is not valid JSON.") from exc
 
     if not isinstance(payload, MutableMapping):
-        raise ToolBundleError("Tool bundle payload must be a JSON object.")
+        raise TaskBundleError("Task bundle payload must be a JSON object.")
 
     metadata = payload.get("metadata")
-    tool_entry = payload.get("tool")
+    task_entry = payload.get("task")
     signature_info = payload.get("signature")
 
     if not isinstance(metadata, Mapping):
-        raise ToolBundleError("Tool bundle metadata is missing or invalid.")
-    if not isinstance(tool_entry, Mapping):
-        raise ToolBundleError("Tool bundle does not include a tool definition.")
+        raise TaskBundleError("Task bundle metadata is missing or invalid.")
+    if not isinstance(task_entry, Mapping):
+        raise TaskBundleError("Task bundle does not include a task definition.")
     if not isinstance(signature_info, Mapping):
-        raise ToolBundleError("Tool bundle signature block is missing or invalid.")
+        raise TaskBundleError("Task bundle signature block is missing or invalid.")
 
     algorithm = signature_info.get("algorithm")
     signature_value = signature_info.get("value")
     if algorithm != BUNDLE_ALGORITHM:
-        raise ToolBundleError(f"Unsupported tool bundle algorithm: {algorithm!r}")
+        raise TaskBundleError(f"Unsupported task bundle algorithm: {algorithm!r}")
     if not isinstance(signature_value, str) or not signature_value.strip():
-        raise ToolBundleError("Tool bundle signature is missing.")
+        raise TaskBundleError("Task bundle signature is missing.")
 
     payload_for_signature: Dict[str, Any] = {
         "metadata": dict(metadata),
-        "tool": dict(tool_entry),
+        "task": dict(task_entry),
     }
 
     verify_signature(
         payload_for_signature,
         signature=signature_value,
         signing_key=signing_key,
-        error_cls=ToolBundleError,
+        error_cls=TaskBundleError,
     )
 
     persona_owner = metadata.get("persona")
     if persona_owner is not None:
         persona_owner = str(persona_owner).strip() or None
 
-    tool_name = str(tool_entry.get("name") or "").strip()
-    if not tool_name:
-        raise ToolBundleError("Tool bundle is missing the tool name.")
+    task_name = str(task_entry.get("name") or "").strip()
+    if not task_name:
+        raise TaskBundleError("Task bundle is missing the task name.")
 
     manifest_path = _resolve_manifest_path(persona_owner, config_manager=config_manager)
 
     entries = _load_manifest_for_update(manifest_path)
 
-    updated_entry = {str(key): value for key, value in tool_entry.items()}
+    updated_entry = {str(key): value for key, value in task_entry.items()}
     updated_entry.pop("source", None)
     if persona_owner:
         updated_entry["persona"] = persona_owner
     else:
         updated_entry.pop("persona", None)
 
-    normalized_name = tool_name.strip()
+    normalized_name = task_name.strip()
     replaced = False
     new_entries: List[Dict[str, Any]] = []
     for existing in entries:
@@ -248,17 +253,17 @@ def import_tool_bundle_bytes(
 
     _persist_manifest(manifest_path, new_entries)
 
-    normalized_entries = load_manifest_entries(config_manager=config_manager)
+    normalized_entries = load_task_metadata(config_manager=config_manager)
     for entry in normalized_entries:
         if entry.name == normalized_name and (entry.persona or None) == persona_owner:
-            normalized_tool = _normalize_tool_entry(entry)
+            normalized_task = _normalize_task_entry(entry)
             break
     else:
-        normalized_tool = dict(updated_entry)
+        normalized_task = dict(updated_entry)
 
     return {
         "success": True,
-        "tool": normalized_tool,
+        "task": normalized_task,
         "metadata": dict(metadata),
         "rationale": rationale,
     }

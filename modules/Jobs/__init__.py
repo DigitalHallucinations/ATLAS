@@ -1,9 +1,8 @@
-"""Tool metadata utilities and bundle import/export helpers."""
+"""Job metadata loading and bundle utilities."""
 
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
 
@@ -15,19 +14,19 @@ from modules.store_common.bundle_utils import (
 )
 from modules.store_common.manifest_utils import resolve_app_root
 
-from .manifest_loader import ToolManifestEntry, load_manifest_entries
+from .manifest_loader import JobMetadata, load_job_metadata
 
 __all__ = [
-    "ToolManifestEntry",
-    "load_manifest_entries",
-    "ToolBundleError",
-    "export_tool_bundle_bytes",
-    "import_tool_bundle_bytes",
+    "JobMetadata",
+    "load_job_metadata",
+    "JobBundleError",
+    "export_job_bundle_bytes",
+    "import_job_bundle_bytes",
 ]
 
 
-class ToolBundleError(ValueError):
-    """Raised when tool bundle export or import fails."""
+class JobBundleError(ValueError):
+    """Raised when job bundle export or import fails."""
 
 
 _BUNDLE_VERSION = 1
@@ -37,10 +36,29 @@ def _resolve_app_root(config_manager=None) -> Path:
     return resolve_app_root(config_manager)
 
 
-def _normalize_tool_entry(entry: ToolManifestEntry) -> Dict[str, Any]:
-    payload = asdict(entry)
-    payload.pop("source", None)
-    return payload
+def _normalize_job_entry(entry: JobMetadata) -> Dict[str, Any]:
+    return {
+        "name": entry.name,
+        "summary": entry.summary,
+        "description": entry.description,
+        "personas": list(entry.personas),
+        "required_skills": list(entry.required_skills),
+        "required_tools": list(entry.required_tools),
+        "task_graph": [dict(task) for task in entry.task_graph],
+        "recurrence": dict(entry.recurrence),
+        "acceptance_criteria": list(entry.acceptance_criteria),
+        "escalation_policy": dict(entry.escalation_policy),
+        "persona": entry.persona,
+    }
+
+
+def _resolve_manifest_path(persona: Optional[str], *, config_manager=None) -> Path:
+    app_root = _resolve_app_root(config_manager)
+    if persona:
+        return (
+            app_root / "modules" / "Personas" / persona / "Jobs" / "jobs.json"
+        )
+    return app_root / "modules" / "Jobs" / "jobs.json"
 
 
 def _load_manifest_for_update(path: Path) -> List[Dict[str, Any]]:
@@ -50,7 +68,7 @@ def _load_manifest_for_update(path: Path) -> List[Dict[str, Any]]:
     try:
         raw = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ToolBundleError(f"Failed to read tool manifest at {path}.") from exc
+        raise JobBundleError(f"Failed to read job manifest at {path}.") from exc
 
     if not raw.strip():
         return []
@@ -58,7 +76,7 @@ def _load_manifest_for_update(path: Path) -> List[Dict[str, Any]]:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ToolBundleError(f"Tool manifest at {path} is not valid JSON.") from exc
+        raise JobBundleError(f"Job manifest at {path} is not valid JSON.") from exc
 
     entries: Iterable[Mapping[str, Any]]
     if isinstance(payload, list):
@@ -66,7 +84,7 @@ def _load_manifest_for_update(path: Path) -> List[Dict[str, Any]]:
     elif isinstance(payload, Mapping):
         entries = (item for item in payload.values() if isinstance(item, Mapping))
     else:
-        raise ToolBundleError("Tool manifest must be a JSON array or object.")
+        raise JobBundleError("Job manifest must be a JSON array or object.")
 
     return [dict(item) for item in entries]
 
@@ -79,37 +97,23 @@ def _persist_manifest(path: Path, entries: List[Mapping[str, Any]]) -> None:
             encoding="utf-8",
         )
     except OSError as exc:
-        raise ToolBundleError(f"Failed to write tool manifest to {path}.") from exc
+        raise JobBundleError(f"Failed to write job manifest to {path}.") from exc
 
 
-def _resolve_manifest_path(persona: Optional[str], *, config_manager=None) -> Path:
-    app_root = _resolve_app_root(config_manager)
-    if persona:
-        return (
-            app_root
-            / "modules"
-            / "Personas"
-            / persona
-            / "Toolbox"
-            / "functions.json"
-        )
-    return app_root / "modules" / "Tools" / "tool_maps" / "functions.json"
-
-
-def export_tool_bundle_bytes(
-    tool_name: str,
+def export_job_bundle_bytes(
+    job_name: str,
     *,
     signing_key: str,
     persona: Optional[str] = None,
     config_manager=None,
 ) -> Tuple[bytes, Dict[str, Any]]:
-    """Return a signed bundle for ``tool_name`` as bytes."""
+    """Return a signed bundle for ``job_name`` as bytes."""
 
-    normalized_name = str(tool_name or "").strip()
+    normalized_name = str(job_name or "").strip()
     if not normalized_name:
-        raise ToolBundleError("Tool name is required for export.")
+        raise JobBundleError("Job name is required for export.")
 
-    entries = load_manifest_entries(config_manager=config_manager)
+    entries = load_job_metadata(config_manager=config_manager)
     candidates = [entry for entry in entries if entry.name == normalized_name]
 
     if persona is not None:
@@ -119,12 +123,12 @@ def export_tool_bundle_bytes(
         persona_normalized = None
 
     if not candidates:
-        raise ToolBundleError(f"Tool '{normalized_name}' was not found for export.")
+        raise JobBundleError(f"Job '{normalized_name}' was not found for export.")
 
     if len(candidates) > 1:
         available_personas = sorted({entry.persona or "shared" for entry in candidates})
-        raise ToolBundleError(
-            "Multiple tool entries found; specify persona explicitly. Options: "
+        raise JobBundleError(
+            "Multiple job entries found; specify persona explicitly. Options: "
             + ", ".join(available_personas)
         )
 
@@ -135,7 +139,7 @@ def export_tool_bundle_bytes(
     metadata: Dict[str, Any] = {
         "version": _BUNDLE_VERSION,
         "exported_at": utcnow_isoformat(),
-        "asset_type": "tool",
+        "asset_type": "job",
         "name": entry.name,
         "persona": persona_owner,
         "manifest": str(manifest_path.relative_to(_resolve_app_root(config_manager))),
@@ -143,13 +147,13 @@ def export_tool_bundle_bytes(
 
     bundle_payload: Dict[str, Any] = {
         "metadata": metadata,
-        "tool": _normalize_tool_entry(entry),
+        "job": _normalize_job_entry(entry),
     }
 
     signature = sign_payload(
         bundle_payload,
         signing_key=signing_key,
-        error_cls=ToolBundleError,
+        error_cls=JobBundleError,
     )
 
     signed_bundle = {
@@ -160,78 +164,78 @@ def export_tool_bundle_bytes(
         },
     }
 
-    return json.dumps(signed_bundle, indent=2).encode("utf-8"), bundle_payload["tool"]
+    return json.dumps(signed_bundle, indent=2).encode("utf-8"), bundle_payload["job"]
 
 
-def import_tool_bundle_bytes(
+def import_job_bundle_bytes(
     bundle_bytes: bytes,
     *,
     signing_key: str,
     config_manager=None,
-    rationale: str = "Imported tool bundle",
+    rationale: str = "Imported job bundle",
 ) -> Dict[str, Any]:
-    """Import ``bundle_bytes`` and persist the tool manifest entry."""
+    """Import ``bundle_bytes`` and persist the job manifest entry."""
 
     try:
         payload = json.loads(bundle_bytes.decode("utf-8"))
     except UnicodeDecodeError as exc:
-        raise ToolBundleError("Tool bundle is not valid UTF-8 data.") from exc
+        raise JobBundleError("Job bundle is not valid UTF-8 data.") from exc
     except json.JSONDecodeError as exc:
-        raise ToolBundleError("Tool bundle payload is not valid JSON.") from exc
+        raise JobBundleError("Job bundle payload is not valid JSON.") from exc
 
     if not isinstance(payload, MutableMapping):
-        raise ToolBundleError("Tool bundle payload must be a JSON object.")
+        raise JobBundleError("Job bundle payload must be a JSON object.")
 
     metadata = payload.get("metadata")
-    tool_entry = payload.get("tool")
+    job_entry = payload.get("job")
     signature_info = payload.get("signature")
 
     if not isinstance(metadata, Mapping):
-        raise ToolBundleError("Tool bundle metadata is missing or invalid.")
-    if not isinstance(tool_entry, Mapping):
-        raise ToolBundleError("Tool bundle does not include a tool definition.")
+        raise JobBundleError("Job bundle metadata is missing or invalid.")
+    if not isinstance(job_entry, Mapping):
+        raise JobBundleError("Job bundle does not include a job definition.")
     if not isinstance(signature_info, Mapping):
-        raise ToolBundleError("Tool bundle signature block is missing or invalid.")
+        raise JobBundleError("Job bundle signature block is missing or invalid.")
 
     algorithm = signature_info.get("algorithm")
     signature_value = signature_info.get("value")
     if algorithm != BUNDLE_ALGORITHM:
-        raise ToolBundleError(f"Unsupported tool bundle algorithm: {algorithm!r}")
+        raise JobBundleError(f"Unsupported job bundle algorithm: {algorithm!r}")
     if not isinstance(signature_value, str) or not signature_value.strip():
-        raise ToolBundleError("Tool bundle signature is missing.")
+        raise JobBundleError("Job bundle signature is missing.")
 
     payload_for_signature: Dict[str, Any] = {
         "metadata": dict(metadata),
-        "tool": dict(tool_entry),
+        "job": dict(job_entry),
     }
 
     verify_signature(
         payload_for_signature,
         signature=signature_value,
         signing_key=signing_key,
-        error_cls=ToolBundleError,
+        error_cls=JobBundleError,
     )
 
     persona_owner = metadata.get("persona")
     if persona_owner is not None:
         persona_owner = str(persona_owner).strip() or None
 
-    tool_name = str(tool_entry.get("name") or "").strip()
-    if not tool_name:
-        raise ToolBundleError("Tool bundle is missing the tool name.")
+    job_name = str(job_entry.get("name") or "").strip()
+    if not job_name:
+        raise JobBundleError("Job bundle is missing the job name.")
 
     manifest_path = _resolve_manifest_path(persona_owner, config_manager=config_manager)
 
     entries = _load_manifest_for_update(manifest_path)
 
-    updated_entry = {str(key): value for key, value in tool_entry.items()}
+    updated_entry = {str(key): value for key, value in job_entry.items()}
     updated_entry.pop("source", None)
     if persona_owner:
         updated_entry["persona"] = persona_owner
     else:
         updated_entry.pop("persona", None)
 
-    normalized_name = tool_name.strip()
+    normalized_name = job_name.strip()
     replaced = False
     new_entries: List[Dict[str, Any]] = []
     for existing in entries:
@@ -248,17 +252,17 @@ def import_tool_bundle_bytes(
 
     _persist_manifest(manifest_path, new_entries)
 
-    normalized_entries = load_manifest_entries(config_manager=config_manager)
+    normalized_entries = load_job_metadata(config_manager=config_manager)
     for entry in normalized_entries:
         if entry.name == normalized_name and (entry.persona or None) == persona_owner:
-            normalized_tool = _normalize_tool_entry(entry)
+            normalized_job = _normalize_job_entry(entry)
             break
     else:
-        normalized_tool = dict(updated_entry)
+        normalized_job = dict(updated_entry)
 
     return {
         "success": True,
-        "tool": normalized_tool,
+        "job": normalized_job,
         "metadata": dict(metadata),
         "rationale": rationale,
     }

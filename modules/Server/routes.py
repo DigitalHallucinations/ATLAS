@@ -24,6 +24,31 @@ from modules.Personas import (
     import_persona_bundle_bytes,
     _validate_persona_payload,
 )
+from modules.Tools import (
+    ToolBundleError,
+    export_tool_bundle_bytes,
+    import_tool_bundle_bytes,
+)
+from modules.Skills import (
+    SkillBundleError,
+    export_skill_bundle_bytes,
+    import_skill_bundle_bytes,
+)
+from modules.Tasks import (
+    TaskBundleError,
+    export_task_bundle_bytes,
+    import_task_bundle_bytes,
+)
+from modules.Jobs import (
+    JobBundleError,
+    export_job_bundle_bytes,
+    import_job_bundle_bytes,
+)
+from modules.store_common.package_bundles import (
+    AssetPackageError,
+    export_asset_package_bytes,
+    import_asset_package_bytes,
+)
 from modules.analytics.persona_metrics import (
     get_job_lifecycle_metrics,
     get_persona_comparison_summary,
@@ -1726,6 +1751,103 @@ class AtlasServer:
                 context=context,
             )
 
+        if path.startswith("/tools/") and path.endswith("/export"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            tool_name = components[1]
+            persona_value = payload.get("persona")
+            persona = str(persona_value).strip() if isinstance(persona_value, str) else None
+            return self.export_tool_bundle(
+                tool_name,
+                signing_key=str(payload.get("signing_key") or ""),
+                persona=persona,
+            )
+
+        if path == "/tools/import":
+            return self.import_tool_bundle(
+                bundle_base64=str(payload.get("bundle") or ""),
+                signing_key=str(payload.get("signing_key") or ""),
+                rationale=str(payload.get("rationale") or "Imported via server route"),
+            )
+
+        if path.startswith("/skills/") and path.endswith("/export"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            skill_name = components[1]
+            persona_value = payload.get("persona")
+            persona = str(persona_value).strip() if isinstance(persona_value, str) else None
+            return self.export_skill_bundle(
+                skill_name,
+                signing_key=str(payload.get("signing_key") or ""),
+                persona=persona,
+            )
+
+        if path == "/skills/import":
+            return self.import_skill_bundle(
+                bundle_base64=str(payload.get("bundle") or ""),
+                signing_key=str(payload.get("signing_key") or ""),
+                rationale=str(payload.get("rationale") or "Imported via server route"),
+            )
+
+        if path.startswith("/jobs/") and path.endswith("/export"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            job_name = components[1]
+            persona_value = payload.get("persona")
+            persona = str(persona_value).strip() if isinstance(persona_value, str) else None
+            return self.export_job_bundle(
+                job_name,
+                signing_key=str(payload.get("signing_key") or ""),
+                persona=persona,
+            )
+
+        if path == "/jobs/import":
+            return self.import_job_bundle(
+                bundle_base64=str(payload.get("bundle") or ""),
+                signing_key=str(payload.get("signing_key") or ""),
+                rationale=str(payload.get("rationale") or "Imported via server route"),
+            )
+
+        if path.startswith("/tasks/") and path.endswith("/export"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            task_name = components[1]
+            persona_value = payload.get("persona")
+            persona = str(persona_value).strip() if isinstance(persona_value, str) else None
+            return self.export_task_bundle(
+                task_name,
+                signing_key=str(payload.get("signing_key") or ""),
+                persona=persona,
+            )
+
+        if path == "/tasks/import":
+            return self.import_task_bundle(
+                bundle_base64=str(payload.get("bundle") or ""),
+                signing_key=str(payload.get("signing_key") or ""),
+                rationale=str(payload.get("rationale") or "Imported via server route"),
+            )
+
+        if path == "/packages/export":
+            return self.export_asset_package(
+                personas=payload.get("personas"),
+                tools=payload.get("tools"),
+                skills=payload.get("skills"),
+                tasks=payload.get("tasks"),
+                jobs=payload.get("jobs"),
+                signing_key=str(payload.get("signing_key") or ""),
+            )
+
+        if path == "/packages/import":
+            return self.import_asset_package(
+                bundle_base64=str(payload.get("bundle") or ""),
+                signing_key=str(payload.get("signing_key") or ""),
+                rationale=str(payload.get("rationale") or "Imported via server route"),
+            )
+
         if path.startswith("/personas/") and path.endswith("/tools"):
             components = [part for part in path.strip("/").split("/") if part]
             if len(components) != 3:
@@ -2055,6 +2177,177 @@ class AtlasServer:
             return list(raw)
         return [str(raw)]
 
+    def export_tool_bundle(
+        self,
+        tool_name: str,
+        *,
+        signing_key: str,
+        persona: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not tool_name:
+            raise ValueError("Tool name is required for export")
+
+        persona_filter = persona.strip() if isinstance(persona, str) else None
+
+        try:
+            bundle_bytes, tool = export_tool_bundle_bytes(
+                tool_name,
+                signing_key=signing_key,
+                persona=persona_filter,
+                config_manager=self._config_manager,
+            )
+        except ToolBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        return {
+            "success": True,
+            "tool": tool,
+            "bundle": encoded,
+        }
+
+    def import_tool_bundle(
+        self,
+        *,
+        bundle_base64: str,
+        signing_key: str,
+        rationale: str = "Imported via server route",
+    ) -> Dict[str, Any]:
+        if not bundle_base64:
+            raise ValueError("Bundle payload is required for import")
+
+        try:
+            bundle_bytes = base64.b64decode(bundle_base64)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Bundle payload is not valid base64 data") from exc
+
+        try:
+            result = import_tool_bundle_bytes(
+                bundle_bytes,
+                signing_key=signing_key,
+                config_manager=self._config_manager,
+                rationale=rationale,
+            )
+        except ToolBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        result.setdefault("success", True)
+        return result
+
+    def export_skill_bundle(
+        self,
+        skill_name: str,
+        *,
+        signing_key: str,
+        persona: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not skill_name:
+            raise ValueError("Skill name is required for export")
+
+        persona_filter = persona.strip() if isinstance(persona, str) else None
+
+        try:
+            bundle_bytes, skill = export_skill_bundle_bytes(
+                skill_name,
+                signing_key=signing_key,
+                persona=persona_filter,
+                config_manager=self._config_manager,
+            )
+        except SkillBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        return {
+            "success": True,
+            "skill": skill,
+            "bundle": encoded,
+        }
+
+    def import_skill_bundle(
+        self,
+        *,
+        bundle_base64: str,
+        signing_key: str,
+        rationale: str = "Imported via server route",
+    ) -> Dict[str, Any]:
+        if not bundle_base64:
+            raise ValueError("Bundle payload is required for import")
+
+        try:
+            bundle_bytes = base64.b64decode(bundle_base64)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Bundle payload is not valid base64 data") from exc
+
+        try:
+            result = import_skill_bundle_bytes(
+                bundle_bytes,
+                signing_key=signing_key,
+                config_manager=self._config_manager,
+                rationale=rationale,
+            )
+        except SkillBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        result.setdefault("success", True)
+        return result
+
+    def export_job_bundle(
+        self,
+        job_name: str,
+        *,
+        signing_key: str,
+        persona: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not job_name:
+            raise ValueError("Job name is required for export")
+
+        persona_filter = persona.strip() if isinstance(persona, str) else None
+
+        try:
+            bundle_bytes, job = export_job_bundle_bytes(
+                job_name,
+                signing_key=signing_key,
+                persona=persona_filter,
+                config_manager=self._config_manager,
+            )
+        except JobBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        return {
+            "success": True,
+            "job": job,
+            "bundle": encoded,
+        }
+
+    def import_job_bundle(
+        self,
+        *,
+        bundle_base64: str,
+        signing_key: str,
+        rationale: str = "Imported via server route",
+    ) -> Dict[str, Any]:
+        if not bundle_base64:
+            raise ValueError("Bundle payload is required for import")
+
+        try:
+            bundle_bytes = base64.b64decode(bundle_base64)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Bundle payload is not valid base64 data") from exc
+
+        try:
+            result = import_job_bundle_bytes(
+                bundle_bytes,
+                signing_key=signing_key,
+                config_manager=self._config_manager,
+                rationale=rationale,
+            )
+        except JobBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        result.setdefault("success", True)
+        return result
+
     def export_persona_bundle(
         self,
         persona_name: str,
@@ -2107,6 +2400,139 @@ class AtlasServer:
 
         result.setdefault("success", True)
         return result
+
+    def export_task_bundle(
+        self,
+        task_name: str,
+        *,
+        signing_key: str,
+        persona: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not task_name:
+            raise ValueError("Task name is required for export")
+
+        persona_filter = persona.strip() if isinstance(persona, str) else None
+
+        try:
+            bundle_bytes, task = export_task_bundle_bytes(
+                task_name,
+                signing_key=signing_key,
+                persona=persona_filter,
+                config_manager=self._config_manager,
+            )
+        except TaskBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        return {
+            "success": True,
+            "task": task,
+            "bundle": encoded,
+        }
+
+    def import_task_bundle(
+        self,
+        *,
+        bundle_base64: str,
+        signing_key: str,
+        rationale: str = "Imported via server route",
+    ) -> Dict[str, Any]:
+        if not bundle_base64:
+            raise ValueError("Bundle payload is required for import")
+
+        try:
+            bundle_bytes = base64.b64decode(bundle_base64)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Bundle payload is not valid base64 data") from exc
+
+        try:
+            result = import_task_bundle_bytes(
+                bundle_bytes,
+                signing_key=signing_key,
+                config_manager=self._config_manager,
+                rationale=rationale,
+            )
+        except TaskBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        result.setdefault("success", True)
+        return result
+
+    def _normalize_package_items(self, raw: Any) -> List[str]:
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            candidates = [raw]
+        elif isinstance(raw, Iterable) and not isinstance(raw, (bytes, bytearray)):
+            candidates = list(raw)
+        else:
+            candidates = [raw]
+
+        normalized: List[str] = []
+        for item in candidates:
+            text = str(item).strip()
+            if text:
+                normalized.append(text)
+        return normalized
+
+    def export_asset_package(
+        self,
+        *,
+        personas: Any,
+        tools: Any,
+        skills: Any,
+        tasks: Any,
+        jobs: Any,
+        signing_key: str,
+    ) -> Dict[str, Any]:
+        try:
+            bundle_bytes, metadata = export_asset_package_bytes(
+                personas=self._normalize_package_items(personas),
+                tools=self._normalize_package_items(tools),
+                skills=self._normalize_package_items(skills),
+                tasks=self._normalize_package_items(tasks),
+                jobs=self._normalize_package_items(jobs),
+                signing_key=signing_key,
+                config_manager=self._config_manager,
+            )
+        except AssetPackageError as exc:
+            return {"success": False, "error": str(exc)}
+
+        encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        return {
+            "success": True,
+            "metadata": metadata,
+            "bundle": encoded,
+        }
+
+    def import_asset_package(
+        self,
+        *,
+        bundle_base64: str,
+        signing_key: str,
+        rationale: str = "Imported via server route",
+    ) -> Dict[str, Any]:
+        if not bundle_base64:
+            raise ValueError("Package payload is required for import")
+
+        try:
+            bundle_bytes = base64.b64decode(bundle_base64)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Package payload is not valid base64 data") from exc
+
+        try:
+            result = import_asset_package_bytes(
+                bundle_bytes,
+                signing_key=signing_key,
+                config_manager=self._config_manager,
+                rationale=rationale,
+            )
+        except AssetPackageError as exc:
+            return {"success": False, "error": str(exc)}
+
+        result.setdefault("success", True)
+        return result
+
 
     # -- conversation routes -------------------------------------------------
 
