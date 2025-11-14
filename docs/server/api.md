@@ -197,22 +197,26 @@ dashboards can subscribe for proactive notifications.【F:modules/Server/routes.
 ## Blackboard endpoints
 
 The shared blackboard supports collaborative annotations keyed by scope type and
-identifier (for example `conversation` and a conversation UUID).【F:modules/Server/routes.py†L640-L706】【F:modules/Server/routes.py†L460-L560】
+identifier (for example `conversation` and a conversation UUID). Every endpoint
+requires a tenant-scoped `RequestContext`; calls without one or targeting
+another tenant raise authorization errors before touching the underlying
+entries.【F:modules/Server/routes.py†L1521-L1663】
 
 | Method & Path | Required fields | Notes |
 | --- | --- | --- |
-| `GET /blackboard/{scope_type}/{scope_id}` | Optional query `summary=true` for aggregate counts or `category` to filter entries. | Returns entries for the scope or a summary when `summary` is set.【F:modules/Server/routes.py†L467-L487】 |
-| `GET /blackboard/{scope_type}/{scope_id}/{entry_id}` | None. | Fetches a single entry; 404 (translated from `KeyError`) when missing.【F:modules/Server/routes.py†L648-L663】 |
-| `POST /blackboard/{scope_type}/{scope_id}` | Body requires `category`, `title`, and `content`; optional `author`, `tags`, `metadata`. | Publishes a new entry and returns the stored record.【F:modules/Server/routes.py†L488-L520】 |
-| `PATCH /blackboard/{scope_type}/{scope_id}/{entry_id}` | Body may include `title`, `content`, `tags`, `metadata`. | Updates an existing entry; raises `KeyError` when the entry does not exist.【F:modules/Server/routes.py†L522-L546】 |
-| `DELETE /blackboard/{scope_type}/{scope_id}/{entry_id}` | None. | Deletes the entry and returns a boolean `success`.【F:modules/Server/routes.py†L548-L560】 |
+| `GET /blackboard/{scope_type}/{scope_id}` | Optional query `summary=true` for aggregate counts or `category` to filter entries. | Returns entries for the scope or a summary when `summary` is set; rejects mismatched tenant access with a 403-style error.【F:modules/Server/routes.py†L1521-L1563】 |
+| `GET /blackboard/{scope_type}/{scope_id}/{entry_id}` | None. | Fetches a single entry owned by the calling tenant; 404 (translated from `KeyError`) when missing.【F:modules/Server/routes.py†L1916-L1931】 |
+| `POST /blackboard/{scope_type}/{scope_id}` | Body requires `category`, `title`, and `content`; optional `author`, `tags`, `metadata`. | Publishes a new entry and records the tenant identifier in metadata.【F:modules/Server/routes.py†L1565-L1604】 |
+| `PATCH /blackboard/{scope_type}/{scope_id}/{entry_id}` | Body may include `title`, `content`, `tags`, `metadata`. | Updates an existing entry after verifying tenant ownership; raises `KeyError` when the entry does not exist.【F:modules/Server/routes.py†L1606-L1645】 |
+| `DELETE /blackboard/{scope_type}/{scope_id}/{entry_id}` | None. | Deletes the entry when the tenant owns it and returns a boolean `success`.【F:modules/Server/routes.py†L1647-L1663】 |
 
 ### Streaming helpers
 
-`AtlasServer.stream_blackboard_events(scope_type, scope_id)` delegates to the
-`stream_blackboard` helper, which subscribes to the message bus topic
-`blackboard.{scope_type}.{scope_id}` and yields each published payload. Use this
-for Server-Sent Events (SSE) or WebSocket push surfaces.【F:modules/Server/routes.py†L561-L566】【F:modules/orchestration/blackboard.py†L402-L432】
+`AtlasServer.stream_blackboard_events(scope_type, scope_id, context)` delegates
+to the `stream_blackboard` helper, which subscribes to the message bus topic
+`blackboard.{scope_type}.{scope_id}` and yields each published payload that
+matches the caller's tenant. Use this for Server-Sent Events (SSE) or WebSocket
+push surfaces.【F:modules/Server/routes.py†L1665-L1685】【F:modules/orchestration/blackboard.py†L402-L432】
 
 ## Pagination, cursors, and filtering quick reference
 

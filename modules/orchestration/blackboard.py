@@ -86,6 +86,17 @@ class BlackboardStore:
         entry_id = uuid.uuid4().hex
         tag_tuple = _normalize_tags(tags)
         metadata = dict(metadata or {})
+        tenant_value = metadata.get("tenant_id")
+        if isinstance(tenant_value, str):
+            tenant_token = tenant_value.strip()
+            if tenant_token:
+                metadata["tenant_id"] = tenant_token
+            else:
+                metadata.pop("tenant_id", None)
+        elif tenant_value is not None:
+            metadata.pop("tenant_id", None)
+        if "tenant_id" not in metadata:
+            metadata["tenant_id"] = "default"
 
         entry = BlackboardEntry(
             entry_id=entry_id,
@@ -140,7 +151,31 @@ class BlackboardStore:
             if tags is not None:
                 entry.tags = _normalize_tags(tags)
             if metadata is not None:
-                entry.metadata = dict(metadata)
+                metadata_map = dict(metadata)
+                existing_tenant = None
+                if isinstance(entry.metadata, Mapping):
+                    tenant_candidate = entry.metadata.get("tenant_id")
+                    if isinstance(tenant_candidate, str) and tenant_candidate.strip():
+                        existing_tenant = tenant_candidate.strip()
+
+                tenant_value = metadata_map.get("tenant_id")
+                if isinstance(tenant_value, str):
+                    tenant_token = tenant_value.strip()
+                    if tenant_token:
+                        metadata_map["tenant_id"] = tenant_token
+                    elif existing_tenant:
+                        metadata_map["tenant_id"] = existing_tenant
+                    else:
+                        metadata_map.pop("tenant_id", None)
+                elif existing_tenant:
+                    metadata_map["tenant_id"] = existing_tenant
+                else:
+                    metadata_map.pop("tenant_id", None)
+
+                if "tenant_id" not in metadata_map:
+                    metadata_map["tenant_id"] = "default"
+
+                entry.metadata = metadata_map
             entry.updated_at = time.time()
 
         self._publish_event("updated", entry)

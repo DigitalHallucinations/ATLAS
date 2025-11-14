@@ -399,6 +399,52 @@ class AtlasServer:
 
         return RequestContext(tenant_id=tenant_id)
 
+    def _require_tenant_context(self, context: Any | None) -> RequestContext:
+        if context is None:
+            raise ConversationAuthorizationError("A tenant scoped context is required")
+        resolved = self._resolve_request_context(context)
+        tenant_id = str(resolved.tenant_id or "").strip()
+        if not tenant_id:
+            raise ConversationAuthorizationError("A tenant scoped context is required")
+        if tenant_id != resolved.tenant_id:
+            resolved = RequestContext(
+                tenant_id=tenant_id,
+                user_id=resolved.user_id,
+                session_id=resolved.session_id,
+                roles=resolved.roles,
+                metadata=resolved.metadata,
+            )
+        return resolved
+
+    @staticmethod
+    def _extract_blackboard_tenant(entry: Mapping[str, Any]) -> Optional[str]:
+        metadata = entry.get("metadata") if isinstance(entry, Mapping) else None
+        if isinstance(metadata, Mapping):
+            candidate = metadata.get("tenant_id")
+            if isinstance(candidate, str):
+                token = candidate.strip()
+                if token:
+                    return token
+        tenant_field = entry.get("tenant_id") if isinstance(entry, Mapping) else None
+        if isinstance(tenant_field, str):
+            token = tenant_field.strip()
+            if token:
+                return token
+        return None
+
+    def _ensure_blackboard_entry_access(
+        self, entry: Mapping[str, Any], tenant_id: str
+    ) -> None:
+        stored_tenant = self._extract_blackboard_tenant(entry)
+        if not stored_tenant:
+            raise ConversationAuthorizationError(
+                "Blackboard entry is missing tenant metadata"
+            )
+        if stored_tenant != tenant_id:
+            raise ConversationAuthorizationError(
+                "Requested blackboard entry is not accessible for this tenant"
+            )
+
     @staticmethod
     def _resolve_skill_identifier(*candidates: Any) -> str:
         for candidate in candidates:
@@ -1479,22 +1525,41 @@ class AtlasServer:
         *,
         summary: bool = False,
         category: Optional[Any] = None,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         """Return entries or a summary for the requested blackboard scope."""
 
+        request_context = self._require_tenant_context(context)
         client = get_blackboard().client_for(scope_id, scope_type=scope_type)
-        if summary:
-            return client.summary()
 
         category_value = None
         if category is not None:
             category_value = str(category).strip() or None
         entries = client.list_entries(category=category_value)
+
+        authorized_entries: List[Dict[str, Any]] = []
+        for entry in entries:
+            self._ensure_blackboard_entry_access(entry, request_context.tenant_id)
+            authorized_entries.append(entry)
+
+        if summary:
+            counts: Dict[str, int] = {"hypothesis": 0, "claim": 0, "artifact": 0}
+            for entry in authorized_entries:
+                category_name = entry.get("category")
+                if isinstance(category_name, str) and category_name:
+                    counts[category_name] = counts.get(category_name, 0) + 1
+            return {
+                "scope_id": client.scope_id,
+                "scope_type": client.scope_type,
+                "counts": counts,
+                "entries": authorized_entries,
+            }
+
         return {
             "scope_id": client.scope_id,
             "scope_type": client.scope_type,
-            "entries": entries,
-            "count": len(entries),
+            "entries": authorized_entries,
+            "count": len(authorized_entries),
         }
 
     def create_blackboard_entry(
@@ -1520,16 +1585,11 @@ class AtlasServer:
         raw_metadata = payload_map.get("metadata")
         if isinstance(raw_metadata, Mapping):
             metadata_payload = dict(raw_metadata)
-        request_context = None
-        if context is not None:
-            request_context = self._resolve_request_context(context)
-        if request_context is not None:
-            metadata_payload = metadata_payload or {}
-            metadata_payload.setdefault("tenant_id", request_context.tenant_id)
-        if metadata_payload:
-            payload_map["metadata"] = metadata_payload
-        else:
-            payload_map.pop("metadata", None)
+
+        request_context = self._require_tenant_context(context)
+        metadata_payload = metadata_payload or {}
+        metadata_payload["tenant_id"] = request_context.tenant_id
+        payload_map["metadata"] = metadata_payload
 
         client = get_blackboard().client_for(scope_id, scope_type=scope_type)
         entry = client.publish(
@@ -1555,26 +1615,30 @@ class AtlasServer:
         """Update an existing blackboard entry."""
 
         payload_map = dict(payload)
-        metadata_payload = None
+        metadata_payload: Dict[str, Any] | None = None
         raw_metadata = payload_map.get("metadata")
         if isinstance(raw_metadata, Mapping):
             metadata_payload = dict(raw_metadata)
-        request_context = None
-        if context is not None:
-            request_context = self._resolve_request_context(context)
-        if request_context is not None and metadata_payload is not None:
-            metadata_payload.setdefault("tenant_id", request_context.tenant_id)
-            payload_map["metadata"] = metadata_payload
-        elif metadata_payload is None:
-            payload_map.pop("metadata", None)
 
+        request_context = self._require_tenant_context(context)
         client = get_blackboard().client_for(scope_id, scope_type=scope_type)
+
+        existing_entry = client.get_entry(entry_id)
+        if existing_entry is None:
+            raise KeyError(f"Unknown blackboard entry: {entry_id}")
+        self._ensure_blackboard_entry_access(existing_entry, request_context.tenant_id)
+
+        metadata_for_update: Dict[str, Any] | None = None
+        if metadata_payload is not None:
+            metadata_for_update = dict(metadata_payload)
+            metadata_for_update["tenant_id"] = request_context.tenant_id
+
         entry = client.update_entry(
             entry_id,
             title=payload_map.get("title"),
             content=payload_map.get("content"),
             tags=payload_map.get("tags"),
-            metadata=payload_map.get("metadata"),
+            metadata=metadata_for_update,
         )
         if entry is None:
             raise KeyError(f"Unknown blackboard entry: {entry_id}")
@@ -1590,16 +1654,35 @@ class AtlasServer:
     ) -> Dict[str, Any]:
         """Delete the requested blackboard entry."""
 
-        if context is not None:
-            self._resolve_request_context(context)
+        request_context = self._require_tenant_context(context)
         client = get_blackboard().client_for(scope_id, scope_type=scope_type)
+        entry = client.get_entry(entry_id)
+        if entry is not None:
+            self._ensure_blackboard_entry_access(entry, request_context.tenant_id)
         success = client.delete_entry(entry_id)
         return {"success": bool(success)}
 
-    def stream_blackboard_events(self, scope_type: str, scope_id: str):
+    def stream_blackboard_events(
+        self,
+        scope_type: str,
+        scope_id: str,
+        *,
+        context: Any | None = None,
+    ):
         """Return an asynchronous iterator of blackboard events."""
 
-        return stream_blackboard(scope_id, scope_type=scope_type)
+        request_context = self._require_tenant_context(context)
+
+        async def _filtered_events():
+            async for payload in stream_blackboard(scope_id, scope_type=scope_type):
+                entry = payload.get("entry") if isinstance(payload, Mapping) else None
+                if isinstance(entry, Mapping):
+                    stored_tenant = self._extract_blackboard_tenant(entry)
+                    if stored_tenant != request_context.tenant_id:
+                        continue
+                yield payload
+
+        return _filtered_events()
 
     def get_persona_review_status(self, persona_name: str) -> Dict[str, Any]:
         """Return the current review status for ``persona_name``."""
@@ -1833,16 +1916,19 @@ class AtlasServer:
             if path.startswith("/blackboard/"):
                 scope_type, scope_id, entry_id = self._parse_blackboard_path(path)
                 if entry_id:
+                    tenant_context = self._require_tenant_context(context)
                     client = get_blackboard().client_for(scope_id, scope_type=scope_type)
                     entry = client.get_entry(entry_id)
                     if entry is None:
                         raise KeyError(f"Unknown blackboard entry: {entry_id}")
+                    self._ensure_blackboard_entry_access(entry, tenant_context.tenant_id)
                     return {"entry": entry}
                 return self.get_blackboard_entries(
                     scope_type,
                     scope_id,
                     summary=_as_bool(query.get("summary")),
                     category=query.get("category"),
+                    context=context,
                 )
             if path != "/tools":
                 raise ValueError(f"Unsupported path: {path}")

@@ -26,6 +26,8 @@ if "jsonschema" not in sys.modules:
 import pytest
 
 from ATLAS.SkillManager import SkillExecutionContext
+from modules.Server import RequestContext
+from modules.Server.conversation_routes import ConversationAuthorizationError
 from modules.Server.routes import AtlasServer
 from modules.orchestration.blackboard import BlackboardStore, configure_blackboard
 from modules.orchestration.message_bus import InMemoryQueueBackend, configure_message_bus
@@ -52,6 +54,7 @@ def test_blackboard_persists_across_contexts(_reset_blackboard):
 
 def test_blackboard_routes_crud_cycle(_reset_blackboard):
     server = AtlasServer()
+    tenant_context = RequestContext(tenant_id="tenant-alpha")
 
     created = server.handle_request(
         "/blackboard/conversation/demo",
@@ -62,14 +65,17 @@ def test_blackboard_routes_crud_cycle(_reset_blackboard):
             "content": "Let's examine the latest telemetry logs.",
             "author": "analyst",
         },
+        context=tenant_context,
     )
     entry = created["entry"]
     entry_id = entry["id"]
+    assert entry["metadata"]["tenant_id"] == "tenant-alpha"
 
     summary = server.handle_request(
         "/blackboard/conversation/demo",
         method="GET",
         query={"summary": True},
+        context=tenant_context,
     )
     assert summary["counts"]["hypothesis"] == 1
 
@@ -77,6 +83,7 @@ def test_blackboard_routes_crud_cycle(_reset_blackboard):
         f"/blackboard/conversation/demo/{entry_id}",
         method="PATCH",
         query={"content": "Telemetry parsed and normalized."},
+        context=tenant_context,
     )
     assert updated["entry"]["content"] == "Telemetry parsed and normalized."
 
@@ -84,6 +91,7 @@ def test_blackboard_routes_crud_cycle(_reset_blackboard):
         f"/blackboard/conversation/demo/{entry_id}",
         method="DELETE",
         query={},
+        context=tenant_context,
     )
     assert deleted["success"] is True
 
@@ -91,8 +99,66 @@ def test_blackboard_routes_crud_cycle(_reset_blackboard):
         "/blackboard/conversation/demo",
         method="GET",
         query={},
+        context=tenant_context,
     )
     assert remaining["count"] == 0
+
+
+def test_blackboard_routes_require_context(_reset_blackboard) -> None:
+    server = AtlasServer()
+
+    with pytest.raises(ConversationAuthorizationError):
+        server.handle_request(
+            "/blackboard/conversation/demo",
+            method="POST",
+            query={
+                "category": "hypothesis",
+                "title": "Shared insight",
+                "content": "Tenant context required.",
+            },
+        )
+
+
+def test_blackboard_routes_enforce_tenant_isolation(_reset_blackboard) -> None:
+    server = AtlasServer()
+    tenant_alpha = RequestContext(tenant_id="tenant-alpha")
+    tenant_beta = RequestContext(tenant_id="tenant-beta")
+
+    created = server.handle_request(
+        "/blackboard/conversation/demo",
+        method="POST",
+        query={
+            "category": "hypothesis",
+            "title": "Shared insight",
+            "content": "Let's examine the latest telemetry logs.",
+        },
+        context=tenant_alpha,
+    )
+    entry_id = created["entry"]["id"]
+
+    with pytest.raises(ConversationAuthorizationError):
+        server.handle_request(
+            "/blackboard/conversation/demo",
+            method="GET",
+            query={},
+            context=tenant_beta,
+        )
+
+    with pytest.raises(ConversationAuthorizationError):
+        server.handle_request(
+            f"/blackboard/conversation/demo/{entry_id}",
+            method="PATCH",
+            query={"content": "Cross tenant update"},
+            context=tenant_beta,
+        )
+
+    with pytest.raises(ConversationAuthorizationError):
+        server.handle_request(
+            f"/blackboard/conversation/demo/{entry_id}",
+            method="DELETE",
+            query={},
+            context=tenant_beta,
+        )
 
 
 def test_blackboard_concurrent_publication(_reset_blackboard):
@@ -124,7 +190,11 @@ def test_blackboard_stream_receives_updates(_reset_blackboard):
     async def _run() -> None:
         server = AtlasServer()
         scope_id = "stream-demo"
-        stream = server.stream_blackboard_events("conversation", scope_id)
+        stream = server.stream_blackboard_events(
+            "conversation",
+            scope_id,
+            context=RequestContext(tenant_id="default"),
+        )
 
         next_event = asyncio.create_task(stream.__anext__())
 
