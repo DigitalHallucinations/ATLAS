@@ -925,6 +925,61 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
             "tester_notes": sanitized_notes,
         }
 
+    # ------------------------------------------------------------------
+    # Signing key helpers
+    # ------------------------------------------------------------------
+    def get_bundle_signing_key(
+        self,
+        asset_type: str,
+        *,
+        require: bool = True,
+    ) -> Optional[str]:
+        """Return the configured signing key for the given bundle asset."""
+
+        normalized = str(asset_type or "").strip().lower()
+        if not normalized:
+            raise ValueError("Asset type is required to resolve a signing key")
+
+        env_keys = [
+            f"ATLAS_{normalized.upper()}_BUNDLE_SIGNING_KEY",
+            f"{normalized.upper()}_BUNDLE_SIGNING_KEY",
+        ]
+
+        secret: Optional[str] = None
+        for key in env_keys:
+            candidate = self.env_config.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                secret = candidate.strip()
+                break
+            candidate = os.getenv(key)
+            if isinstance(candidate, str) and candidate.strip():
+                secret = candidate.strip()
+                break
+
+        if secret:
+            return secret
+
+        if require:
+            raise RuntimeError(
+                f"Signing key for '{normalized}' bundles is not configured."
+            )
+        return None
+
+    def get_persona_bundle_signing_key(self, *, require: bool = True) -> Optional[str]:
+        return self.get_bundle_signing_key("persona", require=require)
+
+    def get_task_bundle_signing_key(self, *, require: bool = True) -> Optional[str]:
+        return self.get_bundle_signing_key("task", require=require)
+
+    def get_tool_bundle_signing_key(self, *, require: bool = True) -> Optional[str]:
+        return self.get_bundle_signing_key("tool", require=require)
+
+    def get_skill_bundle_signing_key(self, *, require: bool = True) -> Optional[str]:
+        return self.get_bundle_signing_key("skill", require=require)
+
+    def get_job_bundle_signing_key(self, *, require: bool = True) -> Optional[str]:
+        return self.get_bundle_signing_key("job", require=require)
+
     # Additional methods to handle TTS_ENABLED from config.yaml
     def get_tts_enabled(self) -> bool:
         """
