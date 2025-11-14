@@ -736,6 +736,58 @@ class KVStoreConfigSection:
 
         postgres_block["pool"] = pool_block
         adapters_block["postgres"] = postgres_block
+
+        sqlite_block = adapters_block.get("sqlite")
+        if not isinstance(sqlite_block, Mapping):
+            sqlite_block = {}
+        else:
+            sqlite_block = dict(sqlite_block)
+
+        url_value = sqlite_block.get("url")
+        if isinstance(url_value, str) and url_value.strip():
+            sqlite_block["url"] = url_value.strip()
+        else:
+            sqlite_block["url"] = "sqlite:///atlas_kv.sqlite"
+
+        namespace_quota_value = sqlite_block.get("namespace_quota_bytes")
+        if namespace_quota_value not in (None, ""):
+            try:
+                sqlite_block["namespace_quota_bytes"] = int(namespace_quota_value)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid namespace_quota_bytes value %r; expected integer",
+                    namespace_quota_value,
+                )
+                sqlite_block.pop("namespace_quota_bytes", None)
+        if "namespace_quota_bytes" not in sqlite_block:
+            sqlite_block["namespace_quota_bytes"] = postgres_block.get(
+                "namespace_quota_bytes",
+                1_048_576,
+            )
+
+        global_quota_value = sqlite_block.get("global_quota_bytes")
+        if global_quota_value in (None, ""):
+            sqlite_block["global_quota_bytes"] = None
+        else:
+            try:
+                sqlite_block["global_quota_bytes"] = int(global_quota_value)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid global_quota_bytes value %r; expected integer",
+                    global_quota_value,
+                )
+                sqlite_block["global_quota_bytes"] = None
+
+        reuse_sqlite = sqlite_block.get("reuse_conversation_store")
+        if reuse_sqlite is None:
+            sqlite_block["reuse_conversation_store"] = False
+        else:
+            sqlite_block["reuse_conversation_store"] = coerce_bool_flag(
+                reuse_sqlite,
+                False,
+            )
+
+        adapters_block["sqlite"] = sqlite_block
         kv_block["adapters"] = adapters_block
         tools_block["kv_store"] = kv_block
 
@@ -759,9 +811,14 @@ class KVStoreConfigSection:
                         normalized["adapters"]["postgres"] = self._normalize_postgres_settings(
                             postgres
                         )
+                    sqlite = adapters.get("sqlite")
+                    if isinstance(sqlite, Mapping):
+                        normalized["adapters"]["sqlite"] = self._normalize_sqlite_settings(sqlite)
 
         if "postgres" not in normalized["adapters"]:
             normalized["adapters"]["postgres"] = self._normalize_postgres_settings({})
+        if "sqlite" not in normalized["adapters"]:
+            normalized["adapters"]["sqlite"] = self._normalize_sqlite_settings({})
 
         return normalized
 
@@ -981,16 +1038,61 @@ class KVStoreConfigSection:
                         overflow_value,
                     )
             timeout_value = pool_raw.get("timeout")
-            if timeout_value not in (None, ""):
-                try:
-                    normalized_pool["timeout"] = float(timeout_value)
-                except (TypeError, ValueError):
-                    self.logger.warning(
-                        "Invalid pool timeout value %r; expected numeric",
-                        timeout_value,
-                    )
+        if timeout_value not in (None, ""):
+            try:
+                normalized_pool["timeout"] = float(timeout_value)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid pool timeout value %r; expected numeric",
+                    timeout_value,
+                )
 
         settings["pool"] = normalized_pool
+        return settings
+
+    def _normalize_sqlite_settings(self, raw: Mapping[str, Any]) -> Dict[str, Any]:
+        settings: Dict[str, Any] = {
+            "reuse_conversation_store": False,
+            "namespace_quota_bytes": 1_048_576,
+            "global_quota_bytes": None,
+        }
+
+        url_value = raw.get("url")
+        if isinstance(url_value, str) and url_value.strip():
+            settings["url"] = url_value.strip()
+        else:
+            settings["url"] = "sqlite:///atlas_kv.sqlite"
+
+        settings["reuse_conversation_store"] = coerce_bool_flag(
+            raw.get("reuse_conversation_store"),
+            False,
+        )
+
+        namespace_value = raw.get("namespace_quota_bytes")
+        if namespace_value not in (None, ""):
+            try:
+                settings["namespace_quota_bytes"] = int(namespace_value)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid namespace_quota_bytes value %r; expected integer",
+                    namespace_value,
+                )
+
+        global_value = raw.get("global_quota_bytes")
+        if global_value in (None, ""):
+            settings["global_quota_bytes"] = None
+        else:
+            try:
+                parsed_global = int(global_value)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid global_quota_bytes value %r; expected integer",
+                    global_value,
+                )
+                settings["global_quota_bytes"] = None
+            else:
+                settings["global_quota_bytes"] = parsed_global if parsed_global > 0 else None
+
         return settings
 
 @dataclass(kw_only=True)

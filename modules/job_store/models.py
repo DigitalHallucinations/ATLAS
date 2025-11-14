@@ -17,12 +17,11 @@ from sqlalchemy import (
     UniqueConstraint,
     inspect,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import relationship
 
 from modules.conversation_store.models import Base as ConversationBase
-from modules.conversation_store.models import PortableJSON
+from modules.conversation_store.models import GUID, PortableJSON
 from modules.store_common.model_utils import generate_uuid, utcnow
 
 try:  # pragma: no cover - optional dependency for task relationships
@@ -79,7 +78,7 @@ class Job(Base):
         Index("ix_jobs_owner_status", "owner_id", "status"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     status = Column(
@@ -87,9 +86,9 @@ class Job(Base):
         nullable=False,
         default=JobStatus.DRAFT,
     )
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    owner_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
     conversation_id = Column(
-        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL")
+        GUID(), ForeignKey("conversations.id", ondelete="SET NULL")
     )
     tenant_id = Column(String(255), nullable=False, index=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
@@ -140,8 +139,8 @@ class JobRun(Base):
         Index("ix_job_runs_job_started", "job_id", "started_at"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"))
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
+    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
     run_number = Column(Integer, nullable=False, default=1)
     status = Column(
         Enum(JobRunStatus, name="job_run_status", validate_strings=True),
@@ -166,9 +165,9 @@ class JobTaskLink(Base):
         Index("ix_job_task_links_task", "task_id"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"))
-    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"))
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
+    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
+    task_id = Column(GUID(), ForeignKey("tasks.id", ondelete="CASCADE"))
     relationship_type = Column(String(64), nullable=False, default="relates_to")
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
@@ -186,9 +185,9 @@ class JobAssignment(Base):
         Index("ix_job_assignments_status", "job_id", "status"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"))
-    assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
+    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
+    assignee_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
     role = Column(String(64), nullable=False, default="participant")
     status = Column(
         Enum(JobAssignmentStatus, name="job_assignment_status", validate_strings=True),
@@ -211,8 +210,8 @@ class JobSchedule(Base):
         UniqueConstraint("job_id", name="uq_job_schedule_unique"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"))
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
+    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
     schedule_type = Column(String(64), nullable=False, default="cron")
     expression = Column(String(255), nullable=False)
     timezone = Column(String(64), nullable=False, default="UTC")
@@ -232,14 +231,14 @@ class JobEvent(Base):
         Index("ix_job_events_job_created", "job_id", "created_at"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"))
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
+    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
     event_type = Column(
         Enum(JobEventType, name="job_event_type", validate_strings=True),
         nullable=False,
     )
-    triggered_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
+    triggered_by_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
+    session_id = Column(GUID(), ForeignKey("sessions.id", ondelete="SET NULL"))
     payload = Column(PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 

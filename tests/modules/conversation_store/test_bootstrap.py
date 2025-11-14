@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import types
+from pathlib import Path
 
 import pytest
+from sqlalchemy.engine.url import make_url as sa_make_url
 
 from modules.conversation_store import bootstrap as bootstrap_module
 from modules.conversation_store.bootstrap import BootstrapError
@@ -162,3 +164,11 @@ def test_bootstrap_creates_role_using_privileged_credentials(monkeypatch):
     assert any("CREATE ROLE" in query for query, _ in queries)
     assert any("CREATE DATABASE" in query for query, _ in queries)
     assert result.startswith("postgresql://atlas")
+
+
+def test_bootstrap_passes_through_sqlite(tmp_path):
+    db_path = tmp_path / "bootstrap.sqlite"
+    result = bootstrap_module.bootstrap_conversation_store(f"sqlite:///{db_path}")
+    parsed = sa_make_url(result)
+    assert Path(parsed.database).exists()
+    assert parsed.get_backend_name() == "sqlite"

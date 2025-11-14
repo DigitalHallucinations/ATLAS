@@ -51,6 +51,10 @@ ATLAS centralises runtime configuration in `ConfigManager`, which merges `.env` 
 | `adapters.postgres.pool.size` | Integer; optionally sourced from `.env` `ATLAS_KV_POOL_SIZE`.【F:ATLAS/config/persistence.py†L708-L732】 | `ATLAS_KV_POOL_SIZE`. | Applied to the SQLAlchemy engine created for the KV store.【F:ATLAS/config/persistence.py†L840-L899】 |
 | `adapters.postgres.pool.max_overflow` | Integer; optionally from `.env` `ATLAS_KV_MAX_OVERFLOW`.【F:ATLAS/config/persistence.py†L708-L732】 | `ATLAS_KV_MAX_OVERFLOW`. | Applied to the SQLAlchemy engine created for the KV store.【F:ATLAS/config/persistence.py†L840-L899】 |
 | `adapters.postgres.pool.timeout` | Float seconds; optionally from `.env` `ATLAS_KV_POOL_TIMEOUT`.【F:ATLAS/config/persistence.py†L708-L732】 | `ATLAS_KV_POOL_TIMEOUT`. | Applied to the SQLAlchemy engine created for the KV store.【F:ATLAS/config/persistence.py†L840-L899】 |
+| `adapters.sqlite.url` | SQLite DSN string; defaults to `sqlite:///atlas_kv.sqlite`.【F:ATLAS/config/persistence.py†L746-L766】 | None. | SQLite adapter factory opens the engine for this path.【F:modules/Tools/Base_Tools/kv_store.py†L792-L844】 |
+| `adapters.sqlite.namespace_quota_bytes` | Integer ≥0; defaults to the PostgreSQL namespace quota fallback when unset.【F:ATLAS/config/persistence.py†L752-L766】 | None. | Enforced by the SQLite adapter when writing entries.【F:modules/Tools/Base_Tools/kv_store.py†L792-L844】 |
+| `adapters.sqlite.global_quota_bytes` | Optional integer; ignored when blank.【F:ATLAS/config/persistence.py†L768-L779】 | None. | Enforced by the SQLite adapter when writing entries.【F:modules/Tools/Base_Tools/kv_store.py†L792-L844】 |
+| `adapters.sqlite.reuse_conversation_store` | Boolean; defaults to `false`.【F:ATLAS/config/persistence.py†L781-L788】 | None. | Controls whether the SQLite adapter reuses the conversation engine when available.【F:modules/Tools/Base_Tools/kv_store.py†L700-L739】 |
 
 ## Data services
 
