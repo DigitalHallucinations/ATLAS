@@ -4,25 +4,57 @@ import types
 from pathlib import Path
 from unittest.mock import Mock
 
+import importlib
 import pytest
 
 sqlalchemy_module = types.ModuleType("sqlalchemy")
 sqlalchemy_engine_module = types.ModuleType("sqlalchemy.engine")
 sqlalchemy_url_module = types.ModuleType("sqlalchemy.engine.url")
+sqlalchemy_orm_module = types.ModuleType("sqlalchemy.orm")
 sqlalchemy_module.__path__ = []  # mark as package
 sqlalchemy_engine_module.__path__ = []
 sqlalchemy_url_module.URL = object
 sqlalchemy_url_module.make_url = lambda value: value
 sqlalchemy_engine_module.url = sqlalchemy_url_module
+sqlalchemy_engine_module.Engine = object
 sqlalchemy_module.engine = sqlalchemy_engine_module
+sqlalchemy_module.create_engine = lambda *args, **kwargs: types.SimpleNamespace(dispose=lambda: None)
+sqlalchemy_module.inspect = lambda *args, **kwargs: types.SimpleNamespace(get_table_names=lambda: [])
+sqlalchemy_module.Column = lambda *args, **kwargs: None
+sqlalchemy_module.DateTime = object
+sqlalchemy_module.Enum = lambda *args, **kwargs: None
+sqlalchemy_module.ForeignKey = lambda *args, **kwargs: None
+sqlalchemy_module.Index = lambda *args, **kwargs: None
+sqlalchemy_module.Integer = int
+sqlalchemy_module.String = str
+sqlalchemy_module.Text = str
+sqlalchemy_module.UniqueConstraint = lambda *args, **kwargs: None
+sqlalchemy_orm_module.sessionmaker = lambda *args, **kwargs: None
+sqlalchemy_orm_module.relationship = lambda *args, **kwargs: None
+sqlalchemy_module.orm = sqlalchemy_orm_module
 sys.modules["sqlalchemy"] = sqlalchemy_module
 sys.modules["sqlalchemy.engine"] = sqlalchemy_engine_module
 sys.modules["sqlalchemy.engine.url"] = sqlalchemy_url_module
+sys.modules["sqlalchemy.orm"] = sqlalchemy_orm_module
 
 config_module = types.ModuleType("ATLAS.config")
+config_module.__path__ = []
+_real_config_module = importlib.import_module("ATLAS.config")
 config_module.ConfigManager = type("ConfigManager", (), {"UNSET": object()})
 config_module._DEFAULT_CONVERSATION_STORE_DSN = "postgresql+psycopg://atlas@localhost:5432/atlas"
+config_module._DEFAULT_CONVERSATION_STORE_BACKENDS = (
+    types.SimpleNamespace(
+        name="postgresql",
+        dsn="postgresql+psycopg://atlas@localhost:5432/atlas",
+        dialect="postgresql",
+    ),
+)
+config_module.get_default_conversation_store_backends = (
+    lambda: config_module._DEFAULT_CONVERSATION_STORE_BACKENDS
+)
+config_module.infer_conversation_store_backend = lambda value: "postgresql"
 sys.modules["ATLAS.config"] = config_module
+sys.modules["ATLAS.config.config_manager"] = _real_config_module.config_manager
 
 bootstrap_module = types.ModuleType("modules.conversation_store.bootstrap")
 bootstrap_module.BootstrapError = Exception
@@ -81,6 +113,7 @@ from ATLAS.setup.controller import (
     JobSchedulingState,
     KvStoreState,
     MessageBusState,
+    VectorStoreState,
     PrivilegedCredentialState,
     ProviderState,
     SetupTypeState,
@@ -95,11 +128,17 @@ class DummyController:
             kv_store=KvStoreState(),
             job_scheduling=JobSchedulingState(),
             message_bus=MessageBusState(),
+            vector_store=VectorStoreState(),
             providers=ProviderState(),
             speech=SpeechState(),
             user=UserState(),
             optional=OptionalState(),
             setup_type=SetupTypeState(),
+        )
+        self._vector_settings = {"default_adapter": "in_memory", "adapters": {"in_memory": {}}}
+        self.config_manager = types.SimpleNamespace(
+            get_vector_store_settings=self._get_vector_store_settings,
+            set_vector_store_settings=self._set_vector_store_settings,
         )
         self.applied_database_states: list[DatabaseState] = []
         self.privileged_credentials: list[tuple[str | None, str | None] | None] = []
@@ -127,6 +166,11 @@ class DummyController:
         self.state.database = dataclasses.replace(state, dsn=ensured)
         return ensured
 
+    def apply_vector_store_settings(self, state: VectorStoreState):
+        self.state.vector_store = dataclasses.replace(state)
+        self._set_vector_store_settings(default_adapter=state.adapter)
+        return self._vector_settings
+
     def apply_kv_store_settings(self, state: KvStoreState):  # pragma: no cover - not needed for these tests
         self.state.kv_store = dataclasses.replace(state)
         return {}
@@ -150,6 +194,12 @@ class DummyController:
     def apply_optional_settings(self, state: OptionalState):  # pragma: no cover - not needed
         self.state.optional = dataclasses.replace(state)
         return self.state.optional
+
+    def get_conversation_backend_options(self):  # pragma: no cover - not needed for most tests
+        return (
+            types.SimpleNamespace(name="postgresql"),
+            types.SimpleNamespace(name="sqlite"),
+        )
 
     def apply_setup_type(self, mode: str) -> SetupTypeState:
         normalized = (mode or "").strip().lower()
@@ -279,6 +329,17 @@ class DummyController:
     def build_summary(self):  # pragma: no cover - not needed
         return {}
 
+    def _get_vector_store_settings(self):
+        return dict(self._vector_settings)
+
+    def _set_vector_store_settings(self, *, default_adapter: str, adapter_settings=None):
+        normalized = (default_adapter or "in_memory").strip().lower()
+        adapters = dict(self._vector_settings.get("adapters", {}))
+        adapters.setdefault(normalized, {} if adapter_settings is None else dict(adapter_settings))
+        adapters.setdefault("in_memory", adapters.get("in_memory", {}))
+        self._vector_settings = {"default_adapter": normalized, "adapters": adapters}
+        return dict(self._vector_settings)
+
 
 def test_choose_setup_type_defaults_to_personal_settings():
     controller = DummyController()
@@ -362,7 +423,7 @@ def test_choose_setup_type_switches_to_enterprise_defaults():
 
 def test_configure_database_persists_dsn():
     controller = DummyController()
-    responses = iter(["db.internal", "6543", "atlas_prod", "atlas_user"])
+    responses = iter(["", "db.internal", "6543", "atlas_prod", "atlas_user"])
     passwords = iter(["s3cret"])
 
     utility = SetupUtility(
@@ -386,7 +447,7 @@ def test_configure_database_handles_missing_role_with_privileged_credentials():
     controller.state.database = dataclasses.replace(controller.state.database, password="stored")
     controller.bootstrap_error_sequence = [BootstrapError('role "atlas" does not exist')]
 
-    responses = iter(["", "", "", "", "y", "postgres"])
+    responses = iter(["", "", "", "", "", "y", "postgres"])
     passwords = iter(["!clear!", "supersecret"])
 
     utility = SetupUtility(
@@ -410,7 +471,7 @@ def test_configure_database_reuses_staged_privileged_credentials():
     controller.set_privileged_credentials(("postgres", "supersecret"))
     controller.bootstrap_error_sequence = [BootstrapError('role "atlas" does not exist')]
 
-    responses = iter(["", "", "", "", "n"])
+    responses = iter(["", "", "", "", "", "n"])
     passwords = iter(["password"])
 
     utility = SetupUtility(
@@ -428,6 +489,24 @@ def test_configure_database_reuses_staged_privileged_credentials():
     ]
     assert controller.set_privileged_credentials_calls[-1] == ("postgres", "supersecret")
     assert dsn.endswith("@localhost:5432/atlas")
+
+
+def test_configure_vector_store_updates_adapter():
+    controller = DummyController()
+    controller._vector_settings["adapters"]["pinecone"] = {}
+    responses = iter(["pinecone"])
+
+    utility = SetupUtility(
+        controller=controller,
+        input_func=lambda prompt: next(responses),
+        getpass_func=lambda prompt: "",
+        print_func=lambda message: None,
+    )
+
+    settings = utility.configure_vector_store()
+
+    assert controller.state.vector_store.adapter == "pinecone"
+    assert settings["default_adapter"] == "pinecone"
 
 
 def test_configure_user_stages_profile_and_normalizes_date():

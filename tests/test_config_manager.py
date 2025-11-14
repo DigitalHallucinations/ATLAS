@@ -298,6 +298,8 @@ def test_persistence_conversation_ensure_postgres_persists_default_url():
     assert section.conversation.is_verified() is True
     assert section.config["conversation_database"]["url"] == "postgresql://default"
     assert section.yaml_config["conversation_database"]["url"] == "postgresql://default"
+    assert section.config["conversation_database"]["backend"] == "postgresql"
+    assert section.yaml_config["conversation_database"]["backend"] == "postgresql"
     assert engine.dispose_called is True
     assert section._write_calls  # type: ignore[attr-defined]
 
@@ -320,6 +322,25 @@ def test_persistence_conversation_ensure_postgres_missing_tables_raises():
 
     assert "missing required tables" in str(excinfo.value)
 
+
+def test_persistence_conversation_supports_sqlite_backend():
+    engine = types.SimpleNamespace(dispose=lambda: None)
+    section = _make_persistence_section(
+        config={"conversation_database": {"backend": "sqlite", "url": "sqlite:///atlas.sqlite3"}},
+        create_engine=lambda *args, **kwargs: engine,
+        inspect_engine=lambda *_args, **_kwargs: types.SimpleNamespace(
+            get_table_names=lambda: ["atlas_conversations"]
+        ),
+        make_url=lambda value: _DummyURL(str(value), drivername="sqlite"),
+        conversation_required_tables=lambda: {"atlas_conversations"},
+    )
+    section.apply()
+
+    url = section.conversation.ensure_postgres_store()
+
+    assert url == "sqlite:///atlas.sqlite3"
+    assert section.config["conversation_database"]["backend"] == "sqlite"
+    assert section.yaml_config["conversation_database"]["backend"] == "sqlite"
 
 def test_messaging_section_apply_and_set():
     config = {"messaging": {"backend": "redis"}}

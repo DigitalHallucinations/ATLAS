@@ -3,11 +3,17 @@
 from .config_manager import ConfigManager
 from .core import (
     ConfigCore,
+    ConversationStoreBackendOption,
     _DEFAULT_CONVERSATION_STORE_DSN,
+    _DEFAULT_CONVERSATION_STORE_BACKENDS,
     find_dotenv,
     load_dotenv,
     set_key,
     setup_logger,
+    default_conversation_store_backend_name,
+    get_default_conversation_store_backend,
+    get_default_conversation_store_backends,
+    infer_conversation_store_backend,
 )
 from .conversation_summary import ConversationSummaryConfigSection
 from .messaging import MessagingConfigSection, setup_message_bus
@@ -30,6 +36,12 @@ __all__ = [
     "UIConfig",
     "KV_STORE_UNSET",
     "_DEFAULT_CONVERSATION_STORE_DSN",
+    "_DEFAULT_CONVERSATION_STORE_BACKENDS",
+    "ConversationStoreBackendOption",
+    "default_conversation_store_backend_name",
+    "get_default_conversation_store_backend",
+    "get_default_conversation_store_backends",
+    "infer_conversation_store_backend",
     "find_dotenv",
     "load_dotenv",
     "set_key",

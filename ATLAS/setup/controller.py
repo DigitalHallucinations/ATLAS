@@ -7,7 +7,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
-from ATLAS.config import ConfigManager, _DEFAULT_CONVERSATION_STORE_DSN
+from ATLAS.config import (
+    ConfigManager,
+    _DEFAULT_CONVERSATION_STORE_DSN,
+    get_default_conversation_store_backends,
+    infer_conversation_store_backend,
+)
 from modules.conversation_store.bootstrap import BootstrapError, bootstrap_conversation_store
 from modules.conversation_store.repository import ConversationStoreRepository
 from modules.user_accounts.user_account_service import UserAccountService
@@ -21,6 +26,7 @@ __all__ = [
     "JobSchedulingState",
     "KvStoreState",
     "MessageBusState",
+    "VectorStoreState",
     "OptionalState",
     "PrivilegedCredentialState",
     "ProviderState",
@@ -34,6 +40,7 @@ __all__ = [
 
 @dataclass
 class DatabaseState:
+    backend: str = "postgresql"
     host: str = "localhost"
     port: int = 5432
     database: str = "atlas"
@@ -65,6 +72,11 @@ class MessageBusState:
     backend: str = "in_memory"
     redis_url: Optional[str] = None
     stream_prefix: Optional[str] = None
+
+
+@dataclass
+class VectorStoreState:
+    adapter: str = "in_memory"
 
 
 @dataclass
@@ -145,6 +157,7 @@ class WizardState:
     database: DatabaseState = field(default_factory=DatabaseState)
     job_scheduling: JobSchedulingState = field(default_factory=JobSchedulingState)
     message_bus: MessageBusState = field(default_factory=MessageBusState)
+    vector_store: VectorStoreState = field(default_factory=VectorStoreState)
     kv_store: KvStoreState = field(default_factory=KvStoreState)
     providers: ProviderState = field(default_factory=ProviderState)
     speech: SpeechState = field(default_factory=SpeechState)
@@ -153,19 +166,58 @@ class WizardState:
     setup_type: SetupTypeState = field(default_factory=SetupTypeState)
 
 
-def _parse_default_dsn(dsn: str) -> DatabaseState:
+def _parse_default_dsn(dsn: str, *, backend: Optional[str] = None) -> DatabaseState:
     from urllib.parse import urlparse
 
     parsed = urlparse(dsn)
+    scheme = (parsed.scheme or "").lower()
+    inferred_backend = backend or infer_conversation_store_backend(scheme) or infer_conversation_store_backend(dsn)
+    normalized_backend = (inferred_backend or "postgresql").strip().lower() or "postgresql"
+
+    if normalized_backend == "sqlite":
+        database = parsed.path.lstrip("/") or parsed.netloc or "atlas.sqlite3"
+        if not database:
+            database = "atlas.sqlite3"
+        return DatabaseState(
+            backend="sqlite",
+            host="",
+            port=0,
+            database=database,
+            user="",
+            password="",
+            dsn=dsn,
+        )
+
     host = parsed.hostname or "localhost"
     port = parsed.port or 5432
     database = parsed.path.lstrip("/") or "atlas"
     user = parsed.username or "atlas"
     password = parsed.password or ""
-    return DatabaseState(host=host, port=port, database=database, user=user, password=password, dsn=dsn)
+    return DatabaseState(
+        backend="postgresql",
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        dsn=dsn,
+    )
 
 
 def _compose_dsn(state: DatabaseState) -> str:
+    backend = (state.backend or "postgresql").strip().lower()
+    if backend == "sqlite":
+        database = (state.database or state.dsn or "atlas.sqlite3")
+        if isinstance(database, str):
+            candidate = database.strip()
+        else:
+            candidate = str(database)
+        if candidate.startswith("sqlite:"):
+            return candidate
+        path = Path(candidate)
+        path_text = path.as_posix()
+        return f"sqlite:///{path_text}"
+
     auth = state.user or ""
     if state.password:
         auth = f"{auth}:{state.password}"
@@ -236,11 +288,24 @@ class SetupWizardController:
         self._load_defaults()
 
     def _load_defaults(self) -> None:
-        database_url = self.config_manager.get_conversation_database_config().get("url")
+        conversation_config = self.config_manager.get_conversation_database_config()
+        database_url = conversation_config.get("url") if isinstance(conversation_config, Mapping) else None
+        backend_value = conversation_config.get("backend") if isinstance(conversation_config, Mapping) else None
         if isinstance(database_url, str) and database_url.strip():
-            self.state.database = _parse_default_dsn(database_url)
+            self.state.database = _parse_default_dsn(database_url, backend=backend_value)
         else:
-            self.state.database = _parse_default_dsn(_DEFAULT_CONVERSATION_STORE_DSN)
+            options = get_default_conversation_store_backends()
+            fallback_backend = (backend_value or options[0].name)
+            option_map = {option.name: option for option in options}
+            selected = option_map.get(fallback_backend, options[0])
+            self.state.database = _parse_default_dsn(selected.dsn, backend=selected.name)
+
+        vector_settings = self.config_manager.get_vector_store_settings()
+        adapter = vector_settings.get("default_adapter") if isinstance(vector_settings, Mapping) else None
+        if isinstance(adapter, str) and adapter.strip():
+            self.state.vector_store = VectorStoreState(adapter=adapter.strip().lower())
+        else:
+            self.state.vector_store = VectorStoreState()
 
         job_settings = self.config_manager.get_job_scheduling_settings()
         retry = job_settings.get("retry_policy") or {}
@@ -432,10 +497,18 @@ class SetupWizardController:
         if staged_privileged is not None:
             kwargs["privileged_credentials"] = staged_privileged
         ensured = self._bootstrap(dsn, **kwargs)
-        self.config_manager._persist_conversation_database_url(ensured)
+        backend = (state.backend or self.state.database.backend or "postgresql")
+        self.config_manager._persist_conversation_database_url(ensured, backend=backend)
         self.config_manager._write_yaml_config()
         self.state.database = dataclasses.replace(state, dsn=ensured)
         return ensured
+
+    def apply_vector_store_settings(self, state: VectorStoreState) -> Dict[str, Any]:
+        settings = self.config_manager.set_vector_store_settings(
+            default_adapter=state.adapter,
+        )
+        self.state.vector_store = dataclasses.replace(state)
+        return settings
 
     # -- job scheduling ----------------------------------------------------
 
@@ -659,6 +732,11 @@ class SetupWizardController:
     def get_privileged_credentials(self) -> tuple[str | None, str | None] | None:
         return self._staged_privileged_credentials
 
+    def get_conversation_backend_options(self):
+        """Return available conversation store backend presets."""
+
+        return self.config_manager.get_conversation_store_backends()
+
     # -- summary -----------------------------------------------------------
 
     def build_summary(self) -> Dict[str, Any]:
@@ -686,6 +764,7 @@ class SetupWizardController:
             "database": dataclasses.asdict(self.state.database),
             "job_scheduling": dataclasses.asdict(self.state.job_scheduling),
             "message_bus": dataclasses.asdict(self.state.message_bus),
+            "vector_store": dataclasses.asdict(self.state.vector_store),
             "kv_store": dataclasses.asdict(self.state.kv_store),
             "providers": {
                 "default_provider": self.state.providers.default_provider,

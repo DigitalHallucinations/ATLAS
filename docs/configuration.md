@@ -56,11 +56,18 @@ ATLAS centralises runtime configuration in `ConfigManager`, which merges `.env` 
 | `adapters.sqlite.global_quota_bytes` | Optional integer; ignored when blank.【F:ATLAS/config/persistence.py†L768-L779】 | None. | Enforced by the SQLite adapter when writing entries.【F:modules/Tools/Base_Tools/kv_store.py†L792-L844】 |
 | `adapters.sqlite.reuse_conversation_store` | Boolean; defaults to `false`.【F:ATLAS/config/persistence.py†L781-L788】 | None. | Controls whether the SQLite adapter reuses the conversation engine when available.【F:modules/Tools/Base_Tools/kv_store.py†L700-L739】 |
 
+### `tools.vector_store`
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `default_adapter` | String adapter name; defaults to `in_memory` and normalised to lowercase.【F:ATLAS/config/tooling.py†L78-L105】【F:ATLAS/config/config_manager.py†L210-L246】 | `ATLAS_VECTOR_STORE_ADAPTER`. | `build_vector_store_service` resolves this adapter when constructing the service.【F:modules/Tools/Base_Tools/vector_store.py†L269-L311】 |
+| `adapters.*` | Mapping of adapter configuration dictionaries; defaults to an empty mapping with an `in_memory` entry.【F:ATLAS/config/tooling.py†L78-L105】 | None. | Passed to vector-store adapter factories registered in `modules.Tools.providers.vector_store.*`.【F:modules/Tools/Base_Tools/vector_store.py†L269-L311】 |
+
 ## Data services
 
 ### `conversation_database`
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
+| `backend` | String backend identifier; defaults to `postgresql` and includes additional options such as `sqlite`.【F:ATLAS/config/persistence.py†L1017-L1043】【F:ATLAS/config/persistence.py†L1147-L1200】 | `CONVERSATION_DATABASE_BACKEND`. | Persistence helpers and the setup controller select the appropriate SQLAlchemy dialect when verifying the store.【F:ATLAS/config/persistence.py†L1092-L1144】【F:ATLAS/setup/controller.py†L185-L214】 |
 | `url` | PostgreSQL DSN string; defaults to `.env` `CONVERSATION_DATABASE_URL`, otherwise falls back to the built-in DSN during verification.【F:ATLAS/config/persistence.py†L1011-L1024】【F:ATLAS/config/persistence.py†L1072-L1090】 | `CONVERSATION_DATABASE_URL`. | Conversation-store engine verification and session factories.【F:ATLAS/config/persistence.py†L306-L346】【F:ATLAS/config/persistence.py†L1108-L1144】 |
 | `pool.size` | Integer; optional override via `.env` `CONVERSATION_DATABASE_POOL_SIZE`.【F:ATLAS/config/persistence.py†L1022-L1043】 | `CONVERSATION_DATABASE_POOL_SIZE`. | Conversation-store SQLAlchemy engine creation.【F:ATLAS/config/persistence.py†L306-L346】 |
 | `pool.max_overflow` | Integer; optional override via `.env` `CONVERSATION_DATABASE_MAX_OVERFLOW`.【F:ATLAS/config/persistence.py†L1022-L1043】 | `CONVERSATION_DATABASE_MAX_OVERFLOW`. | Conversation-store SQLAlchemy engine creation.【F:ATLAS/config/persistence.py†L306-L346】 |
@@ -171,5 +178,5 @@ Hugging Face generation defaults mirror `_DEFAULT_HUGGINGFACE_GENERATION_SETTING
 Local account policies rely on environment variables (for example `ACCOUNT_PASSWORD_MIN_LENGTH`, `ACCOUNT_PASSWORD_REQUIRE_SYMBOL`, and related boolean flags) that `UserAccountService` reads through `ConfigManager`. Overrides are validated before updating the effective password requirements displayed in the UI.【F:modules/user_accounts/user_account_service.py†L457-L515】 Consult the [password policy guide](password-policy.md) for behavioural expectations and operator guidance.【F:docs/password-policy.md†L3-L23】
 
 ## Additional notes
-- Messaging, conversation retention, KV store, and task queue configuration all surface inside the setup wizard so operators can verify connectivity before completing onboarding.【F:ATLAS/setup/controller.py†L168-L209】
+- Messaging, conversation backend selection, vector store defaults, conversation retention, KV store, and task queue configuration all surface inside the setup wizard so operators can verify connectivity before completing onboarding.【F:ATLAS/setup/controller.py†L168-L246】【F:ATLAS/setup/cli.py†L520-L648】
 - The Redis-backed message bus and retention policies have dedicated operational runbooks—see [messaging bus operations](ops/messaging.md) and [conversation retention](conversation_retention.md) for deployment guidance.【F:docs/ops/messaging.md†L3-L41】【F:docs/conversation_retention.md†L1-L34】

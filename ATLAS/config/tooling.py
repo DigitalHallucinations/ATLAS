@@ -89,6 +89,33 @@ class ToolingConfigSection:
         js_block.setdefault("max_files", 32)
 
         tools_block["javascript_executor"] = js_block
+
+        vector_block = tools_block.get("vector_store")
+        if not isinstance(vector_block, Mapping):
+            vector_block = {}
+        else:
+            vector_block = dict(vector_block)
+
+        adapter = vector_block.get("default_adapter")
+        if isinstance(adapter, str) and adapter.strip():
+            normalized_adapter = adapter.strip().lower()
+        else:
+            env_adapter = self.env_config.get("ATLAS_VECTOR_STORE_ADAPTER")
+            if isinstance(env_adapter, str) and env_adapter.strip():
+                normalized_adapter = env_adapter.strip().lower()
+            else:
+                normalized_adapter = "in_memory"
+        vector_block["default_adapter"] = normalized_adapter
+
+        adapters_block = vector_block.get("adapters")
+        if isinstance(adapters_block, Mapping):
+            adapters_block = dict(adapters_block)
+        else:
+            adapters_block = {}
+        adapters_block.setdefault("in_memory", dict(adapters_block.get("in_memory", {})))
+        vector_block["adapters"] = adapters_block
+
+        tools_block["vector_store"] = vector_block
         self.config["tools"] = tools_block
 
     def _ensure_tool_safety(self) -> None:

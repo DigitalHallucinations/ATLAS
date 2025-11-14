@@ -44,6 +44,7 @@ else:  # pragma: no cover - sanitize stubbed implementations
 from .core import (
     ConfigCore,
     _DEFAULT_CONVERSATION_STORE_DSN,
+    _DEFAULT_CONVERSATION_STORE_BACKENDS,
     _UNSET,
     find_dotenv,
     load_dotenv,
@@ -140,6 +141,7 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
             sessionmaker_factory=sessionmaker,
             conversation_required_tables=self._conversation_store_required_tables,
             default_conversation_dsn=_DEFAULT_CONVERSATION_STORE_DSN,
+            conversation_backend_options=_DEFAULT_CONVERSATION_STORE_BACKENDS,
         )
         self.persistence.apply()
 
@@ -281,6 +283,57 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
 
         return self.conversation_summary.get_settings()
 
+    def get_vector_store_settings(self) -> Dict[str, Any]:
+        """Return the configured vector store tooling block."""
+
+        tools_block = self.config.get("tools")
+        if isinstance(tools_block, Mapping):
+            vector_block = tools_block.get("vector_store")
+            if isinstance(vector_block, Mapping):
+                return dict(vector_block)
+        yaml_tools = self.yaml_config.get("tools")
+        if isinstance(yaml_tools, Mapping):
+            vector_block = yaml_tools.get("vector_store")
+            if isinstance(vector_block, Mapping):
+                return dict(vector_block)
+        return {}
+
+    def set_vector_store_settings(
+        self,
+        *,
+        default_adapter: str,
+        adapter_settings: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Persist the default vector store adapter and optional configuration."""
+
+        normalized_adapter = (default_adapter or "").strip().lower() or "in_memory"
+
+        tools_yaml = dict(self.yaml_config.get("tools") or {})
+        vector_yaml = dict(tools_yaml.get("vector_store") or {})
+        vector_yaml["default_adapter"] = normalized_adapter
+
+        adapters_yaml = vector_yaml.get("adapters")
+        if isinstance(adapters_yaml, Mapping):
+            adapters = dict(adapters_yaml)
+        else:
+            adapters = {}
+        if adapter_settings is not None:
+            adapters[normalized_adapter] = dict(adapter_settings)
+        elif normalized_adapter not in adapters:
+            adapters[normalized_adapter] = {}
+        adapters.setdefault("in_memory", adapters.get("in_memory", {}))
+        vector_yaml["adapters"] = adapters
+
+        tools_yaml["vector_store"] = vector_yaml
+        self.yaml_config["tools"] = tools_yaml
+
+        tools_config = dict(self.config.get("tools") or {})
+        tools_config["vector_store"] = dict(vector_yaml)
+        self.config["tools"] = tools_config
+
+        self._write_yaml_config()
+        return dict(vector_yaml)
+
     def get_persona_remediation_policies(self) -> Dict[str, Any]:
         """Return tenant specific remediation policies for persona metrics."""
 
@@ -311,6 +364,23 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         """Persist conversation summary preferences and update cached state."""
 
         return self.conversation_summary.set_settings(**settings)
+
+    def _persist_conversation_database_url(
+        self,
+        url: str,
+        *,
+        backend: str | None = None,
+    ) -> None:
+        """Persist the conversation database URL and optional backend selection."""
+
+        normalized_backend = backend
+        if backend is not None:
+            normalized_backend = self.persistence.conversation._normalize_backend(backend)
+            if normalized_backend is None and backend:
+                normalized_backend = str(backend).strip().lower() or None
+            self.persistence.conversation._persist_backend(normalized_backend)
+
+        self.persistence.conversation._persist_url(url)
 
 
 

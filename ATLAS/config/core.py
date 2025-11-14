@@ -7,7 +7,9 @@ import json
 import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, MutableMapping, Optional
+from typing import Any, Dict, Iterable, List, MutableMapping, Optional, Tuple
+
+from dataclasses import dataclass
 
 import yaml
 from dotenv import find_dotenv, load_dotenv, set_key
@@ -16,7 +18,90 @@ from modules.logging.logger import setup_logger
 
 _UNSET = object()
 
-_DEFAULT_CONVERSATION_STORE_DSN = "postgresql+psycopg://atlas:atlas@localhost:5432/atlas"
+
+
+@dataclass(frozen=True)
+class ConversationStoreBackendOption:
+    """Describe the default DSN and metadata for a conversation store backend."""
+
+    name: str
+    label: str
+    dialect: str
+    dsn: str
+    description: str
+
+
+_DEFAULT_CONVERSATION_STORE_BACKENDS: Tuple[ConversationStoreBackendOption, ...] = (
+    ConversationStoreBackendOption(
+        name="postgresql",
+        label="PostgreSQL (production ready)",
+        dialect="postgresql",
+        dsn="postgresql+psycopg://atlas:atlas@localhost:5432/atlas",
+        description=(
+            "Connect to a PostgreSQL instance using the psycopg driver. "
+            "Suitable for shared or durable deployments."
+        ),
+    ),
+    ConversationStoreBackendOption(
+        name="sqlite",
+        label="SQLite (file based)",
+        dialect="sqlite",
+        dsn="sqlite:///atlas.sqlite3",
+        description=(
+            "Stores conversations in a local SQLite file. Ideal for trials or "
+            "single-user environments."
+        ),
+    ),
+)
+
+_DEFAULT_CONVERSATION_STORE_DSN = _DEFAULT_CONVERSATION_STORE_BACKENDS[0].dsn
+
+
+def default_conversation_store_backend_name() -> str:
+    """Return the canonical backend name used for conversation persistence."""
+
+    return _DEFAULT_CONVERSATION_STORE_BACKENDS[0].name
+
+
+def get_default_conversation_store_backends() -> Tuple[ConversationStoreBackendOption, ...]:
+    """Return the tuple of supported conversation store backend defaults."""
+
+    return _DEFAULT_CONVERSATION_STORE_BACKENDS
+
+
+def get_default_conversation_store_backend(name: str) -> ConversationStoreBackendOption:
+    """Return metadata for the named backend, raising ``KeyError`` if missing."""
+
+    normalized = (name or "").strip().lower()
+    for option in _DEFAULT_CONVERSATION_STORE_BACKENDS:
+        if option.name == normalized:
+            return option
+    raise KeyError(name)
+
+
+def infer_conversation_store_backend(value: str | None) -> Optional[str]:
+    """Infer the backend name from a SQLAlchemy URL or dialect string."""
+
+    if not value:
+        return None
+
+    candidate = value.strip().lower()
+    if not candidate:
+        return None
+
+    if "://" in candidate:
+        try:
+            scheme = candidate.split(":", 1)[0]
+        except Exception:
+            scheme = candidate
+    else:
+        scheme = candidate
+
+    dialect = scheme.split("+", 1)[0]
+    for option in _DEFAULT_CONVERSATION_STORE_BACKENDS:
+        if option.dialect == dialect:
+            return option.name
+    return dialect or None
 
 
 class ConfigCore:
@@ -379,8 +464,14 @@ class ConfigCore:
 
 __all__ = [
     "ConfigCore",
+    "ConversationStoreBackendOption",
     "_DEFAULT_CONVERSATION_STORE_DSN",
+    "_DEFAULT_CONVERSATION_STORE_BACKENDS",
     "_UNSET",
+    "default_conversation_store_backend_name",
+    "get_default_conversation_store_backend",
+    "get_default_conversation_store_backends",
+    "infer_conversation_store_backend",
     "find_dotenv",
     "load_dotenv",
     "set_key",
