@@ -24,6 +24,11 @@ from modules.Personas import (
     import_persona_bundle_bytes,
     _validate_persona_payload,
 )
+from modules.Tasks import (
+    TaskBundleError,
+    export_task_bundle_bytes,
+    import_task_bundle_bytes,
+)
 from modules.Tools import (
     ToolBundleError,
     export_tool_bundle_bytes,
@@ -1741,6 +1746,26 @@ class AtlasServer:
                 context=context,
             )
 
+        if path.startswith("/tasks/") and path.endswith("/export"):
+            components = [part for part in path.strip("/").split("/") if part]
+            if len(components) != 3:
+                raise ValueError(f"Unsupported path: {path}")
+            task_name = components[1]
+            persona_value = payload.get("persona")
+            persona = str(persona_value).strip() if isinstance(persona_value, str) else None
+            return self.export_task_bundle(
+                task_name,
+                signing_key=str(payload.get("signing_key") or ""),
+                persona=persona,
+            )
+
+        if path == "/tasks/import":
+            return self.import_task_bundle(
+                bundle_base64=str(payload.get("bundle") or ""),
+                signing_key=str(payload.get("signing_key") or ""),
+                rationale=str(payload.get("rationale") or "Imported via server route"),
+            )
+
         if path.startswith("/tools/") and path.endswith("/export"):
             components = [part for part in path.strip("/").split("/") if part]
             if len(components) != 3:
@@ -2129,6 +2154,63 @@ class AtlasServer:
         if isinstance(raw, Iterable) and not isinstance(raw, (bytes, bytearray)):
             return list(raw)
         return [str(raw)]
+
+    def export_task_bundle(
+        self,
+        task_name: str,
+        *,
+        signing_key: str,
+        persona: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not task_name:
+            raise ValueError("Task name is required for export")
+
+        persona_filter = persona.strip() if isinstance(persona, str) else None
+
+        try:
+            bundle_bytes, task = export_task_bundle_bytes(
+                task_name,
+                signing_key=signing_key,
+                persona=persona_filter,
+                config_manager=self._config_manager,
+            )
+        except TaskBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        return {
+            "success": True,
+            "task": task,
+            "bundle": encoded,
+        }
+
+    def import_task_bundle(
+        self,
+        *,
+        bundle_base64: str,
+        signing_key: str,
+        rationale: str = "Imported via server route",
+    ) -> Dict[str, Any]:
+        if not bundle_base64:
+            raise ValueError("Bundle payload is required for import")
+
+        try:
+            bundle_bytes = base64.b64decode(bundle_base64)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Bundle payload is not valid base64 data") from exc
+
+        try:
+            result = import_task_bundle_bytes(
+                bundle_bytes,
+                signing_key=signing_key,
+                config_manager=self._config_manager,
+                rationale=rationale,
+            )
+        except TaskBundleError as exc:
+            return {"success": False, "error": str(exc)}
+
+        result.setdefault("success", True)
+        return result
 
     def export_tool_bundle(
         self,
