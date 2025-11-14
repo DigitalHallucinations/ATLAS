@@ -52,6 +52,16 @@ _DEFAULT_CONVERSATION_STORE_BACKENDS: Tuple[ConversationStoreBackendOption, ...]
             "single-user environments."
         ),
     ),
+    ConversationStoreBackendOption(
+        name="mongodb",
+        label="MongoDB (experimental)",
+        dialect="mongodb",
+        dsn="mongodb://localhost:27017/atlas",
+        description=(
+            "Persist conversations in MongoDB using the experimental document "
+            "store repository."
+        ),
+    ),
 )
 
 _DEFAULT_CONVERSATION_STORE_DSN = _DEFAULT_CONVERSATION_STORE_BACKENDS[0].dsn

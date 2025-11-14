@@ -16,6 +16,7 @@ from .models import (
     UserCredential,
     UserLoginAttempt,
 )
+from .mongo_repository import MongoConversationStoreRepository
 from .repository import ConversationStoreRepository, create_conversation_engine
 from .vector_pipeline import ConversationVectorCatalog, ConversationVectorPipeline
 
@@ -38,6 +39,7 @@ __all__ = [
     "UserLoginAttempt",
     "PasswordResetToken",
     "ConversationStoreRepository",
+    "MongoConversationStoreRepository",
     "create_conversation_engine",
     "ConversationVectorCatalog",
     "ConversationVectorPipeline",
