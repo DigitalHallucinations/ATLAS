@@ -71,6 +71,8 @@ class SetupUtility:
         dsn = self.configure_database()
         self._print(f"Conversation store DSN saved: {dsn}")
 
+        self.configure_vector_store()
+
         self.configure_kv_store()
         self.configure_job_scheduling()
         self.configure_message_bus()
@@ -97,6 +99,8 @@ class SetupUtility:
             privileged_credentials=privileged,
         )
         self._print(f"Conversation store DSN saved: {dsn}")
+
+        self.controller.apply_vector_store_settings(self.controller.state.vector_store)
 
         self.controller.apply_kv_store_settings(self.controller.state.kv_store)
         self.controller.apply_job_scheduling(self.controller.state.job_scheduling)
@@ -143,6 +147,7 @@ class SetupUtility:
         self._apply_optional_env_overrides()
         self._apply_job_env_overrides()
         self._apply_message_bus_env_overrides()
+        self._apply_vector_store_env_overrides()
         self._apply_kv_env_overrides()
         self._apply_speech_env_overrides()
 
@@ -453,6 +458,16 @@ class SetupUtility:
             stream_prefix=stream_prefix,
         )
 
+    def _apply_vector_store_env_overrides(self) -> None:
+        adapter_override = self._env_get("ATLAS_VECTOR_STORE_ADAPTER")
+        if not adapter_override:
+            return
+
+        normalized = adapter_override.strip().lower()
+        state = self.controller.state.vector_store
+        new_state = dataclasses.replace(state, adapter=normalized)
+        self.controller.apply_vector_store_settings(new_state)
+
     def _apply_kv_env_overrides(self) -> None:
         state = self.controller.state.kv_store
         reuse_override = self._env_bool("ATLAS_KV_REUSE_CONVERSATION_STORE")
@@ -562,28 +577,60 @@ class SetupUtility:
         state = self.controller.state.database
         privileged_credentials = self.controller.get_privileged_credentials()
         user_state = self.controller.state.user
+        backend_options = self.controller.get_conversation_backend_options()
+        backend_names = [option.name for option in backend_options]
+        backend_default = state.backend or (backend_names[0] if backend_names else "postgresql")
+
+        while True:
+            choice_prompt = "Conversation store backend"
+            if backend_names:
+                choice_prompt += f" ({'/'.join(backend_names)})"
+            backend_choice = self._ask(choice_prompt, backend_default)
+            normalized_backend = (backend_choice or backend_default or "postgresql").strip().lower()
+            if backend_names and normalized_backend not in backend_names:
+                self._print(
+                    "Please choose one of the supported backends: " + ", ".join(backend_names)
+                )
+                continue
+            backend_default = normalized_backend
+            break
+
+        state = dataclasses.replace(state, backend=backend_default)
         default_host = state.host
         user_domain = user_state.domain.strip()
         if default_host in {"", "localhost"} and user_domain:
             default_host = user_domain
         default_user = state.user or user_state.username or state.user
         while True:
-            host = self._ask("PostgreSQL host", default_host)
-            port = self._ask_int("PostgreSQL port", state.port)
-            database = self._ask("Database name", state.database)
-            user = self._ask("Database user", default_user)
-            password_prompt = "Database password"
-            if state.password:
-                password_prompt += " (leave blank to keep existing, type !clear! to remove)"
-            password = self._ask_password(password_prompt, state.password)
-            new_state = dataclasses.replace(
-                state,
-                host=host,
-                port=port,
-                database=database,
-                user=user,
-                password=password,
-            )
+            if state.backend == "sqlite":
+                database_prompt = "SQLite database path"
+                database_default = state.database or "atlas.sqlite3"
+                database = self._ask(database_prompt, database_default) or database_default
+                new_state = dataclasses.replace(
+                    state,
+                    database=database,
+                    host="",
+                    port=0,
+                    user="",
+                    password="",
+                )
+            else:
+                host = self._ask("PostgreSQL host", default_host)
+                port = self._ask_int("PostgreSQL port", state.port)
+                database = self._ask("Database name", state.database)
+                user = self._ask("Database user", default_user)
+                password_prompt = "Database password"
+                if state.password:
+                    password_prompt += " (leave blank to keep existing, type !clear! to remove)"
+                password = self._ask_password(password_prompt, state.password)
+                new_state = dataclasses.replace(
+                    state,
+                    host=host,
+                    port=port,
+                    database=database,
+                    user=user,
+                    password=password,
+                )
             try:
                 result = self.controller.apply_database_settings(
                     new_state,
@@ -595,8 +642,8 @@ class SetupUtility:
             except BootstrapError as exc:
                 self._print(f"Failed to connect: {exc}")
                 state = dataclasses.replace(new_state)
-                default_host = host
-                default_user = user
+                default_host = new_state.host or default_host
+                default_user = new_state.user or default_user
                 collected = self._maybe_collect_privileged_credentials(
                     existing=privileged_credentials
                 )
@@ -615,6 +662,47 @@ class SetupUtility:
                         self._print(f"Failed to connect with privileged provisioning: {privileged_exc}")
                 if not self._confirm("Try again? [Y/n]: ", default=True):
                     raise
+
+    def configure_vector_store(self) -> Mapping[str, object]:
+        state = self.controller.state.vector_store
+        available: set[str] = set()
+        try:
+            from modules.Tools.Base_Tools import vector_store as vector_store_module
+        except Exception:  # pragma: no cover - optional dependency resolution
+            vector_store_module = None
+
+        if vector_store_module is not None:
+            try:
+                available.update(vector_store_module.available_vector_store_adapters())
+            except Exception:  # pragma: no cover - defensive guard
+                pass
+
+        settings = self.controller.config_manager.get_vector_store_settings()
+        adapters_block = settings.get("adapters") if isinstance(settings, Mapping) else None
+        if isinstance(adapters_block, Mapping):
+            for name in adapters_block.keys():
+                if isinstance(name, str) and name.strip():
+                    available.add(name.strip().lower())
+
+        ordered_adapters = sorted(available) or ["in_memory"]
+        default_adapter = state.adapter or ordered_adapters[0]
+
+        while True:
+            prompt = "Vector store adapter"
+            if ordered_adapters:
+                prompt += f" ({'/'.join(ordered_adapters)})"
+            choice = self._ask(prompt, default_adapter)
+            normalized = (choice or default_adapter or "in_memory").strip().lower()
+            if ordered_adapters and normalized not in ordered_adapters:
+                self._print(
+                    "Please choose one of the supported adapters: " + ", ".join(ordered_adapters)
+                )
+                continue
+            break
+
+        new_state = dataclasses.replace(state, adapter=normalized)
+        settings = self.controller.apply_vector_store_settings(new_state)
+        return settings
 
     def configure_kv_store(self) -> Mapping[str, object]:
         state = self.controller.state.kv_store

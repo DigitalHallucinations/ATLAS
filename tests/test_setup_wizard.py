@@ -13,6 +13,7 @@ from ATLAS.setup import (
     JobSchedulingState,
     KvStoreState,
     MessageBusState,
+    VectorStoreState,
     OptionalState,
     PrivilegedCredentialState,
     ProviderState,
@@ -29,6 +30,7 @@ class FakeController:
             database=DatabaseState(),
             job_scheduling=JobSchedulingState(),
             message_bus=MessageBusState(),
+            vector_store=VectorStoreState(),
             kv_store=KvStoreState(),
             providers=ProviderState(),
             speech=SpeechState(),
@@ -100,6 +102,11 @@ class FakeController:
         self.calls.append(("database", state))
         self.state.database = state
         return "dsn"
+
+    def apply_vector_store_settings(self, state):
+        self.calls.append(("vector_store", state))
+        self.state.vector_store = state
+        return {"default_adapter": state.adapter}
 
     def apply_job_scheduling(self, state):
         self.calls.append(("job_scheduling", state))

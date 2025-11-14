@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
-from typing import Any, Callable, ClassVar, Dict, MutableMapping, Optional, Tuple
+from typing import Any, Callable, ClassVar, Dict, MutableMapping, Optional, Sequence, Tuple
 from collections.abc import Mapping
 from urllib.parse import urlparse
 
@@ -21,7 +21,14 @@ from modules.Tools.Base_Tools.task_queue import (
     get_default_task_queue_service,
 )
 
-from .core import _DEFAULT_CONVERSATION_STORE_DSN, _UNSET
+from .core import (
+    ConversationStoreBackendOption,
+    _DEFAULT_CONVERSATION_STORE_DSN,
+    _UNSET,
+    default_conversation_store_backend_name,
+    get_default_conversation_store_backends,
+    infer_conversation_store_backend,
+)
 
 
 KV_STORE_UNSET = object()
@@ -59,10 +66,16 @@ class PersistenceConfigSection:
     sessionmaker_factory: Callable[..., Any]
     conversation_required_tables: Callable[[], set[str]]
     default_conversation_dsn: str
+    conversation_backend_options: Sequence[ConversationStoreBackendOption] | None = None
 
     kv_engine_cache: Dict[tuple[Any, ...], Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        backends = (
+            tuple(self.conversation_backend_options)
+            if self.conversation_backend_options
+            else get_default_conversation_store_backends()
+        )
         self.conversation = ConversationStoreConfigSection(
             config=self.config,
             yaml_config=self.yaml_config,
@@ -70,6 +83,7 @@ class PersistenceConfigSection:
             logger=self.logger,
             write_yaml_callback=self.write_yaml_callback,
             default_conversation_dsn=self.default_conversation_dsn,
+            backend_options=backends,
             create_engine=self.create_engine,
             inspect_engine=self.inspect_engine,
             make_url=self.make_url,
@@ -142,8 +156,13 @@ class PersistenceConfigMixin:
 
         return self.persistence.conversation.get_config()
 
+    def get_conversation_store_backends(self) -> Tuple[ConversationStoreBackendOption, ...]:
+        """Return the available conversation store backend options."""
+
+        return self.persistence.conversation.available_backends()
+
     def ensure_postgres_conversation_store(self) -> str:
-        """Verify the configured PostgreSQL conversation store without provisioning it."""
+        """Verify the configured conversation store without provisioning it."""
 
         return self.persistence.conversation.ensure_postgres_store()
 
@@ -1105,6 +1124,8 @@ class ConversationStoreConfigSection:
     logger: Any
     write_yaml_callback: Callable[[], None]
     default_conversation_dsn: str
+    backend_options: Sequence[ConversationStoreBackendOption]
+    default_backend_name: str = field(default_factory=default_conversation_store_backend_name)
     create_engine: Callable[..., Any]
     inspect_engine: Callable[..., Any]
     make_url: Callable[..., Any]
@@ -1114,6 +1135,14 @@ class ConversationStoreConfigSection:
     _conversation_store_verified: bool = False
     _conversation_engine: Any | None = None
     _conversation_session_factory: Any | None = None
+    _backend_by_name: Dict[str, ConversationStoreBackendOption] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if not self.backend_options:
+            raise ValueError("At least one conversation backend option must be provided")
+        self._backend_by_name = {option.name: option for option in self.backend_options}
+        if self.default_backend_name not in self._backend_by_name:
+            self.default_backend_name = self.backend_options[0].name
 
     RETENTION_WORKER_DEFAULTS: ClassVar[Mapping[str, Any]] = {
         "interval_seconds": 3600.0,
@@ -1137,9 +1166,25 @@ class ConversationStoreConfigSection:
         else:
             conversation_store_block = dict(conversation_store_block)
 
+        env_backend = self.env_config.get("CONVERSATION_DATABASE_BACKEND")
+        backend_value: Any
+        if env_backend is not None:
+            backend_value = env_backend
+        else:
+            backend_value = conversation_store_block.get("backend")
+        normalized_backend = self._normalize_backend(backend_value)
+        if normalized_backend is None:
+            normalized_backend = self.default_backend_name
+        conversation_store_block["backend"] = normalized_backend
+
         env_db_url = self.env_config.get("CONVERSATION_DATABASE_URL")
         if env_db_url and not conversation_store_block.get("url"):
             conversation_store_block["url"] = env_db_url
+
+        if not conversation_store_block.get("url"):
+            default_dsn = self._default_dsn_for_backend(normalized_backend)
+            if default_dsn:
+                conversation_store_block["url"] = default_dsn
 
         pool_block = conversation_store_block.get("pool")
         if not isinstance(pool_block, Mapping):
@@ -1202,10 +1247,16 @@ class ConversationStoreConfigSection:
             return {}
         return dict(block)
 
+    def available_backends(self) -> Tuple[ConversationStoreBackendOption, ...]:
+        """Return the configured conversation backend defaults."""
+
+        return tuple(self.backend_options)
+
     def ensure_postgres_store(self) -> str:
         self._conversation_store_verified = False
 
         config = self.get_config()
+        backend_config = self._normalize_backend(config.get("backend"))
         url_value = config.get("url")
         if isinstance(url_value, str):
             url = url_value.strip()
@@ -1214,7 +1265,8 @@ class ConversationStoreConfigSection:
 
         generated_default = False
         if not url:
-            url = self.default_conversation_dsn
+            backend_config = backend_config or self.default_backend_name
+            url = self._default_dsn_for_backend(backend_config)
             generated_default = True
             self.logger.info(
                 "No conversation database URL configured; defaulting to %s",
@@ -1230,10 +1282,17 @@ class ConversationStoreConfigSection:
 
         drivername = (parsed_url.drivername or "").lower()
         dialect = drivername.split("+", 1)[0]
-        if dialect != "postgresql":
+        inferred_backend = self._normalize_backend(backend_config)
+        if inferred_backend is None:
+            inferred_backend = self._normalize_backend(infer_conversation_store_backend(drivername))
+        if inferred_backend is None:
+            inferred_backend = self._normalize_backend(infer_conversation_store_backend(url))
+
+        backend_option = self._backend_by_name.get(inferred_backend or "")
+        if backend_option is not None and dialect != backend_option.dialect:
             message = (
-                "Conversation database URL must use the 'postgresql' dialect; "
-                f"received '{parsed_url.drivername}'."
+                "Conversation database URL does not match the configured backend; "
+                f"expected '{backend_option.dialect}' but received '{parsed_url.drivername}'."
             )
             self.logger.error(message)
             raise RuntimeError(message)
@@ -1273,6 +1332,8 @@ class ConversationStoreConfigSection:
             self.logger.error(message)
             raise RuntimeError(message)
 
+        persisted_backend = inferred_backend or self.default_backend_name
+        self._persist_backend(persisted_backend)
         self._persist_url(url)
 
         if generated_default:
@@ -1404,6 +1465,49 @@ class ConversationStoreConfigSection:
         updated_yaml_block["url"] = url
         self.yaml_config["conversation_database"] = updated_yaml_block
 
+    def _persist_backend(self, backend: str | None) -> None:
+        if not backend:
+            return
+
+        config_block = self.config.get("conversation_database")
+        yaml_block = self.yaml_config.get("conversation_database")
+
+        if isinstance(config_block, Mapping):
+            updated_config_block = dict(config_block)
+        elif isinstance(yaml_block, Mapping):
+            updated_config_block = dict(yaml_block)
+        else:
+            updated_config_block = {}
+        updated_config_block["backend"] = backend
+        self.config["conversation_database"] = updated_config_block
+
+        if isinstance(yaml_block, Mapping):
+            updated_yaml_block = dict(yaml_block)
+        elif isinstance(config_block, Mapping):
+            updated_yaml_block = dict(config_block)
+        else:
+            updated_yaml_block = {}
+        updated_yaml_block["backend"] = backend
+        self.yaml_config["conversation_database"] = updated_yaml_block
+
+    def _default_dsn_for_backend(self, backend: str | None) -> str:
+        if backend and backend in self._backend_by_name:
+            return self._backend_by_name[backend].dsn
+        return self.default_conversation_dsn
+
+    def _normalize_backend(self, value: Any) -> Optional[str]:
+        if isinstance(value, str):
+            candidate = value.strip().lower()
+            if not candidate:
+                return None
+            if candidate in self._backend_by_name:
+                return candidate
+            inferred = infer_conversation_store_backend(candidate)
+            if inferred and inferred in self._backend_by_name:
+                return inferred
+            return candidate
+        return None
+
     def _build_session_factory(self) -> tuple[Any | None, Any | None]:
         ensured_url = self.ensure_postgres_store()
 
@@ -1419,26 +1523,32 @@ class ConversationStoreConfigSection:
 
         drivername = (parsed_url.drivername or "").lower()
         dialect = drivername.split("+", 1)[0]
-        if dialect != "postgresql":
+        backend = self._normalize_backend(config.get("backend"))
+        if backend is None:
+            backend = self._normalize_backend(infer_conversation_store_backend(drivername))
+
+        backend_option = self._backend_by_name.get(backend or "")
+        if backend_option is not None and dialect != backend_option.dialect:
             message = (
-                "Conversation database URL must use the 'postgresql' dialect; "
-                f"received '{parsed_url.drivername}'."
+                "Conversation database URL does not match the configured backend; "
+                f"expected '{backend_option.dialect}' but received '{parsed_url.drivername}'."
             )
             self.logger.error(message)
             raise RuntimeError(message)
 
         pool_config = config.get("pool") or {}
         engine_kwargs: Dict[str, Any] = {}
-        if isinstance(pool_config, Mapping):
-            size = pool_config.get("size")
-            if size is not None:
-                engine_kwargs["pool_size"] = int(size)
-            max_overflow = pool_config.get("max_overflow")
-            if max_overflow is not None:
-                engine_kwargs["max_overflow"] = int(max_overflow)
-            timeout = pool_config.get("timeout")
-            if timeout is not None:
-                engine_kwargs["pool_timeout"] = int(timeout)
+        if backend_option is not None and backend_option.dialect == "postgresql":
+            if isinstance(pool_config, Mapping):
+                size = pool_config.get("size")
+                if size is not None:
+                    engine_kwargs["pool_size"] = int(size)
+                max_overflow = pool_config.get("max_overflow")
+                if max_overflow is not None:
+                    engine_kwargs["max_overflow"] = int(max_overflow)
+                timeout = pool_config.get("timeout")
+                if timeout is not None:
+                    engine_kwargs["pool_timeout"] = int(timeout)
 
         engine = self.create_engine(url, future=True, **engine_kwargs)
         factory = self.sessionmaker_factory(bind=engine, future=True)
