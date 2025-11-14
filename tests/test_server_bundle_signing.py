@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 import pytest
 
 from modules.Personas import PersonaBundleError
+from modules.Server import RequestContext
 from modules.Server.routes import AtlasServer
 from modules.store_common.bundle_utils import (
     BUNDLE_ALGORITHM,
@@ -71,6 +72,7 @@ def _stub_import_bundle(
 def test_persona_export_uses_configured_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     config = _ConfigStub({"persona": "server-secret"})
     server = AtlasServer(config_manager=config)
+    context = RequestContext(tenant_id="tenant-123", roles=("admin",))
 
     captured: Dict[str, str] = {}
 
@@ -83,7 +85,11 @@ def test_persona_export_uses_configured_secret(monkeypatch: pytest.MonkeyPatch) 
         _fake_export,
     )
 
-    response = server.export_persona_bundle("Helper", signing_key="client-secret")
+    response = server.export_persona_bundle(
+        "Helper",
+        signing_key="client-secret",
+        context=context,
+    )
 
     assert response["success"] is True
     assert captured["signing_key"] == "server-secret"
@@ -94,7 +100,8 @@ def test_persona_export_uses_configured_secret(monkeypatch: pytest.MonkeyPatch) 
 def test_export_without_configured_secret() -> None:
     server = AtlasServer(config_manager=_ConfigStub({}))
 
-    result = server.export_persona_bundle("Helper")
+    context = RequestContext(tenant_id="tenant-123", roles=("admin",))
+    result = server.export_persona_bundle("Helper", context=context)
 
     assert result["success"] is False
     assert "signing key" in result["error"].lower()
@@ -115,7 +122,12 @@ def test_import_rejects_unsigned_bundle(monkeypatch: pytest.MonkeyPatch) -> None
     }
     encoded = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
 
-    result = server.import_persona_bundle(bundle_base64=encoded, signing_key="unused")
+    context = RequestContext(tenant_id="tenant-123", roles=("admin",))
+    result = server.import_persona_bundle(
+        bundle_base64=encoded,
+        signing_key="unused",
+        context=context,
+    )
 
     assert result["success"] is False
     assert "signature" in result["error"].lower()
@@ -147,7 +159,12 @@ def test_import_rejects_bundle_with_wrong_signature(monkeypatch: pytest.MonkeyPa
     }
     encoded = base64.b64encode(json.dumps(signed_payload).encode("utf-8")).decode("ascii")
 
-    result = server.import_persona_bundle(bundle_base64=encoded, signing_key="unused")
+    context = RequestContext(tenant_id="tenant-123", roles=("admin",))
+    result = server.import_persona_bundle(
+        bundle_base64=encoded,
+        signing_key="unused",
+        context=context,
+    )
 
     assert result["success"] is False
     assert "verification failed" in result["error"].lower()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import json
 from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -410,6 +411,113 @@ class AtlasServer:
             if token:
                 return token
         raise ValueError("Skill name is required")
+
+    @staticmethod
+    def _normalize_tenant_id_value(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            token = value.strip()
+        else:
+            token = str(value).strip()
+        return token or None
+
+    def _resolve_configured_tenant_id(self) -> Optional[str]:
+        manager = self._config_manager
+        if manager is None:
+            return None
+
+        direct = getattr(manager, "tenant_id", None)
+        normalized = self._normalize_tenant_id_value(direct)
+        if normalized:
+            return normalized
+
+        for source_name in ("config", "yaml_config"):
+            source = getattr(manager, source_name, None)
+            if isinstance(source, Mapping):
+                candidate = self._normalize_tenant_id_value(source.get("tenant_id"))
+                if candidate:
+                    return candidate
+        return None
+
+    @staticmethod
+    def _extract_mapping_tenant(payload: Mapping[str, Any] | None) -> Optional[str]:
+        if not isinstance(payload, Mapping):
+            return None
+
+        tenant_candidate = payload.get("tenant_id")
+        if tenant_candidate is None:
+            metadata = payload.get("metadata")
+            if isinstance(metadata, Mapping):
+                tenant_candidate = metadata.get("tenant_id")
+        return AtlasServer._normalize_tenant_id_value(tenant_candidate)
+
+    def _resolve_persona_tenant(self, persona_name: Optional[str]) -> Optional[str]:
+        normalized = self._normalize_tenant_id_value(persona_name)
+        if not normalized:
+            return None
+        try:
+            persona_payload = load_persona_definition(
+                normalized,
+                config_manager=self._config_manager,
+            )
+        except Exception:  # pragma: no cover - defensive logging only
+            persona_payload = None
+        if persona_payload is None:
+            return None
+        return self._extract_mapping_tenant(persona_payload)
+
+    def _resolve_resource_tenant_from_metadata(
+        self,
+        metadata: Mapping[str, Any] | None,
+        *,
+        persona: Optional[str] = None,
+    ) -> Optional[str]:
+        tenant = self._extract_mapping_tenant(metadata)
+        if tenant:
+            return tenant
+
+        persona_hint = persona
+        if persona_hint is None and isinstance(metadata, Mapping):
+            persona_hint = metadata.get("persona")
+        return self._resolve_persona_tenant(persona_hint)
+
+    def _authorize_mutation(
+        self,
+        request_context: RequestContext,
+        *,
+        resource_tenant: Optional[str],
+        action: str,
+    ) -> None:
+        normalized_roles = {role.lower() for role in request_context.roles}
+        if not normalized_roles.intersection({"admin", "system"}):
+            raise ConversationAuthorizationError(
+                f"Administrative role required to {action}"
+            )
+
+        configured_tenant = self._resolve_configured_tenant_id()
+        if configured_tenant and request_context.tenant_id != configured_tenant:
+            raise ConversationAuthorizationError(
+                "Tenant mismatch for configured AtlasServer"
+            )
+
+        expected_tenant = resource_tenant or configured_tenant
+        if expected_tenant and request_context.tenant_id != expected_tenant:
+            raise ConversationAuthorizationError(
+                "Tenant mismatch for requested resource"
+            )
+
+    @staticmethod
+    def _parse_bundle_metadata(bundle_bytes: bytes) -> Mapping[str, Any] | None:
+        try:
+            payload = json.loads(bundle_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        if isinstance(payload, Mapping):
+            metadata = payload.get("metadata")
+            if isinstance(metadata, Mapping):
+                return metadata
+        return None
 
     def _find_skill_view(
         self,
@@ -1771,6 +1879,14 @@ class AtlasServer:
         *,
         context: Any | None = None,
     ) -> Dict[str, Any]:
+        resolved_context: RequestContext | None = None
+
+        def _require_context() -> RequestContext:
+            nonlocal resolved_context
+            if resolved_context is None:
+                resolved_context = self._resolve_request_context(context)
+            return resolved_context
+
         if path.startswith("/conversations/") and path.endswith("/reset"):
             components = [part for part in path.strip("/").split("/") if part]
             if len(components) != 3:
@@ -1803,12 +1919,14 @@ class AtlasServer:
             return self.export_task_bundle(
                 task_name,
                 persona=persona,
+                context=_require_context(),
             )
 
         if path == "/tasks/import":
             return self.import_task_bundle(
                 bundle_base64=str(payload.get("bundle") or ""),
                 rationale=str(payload.get("rationale") or "Imported via server route"),
+                context=_require_context(),
             )
 
         if path.startswith("/tools/") and path.endswith("/export"):
@@ -1821,12 +1939,14 @@ class AtlasServer:
             return self.export_tool_bundle(
                 tool_name,
                 persona=persona,
+                context=_require_context(),
             )
 
         if path == "/tools/import":
             return self.import_tool_bundle(
                 bundle_base64=str(payload.get("bundle") or ""),
                 rationale=str(payload.get("rationale") or "Imported via server route"),
+                context=_require_context(),
             )
 
         if path.startswith("/skills/") and path.endswith("/export"):
@@ -1839,12 +1959,14 @@ class AtlasServer:
             return self.export_skill_bundle(
                 skill_name,
                 persona=persona,
+                context=_require_context(),
             )
 
         if path == "/skills/import":
             return self.import_skill_bundle(
                 bundle_base64=str(payload.get("bundle") or ""),
                 rationale=str(payload.get("rationale") or "Imported via server route"),
+                context=_require_context(),
             )
 
         if path.startswith("/jobs/") and path.endswith("/export"):
@@ -1857,12 +1979,14 @@ class AtlasServer:
             return self.export_job_bundle(
                 job_name,
                 persona=persona,
+                context=_require_context(),
             )
 
         if path == "/jobs/import":
             return self.import_job_bundle(
                 bundle_base64=str(payload.get("bundle") or ""),
                 rationale=str(payload.get("rationale") or "Imported via server route"),
+                context=_require_context(),
             )
 
         if path.startswith("/personas/") and path.endswith("/tools"):
@@ -1874,6 +1998,7 @@ class AtlasServer:
                 persona_name,
                 tools=payload.get("tools"),
                 rationale=str(payload.get("rationale") or "Server route persona update"),
+                context=_require_context(),
             )
 
         if path.startswith("/personas/") and path.endswith("/skills"):
@@ -1885,6 +2010,7 @@ class AtlasServer:
                 persona_name,
                 skills=payload.get("skills"),
                 rationale=str(payload.get("rationale") or "Server route persona update"),
+                context=_require_context(),
             )
 
         if path.startswith("/personas/") and path.endswith("/export"):
@@ -1894,12 +2020,14 @@ class AtlasServer:
             persona_name = components[1]
             return self.export_persona_bundle(
                 persona_name,
+                context=_require_context(),
             )
 
         if path == "/personas/import":
             return self.import_persona_bundle(
                 bundle_base64=str(payload.get("bundle") or ""),
                 rationale=str(payload.get("rationale") or "Imported via server route"),
+                context=_require_context(),
             )
 
         if path.startswith("/personas/") and path.endswith("/review"):
@@ -2018,11 +2146,14 @@ class AtlasServer:
         *,
         tools: Optional[Any],
         rationale: str = "Server route persona update",
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         """Update the allowed tools for a persona via server APIs."""
 
         if not persona_name:
             raise ValueError("Persona name is required")
+
+        request_context = self._resolve_request_context(context)
 
         persona = load_persona_definition(
             persona_name,
@@ -2030,6 +2161,12 @@ class AtlasServer:
         )
         if persona is None:
             raise ValueError(f"Persona '{persona_name}' could not be loaded.")
+
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=self._extract_mapping_tenant(persona),
+            action=f"update tools for persona '{persona_name}'",
+        )
 
         metadata_order, metadata_lookup = load_tool_metadata(
             config_manager=self._config_manager
@@ -2108,11 +2245,14 @@ class AtlasServer:
         *,
         skills: Optional[Any],
         rationale: str = "Server route persona update",
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         """Update the allowed skills for a persona via server APIs."""
 
         if not persona_name:
             raise ValueError("Persona name is required")
+
+        request_context = self._resolve_request_context(context)
 
         persona = load_persona_definition(
             persona_name,
@@ -2120,6 +2260,12 @@ class AtlasServer:
         )
         if persona is None:
             raise ValueError(f"Persona '{persona_name}' could not be loaded.")
+
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=self._extract_mapping_tenant(persona),
+            action=f"update skills for persona '{persona_name}'",
+        )
 
         skill_order, skill_lookup = load_skill_catalog(
             config_manager=self._config_manager
@@ -2198,9 +2344,12 @@ class AtlasServer:
         *,
         signing_key: str | None = None,
         persona: Optional[str] = None,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         if not task_name:
             raise ValueError("Task name is required for export")
+
+        request_context = self._resolve_request_context(context)
 
         try:
             resolved_key = self._resolve_signing_key("task")
@@ -2219,6 +2368,20 @@ class AtlasServer:
         except TaskBundleError as exc:
             return {"success": False, "error": str(exc)}
 
+        resource_tenant = self._resolve_persona_tenant(persona_filter)
+        if isinstance(task, Mapping):
+            tenant_hint = self._extract_mapping_tenant(task)
+            if not tenant_hint:
+                persona_hint = task.get("persona")
+                tenant_hint = self._resolve_persona_tenant(persona_hint)
+            if tenant_hint:
+                resource_tenant = tenant_hint
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=resource_tenant,
+            action=f"export task '{task_name}' bundle",
+        )
+
         encoded = base64.b64encode(bundle_bytes).decode("ascii")
         return {
             "success": True,
@@ -2232,9 +2395,12 @@ class AtlasServer:
         bundle_base64: str,
         signing_key: str | None = None,
         rationale: str = "Imported via server route",
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         if not bundle_base64:
             raise ValueError("Bundle payload is required for import")
+
+        request_context = self._resolve_request_context(context)
 
         try:
             resolved_key = self._resolve_signing_key("task")
@@ -2245,6 +2411,14 @@ class AtlasServer:
             bundle_bytes = base64.b64decode(bundle_base64)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("Bundle payload is not valid base64 data") from exc
+
+        metadata = self._parse_bundle_metadata(bundle_bytes)
+        resource_tenant = self._resolve_resource_tenant_from_metadata(metadata)
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=resource_tenant,
+            action="import task bundle",
+        )
 
         try:
             result = import_task_bundle_bytes(
@@ -2265,9 +2439,12 @@ class AtlasServer:
         *,
         signing_key: str | None = None,
         persona: Optional[str] = None,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         if not tool_name:
             raise ValueError("Tool name is required for export")
+
+        request_context = self._resolve_request_context(context)
 
         try:
             resolved_key = self._resolve_signing_key("tool")
@@ -2286,6 +2463,20 @@ class AtlasServer:
         except ToolBundleError as exc:
             return {"success": False, "error": str(exc)}
 
+        resource_tenant = self._resolve_persona_tenant(persona_filter)
+        if isinstance(tool, Mapping):
+            tenant_hint = self._extract_mapping_tenant(tool)
+            if not tenant_hint:
+                persona_hint = tool.get("persona")
+                tenant_hint = self._resolve_persona_tenant(persona_hint)
+            if tenant_hint:
+                resource_tenant = tenant_hint
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=resource_tenant,
+            action=f"export tool '{tool_name}' bundle",
+        )
+
         encoded = base64.b64encode(bundle_bytes).decode("ascii")
         return {
             "success": True,
@@ -2299,9 +2490,12 @@ class AtlasServer:
         bundle_base64: str,
         signing_key: str | None = None,
         rationale: str = "Imported via server route",
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         if not bundle_base64:
             raise ValueError("Bundle payload is required for import")
+
+        request_context = self._resolve_request_context(context)
 
         try:
             resolved_key = self._resolve_signing_key("tool")
@@ -2312,6 +2506,14 @@ class AtlasServer:
             bundle_bytes = base64.b64decode(bundle_base64)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("Bundle payload is not valid base64 data") from exc
+
+        metadata = self._parse_bundle_metadata(bundle_bytes)
+        resource_tenant = self._resolve_resource_tenant_from_metadata(metadata)
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=resource_tenant,
+            action="import tool bundle",
+        )
 
         try:
             result = import_tool_bundle_bytes(
@@ -2332,9 +2534,12 @@ class AtlasServer:
         *,
         signing_key: str | None = None,
         persona: Optional[str] = None,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         if not skill_name:
             raise ValueError("Skill name is required for export")
+
+        request_context = self._resolve_request_context(context)
 
         try:
             resolved_key = self._resolve_signing_key("skill")
@@ -2353,6 +2558,20 @@ class AtlasServer:
         except SkillBundleError as exc:
             return {"success": False, "error": str(exc)}
 
+        resource_tenant = self._resolve_persona_tenant(persona_filter)
+        if isinstance(skill, Mapping):
+            tenant_hint = self._extract_mapping_tenant(skill)
+            if not tenant_hint:
+                persona_hint = skill.get("persona")
+                tenant_hint = self._resolve_persona_tenant(persona_hint)
+            if tenant_hint:
+                resource_tenant = tenant_hint
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=resource_tenant,
+            action=f"export skill '{skill_name}' bundle",
+        )
+
         encoded = base64.b64encode(bundle_bytes).decode("ascii")
         return {
             "success": True,
@@ -2366,9 +2585,12 @@ class AtlasServer:
         bundle_base64: str,
         signing_key: str | None = None,
         rationale: str = "Imported via server route",
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         if not bundle_base64:
             raise ValueError("Bundle payload is required for import")
+
+        request_context = self._resolve_request_context(context)
 
         try:
             resolved_key = self._resolve_signing_key("skill")
@@ -2379,6 +2601,14 @@ class AtlasServer:
             bundle_bytes = base64.b64decode(bundle_base64)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("Bundle payload is not valid base64 data") from exc
+
+        metadata = self._parse_bundle_metadata(bundle_bytes)
+        resource_tenant = self._resolve_resource_tenant_from_metadata(metadata)
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=resource_tenant,
+            action="import skill bundle",
+        )
 
         try:
             result = import_skill_bundle_bytes(
@@ -2399,9 +2629,12 @@ class AtlasServer:
         *,
         signing_key: str | None = None,
         persona: Optional[str] = None,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         if not job_name:
             raise ValueError("Job name is required for export")
+
+        request_context = self._resolve_request_context(context)
 
         try:
             resolved_key = self._resolve_signing_key("job")
@@ -2420,6 +2653,20 @@ class AtlasServer:
         except JobBundleError as exc:
             return {"success": False, "error": str(exc)}
 
+        resource_tenant = self._resolve_persona_tenant(persona_filter)
+        if isinstance(job, Mapping):
+            tenant_hint = self._extract_mapping_tenant(job)
+            if not tenant_hint:
+                persona_hint = job.get("persona")
+                tenant_hint = self._resolve_persona_tenant(persona_hint)
+            if tenant_hint:
+                resource_tenant = tenant_hint
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=resource_tenant,
+            action=f"export job '{job_name}' bundle",
+        )
+
         encoded = base64.b64encode(bundle_bytes).decode("ascii")
         return {
             "success": True,
@@ -2433,9 +2680,12 @@ class AtlasServer:
         bundle_base64: str,
         signing_key: str | None = None,
         rationale: str = "Imported via server route",
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         if not bundle_base64:
             raise ValueError("Bundle payload is required for import")
+
+        request_context = self._resolve_request_context(context)
 
         try:
             resolved_key = self._resolve_signing_key("job")
@@ -2446,6 +2696,14 @@ class AtlasServer:
             bundle_bytes = base64.b64decode(bundle_base64)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("Bundle payload is not valid base64 data") from exc
+
+        metadata = self._parse_bundle_metadata(bundle_bytes)
+        resource_tenant = self._resolve_resource_tenant_from_metadata(metadata)
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=resource_tenant,
+            action="import job bundle",
+        )
 
         try:
             result = import_job_bundle_bytes(
@@ -2465,9 +2723,22 @@ class AtlasServer:
         persona_name: str,
         *,
         signing_key: str | None = None,
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         if not persona_name:
             raise ValueError("Persona name is required for export")
+
+        request_context = self._resolve_request_context(context)
+
+        persona_snapshot = load_persona_definition(
+            persona_name,
+            config_manager=self._config_manager,
+        )
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=self._extract_mapping_tenant(persona_snapshot),
+            action=f"export persona '{persona_name}' bundle",
+        )
 
         try:
             resolved_key = self._resolve_signing_key("persona")
@@ -2496,9 +2767,12 @@ class AtlasServer:
         bundle_base64: str,
         signing_key: str | None = None,
         rationale: str = "Imported via server route",
+        context: Any | None = None,
     ) -> Dict[str, Any]:
         if not bundle_base64:
             raise ValueError("Bundle payload is required for import")
+
+        request_context = self._resolve_request_context(context)
 
         try:
             resolved_key = self._resolve_signing_key("persona")
@@ -2509,6 +2783,26 @@ class AtlasServer:
             bundle_bytes = base64.b64decode(bundle_base64)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("Bundle payload is not valid base64 data") from exc
+
+        try:
+            decoded_payload = json.loads(bundle_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            decoded_payload = None
+
+        metadata = decoded_payload.get("metadata") if isinstance(decoded_payload, Mapping) else None
+        persona_entry = decoded_payload.get("persona") if isinstance(decoded_payload, Mapping) else None
+
+        resource_tenant = self._resolve_resource_tenant_from_metadata(metadata)
+        if isinstance(persona_entry, Mapping):
+            tenant_hint = self._extract_mapping_tenant(persona_entry)
+            if tenant_hint:
+                resource_tenant = tenant_hint
+
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=resource_tenant,
+            action="import persona bundle",
+        )
 
         try:
             result = import_persona_bundle_bytes(
