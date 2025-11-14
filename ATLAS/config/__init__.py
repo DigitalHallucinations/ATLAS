@@ -4,7 +4,7 @@ from .config_manager import ConfigManager
 from .core import (
     ConfigCore,
     ConversationStoreBackendOption,
-    _DEFAULT_CONVERSATION_STORE_DSN,
+    _DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND,
     _DEFAULT_CONVERSATION_STORE_BACKENDS,
     find_dotenv,
     load_dotenv,
@@ -35,7 +35,7 @@ __all__ = [
     "ToolingConfigSection",
     "UIConfig",
     "KV_STORE_UNSET",
-    "_DEFAULT_CONVERSATION_STORE_DSN",
+    "_DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND",
     "_DEFAULT_CONVERSATION_STORE_BACKENDS",
     "ConversationStoreBackendOption",
     "default_conversation_store_backend_name",

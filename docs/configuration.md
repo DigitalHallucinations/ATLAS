@@ -108,7 +108,7 @@ Review the [conversation store data model](conversation-store.md) for table-leve
 ### `task_queue`
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
-| `jobstore_url` | PostgreSQL DSN; normalised and defaults to the configured job store (conversation DB or `_DEFAULT_CONVERSATION_STORE_DSN`) when not supplied.【F:ATLAS/config/config_manager.py†L145-L174】【F:ATLAS/config/persistence.py†L520-L563】 | `TASK_QUEUE_JOBSTORE_URL`. | Task queue service uses this DSN to connect APScheduler’s SQL job store.【F:modules/Tools/Base_Tools/task_queue.py†L200-L352】 |
+| `jobstore_url` | PostgreSQL DSN; normalised and defaults to the configured job store (conversation DB or the PostgreSQL entry in `_DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND`) when not supplied.【F:ATLAS/config/config_manager.py†L145-L174】【F:ATLAS/config/persistence.py†L520-L563】 | `TASK_QUEUE_JOBSTORE_URL`. | Task queue service uses this DSN to connect APScheduler’s SQL job store.【F:modules/Tools/Base_Tools/task_queue.py†L200-L352】 |
 | `max_workers` | Integer; optional knob mirrored to job scheduling defaults. | `TASK_QUEUE_MAX_WORKERS` (read at runtime). | Task queue thread pool sizing.【F:modules/Tools/Base_Tools/task_queue.py†L270-L352】 |
 | `timezone` | IANA timezone string or tzinfo instance; optional. | None. | Task queue scheduling timezone.【F:modules/Tools/Base_Tools/task_queue.py†L270-L352】 |
 | `queue_size` | Integer; optional bounded queue length. | None. | Task queue scheduling defaults.【F:ATLAS/config/persistence.py†L367-L417】 |

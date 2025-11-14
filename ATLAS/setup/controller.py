@@ -9,7 +9,6 @@ from typing import Any, Callable, Dict, Mapping, Optional
 
 from ATLAS.config import (
     ConfigManager,
-    _DEFAULT_CONVERSATION_STORE_DSN,
     get_default_conversation_store_backends,
     infer_conversation_store_backend,
 )
@@ -47,6 +46,7 @@ class DatabaseState:
     user: str = "atlas"
     password: str = ""
     dsn: str = ""
+    options: str = ""
 
 
 @dataclass
@@ -186,6 +186,25 @@ def _parse_default_dsn(dsn: str, *, backend: Optional[str] = None) -> DatabaseSt
             user="",
             password="",
             dsn=dsn,
+            options="",
+        )
+
+    if normalized_backend == "mongodb":
+        database = parsed.path.lstrip("/").split("?", 1)[0] or "atlas"
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 27017
+        user = parsed.username or ""
+        password = parsed.password or ""
+        options = parsed.query or ""
+        return DatabaseState(
+            backend="mongodb",
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            dsn=dsn,
+            options=options,
         )
 
     host = parsed.hostname or "localhost"
@@ -201,6 +220,7 @@ def _parse_default_dsn(dsn: str, *, backend: Optional[str] = None) -> DatabaseSt
         user=user,
         password=password,
         dsn=dsn,
+        options="",
     )
 
 
@@ -217,6 +237,31 @@ def _compose_dsn(state: DatabaseState) -> str:
         path = Path(candidate)
         path_text = path.as_posix()
         return f"sqlite:///{path_text}"
+
+    if backend == "mongodb":
+        if state.dsn and state.dsn.strip().lower().startswith("mongodb"):
+            return state.dsn.strip()
+
+        from urllib.parse import quote_plus
+
+        host = (state.host or "localhost").strip() or "localhost"
+        port = int(state.port or 27017)
+        database = (state.database or "atlas").strip() or "atlas"
+        username = (state.user or "").strip()
+        password = state.password or ""
+        auth = ""
+        if username:
+            encoded_user = quote_plus(username)
+            encoded_pass = quote_plus(password) if password else ""
+            auth = encoded_user
+            if encoded_pass:
+                auth = f"{auth}:{encoded_pass}"
+            auth = f"{auth}@"
+        port_fragment = f":{port}" if port else ""
+        options = (state.options or "").strip()
+        if options and not options.startswith("?"):
+            options = f"?{options}"
+        return f"mongodb://{auth}{host}{port_fragment}/{database}{options}"
 
     auth = state.user or ""
     if state.password:
@@ -291,6 +336,9 @@ class SetupWizardController:
         conversation_config = self.config_manager.get_conversation_database_config()
         database_url = conversation_config.get("url") if isinstance(conversation_config, Mapping) else None
         backend_value = conversation_config.get("backend") if isinstance(conversation_config, Mapping) else None
+        persisted_backend = self.config_manager.get_conversation_backend()
+        if backend_value is None and persisted_backend is not None:
+            backend_value = persisted_backend
         if isinstance(database_url, str) and database_url.strip():
             self.state.database = _parse_default_dsn(database_url, backend=backend_value)
         else:

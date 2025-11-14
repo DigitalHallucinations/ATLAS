@@ -572,13 +572,14 @@ class SetupUtility:
     # -- configuration collection --------------------------------------
 
     def configure_database(self) -> str:
-        """Prompt for PostgreSQL connection settings and persist them."""
+        """Prompt for conversation store settings and persist them."""
 
         state = self.controller.state.database
         privileged_credentials = self.controller.get_privileged_credentials()
         user_state = self.controller.state.user
         backend_options = self.controller.get_conversation_backend_options()
         backend_names = [option.name for option in backend_options]
+        backend_map = {option.name: option for option in backend_options}
         backend_default = state.backend or (backend_names[0] if backend_names else "postgresql")
 
         while True:
@@ -595,12 +596,16 @@ class SetupUtility:
             backend_default = normalized_backend
             break
 
-        state = dataclasses.replace(state, backend=backend_default)
-        default_host = state.host
-        user_domain = user_state.domain.strip()
-        if default_host in {"", "localhost"} and user_domain:
-            default_host = user_domain
-        default_user = state.user or user_state.username or state.user
+        selected_backend = backend_default
+        if state.backend != selected_backend:
+            option = backend_map.get(selected_backend)
+            if option is not None:
+                state = _parse_default_dsn(option.dsn, backend=option.name)
+            else:
+                state = dataclasses.replace(state, backend=selected_backend)
+        else:
+            state = dataclasses.replace(state, backend=selected_backend)
+
         while True:
             if state.backend == "sqlite":
                 database_prompt = "SQLite database path"
@@ -613,12 +618,63 @@ class SetupUtility:
                     port=0,
                     user="",
                     password="",
+                    dsn="",
+                    options="",
                 )
+            elif state.backend == "mongodb":
+                existing_uri = state.dsn if isinstance(state.dsn, str) else ""
+                if existing_uri and not existing_uri.strip().lower().startswith("mongodb"):
+                    existing_uri = ""
+                uri_prompt = "MongoDB connection URI (leave blank to build from details)"
+                uri_value = self._ask(uri_prompt, existing_uri) or existing_uri
+                uri_value = uri_value.strip()
+                if uri_value:
+                    new_state = dataclasses.replace(
+                        state,
+                        dsn=uri_value,
+                        host="",
+                        port=0,
+                        database="",
+                        user="",
+                        password="",
+                        options="",
+                    )
+                else:
+                    host_default = state.host or "localhost"
+                    host = self._ask("MongoDB host", host_default) or host_default
+                    port_default = state.port if state.port not in (0, None) else 27017
+                    port = self._ask_int("MongoDB port", port_default)
+                    database_default = state.database or "atlas"
+                    database = self._ask("MongoDB database", database_default) or database_default
+                    user_default = state.user or ""
+                    user = self._ask("MongoDB username", user_default) or user_default
+                    password_prompt = "MongoDB password"
+                    if state.password:
+                        password_prompt += " (leave blank to keep existing, type !clear! to remove)"
+                    password = self._ask_password(password_prompt, state.password)
+                    options_prompt = "MongoDB connection options (e.g. authSource=admin)"
+                    options_value = self._ask(options_prompt, state.options) or state.options
+                    options = options_value.strip()
+                    new_state = dataclasses.replace(
+                        state,
+                        host=host.strip() or "localhost",
+                        port=port,
+                        database=database,
+                        user=user,
+                        password=password,
+                        dsn="",
+                        options=options,
+                    )
             else:
-                host = self._ask("PostgreSQL host", default_host)
-                port = self._ask_int("PostgreSQL port", state.port)
-                database = self._ask("Database name", state.database)
-                user = self._ask("Database user", default_user)
+                host_default = state.host
+                user_domain = user_state.domain.strip()
+                if host_default in {"", "localhost"} and user_domain:
+                    host_default = user_domain
+                host = self._ask("PostgreSQL host", host_default) or host_default
+                port = self._ask_int("PostgreSQL port", state.port or 5432)
+                database = self._ask("Database name", state.database) or state.database
+                user_default = state.user or user_state.username or state.user
+                user = self._ask("Database user", user_default) or user_default
                 password_prompt = "Database password"
                 if state.password:
                     password_prompt += " (leave blank to keep existing, type !clear! to remove)"
@@ -630,36 +686,41 @@ class SetupUtility:
                     database=database,
                     user=user,
                     password=password,
+                    dsn="",
+                    options="",
                 )
+            credentials_arg = privileged_credentials if state.backend == "postgresql" else None
             try:
                 result = self.controller.apply_database_settings(
                     new_state,
-                    privileged_credentials=privileged_credentials,
+                    privileged_credentials=credentials_arg,
                 )
-                if privileged_credentials is not None:
+                if state.backend == "postgresql" and privileged_credentials is not None:
                     self.controller.set_privileged_credentials(privileged_credentials)
                 return result
             except BootstrapError as exc:
                 self._print(f"Failed to connect: {exc}")
                 state = dataclasses.replace(new_state)
-                default_host = new_state.host or default_host
-                default_user = new_state.user or default_user
-                collected = self._maybe_collect_privileged_credentials(
-                    existing=privileged_credentials
-                )
-                if collected is not None:
-                    privileged_credentials = collected
-                    self.controller.set_privileged_credentials(privileged_credentials)
-                if privileged_credentials is not None:
-                    try:
-                        result = self.controller.apply_database_settings(
-                            new_state,
-                            privileged_credentials=privileged_credentials,
-                        )
+                if state.backend == "postgresql":
+                    collected = self._maybe_collect_privileged_credentials(
+                        existing=privileged_credentials
+                    )
+                    if collected is not None:
+                        privileged_credentials = collected
                         self.controller.set_privileged_credentials(privileged_credentials)
-                        return result
-                    except BootstrapError as privileged_exc:
-                        self._print(f"Failed to connect with privileged provisioning: {privileged_exc}")
+                    if privileged_credentials is not None:
+                        try:
+                            result = self.controller.apply_database_settings(
+                                new_state,
+                                privileged_credentials=privileged_credentials,
+                            )
+                            self.controller.set_privileged_credentials(privileged_credentials)
+                            return result
+                        except BootstrapError as privileged_exc:
+                            self._print(
+                                "Failed to connect with privileged provisioning: "
+                                f"{privileged_exc}"
+                            )
                 if not self._confirm("Try again? [Y/n]: ", default=True):
                     raise
 

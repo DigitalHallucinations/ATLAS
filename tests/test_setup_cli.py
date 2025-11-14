@@ -21,7 +21,7 @@ sqlalchemy_module.engine = sqlalchemy_engine_module
 sqlalchemy_module.create_engine = lambda *args, **kwargs: types.SimpleNamespace(dispose=lambda: None)
 sqlalchemy_module.inspect = lambda *args, **kwargs: types.SimpleNamespace(get_table_names=lambda: [])
 sqlalchemy_module.Column = lambda *args, **kwargs: None
-sqlalchemy_module.DateTime = object
+sqlalchemy_module.DateTime = lambda *args, **kwargs: object
 sqlalchemy_module.Enum = lambda *args, **kwargs: None
 sqlalchemy_module.ForeignKey = lambda *args, **kwargs: None
 sqlalchemy_module.Index = lambda *args, **kwargs: None
@@ -29,8 +29,32 @@ sqlalchemy_module.Integer = int
 sqlalchemy_module.String = str
 sqlalchemy_module.Text = str
 sqlalchemy_module.UniqueConstraint = lambda *args, **kwargs: None
+sqlalchemy_module.Boolean = bool
+sqlalchemy_module.Float = float
+sqlalchemy_module.text = lambda value: value
+sqlalchemy_module.JSON = dict
+sqlalchemy_module.MetaData = lambda *args, **kwargs: object
+
+
+class _StubTable:
+    def __init__(self, *_args, **_kwargs):
+        self.c = types.SimpleNamespace(expires_at=object())
+
+
+sqlalchemy_module.Table = lambda *args, **kwargs: _StubTable()
+sqlalchemy_module.delete = lambda *args, **kwargs: None
+sqlalchemy_module.select = lambda *args, **kwargs: None
+
+
+class _SQLAlchemyFunc:
+    def __getattr__(self, _name):  # pragma: no cover - simple stub
+        return lambda *args, **kwargs: None
+
+
+sqlalchemy_module.func = _SQLAlchemyFunc()
 sqlalchemy_orm_module.sessionmaker = lambda *args, **kwargs: None
 sqlalchemy_orm_module.relationship = lambda *args, **kwargs: None
+sqlalchemy_orm_module.declarative_base = lambda *args, **kwargs: object
 sqlalchemy_module.orm = sqlalchemy_orm_module
 sys.modules["sqlalchemy"] = sqlalchemy_module
 sys.modules["sqlalchemy.engine"] = sqlalchemy_engine_module
@@ -41,7 +65,9 @@ config_module = types.ModuleType("ATLAS.config")
 config_module.__path__ = []
 _real_config_module = importlib.import_module("ATLAS.config")
 config_module.ConfigManager = type("ConfigManager", (), {"UNSET": object()})
-config_module._DEFAULT_CONVERSATION_STORE_DSN = "postgresql+psycopg://atlas@localhost:5432/atlas"
+config_module._DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND = {
+    "postgresql": "postgresql+psycopg://atlas@localhost:5432/atlas",
+}
 config_module._DEFAULT_CONVERSATION_STORE_BACKENDS = (
     types.SimpleNamespace(
         name="postgresql",

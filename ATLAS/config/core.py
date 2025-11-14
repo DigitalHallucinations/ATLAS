@@ -64,7 +64,9 @@ _DEFAULT_CONVERSATION_STORE_BACKENDS: Tuple[ConversationStoreBackendOption, ...]
     ),
 )
 
-_DEFAULT_CONVERSATION_STORE_DSN = _DEFAULT_CONVERSATION_STORE_BACKENDS[0].dsn
+_DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND: Dict[str, str] = {
+    option.name: option.dsn for option in _DEFAULT_CONVERSATION_STORE_BACKENDS
+}
 
 
 def default_conversation_store_backend_name() -> str:
@@ -475,7 +477,7 @@ class ConfigCore:
 __all__ = [
     "ConfigCore",
     "ConversationStoreBackendOption",
-    "_DEFAULT_CONVERSATION_STORE_DSN",
+    "_DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND",
     "_DEFAULT_CONVERSATION_STORE_BACKENDS",
     "_UNSET",
     "default_conversation_store_backend_name",
