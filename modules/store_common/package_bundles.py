@@ -155,6 +155,61 @@ def _encode_bundle_bytes(bundle_bytes: bytes) -> str:
     return base64.b64encode(bundle_bytes).decode("ascii")
 
 
+def _append_asset(
+    *,
+    asset_entries: List[Mapping[str, Any]],
+    normalized_exports: List[Mapping[str, Any]],
+    asset_type: str,
+    name: str,
+    package_persona: Optional[str],
+    bundle_bytes: bytes,
+    manifest_entry: Mapping[str, Any],
+) -> None:
+    """Append export metadata for an asset to the running collections."""
+
+    asset_entries.append(
+        {
+            "type": asset_type,
+            "name": name,
+            "persona": package_persona,
+            "encoding": "base64",
+            "format": "json",
+            "bundle": _encode_bundle_bytes(bundle_bytes),
+        }
+    )
+
+    manifest_copy: Optional[Any]
+    if isinstance(manifest_entry, Mapping):
+        manifest_copy = dict(manifest_entry)
+    else:
+        manifest_copy = manifest_entry
+
+    metadata_persona = _normalize_persona(package_persona)
+    persona_payload: Optional[Dict[str, Any]] = None
+    if asset_type == "persona":
+        candidate_name: Optional[str] = None
+        if isinstance(manifest_copy, Mapping):
+            persona_payload = dict(manifest_copy)
+            candidate_name = _normalize_persona(persona_payload.get("name"))
+        if metadata_persona is None:
+            metadata_persona = candidate_name
+        if metadata_persona is None:
+            metadata_persona = _normalize_persona(name)
+        manifest_copy = None
+
+    metadata_entry: Dict[str, Any] = {
+        "type": asset_type,
+        "name": name,
+        "persona": metadata_persona,
+    }
+    if persona_payload is not None:
+        metadata_entry["persona_payload"] = persona_payload
+    if manifest_copy is not None:
+        metadata_entry["manifest"] = manifest_copy
+
+    normalized_exports.append(metadata_entry)
+
+
 def _decode_bundle_entry(asset: Mapping[str, Any], *, index: int) -> _PackageAsset:
     asset_type = str(asset.get("type") or "").strip().lower()
     if not asset_type:
@@ -240,23 +295,14 @@ def export_asset_package_bytes(
                 f"Failed to export {asset_type} '{name}': {exc}"
             ) from exc
 
-        asset_entries.append(
-            {
-                "type": asset_type,
-                "name": name,
-                "persona": normalized_persona,
-                "encoding": "base64",
-                "format": "json",
-                "bundle": _encode_bundle_bytes(bundle_bytes),
-            }
-        )
-        normalized_exports.append(
-            {
-                "type": asset_type,
-                "name": name,
-                "persona": normalized_persona,
-                "manifest": dict(manifest_entry),
-            }
+        _append_asset(
+            asset_entries=asset_entries,
+            normalized_exports=normalized_exports,
+            asset_type=asset_type,
+            name=name,
+            package_persona=normalized_persona,
+            bundle_bytes=bundle_bytes,
+            manifest_entry=manifest_entry,
         )
 
     metadata: Dict[str, Any] = {
@@ -362,18 +408,31 @@ def import_asset_package_bytes(
                 f"Failed to import {asset.asset_type} '{asset.name}': {exc}"
             ) from exc
 
+        persona_identifier = _normalize_persona(asset.persona)
+        persona_payload: Optional[Dict[str, Any]] = None
         if isinstance(result, Mapping):
             success_value = result.get("success")
             if success_value is not None:
                 overall_success = overall_success and bool(success_value)
-        results.append(
-            {
-                "type": asset.asset_type,
-                "name": asset.name,
-                "persona": asset.persona,
-                "result": result,
-            }
-        )
+            if asset.asset_type == "persona":
+                payload_candidate = result.get("persona")
+                if isinstance(payload_candidate, Mapping):
+                    persona_payload = dict(payload_candidate)
+                    candidate_name = _normalize_persona(persona_payload.get("name"))
+                    if persona_identifier is None:
+                        persona_identifier = candidate_name
+        if asset.asset_type == "persona" and persona_identifier is None:
+            persona_identifier = _normalize_persona(asset.name)
+
+        result_entry: Dict[str, Any] = {
+            "type": asset.asset_type,
+            "name": asset.name,
+            "persona": persona_identifier,
+            "result": result,
+        }
+        if persona_payload is not None:
+            result_entry["persona_payload"] = persona_payload
+        results.append(result_entry)
 
     return {
         "success": overall_success,

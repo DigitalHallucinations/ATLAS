@@ -111,6 +111,11 @@ def test_persona_asset_package_import_preserves_references(tmp_path: Path) -> No
     )
 
     assert len(exported_assets) == 3
+    persona_export_entry = next(
+        entry for entry in exported_assets if entry.get("type") == "persona"
+    )
+    assert persona_export_entry["persona"] == "Explorer"
+    assert persona_export_entry["persona_payload"]["name"] == "Explorer"
 
     tool_manifest = root / "modules" / "Tools" / "tool_maps" / "functions.json"
     skill_manifest = root / "modules" / "Skills" / "skills.json"
@@ -144,3 +149,5 @@ def test_persona_asset_package_import_preserves_references(tmp_path: Path) -> No
     persona_results = [entry for entry in import_result["results"] if entry["type"] == "persona"]
     assert persona_results, "Persona import result should be captured"
     assert persona_results[0]["result"].get("warnings") == []
+    assert persona_results[0]["persona"] == "Explorer"
+    assert persona_results[0]["persona_payload"]["name"] == "Explorer"
