@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, MutableMapping, Optional, Tuple
+from typing import Any, Callable, ClassVar, Dict, MutableMapping, Optional, Tuple
 from collections.abc import Mapping
 from urllib.parse import urlparse
 
@@ -1013,7 +1013,7 @@ class ConversationStoreConfigSection:
     _conversation_engine: Any | None = None
     _conversation_session_factory: Any | None = None
 
-    RETENTION_WORKER_DEFAULTS: Mapping[str, Any] = {
+    RETENTION_WORKER_DEFAULTS: ClassVar[Mapping[str, Any]] = {
         "interval_seconds": 3600.0,
         "min_interval_seconds": 60.0,
         "max_interval_seconds": 7200.0,
