@@ -9,15 +9,8 @@ under :mod:`modules.Tools`.
 
 from __future__ import annotations
 
-import base64
-import binascii
-import hashlib
-import hmac
-import io
 import json
 import shutil
-import tarfile
-import tempfile
 from collections.abc import Iterable as IterableABC, Mapping as MappingABC
 from copy import deepcopy
 from dataclasses import asdict, dataclass
@@ -59,6 +52,14 @@ from modules.Personas.utils import (
 from modules.Skills import SkillMetadata as SkillManifestEntry, load_skill_metadata
 from modules.logging.audit import PersonaAuditLogger, get_persona_audit_logger
 from modules.logging.logger import setup_logger
+from modules.store_common.bundle_utils import (
+    BUNDLE_ALGORITHM,
+    build_archive_payload,
+    extract_archive_to_tempdir,
+    sign_payload,
+    utcnow_isoformat,
+    verify_signature,
+)
 from modules.store_common.manifest_utils import resolve_app_root
 
 try:  # ConfigManager is heavy but required for accurate path resolution.
@@ -109,22 +110,6 @@ class SkillStateEntry:
 
 
 _BUNDLE_VERSION = 1
-_BUNDLE_ALGORITHM = "HS256"
-
-
-def _utcnow_isoformat() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-
-
-def _normalize_signing_key(signing_key: str) -> bytes:
-    key = (signing_key or "").encode("utf-8")
-    if not key:
-        raise PersonaBundleError("Signing key is required for persona bundle operations.")
-    return key
 
 
 def _coerce_flag_bool(value: Any) -> bool:
@@ -137,18 +122,6 @@ def _coerce_flag_bool(value: Any) -> bool:
         if lowered in {"false", "0", "no", "off", "disabled", ""}:
             return False
     return bool(value)
-
-
-def _sign_payload(payload: Mapping[str, Any], *, signing_key: str) -> str:
-    key = _normalize_signing_key(signing_key)
-    digest = hmac.new(key, _canonical_json_bytes(payload), hashlib.sha256).digest()
-    return base64.b64encode(digest).decode("ascii")
-
-
-def _verify_signature(payload: Mapping[str, Any], *, signature: str, signing_key: str) -> None:
-    expected = _sign_payload(payload, signing_key=signing_key)
-    if not hmac.compare_digest(expected, signature):
-        raise PersonaBundleError("Persona bundle signature verification failed.")
 
 
 def _resolve_app_root(config_manager=None) -> Path:
@@ -192,43 +165,6 @@ def _persona_schema_path(*, config_manager=None) -> Path:
     return base / "modules" / "Personas" / "schema.json"
 
 
-def _build_persona_archive_payload(persona_dir: Path) -> Optional[Dict[str, Any]]:
-    """Return encoded archive metadata for the provided persona directory."""
-
-    if not persona_dir.exists() or not persona_dir.is_dir():
-        raise PersonaBundleError("Persona directory is missing for export.")
-
-    buffer = io.BytesIO()
-    try:
-        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-            archive.add(persona_dir, arcname=persona_dir.name)
-    except (OSError, tarfile.TarError) as exc:
-        raise PersonaBundleError("Failed to build persona archive for export.") from exc
-
-    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-    return {
-        "format": "tar.gz",
-        "encoding": "base64",
-        "data": encoded,
-    }
-
-
-def _safe_extract_tar_archive(tar: tarfile.TarFile, destination: Path) -> None:
-    destination = destination.resolve()
-    for member in tar.getmembers():
-        name = member.name or ""
-        member_path = Path(name)
-        if member_path.is_absolute() or any(part == ".." for part in member_path.parts):
-            raise PersonaBundleError("Persona bundle archive contains unsafe paths.")
-        if member.islnk() or member.issym():
-            raise PersonaBundleError("Persona bundle archive contains unsupported links.")
-        resolved_member = (destination / member_path).resolve()
-        if not str(resolved_member).startswith(str(destination)):
-            raise PersonaBundleError("Persona bundle archive resolves outside the extraction directory.")
-
-    tar.extractall(path=destination)
-
-
 def _locate_persona_directory(root: Path, persona_name: str) -> Optional[Path]:
     expected = persona_name.strip().lower()
     if not expected:
@@ -254,44 +190,24 @@ def _restore_persona_archive(
     persona_name: str,
     target_dir: Path,
 ) -> None:
-    format_name = str(archive_payload.get("format") or "tar.gz").strip().lower()
-    encoding = str(archive_payload.get("encoding") or "base64").strip().lower()
-    data = archive_payload.get("data")
-
-    if encoding not in {"base64", "base64url"}:
-        raise PersonaBundleError("Unsupported persona bundle archive encoding.")
-    if format_name not in {"tar", "tar.gz", "tgz"}:
-        raise PersonaBundleError("Unsupported persona bundle archive format.")
-    if not isinstance(data, str) or not data.strip():
-        raise PersonaBundleError("Persona bundle archive data is missing.")
+    temp_dir, temp_path = extract_archive_to_tempdir(
+        archive_payload,
+        error_cls=PersonaBundleError,
+    )
 
     try:
-        if encoding == "base64url":
-            archive_bytes = base64.urlsafe_b64decode(data.encode("ascii"))
-        else:
-            archive_bytes = base64.b64decode(data.encode("ascii"), validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise PersonaBundleError("Persona bundle archive data is not valid base64.") from exc
-
-    mode = "r:gz" if format_name in {"tar.gz", "tgz"} else "r:"
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
-        buffer = io.BytesIO(archive_bytes)
-        try:
-            with tarfile.open(fileobj=buffer, mode=mode) as archive:
-                _safe_extract_tar_archive(archive, temp_path)
-        except (OSError, tarfile.TarError) as exc:
-            raise PersonaBundleError("Persona bundle archive could not be unpacked.") from exc
-
         extracted_dir = _locate_persona_directory(temp_path, persona_name)
         if extracted_dir is None:
-            raise PersonaBundleError("Persona bundle archive does not include the expected persona files.")
+            raise PersonaBundleError(
+                "Persona bundle archive does not include the expected persona files."
+            )
 
         target_dir.parent.mkdir(parents=True, exist_ok=True)
         if target_dir.exists():
             shutil.rmtree(target_dir)
         shutil.copytree(extracted_dir, target_dir)
+    finally:
+        temp_dir.cleanup()
 
 
 @lru_cache(maxsize=8)
@@ -1263,7 +1179,7 @@ def export_persona_bundle_bytes(
 
     metadata = {
         "version": _BUNDLE_VERSION,
-        "exported_at": _utcnow_isoformat(),
+        "exported_at": utcnow_isoformat(),
         "persona_name": persona.get("name", persona_name),
     }
 
@@ -1273,7 +1189,10 @@ def export_persona_bundle_bytes(
     }
 
     try:
-        archive_payload = _build_persona_archive_payload(persona_dir)
+        archive_payload = build_archive_payload(
+            persona_dir,
+            error_cls=PersonaBundleError,
+        )
     except PersonaBundleError:
         raise
     except Exception as exc:  # pragma: no cover - defensive logging for unexpected errors
@@ -1283,12 +1202,16 @@ def export_persona_bundle_bytes(
         if archive_payload is not None:
             bundle_payload["archive"] = archive_payload
 
-    signature = _sign_payload(bundle_payload, signing_key=signing_key)
+    signature = sign_payload(
+        bundle_payload,
+        signing_key=signing_key,
+        error_cls=PersonaBundleError,
+    )
 
     signed_bundle = {
         **bundle_payload,
         "signature": {
-            "algorithm": _BUNDLE_ALGORITHM,
+            "algorithm": BUNDLE_ALGORITHM,
             "value": signature,
         },
     }
@@ -1331,7 +1254,7 @@ def import_persona_bundle_bytes(
 
     algorithm = signature_info.get("algorithm")
     signature_value = signature_info.get("value")
-    if algorithm != _BUNDLE_ALGORITHM:
+    if algorithm != BUNDLE_ALGORITHM:
         raise PersonaBundleError(f"Unsupported persona bundle algorithm: {algorithm!r}")
     if not isinstance(signature_value, str) or not signature_value.strip():
         raise PersonaBundleError("Persona bundle signature is missing.")
@@ -1343,7 +1266,12 @@ def import_persona_bundle_bytes(
     if archive_entry is not None:
         payload_for_signature["archive"] = archive_entry
 
-    _verify_signature(payload_for_signature, signature=signature_value, signing_key=signing_key)
+    verify_signature(
+        payload_for_signature,
+        signature=signature_value,
+        signing_key=signing_key,
+        error_cls=PersonaBundleError,
+    )
 
     persona_name = str(persona_entry.get("name") or "").strip()
     if not persona_name:

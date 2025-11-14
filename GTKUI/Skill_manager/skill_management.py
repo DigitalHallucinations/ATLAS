@@ -107,6 +107,8 @@ class SkillManagement:
         self._recent_changes_label: Optional[Gtk.Label] = None
         self._export_csv_button: Optional[Gtk.Button] = None
         self._export_json_button: Optional[Gtk.Button] = None
+        self._export_bundle_button: Optional[Gtk.Button] = None
+        self._import_bundle_button: Optional[Gtk.Button] = None
         self._history_box: Optional[Gtk.Widget] = None
         self._history_list_box: Optional[Gtk.Widget] = None
         self._history_records: List[Dict[str, Any]] = []
@@ -466,6 +468,18 @@ class SkillManagement:
         export_json_button.connect("clicked", self._on_export_skills_json_clicked)
         export_row.append(export_json_button)
         self._export_json_button = export_json_button
+
+        export_bundle_button = Gtk.Button(label="Export bundle")
+        export_bundle_button.set_tooltip_text("Export the selected skill to a signed bundle.")
+        export_bundle_button.connect("clicked", self._on_export_skill_bundle_clicked)
+        export_row.append(export_bundle_button)
+        self._export_bundle_button = export_bundle_button
+
+        import_bundle_button = Gtk.Button(label="Import bundle")
+        import_bundle_button.set_tooltip_text("Import a skill bundle from disk.")
+        import_bundle_button.connect("clicked", self._on_import_skill_bundle_clicked)
+        export_row.append(import_bundle_button)
+        self._import_bundle_button = import_bundle_button
 
         right_panel.append(export_row)
 
@@ -2179,6 +2193,8 @@ class SkillManagement:
         has_visible = bool(self._display_entries)
         self._set_button_sensitive(self._export_csv_button, has_entries and has_visible)
         self._set_button_sensitive(self._export_json_button, has_entries and has_visible)
+        self._set_button_sensitive(self._export_bundle_button, bool(self._active_skill))
+        self._set_button_sensitive(self._import_bundle_button, True)
         self._sync_recent_changes_panel()
         self._sync_preview_button_state()
         self._sync_test_button_state()
@@ -2434,6 +2450,154 @@ class SkillManagement:
             return str(path_obj)
         return None
 
+    def _choose_open_path(self, *, title: str, pattern: str) -> Optional[str]:
+        chooser_cls = getattr(Gtk, "FileChooserNative", None)
+        action_enum = getattr(Gtk.FileChooserAction, "OPEN", None) if hasattr(Gtk, "FileChooserAction") else None
+        if chooser_cls is None or action_enum is None:
+            return None
+
+        chooser = chooser_cls(title=title, transient_for=self.parent_window, modal=True, action=action_enum)
+        if self._last_export_directory and hasattr(chooser, "set_current_folder"):
+            try:
+                chooser.set_current_folder(str(self._last_export_directory))
+            except Exception:
+                pass
+
+        file_filter_cls = getattr(Gtk, "FileFilter", None)
+        if callable(file_filter_cls):
+            try:
+                file_filter = file_filter_cls()
+                if hasattr(file_filter, "set_name"):
+                    file_filter.set_name(pattern.upper())
+                if hasattr(file_filter, "add_pattern"):
+                    file_filter.add_pattern(pattern)
+                adder = getattr(chooser, "add_filter", None)
+                if callable(adder):
+                    adder(file_filter)
+            except Exception:  # pragma: no cover - GTK compatibility fallback
+                pass
+
+        response = None
+        if hasattr(chooser, "run"):
+            try:
+                response = chooser.run()
+            except Exception:
+                response = None
+        elif hasattr(chooser, "show"):
+            try:
+                chooser.show()
+                response = getattr(Gtk.ResponseType, "ACCEPT", 1)
+            except Exception:
+                response = None
+
+        accepted = {
+            getattr(Gtk.ResponseType, "ACCEPT", None),
+            getattr(Gtk.ResponseType, "OK", None),
+            getattr(Gtk.ResponseType, "YES", None),
+        }
+
+        filename: Optional[str] = None
+        if response in accepted:
+            file_obj = getattr(chooser, "get_file", None)
+            if callable(file_obj):
+                file_handle = file_obj()
+            else:
+                file_handle = None
+            if file_handle is not None and hasattr(file_handle, "get_path"):
+                filename = file_handle.get_path()
+            else:
+                getter = getattr(chooser, "get_filename", None)
+                if callable(getter):
+                    filename = getter()
+
+        if hasattr(chooser, "destroy"):
+            try:
+                chooser.destroy()
+            except Exception:
+                pass
+
+        if filename:
+            path_obj = Path(filename).expanduser().resolve()
+            self._last_export_directory = path_obj.parent
+            return str(path_obj)
+        return None
+
+    def _prompt_signing_key(self, title: str) -> Optional[str]:
+        dialog_cls = getattr(Gtk, "Dialog", None)
+        entry_cls = getattr(Gtk, "Entry", None)
+        if dialog_cls is None or entry_cls is None:
+            return None
+
+        dialog = dialog_cls(title=title, transient_for=self.parent_window, modal=True)
+        style = getattr(self.parent_window, "style_dialog", None)
+        if callable(style):
+            try:
+                style(dialog)
+            except Exception:
+                pass
+
+        content_area = getattr(dialog, "get_content_area", lambda: None)()
+        if content_area is None and hasattr(dialog, "set_child"):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            dialog.set_child(box)
+            content_area = box
+
+        entry = entry_cls()
+        if hasattr(entry, "set_visibility"):
+            entry.set_visibility(False)
+
+        label = Gtk.Label(label="Signing key:")
+        if content_area is not None and hasattr(content_area, "append"):
+            content_area.append(label)
+            content_area.append(entry)
+
+        if hasattr(dialog, "add_button"):
+            dialog.add_button("Cancel", getattr(Gtk.ResponseType, "CANCEL", 0))
+            dialog.add_button("OK", getattr(Gtk.ResponseType, "OK", 1))
+
+        response = None
+        if hasattr(dialog, "run"):
+            try:
+                response = dialog.run()
+            except Exception:
+                response = None
+        else:
+            response = getattr(Gtk.ResponseType, "OK", 1)
+
+        key_value = entry.get_text().strip() if hasattr(entry, "get_text") else ""
+
+        if hasattr(dialog, "destroy"):
+            try:
+                dialog.destroy()
+            except Exception:
+                pass
+
+        if response == getattr(Gtk.ResponseType, "OK", 1) and key_value:
+            return key_value
+        return None
+
+    def _show_info_message(self, message: str) -> None:
+        if not message:
+            return
+
+        dialog = getattr(self.parent_window, "show_info_dialog", None)
+        if callable(dialog):
+            try:
+                dialog(message)
+                return
+            except Exception:  # pragma: no cover - UI fallback
+                logger.debug("Failed to show info dialog", exc_info=True)
+
+        toast = getattr(self.parent_window, "show_success_toast", None)
+        if callable(toast):
+            try:
+                toast(message)
+                return
+            except Exception:  # pragma: no cover - UI fallback
+                logger.debug("Failed to show success toast", exc_info=True)
+
+        logger.info("Skill management notification: %s", message)
+
     def _serialize_skill_entry(self, entry: _SkillEntry) -> Dict[str, Any]:
         return {
             "name": entry.name,
@@ -2515,6 +2679,100 @@ class SkillManagement:
         if not path:
             return
         self._export_skills_to_json(path, entries)
+
+    def _on_export_skill_bundle_clicked(self, _button: Gtk.Button) -> None:
+        skill_name = self._active_skill
+        if not skill_name:
+            self._handle_backend_error("Select a skill to export.")
+            return
+
+        suggested = f"{skill_name}.skillbundle"
+        path = self._choose_export_path(
+            title=f"Export {skill_name}",
+            suggested_name=suggested,
+            pattern="*.skillbundle",
+        )
+        if not path:
+            return
+
+        signing_key = self._prompt_signing_key("Enter signing key for skill export")
+        if not signing_key:
+            self._handle_backend_error("Export cancelled: signing key required.")
+            return
+
+        persona_owner: Optional[str] = None
+        entry = self._entry_lookup.get(skill_name)
+        if entry and entry.persona:
+            persona_owner = entry.persona
+        if not persona_owner and self._skill_scope == "persona" and self._persona_name:
+            persona_owner = self._persona_name
+
+        try:
+            response = self.ATLAS.export_skill_bundle(
+                skill_name,
+                signing_key=signing_key,
+                persona=persona_owner,
+            )
+        except Exception:
+            logger.exception("Failed to export skill bundle for %s", skill_name)
+            self._handle_backend_error("Failed to export skill bundle.")
+            return
+
+        if not response.get("success"):
+            self._handle_backend_error(response.get("error") or "Skill export failed.")
+            return
+
+        bundle_bytes = response.get("bundle_bytes")
+        if not isinstance(bundle_bytes, (bytes, bytearray)):
+            self._handle_backend_error("Skill export did not return bundle data.")
+            return
+
+        try:
+            Path(path).write_bytes(bundle_bytes)
+        except OSError:
+            self._handle_backend_error(f"Failed to write bundle to {path}.")
+            return
+
+        self._show_info_message(f"Exported skill '{skill_name}' to {path}.")
+
+    def _on_import_skill_bundle_clicked(self, _button: Gtk.Button) -> None:
+        path = self._choose_open_path(
+            title="Import skill bundle",
+            pattern="*.skillbundle",
+        )
+        if not path:
+            return
+
+        signing_key = self._prompt_signing_key("Enter signing key for skill import")
+        if not signing_key:
+            self._handle_backend_error("Import cancelled: signing key required.")
+            return
+
+        try:
+            bundle_bytes = Path(path).read_bytes()
+        except OSError:
+            self._handle_backend_error(f"Failed to read bundle from {path}.")
+            return
+
+        try:
+            response = self.ATLAS.import_skill_bundle(
+                bundle_bytes=bundle_bytes,
+                signing_key=signing_key,
+                rationale="Imported via GTK UI",
+            )
+        except Exception:
+            logger.exception("Failed to import skill bundle from %s", path)
+            self._handle_backend_error("Failed to import skill bundle.")
+            return
+
+        if not response.get("success"):
+            self._handle_backend_error(response.get("error") or "Skill import failed.")
+            return
+
+        skill = response.get("skill") or {}
+        skill_name = skill.get("name") or "skill"
+        self._show_info_message(f"Imported skill '{skill_name}' from {path}.")
+        self._refresh_state()
 
     def _sync_preview_button_state(self) -> None:
         button = self._preview_button

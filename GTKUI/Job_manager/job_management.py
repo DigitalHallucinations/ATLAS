@@ -86,6 +86,8 @@ class JobManagement:
         self._pause_button: Optional[Gtk.Button] = None
         self._rerun_button: Optional[Gtk.Button] = None
         self._new_job_button: Optional[Gtk.Button] = None
+        self._export_bundle_button: Optional[Gtk.Button] = None
+        self._import_bundle_button: Optional[Gtk.Button] = None
         self._job_creation_dialog: Optional[Gtk.Widget] = None
 
         self._entries: List[_JobEntry] = []
@@ -113,6 +115,7 @@ class JobManagement:
         self._current_linked_task_badges: List[str] = []
         self._current_escalation_badges: List[str] = []
         self._linked_task_action_lookup: List[Tuple[Mapping[str, Any], Gtk.Button]] = []
+        self._last_export_directory: Optional[Path] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -257,6 +260,18 @@ class JobManagement:
         rerun_button.connect("clicked", self._on_rerun_clicked)
         action_box.append(rerun_button)
         self._rerun_button = rerun_button
+
+        export_bundle_button = Gtk.Button(label="Export bundle")
+        export_bundle_button.set_tooltip_text("Export this job definition to a signed bundle.")
+        export_bundle_button.connect("clicked", self._on_export_job_bundle_clicked)
+        action_box.append(export_bundle_button)
+        self._export_bundle_button = export_bundle_button
+
+        import_bundle_button = Gtk.Button(label="Import bundle")
+        import_bundle_button.set_tooltip_text("Import a job definition bundle from disk.")
+        import_bundle_button.connect("clicked", self._on_import_job_bundle_clicked)
+        action_box.append(import_bundle_button)
+        self._import_bundle_button = import_bundle_button
 
         description_header = Gtk.Label(label="Description")
         description_header.set_xalign(0.0)
@@ -1215,10 +1230,18 @@ class JobManagement:
         start = self._start_button
         pause = self._pause_button
         rerun = self._rerun_button
+        export_button = self._export_bundle_button
+        import_button = self._import_bundle_button
         for button in (start, pause, rerun):
             if button is not None:
                 button.set_visible(False)
                 button.set_sensitive(False)
+        if export_button is not None:
+            export_button.set_visible(entry is not None)
+            export_button.set_sensitive(entry is not None)
+        if import_button is not None:
+            import_button.set_visible(True)
+            import_button.set_sensitive(True)
         if entry is None:
             return
 
@@ -1314,6 +1337,104 @@ class JobManagement:
 
     def _on_rerun_clicked(self, _button: Gtk.Button) -> None:
         self._trigger_action("rerun")
+
+    def _on_export_job_bundle_clicked(self, _button: Gtk.Button) -> None:
+        entry = self._entry_lookup.get(self._active_job) if self._active_job else None
+        if entry is None:
+            self._handle_backend_error("Select a job to export.")
+            return
+
+        job_name = entry.name or entry.job_id
+        suggested = f"{job_name}.jobbundle"
+        path = self._choose_export_path(
+            title=f"Export {job_name}",
+            suggested_name=suggested,
+            pattern="*.jobbundle",
+        )
+        if not path:
+            return
+
+        signing_key = self._prompt_signing_key("Enter signing key for job export")
+        if not signing_key:
+            self._handle_backend_error("Export cancelled: signing key required.")
+            return
+
+        persona_owner: Optional[str] = None
+        if entry.personas:
+            personas = [p for p in entry.personas if p]
+            if len(personas) == 1:
+                persona_owner = personas[0]
+        if not persona_owner and isinstance(entry.metadata, Mapping):
+            persona_value = entry.metadata.get("persona") or entry.metadata.get("persona_name")
+            if isinstance(persona_value, str) and persona_value.strip():
+                persona_owner = persona_value.strip()
+
+        try:
+            response = self.ATLAS.export_job_bundle(
+                job_name,
+                signing_key=signing_key,
+                persona=persona_owner,
+            )
+        except Exception:
+            logger.exception("Failed to export job bundle for %s", job_name)
+            self._handle_backend_error("Failed to export job bundle.")
+            return
+
+        if not response.get("success"):
+            self._handle_backend_error(response.get("error") or "Job export failed.")
+            return
+
+        bundle_bytes = response.get("bundle_bytes")
+        if not isinstance(bundle_bytes, (bytes, bytearray)):
+            self._handle_backend_error("Job export did not return bundle data.")
+            return
+
+        try:
+            Path(path).write_bytes(bundle_bytes)
+        except OSError:
+            self._handle_backend_error(f"Failed to write bundle to {path}.")
+            return
+
+        self._notify_success(f"Exported job '{job_name}' to {path}.")
+
+    def _on_import_job_bundle_clicked(self, _button: Gtk.Button) -> None:
+        path = self._choose_open_path(
+            title="Import job bundle",
+            pattern="*.jobbundle",
+        )
+        if not path:
+            return
+
+        signing_key = self._prompt_signing_key("Enter signing key for job import")
+        if not signing_key:
+            self._handle_backend_error("Import cancelled: signing key required.")
+            return
+
+        try:
+            bundle_bytes = Path(path).read_bytes()
+        except OSError:
+            self._handle_backend_error(f"Failed to read bundle from {path}.")
+            return
+
+        try:
+            response = self.ATLAS.import_job_bundle(
+                bundle_bytes=bundle_bytes,
+                signing_key=signing_key,
+                rationale="Imported via GTK UI",
+            )
+        except Exception:
+            logger.exception("Failed to import job bundle from %s", path)
+            self._handle_backend_error("Failed to import job bundle.")
+            return
+
+        if not response.get("success"):
+            self._handle_backend_error(response.get("error") or "Job import failed.")
+            return
+
+        job = response.get("job") or {}
+        job_name = job.get("name") or "job"
+        self._notify_success(f"Imported job '{job_name}' from {path}.")
+        self._refresh_state()
 
     def _on_link_task_clicked(self, _button: Gtk.Button) -> None:
         if not self._active_job or self._active_job not in self._entry_lookup:
@@ -1628,9 +1749,230 @@ class JobManagement:
             logger.error("Job management error: %s", message)
 
     def _notify_success(self, message: str) -> None:
+        if not message:
+            return
+
         handler = getattr(self.parent_window, "show_success_toast", None)
         if callable(handler):
-            handler(message)
+            try:
+                handler(message)
+                return
+            except Exception:  # pragma: no cover - UI fallback
+                logger.debug("Failed to show success toast", exc_info=True)
+
+        dialog = getattr(self.parent_window, "show_info_dialog", None)
+        if callable(dialog):
+            try:
+                dialog(message)
+                return
+            except Exception:  # pragma: no cover - UI fallback
+                logger.debug("Failed to show info dialog", exc_info=True)
+
+        logger.info("Job management notification: %s", message)
+
+    def _choose_export_path(self, *, title: str, suggested_name: str, pattern: str) -> Optional[str]:
+        chooser_cls = getattr(Gtk, "FileChooserNative", None)
+        action_enum = getattr(Gtk.FileChooserAction, "SAVE", None) if hasattr(Gtk, "FileChooserAction") else None
+        if chooser_cls is None or action_enum is None:
+            return None
+
+        chooser = chooser_cls(title=title, transient_for=self.parent_window, modal=True, action=action_enum)
+        if hasattr(chooser, "set_current_name"):
+            try:
+                chooser.set_current_name(suggested_name)
+            except Exception:
+                pass
+
+        if self._last_export_directory and hasattr(chooser, "set_current_folder"):
+            try:
+                chooser.set_current_folder(str(self._last_export_directory))
+            except Exception:
+                pass
+
+        file_filter_cls = getattr(Gtk, "FileFilter", None)
+        if callable(file_filter_cls):
+            try:
+                file_filter = file_filter_cls()
+                if hasattr(file_filter, "set_name"):
+                    file_filter.set_name(pattern.upper())
+                if hasattr(file_filter, "add_pattern"):
+                    file_filter.add_pattern(pattern)
+                adder = getattr(chooser, "add_filter", None)
+                if callable(adder):
+                    adder(file_filter)
+            except Exception:
+                pass
+
+        response = None
+        if hasattr(chooser, "run"):
+            try:
+                response = chooser.run()
+            except Exception:
+                response = None
+        elif hasattr(chooser, "show"):
+            try:
+                chooser.show()
+                response = getattr(Gtk.ResponseType, "ACCEPT", 1)
+            except Exception:
+                response = None
+
+        accepted = {
+            getattr(Gtk.ResponseType, "ACCEPT", None),
+            getattr(Gtk.ResponseType, "OK", None),
+            getattr(Gtk.ResponseType, "YES", None),
+        }
+
+        filename: Optional[str] = None
+        if response in accepted:
+            file_obj = getattr(chooser, "get_file", None)
+            if callable(file_obj):
+                file_handle = file_obj()
+            else:
+                file_handle = None
+            if file_handle is not None and hasattr(file_handle, "get_path"):
+                filename = file_handle.get_path()
+            else:
+                getter = getattr(chooser, "get_filename", None)
+                if callable(getter):
+                    filename = getter()
+
+        if hasattr(chooser, "destroy"):
+            try:
+                chooser.destroy()
+            except Exception:
+                pass
+
+        if filename:
+            path_obj = Path(filename).expanduser().resolve()
+            self._last_export_directory = path_obj.parent
+            return str(path_obj)
+        return None
+
+    def _choose_open_path(self, *, title: str, pattern: str) -> Optional[str]:
+        chooser_cls = getattr(Gtk, "FileChooserNative", None)
+        action_enum = getattr(Gtk.FileChooserAction, "OPEN", None) if hasattr(Gtk, "FileChooserAction") else None
+        if chooser_cls is None or action_enum is None:
+            return None
+
+        chooser = chooser_cls(title=title, transient_for=self.parent_window, modal=True, action=action_enum)
+        if self._last_export_directory and hasattr(chooser, "set_current_folder"):
+            try:
+                chooser.set_current_folder(str(self._last_export_directory))
+            except Exception:
+                pass
+
+        file_filter_cls = getattr(Gtk, "FileFilter", None)
+        if callable(file_filter_cls):
+            try:
+                file_filter = file_filter_cls()
+                if hasattr(file_filter, "set_name"):
+                    file_filter.set_name(pattern.upper())
+                if hasattr(file_filter, "add_pattern"):
+                    file_filter.add_pattern(pattern)
+                adder = getattr(chooser, "add_filter", None)
+                if callable(adder):
+                    adder(file_filter)
+            except Exception:
+                pass
+
+        response = None
+        if hasattr(chooser, "run"):
+            try:
+                response = chooser.run()
+            except Exception:
+                response = None
+        elif hasattr(chooser, "show"):
+            try:
+                chooser.show()
+                response = getattr(Gtk.ResponseType, "ACCEPT", 1)
+            except Exception:
+                response = None
+
+        accepted = {
+            getattr(Gtk.ResponseType, "ACCEPT", None),
+            getattr(Gtk.ResponseType, "OK", None),
+            getattr(Gtk.ResponseType, "YES", None),
+        }
+
+        filename: Optional[str] = None
+        if response in accepted:
+            file_obj = getattr(chooser, "get_file", None)
+            if callable(file_obj):
+                file_handle = file_obj()
+            else:
+                file_handle = None
+            if file_handle is not None and hasattr(file_handle, "get_path"):
+                filename = file_handle.get_path()
+            else:
+                getter = getattr(chooser, "get_filename", None)
+                if callable(getter):
+                    filename = getter()
+
+        if hasattr(chooser, "destroy"):
+            try:
+                chooser.destroy()
+            except Exception:
+                pass
+
+        if filename:
+            path_obj = Path(filename).expanduser().resolve()
+            self._last_export_directory = path_obj.parent
+            return str(path_obj)
+        return None
+
+    def _prompt_signing_key(self, title: str) -> Optional[str]:
+        dialog_cls = getattr(Gtk, "Dialog", None)
+        entry_cls = getattr(Gtk, "Entry", None)
+        if dialog_cls is None or entry_cls is None:
+            return None
+
+        dialog = dialog_cls(title=title, transient_for=self.parent_window, modal=True)
+        style = getattr(self.parent_window, "style_dialog", None)
+        if callable(style):
+            try:
+                style(dialog)
+            except Exception:
+                pass
+
+        content_area = getattr(dialog, "get_content_area", lambda: None)()
+        if content_area is None and hasattr(dialog, "set_child"):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            dialog.set_child(box)
+            content_area = box
+
+        entry = entry_cls()
+        if hasattr(entry, "set_visibility"):
+            entry.set_visibility(False)
+
+        label = Gtk.Label(label="Signing key:")
+        if content_area is not None and hasattr(content_area, "append"):
+            content_area.append(label)
+            content_area.append(entry)
+
+        if hasattr(dialog, "add_button"):
+            dialog.add_button("Cancel", getattr(Gtk.ResponseType, "CANCEL", 0))
+            dialog.add_button("OK", getattr(Gtk.ResponseType, "OK", 1))
+
+        response = None
+        if hasattr(dialog, "run"):
+            try:
+                response = dialog.run()
+            except Exception:
+                response = None
+        else:
+            response = getattr(Gtk.ResponseType, "OK", 1)
+
+        key_value = entry.get_text().strip() if hasattr(entry, "get_text") else ""
+
+        if hasattr(dialog, "destroy"):
+            try:
+                dialog.destroy()
+            except Exception:
+                pass
+
+        if response == getattr(Gtk.ResponseType, "OK", 1) and key_value:
+            return key_value
+        return None
 
     def _prompt_link_job_task(self, job_id: str) -> Optional[Mapping[str, Any]]:
         prompt = getattr(self.parent_window, "prompt_link_job_task", None)

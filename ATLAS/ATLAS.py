@@ -1476,6 +1476,141 @@ class ATLAS:
             rationale=rationale,
         )
 
+    def export_tool_bundle(
+        self,
+        tool_name: str,
+        *,
+        signing_key: str,
+        persona: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Export a tool definition via the shared server routes."""
+
+        response = self.server.export_tool_bundle(
+            tool_name,
+            signing_key=signing_key,
+            persona=persona,
+        )
+
+        if not response.get("success"):
+            return response
+
+        bundle = response.get("bundle")
+        if isinstance(bundle, str):
+            try:
+                response["bundle_bytes"] = base64.b64decode(bundle.encode("utf-8"))
+            except (binascii.Error, ValueError) as exc:
+                return {"success": False, "error": f"Failed to decode bundle payload: {exc}"}
+        else:
+            return {"success": False, "error": "Server response did not include bundle data."}
+
+        return response
+
+    def import_tool_bundle(
+        self,
+        *,
+        bundle_bytes: bytes,
+        signing_key: str,
+        rationale: str = "Imported via UI",
+    ) -> Dict[str, Any]:
+        """Import a tool bundle through the server routes."""
+
+        encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        return self.server.import_tool_bundle(
+            bundle_base64=encoded,
+            signing_key=signing_key,
+            rationale=rationale,
+        )
+
+    def export_skill_bundle(
+        self,
+        skill_name: str,
+        *,
+        signing_key: str,
+        persona: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Export a skill definition via the shared server routes."""
+
+        response = self.server.export_skill_bundle(
+            skill_name,
+            signing_key=signing_key,
+            persona=persona,
+        )
+
+        if not response.get("success"):
+            return response
+
+        bundle = response.get("bundle")
+        if isinstance(bundle, str):
+            try:
+                response["bundle_bytes"] = base64.b64decode(bundle.encode("utf-8"))
+            except (binascii.Error, ValueError) as exc:
+                return {"success": False, "error": f"Failed to decode bundle payload: {exc}"}
+        else:
+            return {"success": False, "error": "Server response did not include bundle data."}
+
+        return response
+
+    def import_skill_bundle(
+        self,
+        *,
+        bundle_bytes: bytes,
+        signing_key: str,
+        rationale: str = "Imported via UI",
+    ) -> Dict[str, Any]:
+        """Import a skill bundle through the server routes."""
+
+        encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        return self.server.import_skill_bundle(
+            bundle_base64=encoded,
+            signing_key=signing_key,
+            rationale=rationale,
+        )
+
+    def export_job_bundle(
+        self,
+        job_name: str,
+        *,
+        signing_key: str,
+        persona: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Export a job definition via the shared server routes."""
+
+        response = self.server.export_job_bundle(
+            job_name,
+            signing_key=signing_key,
+            persona=persona,
+        )
+
+        if not response.get("success"):
+            return response
+
+        bundle = response.get("bundle")
+        if isinstance(bundle, str):
+            try:
+                response["bundle_bytes"] = base64.b64decode(bundle.encode("utf-8"))
+            except (binascii.Error, ValueError) as exc:
+                return {"success": False, "error": f"Failed to decode bundle payload: {exc}"}
+        else:
+            return {"success": False, "error": "Server response did not include bundle data."}
+
+        return response
+
+    def import_job_bundle(
+        self,
+        *,
+        bundle_bytes: bytes,
+        signing_key: str,
+        rationale: str = "Imported via UI",
+    ) -> Dict[str, Any]:
+        """Import a job bundle through the server routes."""
+
+        encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        return self.server.import_job_bundle(
+            bundle_base64=encoded,
+            signing_key=signing_key,
+            rationale=rationale,
+        )
+
     def get_persona_metrics(
         self,
         persona_name: str,
