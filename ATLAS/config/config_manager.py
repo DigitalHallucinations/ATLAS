@@ -281,6 +281,32 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
 
         return self.conversation_summary.get_settings()
 
+    def get_persona_remediation_policies(self) -> Dict[str, Any]:
+        """Return tenant specific remediation policies for persona metrics."""
+
+        runtime_block = self.config.get("remediation")
+        yaml_block = self.yaml_config.get("remediation")
+
+        result: Dict[str, Any] = {}
+        if isinstance(yaml_block, Mapping):
+            result = copy.deepcopy(yaml_block)
+
+        def _merge(destination: Dict[str, Any], source: Mapping[str, Any]) -> None:
+            for key, value in source.items():
+                if isinstance(value, Mapping) and isinstance(destination.get(key), Mapping):
+                    merged = dict(destination[key])  # type: ignore[index]
+                    _merge(merged, value)
+                    destination[key] = merged
+                else:
+                    destination[key] = copy.deepcopy(value)
+
+        if isinstance(runtime_block, Mapping):
+            if not result:
+                result = {}
+            _merge(result, runtime_block)
+
+        return result
+
     def set_conversation_summary_settings(self, **settings: Any) -> Dict[str, Any]:
         """Persist conversation summary preferences and update cached state."""
 
