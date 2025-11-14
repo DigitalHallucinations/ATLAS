@@ -40,6 +40,12 @@ documented in [configuration.md](configuration.md).【F:ATLAS/config/conversatio
 visible in memory queries alongside other episodic entries, providing a concise
 timeline that survives message-level retention policies.
 
+When follow-up templates are configured the worker also evaluates each snapshot
+for outstanding questions or keywords, publishing structured
+`conversation.followups` events whenever actionable items are detected.【F:modules/background_tasks/conversation_summary.py†L225-L356】 These
+events feed the orchestration layer where `FollowUpOrchestrator` can launch
+tasks or trigger escalations automatically based on the detected items.【F:modules/orchestration/followups.py†L12-L185】
+
 ## Administrative trigger
 
 Administrative tooling can invoke retention on demand through

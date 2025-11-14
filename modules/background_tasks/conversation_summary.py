@@ -5,16 +5,17 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, Mapping, MutableMapping
+from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Sequence
 
 from modules.Tools.Base_Tools.context_tracker import context_tracker
 from modules.Tools.Base_Tools.memory_episodic import EpisodicMemoryTool
 from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
-from modules.orchestration.message_bus import MessageBus, Subscription
+from modules.orchestration.message_bus import MessageBus, MessagePriority, Subscription
 
 
 def _coerce_datetime(value: Any) -> datetime | None:
@@ -63,8 +64,413 @@ class _BatchState:
             self.messages.append(record)
 
 
+_QUESTION_PREFIXES = (
+    "who",
+    "what",
+    "when",
+    "where",
+    "why",
+    "how",
+    "which",
+    "can",
+    "could",
+    "would",
+    "should",
+    "do",
+    "does",
+    "did",
+    "is",
+    "are",
+    "will",
+    "may",
+    "have",
+    "has",
+    "had",
+)
+
+
+def extract_followups(
+    snapshot: Mapping[str, Any],
+    templates: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Evaluate *snapshot* against configured follow-up *templates*."""
+
+    history = _normalize_history_messages(snapshot.get("history"))
+    summary_text = _coerce_text(snapshot.get("summary"))
+    highlights = _normalize_highlights(snapshot.get("highlights"))
+
+    followups: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    for template in templates:
+        if not isinstance(template, Mapping):
+            continue
+        template_id = str(template.get("id") or "").strip()
+        if not template_id:
+            continue
+
+        matching = template.get("matching")
+        if not isinstance(matching, Mapping):
+            matching = {}
+
+        scope = matching.get("scope")
+        if isinstance(scope, (list, tuple, set)):
+            scoped = [str(item).strip().lower() for item in scope]
+            scopes = [item for item in scoped if item in {"history", "summary", "highlights"}]
+            if not scopes:
+                scopes = ["history"]
+        else:
+            scopes = ["history"]
+
+        pattern_text = matching.get("pattern")
+        pattern = None
+        if isinstance(pattern_text, str) and pattern_text.strip():
+            try:
+                pattern = re.compile(pattern_text.strip(), re.IGNORECASE)
+            except re.error:
+                pattern = None
+
+        contexts: list[dict[str, Any]] = []
+        if "history" in scopes:
+            contexts.extend(_match_history(history, matching, pattern))
+        if "summary" in scopes:
+            contexts.extend(_match_summary(summary_text, matching, pattern))
+        if "highlights" in scopes:
+            contexts.extend(_match_highlights(highlights, matching, pattern))
+
+        if not contexts:
+            continue
+
+        for counter, context in enumerate(contexts, start=1):
+            identifier = str(context.get("identifier") or counter)
+            followup_id = f"{template_id}::{identifier}"
+            if followup_id in seen_ids:
+                suffix = 1
+                while f"{followup_id}-{suffix}" in seen_ids:
+                    suffix += 1
+                followup_id = f"{followup_id}-{suffix}"
+            seen_ids.add(followup_id)
+
+            entry: dict[str, Any] = {
+                "id": followup_id,
+                "template_id": template_id,
+                "kind": str(template.get("kind") or "action_item"),
+                "title": str(template.get("title") or template_id),
+                "description": str(template.get("description") or ""),
+                "source": _build_source_payload(context),
+                "reasons": list(context.get("reasons", [])),
+            }
+
+            evidence = context.get("evidence")
+            if isinstance(evidence, str) and evidence:
+                entry["evidence"] = evidence
+
+            task_spec = template.get("task")
+            if isinstance(task_spec, Mapping) and task_spec:
+                entry["task"] = dict(task_spec)
+
+            escalation_spec = template.get("escalation")
+            if isinstance(escalation_spec, Mapping) and escalation_spec:
+                entry["escalation"] = dict(escalation_spec)
+
+            followups.append(entry)
+
+    return followups
+
+
+def _build_source_payload(context: Mapping[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {"type": context.get("type")}
+    if "role" in context and context.get("role") is not None:
+        payload["role"] = context.get("role")
+    if "index" in context and context.get("index") is not None:
+        payload["index"] = context.get("index")
+    if "position" in context and context.get("position") is not None:
+        payload["position"] = context.get("position")
+    if "timestamp" in context and context.get("timestamp") is not None:
+        payload["timestamp"] = context.get("timestamp")
+    if "metadata" in context and isinstance(context.get("metadata"), Mapping):
+        payload["metadata"] = dict(context.get("metadata"))
+    content = context.get("content")
+    if isinstance(content, str) and content:
+        payload["content"] = content
+    return payload
+
+
+def _normalize_history_messages(history: Any) -> list[dict[str, Any]]:
+    if not isinstance(history, Iterable):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for position, entry in enumerate(history):
+        if not isinstance(entry, Mapping):
+            continue
+        raw_role = entry.get("role")
+        role = str(raw_role or "").strip().lower() or "unknown"
+        content_value = entry.get("content")
+        content = str(content_value).strip() if isinstance(content_value, str) else ""
+        try:
+            index_value = int(entry.get("index"))
+        except (TypeError, ValueError):
+            index_value = position
+
+        record: dict[str, Any] = {
+            "role": role,
+            "content": content,
+            "position": position,
+            "index": index_value,
+        }
+
+        timestamp = entry.get("timestamp")
+        if timestamp is not None:
+            record["timestamp"] = timestamp
+
+        metadata = entry.get("metadata")
+        if isinstance(metadata, Mapping) and metadata:
+            record["metadata"] = dict(metadata)
+
+        normalized.append(record)
+
+    return normalized
+
+
+def _normalize_highlights(highlights: Any) -> list[str]:
+    if not isinstance(highlights, Iterable):
+        return []
+    result: list[str] = []
+    for item in highlights:
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                result.append(text)
+    return result
+
+
+def _coerce_text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _match_history(
+    history: Sequence[Mapping[str, Any]],
+    matching: Mapping[str, Any],
+    pattern: re.Pattern[str] | None,
+) -> list[dict[str, Any]]:
+    if not history:
+        return []
+
+    window_value = matching.get("history_window")
+    if isinstance(window_value, int) and window_value > 0:
+        candidates = list(history[-window_value:])
+    else:
+        candidates = list(history)
+
+    include_roles = {
+        str(role).strip().lower()
+        for role in matching.get("include_roles", [])
+        if str(role).strip()
+    }
+    exclude_roles = {
+        str(role).strip().lower()
+        for role in matching.get("exclude_roles", [])
+        if str(role).strip()
+    }
+    response_roles = {
+        str(role).strip().lower()
+        for role in matching.get("response_roles", [])
+        if str(role).strip()
+    }
+
+    keywords = tuple(
+        str(keyword).strip().lower()
+        for keyword in matching.get("keywords", [])
+        if str(keyword).strip()
+    )
+    require_question = bool(matching.get("unanswered_question"))
+
+    contexts: list[dict[str, Any]] = []
+    for message in candidates:
+        role = message.get("role")
+        if include_roles and role not in include_roles:
+            continue
+        if role in exclude_roles:
+            continue
+
+        text = message.get("content") or ""
+        if not text:
+            continue
+
+        reasons: list[str] = []
+        lowered = text.lower()
+
+        if keywords:
+            if not any(keyword in lowered for keyword in keywords):
+                continue
+            reasons.append("keyword")
+
+        if pattern is not None:
+            if not pattern.search(text):
+                continue
+            reasons.append("pattern")
+
+        if require_question:
+            if not _looks_like_question(text):
+                continue
+            responders = _resolve_responder_roles(role, response_roles)
+            if _has_responder_message_after(history, message.get("position", 0), responders):
+                continue
+            reasons.append("unanswered_question")
+
+        if not reasons and not keywords and pattern is None and not require_question:
+            continue
+
+        context: dict[str, Any] = {
+            "type": "message",
+            "role": role,
+            "index": message.get("index"),
+            "position": message.get("position"),
+            "content": text,
+            "reasons": reasons,
+            "identifier": f"message-{message.get('index')}",
+            "evidence": text,
+        }
+        if "timestamp" in message:
+            context["timestamp"] = message.get("timestamp")
+        if "metadata" in message:
+            context["metadata"] = message.get("metadata")
+        contexts.append(context)
+
+    return contexts
+
+
+def _match_summary(
+    summary: str,
+    matching: Mapping[str, Any],
+    pattern: re.Pattern[str] | None,
+) -> list[dict[str, Any]]:
+    if not summary:
+        return []
+
+    keywords = tuple(
+        str(keyword).strip().lower()
+        for keyword in matching.get("keywords", [])
+        if str(keyword).strip()
+    )
+    require_question = bool(matching.get("unanswered_question"))
+
+    reasons: list[str] = []
+    lowered = summary.lower()
+
+    if keywords and any(keyword in lowered for keyword in keywords):
+        reasons.append("keyword")
+
+    if pattern is not None and pattern.search(summary):
+        reasons.append("pattern")
+
+    if require_question and _looks_like_question(summary):
+        reasons.append("unanswered_question")
+
+    if not reasons:
+        return []
+
+    return [
+        {
+            "type": "summary",
+            "content": summary,
+            "reasons": reasons,
+            "identifier": "summary",
+            "evidence": summary,
+        }
+    ]
+
+
+def _match_highlights(
+    highlights: Sequence[str],
+    matching: Mapping[str, Any],
+    pattern: re.Pattern[str] | None,
+) -> list[dict[str, Any]]:
+    if not highlights:
+        return []
+
+    keywords = tuple(
+        str(keyword).strip().lower()
+        for keyword in matching.get("keywords", [])
+        if str(keyword).strip()
+    )
+    require_question = bool(matching.get("unanswered_question"))
+
+    contexts: list[dict[str, Any]] = []
+    for index, value in enumerate(highlights):
+        reasons: list[str] = []
+        lowered = value.lower()
+
+        if keywords and any(keyword in lowered for keyword in keywords):
+            reasons.append("keyword")
+
+        if pattern is not None and pattern.search(value):
+            reasons.append("pattern")
+
+        if require_question and _looks_like_question(value):
+            reasons.append("unanswered_question")
+
+        if not reasons:
+            continue
+
+        contexts.append(
+            {
+                "type": "highlight",
+                "index": index,
+                "content": value,
+                "reasons": reasons,
+                "identifier": f"highlight-{index}",
+                "evidence": value,
+            }
+        )
+
+    return contexts
+
+
+def _resolve_responder_roles(role: Any, configured: Iterable[str]) -> set[str]:
+    responders = {candidate for candidate in configured if candidate}
+    if responders:
+        return responders
+    role_key = str(role or "").strip().lower()
+    if role_key == "assistant":
+        return {"user"}
+    return {"assistant"}
+
+
+def _has_responder_message_after(
+    history: Sequence[Mapping[str, Any]],
+    position: int,
+    responders: Iterable[str],
+) -> bool:
+    responder_set = {str(item).strip().lower() for item in responders if str(item).strip()}
+    for message in history:
+        message_position = int(message.get("position", 0))
+        if message_position <= position:
+            continue
+        role = str(message.get("role") or "").strip().lower()
+        if role in responder_set and str(message.get("content") or "").strip():
+            return True
+    return False
+
+
+def _looks_like_question(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if "?" in stripped:
+        return True
+    lowered = stripped.lower()
+    for prefix in _QUESTION_PREFIXES:
+        if lowered.startswith(prefix + " ") or lowered.startswith(prefix + "?"):
+            return True
+    return False
+
+
 class ConversationSummaryWorker:
     """Subscribe to conversation events and persist episodic summaries."""
+
+    FOLLOWUP_TOPIC = "conversation.followups"
 
     def __init__(
         self,
@@ -357,7 +763,7 @@ class ConversationSummaryWorker:
 
         for state in pending:
             try:
-                await self._persist_summary(state, retention, tenant_overrides)
+                await self._persist_summary(state, settings, retention, tenant_overrides)
             except Exception:  # pragma: no cover - defensive logging only
                 self._logger.exception(
                     "Failed to persist episodic summary for conversation %s", state.conversation_id
@@ -370,6 +776,7 @@ class ConversationSummaryWorker:
     async def _persist_summary(
         self,
         state: _BatchState,
+        settings: Mapping[str, Any],
         retention: Mapping[str, Any] | None,
         tenant_overrides: Mapping[str, Any] | None,
     ) -> None:
@@ -382,16 +789,23 @@ class ConversationSummaryWorker:
             return
         occurred_at = state.last_event
         expires_at = self._resolve_expiration(state.tenant_id, occurred_at, retention, tenant_overrides)
+        persona = self._resolve_persona(settings, tenant_overrides, state.tenant_id, snapshot)
         metadata = {
             "source": "conversation_summary_worker",
             "message_count": len(ordered),
             "first_event": state.first_event.isoformat(),
             "last_event": state.last_event.isoformat(),
-            "persona": snapshot.get("persona"),
+            "persona": persona,
         }
         tags = ["conversation-summary", "auto"]
         if snapshot.get("participants"):
             metadata["participants"] = list(snapshot["participants"])
+
+        followup_templates = self._resolve_followup_templates(settings, tenant_overrides, state.tenant_id, persona)
+        followups = extract_followups(snapshot, followup_templates)
+        if followups:
+            metadata["followup_count"] = len(followups)
+
         await self._summary_tool.store(
             tenant_id=state.tenant_id,
             conversation_id=state.conversation_id,
@@ -407,6 +821,9 @@ class ConversationSummaryWorker:
             title=f"Conversation summary – {occurred_at.strftime('%Y-%m-%d %H:%M:%S')} UTC",
         )
 
+        if followups:
+            self._emit_followup_event(state, persona, occurred_at, snapshot, followups)
+
     async def _generate_snapshot(
         self,
         conversation_id: str,
@@ -419,6 +836,123 @@ class ConversationSummaryWorker:
         payload = dict(payload)
         payload.setdefault("persona", "context_tracker")
         return payload
+
+    def _resolve_persona(
+        self,
+        settings: Mapping[str, Any],
+        tenant_overrides: Mapping[str, Any] | None,
+        tenant_id: str,
+        snapshot: Mapping[str, Any],
+    ) -> str | None:
+        candidate: Any = None
+        if isinstance(tenant_overrides, Mapping):
+            tenant_block = tenant_overrides.get(tenant_id)
+            if isinstance(tenant_block, Mapping):
+                candidate = tenant_block.get("persona")
+        if not candidate and isinstance(settings.get("persona"), str):
+            candidate = settings.get("persona")
+        if not candidate:
+            candidate = snapshot.get("persona")
+        if isinstance(candidate, str):
+            candidate = candidate.strip()
+        return candidate or None
+
+    def _resolve_followup_templates(
+        self,
+        settings: Mapping[str, Any],
+        tenant_overrides: Mapping[str, Any] | None,
+        tenant_id: str,
+        persona: str | None,
+    ) -> list[Mapping[str, Any]]:
+        persona_key = persona.strip().lower() if isinstance(persona, str) and persona.strip() else None
+        ordered_ids: list[str] = []
+        templates: dict[str, Mapping[str, Any]] = {}
+
+        def _append(entries: Iterable[Mapping[str, Any]], *, replace: bool = False) -> None:
+            for template in entries:
+                if not isinstance(template, Mapping):
+                    continue
+                template_id = str(template.get("id") or "").strip()
+                if not template_id:
+                    continue
+                if template_id in templates:
+                    if not replace:
+                        continue
+                    ordered_ids[:] = [item for item in ordered_ids if item != template_id]
+                templates[template_id] = dict(template)
+                ordered_ids.append(template_id)
+
+        followup_block = settings.get("followups")
+        if isinstance(followup_block, Mapping):
+            defaults = followup_block.get("defaults")
+            if isinstance(defaults, list):
+                _append(defaults)
+            persona_map = followup_block.get("personas")
+            if persona_key and isinstance(persona_map, Mapping):
+                persona_entries = persona_map.get(persona_key)
+                if isinstance(persona_entries, list):
+                    _append(persona_entries)
+
+        if isinstance(tenant_overrides, Mapping):
+            tenant_block = tenant_overrides.get(tenant_id)
+            if isinstance(tenant_block, Mapping):
+                tenant_followups = tenant_block.get("followups")
+                if isinstance(tenant_followups, Mapping):
+                    defaults = tenant_followups.get("defaults")
+                    if isinstance(defaults, list):
+                        _append(defaults, replace=True)
+                    persona_map = tenant_followups.get("personas")
+                    if persona_key and isinstance(persona_map, Mapping):
+                        persona_entries = persona_map.get(persona_key)
+                        if isinstance(persona_entries, list):
+                            _append(persona_entries, replace=True)
+
+        return [templates[identifier] for identifier in ordered_ids]
+
+    def _emit_followup_event(
+        self,
+        state: _BatchState,
+        persona: str | None,
+        occurred_at: datetime,
+        snapshot: Mapping[str, Any],
+        followups: Sequence[Mapping[str, Any]],
+    ) -> None:
+        if self._bus is None:
+            self._logger.debug(
+                "Detected %d follow-up items for %s but no message bus is configured",
+                len(followups),
+                state.conversation_id,
+            )
+            return
+
+        payload = {
+            "tenant_id": state.tenant_id,
+            "conversation_id": state.conversation_id,
+            "persona": persona,
+            "summary": {
+                "occurred_at": occurred_at.isoformat(),
+                "window_start": state.first_event.isoformat(),
+                "window_end": state.last_event.isoformat(),
+                "message_count": len(snapshot.get("history") or []),
+                "summary": snapshot.get("summary"),
+                "highlights": list(snapshot.get("highlights") or []),
+                "participants": list(snapshot.get("participants") or []),
+            },
+            "followup_count": len(followups),
+            "followups": [dict(item) for item in followups],
+        }
+
+        try:
+            self._bus.publish_from_sync(
+                self.FOLLOWUP_TOPIC,
+                payload,
+                priority=MessagePriority.HIGH,
+                metadata={"component": "conversation_summary"},
+            )
+        except Exception:  # pragma: no cover - defensive logging only
+            self._logger.exception(
+                "Failed to publish follow-up event for conversation %s", state.conversation_id
+            )
 
     # ------------------------------------------------------------------
     # Settings helpers
@@ -481,4 +1015,4 @@ class ConversationSummaryWorker:
         return occurred_at + timedelta(days=ttl_days)
 
 
-__all__ = ["ConversationSummaryWorker"]
+__all__ = ["ConversationSummaryWorker", "extract_followups"]
