@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Callable, Iterable, Sequence
 
@@ -10,6 +11,8 @@ import gi
 gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
+
+from ATLAS.setup.controller import DatabaseState, _compose_dsn
 
 
 PasswordProvider = Callable[[], str | None]
@@ -55,6 +58,7 @@ class PreflightHelper:
         subprocess_factory: Callable[[Sequence[str], Gio.SubprocessFlags], Gio.Subprocess] | None = None,
     ) -> None:
         self._request_password = request_password
+        self._database_state: DatabaseState = DatabaseState()
         self._checks: list[PreflightCheckDefinition] = list(checks or self._default_checks())
         self._subprocess_factory = subprocess_factory or self._spawn_subprocess
 
@@ -66,6 +70,14 @@ class PreflightHelper:
         self._on_complete: CompleteCallback | None = None
 
     # -- public API -----------------------------------------------------
+
+    def configure_database_target(self, state: DatabaseState | None) -> None:
+        """Adjust the database check to match *state* for the next run."""
+
+        if state is None:
+            self._database_state = DatabaseState()
+        else:
+            self._database_state = dataclasses.replace(state)
 
     def run_checks(
         self,
@@ -81,6 +93,7 @@ class PreflightHelper:
         self._on_update = on_update
         self._on_complete = on_complete
         self._results.clear()
+        self._checks = list(self._default_checks())
         self._pending = list(self._checks)
         self._running = True
         self._advance()
@@ -313,14 +326,107 @@ class PreflightHelper:
     # -- check catalog --------------------------------------------------
 
     def _default_checks(self) -> Iterable[PreflightCheckDefinition]:
+        checks: list[PreflightCheckDefinition] = []
+        database_check = self._build_database_check()
+        if database_check is not None:
+            checks.append(database_check)
+        checks.append(self._build_redis_check())
+        checks.append(self._build_virtualenv_check())
+        return checks
+
+    def _build_database_check(self) -> PreflightCheckDefinition | None:
+        backend = (self._database_state.backend or "postgresql").strip().lower() or "postgresql"
+        if backend == "sqlite":
+            return None
+        if backend == "mongodb":
+            uri = _compose_dsn(self._database_state).strip()
+            if not uri:
+                uri = "mongodb://localhost:27017/atlas"
+            mongo_hint = (
+                "MongoDB is unreachable. Verify the URI, credentials, and network access,"
+                " including Atlas SRV records."
+            )
+            script = (
+                "import sys\n"
+                "uri = sys.argv[1]\n"
+                "try:\n"
+                "    from pymongo import MongoClient\n"
+                "except Exception as exc:\n"
+                "    print(f'pymongo import failed: {exc}', file=sys.stderr)\n"
+                "    sys.exit(1)\n"
+                "client = MongoClient(uri, serverSelectionTimeoutMS=5000)\n"
+                "try:\n"
+                "    client.admin.command('ping')\n"
+                "except Exception as exc:\n"
+                "    print(f'mongodb ping failed: {exc}', file=sys.stderr)\n"
+                "    sys.exit(1)\n"
+                "finally:\n"
+                "    client.close()\n"
+            )
+            return PreflightCheckDefinition(
+                identifier="mongodb",
+                label="MongoDB",
+                command=["/usr/bin/env", "python3", "-c", script, uri],
+                success_message="MongoDB connection succeeded.",
+                failure_hint=mongo_hint,
+            )
+
         pg_hint = (
             "PostgreSQL is unreachable. Ensure the server is installed and that pg_isready"
             " can connect to the configured instance."
         )
+        host = (self._database_state.host or "").strip()
+        port = int(self._database_state.port or 0)
+        database = (self._database_state.database or "").strip()
+        command: list[str] = ["/usr/bin/env", "pg_isready", "-q"]
+        if host:
+            command.extend(["-h", host])
+        if port:
+            command.extend(["-p", str(port)])
+        if database:
+            command.extend(["-d", database])
+        return PreflightCheckDefinition(
+            identifier="postgresql",
+            label="PostgreSQL",
+            command=command,
+            success_message="PostgreSQL is accepting connections.",
+            failure_hint=pg_hint,
+            fix_command=[
+                "/usr/bin/env",
+                "sudo",
+                "-S",
+                "systemctl",
+                "start",
+                "postgresql",
+            ],
+            fix_label="Start PostgreSQL service",
+            requires_sudo=True,
+        )
+
+    def _build_redis_check(self) -> PreflightCheckDefinition:
         redis_hint = (
             "Redis did not respond to ping. Verify the redis-server service is installed"
             " and running."
         )
+        return PreflightCheckDefinition(
+            identifier="redis",
+            label="Redis",
+            command=["/usr/bin/env", "redis-cli", "ping"],
+            success_message="Redis responded to ping.",
+            failure_hint=redis_hint,
+            fix_command=[
+                "/usr/bin/env",
+                "sudo",
+                "-S",
+                "systemctl",
+                "start",
+                "redis-server",
+            ],
+            fix_label="Start Redis service",
+            requires_sudo=True,
+        )
+
+    def _build_virtualenv_check(self) -> PreflightCheckDefinition:
         venv_hint = (
             "No project virtual environment detected. Create .venv before launching ATLAS."
         )
@@ -330,52 +436,16 @@ class PreflightHelper:
             "exe = base / suffix / ('python.exe' if sys.platform.startswith('win') else 'python');"
             "sys.exit(0 if exe.exists() else 1)"
         )
-        return [
-            PreflightCheckDefinition(
-                identifier="postgresql",
-                label="PostgreSQL",
-                command=["/usr/bin/env", "pg_isready", "-q"],
-                success_message="PostgreSQL is accepting connections.",
-                failure_hint=pg_hint,
-                fix_command=[
-                    "/usr/bin/env",
-                    "sudo",
-                    "-S",
-                    "systemctl",
-                    "start",
-                    "postgresql",
-                ],
-                fix_label="Start PostgreSQL service",
-                requires_sudo=True,
-            ),
-            PreflightCheckDefinition(
-                identifier="redis",
-                label="Redis",
-                command=["/usr/bin/env", "redis-cli", "ping"],
-                success_message="Redis responded to ping.",
-                failure_hint=redis_hint,
-                fix_command=[
-                    "/usr/bin/env",
-                    "sudo",
-                    "-S",
-                    "systemctl",
-                    "start",
-                    "redis-server",
-                ],
-                fix_label="Start Redis service",
-                requires_sudo=True,
-            ),
-            PreflightCheckDefinition(
-                identifier="virtualenv",
-                label="Project virtualenv",
-                command=["/usr/bin/env", "python3", "-c", python_check],
-                success_message=".venv virtual environment is ready.",
-                failure_hint=venv_hint,
-                fix_command=["/usr/bin/env", "python3", "-m", "venv", ".venv"],
-                fix_label="Create .venv virtualenv",
-                requires_sudo=False,
-            ),
-        ]
+        return PreflightCheckDefinition(
+            identifier="virtualenv",
+            label="Project virtualenv",
+            command=["/usr/bin/env", "python3", "-c", python_check],
+            success_message=".venv virtual environment is ready.",
+            failure_hint=venv_hint,
+            fix_command=["/usr/bin/env", "python3", "-m", "venv", ".venv"],
+            fix_label="Create .venv virtualenv",
+            requires_sudo=False,
+        )
 
 
 __all__ = [
