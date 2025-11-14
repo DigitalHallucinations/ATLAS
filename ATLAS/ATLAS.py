@@ -1441,9 +1441,14 @@ class ATLAS:
     def export_persona_bundle(self, persona_name: str, *, signing_key: str) -> Dict[str, Any]:
         """Export ``persona_name`` via the shared server routes."""
 
+        context = {
+            "tenant_id": self.tenant_id or "default",
+            "roles": ("system",),
+        }
         response = self.server.export_persona_bundle(
             persona_name,
             signing_key=signing_key,
+            context=context,
         )
 
         if not response.get("success"):
@@ -1474,6 +1479,10 @@ class ATLAS:
             bundle_base64=encoded,
             signing_key=signing_key,
             rationale=rationale,
+            context={
+                "tenant_id": self.tenant_id or "default",
+                "roles": ("system",),
+            },
         )
 
     def export_tool_bundle(
@@ -1489,6 +1498,10 @@ class ATLAS:
             tool_name,
             signing_key=signing_key,
             persona=persona,
+            context={
+                "tenant_id": self.tenant_id or "default",
+                "roles": ("system",),
+            },
         )
 
         if not response.get("success"):
@@ -1519,6 +1532,10 @@ class ATLAS:
             bundle_base64=encoded,
             signing_key=signing_key,
             rationale=rationale,
+            context={
+                "tenant_id": self.tenant_id or "default",
+                "roles": ("system",),
+            },
         )
 
     def export_skill_bundle(
@@ -1534,6 +1551,10 @@ class ATLAS:
             skill_name,
             signing_key=signing_key,
             persona=persona,
+            context={
+                "tenant_id": self.tenant_id or "default",
+                "roles": ("system",),
+            },
         )
 
         if not response.get("success"):
@@ -1564,6 +1585,10 @@ class ATLAS:
             bundle_base64=encoded,
             signing_key=signing_key,
             rationale=rationale,
+            context={
+                "tenant_id": self.tenant_id or "default",
+                "roles": ("system",),
+            },
         )
 
     def export_job_bundle(
@@ -1579,6 +1604,10 @@ class ATLAS:
             job_name,
             signing_key=signing_key,
             persona=persona,
+            context={
+                "tenant_id": self.tenant_id or "default",
+                "roles": ("system",),
+            },
         )
 
         if not response.get("success"):
@@ -1609,6 +1638,10 @@ class ATLAS:
             bundle_base64=encoded,
             signing_key=signing_key,
             rationale=rationale,
+            context={
+                "tenant_id": self.tenant_id or "default",
+                "roles": ("system",),
+            },
         )
 
     def get_persona_metrics(

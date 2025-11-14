@@ -855,13 +855,16 @@ async def get_persona_review(persona_name: str, request: Request) -> Any:
 @app.post("/personas/{persona_name}/review")
 async def attest_persona_review(persona_name: str, request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             f"/personas/{persona_name}/review",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -871,13 +874,16 @@ async def attest_persona_review(persona_name: str, request: Request) -> Any:
 @app.post("/personas/{persona_name}/tools")
 async def update_persona_tools(persona_name: str, request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             f"/personas/{persona_name}/tools",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -887,13 +893,16 @@ async def update_persona_tools(persona_name: str, request: Request) -> Any:
 @app.post("/personas/{persona_name}/skills")
 async def update_persona_skills(persona_name: str, request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             f"/personas/{persona_name}/skills",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -903,13 +912,16 @@ async def update_persona_skills(persona_name: str, request: Request) -> Any:
 @app.post("/personas/{persona_name}/export")
 async def export_persona_bundle(persona_name: str, request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             f"/personas/{persona_name}/export",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -919,13 +931,16 @@ async def export_persona_bundle(persona_name: str, request: Request) -> Any:
 @app.post("/personas/import")
 async def import_persona_bundle(request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             "/personas/import",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -935,13 +950,16 @@ async def import_persona_bundle(request: Request) -> Any:
 @app.post("/tasks/{task_name}/export")
 async def export_task_bundle(task_name: str, request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             f"/tasks/{task_name}/export",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -951,13 +969,16 @@ async def export_task_bundle(task_name: str, request: Request) -> Any:
 @app.post("/tasks/import")
 async def import_task_bundle(request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             "/tasks/import",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -967,13 +988,16 @@ async def import_task_bundle(request: Request) -> Any:
 @app.post("/tools/{tool_name}/export")
 async def export_tool_bundle(tool_name: str, request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             f"/tools/{tool_name}/export",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -983,13 +1007,16 @@ async def export_tool_bundle(tool_name: str, request: Request) -> Any:
 @app.post("/tools/import")
 async def import_tool_bundle(request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             "/tools/import",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -999,13 +1026,16 @@ async def import_tool_bundle(request: Request) -> Any:
 @app.post("/skills/{skill_name}/export")
 async def export_skill_bundle(skill_name: str, request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             f"/skills/{skill_name}/export",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -1015,13 +1045,16 @@ async def export_skill_bundle(skill_name: str, request: Request) -> Any:
 @app.post("/skills/import")
 async def import_skill_bundle(request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             "/skills/import",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -1031,13 +1064,16 @@ async def import_skill_bundle(request: Request) -> Any:
 @app.post("/jobs/{job_name}/export")
 async def export_job_bundle(job_name: str, request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             f"/jobs/{job_name}/export",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
@@ -1047,13 +1083,16 @@ async def export_job_bundle(job_name: str, request: Request) -> Any:
 @app.post("/jobs/import")
 async def import_job_bundle(request: Request) -> Any:
     payload = await request.json()
+    atlas = _get_atlas(request)
     server = _get_server(request)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(
             server.handle_request,
             "/jobs/import",
             method="POST",
             query=payload,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
