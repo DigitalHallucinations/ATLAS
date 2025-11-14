@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import logging
 import threading
+from collections.abc import Mapping
 from concurrent.futures import Future
 from typing import Any, Awaitable, Callable, Generic, TypeVar, cast
 
@@ -90,5 +91,35 @@ def run_async_in_thread(
     return future
 
 
-__all__ = ["AwaitableFuture", "run_async_in_thread", "RetentionWorker", "ConversationSummaryWorker"]
+def create_retention_worker(
+    repository: Any,
+    *,
+    config_manager: Any | None = None,
+    logger: logging.Logger | None = None,
+    **overrides: Any,
+) -> RetentionWorker:
+    """Instantiate :class:`RetentionWorker` using configuration defaults."""
+
+    settings: dict[str, Any] = {}
+    if config_manager is not None:
+        getter = getattr(config_manager, "get_retention_worker_settings", None)
+        if callable(getter):
+            try:
+                candidate = getter()
+            except Exception:  # pragma: no cover - defensive path
+                candidate = {}
+            if isinstance(candidate, Mapping):
+                settings = dict(candidate)
+
+    settings.update(overrides)
+    return RetentionWorker(repository, logger=logger, **settings)
+
+
+__all__ = [
+    "AwaitableFuture",
+    "run_async_in_thread",
+    "RetentionWorker",
+    "ConversationSummaryWorker",
+    "create_retention_worker",
+]
 
