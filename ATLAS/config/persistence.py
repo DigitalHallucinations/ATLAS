@@ -13,6 +13,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import sessionmaker
 
+from modules.conversation_store.mongo_repository import MongoConversationStoreRepository
 from modules.job_store import JobService
 from modules.job_store.repository import JobStoreRepository
 from modules.task_store import TaskService, TaskStoreRepository
@@ -201,13 +202,15 @@ class PersistenceConfigMixin:
             history_limit=history_limit,
         )
 
-    def get_conversation_store_engine(self) -> Engine | None:
-        """Return a configured SQLAlchemy engine for the conversation store."""
+    def get_conversation_store_engine(self) -> Any | None:
+        """Return a configured engine or client for the conversation store."""
 
         return self.persistence.conversation.get_engine()
 
-    def get_conversation_store_session_factory(self) -> sessionmaker | None:
-        """Return a configured session factory for the conversation store."""
+    def get_conversation_store_session_factory(
+        self,
+    ) -> sessionmaker | MongoConversationStoreRepository | None:
+        """Return a configured session factory or repository for the conversation store."""
 
         return self.persistence.conversation.get_session_factory()
 
@@ -219,6 +222,8 @@ class PersistenceConfigMixin:
 
         conversation_factory = self.get_conversation_store_session_factory()
         if conversation_factory is None:
+            return None
+        if isinstance(conversation_factory, MongoConversationStoreRepository):
             return None
 
         self._task_session_factory = conversation_factory
@@ -1263,6 +1268,13 @@ class ConversationStoreConfigSection:
         else:
             url = url_value or ""
 
+        if self._is_mongo_url(url) or backend_config == "mongodb":
+            if url:
+                self._persist_url(url)
+            self._persist_backend("mongodb")
+            self._conversation_store_verified = True
+            return url
+
         generated_default = False
         if not url:
             backend_config = backend_config or self.default_backend_name
@@ -1508,10 +1520,30 @@ class ConversationStoreConfigSection:
             return candidate
         return None
 
-    def _build_session_factory(self) -> tuple[Any | None, Any | None]:
-        ensured_url = self.ensure_postgres_store()
+    @staticmethod
+    def _is_mongo_url(value: str | None) -> bool:
+        if not value:
+            return False
+        normalized = value.strip().lower()
+        return normalized.startswith("mongodb://") or normalized.startswith("mongodb+srv://")
 
+    def _build_session_factory(self) -> tuple[Any | None, Any | None]:
         config = self.get_config()
+        backend = self._normalize_backend(config.get("backend"))
+        url_value = config.get("url")
+        if isinstance(url_value, str):
+            url = url_value.strip()
+        else:
+            url = url_value or ""
+
+        if not url:
+            backend = backend or self.default_backend_name
+            url = self._default_dsn_for_backend(backend)
+
+        if self._is_mongo_url(url) or backend == "mongodb":
+            return self._build_mongo_backend(url)
+
+        ensured_url = self.ensure_postgres_store()
         url = ensured_url
 
         try:
@@ -1553,3 +1585,43 @@ class ConversationStoreConfigSection:
         engine = self.create_engine(url, future=True, **engine_kwargs)
         factory = self.sessionmaker_factory(bind=engine, future=True)
         return engine, factory
+
+    def _build_mongo_backend(self, url: str) -> tuple[Any | None, MongoConversationStoreRepository | None]:
+        normalized_url = url.strip()
+        if not normalized_url:
+            normalized_url = self._default_dsn_for_backend("mongodb")
+
+        if not normalized_url:
+            self.logger.error("MongoDB backend requires a configured URL")
+            return None, None
+
+        try:  # pragma: no cover - optional dependency path
+            from pymongo import MongoClient
+        except Exception as exc:
+            self.logger.warning("PyMongo driver unavailable: %s", exc)
+            return None, None
+
+        try:
+            client = MongoClient(normalized_url)
+        except Exception as exc:
+            message = (
+                "Conversation store verification failed: unable to connect to the configured MongoDB database."
+            )
+            self.logger.error(message, exc_info=True)
+            raise RuntimeError(message) from exc
+
+        database_name = urlparse(normalized_url).path.lstrip("/").split("?", 1)[0] or "atlas"
+        database = client.get_database(database_name)
+        repository = MongoConversationStoreRepository.from_database(database, client=client)
+        try:
+            repository.ensure_indexes()
+        except RuntimeError:
+            client.close()
+            raise
+        except Exception as exc:
+            self.logger.warning("Failed to ensure MongoDB indexes: %s", exc)
+
+        self._persist_backend("mongodb")
+        self._persist_url(normalized_url)
+        self._conversation_store_verified = True
+        return client, repository

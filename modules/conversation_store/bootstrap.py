@@ -1,4 +1,4 @@
-"""Helpers for bootstrapping SQL conversation store backends."""
+"""Helpers for bootstrapping SQL and document conversation store backends."""
 
 from __future__ import annotations
 import importlib
@@ -11,8 +11,11 @@ import sys
 import time
 from pathlib import Path
 from typing import Callable, Iterable
+from urllib.parse import urlparse
 
 from sqlalchemy.engine.url import URL, make_url
+
+from .mongo_repository import MongoConversationStoreRepository
 
 
 class BootstrapError(RuntimeError):
@@ -459,6 +462,10 @@ def bootstrap_conversation_store(
 ) -> str:
     """Bootstrap the configured conversation store."""
 
+    normalized_dsn = (dsn or "").strip()
+    if normalized_dsn.startswith(("mongodb://", "mongodb+srv://")):
+        return _bootstrap_mongo_store(normalized_dsn)
+
     url = make_url(dsn)
     backend = url.get_backend_name()
 
@@ -599,6 +606,41 @@ def _bootstrap_sqlite_store(url: URL) -> str:
         url = url.set(database=str(db_path))
 
     return url.render_as_string(hide_password=False)
+
+
+def _bootstrap_mongo_store(dsn: str) -> str:
+    """Ensure MongoDB-backed stores provision the required indexes."""
+
+    try:  # pragma: no cover - optional dependency
+        from pymongo import MongoClient
+    except Exception:
+        return dsn
+
+    parsed = urlparse(dsn)
+    database_name = parsed.path.lstrip("/").split("?", 1)[0] or "atlas"
+
+    client: MongoClient | None = None
+    try:
+        client = MongoClient(dsn)
+    except Exception:
+        return dsn
+
+    try:
+        database = client.get_database(database_name)
+        repository = MongoConversationStoreRepository.from_database(database, client=client)
+        try:
+            repository.ensure_indexes()
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+    return dsn
 
 
 __all__ = ["BootstrapError", "bootstrap_conversation_store"]
