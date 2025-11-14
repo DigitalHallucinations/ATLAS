@@ -323,6 +323,11 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         elif normalized_adapter not in adapters:
             adapters[normalized_adapter] = {}
         adapters.setdefault("in_memory", adapters.get("in_memory", {}))
+        if "mongodb" not in adapters:
+            if isinstance(adapters_yaml, Mapping) and isinstance(adapters_yaml.get("mongodb"), Mapping):
+                adapters["mongodb"] = dict(adapters_yaml["mongodb"])  # type: ignore[index]
+            else:
+                adapters["mongodb"] = {}
         vector_yaml["adapters"] = adapters
 
         tools_yaml["vector_store"] = vector_yaml
