@@ -43,7 +43,7 @@ else:  # pragma: no cover - sanitize stubbed implementations
 
 from .core import (
     ConfigCore,
-    _DEFAULT_CONVERSATION_STORE_DSN,
+    _DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND,
     _DEFAULT_CONVERSATION_STORE_BACKENDS,
     _UNSET,
     find_dotenv,
@@ -140,7 +140,7 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
             make_url=make_url,
             sessionmaker_factory=sessionmaker,
             conversation_required_tables=self._conversation_store_required_tables,
-            default_conversation_dsn=_DEFAULT_CONVERSATION_STORE_DSN,
+            default_conversation_dsn_map=_DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND,
             conversation_backend_options=_DEFAULT_CONVERSATION_STORE_BACKENDS,
         )
         self.persistence.apply()

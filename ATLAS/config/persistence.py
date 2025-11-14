@@ -24,7 +24,7 @@ from modules.Tools.Base_Tools.task_queue import (
 
 from .core import (
     ConversationStoreBackendOption,
-    _DEFAULT_CONVERSATION_STORE_DSN,
+    _DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND,
     _UNSET,
     default_conversation_store_backend_name,
     get_default_conversation_store_backends,
@@ -66,7 +66,7 @@ class PersistenceConfigSection:
     make_url: Callable[..., Any]
     sessionmaker_factory: Callable[..., Any]
     conversation_required_tables: Callable[[], set[str]]
-    default_conversation_dsn: str
+    default_conversation_dsn_map: Mapping[str, str]
     conversation_backend_options: Sequence[ConversationStoreBackendOption] | None = None
 
     kv_engine_cache: Dict[tuple[Any, ...], Any] = field(default_factory=dict)
@@ -77,13 +77,17 @@ class PersistenceConfigSection:
             if self.conversation_backend_options
             else get_default_conversation_store_backends()
         )
+        dsn_map = dict(self.default_conversation_dsn_map or {})
+        for option in backends:
+            dsn_map.setdefault(option.name, option.dsn)
+
         self.conversation = ConversationStoreConfigSection(
             config=self.config,
             yaml_config=self.yaml_config,
             env_config=self.env_config,
             logger=self.logger,
             write_yaml_callback=self.write_yaml_callback,
-            default_conversation_dsn=self.default_conversation_dsn,
+            default_dsn_by_backend=dsn_map,
             backend_options=backends,
             create_engine=self.create_engine,
             inspect_engine=self.inspect_engine,
@@ -156,6 +160,11 @@ class PersistenceConfigMixin:
         """Return the merged configuration block for the conversation database."""
 
         return self.persistence.conversation.get_config()
+
+    def get_conversation_backend(self) -> Optional[str]:
+        """Return the selected conversation store backend name, if configured."""
+
+        return self.persistence.conversation.get_backend()
 
     def get_conversation_store_backends(self) -> Tuple[ConversationStoreBackendOption, ...]:
         """Return the available conversation store backend options."""
@@ -646,9 +655,25 @@ class PersistenceConfigMixin:
             except ValueError as exc:
                 self.logger.debug("Conversation store URL unsuitable for job store: %s", exc)
 
+        fallback_dsn = _DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND.get("postgresql")
+        if fallback_dsn is None:
+            default_backend = default_conversation_store_backend_name()
+            fallback_dsn = _DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND.get(default_backend)
+        if fallback_dsn is None and _DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND:
+            fallback_dsn = next(iter(_DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND.values()))
+
+        if not fallback_dsn:
+            if require:
+                raise RuntimeError(
+                    "Task queue requires a PostgreSQL job store URL. "
+                    "Set `job_scheduling.job_store_url` or `task_queue.jobstore_url` "
+                    "to a PostgreSQL DSN."
+                )
+            return ''
+
         try:
             return self._normalize_job_store_url(
-                _DEFAULT_CONVERSATION_STORE_DSN,
+                fallback_dsn,
                 'default conversation store DSN',
             )
         except ValueError:
@@ -1199,7 +1224,7 @@ class ConversationStoreConfigSection:
     env_config: Mapping[str, Any]
     logger: Any
     write_yaml_callback: Callable[[], None]
-    default_conversation_dsn: str
+    default_dsn_by_backend: Mapping[str, str]
     backend_options: Sequence[ConversationStoreBackendOption]
     default_backend_name: str = field(default_factory=default_conversation_store_backend_name)
     create_engine: Callable[..., Any]
@@ -1212,11 +1237,15 @@ class ConversationStoreConfigSection:
     _conversation_engine: Any | None = None
     _conversation_session_factory: Any | None = None
     _backend_by_name: Dict[str, ConversationStoreBackendOption] = field(init=False, repr=False)
+    _default_dsn_map: Dict[str, str] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.backend_options:
             raise ValueError("At least one conversation backend option must be provided")
         self._backend_by_name = {option.name: option for option in self.backend_options}
+        self._default_dsn_map = dict(self.default_dsn_by_backend or {})
+        for option in self.backend_options:
+            self._default_dsn_map.setdefault(option.name, option.dsn)
         if self.default_backend_name not in self._backend_by_name:
             self.default_backend_name = self.backend_options[0].name
 
@@ -1322,6 +1351,20 @@ class ConversationStoreConfigSection:
         if not isinstance(block, Mapping):
             return {}
         return dict(block)
+
+    def get_backend(self) -> Optional[str]:
+        config = self.get_config()
+        backend_value = self._normalize_backend(config.get("backend"))
+        if backend_value:
+            return backend_value
+
+        url_value = config.get("url")
+        if isinstance(url_value, str) and url_value.strip():
+            inferred = self._normalize_backend(infer_conversation_store_backend(url_value))
+            if inferred:
+                return inferred
+
+        return None
 
     def available_backends(self) -> Tuple[ConversationStoreBackendOption, ...]:
         """Return the configured conversation backend defaults."""
@@ -1575,8 +1618,20 @@ class ConversationStoreConfigSection:
 
     def _default_dsn_for_backend(self, backend: str | None) -> str:
         if backend and backend in self._backend_by_name:
+            mapped = self._default_dsn_map.get(backend)
+            if mapped:
+                return mapped
             return self._backend_by_name[backend].dsn
-        return self.default_conversation_dsn
+        fallback_backend = self.default_backend_name
+        mapped = self._default_dsn_map.get(fallback_backend)
+        if mapped:
+            return mapped
+        if fallback_backend in self._backend_by_name:
+            return self._backend_by_name[fallback_backend].dsn
+        if self._default_dsn_map:
+            return next(iter(self._default_dsn_map.values()))
+        first_option = next(iter(self.backend_options), None)
+        return first_option.dsn if first_option is not None else ""
 
     def _normalize_backend(self, value: Any) -> Optional[str]:
         if isinstance(value, str):
