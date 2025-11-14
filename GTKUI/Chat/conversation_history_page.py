@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+import math
+from datetime import datetime, timezone
 from collections.abc import Iterable
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
@@ -38,6 +39,18 @@ class ConversationHistoryPage(Gtk.Box):
         self._cursor_history: List[Optional[str]] = []
         self._message_page_state: Dict[str, Any] = {}
         self._default_page_size = 50
+        self._timeline_data: Dict[str, Any] = {
+            "bins": [],
+            "switches": [],
+            "retention": [],
+            "summaries": [],
+            "total": 0,
+        }
+        self._message_widgets: List[Gtk.Widget] = []
+        self._playback_sequence: List[int] = []
+        self._playback_index: Optional[int] = None
+        self._active_message_widget: Optional[Gtk.Widget] = None
+        self._pending_highlight_index: Optional[int] = None
 
         self.set_margin_top(12)
         self.set_margin_bottom(12)
@@ -181,6 +194,64 @@ class ConversationHistoryPage(Gtk.Box):
         self.message_status_entry.set_hexpand(True)
         self.message_status_entry.connect("activate", self._on_message_status_activate)
         filter_row.append(self.message_status_entry)
+
+        timeline_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        timeline_panel.set_hexpand(True)
+        timeline_panel.set_margin_top(6)
+
+        timeline_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        timeline_label = Gtk.Label(label="Conversation timeline")
+        timeline_label.set_xalign(0.0)
+        timeline_label.add_css_class("history-nav-label")
+        timeline_header.append(timeline_label)
+
+        overlay_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        overlay_box.add_css_class("linked")
+
+        self.retention_overlay_toggle = Gtk.CheckButton(label="Retention overlay")
+        self.retention_overlay_toggle.connect("toggled", self._on_timeline_overlay_toggled)
+        overlay_box.append(self.retention_overlay_toggle)
+
+        self.summary_overlay_toggle = Gtk.CheckButton(label="Episodic summaries")
+        self.summary_overlay_toggle.connect("toggled", self._on_timeline_overlay_toggled)
+        overlay_box.append(self.summary_overlay_toggle)
+
+        timeline_header.append(overlay_box)
+        timeline_panel.append(timeline_header)
+
+        self.timeline_area = Gtk.DrawingArea()
+        self.timeline_area.set_content_height(140)
+        self.timeline_area.set_hexpand(True)
+        self.timeline_area.set_vexpand(False)
+        self.timeline_area.set_draw_func(self._draw_timeline)
+        timeline_panel.append(self.timeline_area)
+
+        self.timeline_status_label = Gtk.Label(label="Select a conversation to view its timeline.")
+        self.timeline_status_label.set_xalign(0.0)
+        self.timeline_status_label.add_css_class("history-nav-subtitle")
+        timeline_panel.append(self.timeline_status_label)
+
+        playback_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+        self.playback_restart_button = Gtk.Button(label="Restart")
+        self.playback_restart_button.connect("clicked", self._on_playback_restart)
+        playback_row.append(self.playback_restart_button)
+
+        self.playback_previous_button = Gtk.Button(label="Previous")
+        self.playback_previous_button.connect("clicked", self._on_playback_previous)
+        playback_row.append(self.playback_previous_button)
+
+        self.playback_next_button = Gtk.Button(label="Next")
+        self.playback_next_button.connect("clicked", self._on_playback_next)
+        playback_row.append(self.playback_next_button)
+
+        self.playback_status_label = Gtk.Label(label="No playback data loaded.")
+        self.playback_status_label.set_xalign(0.0)
+        self.playback_status_label.add_css_class("history-nav-subtitle")
+        playback_row.append(self.playback_status_label)
+
+        timeline_panel.append(playback_row)
+        right_panel.append(timeline_panel)
 
         right_scroller = Gtk.ScrolledWindow()
         right_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -484,6 +555,8 @@ class ConversationHistoryPage(Gtk.Box):
 
     def _render_messages(self, messages: List[Dict[str, Any]]) -> None:
         self._clear_message_box()
+        self._update_timeline(messages)
+
         if not messages:
             self._show_message_placeholder("No messages stored for this conversation.")
             return
@@ -495,18 +568,24 @@ class ConversationHistoryPage(Gtk.Box):
             for message in iterator:
                 container = self._build_message_widget(message)
                 self.message_box.append(container)
+                self._message_widgets.append(container)
+                if self._pending_highlight_index is not None:
+                    self._highlight_widget_by_index(self._pending_highlight_index)
                 processed += 1
                 if processed >= 100:
                     GLib.idle_add(process_batch)
                     return False
+            self._update_playback_display()
             return False
 
         process_batch()
+        self._update_playback_display()
 
     def _build_message_widget(self, message: Mapping[str, Any]) -> Gtk.Widget:
         container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         container.add_css_class("conversation-history-entry")
         container.set_margin_bottom(8)
+        container.set_focusable(True)
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         header.set_hexpand(True)
@@ -618,6 +697,9 @@ class ConversationHistoryPage(Gtk.Box):
                 child = next_child
         if hasattr(self.message_box, "children"):
             self.message_box.children = []
+        self._message_widgets = []
+        self._active_message_widget = None
+        self._pending_highlight_index = None
 
     def _show_message_placeholder(self, text: str = "Select a conversation to view its messages.") -> None:
         self._clear_message_box()
@@ -627,6 +709,7 @@ class ConversationHistoryPage(Gtk.Box):
         placeholder.add_css_class("history-placeholder")
         self.message_box.append(placeholder)
         self._update_page_buttons()
+        self._update_timeline([])
 
     def _update_action_buttons(self) -> None:
         has_selection = bool(self._selected_id)
@@ -687,6 +770,283 @@ class ConversationHistoryPage(Gtk.Box):
         self.retention_button.set_sensitive(available)
         self.retention_button.set_tooltip_text(tooltip)
         return False
+
+    def _on_timeline_overlay_toggled(self, _button: Gtk.CheckButton) -> None:
+        self.timeline_area.queue_draw()
+        self._update_timeline_status_label()
+
+    def _draw_timeline(self, _area: Gtk.DrawingArea, ctx, width: int, height: int) -> None:
+        data = self._timeline_data
+        bins: List[int] = data.get("bins") or []
+        total = int(data.get("total") or 0)
+
+        ctx.save()
+        ctx.set_source_rgba(0.0, 0.0, 0.0, 0.08)
+        ctx.rectangle(0, 0, width, height)
+        ctx.fill()
+        ctx.restore()
+
+        if not bins or total <= 0:
+            return
+
+        max_count = max(bins) if bins else 0
+        if max_count <= 0:
+            return
+
+        padding = 8
+        available_width = max(width - 2 * padding, 1)
+        available_height = max(height - 2 * padding, 1)
+        baseline = padding + available_height
+        bar_width = available_width / float(len(bins))
+
+        ctx.save()
+        ctx.translate(padding, padding)
+
+        for index, count in enumerate(bins):
+            ratio = float(count) / float(max_count)
+            bar_height = ratio * available_height
+            x = index * bar_width
+            ctx.set_source_rgba(0.27, 0.51, 0.85, 0.6)
+            ctx.rectangle(x, available_height - bar_height, max(bar_width - 1.0, 1.0), bar_height)
+            ctx.fill()
+
+        ctx.set_source_rgba(0.18, 0.18, 0.18, 0.4)
+        ctx.move_to(0, available_height)
+        ctx.line_to(available_width, available_height)
+        ctx.stroke()
+
+        if total > 1:
+            switches = data.get("switches") or []
+            ctx.set_source_rgba(0.9, 0.36, 0.0, 0.7)
+            for fraction in switches:
+                x = fraction * available_width
+                ctx.move_to(x, 0)
+                ctx.line_to(x, available_height)
+                ctx.stroke()
+
+        if self.retention_overlay_toggle.get_active():
+            retention = data.get("retention") or []
+            ctx.set_source_rgba(0.56, 0.0, 0.56, 0.85)
+            radius = max(min(bar_width * 0.25, 6), 3)
+            for fraction in retention:
+                x = fraction * available_width
+                ctx.arc(x, available_height - radius, radius, 0, 2 * math.pi)
+                ctx.fill()
+
+        if self.summary_overlay_toggle.get_active():
+            summaries = data.get("summaries") or []
+            ctx.set_source_rgba(0.0, 0.55, 0.37, 0.9)
+            size = max(min(bar_width * 0.3, 7), 3)
+            for fraction in summaries:
+                x = fraction * available_width
+                y = size
+                ctx.move_to(x, y)
+                ctx.line_to(x + size, y + size)
+                ctx.line_to(x, y + 2 * size)
+                ctx.line_to(x - size, y + size)
+                ctx.close_path()
+                ctx.fill()
+
+        ctx.restore()
+
+    def _on_playback_restart(self, _button: Gtk.Button) -> None:
+        if not self._playback_sequence:
+            return
+        self._playback_index = None
+        self._step_playback(forward=True)
+
+    def _on_playback_previous(self, _button: Gtk.Button) -> None:
+        self._step_playback(forward=False)
+
+    def _on_playback_next(self, _button: Gtk.Button) -> None:
+        self._step_playback(forward=True)
+
+    def _step_playback(self, *, forward: bool) -> None:
+        if not self._playback_sequence:
+            return
+
+        if self._playback_index is None:
+            index = 0 if forward else len(self._playback_sequence) - 1
+        else:
+            delta = 1 if forward else -1
+            index = self._playback_index + delta
+            index = max(0, min(index, len(self._playback_sequence) - 1))
+
+        self._set_playback_index(index)
+
+    def _set_playback_index(self, index: int) -> None:
+        if not (0 <= index < len(self._playback_sequence)):
+            return
+        self._playback_index = index
+        target_idx = self._playback_sequence[index]
+        self._highlight_widget_by_index(target_idx)
+        self._update_playback_display()
+
+    def _highlight_widget_by_index(self, widget_index: int) -> None:
+        if not (0 <= widget_index < len(self._message_widgets)):
+            self._pending_highlight_index = widget_index
+            return
+
+        widget = self._message_widgets[widget_index]
+        if self._active_message_widget is not None and self._active_message_widget is not widget:
+            self._active_message_widget.remove_css_class("conversation-history-active")
+        widget.add_css_class("conversation-history-active")
+        widget.grab_focus()
+        self._active_message_widget = widget
+        self._pending_highlight_index = None
+
+    def _update_playback_display(self) -> None:
+        total = len(self._playback_sequence)
+        if total == 0:
+            self.playback_status_label.set_label("No playback data loaded.")
+        else:
+            position = (self._playback_index or 0) + 1 if self._playback_index is not None else 0
+            if self._playback_index is None:
+                self.playback_status_label.set_label(f"Ready: {total} messages")
+            else:
+                self.playback_status_label.set_label(f"Message {position} of {total}")
+
+        has_previous = bool(self._playback_sequence) and (self._playback_index or 0) > 0
+        has_next = bool(self._playback_sequence) and (
+            self._playback_index is None or self._playback_index < len(self._playback_sequence) - 1
+        )
+        self.playback_restart_button.set_sensitive(bool(self._playback_sequence))
+        self.playback_previous_button.set_sensitive(has_previous)
+        self.playback_next_button.set_sensitive(has_next)
+
+    def _update_timeline(self, messages: List[Mapping[str, Any]]) -> None:
+        ordered: List[Dict[str, Any]] = []
+        for index, message in enumerate(messages):
+            timestamp = self._coerce_datetime(
+                message.get("created_at") or message.get("timestamp") or message.get("occurred_at")
+            )
+            key = self._timeline_sort_key(timestamp, index)
+            ordered.append({"key": key, "index": index, "message": message, "timestamp": timestamp})
+
+        ordered.sort(key=lambda entry: entry["key"])
+
+        total = len(ordered)
+        bins: List[int] = []
+        switches: List[float] = []
+        retention_positions: List[float] = []
+        summary_positions: List[float] = []
+
+        if total:
+            bin_count = min(total, 30)
+            bins = [0 for _ in range(bin_count)]
+            for position, _entry in enumerate(ordered):
+                target_bin = min(int(position * bin_count / max(total, 1)), bin_count - 1)
+                bins[target_bin] += 1
+
+            previous_role: Optional[str] = None
+            for position, entry in enumerate(ordered):
+                message = entry["message"]
+                role = str(message.get("role") or "").lower()
+                if previous_role is not None and role and role != previous_role:
+                    switches.append(self._normalise_fraction(position, total))
+                if role:
+                    previous_role = role
+
+                metadata = message.get("metadata")
+                fraction = self._normalise_fraction(position, total)
+                if self._contains_retention_marker(metadata):
+                    retention_positions.append(fraction)
+                if self._contains_summary_marker(metadata):
+                    summary_positions.append(fraction)
+
+        self._timeline_data = {
+            "bins": bins,
+            "switches": switches,
+            "retention": retention_positions,
+            "summaries": summary_positions,
+            "total": total,
+        }
+
+        self._playback_sequence = [entry["index"] for entry in ordered]
+        self._playback_index = None
+        self._pending_highlight_index = None
+        self.timeline_area.queue_draw()
+        self._update_timeline_status_label()
+        self._update_playback_display()
+
+    def _timeline_sort_key(self, timestamp: Optional[datetime], index: int) -> Tuple[int, float, int]:
+        if timestamp is None:
+            return (1, float(index), index)
+        return (0, float(timestamp.timestamp()), index)
+
+    def _normalise_fraction(self, position: int, total: int) -> float:
+        if total <= 1:
+            return 0.0
+        return position / float(total - 1)
+
+    def _coerce_datetime(self, value: Any) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            moment = value
+        elif isinstance(value, (int, float)):
+            moment = datetime.fromtimestamp(float(value), tz=timezone.utc)
+        elif isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            try:
+                moment = datetime.fromisoformat(text)
+            except ValueError:
+                return None
+        else:
+            return None
+
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        return moment
+
+    def _contains_retention_marker(self, metadata: Any) -> bool:
+        if not isinstance(metadata, Mapping):
+            return False
+        keys = {key.lower() for key in metadata.keys() if isinstance(key, str)}
+        return bool(keys & {"retention", "retention_event", "retention_marker", "history_retention"})
+
+    def _contains_summary_marker(self, metadata: Any) -> bool:
+        if not isinstance(metadata, Mapping):
+            return False
+        for key in ("episodic_summary", "summary", "episode", "memory_summary"):
+            value = metadata.get(key)
+            if isinstance(value, (str, Mapping)):
+                return True
+        return False
+
+    def _update_timeline_status_label(self) -> None:
+        total = int(self._timeline_data.get("total") or 0)
+        if not total:
+            if self._selected_id:
+                message = "Timeline data unavailable for this selection."
+            else:
+                message = "Select a conversation to view its timeline."
+            self.timeline_status_label.set_label(message)
+            self.retention_overlay_toggle.set_active(False)
+            self.retention_overlay_toggle.set_sensitive(False)
+            self.retention_overlay_toggle.set_tooltip_text("No retention metadata available for this conversation.")
+            self.summary_overlay_toggle.set_active(False)
+            self.summary_overlay_toggle.set_sensitive(False)
+            self.summary_overlay_toggle.set_tooltip_text("No episodic summary metadata available for this conversation.")
+        else:
+            message = f"Timeline loaded for {total} message{'s' if total != 1 else ''}."
+            if not (self._timeline_data.get("retention") or []):
+                self.retention_overlay_toggle.set_active(False)
+                self.retention_overlay_toggle.set_sensitive(False)
+                self.retention_overlay_toggle.set_tooltip_text("No retention metadata available for this conversation.")
+            else:
+                self.retention_overlay_toggle.set_sensitive(True)
+                self.retention_overlay_toggle.set_tooltip_text("Highlight retention events on the timeline.")
+            if not (self._timeline_data.get("summaries") or []):
+                self.summary_overlay_toggle.set_active(False)
+                self.summary_overlay_toggle.set_sensitive(False)
+                self.summary_overlay_toggle.set_tooltip_text("No episodic summary metadata available for this conversation.")
+            else:
+                self.summary_overlay_toggle.set_sensitive(True)
+                self.summary_overlay_toggle.set_tooltip_text("Highlight episodic summaries on the timeline.")
+            self.timeline_status_label.set_label(message)
 
     def _on_retention_clicked(self, _button: Gtk.Button) -> None:
         self._set_status("Running conversation retention…")
