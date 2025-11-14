@@ -153,14 +153,24 @@ participants or tweak the protocol without modifying the persona document.
 ## Exporting and importing personas
 
 Persona definitions can be exchanged as signed bundles so that the `allowed_tools`
-list remains trustworthy. Two workflows are available:
+list remains trustworthy. The `export_persona_bundle_bytes` helper packages the
+entire persona directory (for example the `Persona`, `Memory`, `Config`, and
+`Toolbox` subdirectories) into a `tar.gz` archive, encodes the archive as base64,
+and returns that payload alongside the persona metadata for signing. The importer
+reconstructs those assets by decoding the base64 archive and restoring the
+directory tree, mirroring the behavior implemented in
+[`modules/Personas/__init__.py`](../modules/Personas/__init__.py). Two workflows
+are available and both automatically handle the base64 bundle for you:
 
 ### Command line tools
 
 The `scripts/persona_tools.py` helper exposes `export` and `import` commands. The
 commands require a signing key (either directly via `--signing-key` or from a
-file with `--signing-key-file`). The examples below assume the repository root as
-the working directory; pass `--app-root` when working in a temporary test tree.
+file with `--signing-key-file`). Each command reads or writes the base64 bundle
+on your behalf, so the exported file already contains the encoded archive and
+the importer restores it without any manual decoding. The examples below assume
+the repository root as the working directory; pass `--app-root` when working in a
+temporary test tree.
 
 ```bash
 # Export the "Atlas" persona to bundle.json using the key stored in signing.key
@@ -181,9 +191,10 @@ reported as warnings.
 
 The persona manager window now includes buttons to export the persona currently
 being edited and to import new personas. Both actions prompt for a signing key
-and use the same validation logic as the CLI. The import option is available on
-the persona list window and opens a file chooser dialog to select the bundle
-before verification and persistence.
+and use the same validation logic as the CLI, including automatic handling of
+the base64 archive. The import option is available on the persona list window
+and opens a file chooser dialog to select the bundle before verification and
+persistence.
 4. If the schema needs to change, edit `modules/Personas/schema.json` and keep these docs in sync.
 
 ## Persona analytics metrics
