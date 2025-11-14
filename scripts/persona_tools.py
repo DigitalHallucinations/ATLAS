@@ -12,6 +12,21 @@ from modules.Personas import (
     export_persona_bundle_bytes,
     import_persona_bundle_bytes,
 )
+from modules.Tools import (
+    ToolBundleError,
+    export_tool_bundle_bytes,
+    import_tool_bundle_bytes,
+)
+from modules.Skills import (
+    SkillBundleError,
+    export_skill_bundle_bytes,
+    import_skill_bundle_bytes,
+)
+from modules.Jobs import (
+    JobBundleError,
+    export_job_bundle_bytes,
+    import_job_bundle_bytes,
+)
 
 
 class _ConfigAdapter:
@@ -48,6 +63,39 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Audit rationale recorded with the import.",
     )
     _add_signing_key_arguments(import_parser)
+
+    tool_export = subparsers.add_parser("export-tool", help="Export a tool to a signed bundle")
+    tool_export.add_argument("tool", help="Tool name to export")
+    tool_export.add_argument("output", type=Path, help="Destination bundle path")
+    tool_export.add_argument("--persona", help="Persona owner for persona-specific tools")
+    _add_signing_key_arguments(tool_export)
+
+    tool_import = subparsers.add_parser("import-tool", help="Import a signed tool bundle")
+    tool_import.add_argument("bundle", type=Path, help="Bundle file to import")
+    tool_import.add_argument("--rationale", default="Imported via CLI persona tools", help="Audit rationale recorded with the import.")
+    _add_signing_key_arguments(tool_import)
+
+    skill_export = subparsers.add_parser("export-skill", help="Export a skill to a signed bundle")
+    skill_export.add_argument("skill", help="Skill name to export")
+    skill_export.add_argument("output", type=Path, help="Destination bundle path")
+    skill_export.add_argument("--persona", help="Persona owner for persona-specific skills")
+    _add_signing_key_arguments(skill_export)
+
+    skill_import = subparsers.add_parser("import-skill", help="Import a signed skill bundle")
+    skill_import.add_argument("bundle", type=Path, help="Bundle file to import")
+    skill_import.add_argument("--rationale", default="Imported via CLI persona tools", help="Audit rationale recorded with the import.")
+    _add_signing_key_arguments(skill_import)
+
+    job_export = subparsers.add_parser("export-job", help="Export a job to a signed bundle")
+    job_export.add_argument("job", help="Job name to export")
+    job_export.add_argument("output", type=Path, help="Destination bundle path")
+    job_export.add_argument("--persona", help="Persona owner for persona-specific jobs")
+    _add_signing_key_arguments(job_export)
+
+    job_import = subparsers.add_parser("import-job", help="Import a signed job bundle")
+    job_import.add_argument("bundle", type=Path, help="Bundle file to import")
+    job_import.add_argument("--rationale", default="Imported via CLI persona tools", help="Audit rationale recorded with the import.")
+    _add_signing_key_arguments(job_import)
 
     return parser
 
@@ -122,6 +170,126 @@ def _cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_export_tool(args: argparse.Namespace) -> int:
+    signing_key = _load_signing_key(args)
+    config = _config_from_args(args)
+    bundle_bytes, tool = export_tool_bundle_bytes(
+        args.tool,
+        signing_key=signing_key,
+        persona=args.persona,
+        config_manager=config,
+    )
+
+    output_path: Path = args.output
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(bundle_bytes)
+
+    print(f"Exported tool '{tool.get('name', args.tool)}' to {output_path}")
+    return 0
+
+
+def _cmd_import_tool(args: argparse.Namespace) -> int:
+    signing_key = _load_signing_key(args)
+    config = _config_from_args(args)
+    bundle_path: Path = args.bundle
+    try:
+        bundle_bytes = bundle_path.read_bytes()
+    except OSError as exc:
+        raise ToolBundleError(f"Failed to read bundle file: {bundle_path}") from exc
+
+    result = import_tool_bundle_bytes(
+        bundle_bytes,
+        signing_key=signing_key,
+        config_manager=config,
+        rationale=args.rationale,
+    )
+
+    tool = result.get("tool", {})
+    tool_name = tool.get("name") or "tool"
+    print(f"Imported tool '{tool_name}' from {bundle_path}")
+    return 0
+
+
+def _cmd_export_skill(args: argparse.Namespace) -> int:
+    signing_key = _load_signing_key(args)
+    config = _config_from_args(args)
+    bundle_bytes, skill = export_skill_bundle_bytes(
+        args.skill,
+        signing_key=signing_key,
+        persona=args.persona,
+        config_manager=config,
+    )
+
+    output_path: Path = args.output
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(bundle_bytes)
+
+    print(f"Exported skill '{skill.get('name', args.skill)}' to {output_path}")
+    return 0
+
+
+def _cmd_import_skill(args: argparse.Namespace) -> int:
+    signing_key = _load_signing_key(args)
+    config = _config_from_args(args)
+    bundle_path: Path = args.bundle
+    try:
+        bundle_bytes = bundle_path.read_bytes()
+    except OSError as exc:
+        raise SkillBundleError(f"Failed to read bundle file: {bundle_path}") from exc
+
+    result = import_skill_bundle_bytes(
+        bundle_bytes,
+        signing_key=signing_key,
+        config_manager=config,
+        rationale=args.rationale,
+    )
+
+    skill = result.get("skill", {})
+    skill_name = skill.get("name") or "skill"
+    print(f"Imported skill '{skill_name}' from {bundle_path}")
+    return 0
+
+
+def _cmd_export_job(args: argparse.Namespace) -> int:
+    signing_key = _load_signing_key(args)
+    config = _config_from_args(args)
+    bundle_bytes, job = export_job_bundle_bytes(
+        args.job,
+        signing_key=signing_key,
+        persona=args.persona,
+        config_manager=config,
+    )
+
+    output_path: Path = args.output
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(bundle_bytes)
+
+    print(f"Exported job '{job.get('name', args.job)}' to {output_path}")
+    return 0
+
+
+def _cmd_import_job(args: argparse.Namespace) -> int:
+    signing_key = _load_signing_key(args)
+    config = _config_from_args(args)
+    bundle_path: Path = args.bundle
+    try:
+        bundle_bytes = bundle_path.read_bytes()
+    except OSError as exc:
+        raise JobBundleError(f"Failed to read bundle file: {bundle_path}") from exc
+
+    result = import_job_bundle_bytes(
+        bundle_bytes,
+        signing_key=signing_key,
+        config_manager=config,
+        rationale=args.rationale,
+    )
+
+    job = result.get("job", {})
+    job_name = job.get("name") or "job"
+    print(f"Imported job '{job_name}' from {bundle_path}")
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -131,7 +299,19 @@ def main(argv: Optional[list[str]] = None) -> int:
             return _cmd_export(args)
         if args.command == "import":
             return _cmd_import(args)
-    except PersonaBundleError as exc:
+        if args.command == "export-tool":
+            return _cmd_export_tool(args)
+        if args.command == "import-tool":
+            return _cmd_import_tool(args)
+        if args.command == "export-skill":
+            return _cmd_export_skill(args)
+        if args.command == "import-skill":
+            return _cmd_import_skill(args)
+        if args.command == "export-job":
+            return _cmd_export_job(args)
+        if args.command == "import-job":
+            return _cmd_import_job(args)
+    except (PersonaBundleError, ToolBundleError, SkillBundleError, JobBundleError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:  # pragma: no cover - unexpected failure

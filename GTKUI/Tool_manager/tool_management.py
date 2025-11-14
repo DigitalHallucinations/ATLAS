@@ -79,6 +79,8 @@ class ToolManagement:
         self._recent_changes_label: Optional[Gtk.Label] = None
         self._export_csv_button: Optional[Gtk.Button] = None
         self._export_json_button: Optional[Gtk.Button] = None
+        self._export_bundle_button: Optional[Gtk.Button] = None
+        self._import_bundle_button: Optional[Gtk.Button] = None
         self._history_box: Optional[Gtk.Widget] = None
         self._history_list_box: Optional[Gtk.Widget] = None
         self._settings_section: Optional[Gtk.Widget] = None
@@ -517,6 +519,18 @@ class ToolManagement:
         export_json_button.connect("clicked", self._on_export_tools_json_clicked)
         export_row.append(export_json_button)
         self._export_json_button = export_json_button
+
+        export_bundle_button = Gtk.Button(label="Export bundle")
+        export_bundle_button.set_tooltip_text("Export the selected tool to a signed bundle.")
+        export_bundle_button.connect("clicked", self._on_export_tool_bundle_clicked)
+        export_row.append(export_bundle_button)
+        self._export_bundle_button = export_bundle_button
+
+        import_bundle_button = Gtk.Button(label="Import bundle")
+        import_bundle_button.set_tooltip_text("Import a tool bundle from disk.")
+        import_bundle_button.connect("clicked", self._on_import_tool_bundle_clicked)
+        export_row.append(import_bundle_button)
+        self._import_bundle_button = import_bundle_button
 
         history_box.append(export_row)
 
@@ -2415,6 +2429,8 @@ class ToolManagement:
         has_visible = bool(self._visible_entries)
         self._set_button_sensitive(self._export_csv_button, has_visible)
         self._set_button_sensitive(self._export_json_button, has_visible)
+        self._set_button_sensitive(self._export_bundle_button, bool(self._active_tool))
+        self._set_button_sensitive(self._import_bundle_button, True)
 
         if not has_tools:
             self._set_button_sensitive(self._save_button, False)
@@ -2717,6 +2733,154 @@ class ToolManagement:
             return str(path_obj)
         return None
 
+    def _choose_open_path(self, *, title: str, pattern: str) -> Optional[str]:
+        chooser_cls = getattr(Gtk, "FileChooserNative", None)
+        action_enum = getattr(Gtk.FileChooserAction, "OPEN", None) if hasattr(Gtk, "FileChooserAction") else None
+        if chooser_cls is None or action_enum is None:
+            return None
+
+        chooser = chooser_cls(title=title, transient_for=self.parent_window, modal=True, action=action_enum)
+        if self._last_export_directory and hasattr(chooser, "set_current_folder"):
+            try:
+                chooser.set_current_folder(str(self._last_export_directory))
+            except Exception:
+                pass
+
+        file_filter_cls = getattr(Gtk, "FileFilter", None)
+        if callable(file_filter_cls):
+            try:
+                file_filter = file_filter_cls()
+                if hasattr(file_filter, "set_name"):
+                    file_filter.set_name(pattern.upper())
+                if hasattr(file_filter, "add_pattern"):
+                    file_filter.add_pattern(pattern)
+                adder = getattr(chooser, "add_filter", None)
+                if callable(adder):
+                    adder(file_filter)
+            except Exception:  # pragma: no cover - GTK compatibility fallback
+                pass
+
+        response = None
+        if hasattr(chooser, "run"):
+            try:
+                response = chooser.run()
+            except Exception:
+                response = None
+        elif hasattr(chooser, "show"):
+            try:
+                chooser.show()
+                response = getattr(Gtk.ResponseType, "ACCEPT", 1)
+            except Exception:
+                response = None
+
+        accepted = {
+            getattr(Gtk.ResponseType, "ACCEPT", None),
+            getattr(Gtk.ResponseType, "OK", None),
+            getattr(Gtk.ResponseType, "YES", None),
+        }
+
+        filename: Optional[str] = None
+        if response in accepted:
+            file_obj = getattr(chooser, "get_file", None)
+            if callable(file_obj):
+                file_handle = file_obj()
+            else:
+                file_handle = None
+            if file_handle is not None and hasattr(file_handle, "get_path"):
+                filename = file_handle.get_path()
+            else:
+                getter = getattr(chooser, "get_filename", None)
+                if callable(getter):
+                    filename = getter()
+
+        if hasattr(chooser, "destroy"):
+            try:
+                chooser.destroy()
+            except Exception:
+                pass
+
+        if filename:
+            path_obj = Path(filename).expanduser().resolve()
+            self._last_export_directory = path_obj.parent
+            return str(path_obj)
+        return None
+
+    def _prompt_signing_key(self, title: str) -> Optional[str]:
+        dialog_cls = getattr(Gtk, "Dialog", None)
+        entry_cls = getattr(Gtk, "Entry", None)
+        if dialog_cls is None or entry_cls is None:
+            return None
+
+        dialog = dialog_cls(title=title, transient_for=self.parent_window, modal=True)
+        style = getattr(self.parent_window, "style_dialog", None)
+        if callable(style):
+            try:
+                style(dialog)
+            except Exception:
+                pass
+
+        content_area = getattr(dialog, "get_content_area", lambda: None)()
+        if content_area is None and hasattr(dialog, "set_child"):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            dialog.set_child(box)
+            content_area = box
+
+        entry = entry_cls()
+        if hasattr(entry, "set_visibility"):
+            entry.set_visibility(False)
+
+        label = Gtk.Label(label="Signing key:")
+        if content_area is not None and hasattr(content_area, "append"):
+            content_area.append(label)
+            content_area.append(entry)
+
+        if hasattr(dialog, "add_button"):
+            dialog.add_button("Cancel", getattr(Gtk.ResponseType, "CANCEL", 0))
+            dialog.add_button("OK", getattr(Gtk.ResponseType, "OK", 1))
+
+        response = None
+        if hasattr(dialog, "run"):
+            try:
+                response = dialog.run()
+            except Exception:
+                response = None
+        else:
+            response = getattr(Gtk.ResponseType, "OK", 1)
+
+        key_value = entry.get_text().strip() if hasattr(entry, "get_text") else ""
+
+        if hasattr(dialog, "destroy"):
+            try:
+                dialog.destroy()
+            except Exception:
+                pass
+
+        if response == getattr(Gtk.ResponseType, "OK", 1) and key_value:
+            return key_value
+        return None
+
+    def _show_info_message(self, message: str) -> None:
+        if not message:
+            return
+
+        dialog = getattr(self.parent_window, "show_info_dialog", None)
+        if callable(dialog):
+            try:
+                dialog(message)
+                return
+            except Exception:  # pragma: no cover - UI fallback
+                logger.debug("Failed to show info dialog", exc_info=True)
+
+        toast = getattr(self.parent_window, "show_success_toast", None)
+        if callable(toast):
+            try:
+                toast(message)
+                return
+            except Exception:  # pragma: no cover - UI fallback
+                logger.debug("Failed to show success toast", exc_info=True)
+
+        logger.info("Tool management notification: %s", message)
+
     def _serialize_tool_entry(self, entry: _ToolEntry) -> Dict[str, Any]:
         return {
             "name": entry.name,
@@ -2790,6 +2954,102 @@ class ToolManagement:
         if not path:
             return
         self._export_tools_to_json(path, entries)
+
+    def _on_export_tool_bundle_clicked(self, _button: Gtk.Button) -> None:
+        tool_name = self._active_tool
+        if not tool_name:
+            self._handle_backend_error("Select a tool to export.")
+            return
+
+        suggested = f"{tool_name}.toolbundle"
+        path = self._choose_export_path(
+            title=f"Export {tool_name}",
+            suggested_name=suggested,
+            pattern="*.toolbundle",
+        )
+        if not path:
+            return
+
+        signing_key = self._prompt_signing_key("Enter signing key for tool export")
+        if not signing_key:
+            self._handle_backend_error("Export cancelled: signing key required.")
+            return
+
+        persona_owner: Optional[str] = None
+        entry = self._entry_lookup.get(tool_name)
+        if entry and isinstance(entry.raw_metadata, Mapping):
+            persona_value = entry.raw_metadata.get("persona")
+            if isinstance(persona_value, str) and persona_value.strip():
+                persona_owner = persona_value.strip()
+        if not persona_owner and self._tool_scope == "persona" and self._persona_name:
+            persona_owner = self._persona_name
+
+        try:
+            response = self.ATLAS.export_tool_bundle(
+                tool_name,
+                signing_key=signing_key,
+                persona=persona_owner,
+            )
+        except Exception:
+            logger.exception("Failed to export tool bundle for %s", tool_name)
+            self._handle_backend_error("Failed to export tool bundle.")
+            return
+
+        if not response.get("success"):
+            self._handle_backend_error(response.get("error") or "Tool export failed.")
+            return
+
+        bundle_bytes = response.get("bundle_bytes")
+        if not isinstance(bundle_bytes, (bytes, bytearray)):
+            self._handle_backend_error("Tool export did not return bundle data.")
+            return
+
+        try:
+            Path(path).write_bytes(bundle_bytes)
+        except OSError:
+            self._handle_backend_error(f"Failed to write bundle to {path}.")
+            return
+
+        self._show_info_message(f"Exported tool '{tool_name}' to {path}.")
+
+    def _on_import_tool_bundle_clicked(self, _button: Gtk.Button) -> None:
+        path = self._choose_open_path(
+            title="Import tool bundle",
+            pattern="*.toolbundle",
+        )
+        if not path:
+            return
+
+        signing_key = self._prompt_signing_key("Enter signing key for tool import")
+        if not signing_key:
+            self._handle_backend_error("Import cancelled: signing key required.")
+            return
+
+        try:
+            bundle_bytes = Path(path).read_bytes()
+        except OSError:
+            self._handle_backend_error(f"Failed to read bundle from {path}.")
+            return
+
+        try:
+            response = self.ATLAS.import_tool_bundle(
+                bundle_bytes=bundle_bytes,
+                signing_key=signing_key,
+                rationale="Imported via GTK UI",
+            )
+        except Exception:
+            logger.exception("Failed to import tool bundle from %s", path)
+            self._handle_backend_error("Failed to import tool bundle.")
+            return
+
+        if not response.get("success"):
+            self._handle_backend_error(response.get("error") or "Tool import failed.")
+            return
+
+        tool = response.get("tool") or {}
+        tool_name = tool.get("name") or "tool"
+        self._show_info_message(f"Imported tool '{tool_name}' from {path}.")
+        self._refresh_state()
 
     def _populate_capability_selector(self) -> None:
         capabilities = sorted({cap for entry in self._entries for cap in entry.capabilities})
