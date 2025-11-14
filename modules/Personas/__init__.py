@@ -10,10 +10,14 @@ under :mod:`modules.Tools`.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
+import io
 import json
-import os
+import shutil
+import tarfile
+import tempfile
 from collections.abc import Iterable as IterableABC, Mapping as MappingABC
 from copy import deepcopy
 from dataclasses import asdict, dataclass
@@ -186,6 +190,108 @@ def _persona_file_path(persona_name: str, *, config_manager=None) -> Path:
 def _persona_schema_path(*, config_manager=None) -> Path:
     base = _resolve_app_root(config_manager)
     return base / "modules" / "Personas" / "schema.json"
+
+
+def _build_persona_archive_payload(persona_dir: Path) -> Optional[Dict[str, Any]]:
+    """Return encoded archive metadata for the provided persona directory."""
+
+    if not persona_dir.exists() or not persona_dir.is_dir():
+        raise PersonaBundleError("Persona directory is missing for export.")
+
+    buffer = io.BytesIO()
+    try:
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            archive.add(persona_dir, arcname=persona_dir.name)
+    except (OSError, tarfile.TarError) as exc:
+        raise PersonaBundleError("Failed to build persona archive for export.") from exc
+
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return {
+        "format": "tar.gz",
+        "encoding": "base64",
+        "data": encoded,
+    }
+
+
+def _safe_extract_tar_archive(tar: tarfile.TarFile, destination: Path) -> None:
+    destination = destination.resolve()
+    for member in tar.getmembers():
+        name = member.name or ""
+        member_path = Path(name)
+        if member_path.is_absolute() or any(part == ".." for part in member_path.parts):
+            raise PersonaBundleError("Persona bundle archive contains unsafe paths.")
+        if member.islnk() or member.issym():
+            raise PersonaBundleError("Persona bundle archive contains unsupported links.")
+        resolved_member = (destination / member_path).resolve()
+        if not str(resolved_member).startswith(str(destination)):
+            raise PersonaBundleError("Persona bundle archive resolves outside the extraction directory.")
+
+    tar.extractall(path=destination)
+
+
+def _locate_persona_directory(root: Path, persona_name: str) -> Optional[Path]:
+    expected = persona_name.strip().lower()
+    if not expected:
+        return None
+
+    for persona_dir in root.rglob("Persona"):
+        if not persona_dir.is_dir():
+            continue
+        for persona_file in persona_dir.glob("*.json"):
+            if persona_file.stem.lower() == expected:
+                return persona_dir.parent
+
+    for candidate in root.iterdir():
+        if candidate.is_dir() and candidate.name.strip().lower() == expected:
+            return candidate
+
+    return None
+
+
+def _restore_persona_archive(
+    archive_payload: Mapping[str, Any],
+    *,
+    persona_name: str,
+    target_dir: Path,
+) -> None:
+    format_name = str(archive_payload.get("format") or "tar.gz").strip().lower()
+    encoding = str(archive_payload.get("encoding") or "base64").strip().lower()
+    data = archive_payload.get("data")
+
+    if encoding not in {"base64", "base64url"}:
+        raise PersonaBundleError("Unsupported persona bundle archive encoding.")
+    if format_name not in {"tar", "tar.gz", "tgz"}:
+        raise PersonaBundleError("Unsupported persona bundle archive format.")
+    if not isinstance(data, str) or not data.strip():
+        raise PersonaBundleError("Persona bundle archive data is missing.")
+
+    try:
+        if encoding == "base64url":
+            archive_bytes = base64.urlsafe_b64decode(data.encode("ascii"))
+        else:
+            archive_bytes = base64.b64decode(data.encode("ascii"), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise PersonaBundleError("Persona bundle archive data is not valid base64.") from exc
+
+    mode = "r:gz" if format_name in {"tar.gz", "tgz"} else "r:"
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        buffer = io.BytesIO(archive_bytes)
+        try:
+            with tarfile.open(fileobj=buffer, mode=mode) as archive:
+                _safe_extract_tar_archive(archive, temp_path)
+        except (OSError, tarfile.TarError) as exc:
+            raise PersonaBundleError("Persona bundle archive could not be unpacked.") from exc
+
+        extracted_dir = _locate_persona_directory(temp_path, persona_name)
+        if extracted_dir is None:
+            raise PersonaBundleError("Persona bundle archive does not include the expected persona files.")
+
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        shutil.copytree(extracted_dir, target_dir)
 
 
 @lru_cache(maxsize=8)
@@ -1152,6 +1258,9 @@ def export_persona_bundle_bytes(
     if persona is None:
         raise PersonaBundleError(f"Persona '{persona_name}' could not be loaded for export.")
 
+    persona_file = _persona_file_path(persona_name, config_manager=config_manager)
+    persona_dir = persona_file.parent.parent if persona_file.parent.name else persona_file.parent
+
     metadata = {
         "version": _BUNDLE_VERSION,
         "exported_at": _utcnow_isoformat(),
@@ -1162,6 +1271,17 @@ def export_persona_bundle_bytes(
         "metadata": metadata,
         "persona": persona,
     }
+
+    try:
+        archive_payload = _build_persona_archive_payload(persona_dir)
+    except PersonaBundleError:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive logging for unexpected errors
+        logger.exception("Unexpected error while archiving persona directory for '%s'", persona_name)
+        raise PersonaBundleError("Failed to archive persona directory for export.") from exc
+    else:
+        if archive_payload is not None:
+            bundle_payload["archive"] = archive_payload
 
     signature = _sign_payload(bundle_payload, signing_key=signing_key)
 
@@ -1198,6 +1318,7 @@ def import_persona_bundle_bytes(
     metadata = payload.get("metadata")
     persona_entry = payload.get("persona")
     signature_info = payload.get("signature")
+    archive_entry = payload.get("archive")
 
     if not isinstance(metadata, Mapping):
         raise PersonaBundleError("Persona bundle metadata is missing or invalid.")
@@ -1205,6 +1326,8 @@ def import_persona_bundle_bytes(
         raise PersonaBundleError("Persona bundle does not include a persona definition.")
     if not isinstance(signature_info, Mapping):
         raise PersonaBundleError("Persona bundle signature block is missing or invalid.")
+    if archive_entry is not None and not isinstance(archive_entry, Mapping):
+        raise PersonaBundleError("Persona bundle archive block is invalid.")
 
     algorithm = signature_info.get("algorithm")
     signature_value = signature_info.get("value")
@@ -1213,7 +1336,14 @@ def import_persona_bundle_bytes(
     if not isinstance(signature_value, str) or not signature_value.strip():
         raise PersonaBundleError("Persona bundle signature is missing.")
 
-    _verify_signature({"metadata": metadata, "persona": persona_entry}, signature=signature_value, signing_key=signing_key)
+    payload_for_signature: Dict[str, Any] = {
+        "metadata": metadata,
+        "persona": persona_entry,
+    }
+    if archive_entry is not None:
+        payload_for_signature["archive"] = archive_entry
+
+    _verify_signature(payload_for_signature, signature=signature_value, signing_key=signing_key)
 
     persona_name = str(persona_entry.get("name") or "").strip()
     if not persona_name:
@@ -1257,6 +1387,18 @@ def import_persona_bundle_bytes(
         skill_catalog=skill_lookup,
         config_manager=config_manager,
     )
+
+    persona_file = _persona_file_path(persona_name, config_manager=config_manager)
+    persona_dir = persona_file.parent.parent if persona_file.parent.name else persona_file.parent
+
+    if archive_entry is not None:
+        try:
+            _restore_persona_archive(archive_entry, persona_name=persona_name, target_dir=persona_dir)
+        except PersonaBundleError:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive logging for unexpected errors
+            logger.exception("Unexpected error while restoring persona archive for '%s'", persona_name)
+            raise PersonaBundleError("Failed to restore persona archive during import.") from exc
 
     persist_persona_definition(
         persona_name,
