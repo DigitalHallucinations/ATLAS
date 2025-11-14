@@ -28,6 +28,7 @@ try:  # pragma: no cover - exercised implicitly via import side effects
     from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MISSED, JobEvent
     from apscheduler.executors.pool import ThreadPoolExecutor
     from apscheduler.jobstores.base import ConflictingIdError, JobLookupError
+    from apscheduler.jobstores.mongodb import MongoDBJobStore
     from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
@@ -70,12 +71,14 @@ except (ModuleNotFoundError, ImportError) as exc:  # pragma: no cover - exercise
         """Fallback error used when APScheduler is not installed."""
 
     ThreadPoolExecutor = _MissingAPSchedulerProxy("ThreadPoolExecutor")  # type: ignore
+    MongoDBJobStore = _MissingAPSchedulerProxy("MongoDBJobStore")  # type: ignore
     SQLAlchemyJobStore = _MissingAPSchedulerProxy("SQLAlchemyJobStore")  # type: ignore
     BackgroundScheduler = _MissingAPSchedulerProxy("BackgroundScheduler")  # type: ignore
     CronTrigger = _MissingAPSchedulerProxy("CronTrigger")  # type: ignore
     DateTrigger = _MissingAPSchedulerProxy("DateTrigger")  # type: ignore
 
 from modules.logging.logger import setup_logger
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:  # pragma: no cover - import solely for type checking
     from ATLAS.config import ConfigManager
@@ -221,6 +224,7 @@ class TaskQueueService:
         self._lock = threading.RLock()
         self._job_metadata: Dict[str, MutableMapping[str, Any]] = {}
         self._service_id = uuid.uuid4().hex
+        self._jobstore_client = None
 
         job_defaults = {
             "coalesce": settings["coalesce"],
@@ -228,8 +232,9 @@ class TaskQueueService:
             "max_instances": settings["max_instances"],
         }
 
+        jobstore = self._build_jobstore(settings["jobstore_url"])
         self._scheduler = BackgroundScheduler(
-            jobstores={"default": SQLAlchemyJobStore(url=settings["jobstore_url"])},
+            jobstores={"default": jobstore},
             executors={"default": ThreadPoolExecutor(max_workers=settings["max_workers"])},
             job_defaults=job_defaults,
             timezone=self._timezone,
@@ -787,6 +792,48 @@ class TaskQueueService:
             self._scheduler.shutdown(wait=wait)
         with _REGISTRY_LOCK:
             _SERVICE_REGISTRY.pop(self._service_id, None)
+        client = getattr(self, "_jobstore_client", None)
+        if client is not None:
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
+            self._jobstore_client = None
+
+    def _build_jobstore(self, jobstore_url: str | None) -> Any:
+        url = (jobstore_url or "").strip()
+        if not url:
+            return SQLAlchemyJobStore(url="sqlite:///apscheduler.sqlite")
+
+        if self._is_mongo_url(url):
+            try:
+                from pymongo import MongoClient
+            except Exception as exc:
+                raise ModuleNotFoundError(
+                    "MongoDB job store requires PyMongo to be installed."
+                ) from exc
+
+            try:
+                client = MongoClient(url)
+            except Exception as exc:
+                raise RuntimeError(f"Failed to connect to MongoDB job store: {exc}") from exc
+
+            parsed = urlparse(url)
+            database_name = parsed.path.lstrip("/").split("?", 1)[0] or "apscheduler"
+            collection = "apscheduler_jobs"
+            self._jobstore_client = client
+            try:
+                return MongoDBJobStore(client=client, database=database_name, collection=collection)
+            except Exception:
+                client.close()
+                self._jobstore_client = None
+                raise
+
+        return SQLAlchemyJobStore(url=url)
+
+    @staticmethod
+    def _is_mongo_url(url: str) -> bool:
+        lowered = url.lower()
+        return lowered.startswith("mongodb://") or lowered.startswith("mongodb+srv://")
 
 
 _DEFAULT_SERVICE: Optional[TaskQueueService] = None

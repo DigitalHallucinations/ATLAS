@@ -20,6 +20,7 @@ from .service import (
     JobServiceError,
     JobTransitionError,
 )
+from .mongo_repository import MongoJobStoreRepository
 
 __all__ = [
     "Base",
@@ -38,4 +39,5 @@ __all__ = [
     "JobServiceError",
     "JobTransitionError",
     "JobDependencyError",
+    "MongoJobStoreRepository",
 ]
