@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable, Generic, TypeVar, cast
 
 from .retention import RetentionWorker
 from .conversation_summary import ConversationSummaryWorker
+from .remediation import PersonaMetricRemediationWorker
 
 
 T = TypeVar("T")
@@ -120,6 +121,7 @@ __all__ = [
     "run_async_in_thread",
     "RetentionWorker",
     "ConversationSummaryWorker",
+    "PersonaMetricRemediationWorker",
     "create_retention_worker",
 ]
 
