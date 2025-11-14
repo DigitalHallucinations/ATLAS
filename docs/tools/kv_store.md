@@ -43,7 +43,20 @@ tools:
           timeout: 30
 ```
 
-Environment variables provide fallbacks when configuration entries are omitted:
+For lightweight deployments the SQLite adapter can be selected instead:
+
+```yaml
+tools:
+  kv_store:
+    default_adapter: sqlite
+    adapters:
+      sqlite:
+        url: sqlite:///var/lib/atlas/kv.sqlite
+        reuse_conversation_store: false
+```
+
+Environment variables provide fallbacks for the PostgreSQL adapter when
+configuration entries are omitted:
 
 * `ATLAS_KV_STORE_URL` – PostgreSQL DSN used when a dedicated KV database is
   desired.
@@ -64,10 +77,10 @@ operation fails with `NamespaceQuotaExceededError` or `GlobalQuotaExceededError`
 ## Providers and Extensibility
 
 Providers register via `register_kv_store_adapter`.  The bundled
-`kv_store_postgres` provider instantiates the PostgreSQL adapter and enforces
-quotas inside the database.  Downstream deployments can register additional adapters
-(such as Redis or cloud-backed stores) and reference them from persona manifests
-by setting the provider name in the tool metadata.
+`kv_store_postgres` and `kv_store_sqlite` providers instantiate the respective SQL
+adapters and enforce quotas inside the database.  Downstream deployments can
+register additional adapters (such as Redis or cloud-backed stores) and reference
+them from persona manifests by setting the provider name in the tool metadata.
 
 ## Policy Hooks
 

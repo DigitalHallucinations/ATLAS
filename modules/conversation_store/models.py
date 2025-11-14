@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import (
     Boolean,
     Column,
@@ -15,13 +17,22 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID
 from sqlalchemy.types import JSON, TypeDecorator
 
 try:  # pragma: no cover - optional dependency for pgvector support
     from pgvector.sqlalchemy import Vector as PGVector  # type: ignore
 except Exception:  # pragma: no cover - fallback when pgvector is unavailable
     PGVector = None  # type: ignore
+
+try:  # pragma: no cover - optional dependency when PostgreSQL types are available
+    from sqlalchemy.dialects.postgresql import JSONB as _PG_JSONB  # type: ignore
+    from sqlalchemy.dialects.postgresql import TSVECTOR as _PG_TSVECTOR  # type: ignore
+    from sqlalchemy.dialects.postgresql import UUID as _PG_UUID  # type: ignore
+except Exception:  # pragma: no cover - gracefully degrade when dialect not installed
+    _PG_JSONB = None  # type: ignore
+    _PG_TSVECTOR = None  # type: ignore
+    _PG_UUID = None  # type: ignore
+
 from sqlalchemy.orm import declarative_base, relationship
 
 from modules.store_common.model_utils import generate_uuid, utcnow
@@ -36,18 +47,84 @@ class PortableJSON(TypeDecorator):
     cache_ok = True
 
     _json_impl = JSON()
-    _jsonb_impl = JSONB()
+    _jsonb_impl = _PG_JSONB() if _PG_JSONB is not None else None
 
     def load_dialect_impl(self, dialect):  # type: ignore[override]
-        if dialect.name == "postgresql":
+        if dialect.name == "postgresql" and self._jsonb_impl is not None:
             return dialect.type_descriptor(self._jsonb_impl)
         return dialect.type_descriptor(self._json_impl)
+
+
+class GUID(TypeDecorator):
+    """Platform-independent GUID/UUID type."""
+
+    impl = String(36)
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):  # type: ignore[override]
+        if dialect.name == "postgresql" and _PG_UUID is not None:
+            return dialect.type_descriptor(_PG_UUID(as_uuid=True))
+        return dialect.type_descriptor(String(36))
+
+    def process_bind_param(self, value, dialect):  # type: ignore[override]
+        if value is None:
+            return None
+        if dialect.name == "postgresql" and _PG_UUID is not None:
+            return value
+        if isinstance(value, uuid.UUID):
+            return str(value)
+        return str(uuid.UUID(str(value)))
+
+    def process_result_value(self, value, dialect):  # type: ignore[override]
+        if value is None:
+            return None
+        if isinstance(value, uuid.UUID):
+            return value
+        return uuid.UUID(str(value))
+
+
+class TextSearchVector(TypeDecorator):
+    """Cross-dialect text search vector placeholder."""
+
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):  # type: ignore[override]
+        if dialect.name == "postgresql" and _PG_TSVECTOR is not None:
+            return dialect.type_descriptor(_PG_TSVECTOR())
+        return dialect.type_descriptor(Text())
+
+
+class EmbeddingVector(TypeDecorator):
+    """Store vector embeddings across SQL dialects."""
+
+    impl = JSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):  # type: ignore[override]
+        if dialect.name == "postgresql" and PGVector is not None:
+            return dialect.type_descriptor(PGVector())
+        return dialect.type_descriptor(JSON())
+
+    def process_bind_param(self, value, dialect):  # type: ignore[override]
+        if value is None:
+            return None
+        if isinstance(value, (list, tuple)):
+            return [float(item) for item in value]
+        return value
+
+    def process_result_value(self, value, dialect):  # type: ignore[override]
+        if value is None:
+            return None
+        if isinstance(value, (list, tuple)):
+            return list(value)
+        return value
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
     external_id = Column(String(255), unique=False, nullable=True)
     tenant_id = Column(String(255), nullable=True, index=True)
     display_name = Column(String(255), nullable=True)
@@ -81,7 +158,7 @@ class UserCredential(Base):
     __tablename__ = "user_credentials"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    user_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
     tenant_id = Column(String(255), nullable=True, index=True)
     username = Column(String(255), nullable=False)
     password_hash = Column(String(512), nullable=False)
@@ -169,9 +246,9 @@ class PasswordResetToken(Base):
 class Session(Base):
     __tablename__ = "sessions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
     external_id = Column(String(255), unique=True, nullable=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    user_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     expires_at = Column(DateTime(timezone=True), nullable=True)
@@ -186,8 +263,8 @@ class Session(Base):
 class Conversation(Base):
     __tablename__ = "conversations"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
+    session_id = Column(GUID(), ForeignKey("sessions.id", ondelete="SET NULL"))
     title = Column(String(255), nullable=True)
     tenant_id = Column(String(255), nullable=False, index=True)
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
@@ -208,12 +285,12 @@ class Conversation(Base):
 class Message(Base):
     __tablename__ = "messages"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
     conversation_id = Column(
-        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+        GUID(), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
     tenant_id = Column(String(255), nullable=False, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    user_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
     role = Column(String(32), nullable=False)
     message_type = Column(
         String(32),
@@ -231,7 +308,7 @@ class Message(Base):
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     extra = Column(PortableJSON(), nullable=False, default=dict)
     client_message_id = Column(String(255), nullable=True)
-    message_text_tsv = Column(TSVECTOR, nullable=True)
+    message_text_tsv = Column(TextSearchVector(), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
@@ -276,15 +353,15 @@ class Message(Base):
 class EpisodicMemory(Base):
     __tablename__ = "episodic_memories"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(255), nullable=False, index=True)
     conversation_id = Column(
-        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
+        GUID(), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
     )
     message_id = Column(
-        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+        GUID(), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     title = Column(String(255), nullable=True)
     content = Column(PortableJSON(), nullable=False)
     tags = Column(PortableJSON(), nullable=False, default=list)
@@ -310,12 +387,12 @@ class EpisodicMemory(Base):
 class MessageAsset(Base):
     __tablename__ = "message_assets"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
     conversation_id = Column(
-        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+        GUID(), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
     message_id = Column(
-        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
+        GUID(), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
     tenant_id = Column(String(255), nullable=False, index=True)
     asset_type = Column(String(64), nullable=False)
@@ -340,26 +417,20 @@ class MessageAsset(Base):
 
 
 
-if PGVector is not None:  # pragma: no cover - exercised when pgvector installed
-    _VECTOR_TYPE = PGVector()
-else:
-    _VECTOR_TYPE = ARRAY(Float)
-
-
 class MessageVector(Base):
     __tablename__ = "message_vectors"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
     conversation_id = Column(
-        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+        GUID(), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
     message_id = Column(
-        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
+        GUID(), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
     tenant_id = Column(String(255), nullable=False, index=True)
     provider = Column(String(128), nullable=True)
     vector_key = Column(String(255), nullable=False, unique=True)
-    embedding = Column(_VECTOR_TYPE, nullable=True)
+    embedding = Column(EmbeddingVector(), nullable=True)
     embedding_model = Column(String(128), nullable=True)
     embedding_model_version = Column(String(64), nullable=True)
     embedding_checksum = Column(String(128), nullable=True)
@@ -402,12 +473,12 @@ class MessageVector(Base):
 class MessageEvent(Base):
     __tablename__ = "message_events"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
     conversation_id = Column(
-        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+        GUID(), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
     message_id = Column(
-        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
+        GUID(), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
     tenant_id = Column(String(255), nullable=False, index=True)
     event_type = Column(String(64), nullable=False)
@@ -433,7 +504,7 @@ class MessageEvent(Base):
 class GraphNode(Base):
     __tablename__ = "memory_graph_nodes"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(255), nullable=False, index=True)
     node_key = Column(String(255), nullable=False)
     label = Column(String(255), nullable=True)
@@ -474,16 +545,16 @@ class GraphNode(Base):
 class GraphEdge(Base):
     __tablename__ = "memory_graph_edges"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(255), nullable=False, index=True)
     edge_key = Column(String(255), nullable=True)
     source_id = Column(
-        UUID(as_uuid=True),
+        GUID(),
         ForeignKey("memory_graph_nodes.id", ondelete="CASCADE"),
         nullable=False,
     )
     target_id = Column(
-        UUID(as_uuid=True),
+        GUID(),
         ForeignKey("memory_graph_nodes.id", ondelete="CASCADE"),
         nullable=False,
     )

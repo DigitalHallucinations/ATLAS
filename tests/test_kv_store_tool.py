@@ -85,6 +85,11 @@ NamespaceQuotaExceededError = kv_store_module.NamespaceQuotaExceededError
 ToolProviderRouter = router_module.ToolProviderRouter
 
 
+def test_available_kv_adapters_expose_sqlite():
+    adapters = kv_store_module.available_kv_store_adapters()
+    assert "sqlite" in adapters
+
+
 def _normalize_dsn(dsn: str) -> str:
     if dsn.startswith("postgresql+psycopg://"):
         return dsn

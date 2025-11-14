@@ -1,5 +1,6 @@
 import sys
 import types
+from urllib.parse import urlparse
 
 
 pytest_plugins = ("pytest_postgresql",)
@@ -233,6 +234,7 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
     types_module.JSON = _marker("JSON")
     types_module.TypeDecorator = _marker("TypeDecorator")
     sys.modules["sqlalchemy.types"] = types_module
+    sqlalchemy_stub.JSON = types_module.JSON
     sql_module = types.ModuleType("sqlalchemy.sql")
     sql_module.Select = _marker("Select")
     sys.modules["sqlalchemy.sql"] = sql_module
@@ -240,15 +242,80 @@ if "sqlalchemy" not in sys.modules and sqlalchemy is None:
 
     class _StubURL:
         def __init__(self, url: str):
-            self._url = url
-            self.drivername = url.split(":", 1)[0]
+            self._parsed = urlparse(url)
+            self._apply_parsed()
 
-        def set(self, *, drivername: str):
-            self.drivername = drivername
-            return self
+        def _apply_parsed(self) -> None:
+            self.drivername = self._parsed.scheme
+            self.username = self._parsed.username
+            self.password = self._parsed.password
+            self.host = self._parsed.hostname
+            self.port = self._parsed.port
+            path = self._parsed.path or ""
+            if self.drivername.startswith("sqlite") and not self._parsed.netloc:
+                if path.startswith("//"):
+                    self.database = path[1:]
+                elif path.startswith("/") and path != "/":
+                    self.database = path
+                else:
+                    self.database = path.lstrip("/")
+            else:
+                self.database = path.lstrip("/")
+            self._url = self.render_as_string()
+
+        def set(
+            self,
+            *,
+            drivername: str | None = None,
+            username: str | None = None,
+            password: str | None = None,
+            host: str | None = None,
+            port: int | None = None,
+            database: str | None = None,
+        ):
+            scheme = drivername if drivername is not None else self.drivername
+            username = self.username if username is None else username
+            password = self.password if password is None else password
+            host = self.host if host is None else host
+            port = self.port if port is None else port
+
+            if database is None:
+                database_path = self._parsed.path
+            else:
+                if database and database.startswith("/"):
+                    trimmed = database.lstrip("/")
+                    if scheme.startswith("sqlite") and not host:
+                        database_path = f"//{trimmed}"
+                    else:
+                        database_path = f"/{trimmed}"
+                elif database:
+                    database_path = f"/{database}"
+                else:
+                    database_path = ""
+
+            host_segment = host or ""
+            port_segment = f":{port}" if port else ""
+            auth_segment = ""
+            if username:
+                auth_segment = username
+                if password:
+                    auth_segment += f":{password}"
+                auth_segment += "@"
+
+            netloc = f"{auth_segment}{host_segment}{port_segment}".rstrip("@")
+            new_parsed = self._parsed._replace(scheme=scheme, netloc=netloc, path=database_path)
+            return _StubURL(new_parsed.geturl())
+
+        def get_backend_name(self) -> str:
+            return self.drivername.split("+", 1)[0]
+
+        def render_as_string(self, hide_password: bool = False) -> str:
+            if hide_password and self.password and self.username:
+                return self._url.replace(f"{self.username}:{self.password}", f"{self.username}:***")
+            return self._parsed.geturl()
 
         def __str__(self) -> str:  # pragma: no cover - deterministic repr
-            return self._url
+            return self.render_as_string()
 
     def _stub_make_url(url: str):  # pragma: no cover - lightweight helper
         return _StubURL(url)

@@ -20,6 +20,7 @@ from sqlalchemy import (
     Float,
     Index,
     Integer,
+    JSON,
     MetaData,
     Table,
     Text,
@@ -28,7 +29,17 @@ from sqlalchemy import (
     func,
     select,
 )
-from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
+try:  # pragma: no cover - optional PostgreSQL extras
+    from sqlalchemy.dialects.postgresql import JSONB  # type: ignore
+    from sqlalchemy.dialects.postgresql import insert as pg_insert  # type: ignore
+except Exception:  # pragma: no cover - degrade gracefully when dialect missing
+    JSONB = None  # type: ignore
+    pg_insert = None  # type: ignore
+
+try:  # pragma: no cover - optional SQLite extras
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert  # type: ignore
+except Exception:  # pragma: no cover - degrade gracefully when dialect missing
+    sqlite_insert = None  # type: ignore
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.sql import Select
@@ -206,6 +217,53 @@ def available_kv_store_adapters() -> tuple[str, ...]:
     return tuple(sorted(_ADAPTERS))
 
 
+def _create_kv_table(metadata: MetaData, value_type) -> Table:
+    table = Table(
+        "kv_entries",
+        metadata,
+        Column("namespace", Text, primary_key=True, nullable=False),
+        Column("key", Text, primary_key=True, nullable=False),
+        Column("value", value_type, nullable=False),
+        Column("expires_at", Float, nullable=True),
+        Column("size_bytes", Integer, nullable=False),
+        comment="Namespaced key-value entries",
+    )
+    Index("idx_kv_entries_expires", table.c.expires_at)
+    return table
+
+
+def _load_adapter_defaults(
+    config_manager: Optional[ConfigManager],
+    adapter_name: str,
+) -> Mapping[str, Any]:
+    if config_manager is None:
+        return {}
+
+    kv_section = getattr(getattr(config_manager, "persistence", None), "kv_store", None)
+    settings: Mapping[str, Any] | None = None
+
+    if kv_section is not None and hasattr(kv_section, "get_settings"):
+        try:
+            settings = kv_section.get_settings()
+        except Exception:  # pragma: no cover - fallback to legacy accessor
+            settings = None
+
+    if settings is None and hasattr(config_manager, "get_kv_store_settings"):
+        try:
+            settings = config_manager.get_kv_store_settings()  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover - defensive fallback
+            settings = None
+
+    if isinstance(settings, Mapping):
+        adapters = settings.get("adapters")
+        if isinstance(adapters, Mapping):
+            adapter_settings = adapters.get(adapter_name)
+            if isinstance(adapter_settings, Mapping):
+                return adapter_settings
+
+    return {}
+
+
 def create_kv_store_adapter(
     name: str,
     *,
@@ -324,21 +382,10 @@ def _coerce_positive_int(value: Any, *, minimum: int, env_name: str) -> int:
     return parsed
 
 
-class PostgresKeyValueStoreAdapter:
-    """PostgreSQL-backed adapter implementing the key-value operations."""
+class _SQLKeyValueStoreAdapterBase:
+    """Shared SQLAlchemy-backed adapter implementation."""
 
-    _METADATA = MetaData()
-    _TABLE = Table(
-        "kv_entries",
-        _METADATA,
-        Column("namespace", Text, primary_key=True, nullable=False),
-        Column("key", Text, primary_key=True, nullable=False),
-        Column("value", JSONB, nullable=False),
-        Column("expires_at", Float, nullable=True),
-        Column("size_bytes", Integer, nullable=False),
-        comment="Namespaced key-value entries",
-    )
-    Index("idx_kv_entries_expires", _TABLE.c.expires_at)
+    _TABLE: Table
 
     def __init__(
         self,
@@ -354,7 +401,7 @@ class PostgresKeyValueStoreAdapter:
 
     def _ensure_schema(self) -> None:
         try:
-            self._METADATA.create_all(self._engine, tables=[self._TABLE])
+            self._TABLE.metadata.create_all(self._engine, tables=[self._TABLE])
         except Exception as exc:  # pragma: no cover - defensive logging only
             raise KeyValueStoreError("Failed to initialize KV store schema") from exc
 
@@ -444,6 +491,36 @@ class PostgresKeyValueStoreAdapter:
             raise KeyValueStoreError("TTL must be greater than zero")
         return ttl
 
+    def _insert(self):  # pragma: no cover - overridden in subclasses
+        raise NotImplementedError
+
+    def _upsert(
+        self,
+        connection,
+        *,
+        namespace: str,
+        key: str,
+        serialized: Any,
+        expires_at: Optional[float],
+        size: int,
+    ) -> None:
+        statement = self._insert().values(
+            namespace=namespace,
+            key=key,
+            value=serialized,
+            expires_at=expires_at,
+            size_bytes=size,
+        )
+        statement = statement.on_conflict_do_update(
+            index_elements=[self._TABLE.c.namespace, self._TABLE.c.key],
+            set_={
+                "value": serialized,
+                "expires_at": expires_at,
+                "size_bytes": size,
+            },
+        )
+        connection.execute(statement)
+
     def get(self, namespace: str, key: str) -> _GetResult:
         with self._engine.begin() as connection:
             now = time.time()
@@ -467,22 +544,13 @@ class PostgresKeyValueStoreAdapter:
             ).scalar_one_or_none()
             previous_size = int(existing_size or 0)
             self._enforce_quotas(connection, namespace=namespace, new_size=size, previous_size=previous_size)
-            statement = pg_insert(self._TABLE).values(
+            self._upsert(
+                connection,
                 namespace=namespace,
                 key=key,
-                value=serialized,
+                serialized=serialized,
                 expires_at=expires_at,
-                size_bytes=size,
-            )
-            connection.execute(
-                statement.on_conflict_do_update(
-                    index_elements=[self._TABLE.c.namespace, self._TABLE.c.key],
-                    set_={
-                        "value": serialized,
-                        "expires_at": expires_at,
-                        "size_bytes": size,
-                    },
-                )
+                size=size,
             )
             record = _StoreRecord(namespace=namespace, key=key, value=value, expires_at=expires_at)
             return _WriteResult(namespace=namespace, key=key, record=record)
@@ -546,25 +614,38 @@ class PostgresKeyValueStoreAdapter:
             expires_at = (time.time() + ttl_to_use) if ttl_to_use is not None else None
 
             self._enforce_quotas(connection, namespace=namespace, new_size=size, previous_size=existing_size)
-            statement = pg_insert(self._TABLE).values(
+            self._upsert(
+                connection,
                 namespace=namespace,
                 key=key,
-                value=serialized,
+                serialized=serialized,
                 expires_at=expires_at,
-                size_bytes=size,
-            )
-            connection.execute(
-                statement.on_conflict_do_update(
-                    index_elements=[self._TABLE.c.namespace, self._TABLE.c.key],
-                    set_={
-                        "value": serialized,
-                        "expires_at": expires_at,
-                        "size_bytes": size,
-                    },
-                )
+                size=size,
             )
             stored_record = _StoreRecord(namespace=namespace, key=key, value=new_value, expires_at=expires_at)
             return _WriteResult(namespace=namespace, key=key, record=stored_record)
+
+
+class PostgresKeyValueStoreAdapter(_SQLKeyValueStoreAdapterBase):
+    """PostgreSQL-backed adapter implementing the key-value operations."""
+
+    _TABLE = _create_kv_table(MetaData(), JSONB if JSONB is not None else JSON)
+
+    def _insert(self):
+        if pg_insert is None:  # pragma: no cover - missing dialect
+            raise KeyValueStoreError("PostgreSQL dialect support is unavailable")
+        return pg_insert(self._TABLE)
+
+
+class SQLiteKeyValueStoreAdapter(_SQLKeyValueStoreAdapterBase):
+    """SQLite-backed adapter implementing the key-value operations."""
+
+    _TABLE = _create_kv_table(MetaData(), JSON)
+
+    def _insert(self):
+        if sqlite_insert is None:  # pragma: no cover - missing dialect
+            raise KeyValueStoreError("SQLite dialect support is unavailable")
+        return sqlite_insert(self._TABLE)
 
 
 def _normalize_bool(value: Any, *, default: bool) -> bool:
@@ -594,8 +675,11 @@ def _normalize_postgres_url(url: str) -> str:
 def _build_engine_from_config(
     config_manager: Optional[ConfigManager],
     config: Mapping[str, Any],
+    *,
+    adapter_name: str,
+    normalize_url: Optional[Callable[[str], str]] = None,
 ) -> Engine:
-    if config_manager is not None:
+    if adapter_name == "postgres" and config_manager is not None:
         kv_section = getattr(getattr(config_manager, "persistence", None), "kv_store", None)
         if kv_section is not None and hasattr(kv_section, "get_engine"):
             try:
@@ -634,9 +718,10 @@ def _build_engine_from_config(
 
     url_value = config.get("url")
     if not isinstance(url_value, str) or not url_value.strip():
-        raise KeyValueStoreError("PostgreSQL adapter requires a configured DSN")
+        raise KeyValueStoreError(f"{adapter_name} adapter requires a configured DSN")
 
-    normalized_url = _normalize_postgres_url(url_value.strip())
+    raw_url = url_value.strip()
+    normalized_url = normalize_url(raw_url) if normalize_url is not None else raw_url
 
     pool_config: Dict[str, Any] = {}
     raw_pool_override = config.get("pool")
@@ -658,49 +743,28 @@ def _postgres_adapter_factory(
     config_manager: Optional[ConfigManager],
     config: Mapping[str, Any],
 ) -> PostgresKeyValueStoreAdapter:
+    defaults = _load_adapter_defaults(config_manager, "postgres")
+
     namespace_quota = config.get("namespace_quota_bytes")
-    if namespace_quota is None and config_manager is not None:
-        kv_section = getattr(getattr(config_manager, "persistence", None), "kv_store", None)
-        kv_settings: Mapping[str, Any] | None = None
-        if kv_section is not None and hasattr(kv_section, "get_settings"):
-            try:
-                kv_settings = kv_section.get_settings()
-            except Exception:  # pragma: no cover - defensive path
-                kv_settings = None
-        if kv_settings is None:
-            try:
-                kv_settings = config_manager.get_kv_store_settings()  # type: ignore[attr-defined]
-            except AttributeError:
-                kv_settings = None
-
-        if isinstance(kv_settings, Mapping):
-            adapters = kv_settings.get("adapters")
-            if isinstance(adapters, Mapping):
-                postgres_settings = adapters.get("postgres")
-                if isinstance(postgres_settings, Mapping):
-                    namespace_quota = postgres_settings.get("namespace_quota_bytes")
-
+    if namespace_quota is None:
+        namespace_quota = defaults.get("namespace_quota_bytes", 1_048_576)
     namespace_quota_bytes = _coerce_positive_int(
-        namespace_quota if namespace_quota is not None else 1_048_576,
+        namespace_quota,
         minimum=1,
         env_name="namespace_quota_bytes",
     )
 
     global_quota = config.get("global_quota_bytes")
-    if global_quota is None and config_manager is not None:
-        try:
-            kv_settings = config_manager.get_kv_store_settings()
-        except AttributeError:
-            kv_settings = {}
-        if isinstance(kv_settings, Mapping):
-            adapters = kv_settings.get("adapters")
-            if isinstance(adapters, Mapping):
-                postgres_settings = adapters.get("postgres")
-                if isinstance(postgres_settings, Mapping):
-                    global_quota = postgres_settings.get("global_quota_bytes")
-
     if global_quota in (None, ""):
-        global_quota_bytes: Optional[int] = None
+        default_global = defaults.get("global_quota_bytes")
+        if default_global in (None, ""):
+            global_quota_bytes: Optional[int] = None
+        else:
+            global_quota_bytes = _coerce_positive_int(
+                default_global,
+                minimum=1,
+                env_name="global_quota_bytes",
+            )
     else:
         global_quota_bytes = _coerce_positive_int(
             global_quota,
@@ -708,7 +772,12 @@ def _postgres_adapter_factory(
             env_name="global_quota_bytes",
         )
 
-    engine = _build_engine_from_config(config_manager, config)
+    engine = _build_engine_from_config(
+        config_manager,
+        config,
+        adapter_name="postgres",
+        normalize_url=_normalize_postgres_url,
+    )
 
     return PostgresKeyValueStoreAdapter(
         engine=engine,
@@ -718,6 +787,64 @@ def _postgres_adapter_factory(
 
 
 register_kv_store_adapter("postgres", _postgres_adapter_factory)
+
+
+def _sqlite_adapter_factory(
+    config_manager: Optional[ConfigManager],
+    config: Mapping[str, Any],
+) -> SQLiteKeyValueStoreAdapter:
+    defaults = _load_adapter_defaults(config_manager, "sqlite")
+
+    effective_config: Dict[str, Any] = dict(config)
+
+    url_value = effective_config.get("url")
+    if not isinstance(url_value, str) or not url_value.strip():
+        default_url = defaults.get("url")
+        if not isinstance(default_url, str) or not default_url.strip():
+            default_url = "sqlite:///atlas_kv.sqlite"
+        effective_config["url"] = default_url
+
+    namespace_quota = effective_config.get("namespace_quota_bytes")
+    if namespace_quota is None:
+        namespace_quota = defaults.get("namespace_quota_bytes", 1_048_576)
+    namespace_quota_bytes = _coerce_positive_int(
+        namespace_quota,
+        minimum=1,
+        env_name="namespace_quota_bytes",
+    )
+
+    global_quota = effective_config.get("global_quota_bytes")
+    if global_quota in (None, ""):
+        default_global = defaults.get("global_quota_bytes")
+        if default_global in (None, ""):
+            global_quota_bytes: Optional[int] = None
+        else:
+            global_quota_bytes = _coerce_positive_int(
+                default_global,
+                minimum=1,
+                env_name="global_quota_bytes",
+            )
+    else:
+        global_quota_bytes = _coerce_positive_int(
+            global_quota,
+            minimum=1,
+            env_name="global_quota_bytes",
+        )
+
+    engine = _build_engine_from_config(
+        config_manager,
+        effective_config,
+        adapter_name="sqlite",
+    )
+
+    return SQLiteKeyValueStoreAdapter(
+        engine=engine,
+        namespace_quota_bytes=namespace_quota_bytes,
+        global_quota_bytes=global_quota_bytes,
+    )
+
+
+register_kv_store_adapter("sqlite", _sqlite_adapter_factory)
 
 
 async def kv_get(

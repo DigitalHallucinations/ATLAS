@@ -254,6 +254,8 @@ def test_persistence_kv_section_set_settings_updates_blocks():
     assert postgres_settings["namespace_quota_bytes"] == 2048
     assert section.yaml_config["tools"]["kv_store"]["adapters"]["postgres"]["url"] == "postgresql://override"
     assert updated["adapters"]["postgres"]["pool"]["size"] == 5
+    sqlite_settings = section.config["tools"]["kv_store"]["adapters"]["sqlite"]
+    assert sqlite_settings["url"].startswith("sqlite:///")
     assert section._write_calls  # type: ignore[attr-defined]
 
 

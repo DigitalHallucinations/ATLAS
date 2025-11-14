@@ -1,4 +1,4 @@
-"""Helpers for bootstrapping the PostgreSQL conversation store."""
+"""Helpers for bootstrapping SQL conversation store backends."""
 
 from __future__ import annotations
 import importlib
@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Callable, Iterable
 
 from sqlalchemy.engine.url import URL, make_url
@@ -456,7 +457,16 @@ def bootstrap_conversation_store(
     privileged_credentials: tuple[str | None, str | None] | None = None,
     geteuid: Callable[[], int] | None = None,
 ) -> str:
-    """Bootstrap the configured PostgreSQL conversation store."""
+    """Bootstrap the configured conversation store."""
+
+    url = make_url(dsn)
+    backend = url.get_backend_name()
+
+    if backend == "sqlite":
+        return _bootstrap_sqlite_store(url)
+
+    if backend != "postgresql":
+        return url.render_as_string(hide_password=False)
 
     _ensure_psycopg_loaded(
         run=run,
@@ -465,12 +475,6 @@ def bootstrap_conversation_store(
     )
 
     active_connector = connector or connect
-
-    url = make_url(dsn)
-    if url.get_dialect().name != "postgresql":
-        raise BootstrapError(
-            "Conversation store DSN must use the 'postgresql' dialect."
-        )
 
     _install_postgres_client(
         run=run,
@@ -578,6 +582,23 @@ def bootstrap_conversation_store(
         verification_conn.close()  # type: ignore[attr-defined]
 
     return connection_dsn
+
+
+def _bootstrap_sqlite_store(url: URL) -> str:
+    """Ensure SQLite conversation stores have an initialized database file."""
+
+    database = url.database or ""
+
+    if database and database != ":memory:":
+        db_path = Path(database)
+        if not db_path.is_absolute():
+            db_path = Path(os.getcwd()) / db_path
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not db_path.exists():
+            db_path.touch()
+        url = url.set(database=str(db_path))
+
+    return url.render_as_string(hide_password=False)
 
 
 __all__ = ["BootstrapError", "bootstrap_conversation_store"]

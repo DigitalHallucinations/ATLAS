@@ -17,12 +17,11 @@ from sqlalchemy import (
     UniqueConstraint,
     inspect,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import relationship
 
 from modules.conversation_store.models import Base as ConversationBase
-from modules.conversation_store.models import PortableJSON
+from modules.conversation_store.models import GUID, PortableJSON
 from modules.store_common.model_utils import generate_uuid, utcnow
 
 Base = ConversationBase
@@ -63,7 +62,7 @@ class Task(Base):
         Index("ix_tasks_owner_status", "owner_id", "status"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     status = Column(
@@ -72,10 +71,10 @@ class Task(Base):
         default=TaskStatus.DRAFT,
     )
     priority = Column(Integer, nullable=False, default=0)
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
+    owner_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
+    session_id = Column(GUID(), ForeignKey("sessions.id", ondelete="SET NULL"))
     conversation_id = Column(
-        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL")
+        GUID(), ForeignKey("conversations.id", ondelete="SET NULL")
     )
     meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
     due_at = Column(DateTime(timezone=True), nullable=True)
@@ -124,9 +123,9 @@ class TaskAssignment(Base):
         Index("ix_task_assignments_status", "task_id", "status"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"))
-    assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
+    task_id = Column(GUID(), ForeignKey("tasks.id", ondelete="CASCADE"))
+    assignee_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
     role = Column(String(64), nullable=False, default="participant")
     status = Column(
         Enum(TaskAssignmentStatus, name="task_assignment_status", validate_strings=True),
@@ -150,10 +149,10 @@ class TaskDependency(Base):
         Index("ix_task_dependencies_depends_on", "depends_on_id"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"))
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
+    task_id = Column(GUID(), ForeignKey("tasks.id", ondelete="CASCADE"))
     depends_on_id = Column(
-        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE")
+        GUID(), ForeignKey("tasks.id", ondelete="CASCADE")
     )
     relationship_type = Column(String(64), nullable=False, default="blocks")
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
@@ -176,16 +175,16 @@ class TaskEvent(Base):
         Index("ix_task_events_task_created", "task_id", "created_at"),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"))
+    id = Column(GUID(), primary_key=True, default=generate_uuid)
+    task_id = Column(GUID(), ForeignKey("tasks.id", ondelete="CASCADE"))
     event_type = Column(
         Enum(TaskEventType, name="task_event_type", validate_strings=True),
         nullable=False,
     )
     triggered_by_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+        GUID(), ForeignKey("users.id", ondelete="SET NULL")
     )
-    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"))
+    session_id = Column(GUID(), ForeignKey("sessions.id", ondelete="SET NULL"))
     payload = Column(PortableJSON(), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
