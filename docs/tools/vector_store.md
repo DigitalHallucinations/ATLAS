@@ -21,21 +21,48 @@ tools:
         api_key: ${PINECONE_API_KEY}
         environment: us-west4-gcp
         index_name: atlas-index
+        namespace_prefix: tenant-
+      chroma:
+        collection_name: atlas
+        persist_directory: /var/lib/atlas/chroma
+        metric: cosine
       faiss:
-        index_path: /var/lib/atlas/faiss-index.bin
+        index_path: /var/lib/atlas/faiss-index.json
+        metric: l2
 ```
 
 Each adapter can expose provider-specific settings such as API keys, index
 names, or file paths.  When no adapter information is supplied with a tool
-call, the defaults from this section are used.
+call, the defaults from this section are used.  All keys can be overridden
+through environment variables using the standard `ConfigManager` resolution
+flow.
+
+### Pinecone
+
+Set `api_key`, `index_name`, and optionally `environment`, `host`, or
+`namespace_prefix`.  The adapter supports both the modern
+`pinecone.Pinecone` client and the legacy `pinecone.init` + `pinecone.Index`
+API.  Provide a custom client via `adapters.pinecone.client` in testing
+scenarios.
+
+### Chroma
+
+Specify a `collection_name` which is used as a prefix for per-namespace
+collections.  Supply either `persist_directory` for embedded deployments or
+`server_host`/`server_port` for a remote instance.  Optional `metric` and
+`collection_metadata` settings control similarity scoring and collection hints.
+
+### FAISS
+
+Configure `index_path` to persist embeddings locally (JSON encoded) and set
+`metric` to `cosine` or `l2`.  The adapter maintains metadata alongside vectors
+and falls back to in-memory mode when persistence is disabled.
 
 ## Providers
 
 Vector store providers live in `modules/Tools/providers/vector_store/` and
 register themselves via `register_vector_store_adapter`.  The repository ships
-with an `in_memory` adapter that is suitable for development and testing.  The
-pluggable design enables downstream deployments to register additional
-providers—such as Pinecone or FAISS—without modifying the core tool.  When
+with adapters for in-memory development, Chroma, FAISS, and Pinecone.  When
 adding a new adapter, read credentials and runtime options from
 `ConfigManager` so they can be managed through `config.yaml` or environment
 overrides.

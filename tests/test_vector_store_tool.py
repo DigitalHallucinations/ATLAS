@@ -75,6 +75,18 @@ _load_module(
     "modules.Tools.providers.vector_store.in_memory",
     ROOT / "modules" / "Tools" / "providers" / "vector_store" / "in_memory.py",
 )
+_load_module(
+    "modules.Tools.providers.vector_store.chroma",
+    ROOT / "modules" / "Tools" / "providers" / "vector_store" / "chroma.py",
+)
+_load_module(
+    "modules.Tools.providers.vector_store.faiss",
+    ROOT / "modules" / "Tools" / "providers" / "vector_store" / "faiss.py",
+)
+_load_module(
+    "modules.Tools.providers.vector_store.pinecone",
+    ROOT / "modules" / "Tools" / "providers" / "vector_store" / "pinecone.py",
+)
 router_module = _load_module(
     "modules.Tools.providers.router",
     ROOT / "modules" / "Tools" / "providers" / "router.py",
@@ -191,9 +203,10 @@ def test_upsert_vectors_validation_errors() -> None:
     asyncio.run(_run())
 
 
-def test_available_adapters_include_in_memory() -> None:
-    adapters = vector_store_module.available_vector_store_adapters()
-    assert "in_memory" in adapters
+def test_available_adapters_include_registered_providers() -> None:
+    adapters = set(vector_store_module.available_vector_store_adapters())
+    expected = {"in_memory", "chroma", "faiss", "pinecone"}
+    assert expected.issubset(adapters)
 
 
 def test_build_vector_store_service_uses_config_defaults() -> None:
