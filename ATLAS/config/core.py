@@ -70,6 +70,9 @@ class ConfigCore:
             "APP_ROOT": str(app_root),
         }
         self.logger.debug("APP_ROOT is set to: %s", config["APP_ROOT"])
+        for asset in ("PERSONA", "TASK", "TOOL", "SKILL", "JOB"):
+            env_key = f"ATLAS_{asset}_BUNDLE_SIGNING_KEY"
+            config[env_key] = os.getenv(env_key)
         return config
 
     def _compute_yaml_path(self) -> str:

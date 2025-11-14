@@ -142,6 +142,7 @@ class AtlasServer:
         self._conversation_routes: ConversationRoutes | None = None
         self._task_routes: TaskRoutes | None = None
         self._job_routes: JobRoutes | None = None
+        self._signing_key_cache: Dict[str, str] = {}
 
     def _get_conversation_routes(self) -> ConversationRoutes:
         if self._conversation_routes is None:
@@ -200,6 +201,52 @@ class AtlasServer:
         except Exception as exc:  # pragma: no cover - defensive logging only
             logger.warning("Failed to initialize conversation store schema: %s", exc)
         return repository
+
+    def _resolve_signing_key(self, asset_type: str) -> str:
+        """Return the configured signing key for the given bundle asset."""
+
+        normalized = str(asset_type or "").strip().lower()
+        if not normalized:
+            raise RuntimeError("Asset type is required to resolve signing keys")
+
+        cached = self._signing_key_cache.get(normalized)
+        if cached:
+            return cached
+
+        manager = self._config_manager
+        if manager is None:
+            raise RuntimeError("Config manager is required to resolve signing keys")
+
+        secret: Optional[str] = None
+        getter = getattr(manager, "get_bundle_signing_key", None)
+        if callable(getter):
+            try:
+                secret = getter(normalized, require=False)
+            except TypeError:
+                secret = getter(normalized)
+
+        if not secret:
+            method_name = f"get_{normalized}_bundle_signing_key"
+            method = getattr(manager, method_name, None)
+            if callable(method):
+                try:
+                    secret = method(require=False)
+                except TypeError:
+                    secret = method()
+
+        if not secret:
+            raise RuntimeError(
+                f"{normalized.capitalize()} bundle signing key is not configured."
+            )
+
+        secret_text = str(secret).strip()
+        if not secret_text:
+            raise RuntimeError(
+                f"{normalized.capitalize()} bundle signing key is not configured."
+            )
+
+        self._signing_key_cache[normalized] = secret_text
+        return secret_text
 
     def _build_task_service(self) -> "TaskService" | None:
         if self._config_manager is None:
@@ -1755,14 +1802,12 @@ class AtlasServer:
             persona = str(persona_value).strip() if isinstance(persona_value, str) else None
             return self.export_task_bundle(
                 task_name,
-                signing_key=str(payload.get("signing_key") or ""),
                 persona=persona,
             )
 
         if path == "/tasks/import":
             return self.import_task_bundle(
                 bundle_base64=str(payload.get("bundle") or ""),
-                signing_key=str(payload.get("signing_key") or ""),
                 rationale=str(payload.get("rationale") or "Imported via server route"),
             )
 
@@ -1775,14 +1820,12 @@ class AtlasServer:
             persona = str(persona_value).strip() if isinstance(persona_value, str) else None
             return self.export_tool_bundle(
                 tool_name,
-                signing_key=str(payload.get("signing_key") or ""),
                 persona=persona,
             )
 
         if path == "/tools/import":
             return self.import_tool_bundle(
                 bundle_base64=str(payload.get("bundle") or ""),
-                signing_key=str(payload.get("signing_key") or ""),
                 rationale=str(payload.get("rationale") or "Imported via server route"),
             )
 
@@ -1795,14 +1838,12 @@ class AtlasServer:
             persona = str(persona_value).strip() if isinstance(persona_value, str) else None
             return self.export_skill_bundle(
                 skill_name,
-                signing_key=str(payload.get("signing_key") or ""),
                 persona=persona,
             )
 
         if path == "/skills/import":
             return self.import_skill_bundle(
                 bundle_base64=str(payload.get("bundle") or ""),
-                signing_key=str(payload.get("signing_key") or ""),
                 rationale=str(payload.get("rationale") or "Imported via server route"),
             )
 
@@ -1815,14 +1856,12 @@ class AtlasServer:
             persona = str(persona_value).strip() if isinstance(persona_value, str) else None
             return self.export_job_bundle(
                 job_name,
-                signing_key=str(payload.get("signing_key") or ""),
                 persona=persona,
             )
 
         if path == "/jobs/import":
             return self.import_job_bundle(
                 bundle_base64=str(payload.get("bundle") or ""),
-                signing_key=str(payload.get("signing_key") or ""),
                 rationale=str(payload.get("rationale") or "Imported via server route"),
             )
 
@@ -1855,13 +1894,11 @@ class AtlasServer:
             persona_name = components[1]
             return self.export_persona_bundle(
                 persona_name,
-                signing_key=str(payload.get("signing_key") or ""),
             )
 
         if path == "/personas/import":
             return self.import_persona_bundle(
                 bundle_base64=str(payload.get("bundle") or ""),
-                signing_key=str(payload.get("signing_key") or ""),
                 rationale=str(payload.get("rationale") or "Imported via server route"),
             )
 
@@ -2159,18 +2196,23 @@ class AtlasServer:
         self,
         task_name: str,
         *,
-        signing_key: str,
+        signing_key: str | None = None,
         persona: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not task_name:
             raise ValueError("Task name is required for export")
+
+        try:
+            resolved_key = self._resolve_signing_key("task")
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
 
         persona_filter = persona.strip() if isinstance(persona, str) else None
 
         try:
             bundle_bytes, task = export_task_bundle_bytes(
                 task_name,
-                signing_key=signing_key,
+                signing_key=resolved_key,
                 persona=persona_filter,
                 config_manager=self._config_manager,
             )
@@ -2188,11 +2230,16 @@ class AtlasServer:
         self,
         *,
         bundle_base64: str,
-        signing_key: str,
+        signing_key: str | None = None,
         rationale: str = "Imported via server route",
     ) -> Dict[str, Any]:
         if not bundle_base64:
             raise ValueError("Bundle payload is required for import")
+
+        try:
+            resolved_key = self._resolve_signing_key("task")
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
 
         try:
             bundle_bytes = base64.b64decode(bundle_base64)
@@ -2202,7 +2249,7 @@ class AtlasServer:
         try:
             result = import_task_bundle_bytes(
                 bundle_bytes,
-                signing_key=signing_key,
+                signing_key=resolved_key,
                 config_manager=self._config_manager,
                 rationale=rationale,
             )
@@ -2216,18 +2263,23 @@ class AtlasServer:
         self,
         tool_name: str,
         *,
-        signing_key: str,
+        signing_key: str | None = None,
         persona: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not tool_name:
             raise ValueError("Tool name is required for export")
+
+        try:
+            resolved_key = self._resolve_signing_key("tool")
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
 
         persona_filter = persona.strip() if isinstance(persona, str) else None
 
         try:
             bundle_bytes, tool = export_tool_bundle_bytes(
                 tool_name,
-                signing_key=signing_key,
+                signing_key=resolved_key,
                 persona=persona_filter,
                 config_manager=self._config_manager,
             )
@@ -2245,11 +2297,16 @@ class AtlasServer:
         self,
         *,
         bundle_base64: str,
-        signing_key: str,
+        signing_key: str | None = None,
         rationale: str = "Imported via server route",
     ) -> Dict[str, Any]:
         if not bundle_base64:
             raise ValueError("Bundle payload is required for import")
+
+        try:
+            resolved_key = self._resolve_signing_key("tool")
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
 
         try:
             bundle_bytes = base64.b64decode(bundle_base64)
@@ -2259,7 +2316,7 @@ class AtlasServer:
         try:
             result = import_tool_bundle_bytes(
                 bundle_bytes,
-                signing_key=signing_key,
+                signing_key=resolved_key,
                 config_manager=self._config_manager,
                 rationale=rationale,
             )
@@ -2273,18 +2330,23 @@ class AtlasServer:
         self,
         skill_name: str,
         *,
-        signing_key: str,
+        signing_key: str | None = None,
         persona: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not skill_name:
             raise ValueError("Skill name is required for export")
+
+        try:
+            resolved_key = self._resolve_signing_key("skill")
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
 
         persona_filter = persona.strip() if isinstance(persona, str) else None
 
         try:
             bundle_bytes, skill = export_skill_bundle_bytes(
                 skill_name,
-                signing_key=signing_key,
+                signing_key=resolved_key,
                 persona=persona_filter,
                 config_manager=self._config_manager,
             )
@@ -2302,11 +2364,16 @@ class AtlasServer:
         self,
         *,
         bundle_base64: str,
-        signing_key: str,
+        signing_key: str | None = None,
         rationale: str = "Imported via server route",
     ) -> Dict[str, Any]:
         if not bundle_base64:
             raise ValueError("Bundle payload is required for import")
+
+        try:
+            resolved_key = self._resolve_signing_key("skill")
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
 
         try:
             bundle_bytes = base64.b64decode(bundle_base64)
@@ -2316,7 +2383,7 @@ class AtlasServer:
         try:
             result = import_skill_bundle_bytes(
                 bundle_bytes,
-                signing_key=signing_key,
+                signing_key=resolved_key,
                 config_manager=self._config_manager,
                 rationale=rationale,
             )
@@ -2330,18 +2397,23 @@ class AtlasServer:
         self,
         job_name: str,
         *,
-        signing_key: str,
+        signing_key: str | None = None,
         persona: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not job_name:
             raise ValueError("Job name is required for export")
+
+        try:
+            resolved_key = self._resolve_signing_key("job")
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
 
         persona_filter = persona.strip() if isinstance(persona, str) else None
 
         try:
             bundle_bytes, job = export_job_bundle_bytes(
                 job_name,
-                signing_key=signing_key,
+                signing_key=resolved_key,
                 persona=persona_filter,
                 config_manager=self._config_manager,
             )
@@ -2359,11 +2431,16 @@ class AtlasServer:
         self,
         *,
         bundle_base64: str,
-        signing_key: str,
+        signing_key: str | None = None,
         rationale: str = "Imported via server route",
     ) -> Dict[str, Any]:
         if not bundle_base64:
             raise ValueError("Bundle payload is required for import")
+
+        try:
+            resolved_key = self._resolve_signing_key("job")
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
 
         try:
             bundle_bytes = base64.b64decode(bundle_base64)
@@ -2373,7 +2450,7 @@ class AtlasServer:
         try:
             result = import_job_bundle_bytes(
                 bundle_bytes,
-                signing_key=signing_key,
+                signing_key=resolved_key,
                 config_manager=self._config_manager,
                 rationale=rationale,
             )
@@ -2387,15 +2464,20 @@ class AtlasServer:
         self,
         persona_name: str,
         *,
-        signing_key: str,
+        signing_key: str | None = None,
     ) -> Dict[str, Any]:
         if not persona_name:
             raise ValueError("Persona name is required for export")
 
         try:
+            resolved_key = self._resolve_signing_key("persona")
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
+
+        try:
             bundle_bytes, persona = export_persona_bundle_bytes(
                 persona_name,
-                signing_key=signing_key,
+                signing_key=resolved_key,
                 config_manager=self._config_manager,
             )
         except PersonaBundleError as exc:
@@ -2412,11 +2494,16 @@ class AtlasServer:
         self,
         *,
         bundle_base64: str,
-        signing_key: str,
+        signing_key: str | None = None,
         rationale: str = "Imported via server route",
     ) -> Dict[str, Any]:
         if not bundle_base64:
             raise ValueError("Bundle payload is required for import")
+
+        try:
+            resolved_key = self._resolve_signing_key("persona")
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
 
         try:
             bundle_bytes = base64.b64decode(bundle_base64)
@@ -2426,7 +2513,7 @@ class AtlasServer:
         try:
             result = import_persona_bundle_bytes(
                 bundle_bytes,
-                signing_key=signing_key,
+                signing_key=resolved_key,
                 config_manager=self._config_manager,
                 rationale=rationale,
             )
