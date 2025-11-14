@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, Iterable, Mapping, Optional
 
 from fastapi import FastAPI, HTTPException, Request
@@ -23,6 +26,7 @@ from modules.Server.routes import AtlasServer
 from modules.Server.task_routes import TaskRouteError
 from modules.Personas import PersonaBundleError, PersonaValidationError
 from modules.orchestration.message_bus import shutdown_message_bus
+from modules.user_accounts.user_account_service import AccountLockedError
 
 LOGGER = logging.getLogger("atlas.http_gateway")
 
@@ -31,6 +35,15 @@ _HEADER_USER = "x-atlas-user"
 _HEADER_SESSION = "x-atlas-session"
 _HEADER_ROLES = "x-atlas-roles"
 _HEADER_METADATA = "x-atlas-metadata"
+
+
+@dataclass(frozen=True)
+class AuthenticatedPrincipal:
+    """Authenticated user context details resolved from credentials."""
+
+    username: str
+    roles: tuple[str, ...]
+    metadata: Dict[str, Any]
 
 
 def _parse_roles(raw_value: Optional[str]) -> tuple[str, ...]:
@@ -52,19 +65,225 @@ def _parse_metadata(raw_value: Optional[str]) -> Optional[Mapping[str, Any]]:
     return data
 
 
-def _build_request_context(request: Request, atlas: ATLAS) -> RequestContext:
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    token = str(value).strip()
+    return token or None
+
+
+def _merge_roles(target: list[str], additional: Iterable[str]) -> None:
+    for role in additional:
+        if role not in target:
+            target.append(role)
+
+
+def _normalize_role_tokens(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        candidates: Iterable[Any] = [value]
+    elif isinstance(value, Mapping):
+        return ()
+    elif isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray)):
+        candidates = value
+    else:
+        candidates = [value]
+
+    roles: list[str] = []
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        token = str(candidate).strip()
+        if token and token not in roles:
+            roles.append(token)
+    return tuple(roles)
+
+
+def _parse_authorization_header(
+    value: str, *, fallback_username: Optional[str]
+) -> tuple[str, str]:
+    scheme, _, credentials = value.strip().partition(" ")
+    if not scheme or not credentials:
+        raise ValueError("Invalid Authorization header")
+
+    scheme = scheme.lower()
+    if scheme == "basic":
+        try:
+            decoded = base64.b64decode(credentials).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError) as exc:
+            raise ValueError("Invalid basic authorization credentials") from exc
+        if ":" not in decoded:
+            raise ValueError("Invalid basic authorization credentials")
+        username, password = decoded.split(":", 1)
+        normalized_username = _normalize_optional_text(username)
+        if normalized_username is None:
+            raise ValueError("Invalid basic authorization credentials")
+        return normalized_username, password
+
+    if scheme == "bearer":
+        token = credentials.strip()
+        if not token:
+            raise ValueError("Invalid bearer token")
+        try:
+            decoded = base64.b64decode(token).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError):
+            decoded = token
+        if ":" in decoded:
+            username, secret = decoded.split(":", 1)
+            normalized_username = _normalize_optional_text(username)
+            if normalized_username is None:
+                raise ValueError("Invalid bearer token")
+            return normalized_username, secret
+        normalized_username = _normalize_optional_text(fallback_username)
+        if normalized_username is None:
+            raise ValueError("Bearer tokens must include a username")
+        return normalized_username, decoded
+
+    raise ValueError("Unsupported authorization scheme")
+
+
+async def _collect_user_metadata(
+    atlas: ATLAS,
+    service: Any,
+    username: str,
+    tenant_id: str,
+) -> tuple[tuple[str, ...], Dict[str, Any]]:
+    roles: list[str] = []
+    metadata: Dict[str, Any] = {}
+
+    if hasattr(service, "get_user_details"):
+        try:
+            details = await run_in_threadpool(service.get_user_details, username)
+        except Exception:  # pragma: no cover - defensive logging only
+            LOGGER.debug("Failed to load user account details for %s", username, exc_info=True)
+        else:
+            if isinstance(details, Mapping):
+                cleaned = {k: v for k, v in details.items() if v is not None}
+                if cleaned:
+                    metadata["user"] = cleaned
+                    display_name = cleaned.get("display_name") or cleaned.get("name")
+                    display_text = _normalize_optional_text(display_name)
+                    if display_text:
+                        metadata.setdefault("user_display_name", display_text)
+                roles.extend(_normalize_role_tokens(details.get("roles")))
+
+    repository = getattr(atlas, "conversation_repository", None)
+    if repository is not None:
+        try:
+            profile = await run_in_threadpool(
+                repository.get_user_profile,
+                username,
+                tenant_id=tenant_id,
+            )
+        except Exception:  # pragma: no cover - defensive logging only
+            LOGGER.debug("Failed to resolve conversation profile for %s", username, exc_info=True)
+        else:
+            if isinstance(profile, Mapping):
+                profile_section = profile.get("profile")
+                if isinstance(profile_section, Mapping) and profile_section:
+                    metadata.setdefault("profile", dict(profile_section))
+                    for key in ("roles", "Roles", "user_roles"):
+                        roles.extend(_normalize_role_tokens(profile_section.get(key)))
+                documents_section = profile.get("documents")
+                if isinstance(documents_section, Mapping) and documents_section:
+                    metadata.setdefault("documents", dict(documents_section))
+                display_name = _normalize_optional_text(profile.get("display_name"))
+                if display_name:
+                    metadata.setdefault("user_display_name", display_name)
+                roles.extend(_normalize_role_tokens(profile.get("roles")))
+
+    resolver = getattr(atlas, "_resolve_active_user_roles", None)
+    if callable(resolver):
+        try:
+            resolved_roles = resolver()
+        except Exception:  # pragma: no cover - defensive logging only
+            LOGGER.debug("Active user role resolution failed", exc_info=True)
+        else:
+            roles.extend(_normalize_role_tokens(resolved_roles))
+
+    metadata.setdefault("tenant_id", tenant_id)
+
+    merged_roles: list[str] = []
+    _merge_roles(merged_roles, roles)
+
+    return tuple(merged_roles), metadata
+
+
+async def _authenticate_request(
+    request: Request,
+    atlas: ATLAS,
+    tenant_id: str,
+) -> AuthenticatedPrincipal:
+    header = request.headers.get("Authorization")
+    if not header:
+        raise HTTPException(status_code=401, detail="Authentication credentials were not provided")
+
+    fallback_username = _normalize_optional_text(request.headers.get(_HEADER_USER))
+    try:
+        username, secret = _parse_authorization_header(
+            header,
+            fallback_username=fallback_username,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    if secret is None:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    facade = getattr(atlas, "user_account_facade", None)
+    if facade is None:
+        raise HTTPException(status_code=503, detail="User account services are unavailable")
+
+    service = facade._get_user_account_service()  # type: ignore[attr-defined]
+
+    try:
+        valid = await run_in_threadpool(service.authenticate_user, username, secret)
+    except AccountLockedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    if not valid:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    roles, metadata = await _collect_user_metadata(atlas, service, username, tenant_id)
+
+    return AuthenticatedPrincipal(username=username, roles=roles, metadata=metadata)
+
+
+async def _build_request_context(request: Request, atlas: ATLAS) -> RequestContext:
     headers = request.headers
     tenant_id = headers.get(_HEADER_TENANT)
     if tenant_id is None or not tenant_id.strip():
         tenant_id = getattr(atlas, "tenant_id", None) or "default"
-    metadata = _parse_metadata(headers.get(_HEADER_METADATA))
-    roles = _parse_roles(headers.get(_HEADER_ROLES))
+    tenant_id = tenant_id.strip()
+
+    header_metadata = _parse_metadata(headers.get(_HEADER_METADATA))
+    header_roles = _parse_roles(headers.get(_HEADER_ROLES))
+
+    principal = await _authenticate_request(request, atlas, tenant_id)
+
+    header_user = _normalize_optional_text(headers.get(_HEADER_USER))
+    if header_user and header_user.lower() != principal.username.lower():
+        raise HTTPException(status_code=401, detail="Authenticated username mismatch")
+
+    combined_roles: list[str] = list(principal.roles)
+    _merge_roles(combined_roles, header_roles)
+
+    metadata_payload: Dict[str, Any] = dict(principal.metadata)
+    if header_metadata:
+        metadata_payload.update(dict(header_metadata))
+
+    if not metadata_payload:
+        metadata_value: Optional[Dict[str, Any]] = None
+    else:
+        metadata_value = metadata_payload
+
     return RequestContext(
         tenant_id=tenant_id,
-        user_id=headers.get(_HEADER_USER),
-        session_id=headers.get(_HEADER_SESSION),
-        roles=roles,
-        metadata=metadata,
+        user_id=principal.username,
+        session_id=_normalize_optional_text(headers.get(_HEADER_SESSION)),
+        roles=tuple(combined_roles),
+        metadata=metadata_value,
     )
 
 
@@ -190,7 +409,7 @@ async def health_check(request: Request) -> JSONResponse:
 async def list_conversations(request: Request) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(
         server.list_conversations,
         context=context,
@@ -203,7 +422,7 @@ async def list_conversations(request: Request) -> Any:
 async def reset_conversation(conversation_id: str, request: Request) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(server.reset_conversation, context=context, args=[conversation_id])
 
 
@@ -211,7 +430,7 @@ async def reset_conversation(conversation_id: str, request: Request) -> Any:
 async def delete_conversation(conversation_id: str, request: Request) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(server.delete_conversation, context=context, args=[conversation_id])
 
 
@@ -219,7 +438,7 @@ async def delete_conversation(conversation_id: str, request: Request) -> Any:
 async def list_messages(conversation_id: str, request: Request) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(
         server.list_messages,
         context=context,
@@ -233,7 +452,7 @@ async def search_conversations(request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(server.search_conversations, context=context, args=[payload])
 
 
@@ -242,7 +461,7 @@ async def create_message(request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(server.create_message, context=context, args=[payload])
 
 
@@ -251,7 +470,7 @@ async def update_message(message_id: str, request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(
         server.update_message,
         context=context,
@@ -267,7 +486,7 @@ async def delete_message(message_id: str, request: Request) -> Any:
         payload = {}
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(
         server.delete_message,
         context=context,
@@ -279,7 +498,7 @@ async def delete_message(message_id: str, request: Request) -> Any:
 async def stream_conversation_events(conversation_id: str, request: Request, after: Optional[str] = None) -> StreamingResponse:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     try:
         iterator = server.stream_conversation_events(conversation_id, context=context, after=after)
     except Exception as exc:  # noqa: BLE001 - translate setup errors
@@ -291,7 +510,7 @@ async def stream_conversation_events(conversation_id: str, request: Request, aft
 async def run_conversation_retention(request: Request) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     try:
         result = await run_in_threadpool(server.run_conversation_retention, context=context)
     except Exception as exc:  # noqa: BLE001
@@ -303,7 +522,7 @@ async def run_conversation_retention(request: Request) -> Any:
 async def list_tasks(request: Request) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(
         server.list_tasks,
         context=context,
@@ -316,7 +535,7 @@ async def create_task(request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(server.create_task, context=context, args=[payload])
 
 
@@ -324,7 +543,7 @@ async def create_task(request: Request) -> Any:
 async def get_task(task_id: str, request: Request, include_events: Optional[bool] = None) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     kwargs: Dict[str, Any] = {}
     if include_events is not None:
         kwargs["include_events"] = include_events
@@ -336,7 +555,7 @@ async def update_task(task_id: str, request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(server.update_task, context=context, args=[task_id, payload])
 
 
@@ -345,7 +564,7 @@ async def transition_task(task_id: str, request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     target_status = payload.get("target_status")
     if target_status is None:
         raise HTTPException(status_code=400, detail="target_status is required")
@@ -365,7 +584,7 @@ async def transition_task(task_id: str, request: Request) -> Any:
 async def delete_task(task_id: str, request: Request, expected_updated_at: Optional[str] = None) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     kwargs = {"expected_updated_at": expected_updated_at} if expected_updated_at else {}
     return await _call_route(server.delete_task, context=context, args=[task_id], kwargs=kwargs)
 
@@ -375,7 +594,7 @@ async def search_tasks(request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(server.search_tasks, context=context, args=[payload])
 
 
@@ -383,7 +602,7 @@ async def search_tasks(request: Request) -> Any:
 async def stream_task_events(task_id: str, request: Request, after: Optional[str] = None) -> StreamingResponse:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     try:
         iterator = server.stream_task_events(task_id, context=context, after=after)
     except Exception as exc:  # noqa: BLE001
@@ -395,7 +614,7 @@ async def stream_task_events(task_id: str, request: Request, after: Optional[str
 async def list_jobs(request: Request) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(
         server.list_jobs,
         context=context,
@@ -408,7 +627,7 @@ async def create_job(request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(server.create_job, context=context, args=[payload])
 
 
@@ -422,7 +641,7 @@ async def get_job(
 ) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     kwargs: Dict[str, Any] = {}
     if include_schedule is not None:
         kwargs["include_schedule"] = include_schedule
@@ -438,7 +657,7 @@ async def update_job(job_id: str, request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(server.update_job, context=context, args=[job_id, payload])
 
 
@@ -447,7 +666,7 @@ async def transition_job(job_id: str, request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     target_status = payload.get("target_status")
     if target_status is None:
         raise HTTPException(status_code=400, detail="target_status is required")
@@ -468,7 +687,7 @@ async def pause_job_schedule(job_id: str, request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     kwargs = {"expected_updated_at": payload.get("expected_updated_at")}
     return await _call_route(server.pause_job_schedule, context=context, args=[job_id], kwargs=kwargs)
 
@@ -478,7 +697,7 @@ async def resume_job_schedule(job_id: str, request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     kwargs = {"expected_updated_at": payload.get("expected_updated_at")}
     return await _call_route(server.resume_job_schedule, context=context, args=[job_id], kwargs=kwargs)
 
@@ -488,7 +707,7 @@ async def rerun_job(job_id: str, request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     kwargs = {"expected_updated_at": payload.get("expected_updated_at")}
     return await _call_route(server.rerun_job, context=context, args=[job_id], kwargs=kwargs)
 
@@ -498,7 +717,7 @@ async def run_job_now(job_id: str, request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     kwargs = {"expected_updated_at": payload.get("expected_updated_at")}
     return await _call_route(server.run_job_now, context=context, args=[job_id], kwargs=kwargs)
 
@@ -507,7 +726,7 @@ async def run_job_now(job_id: str, request: Request) -> Any:
 async def delete_job(job_id: str, request: Request, expected_updated_at: Optional[str] = None) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     kwargs = {"expected_updated_at": expected_updated_at} if expected_updated_at else {}
     return await _call_route(server.delete_job, context=context, args=[job_id], kwargs=kwargs)
 
@@ -516,7 +735,7 @@ async def delete_job(job_id: str, request: Request, expected_updated_at: Optiona
 async def list_job_tasks(job_id: str, request: Request) -> Any:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(server.list_job_tasks, context=context, args=[job_id])
 
 
@@ -525,7 +744,7 @@ async def link_job_task(job_id: str, request: Request) -> Any:
     payload = await request.json()
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     return await _call_route(server.link_job_task, context=context, args=[job_id, payload])
 
 
@@ -537,7 +756,7 @@ async def unlink_job_task(job_id: str, request: Request) -> Any:
         payload = {}
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     kwargs = {
         "link_id": payload.get("link_id"),
         "task_id": payload.get("task_id"),
@@ -549,7 +768,7 @@ async def unlink_job_task(job_id: str, request: Request) -> Any:
 async def stream_job_events(job_id: str, request: Request, after: Optional[str] = None) -> StreamingResponse:
     atlas = _get_atlas(request)
     server = _get_server(request)
-    context = _build_request_context(request, atlas)
+    context = await _build_request_context(request, atlas)
     try:
         iterator = server.stream_job_events(job_id, context=context, after=after)
     except Exception as exc:  # noqa: BLE001
