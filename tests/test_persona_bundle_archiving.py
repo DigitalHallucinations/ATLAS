@@ -4,7 +4,15 @@ import sys
 import types
 from pathlib import Path
 
-from modules.Personas import export_persona_bundle_bytes, import_persona_bundle_bytes
+import pytest
+
+from modules.Personas import (
+    PersonaBundleError,
+    export_persona_bundle_bytes,
+    import_persona_bundle_bytes,
+    _persona_file_path,
+)
+from modules.store_common.bundle_utils import BUNDLE_ALGORITHM, sign_payload
 
 
 if "jsonschema" not in sys.modules:  # pragma: no cover - avoid optional dependency requirements
@@ -69,6 +77,47 @@ def _setup_metadata(root: Path) -> None:
         }
     ]
     _write_json(root / "modules" / "Skills" / "skills.json", skills_payload)
+
+
+def _build_signed_bundle(name: str) -> bytes:
+    persona_entry = {
+        "name": name,
+        "meaning": "A helpful assistant.",
+        "content": {
+            "start_locked": "Start",
+            "editable_content": "Editable",
+            "end_locked": "End",
+        },
+        "allowed_tools": ["alpha_tool"],
+        "allowed_skills": ["memory_skill"],
+    }
+
+    metadata = {
+        "version": 1,
+        "exported_at": "2024-01-01T00:00:00Z",
+        "persona_name": name,
+    }
+
+    payload = {
+        "metadata": metadata,
+        "persona": persona_entry,
+    }
+
+    signature = sign_payload(
+        payload,
+        signing_key="secret",
+        error_cls=PersonaBundleError,
+    )
+
+    signed_payload = {
+        **payload,
+        "signature": {
+            "algorithm": BUNDLE_ALGORITHM,
+            "value": signature,
+        },
+    }
+
+    return json.dumps(signed_payload, indent=2).encode("utf-8")
 
 
 def _create_persona(root: Path, name: str) -> Path:
@@ -156,3 +205,51 @@ def test_persona_bundle_roundtrip_restores_directory(tmp_path: Path) -> None:
     assert exported_persona["allowed_tools"] == ["alpha_tool"]
     assert result["persona"]["allowed_tools"] == ["alpha_tool"]
     assert result["success"] is True
+
+
+def test_persona_file_path_rejects_path_traversal(tmp_path: Path) -> None:
+    root = tmp_path / "app"
+    config = _StubConfigManager(root)
+
+    with pytest.raises(ValueError):
+        _persona_file_path("../Explorer", config_manager=config)
+
+
+def test_import_persona_bundle_bytes_rejects_traversal_name(tmp_path: Path) -> None:
+    root = tmp_path / "app"
+    config = _StubConfigManager(root)
+
+    _copy_persona_schema(root)
+    _setup_metadata(root)
+
+    bundle_bytes = _build_signed_bundle("../Explorer")
+
+    with pytest.raises(PersonaBundleError):
+        import_persona_bundle_bytes(
+            bundle_bytes,
+            signing_key="secret",
+            config_manager=config,
+        )
+
+
+def test_import_persona_bundle_bytes_allows_safe_name(tmp_path: Path) -> None:
+    root = tmp_path / "app"
+    config = _StubConfigManager(root)
+
+    _copy_persona_schema(root)
+    _setup_metadata(root)
+
+    bundle_bytes = _build_signed_bundle("Explorer")
+
+    result = import_persona_bundle_bytes(
+        bundle_bytes,
+        signing_key="secret",
+        config_manager=config,
+    )
+
+    persona_file = root / "modules" / "Personas" / "Explorer" / "Persona" / "Explorer.json"
+    assert persona_file.exists()
+
+    persisted = json.loads(persona_file.read_text(encoding="utf-8"))
+    assert persisted["persona"][0]["name"] == "Explorer"
+    assert result["persona"]["name"] == "Explorer"
