@@ -85,6 +85,11 @@ psutil>=5.9.5
 # Tenacity for implementing retries and robust error handling
 tenacity>=8.2.3
 
+# Vector store providers (optional)
+chromadb
+faiss-cpu
+pinecone-client
+
 # =====================================
 # Optional accelerator/fine-tuning dependencies
 # =====================================
