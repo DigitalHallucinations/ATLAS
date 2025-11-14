@@ -481,6 +481,8 @@ class SetupWizardWindow(AtlasWindow):
         self._setup_type_buttons: Dict[str, Gtk.CheckButton] = {}
         self._setup_type_syncing = False
         self._database_entries: Dict[str, Gtk.Entry] = {}
+        self._database_backend_combo: Gtk.ComboBoxText | None = None
+        self._database_stack: Gtk.Stack | None = None
         self._provider_entries: Dict[str, Gtk.Entry] = {}
         self._provider_buffer: Optional[Gtk.TextBuffer] = None
         self._provider_mask_buffer: Optional[Gtk.TextBuffer] = None
@@ -1140,7 +1142,7 @@ class SetupWizardWindow(AtlasWindow):
             "What you'll need",
             [
                 "Contact details for the first administrator.",
-                "Connection info for PostgreSQL and supporting services.",
+                "Connection info for your conversation store (PostgreSQL, SQLite, or MongoDB/Atlas) and supporting services.",
                 "API keys or credentials for any model providers you plan to use.",
             ],
         )
@@ -1151,7 +1153,7 @@ class SetupWizardWindow(AtlasWindow):
         preflight_label = Gtk.Label(
             label=(
                 "Want to double-check your environment first? Run the preflight scan to test"
-                " PostgreSQL, Redis, and the project virtualenv."
+                " your database backend, Redis, and the project virtualenv."
             )
         )
         preflight_label.set_wrap(True)
@@ -1219,6 +1221,8 @@ class SetupWizardWindow(AtlasWindow):
         self._preflight_rows.clear()
         self._preflight_results.clear()
         self._set_status("Running preflight checks…")
+        database_state = self._collect_database_state(strict=False)
+        self._preflight_helper.configure_database_target(database_state)
         try:
             self._preflight_helper.run_checks(
                 on_update=self._on_preflight_update,
@@ -1488,12 +1492,12 @@ class SetupWizardWindow(AtlasWindow):
             (
                 "Job scheduling",
                 "Disabled so nothing else is required.",
-                "Enabled with a dedicated Postgres store.",
+                "Enabled with a dedicated database-backed job store.",
             ),
             (
                 "Key-value store",
                 "Reuse the conversation database.",
-                "Separate Postgres cache for scale.",
+                "Separate database-backed cache for scale.",
             ),
             (
                 "Retention & policies",
@@ -1761,10 +1765,11 @@ class SetupWizardWindow(AtlasWindow):
         return self._create_intro_page(
             "About the Database",
             [
-                "ATLAS keeps conversations and configuration in PostgreSQL.",
-                "We'll test the host, port, database, and credentials you share next.",
+                "ATLAS keeps conversations and configuration in a dedicated database.",
+                "Choose between PostgreSQL, SQLite, or MongoDB/Atlas based on your deployment.",
+                "We'll verify the backend you select, including connection strings and Atlas SRV URLs.",
             ],
-            "Keep the database connection details nearby so entering them is quick.",
+            "Keep the relevant connection details or URI nearby so entering them is quick.",
         )
 
     def _build_job_scheduling_intro_page(self) -> Gtk.Widget:
@@ -1932,24 +1937,278 @@ class SetupWizardWindow(AtlasWindow):
 
     def _build_database_page(self) -> Gtk.Widget:
         state = self.controller.state.database
-        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        self._database_entries.clear()
 
-        self._database_entries["host"] = self._create_labeled_entry(grid, 0, "Host", state.host)
-        self._database_entries["port"] = self._create_labeled_entry(grid, 1, "Port", str(state.port))
-        self._database_entries["database"] = self._create_labeled_entry(
-            grid, 2, "Database", state.database
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        container.set_hexpand(True)
+
+        backend_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        backend_label = Gtk.Label(label="Backend")
+        backend_label.set_xalign(0.0)
+        backend_grid.attach(backend_label, 0, 0, 1, 1)
+
+        backend_combo = Gtk.ComboBoxText()
+        backend_combo.append("postgresql", "PostgreSQL")
+        backend_combo.append("sqlite", "SQLite")
+        backend_combo.append("mongodb", "MongoDB / Atlas")
+        backend_combo.set_hexpand(False)
+        backend_combo.set_halign(Gtk.Align.START)
+        backend_combo.set_size_request(self._get_entry_pixel_width(), -1)
+        backend_grid.attach(backend_combo, 1, 0, 1, 1)
+        container.append(backend_grid)
+
+        pg_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        self._database_entries["postgresql.host"] = self._create_labeled_entry(
+            pg_grid, 0, "Host", ""
         )
-        self._database_entries["user"] = self._create_labeled_entry(grid, 3, "User", state.user)
-        self._database_entries["password"] = self._create_labeled_entry(
-            grid, 4, "Password", state.password, visibility=False
+        self._database_entries["postgresql.port"] = self._create_labeled_entry(
+            pg_grid, 1, "Port", ""
         )
-        self._database_user_suggestion = self._database_entries["user"].get_text().strip()
+        self._database_entries["postgresql.database"] = self._create_labeled_entry(
+            pg_grid, 2, "Database", ""
+        )
+        self._database_entries["postgresql.user"] = self._create_labeled_entry(
+            pg_grid, 3, "User", ""
+        )
+        self._database_entries["postgresql.password"] = self._create_labeled_entry(
+            pg_grid, 4, "Password", "", visibility=False
+        )
+
+        sqlite_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        self._database_entries["sqlite.path"] = self._create_labeled_entry(
+            sqlite_grid,
+            0,
+            "Database file",
+            "",
+            placeholder="atlas.sqlite3 or an absolute path",
+        )
+
+        mongo_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        self._database_entries["mongodb.uri"] = self._create_labeled_entry(
+            mongo_grid,
+            0,
+            "Connection string",
+            "",
+            placeholder="mongodb:// or mongodb+srv://",
+        )
+        self._database_entries["mongodb.host"] = self._create_labeled_entry(
+            mongo_grid, 1, "Host", ""
+        )
+        self._database_entries["mongodb.port"] = self._create_labeled_entry(
+            mongo_grid, 2, "Port", ""
+        )
+        self._database_entries["mongodb.database"] = self._create_labeled_entry(
+            mongo_grid, 3, "Database", ""
+        )
+        self._database_entries["mongodb.user"] = self._create_labeled_entry(
+            mongo_grid, 4, "User", ""
+        )
+        self._database_entries["mongodb.password"] = self._create_labeled_entry(
+            mongo_grid, 5, "Password", "", visibility=False
+        )
+        self._database_entries["mongodb.options"] = self._create_labeled_entry(
+            mongo_grid,
+            6,
+            "Options",
+            "",
+            placeholder="retryWrites=true&w=majority",
+        )
+
+        stack = Gtk.Stack()
+        stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        stack.add_named(pg_grid, "postgresql")
+        stack.add_named(sqlite_grid, "sqlite")
+        stack.add_named(mongo_grid, "mongodb")
+        stack.set_visible_child_name("postgresql")
+        container.append(stack)
+
+        backend_combo.connect("changed", self._on_database_backend_changed, stack)
+
+        self._database_backend_combo = backend_combo
+        self._database_stack = stack
+
+        # Seed defaults then hydrate from state so switching back retains entries.
+        self._set_database_entry_text("postgresql.host", "localhost")
+        self._set_database_entry_text("postgresql.port", "5432")
+        self._set_database_entry_text("postgresql.database", "atlas")
+        self._set_database_entry_text("postgresql.user", "atlas")
+        self._set_database_entry_text("postgresql.password", "")
+
+        self._set_database_entry_text("sqlite.path", "atlas.sqlite3")
+
+        self._set_database_entry_text("mongodb.uri", "")
+        self._set_database_entry_text("mongodb.host", "localhost")
+        self._set_database_entry_text("mongodb.port", "27017")
+        self._set_database_entry_text("mongodb.database", "atlas")
+        self._set_database_entry_text("mongodb.user", "")
+        self._set_database_entry_text("mongodb.password", "")
+        self._set_database_entry_text("mongodb.options", "")
+
+        self._populate_database_form(state)
+        self._database_user_suggestion = self._get_database_entry_text("postgresql.user")
 
         instructions = (
-            "Share the PostgreSQL details here. If a conversation store already exists, we'll reuse it."
+            "Pick the backend you want to run and share its connection details."
+            " PostgreSQL suits production clusters, SQLite is handy for local demos,"
+            " and MongoDB/Atlas works with managed or SRV-based deployments."
         )
 
-        return self._wrap_with_instructions(grid, instructions, "Configure Database")
+        return self._wrap_with_instructions(container, instructions, "Configure Database")
+
+    def _set_database_entry_text(
+        self, key: str, value: str | int | None
+    ) -> None:
+        entry = self._database_entries.get(key)
+        if isinstance(entry, Gtk.Entry):
+            text = "" if value is None else str(value)
+            entry.set_text(text)
+
+    def _get_database_entry_text(self, key: str, *, strip: bool = True) -> str:
+        entry = self._database_entries.get(key)
+        if not isinstance(entry, Gtk.Entry):
+            return ""
+        text = entry.get_text()
+        return text.strip() if strip else text
+
+    def _populate_database_form(self, state: DatabaseState) -> None:
+        backend = (state.backend or "postgresql").strip().lower() or "postgresql"
+        if backend not in {"postgresql", "sqlite", "mongodb"}:
+            backend = "postgresql"
+        if self._database_backend_combo is not None:
+            try:
+                self._database_backend_combo.set_active_id(backend)
+            except Exception:
+                pass
+
+        if backend == "postgresql":
+            self._set_database_entry_text("postgresql.host", state.host or "localhost")
+            self._set_database_entry_text("postgresql.port", state.port or 5432)
+            self._set_database_entry_text("postgresql.database", state.database or "atlas")
+            self._set_database_entry_text("postgresql.user", state.user or "atlas")
+            self._set_database_entry_text("postgresql.password", state.password or "")
+        elif backend == "sqlite":
+            database = state.database or state.dsn or "atlas.sqlite3"
+            self._set_database_entry_text("sqlite.path", database)
+        elif backend == "mongodb":
+            self._set_database_entry_text("mongodb.uri", state.dsn or "")
+            self._set_database_entry_text("mongodb.host", state.host or "localhost")
+            self._set_database_entry_text("mongodb.port", state.port or 27017)
+            self._set_database_entry_text("mongodb.database", state.database or "atlas")
+            self._set_database_entry_text("mongodb.user", state.user or "")
+            self._set_database_entry_text("mongodb.password", state.password or "")
+            self._set_database_entry_text("mongodb.options", state.options or "")
+
+        if self._database_stack is not None:
+            try:
+                self._database_stack.set_visible_child_name(backend)
+            except Exception:
+                pass
+        self._database_user_suggestion = self._get_database_entry_text("postgresql.user")
+
+    def _on_database_backend_changed(
+        self, combo: Gtk.ComboBoxText, stack: Gtk.Stack
+    ) -> None:
+        backend = combo.get_active_id() or "postgresql"
+        if backend not in {"postgresql", "sqlite", "mongodb"}:
+            backend = "postgresql"
+        try:
+            stack.set_visible_child_name(backend)
+        except Exception:
+            pass
+
+    def _collect_database_state(self, *, strict: bool = False) -> DatabaseState:
+        current = self.controller.state.database
+        backend = current.backend or "postgresql"
+        if self._database_backend_combo is not None:
+            active = self._database_backend_combo.get_active_id()
+            if active:
+                backend = active
+        normalized = (backend or "postgresql").strip().lower() or "postgresql"
+
+        if normalized == "sqlite":
+            path_text = self._get_database_entry_text("sqlite.path")
+            if not path_text:
+                if current.backend == "sqlite" and current.database:
+                    path_text = current.database
+                else:
+                    path_text = "atlas.sqlite3"
+            return DatabaseState(
+                backend="sqlite",
+                host="",
+                port=0,
+                database=path_text,
+                user="",
+                password="",
+                dsn="",
+                options="",
+            )
+
+        if normalized == "mongodb":
+            uri = self._get_database_entry_text("mongodb.uri")
+            host = self._get_database_entry_text("mongodb.host") or (
+                current.host if current.backend == "mongodb" and current.host else "localhost"
+            )
+            default_port = (
+                current.port if current.backend == "mongodb" and current.port else 27017
+            )
+            port_text = self._get_database_entry_text("mongodb.port")
+            port = default_port
+            if port_text:
+                try:
+                    port = int(port_text)
+                except ValueError as exc:
+                    if strict:
+                        raise ValueError("MongoDB port must be a valid integer") from exc
+                    port = default_port
+            database = self._get_database_entry_text("mongodb.database") or (
+                current.database if current.backend == "mongodb" and current.database else "atlas"
+            )
+            user = self._get_database_entry_text("mongodb.user")
+            password = self._get_database_entry_text("mongodb.password", strip=False)
+            options = self._get_database_entry_text("mongodb.options")
+            return DatabaseState(
+                backend="mongodb",
+                host=host or "localhost",
+                port=port,
+                database=database or "atlas",
+                user=user,
+                password=password,
+                dsn=uri,
+                options=options,
+            )
+
+        host = self._get_database_entry_text("postgresql.host") or (
+            current.host if current.backend == "postgresql" and current.host else "localhost"
+        )
+        default_port = (
+            current.port if current.backend == "postgresql" and current.port else 5432
+        )
+        port_text = self._get_database_entry_text("postgresql.port")
+        port = default_port
+        if port_text:
+            try:
+                port = int(port_text)
+            except ValueError as exc:
+                if strict:
+                    raise ValueError("PostgreSQL port must be a valid integer") from exc
+                port = default_port
+        database_name = self._get_database_entry_text("postgresql.database") or (
+            current.database if current.backend == "postgresql" and current.database else "atlas"
+        )
+        user = self._get_database_entry_text("postgresql.user") or (
+            current.user if current.backend == "postgresql" and current.user else "atlas"
+        )
+        password = self._get_database_entry_text("postgresql.password", strip=False)
+        return DatabaseState(
+            backend="postgresql",
+            host=host or "localhost",
+            port=port,
+            database=database_name or "atlas",
+            user=user or "atlas",
+            password=password,
+            dsn="",
+            options="",
+        )
 
     def _build_provider_pages(self) -> list[Gtk.Widget]:
         state = self.controller.state.providers
@@ -3092,18 +3351,7 @@ class SetupWizardWindow(AtlasWindow):
     # -- apply handlers -------------------------------------------------
 
     def _apply_database(self) -> str:
-        try:
-            port = int(self._database_entries["port"].get_text().strip() or 0)
-        except ValueError as exc:
-            raise ValueError("Port must be a valid integer") from exc
-
-        state = DatabaseState(
-            host=self._database_entries["host"].get_text().strip() or "localhost",
-            port=port or self.controller.state.database.port,
-            database=self._database_entries["database"].get_text().strip() or "atlas",
-            user=self._database_entries["user"].get_text().strip() or "atlas",
-            password=self._database_entries["password"].get_text(),
-        )
+        state = self._collect_database_state(strict=True)
 
         try:
             self.controller.apply_database_settings(
@@ -3122,6 +3370,7 @@ class SetupWizardWindow(AtlasWindow):
                 state,
                 privileged_credentials=self._privileged_credentials,
             )
+        self._populate_database_form(self.controller.state.database)
         return "Database connection saved."
 
     def _create_privileged_credentials_dialog(
@@ -3573,7 +3822,7 @@ class SetupWizardWindow(AtlasWindow):
 
     def _refresh_downstream_defaults(self) -> None:
         user_state = self.controller.state.user
-        db_entry = self._database_entries.get("user")
+        db_entry = self._database_entries.get("postgresql.user")
         suggested_db_user = user_state.username.strip() if user_state.username else ""
         if isinstance(db_entry, Gtk.Entry):
             current = db_entry.get_text().strip()
