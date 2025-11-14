@@ -113,6 +113,36 @@ class ToolingConfigSection:
         else:
             adapters_block = {}
         adapters_block.setdefault("in_memory", dict(adapters_block.get("in_memory", {})))
+
+        mongo_block = adapters_block.get("mongodb")
+        if isinstance(mongo_block, Mapping):
+            mongo_block = dict(mongo_block)
+        else:
+            mongo_block = {}
+
+        uri_override = self.env_config.get("ATLAS_VECTOR_STORE_MONGODB_URI")
+        if uri_override and not mongo_block.get("connection_uri"):
+            mongo_block["connection_uri"] = uri_override
+
+        database_override = self.env_config.get("ATLAS_VECTOR_STORE_MONGODB_DATABASE")
+        if database_override and not mongo_block.get("database"):
+            mongo_block["database"] = database_override
+        else:
+            mongo_block.setdefault("database", "atlas_vector_store")
+
+        collection_override = self.env_config.get("ATLAS_VECTOR_STORE_MONGODB_COLLECTION")
+        if collection_override and not mongo_block.get("collection"):
+            mongo_block["collection"] = collection_override
+        else:
+            mongo_block.setdefault("collection", "embeddings")
+
+        index_override = self.env_config.get("ATLAS_VECTOR_STORE_MONGODB_INDEX")
+        if index_override and not mongo_block.get("index_name"):
+            mongo_block["index_name"] = index_override
+        else:
+            mongo_block.setdefault("index_name", "vector_index")
+
+        adapters_block["mongodb"] = mongo_block
         vector_block["adapters"] = adapters_block
 
         tools_block["vector_store"] = vector_block
