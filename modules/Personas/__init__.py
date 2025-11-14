@@ -10,6 +10,7 @@ under :mod:`modules.Tools`.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from collections.abc import Iterable as IterableABC, Mapping as MappingABC
 from copy import deepcopy
@@ -17,7 +18,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple, Type
 
 from types import SimpleNamespace
 
@@ -124,13 +125,48 @@ def _coerce_flag_bool(value: Any) -> bool:
     return bool(value)
 
 
+_UNSAFE_PERSONA_CHARACTERS = set('<>:"|?*')
+
+
 def _resolve_app_root(config_manager=None) -> Path:
     """Return the repository/application root for persona files."""
 
     return resolve_app_root(config_manager, logger=logger)
 
 
+def _validate_persona_name(
+    persona_name: str,
+    *,
+    error_cls: Type[Exception] = ValueError,
+) -> str:
+    """Ensure ``persona_name`` is safe for filesystem operations."""
+
+    normalized = str(persona_name or "").strip()
+    if not normalized:
+        raise error_cls("Persona name must be a non-empty string.")
+
+    if normalized in {".", ".."}:
+        raise error_cls("Persona name cannot reference relative directories.")
+
+    if os.sep and os.sep in normalized:
+        raise error_cls("Persona name cannot contain path separators.")
+    if os.altsep and os.altsep in normalized:
+        raise error_cls("Persona name cannot contain path separators.")
+
+    if ".." in normalized:
+        raise error_cls("Persona name cannot include traversal sequences.")
+
+    if any(char in _UNSAFE_PERSONA_CHARACTERS for char in normalized):
+        raise error_cls("Persona name contains unsupported characters.")
+
+    if any(ord(char) < 32 for char in normalized):
+        raise error_cls("Persona name contains control characters.")
+
+    return normalized
+
+
 def _persona_file_path(persona_name: str, *, config_manager=None) -> Path:
+    persona_name = _validate_persona_name(persona_name)
     base = _resolve_app_root(config_manager)
     canonical_dir = base / "modules" / "Personas" / persona_name
     canonical_file = canonical_dir / "Persona" / f"{persona_name}.json"
@@ -874,6 +910,7 @@ def persist_persona_definition(
 ) -> None:
     """Write ``persona`` back to disk preserving the schema wrapper."""
 
+    persona_name = _validate_persona_name(persona_name)
     path = _persona_file_path(persona_name, config_manager=config_manager)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1273,7 +1310,10 @@ def import_persona_bundle_bytes(
         error_cls=PersonaBundleError,
     )
 
-    persona_name = str(persona_entry.get("name") or "").strip()
+    persona_name = _validate_persona_name(
+        persona_entry.get("name"),
+        error_cls=PersonaBundleError,
+    )
     if not persona_name:
         raise PersonaBundleError("Persona bundle is missing the persona name.")
 
@@ -1302,6 +1342,7 @@ def import_persona_bundle_bytes(
             missing_skills.append(skill_name)
 
     persona_for_validation = dict(persona_entry)
+    persona_for_validation["name"] = persona_name
     persona_for_validation["allowed_tools"] = resolved_tools
     persona_for_validation["allowed_skills"] = resolved_skills
 
