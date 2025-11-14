@@ -164,6 +164,11 @@ class PersistenceConfigMixin:
 
         return self.persistence.conversation.get_retention_policies()
 
+    def get_retention_worker_settings(self) -> Dict[str, Any]:
+        """Return configuration overrides for the retention worker scheduler."""
+
+        return copy.deepcopy(self.persistence.conversation.get_retention_worker_settings())
+
     def set_conversation_retention(
         self,
         *,
@@ -1008,6 +1013,21 @@ class ConversationStoreConfigSection:
     _conversation_engine: Any | None = None
     _conversation_session_factory: Any | None = None
 
+    RETENTION_WORKER_DEFAULTS: Mapping[str, Any] = {
+        "interval_seconds": 3600.0,
+        "min_interval_seconds": 60.0,
+        "max_interval_seconds": 7200.0,
+        "backlog_low_water": 0,
+        "backlog_high_water": 50,
+        "catchup_multiplier": 0.5,
+        "recovery_growth": 1.5,
+        "slow_run_threshold": 0.8,
+        "fast_run_threshold": 0.3,
+        "jitter_seconds": 30.0,
+        "error_backoff_factor": 2.0,
+        "error_backoff_max_seconds": 21600.0,
+    }
+
     def apply(self) -> None:
         conversation_store_block = self.config.get("conversation_database")
         if not isinstance(conversation_store_block, Mapping):
@@ -1060,6 +1080,17 @@ class ConversationStoreConfigSection:
 
         retention_block.setdefault("history_message_limit", 500)
         conversation_store_block["retention"] = retention_block
+
+        worker_block = conversation_store_block.get("retention_worker")
+        if not isinstance(worker_block, Mapping):
+            worker_block = {}
+        else:
+            worker_block = dict(worker_block)
+
+        for key, value in self.RETENTION_WORKER_DEFAULTS.items():
+            worker_block.setdefault(key, value)
+
+        conversation_store_block["retention_worker"] = worker_block
         self.config["conversation_database"] = conversation_store_block
 
     # Exposed helpers --------------------------------------------------
@@ -1157,6 +1188,45 @@ class ConversationStoreConfigSection:
         if isinstance(retention, Mapping):
             return dict(retention)
         return {}
+
+    def get_retention_worker_settings(self) -> Dict[str, Any]:
+        config = self.get_config()
+        block = config.get("retention_worker")
+        if not isinstance(block, Mapping):
+            block = {}
+
+        settings: Dict[str, Any] = {}
+        defaults = dict(self.RETENTION_WORKER_DEFAULTS)
+
+        def _as_float(key: str, value: Any) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return float(defaults[key])
+
+        def _as_int(key: str, value: Any) -> int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return int(defaults[key])
+
+        settings["interval_seconds"] = _as_float("interval_seconds", block.get("interval_seconds"))
+        settings["min_interval_seconds"] = _as_float("min_interval_seconds", block.get("min_interval_seconds"))
+        settings["max_interval_seconds"] = _as_float("max_interval_seconds", block.get("max_interval_seconds"))
+        settings["backlog_low_water"] = _as_int("backlog_low_water", block.get("backlog_low_water"))
+        settings["backlog_high_water"] = _as_int("backlog_high_water", block.get("backlog_high_water"))
+        settings["catchup_multiplier"] = _as_float("catchup_multiplier", block.get("catchup_multiplier"))
+        settings["recovery_growth"] = _as_float("recovery_growth", block.get("recovery_growth"))
+        settings["slow_run_threshold"] = _as_float("slow_run_threshold", block.get("slow_run_threshold"))
+        settings["fast_run_threshold"] = _as_float("fast_run_threshold", block.get("fast_run_threshold"))
+        settings["jitter_seconds"] = _as_float("jitter_seconds", block.get("jitter_seconds"))
+        settings["error_backoff_factor"] = _as_float("error_backoff_factor", block.get("error_backoff_factor"))
+        settings["error_backoff_max_seconds"] = _as_float(
+            "error_backoff_max_seconds",
+            block.get("error_backoff_max_seconds"),
+        )
+
+        return settings
 
     def set_retention(
         self,

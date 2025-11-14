@@ -113,4 +113,13 @@ conversation_database:
   retention:
     days: 30
     history_message_limit: 500
+  retention_worker:
+    interval_seconds: 3600
+    min_interval_seconds: 60
+    max_interval_seconds: 7200
+    backlog_high_water: 50
+    backlog_low_water: 0
+    jitter_seconds: 30
+    error_backoff_factor: 2.0
+    error_backoff_max_seconds: 21600
   url: postgresql+psycopg://atlas:atlas@localhost:5432/atlas
