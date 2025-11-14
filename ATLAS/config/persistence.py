@@ -14,7 +14,7 @@ from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import sessionmaker
 
 from modules.conversation_store.mongo_repository import MongoConversationStoreRepository
-from modules.job_store import JobService
+from modules.job_store import JobService, MongoJobStoreRepository
 from modules.job_store.repository import JobStoreRepository
 from modules.task_store import TaskService, TaskStoreRepository
 from modules.Tools.Base_Tools.task_queue import (
@@ -261,22 +261,91 @@ class PersistenceConfigMixin:
         self._task_service = service
         return service
 
-    def get_job_repository(self) -> JobStoreRepository | None:
+    def get_job_repository(self) -> JobStoreRepository | MongoJobStoreRepository | None:
         """Return a configured repository for scheduled job persistence."""
 
         if self._job_repository is not None:
             return self._job_repository
 
+        repository = self._build_job_repository()
+        if repository is None:
+            return None
+
+        self._job_repository = repository
+        return repository
+
+    def _build_job_repository(self) -> JobStoreRepository | MongoJobStoreRepository | None:
+        settings = self.get_job_scheduling_settings()
+        job_store_url = settings.get("job_store_url")
+        if isinstance(job_store_url, str) and self._is_mongo_jobstore(job_store_url):
+            repository = self._build_mongo_job_repository(job_store_url)
+            if repository is not None:
+                return repository
+
         factory = self.get_task_store_session_factory()
         if factory is None:
             return None
+
+        previous = getattr(self, "_job_mongo_client", None)
+        if previous is not None:
+            close = getattr(previous, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:  # pragma: no cover - best-effort cleanup
+                    pass
+            self._job_mongo_client = None
 
         repository = JobStoreRepository(factory)
         try:
             repository.create_schema()
         except Exception as exc:  # pragma: no cover - defensive logging only
             self.logger.warning("Failed to initialize job store schema: %s", exc)
-        self._job_repository = repository
+        return repository
+
+    @staticmethod
+    def _is_mongo_jobstore(url: Any) -> bool:
+        if not isinstance(url, str):
+            return False
+        candidate = url.strip().lower()
+        return candidate.startswith("mongodb://") or candidate.startswith("mongodb+srv://")
+
+    def _build_mongo_job_repository(self, url: str) -> MongoJobStoreRepository | None:
+        normalized = url.strip()
+        if not normalized:
+            return None
+
+        try:  # pragma: no cover - optional dependency path
+            from pymongo import MongoClient
+        except Exception as exc:
+            self.logger.warning("PyMongo driver unavailable for job store: %s", exc)
+            return None
+
+        try:
+            client = MongoClient(normalized)
+        except Exception as exc:
+            self.logger.error("Failed to connect to Mongo job store", exc_info=True)
+            return None
+
+        parsed = urlparse(normalized)
+        database_name = parsed.path.lstrip("/").split("?", 1)[0] or "atlas_jobs"
+        try:
+            database = client.get_database(database_name)
+        except Exception as exc:
+            self.logger.error("Mongo job store configuration invalid", exc_info=True)
+            client.close()
+            return None
+
+        repository = MongoJobStoreRepository.from_database(database, client=client)
+        previous = getattr(self, "_job_mongo_client", None)
+        if previous is not None and previous is not client:
+            close = getattr(previous, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:  # pragma: no cover - best-effort cleanup
+                    pass
+        self._job_mongo_client = client
         return repository
 
     def get_job_service(self) -> JobService | None:
@@ -604,12 +673,14 @@ class PersistenceConfigMixin:
 
         parsed = urlparse(candidate)
         scheme = (parsed.scheme or '').lower()
-        if not scheme.startswith('postgresql'):
-            raise ValueError(
-                f"{source} must use the 'postgresql' dialect; received '{parsed.scheme or 'missing'}'"
-            )
+        if scheme.startswith('postgresql'):
+            return candidate
+        if scheme.startswith('mongodb'):
+            return candidate
 
-        return candidate
+        raise ValueError(
+            f"{source} must use the 'postgresql' or 'mongodb' scheme; received '{parsed.scheme or 'missing'}'"
+        )
 
 
 @dataclass(kw_only=True)

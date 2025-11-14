@@ -60,7 +60,7 @@ from .providers import ProviderConfigMixin
 from .tooling import ToolingConfigSection
 from .ui_config import UIConfig
 from modules.orchestration.message_bus import MessageBus
-from modules.job_store import JobService
+from modules.job_store import JobService, MongoJobStoreRepository
 from modules.job_store.repository import JobStoreRepository
 from modules.task_store import TaskService, TaskStoreRepository
 from modules.Tools.Base_Tools.task_queue import (
@@ -225,11 +225,12 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         self._task_session_factory: sessionmaker | None = None
         self._task_repository: TaskStoreRepository | None = None
         self._task_service: TaskService | None = None
-        self._job_repository: JobStoreRepository | None = None
+        self._job_repository: JobStoreRepository | MongoJobStoreRepository | None = None
         self._job_service: JobService | None = None
         self._task_queue_service: TaskQueueService | None = None
         self._job_manager: "JobManager" | None = None
         self._job_scheduler: "JobScheduler" | None = None
+        self._job_mongo_client: Any | None = None
 
 
 

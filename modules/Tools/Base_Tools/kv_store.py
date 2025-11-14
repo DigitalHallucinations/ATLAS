@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol
+from urllib.parse import urlparse
 
 from sqlalchemy import (
     Column,
@@ -708,12 +709,12 @@ def _build_engine_from_config(
         conversation_section = getattr(getattr(config_manager, "persistence", None), "conversation", None)
         if conversation_section is not None and hasattr(conversation_section, "get_engine"):
             engine = conversation_section.get_engine()
-            if engine is not None:
+            if engine is not None and hasattr(engine, "dialect"):
                 return engine
 
         if hasattr(config_manager, "get_conversation_store_engine"):
             engine = config_manager.get_conversation_store_engine()
-            if engine is not None:
+            if engine is not None and hasattr(engine, "dialect"):
                 return engine
 
     url_value = config.get("url")
@@ -721,6 +722,8 @@ def _build_engine_from_config(
         raise KeyValueStoreError(f"{adapter_name} adapter requires a configured DSN")
 
     raw_url = url_value.strip()
+    if raw_url.lower().startswith("mongodb://") or raw_url.lower().startswith("mongodb+srv://"):
+        raise KeyValueStoreError("MongoDB DSNs must use the 'mongo' key-value adapter")
     normalized_url = normalize_url(raw_url) if normalize_url is not None else raw_url
 
     pool_config: Dict[str, Any] = {}
@@ -845,6 +848,89 @@ def _sqlite_adapter_factory(
 
 
 register_kv_store_adapter("sqlite", _sqlite_adapter_factory)
+
+
+try:  # pragma: no cover - optional dependency path
+    from pymongo import MongoClient  # type: ignore
+except Exception:  # pragma: no cover - PyMongo unavailable
+    MongoClient = None  # type: ignore
+
+try:
+    from .kv_store_mongo import MongoKeyValueStoreAdapter
+except Exception:  # pragma: no cover - adapter unavailable
+    MongoKeyValueStoreAdapter = None  # type: ignore
+else:
+
+    def _mongo_adapter_factory(
+        config_manager: Optional[ConfigManager],
+        config: Mapping[str, Any],
+    ) -> MongoKeyValueStoreAdapter:
+        if MongoKeyValueStoreAdapter is None:
+            raise KeyValueStoreError("Mongo key-value adapter is unavailable")
+        defaults = _load_adapter_defaults(config_manager, "mongo")
+
+        effective: Dict[str, Any] = dict(defaults)
+        effective.update(dict(config))
+
+        url_value = effective.get("url")
+        if not isinstance(url_value, str) or not url_value.strip():
+            raise KeyValueStoreError("Mongo adapter requires a configured URL")
+        mongo_url = url_value.strip()
+
+        namespace_quota = effective.get("namespace_quota_bytes")
+        if namespace_quota is None:
+            namespace_quota = defaults.get("namespace_quota_bytes", 1_048_576)
+        namespace_quota_bytes = _coerce_positive_int(
+            namespace_quota,
+            minimum=1,
+            env_name="namespace_quota_bytes",
+        )
+
+        global_quota = effective.get("global_quota_bytes")
+        if global_quota in (None, ""):
+            default_global = defaults.get("global_quota_bytes")
+            if default_global in (None, ""):
+                global_quota_bytes: Optional[int] = None
+            else:
+                global_quota_bytes = _coerce_positive_int(
+                    default_global,
+                    minimum=1,
+                    env_name="global_quota_bytes",
+                )
+        else:
+            global_quota_bytes = _coerce_positive_int(
+                global_quota,
+                minimum=1,
+                env_name="global_quota_bytes",
+            )
+
+        if MongoClient is None:
+            raise KeyValueStoreError("PyMongo driver is unavailable for the Mongo adapter")
+
+        try:
+            client = MongoClient(mongo_url)
+        except Exception as exc:
+            raise KeyValueStoreError(f"Failed to connect to MongoDB: {exc}") from exc
+
+        parsed = urlparse(mongo_url)
+        database_name = effective.get("database")
+        if not database_name:
+            database_name = parsed.path.lstrip("/").split("?", 1)[0] or "atlas"
+        collection_name = effective.get("collection") or "kv_store"
+
+        database = client.get_database(database_name)
+        adapter = MongoKeyValueStoreAdapter.from_database(
+            database,
+            client=client,
+            collection_name=collection_name,
+            namespace_quota_bytes=namespace_quota_bytes,
+            global_quota_bytes=global_quota_bytes,
+        )
+        return adapter
+
+
+    register_kv_store_adapter("mongo", _mongo_adapter_factory)
+    register_kv_store_adapter("mongodb", _mongo_adapter_factory)
 
 
 async def kv_get(
