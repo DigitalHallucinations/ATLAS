@@ -45,7 +45,9 @@ endpoints exposed by `AtlasServer`.
 
 ## REST and streaming access
 
-External agents can manage entries through the `AtlasServer` utility:
+External agents can manage entries through the `AtlasServer` utility.  Every
+route requires a tenant-scoped `RequestContext`; requests without one are
+rejected to preserve tenant isolation.
 
 - `GET /blackboard/<scope>/<id>` – list entries
 - `GET /blackboard/<scope>/<id>?summary=1` – retrieve counts and summaries
@@ -53,7 +55,8 @@ External agents can manage entries through the `AtlasServer` utility:
 - `PATCH /blackboard/<scope>/<id>/<entry_id>` – update an entry
 - `DELETE /blackboard/<scope>/<id>/<entry_id>` – delete an entry
 
-For near-real-time updates, call `AtlasServer.stream_blackboard_events(scope, id)`
-to receive an asynchronous iterator of change notifications.  These APIs allow
+For near-real-time updates, call `AtlasServer.stream_blackboard_events(scope, id,
+context)` to receive an asynchronous iterator of change notifications scoped to
+the requesting tenant.  These APIs allow
 persona authors to wire up dashboards or additional automations without
 re-implementing the storage plumbing.
