@@ -42,6 +42,7 @@ from typing import Any, Callable, Dict, List, Mapping, MutableMapping, Optional,
 from modules.Jobs import export_job_bundle_bytes, import_job_bundle_bytes
 from modules.Personas import export_persona_bundle_bytes, import_persona_bundle_bytes
 from modules.Skills import export_skill_bundle_bytes, import_skill_bundle_bytes
+from modules.Tasks import export_task_bundle_bytes, import_task_bundle_bytes
 from modules.Tools import export_tool_bundle_bytes, import_tool_bundle_bytes
 from modules.store_common.bundle_utils import (
     BUNDLE_ALGORITHM,
@@ -70,21 +71,21 @@ class _AssetHandler:
     supports_persona: bool = False
 
 
-# Registry of supported asset handlers. Tasks are intentionally omitted for now
-# but the structure allows future expansion without changing consumers.
+# Registry of supported asset handlers.
 _ASSET_HANDLERS: Mapping[str, _AssetHandler] = {
     "tool": _AssetHandler(export_tool_bundle_bytes, import_tool_bundle_bytes, True),
     "skill": _AssetHandler(export_skill_bundle_bytes, import_skill_bundle_bytes, True),
+    "task": _AssetHandler(export_task_bundle_bytes, import_task_bundle_bytes, True),
     "job": _AssetHandler(export_job_bundle_bytes, import_job_bundle_bytes, True),
     "persona": _AssetHandler(export_persona_bundle_bytes, import_persona_bundle_bytes, False),
 }
 
 # Import priority ensures personas run after their dependent capability types so
-# validation sees the freshly restored tools/skills/jobs.
+# validation sees the freshly restored tools/skills/tasks/jobs.
 _ASSET_TYPE_PRIORITY: Mapping[str, int] = {
     "tool": 1,
     "skill": 2,
-    "task": 3,  # placeholder priority for future support
+    "task": 3,
     "job": 4,
     "persona": 5,
 }

@@ -713,6 +713,38 @@ async def import_persona_bundle(request: Request) -> Any:
     return result
 
 
+@app.post("/tasks/{task_name}/export")
+async def export_task_bundle(task_name: str, request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            f"/tasks/{task_name}/export",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
+@app.post("/tasks/import")
+async def import_task_bundle(request: Request) -> Any:
+    payload = await request.json()
+    server = _get_server(request)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            "/tasks/import",
+            method="POST",
+            query=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
 @app.post("/tools/{tool_name}/export")
 async def export_tool_bundle(tool_name: str, request: Request) -> Any:
     payload = await request.json()
