@@ -19,11 +19,13 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from types import MappingProxyType
 
 from modules.Personas.utils import (
+    coerce_persona_flag as _coerce_persona_flag_value,
     collect_missing_flag_requirements as _collect_missing_flag_requirements,
     format_denied_operations_summary as _format_denied_operations_summary,
     join_with_and as _join_with_and,
     normalize_persona_allowlist as _normalize_persona_allowlist,
     normalize_requires_flags as _normalize_requires_flags,
+    persona_flag_enabled as _persona_flag_enabled,
 )
 from modules.analytics.persona_metrics import record_persona_tool_event
 from modules.logging.logger import setup_logger
