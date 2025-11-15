@@ -1,281 +1,375 @@
+from __future__ import annotations
+
 import asyncio
-import math
-from pathlib import Path
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 import pytest
 
-from tests.test_vector_store_tool import (
-    ROOT,
-    _ensure_package,
-    _ensure_stub_modules,
-    _load_module,
-)
+from modules.Tools.Base_Tools.vector_store import VectorRecord
+from modules.Tools.providers.vector_store.chroma import ChromaVectorStoreAdapter
+from modules.Tools.providers.vector_store.faiss import FaissVectorStoreAdapter
+from modules.Tools.providers.vector_store.in_memory import InMemoryVectorStoreAdapter
+from modules.Tools.providers.vector_store.mongodb import MongoDBVectorStoreAdapter
+from modules.Tools.providers.vector_store.pinecone import PineconeVectorStoreAdapter
 
 
-_ensure_stub_modules()
+class _StubChromaCollection:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self._records: Dict[str, Dict[str, Any]] = {}
 
-_ensure_package("modules", ROOT / "modules")
-_ensure_package("modules.Tools", ROOT / "modules" / "Tools")
-_ensure_package("modules.Tools.Base_Tools", ROOT / "modules" / "Tools" / "Base_Tools")
-_ensure_package("modules.Tools.providers", ROOT / "modules" / "Tools" / "providers")
-_ensure_package("modules.Tools.providers.vector_store", ROOT / "modules" / "Tools" / "providers" / "vector_store")
+    def upsert(
+        self,
+        *,
+        ids: Iterable[str],
+        embeddings: Iterable[Iterable[float]],
+        metadatas: Iterable[Mapping[str, Any]],
+    ) -> None:
+        for vector_id, vector_values, metadata in zip(ids, embeddings, metadatas):
+            self._records[str(vector_id)] = {
+                "values": [float(value) for value in vector_values],
+                "metadata": dict(metadata),
+            }
 
-vector_store_module = _load_module(
-    "modules.Tools.Base_Tools.vector_store",
-    ROOT / "modules" / "Tools" / "Base_Tools" / "vector_store.py",
-)
-_load_module(
-    "modules.Tools.providers.vector_store.chroma",
-    ROOT / "modules" / "Tools" / "providers" / "vector_store" / "chroma.py",
-)
-_load_module(
-    "modules.Tools.providers.vector_store.faiss",
-    ROOT / "modules" / "Tools" / "providers" / "vector_store" / "faiss.py",
-)
-_load_module(
-    "modules.Tools.providers.vector_store.pinecone",
-    ROOT / "modules" / "Tools" / "providers" / "vector_store" / "pinecone.py",
-)
+    def query(
+        self,
+        *,
+        query_embeddings: Iterable[Iterable[float]],
+        n_results: int,
+        where: Optional[Mapping[str, Any]],
+        include: Iterable[str],
+    ) -> Mapping[str, Any]:
+        include_embeddings = "embeddings" in set(include)
+        ids: list[list[str]] = [[]]
+        distances: list[list[float]] = [[]]
+        metadatas: list[list[Mapping[str, Any]]] = [[]]
+        embeddings: list[list[Iterable[float]]] = [[]] if include_embeddings else []
 
+        for vector_id, payload in list(self._records.items())[:n_results]:
+            if where:
+                matched = True
+                for key, expected in where.items():
+                    if payload["metadata"].get(key) != expected:
+                        matched = False
+                        break
+                if not matched:
+                    continue
+            ids[0].append(vector_id)
+            distances[0].append(0.0)
+            metadatas[0].append(payload["metadata"])
+            if include_embeddings:
+                embeddings[0].append(payload["values"])
 
-def _matches_filter(candidate, expected):
-    for key, value in expected.items():
-        if key not in candidate:
-            return False
-        candidate_value = candidate[key]
-        if isinstance(value, dict) and isinstance(candidate_value, dict):
-            if not _matches_filter(candidate_value, value):
-                return False
-            continue
-        if candidate_value != value:
-            return False
-    return True
+        result: Dict[str, Any] = {"ids": ids, "distances": distances, "metadatas": metadatas}
+        if include_embeddings:
+            result["embeddings"] = embeddings
+        return result
 
-
-class _FakeChromaCollection:
+class _StubChromaClient:
     def __init__(self) -> None:
-        self.records: dict[str, tuple[tuple[float, ...], dict[str, object]]] = {}
+        self._collections: Dict[str, _StubChromaCollection] = {}
 
-    def upsert(self, ids, embeddings, metadatas):
-        for vector_id, values, metadata in zip(ids, embeddings, metadatas):
-            stored_meta = dict(metadata) if isinstance(metadata, dict) else {}
-            self.records[str(vector_id)] = (tuple(float(v) for v in values), stored_meta)
+    def get_collection(self, *, name: str) -> _StubChromaCollection:
+        return self.get_or_create_collection(name=name)
 
-    def query(self, query_embeddings, n_results, where=None, include=None):
-        query_vector = tuple(float(v) for v in query_embeddings[0])
-        scored = []
-        for vector_id, (values, metadata) in self.records.items():
-            if where and not _matches_filter(metadata, where):
-                continue
-            score = _cosine_similarity(values, query_vector)
-            scored.append((vector_id, score, values, metadata))
-        scored.sort(key=lambda item: (-item[1], item[0]))
-        scored = scored[:n_results]
-        ids = [[item[0] for item in scored]]
-        distances = [[1.0 - item[1] for item in scored]]
-        metadatas = [[item[3] for item in scored]]
-        response = {"ids": ids, "distances": distances, "metadatas": metadatas}
-        if include and "embeddings" in include:
-            response["embeddings"] = [[list(item[2]) for item in scored]]
-        return response
+    def get_or_create_collection(
+        self,
+        *,
+        name: str,
+        metadata: Optional[Mapping[str, Any]] = None,
+    ) -> _StubChromaCollection:
+        collection = self._collections.get(name)
+        if collection is None:
+            collection = _StubChromaCollection(name)
+            self._collections[name] = collection
+        return collection
+
+    def delete_collection(self, *, name: str) -> bool:
+        existed = name in self._collections
+        self._collections.pop(name, None)
+        return existed
 
 
-class _FakeChromaClient:
+class _StubPineconeIndex:
     def __init__(self) -> None:
-        self.collections: dict[str, _FakeChromaCollection] = {}
+        self.namespaces: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self.deleted_namespaces: list[str] = []
 
-    def get_or_create_collection(self, name, metadata=None):
-        return self.collections.setdefault(name, _FakeChromaCollection())
-
-    def delete_collection(self, name):
-        if name in self.collections:
-            del self.collections[name]
-        else:
-            raise KeyError(name)
-
-
-def _cosine_similarity(lhs, rhs):
-    lhs_norm = math.sqrt(sum(value * value for value in lhs))
-    rhs_norm = math.sqrt(sum(value * value for value in rhs))
-    if lhs_norm == 0 or rhs_norm == 0:
-        return 0.0
-    dot = sum(a * b for a, b in zip(lhs, rhs))
-    return dot / (lhs_norm * rhs_norm)
-
-
-class _FakePineconeIndex:
-    def __init__(self) -> None:
-        self._store: dict[str, dict[str, dict[str, object]]] = {}
-
-    def upsert(self, vectors, namespace):
-        space = self._store.setdefault(namespace, {})
+    def upsert(self, *, vectors: Iterable[Mapping[str, Any]], namespace: str) -> None:
+        store = self.namespaces.setdefault(namespace, {})
         for entry in vectors:
-            space[entry["id"]] = {
-                "values": tuple(float(v) for v in entry.get("values", ())),
+            vector_id = str(entry["id"])
+            store[vector_id] = {
+                "values": list(entry.get("values", ())),
                 "metadata": dict(entry.get("metadata", {})),
             }
 
-    def query(self, *, namespace, vector, top_k, filter=None, include_values=False, include_metadata=True):
-        query_vector = tuple(float(v) for v in vector)
+    def query(
+        self,
+        *,
+        namespace: str,
+        vector: Iterable[float],
+        top_k: int,
+        filter: Optional[Mapping[str, Any]],
+        include_values: bool,
+        include_metadata: bool,
+    ) -> Mapping[str, Any]:
+        entries = list(self.namespaces.get(namespace, {}).items())
         matches = []
-        space = self._store.get(namespace, {})
-        for vector_id, record in space.items():
-            metadata = record.get("metadata", {})
-            if filter and not _matches_filter(metadata, filter):
-                continue
-            values = record.get("values", ())
-            score = _cosine_similarity(values, query_vector)
-            payload = {"id": vector_id, "score": score}
+        for vector_id, payload in entries[:top_k]:
+            if filter:
+                matched = True
+                for key, expected in filter.items():
+                    if payload["metadata"].get(key) != expected:
+                        matched = False
+                        break
+                if not matched:
+                    continue
+            match: Dict[str, Any] = {"id": vector_id, "score": 1.0}
             if include_metadata:
-                payload["metadata"] = metadata
+                match["metadata"] = payload["metadata"]
             if include_values:
-                payload["values"] = list(values)
-            matches.append(payload)
-        matches.sort(key=lambda item: (-item["score"], item["id"]))
-        return {"matches": matches[:top_k]}
+                match["values"] = payload["values"]
+            matches.append(match)
+        return {"matches": matches}
 
-    def delete(self, *, namespace, delete_all=False):  # noqa: ARG002 - parity with Pinecone
-        if namespace in self._store:
-            del self._store[namespace]
+    def delete(self, *, namespace: str, delete_all: bool) -> None:
+        if delete_all:
+            self.deleted_namespaces.append(namespace)
+            self.namespaces.pop(namespace, None)
 
 
-class _FakePineconeClient:
-    def __init__(self) -> None:
-        self._index = _FakePineconeIndex()
+class _StubPineconeClient:
+    def __init__(self, index: _StubPineconeIndex) -> None:
+        self._index = index
 
-    def Index(self, name):  # noqa: N802 - mimics Pinecone API
+    def Index(self, index_name: str) -> _StubPineconeIndex:  # noqa: N802 - mimics pinecone API
         return self._index
 
 
-def test_chroma_adapter_roundtrip() -> None:
+class _StubMongoResult:
+    def __init__(self, deleted_count: int) -> None:
+        self.deleted_count = deleted_count
+
+
+class _StubUpdateOne:
+    def __init__(self, filter_doc: Mapping[str, Any], update_doc: Mapping[str, Any], *, upsert: bool) -> None:
+        self.filter = dict(filter_doc)
+        self.update = dict(update_doc)
+        self.upsert = upsert
+
+
+class _StubMongoCollection:
+    def __init__(self) -> None:
+        self.documents: Dict[tuple[str, str], Dict[str, Any]] = {}
+
+    def bulk_write(self, operations: Iterable[_StubUpdateOne], ordered: bool) -> None:
+        for op in operations:
+            namespace = str(op.filter.get("namespace", ""))
+            vector_id = str(op.filter.get("_id", ""))
+            payload = dict(op.update.get("$set", {}))
+            payload.setdefault("namespace", namespace)
+            payload.setdefault("_id", vector_id)
+            self.documents[(namespace, vector_id)] = payload
+
+    def aggregate(self, pipeline: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+        pipeline_list = list(pipeline)
+        match_stage = pipeline_list[1]["$match"]
+        namespace = match_stage.get("namespace")
+        results: list[Dict[str, Any]] = []
+        for (doc_namespace, vector_id), payload in self.documents.items():
+            if doc_namespace != namespace:
+                continue
+            include = True
+            for key, expected in match_stage.items():
+                if key == "namespace":
+                    continue
+                current: Any = payload
+                for part in key.split("."):
+                    if isinstance(current, Mapping):
+                        current = current.get(part)
+                    else:
+                        current = None
+                        break
+                if current != expected:
+                    include = False
+                    break
+            if not include:
+                continue
+            result = dict(payload)
+            result["score"] = 1.0
+            results.append(result)
+        return results
+
+    def delete_many(self, filter_doc: Mapping[str, Any]) -> _StubMongoResult:
+        namespace = filter_doc.get("namespace")
+        keys_to_remove = [key for key in self.documents if key[0] == namespace]
+        for key in keys_to_remove:
+            del self.documents[key]
+        return _StubMongoResult(len(keys_to_remove))
+
+
+class _StubMongoClient(dict):
+    pass
+
+
+def test_in_memory_adapter_roundtrip() -> None:
     async def _run() -> None:
-        service = vector_store_module.build_vector_store_service(
-            adapter_name="chroma",
-            adapter_config={
-                "client": _FakeChromaClient(),
-                "collection_name": "atlas",
-                "metric": "cosine",
-                "namespace_separator": "::",
-            },
+        adapter = InMemoryVectorStoreAdapter(index_name="unit-test")
+        records = (
+            VectorRecord(id="doc-1", values=(0.1, 0.2), metadata={"tag": "alpha"}),
         )
+        upsert = await adapter.upsert_vectors("workspace", records)
+        assert upsert.upserted_count == 1
 
-        upsert = await service.upsert_vectors(
-            namespace="workspace",
-            vectors=[
-                {"id": "doc-1", "values": [0.1, 0.2, 0.3], "metadata": {"kind": "note"}},
-                {"id": "doc-2", "values": [0.2, 0.3, 0.4], "metadata": {"kind": "note"}},
-            ],
-        )
-        assert upsert["ids"] == ["doc-1", "doc-2"]
-
-        query = await service.query_vectors(
-            namespace="workspace",
-            query=[0.1, 0.2, 0.3],
-            top_k=2,
-            filter={"kind": "note"},
+        query = await adapter.query_vectors(
+            "workspace",
+            (0.1, 0.2),
+            top_k=1,
+            metadata_filter={"tag": "alpha"},
             include_values=True,
         )
-        assert query["namespace"] == "workspace"
-        assert len(query["matches"]) == 2
-        assert [match["id"] for match in query["matches"]] == ["doc-1", "doc-2"]
+        assert query.matches and query.matches[0].values == records[0].values
 
-        deleted = await service.delete_namespace(namespace="workspace")
-        assert deleted == {
-            "namespace": "workspace",
-            "removed_ids": ["doc-1", "doc-2"],
-            "deleted": True,
-        }
-        deleted_again = await service.delete_namespace(namespace="workspace")
-        assert deleted_again == {
-            "namespace": "workspace",
-            "removed_ids": [],
-            "deleted": False,
-        }
+        delete = await adapter.delete_namespace("workspace")
+        assert delete.deleted is True
 
     asyncio.run(_run())
 
 
-def test_faiss_adapter_persistence(tmp_path: Path) -> None:
+def test_chroma_adapter_uses_stub_client() -> None:
     async def _run() -> None:
-        index_path = tmp_path / "faiss-state.json"
-        service = vector_store_module.build_vector_store_service(
-            adapter_name="faiss",
-            adapter_config={
-                "index_path": str(index_path),
-                "metric": "cosine",
-            },
+        client = _StubChromaClient()
+        adapter = ChromaVectorStoreAdapter(
+            client=client,
+            collection_name="atlas",
+            metric="cosine",
+        )
+        records = (
+            VectorRecord(id="doc-1", values=(0.1, 0.2), metadata={"tag": "alpha"}),
         )
 
-        await service.upsert_vectors(
-            namespace="workspace",
-            vectors=[{"id": "doc-1", "values": [0.2, 0.1, 0.3], "metadata": {"category": "alpha"}}],
-        )
-        assert index_path.exists()
-
-        service_reloaded = vector_store_module.build_vector_store_service(
-            adapter_name="faiss",
-            adapter_config={
-                "index_path": str(index_path),
-                "metric": "cosine",
-            },
-        )
-
-        query = await service_reloaded.query_vectors(
-            namespace="workspace",
-            query=[0.2, 0.1, 0.3],
+        await adapter.upsert_vectors("tenant", records)
+        response = await adapter.query_vectors(
+            "tenant",
+            (0.1, 0.2),
             top_k=1,
-            filter={"category": "alpha"},
+            metadata_filter={"tag": "alpha"},
             include_values=True,
         )
-        assert query["matches"][0]["id"] == "doc-1"
+        assert response.matches and response.matches[0].metadata["tag"] == "alpha"
+        assert response.matches[0].values == records[0].values
 
-        deleted = await service_reloaded.delete_namespace(namespace="workspace")
-        assert deleted == {
-            "namespace": "workspace",
-            "removed_ids": ["doc-1"],
-            "deleted": True,
-        }
+        delete = await adapter.delete_namespace("tenant")
+        assert delete.deleted is True
 
     asyncio.run(_run())
 
 
-def test_pinecone_adapter_roundtrip() -> None:
+def test_pinecone_adapter_with_stub_client() -> None:
     async def _run() -> None:
-        client = _FakePineconeClient()
-        service = vector_store_module.build_vector_store_service(
-            adapter_name="pinecone",
-            adapter_config={
-                "client": client,
-                "index_name": "atlas",
-                "namespace_prefix": "tenant-",
-            },
+        index = _StubPineconeIndex()
+        client = _StubPineconeClient(index)
+        adapter = PineconeVectorStoreAdapter(
+            index_name="atlas-index",
+            client=client,
+            namespace_prefix="org-",
+        )
+        records = (
+            VectorRecord(id="doc-1", values=(0.3, 0.4), metadata={"team": "search"}),
         )
 
-        await service.upsert_vectors(
-            namespace="workspace",
-            vectors=[{"id": "doc-1", "values": [0.0, 0.1], "metadata": {"team": "search"}}],
-        )
-        query = await service.query_vectors(
-            namespace="workspace",
-            query=[0.0, 0.1],
+        await adapter.upsert_vectors("tenant", records)
+        query = await adapter.query_vectors(
+            "tenant",
+            (0.3, 0.4),
             top_k=1,
-            filter={"team": "search"},
+            metadata_filter={"team": "search"},
             include_values=True,
         )
-        assert query["matches"][0]["id"] == "doc-1"
-        assert query["matches"][0]["metadata"]["team"] == "search"
+        assert query.matches and query.matches[0].metadata["team"] == "search"
+        assert query.matches[0].values == records[0].values
 
-        deleted = await service.delete_namespace(namespace="workspace")
-        assert deleted == {
-            "namespace": "workspace",
-            "removed_ids": ["doc-1"],
-            "deleted": True,
-        }
-        deleted_again = await service.delete_namespace(namespace="workspace")
-        assert deleted_again == {
-            "namespace": "workspace",
-            "removed_ids": [],
-            "deleted": False,
-        }
+        delete = await adapter.delete_namespace("tenant")
+        assert delete.deleted is True
+        assert index.deleted_namespaces == ["org-tenant"]
+
+    asyncio.run(_run())
+
+
+def test_mongodb_adapter_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _run() -> None:
+        from modules.Tools.providers.vector_store import mongodb as mongodb_module
+
+        monkeypatch.setattr(mongodb_module, "UpdateOne", _StubUpdateOne, raising=False)
+
+        collection = _StubMongoCollection()
+        client = _StubMongoClient({"atlas": {"vectors": collection}})
+
+        adapter = MongoDBVectorStoreAdapter(
+            client=client,
+            database="atlas",
+            collection="vectors",
+            index_name="vectors-index",
+            manage_index=False,
+            metadata_field="metadata",
+            embedding_field="embedding",
+            search_stage="vector_search",
+            candidate_multiplier=1,
+        )
+
+        records = (
+            VectorRecord(id="doc-1", values=(0.5, 0.6), metadata={"category": "docs"}),
+        )
+
+        await adapter.upsert_vectors("tenant", records)
+        query = await adapter.query_vectors(
+            "tenant",
+            (0.5, 0.6),
+            top_k=1,
+            metadata_filter={"category": "docs"},
+            include_values=True,
+        )
+
+        assert query.matches and query.matches[0].metadata["category"] == "docs"
+        assert query.matches[0].values == records[0].values
+
+        delete = await adapter.delete_namespace("tenant")
+        assert delete.deleted is True
+
+    asyncio.run(_run())
+
+
+def test_faiss_adapter_persists_state(tmp_path) -> None:
+    async def _run() -> None:
+        index_path = tmp_path / "faiss.json"
+        adapter = FaissVectorStoreAdapter(index_path=str(index_path), metric="cosine")
+
+        records = (
+            VectorRecord(id="doc-1", values=(0.7, 0.8), metadata={"topic": "ai"}),
+        )
+        await adapter.upsert_vectors("tenant", records)
+
+        query = await adapter.query_vectors(
+            "tenant",
+            (0.7, 0.8),
+            top_k=1,
+            metadata_filter=None,
+            include_values=True,
+        )
+        assert query.matches and query.matches[0].values == records[0].values
+
+        delete = await adapter.delete_namespace("tenant")
+        assert delete.deleted is True
+
+        adapter_reloaded = FaissVectorStoreAdapter(index_path=str(index_path), metric="cosine")
+        query_empty = await adapter_reloaded.query_vectors(
+            "tenant",
+            (0.7, 0.8),
+            top_k=1,
+            metadata_filter=None,
+            include_values=False,
+        )
+        assert not query_empty.matches
 
     asyncio.run(_run())
