@@ -13,11 +13,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-if "yaml" not in sys.modules:
-    sys.modules["yaml"] = SimpleNamespace(
-        safe_load=lambda *_args, **_kwargs: {},
-        dump=lambda *_args, **_kwargs: None,
-    )
+try:
+    __import__("yaml")
+except (ModuleNotFoundError, ImportError):
+    if "yaml" not in sys.modules:
+        sys.modules["yaml"] = SimpleNamespace(
+            safe_load=lambda *_args, **_kwargs: {},
+            dump=lambda *_args, **_kwargs: None,
+        )
 
 from modules.Tools.manifest_loader import ToolManifestEntry, load_manifest_entries
 

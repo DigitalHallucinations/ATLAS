@@ -168,11 +168,14 @@ else:  # pragma: no cover - exercised when jsonschema is unavailable
 def ensure_yaml_stub() -> None:
     """Provide a minimal stub for :mod:`yaml` when the dependency is absent."""
 
-    if "yaml" not in sys.modules:
-        sys.modules["yaml"] = SimpleNamespace(
-            safe_load=lambda *_args, **_kwargs: {},
-            dump=lambda *_args, **_kwargs: None,
-        )
+    try:
+        __import__("yaml")
+    except (ModuleNotFoundError, ImportError):
+        if "yaml" not in sys.modules:
+            sys.modules["yaml"] = SimpleNamespace(
+                safe_load=lambda *_args, **_kwargs: {},
+                dump=lambda *_args, **_kwargs: None,
+            )
 
 
 ensure_yaml_stub()
