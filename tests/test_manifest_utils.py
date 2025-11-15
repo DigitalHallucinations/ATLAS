@@ -1,4 +1,7 @@
+import importlib
+import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -78,3 +81,41 @@ def test_iter_persona_manifest_paths(tmp_path: Path) -> None:
     paths = list(iter_persona_manifest_paths(tmp_path, "Jobs", "jobs.json"))
     assert [name for name, _ in paths] == ["Alpha", "Beta"]
     assert all(path == personas_root / name / "Jobs" / "jobs.json" for name, path in paths)
+
+
+def test_ensure_yaml_stub_preserves_existing_yaml_module():
+    fake_yaml = ModuleType("yaml")
+    safe_loader = object()
+    fake_yaml.SafeLoader = safe_loader
+    fake_yaml.safe_load = lambda *_args, **_kwargs: {}
+    fake_yaml.dump = lambda *_args, **_kwargs: None
+
+    original_yaml = sys.modules.get("yaml")
+    manifest_module_names = [
+        "modules.store_common.manifest_utils",
+        "ATLAS.modules.store_common.manifest_utils",
+    ]
+    original_manifest_modules = {
+        name: sys.modules.get(name) for name in manifest_module_names
+    }
+
+    try:
+        sys.modules["yaml"] = fake_yaml
+        for name in manifest_module_names:
+            sys.modules.pop(name, None)
+
+        manifest_utils = importlib.import_module("modules.store_common.manifest_utils")
+        manifest_utils.ensure_yaml_stub()
+
+        assert sys.modules["yaml"].SafeLoader is safe_loader
+    finally:
+        if original_yaml is not None:
+            sys.modules["yaml"] = original_yaml
+        else:
+            sys.modules.pop("yaml", None)
+
+        for name, module in original_manifest_modules.items():
+            if module is not None:
+                sys.modules[name] = module
+            else:
+                sys.modules.pop(name, None)
