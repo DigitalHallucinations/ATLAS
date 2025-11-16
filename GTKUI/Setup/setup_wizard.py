@@ -367,6 +367,7 @@ class SetupWizardWindow(AtlasWindow):
         form_scroller.set_vexpand(True)
         form_scroller.set_hexpand(True)
         form_scroller.set_propagate_natural_height(False)
+        form_scroller.set_propagate_natural_width(False)
         center_column.append(form_scroller)
 
         form_frame = Gtk.Frame()
@@ -385,6 +386,7 @@ class SetupWizardWindow(AtlasWindow):
         guidance_scroller.set_vexpand(True)
         guidance_scroller.set_hexpand(True)
         guidance_scroller.set_propagate_natural_height(False)
+        guidance_scroller.set_propagate_natural_width(False)
         content.append(guidance_scroller)
 
         guidance_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
