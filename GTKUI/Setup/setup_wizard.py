@@ -422,6 +422,7 @@ class SetupWizardWindow(AtlasWindow):
             self._stack.set_hhomogeneous(True)
         if hasattr(self._stack, "set_vhomogeneous"):
             self._stack.set_vhomogeneous(True)
+        self._stack.set_hexpand(True)
         self._stack.set_vexpand(True)
         self._form_column.append(self._stack)
 
@@ -958,21 +959,30 @@ class SetupWizardWindow(AtlasWindow):
     def _create_step_container(
         self, index: int, step: WizardStep
     ) -> tuple[Gtk.Widget, Gtk.Stack | None]:
+        """Wrap each step in a full-width, full-height container.
+
+        This ensures all steps presented in the main stack share the same
+        layout envelope, regardless of whether they have one page or multiple
+        subpages.
+        """
         pages = step.subpages or [step.widget]
 
+        # Outer container always expands to fill the form column
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         outer.set_hexpand(True)
         outer.set_vexpand(True)
 
+        # Single-page step: just add the page directly
         if len(pages) <= 1:
-            child = pages[0]
-            if hasattr(child, "set_hexpand"):
-                child.set_hexpand(True)
-            if hasattr(child, "set_vexpand"):
-                child.set_vexpand(True)
-            outer.append(child)
+            page = pages[0]
+            if hasattr(page, "set_hexpand"):
+                page.set_hexpand(True)
+            if hasattr(page, "set_vexpand"):
+                page.set_vexpand(True)
+            outer.append(page)
             return outer, None
 
+        # Multi-page step: keep the existing inner stack behaviour
         inner_stack = Gtk.Stack()
         inner_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         if hasattr(inner_stack, "set_hhomogeneous"):
@@ -987,6 +997,7 @@ class SetupWizardWindow(AtlasWindow):
                 page_title = f"{step.name} — Intro"
             else:
                 page_title = f"{step.name} ({page_index + 1})"
+
             inner_stack.add_titled(
                 page,
                 f"step-{index}-page-{page_index}",
@@ -1078,6 +1089,8 @@ class SetupWizardWindow(AtlasWindow):
         self, form: Gtk.Widget, instructions: str, heading: str | None = None
     ) -> Gtk.Widget:
         if heading is None:
+            # Let the form fill the available column width instead of
+            # hugging the left at minimum size.
             if hasattr(form, "set_halign"):
                 form.set_halign(Gtk.Align.FILL)
             if hasattr(form, "set_hexpand"):
