@@ -365,6 +365,12 @@ class SetupWizardWindow(AtlasWindow):
             center_column.add_css_class("setup-wizard-main")
         content.append(center_column)
 
+        form_heading = Gtk.Label(label="Active Form")
+        form_heading.set_xalign(0.0)
+        if hasattr(form_heading, "add_css_class"):
+            form_heading.add_css_class("heading")
+        center_column.append(form_heading)
+
         form_scroller = Gtk.ScrolledWindow()
         form_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         form_scroller.set_vexpand(True)
