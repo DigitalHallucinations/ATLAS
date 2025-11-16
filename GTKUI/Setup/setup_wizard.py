@@ -138,8 +138,10 @@ class SetupWizardWindow(AtlasWindow):
         "modules.conversation_store.bootstrap",
     )
     _DEBUG_ICON_FILENAME = "debug.png"
+    _SIDEBAR_WIDTH = 220
     _MIN_FORM_CONTENT_WIDTH = 420
     _MAX_FORM_CONTENT_WIDTH = 720
+    _GUIDANCE_MIN_CONTENT_WIDTH = 320
 
     def __init__(
         self,
@@ -333,7 +335,7 @@ class SetupWizardWindow(AtlasWindow):
         steps_sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         steps_sidebar.set_hexpand(False)
         steps_sidebar.set_vexpand(True)
-        steps_sidebar.set_size_request(220, -1)  # keep form “slid” to the right
+        steps_sidebar.set_size_request(self._SIDEBAR_WIDTH, -1)  # keep form “slid” to the right
         if hasattr(steps_sidebar, "add_css_class"):
             steps_sidebar.add_css_class("setup-wizard-sidebar")
         content.append(steps_sidebar)
@@ -401,11 +403,17 @@ class SetupWizardWindow(AtlasWindow):
         guidance_scroller.set_hexpand(True)
         guidance_scroller.set_propagate_natural_height(False)
         guidance_scroller.set_propagate_natural_width(False)
+        if hasattr(guidance_scroller, "set_min_content_width"):
+            guidance_scroller.set_min_content_width(self._GUIDANCE_MIN_CONTENT_WIDTH)
+        else:
+            guidance_scroller.set_size_request(self._GUIDANCE_MIN_CONTENT_WIDTH, -1)
         content.append(guidance_scroller)
 
         guidance_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         guidance_column.set_hexpand(True)
         guidance_column.set_vexpand(True)
+        if hasattr(guidance_column, "set_size_request"):
+            guidance_column.set_size_request(self._GUIDANCE_MIN_CONTENT_WIDTH, -1)
         if hasattr(guidance_column, "add_css_class"):
             guidance_column.add_css_class("setup-wizard-guidance")
         guidance_scroller.set_child(guidance_column)
