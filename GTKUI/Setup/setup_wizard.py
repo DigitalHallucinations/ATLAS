@@ -138,7 +138,8 @@ class SetupWizardWindow(AtlasWindow):
         "modules.conversation_store.bootstrap",
     )
     _DEBUG_ICON_FILENAME = "debug.png"
-    _FORM_COLUMN_WIDTH = 560
+    _MIN_FORM_CONTENT_WIDTH = 420
+    _MAX_FORM_CONTENT_WIDTH = 720
 
     def __init__(
         self,
@@ -357,10 +358,9 @@ class SetupWizardWindow(AtlasWindow):
 
         # --- Center form container (middle) ---
         center_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        center_column.set_hexpand(False)
+        center_column.set_hexpand(True)
         center_column.set_vexpand(True)
-        center_column.set_halign(Gtk.Align.CENTER)
-        center_column.set_size_request(self._FORM_COLUMN_WIDTH, -1)
+        center_column.set_halign(Gtk.Align.FILL)
         if hasattr(center_column, "add_css_class"):
             center_column.add_css_class("setup-wizard-main")
         content.append(center_column)
@@ -377,11 +377,11 @@ class SetupWizardWindow(AtlasWindow):
         form_scroller.set_propagate_natural_height(False)
         form_scroller.set_propagate_natural_width(False)
         form_scroller.set_halign(Gtk.Align.FILL)
-        form_scroller.set_size_request(self._FORM_COLUMN_WIDTH, -1)
+        form_scroller.set_hexpand(True)
         if hasattr(form_scroller, "set_min_content_width"):
-            form_scroller.set_min_content_width(self._FORM_COLUMN_WIDTH)
+            form_scroller.set_min_content_width(self._MIN_FORM_CONTENT_WIDTH)
         if hasattr(form_scroller, "set_max_content_width"):
-            form_scroller.set_max_content_width(self._FORM_COLUMN_WIDTH)
+            form_scroller.set_max_content_width(self._MAX_FORM_CONTENT_WIDTH)
         center_column.append(form_scroller)
 
         form_frame = Gtk.Frame()
