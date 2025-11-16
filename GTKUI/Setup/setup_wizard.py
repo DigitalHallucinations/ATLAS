@@ -418,6 +418,10 @@ class SetupWizardWindow(AtlasWindow):
 
         self._stack = Gtk.Stack()
         self._stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        if hasattr(self._stack, "set_hhomogeneous"):
+            self._stack.set_hhomogeneous(True)
+        if hasattr(self._stack, "set_vhomogeneous"):
+            self._stack.set_vhomogeneous(True)
         self._stack.set_vexpand(True)
         self._form_column.append(self._stack)
 
@@ -960,6 +964,10 @@ class SetupWizardWindow(AtlasWindow):
 
         inner_stack = Gtk.Stack()
         inner_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        if hasattr(inner_stack, "set_hhomogeneous"):
+            inner_stack.set_hhomogeneous(True)
+        if hasattr(inner_stack, "set_vhomogeneous"):
+            inner_stack.set_vhomogeneous(True)
         inner_stack.set_hexpand(True)
         inner_stack.set_vexpand(True)
 
