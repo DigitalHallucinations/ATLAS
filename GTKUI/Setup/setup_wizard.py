@@ -1431,6 +1431,7 @@ class SetupWizardWindow(AtlasWindow):
     def _build_setup_type_page(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_hexpand(True)
+        box.set_vexpand(True)
 
         heading = Gtk.Label(label="Choose how presets should shape the rest of setup")
         heading.set_wrap(True)
@@ -1961,6 +1962,7 @@ class SetupWizardWindow(AtlasWindow):
 
         container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         container.set_hexpand(True)
+        container.set_vexpand(True)
 
         backend_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
         backend_label = Gtk.Label(label="Backend")
@@ -2235,6 +2237,7 @@ class SetupWizardWindow(AtlasWindow):
 
         defaults_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         defaults_box.set_hexpand(True)
+        defaults_box.set_vexpand(True)
 
         self._provider_entries["default_provider"] = self._create_entry(
             "Default provider", state.default_provider or ""
@@ -2255,6 +2258,7 @@ class SetupWizardWindow(AtlasWindow):
 
         keys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         keys_box.set_hexpand(True)
+        keys_box.set_vexpand(True)
 
         helper_label = Gtk.Label(
             label=(
@@ -2333,6 +2337,8 @@ class SetupWizardWindow(AtlasWindow):
     def _build_kv_store_page(self) -> Gtk.Widget:
         state = self.controller.state.kv_store
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_hexpand(True)
+        box.set_vexpand(True)
 
         reuse_toggle = Gtk.CheckButton(label="Reuse conversation store for key-value storage")
         reuse_toggle.set_active(state.reuse_conversation_store)
@@ -2356,6 +2362,8 @@ class SetupWizardWindow(AtlasWindow):
         state = self.controller.state.job_scheduling
         retry = state.retry_policy
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
 
         enable_toggle = Gtk.CheckButton(label="Enable background job scheduling")
         enable_toggle.set_active(state.enabled)
@@ -2450,6 +2458,8 @@ class SetupWizardWindow(AtlasWindow):
     def _build_message_bus_page(self) -> Gtk.Widget:
         state = self.controller.state.message_bus
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
 
         backend_label = Gtk.Label(label="Backend")
         backend_label.set_xalign(0.0)
@@ -2481,6 +2491,8 @@ class SetupWizardWindow(AtlasWindow):
     def _build_speech_page(self) -> Gtk.Widget:
         state = self.controller.state.speech
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
 
         tts_toggle = Gtk.CheckButton(label="Enable text-to-speech")
         tts_toggle.set_active(state.tts_enabled)
@@ -2517,6 +2529,8 @@ class SetupWizardWindow(AtlasWindow):
     def _build_optional_page(self) -> Gtk.Widget:
         state = self.controller.state.optional
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
 
         row = 0
 
@@ -2670,6 +2684,8 @@ class SetupWizardWindow(AtlasWindow):
     def _build_user_page(self) -> Gtk.Widget:
         state = self.controller.state.user
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
 
         row = 0
         self._user_entries["full_name"] = self._create_labeled_entry(
