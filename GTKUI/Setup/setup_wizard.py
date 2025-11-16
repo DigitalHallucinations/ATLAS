@@ -138,6 +138,7 @@ class SetupWizardWindow(AtlasWindow):
         "modules.conversation_store.bootstrap",
     )
     _DEBUG_ICON_FILENAME = "debug.png"
+    _FORM_COLUMN_WIDTH = 560
 
     def __init__(
         self,
@@ -356,8 +357,10 @@ class SetupWizardWindow(AtlasWindow):
 
         # --- Center form container (middle) ---
         center_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        center_column.set_hexpand(True)
+        center_column.set_hexpand(False)
         center_column.set_vexpand(True)
+        center_column.set_halign(Gtk.Align.CENTER)
+        center_column.set_size_request(self._FORM_COLUMN_WIDTH, -1)
         if hasattr(center_column, "add_css_class"):
             center_column.add_css_class("setup-wizard-main")
         content.append(center_column)
@@ -365,19 +368,24 @@ class SetupWizardWindow(AtlasWindow):
         form_scroller = Gtk.ScrolledWindow()
         form_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         form_scroller.set_vexpand(True)
-        form_scroller.set_hexpand(True)
         form_scroller.set_propagate_natural_height(False)
         form_scroller.set_propagate_natural_width(False)
+        form_scroller.set_halign(Gtk.Align.FILL)
+        form_scroller.set_size_request(self._FORM_COLUMN_WIDTH, -1)
+        if hasattr(form_scroller, "set_min_content_width"):
+            form_scroller.set_min_content_width(self._FORM_COLUMN_WIDTH)
+        if hasattr(form_scroller, "set_max_content_width"):
+            form_scroller.set_max_content_width(self._FORM_COLUMN_WIDTH)
         center_column.append(form_scroller)
 
         form_frame = Gtk.Frame()
-        form_frame.set_hexpand(True)
         form_frame.set_vexpand(True)
+        form_frame.set_halign(Gtk.Align.FILL)
         form_scroller.set_child(form_frame)
 
         self._form_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self._form_column.set_hexpand(True)
         self._form_column.set_vexpand(True)
+        self._form_column.set_halign(Gtk.Align.FILL)
         form_frame.set_child(self._form_column)
 
         # --- Guidance column (right) ---
@@ -2300,6 +2308,9 @@ class SetupWizardWindow(AtlasWindow):
         visible_view.set_monospace(True)
         visible_view.set_hexpand(True)
         visible_view.set_vexpand(True)
+        wrap_mode = getattr(Gtk.WrapMode, "CHAR", getattr(Gtk.WrapMode, "WORD_CHAR", None))
+        if wrap_mode is not None:
+            visible_view.set_wrap_mode(wrap_mode)
         visible_buffer = visible_view.get_buffer()
         visible_buffer.set_text(self._format_api_keys(state.api_keys))
 
@@ -2311,6 +2322,8 @@ class SetupWizardWindow(AtlasWindow):
             masked_view.set_focusable(False)
         elif hasattr(masked_view, "set_can_focus"):
             masked_view.set_can_focus(False)
+        if wrap_mode is not None:
+            masked_view.set_wrap_mode(wrap_mode)
 
         visible_scroller = Gtk.ScrolledWindow()
         visible_scroller.set_hexpand(True)
