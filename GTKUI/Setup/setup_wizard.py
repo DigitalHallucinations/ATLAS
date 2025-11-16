@@ -1078,8 +1078,10 @@ class SetupWizardWindow(AtlasWindow):
         self, form: Gtk.Widget, instructions: str, heading: str | None = None
     ) -> Gtk.Widget:
         if heading is None:
-            form.set_halign(Gtk.Align.START)
-            form.set_hexpand(False)
+            if hasattr(form, "set_halign"):
+                form.set_halign(Gtk.Align.FILL)
+            if hasattr(form, "set_hexpand"):
+                form.set_hexpand(True)
             self._register_instructions(form, instructions)
             return form
 
