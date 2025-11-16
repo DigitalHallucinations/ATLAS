@@ -404,6 +404,12 @@ class SetupWizardWindow(AtlasWindow):
             guidance_column.add_css_class("setup-wizard-guidance")
         guidance_scroller.set_child(guidance_column)
 
+        guidance_title = Gtk.Label(label="Instructions")
+        guidance_title.set_xalign(0.0)
+        if hasattr(guidance_title, "add_css_class"):
+            guidance_title.add_css_class("heading")
+        guidance_column.append(guidance_title)
+
         header = Gtk.Label(label="Here's the plan—work through each step to wrap up setup.")
         header.set_wrap(True)
         header.set_xalign(0.0)
