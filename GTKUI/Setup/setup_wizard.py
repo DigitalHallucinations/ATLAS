@@ -457,14 +457,28 @@ class SetupWizardWindow(AtlasWindow):
             controls.add_css_class("setup-wizard-controls")
         root_box.append(controls)
 
+        left_controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        left_controls.set_hexpand(True)
+        controls.append(left_controls)
+
         self._step_status_label = Gtk.Label()
         self._step_status_label.set_xalign(0.0)
         self._step_status_label.set_hexpand(True)
-        controls.append(self._step_status_label)
+        left_controls.append(self._step_status_label)
 
         self._step_progress_bar = Gtk.ProgressBar()
         self._step_progress_bar.set_hexpand(True)
-        controls.append(self._step_progress_bar)
+        left_controls.append(self._step_progress_bar)
+
+        self._back_button = Gtk.Button(label="Back")
+        if hasattr(self._back_button, "add_css_class"):
+            self._back_button.add_css_class("setup-wizard-nav")
+        if hasattr(self._back_button, "set_tooltip_text"):
+            self._back_button.set_tooltip_text("Go back (Alt+Left)")
+        if hasattr(self._back_button, "set_can_default"):
+            self._back_button.set_can_default(False)
+        self._back_button.set_halign(Gtk.Align.START)
+        left_controls.append(self._back_button)
 
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
@@ -474,16 +488,6 @@ class SetupWizardWindow(AtlasWindow):
         navigation_box.set_halign(Gtk.Align.END)
         navigation_box.set_hexpand(False)
         controls.append(navigation_box)
-
-        self._back_button = Gtk.Button(label="Back")
-        if hasattr(self._back_button, "add_css_class"):
-            self._back_button.add_css_class("setup-wizard-nav")
-        if hasattr(self._back_button, "set_tooltip_text"):
-            self._back_button.set_tooltip_text("Go back (Alt+Left)")
-        if hasattr(self._back_button, "set_can_default"):
-            self._back_button.set_can_default(False)
-        self._back_button.connect("clicked", self._on_back_clicked)
-        navigation_box.append(self._back_button)
 
         self._next_button = Gtk.Button(label="Next")
         if hasattr(self._next_button, "add_css_class"):
