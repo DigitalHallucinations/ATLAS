@@ -959,8 +959,19 @@ class SetupWizardWindow(AtlasWindow):
         self, index: int, step: WizardStep
     ) -> tuple[Gtk.Widget, Gtk.Stack | None]:
         pages = step.subpages or [step.widget]
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        outer.set_hexpand(True)
+        outer.set_vexpand(True)
+
         if len(pages) <= 1:
-            return pages[0], None
+            child = pages[0]
+            if hasattr(child, "set_hexpand"):
+                child.set_hexpand(True)
+            if hasattr(child, "set_vexpand"):
+                child.set_vexpand(True)
+            outer.append(child)
+            return outer, None
 
         inner_stack = Gtk.Stack()
         inner_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
@@ -989,11 +1000,8 @@ class SetupWizardWindow(AtlasWindow):
             index,
         )
 
-        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        container.set_hexpand(True)
-        container.set_vexpand(True)
-        container.append(inner_stack)
-        return container, inner_stack
+        outer.append(inner_stack)
+        return outer, inner_stack
 
     def _on_inner_stack_visible_child_changed(
         self, stack: Gtk.Stack, _param_spec: object, step_index: int
