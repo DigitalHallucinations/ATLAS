@@ -484,10 +484,19 @@ class SetupWizardWindow(AtlasWindow):
         spacer.set_hexpand(True)
         controls.append(spacer)
 
-        navigation_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        navigation_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         navigation_box.set_halign(Gtk.Align.END)
         navigation_box.set_hexpand(False)
         controls.append(navigation_box)
+
+        self._progress_hint_label = Gtk.Label(label="Progress saved automatically.")
+        self._progress_hint_label.set_xalign(1.0)
+        self._progress_hint_label.set_halign(Gtk.Align.END)
+        self._progress_hint_label.set_margin_bottom(6)
+        self._progress_hint_label.set_hexpand(False)
+        if hasattr(self._progress_hint_label, "add_css_class"):
+            self._progress_hint_label.add_css_class("setup-wizard-progress-hint")
+        navigation_box.append(self._progress_hint_label)
 
         self._next_button = Gtk.Button(label="Next")
         if hasattr(self._next_button, "add_css_class"):
@@ -497,15 +506,9 @@ class SetupWizardWindow(AtlasWindow):
             self._next_button.set_tooltip_text("Next (Alt+Right)")
         if hasattr(self._next_button, "set_can_default"):
             self._next_button.set_can_default(True)
+        self._next_button.set_halign(Gtk.Align.END)
         self._next_button.connect("clicked", self._on_next_clicked)
         navigation_box.append(self._next_button)
-
-        self._progress_hint_label = Gtk.Label(label="Progress saved automatically.")
-        self._progress_hint_label.set_xalign(1.0)
-        self._progress_hint_label.set_hexpand(False)
-        if hasattr(self._progress_hint_label, "add_css_class"):
-            self._progress_hint_label.add_css_class("setup-wizard-progress-hint")
-        navigation_box.append(self._progress_hint_label)
 
         self._steps: List[WizardStep] = []
         self._current_index = 0
