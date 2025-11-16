@@ -326,7 +326,6 @@ headerbar.setup-wizard-header button.setup-wizard-debug-button image {
 
 .analytics-chart .chart-placeholder {
     opacity: 0.75;
-    text-align: center;
     padding: 8px 12px;
 }
 
