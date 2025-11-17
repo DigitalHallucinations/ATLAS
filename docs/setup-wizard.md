@@ -166,6 +166,26 @@ additional tenants.【F:modules/Server/conversation_routes.py†L30-L209】【F:
   skill, and API activity is captured with tenant context beyond the default
   local logging path.【F:modules/logging/audit.py†L33-L126】【F:modules/conversation_store/repository.py†L2622-L2765】
 
+#### Audit and retention templates
+
+The company step also exposes audit/retention templates so operators can align
+defaults with their compliance posture without memorising every field. Pick an
+option to pre-fill sink destinations and retention expectations while tooltips
+capture the intended reviewer audience:
+
+* **SIEM handoff (30d / 500 msgs)** – Keeps a 30-day JSONL buffer and writes
+  persona/skill audit events to SIEM-friendly files so security teams can ingest
+  them continuously.【F:modules/logging/audit_templates.py†L15-L37】【F:modules/logging/audit_templates.py†L58-L66】
+* **Privacy minimised (14d / 200 msgs)** – Shortens local exposure for
+  privacy-focused tenants with smaller buffers and history caps.【F:modules/logging/audit_templates.py†L38-L50】
+* **Extended review (90d / 1500 msgs)** – Retains longer audit evidence for
+  quarterly or regulated review cycles while keeping persona and skill changes
+  isolated per file.【F:modules/logging/audit_templates.py†L51-L66】
+
+The selection is saved alongside the tenant ID, scheduler defaults, and HTTP
+startup preference so server bootstrapping can configure audit sinks before any
+requests are handled.【F:ATLAS/setup/controller.py†L730-L749】【F:modules/Server/routes.py†L131-L170】
+
 ## Preparing the Python environment
 
 Before running the setup wizard, create or update the virtual environment and

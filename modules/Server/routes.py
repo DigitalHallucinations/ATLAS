@@ -54,6 +54,7 @@ from modules.conversation_store import ConversationStoreRepository
 from modules.logging.audit import (
     PersonaAuditEntry,
     SkillAuditEntry,
+    configure_audit_loggers_from_settings,
     get_persona_audit_logger,
     get_persona_review_logger,
     get_persona_review_queue,
@@ -148,6 +149,25 @@ class AtlasServer:
         self._task_routes: TaskRoutes | None = None
         self._job_routes: JobRoutes | None = None
         self._signing_key_cache: Dict[str, str] = {}
+
+        audit_settings: Mapping[str, object] = {}
+        if hasattr(self._config_manager, "get_audit_settings"):
+            try:
+                audit_settings = self._config_manager.get_audit_settings()
+            except Exception:  # pragma: no cover - defensive guard
+                audit_settings = {}
+
+        resolved_paths: Mapping[str, object] = {}
+        if hasattr(self._config_manager, "resolve_audit_log_paths"):
+            try:
+                resolved_paths = self._config_manager.resolve_audit_log_paths()
+            except Exception:  # pragma: no cover - defensive guard
+                resolved_paths = {}
+
+        combined_settings: Dict[str, object] = dict(audit_settings)
+        combined_settings.update({k: v for k, v in resolved_paths.items() if v})
+        if combined_settings:
+            configure_audit_loggers_from_settings(combined_settings)
 
     def _get_conversation_routes(self) -> ConversationRoutes:
         if self._conversation_routes is None:

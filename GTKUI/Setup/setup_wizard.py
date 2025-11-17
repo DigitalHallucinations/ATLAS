@@ -31,6 +31,7 @@ from ATLAS.setup import (
 from ATLAS.setup_marker import write_setup_marker
 from GTKUI.Utils.logging import GTKUILogHandler
 from GTKUI.Utils.styled_window import AtlasWindow
+from modules.logging.audit_templates import get_audit_template, get_audit_templates
 from modules.conversation_store.bootstrap import BootstrapError
 from GTKUI.Setup.preflight import PreflightHelper, PreflightCheckResult
 
@@ -547,6 +548,7 @@ class SetupWizardWindow(AtlasWindow):
         self._optional_widgets: Dict[str, Gtk.Widget] = {}
         self._optional_multi_tenant_widgets: list[Gtk.Widget] = []
         self._optional_personal_hint: Gtk.Label | None = None
+        self._audit_template_intent_label: Gtk.Label | None = None
         self._personal_cap_hint: Gtk.Label | None = None
         self._setup_persisted = False
         self._privileged_credentials: Optional[Tuple[Optional[str], Optional[str]]] = None
@@ -1836,7 +1838,50 @@ class SetupWizardWindow(AtlasWindow):
         if isinstance(http_toggle, Gtk.CheckButton):
             http_toggle.set_active(state.http_auto_start)
 
+        template_widget = self._optional_widgets.get("audit_template")
+        active_template = state.audit_template
+        if active_template is None:
+            templates = list(get_audit_templates())
+            if templates:
+                active_template = templates[0].key
+        if isinstance(template_widget, Gtk.ComboBoxText) and active_template:
+            try:
+                template_widget.set_active_id(active_template)
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+            self._apply_audit_template_to_form(active_template, update_retention_fields=False)
+
         self._update_setup_type_dependent_widgets()
+
+    def _apply_audit_template_to_form(
+        self, template_key: str, *, update_retention_fields: bool = True
+    ) -> None:
+        template = get_audit_template(template_key)
+        if template is None:
+            return
+
+        if update_retention_fields:
+            retention_entry = self._optional_widgets.get("retention_days")
+            history_entry = self._optional_widgets.get("retention_history_limit")
+            if isinstance(retention_entry, Gtk.Entry):
+                retention_entry.set_text(str(template.retention_days))
+            if isinstance(history_entry, Gtk.Entry):
+                history_entry.set_text(str(template.retention_history_limit))
+
+        combo = self._optional_widgets.get("audit_template")
+        if hasattr(combo, "set_tooltip_text"):
+            try:
+                combo.set_tooltip_text(template.tooltip)
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+        if isinstance(self._audit_template_intent_label, Gtk.Label):
+            self._audit_template_intent_label.set_text(template.intent)
+
+    def _on_audit_template_changed(self, combo: Gtk.ComboBoxText) -> None:
+        key = combo.get_active_id()
+        if key:
+            self._apply_audit_template_to_form(key)
 
     def _update_setup_type_dependent_widgets(self) -> None:
         hint = self._optional_personal_hint
@@ -2787,6 +2832,38 @@ class SetupWizardWindow(AtlasWindow):
             self._optional_multi_tenant_widgets.append(tenant_label)
         self._optional_multi_tenant_widgets.append(tenant_entry)
         row += 1
+        templates = list(get_audit_templates())
+        audit_combo = Gtk.ComboBoxText()
+        for template in templates:
+            audit_combo.append(template.key, template.label)
+        selected_template_key: str | None = state.audit_template
+        if selected_template_key is None and templates:
+            selected_template_key = templates[0].key
+        if selected_template_key:
+            try:
+                audit_combo.set_active_id(selected_template_key)
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+        audit_combo.connect("changed", self._on_audit_template_changed)
+        if hasattr(audit_combo, "set_halign"):
+            audit_combo.set_halign(Gtk.Align.FILL)
+        audit_label = Gtk.Label(label="Audit & retention template")
+        audit_label.set_wrap(True)
+        audit_label.set_xalign(0.0)
+        audit_label.set_valign(Gtk.Align.CENTER)
+        grid.attach(audit_label, 0, row, 1, 1)
+        grid.attach(audit_combo, 1, row, 1, 1)
+        self._optional_widgets["audit_template"] = audit_combo
+        self._optional_multi_tenant_widgets.extend([audit_label, audit_combo])
+        row += 1
+        intent_label = Gtk.Label()
+        intent_label.set_wrap(True)
+        intent_label.set_xalign(0.0)
+        intent_label.set_valign(Gtk.Align.START)
+        grid.attach(intent_label, 0, row, 2, 1)
+        self._audit_template_intent_label = intent_label
+        self._optional_multi_tenant_widgets.append(intent_label)
+        row += 1
         self._optional_widgets["retention_days"] = self._create_labeled_entry(
             grid, row, "Conversation retention days", self._optional_to_text(state.retention_days)
         )
@@ -2823,6 +2900,15 @@ class SetupWizardWindow(AtlasWindow):
         self._optional_widgets["http_auto_start"] = http_toggle
         grid.attach(http_toggle, 0, row, 2, 1)
         row += 1
+
+        if selected_template_key:
+            self._apply_audit_template_to_form(
+                selected_template_key,
+                update_retention_fields=(
+                    state.retention_days is None
+                    or state.retention_history_limit is None
+                ),
+            )
 
         callout_frame = Gtk.Frame()
         callout_frame.set_hexpand(True)
@@ -2920,6 +3006,7 @@ class SetupWizardWindow(AtlasWindow):
 
         instructions = (
             "• Set tenant defaults and retention expectations that fit your rollout.\n"
+            "• Pick an audit template so SIEM/export sinks and retention match your compliance stance.\n"
             "• Default data lifecycle settings favor shorter retention for lower risk—adjust deliberately.\n"
             "• Share scheduler tweaks so background jobs line up with your policies.\n"
             "• Decide whether ATLAS should auto-start its HTTP server for you."
@@ -4018,6 +4105,7 @@ class SetupWizardWindow(AtlasWindow):
         scheduler_timezone_entry = self._optional_widgets.get("scheduler_timezone")
         scheduler_queue_entry = self._optional_widgets.get("scheduler_queue_size")
         http_toggle = self._optional_widgets.get("http_auto_start")
+        audit_combo = self._optional_widgets.get("audit_template")
 
         if not all(
             isinstance(widget, Gtk.Entry)
@@ -4028,7 +4116,9 @@ class SetupWizardWindow(AtlasWindow):
                 scheduler_timezone_entry,
                 scheduler_queue_entry,
             )
-        ) or not isinstance(http_toggle, Gtk.CheckButton):
+        ) or not isinstance(http_toggle, Gtk.CheckButton) or not isinstance(
+            audit_combo, Gtk.ComboBoxText
+        ):
             raise RuntimeError("Organization settings widgets are not configured correctly")
 
         assert isinstance(tenant_entry, Gtk.Entry)
@@ -4037,6 +4127,7 @@ class SetupWizardWindow(AtlasWindow):
         assert isinstance(scheduler_timezone_entry, Gtk.Entry)
         assert isinstance(scheduler_queue_entry, Gtk.Entry)
         assert isinstance(http_toggle, Gtk.CheckButton)
+        assert isinstance(audit_combo, Gtk.ComboBoxText)
 
         tenant_id = tenant_entry.get_text().strip()
         if not tenant_id:
@@ -4059,6 +4150,7 @@ class SetupWizardWindow(AtlasWindow):
             scheduler_timezone=scheduler_timezone_entry.get_text().strip() or None,
             scheduler_queue_size=scheduler_queue_size,
             http_auto_start=http_toggle.get_active(),
+            audit_template=audit_combo.get_active_id() or None,
         )
 
         self.controller.apply_optional_settings(state)

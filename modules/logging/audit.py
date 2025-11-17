@@ -7,7 +7,7 @@ import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 
 from modules.logging.logger import setup_logger
 
@@ -943,6 +943,50 @@ def set_persona_review_queue(queue: Optional[PersonaReviewQueue]) -> None:
     _default_review_queue = queue
 
 
+def configure_audit_loggers_from_settings(
+    settings: Optional[Mapping[str, object]] = None,
+    *,
+    base_dir: Optional[Path | str] = None,
+) -> Dict[str, Optional[Path]]:
+    """Configure shared audit loggers using configured sink paths.
+
+    The helper resolves relative sinks against ``base_dir`` (defaulting to
+    ``<repo>/logs``) and initialises shared persona and skill audit loggers with
+    the resulting paths when present. Any path that cannot be created is skipped
+    gracefully so startup is not blocked by filesystem layout issues.
+    """
+
+    if settings is None:
+        settings = {}
+
+    if base_dir is None:
+        base_dir = Path(__file__).resolve().parents[2] / "logs"
+
+    base_path = Path(base_dir)
+
+    def _resolve(path_value: object) -> Optional[Path]:
+        if not path_value:
+            return None
+        candidate = Path(str(path_value))
+        if not candidate.is_absolute():
+            candidate = base_path / candidate
+        try:
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:  # pragma: no cover - defensive fallback
+            return None
+        return candidate
+
+    persona_sink = _resolve(settings.get("persona_sink"))
+    skill_sink = _resolve(settings.get("skill_sink") or settings.get("sink"))
+
+    if persona_sink is not None:
+        set_persona_audit_logger(PersonaAuditLogger(log_path=persona_sink))
+    if skill_sink is not None:
+        set_skill_audit_logger(SkillAuditLogger(log_path=skill_sink))
+
+    return {"persona_sink": persona_sink, "skill_sink": skill_sink}
+
+
 def format_persona_timestamp(moment: datetime) -> str:
     """Public helper to format timestamps for persona audit records."""
 
@@ -965,6 +1009,7 @@ __all__ = [
     "PersonaReviewQueue",
     "PersonaReviewTask",
     "format_persona_timestamp",
+    "configure_audit_loggers_from_settings",
     "get_persona_audit_logger",
     "get_skill_audit_logger",
     "get_persona_review_logger",
