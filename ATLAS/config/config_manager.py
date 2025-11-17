@@ -59,6 +59,7 @@ from .providers import ProviderConfigSections
 from .providers import ProviderConfigMixin
 from .tooling import ToolingConfigSection
 from .ui_config import UIConfig
+from modules.logging.audit_templates import get_audit_template
 from modules.orchestration.message_bus import MessageBus
 from modules.job_store import JobService, MongoJobStoreRepository
 from modules.job_store.repository import JobStoreRepository
@@ -1202,6 +1203,86 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         """Persist the line wrapping preference for UI terminal sections."""
 
         return self.ui_config.set_terminal_wrap_enabled(enabled)
+
+    # -- audit and retention templates ----------------------------------
+
+    def get_audit_settings(self) -> Dict[str, Any]:
+        """Return the persisted audit template block when present."""
+
+        block = self.config.get("audit")
+        if isinstance(block, Mapping):
+            return dict(block)
+        return {}
+
+    def get_audit_template(self) -> Optional[str]:
+        """Return the configured audit template key, if any."""
+
+        template = self.get_audit_settings().get("template")
+        if isinstance(template, str) and template.strip():
+            return template.strip()
+        return None
+
+    def apply_audit_template(
+        self,
+        template_key: Optional[str],
+        *,
+        apply_retention: bool = True,
+        retention_days: Optional[int] = None,
+        retention_history_limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Persist the selected audit template and optional retention values."""
+
+        template = get_audit_template(template_key)
+        settings: Dict[str, Any] = {}
+
+        if template is not None:
+            days = retention_days if retention_days is not None else template.retention_days
+            history_limit = (
+                retention_history_limit
+                if retention_history_limit is not None
+                else template.retention_history_limit
+            )
+            settings = {
+                "template": template.key,
+                "intent": template.intent,
+                "persona_sink": template.persona_sink,
+                "skill_sink": template.skill_sink,
+                "retention_days": days,
+                "retention_history_limit": history_limit,
+            }
+            if apply_retention:
+                self.set_conversation_retention(
+                    days=days,
+                    history_limit=history_limit,
+                )
+
+        self.config["audit"] = dict(settings)
+        if settings:
+            self.yaml_config["audit"] = dict(settings)
+        else:
+            self.yaml_config.pop("audit", None)
+        self._write_yaml_config()
+        return dict(settings)
+
+    def resolve_audit_log_paths(self) -> Dict[str, Path]:
+        """Return absolute paths for configured audit sinks."""
+
+        settings = self.get_audit_settings()
+        base_dir = Path(self.config.get("APP_ROOT", ".")).expanduser().resolve()
+        logs_dir = base_dir / "logs"
+
+        def _resolve(value: Any) -> Optional[Path]:
+            if not value:
+                return None
+            candidate = Path(str(value))
+            if not candidate.is_absolute():
+                candidate = logs_dir / candidate
+            return candidate
+
+        persona_path = _resolve(settings.get("persona_sink"))
+        skill_path = _resolve(settings.get("skill_sink"))
+
+        return {"persona_sink": persona_path, "skill_sink": skill_path}
 
     def export_yaml_config(self, destination: str | os.PathLike[str] | Path) -> str:
         """Write the current YAML configuration to ``destination``.

@@ -36,6 +36,8 @@ __all__ = [
     "UserState",
 ]
 
+DEFAULT_ENTERPRISE_AUDIT_TEMPLATE = "siem_30d"
+
 
 @dataclass
 class DatabaseState:
@@ -144,6 +146,7 @@ class OptionalState:
     scheduler_timezone: Optional[str] = None
     scheduler_queue_size: Optional[int] = None
     http_auto_start: bool = False
+    audit_template: Optional[str] = None
 
 
 @dataclass
@@ -423,6 +426,7 @@ class SetupWizardController:
             scheduler_timezone=self.state.job_scheduling.timezone,
             scheduler_queue_size=self.state.job_scheduling.queue_size,
             http_auto_start=bool(http_block.get("auto_start")) if isinstance(http_block, Mapping) else False,
+            audit_template=self.config_manager.get_audit_template(),
         )
 
     # -- presets ------------------------------------------------------------
@@ -467,6 +471,7 @@ class SetupWizardController:
                 retention_days=None,
                 retention_history_limit=None,
                 http_auto_start=True,
+                audit_template=None,
             )
 
             if local_flag:
@@ -516,6 +521,10 @@ class SetupWizardController:
                 retention_days=30,
                 retention_history_limit=500,
                 http_auto_start=False,
+                audit_template=(
+                    self.state.optional.audit_template
+                    or DEFAULT_ENTERPRISE_AUDIT_TEMPLATE
+                ),
             )
 
         setup_state = SetupTypeState(mode=normalized, applied=True)
@@ -723,6 +732,12 @@ class SetupWizardController:
         self.config_manager.set_conversation_retention(
             days=state.retention_days,
             history_limit=state.retention_history_limit,
+        )
+        self.config_manager.apply_audit_template(
+            state.audit_template,
+            apply_retention=False,
+            retention_days=state.retention_days,
+            retention_history_limit=state.retention_history_limit,
         )
         if state.scheduler_timezone is not None or state.scheduler_queue_size is not None:
             self.config_manager.set_job_scheduling_settings(
