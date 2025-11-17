@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import contextlib
+import uuid
 from datetime import datetime
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence
 
 from ._compat import Session, sessionmaker
+from ._shared import _coerce_dt, _coerce_uuid, _normalize_tenant_id
 from .accounts import AccountStore
 from .conversations import ConversationStore
 from .graph import GraphStore
@@ -472,6 +474,140 @@ class ConversationStoreRepository:
             edge_keys=edge_keys,
             edge_ids=edge_ids,
         )
+
+    # ------------------------------------------------------------------
+    # Backup/export helpers
+
+    def export_conversations(self, *, tenant_id: Any) -> Dict[str, Any]:
+        """Serialize conversations and messages for ``tenant_id``."""
+
+        tenant_key = _normalize_tenant_id(tenant_id)
+        conversations = self._conversations.list_conversations_for_tenant(
+            tenant_id=tenant_key,
+            include_archived=True,
+            order="asc",
+        )
+
+        exports: List[Dict[str, Any]] = []
+        for conversation in conversations:
+            conversation_id = conversation.get("id")
+            if conversation_id is None:
+                continue
+            messages = list(
+                self._conversations.stream_conversation_messages(
+                    conversation_id=conversation_id,
+                    tenant_id=tenant_key,
+                    order="asc",
+                    include_deleted=True,
+                )
+            )
+            exports.append({"conversation": conversation, "messages": messages})
+
+        return {
+            "tenant_id": tenant_key,
+            "conversation_count": len(exports),
+            "conversations": exports,
+        }
+
+    def import_conversations(
+        self, export_payload: Mapping[str, Any], *, tenant_id: Any
+    ) -> Dict[str, int]:
+        """Persist exported conversation payloads into the repository."""
+
+        tenant_key = _normalize_tenant_id(tenant_id)
+        conversations = []
+        if isinstance(export_payload, Mapping):
+            conversations = export_payload.get("conversations") or []
+        if not isinstance(conversations, list):
+            raise ValueError("Conversation export payload must include a list of conversations")
+
+        imported_conversations = 0
+        imported_messages = 0
+
+        for entry in conversations:
+            if not isinstance(entry, Mapping):
+                continue
+            conversation_meta = entry.get("conversation")
+            if not isinstance(conversation_meta, Mapping):
+                continue
+
+            raw_conversation_id = _coerce_uuid(conversation_meta.get("id") or uuid.uuid4())
+            session_id = conversation_meta.get("session_id")
+            metadata = (
+                conversation_meta.get("metadata")
+                if isinstance(conversation_meta.get("metadata"), Mapping)
+                else None
+            )
+
+            conversation_uuid = self._conversations.ensure_conversation(
+                raw_conversation_id,
+                tenant_id=tenant_key,
+                session_id=session_id,
+                metadata=metadata,
+            )
+
+            imported_conversations += 1
+
+            message_entries = entry.get("messages") or []
+            if not isinstance(message_entries, list):
+                continue
+
+            for message in message_entries:
+                if not isinstance(message, Mapping):
+                    continue
+
+                known_keys = {
+                    "id",
+                    "conversation_id",
+                    "tenant_id",
+                    "role",
+                    "message_type",
+                    "status",
+                    "content",
+                    "metadata",
+                    "timestamp",
+                    "created_at",
+                    "updated_at",
+                    "user_id",
+                    "session_id",
+                    "message_id",
+                    "deleted_at",
+                }
+
+                content = message.get("content")
+                if not isinstance(content, Mapping):
+                    content = {"text": "" if content is None else str(content)}
+
+                metadata_payload = message.get("metadata") if isinstance(message.get("metadata"), Mapping) else {}
+                extra_payload = {
+                    key: value for key, value in message.items() if key not in known_keys
+                }
+
+                created_at = message.get("created_at") or message.get("timestamp")
+                message_session_id = message.get("session_id") or session_id
+                user_id = message.get("user_id")
+
+                self._conversations.add_message(
+                    conversation_uuid,
+                    tenant_id=tenant_key,
+                    role=str(message.get("role") or "assistant"),
+                    content=content,
+                    message_type=message.get("message_type"),
+                    status=message.get("status"),
+                    user_id=user_id,
+                    session_id=message_session_id,
+                    metadata=metadata_payload,
+                    extra=extra_payload,
+                    client_message_id=message.get("message_id") or message.get("id"),
+                    created_at=_coerce_dt(created_at) if created_at else None,
+                )
+
+                imported_messages += 1
+
+        return {
+            "conversations": imported_conversations,
+            "messages": imported_messages,
+        }
 
     # ------------------------------------------------------------------
     # Vector helpers

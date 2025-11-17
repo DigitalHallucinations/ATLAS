@@ -71,6 +71,10 @@ from modules.orchestration.utils import persona_matches_filter
 from modules.orchestration.job_manager import JobManager
 from modules.orchestration.job_scheduler import JobScheduler
 from modules.orchestration.message_bus import MessageBus
+from modules.store_common.manifest_utils import (
+    iter_persona_manifest_paths,
+    resolve_app_root,
+)
 
 if TYPE_CHECKING:
     from modules.job_store.service import JobService
@@ -202,6 +206,23 @@ class AtlasServer:
         except Exception as exc:  # pragma: no cover - defensive logging only
             logger.warning("Failed to initialize conversation store schema: %s", exc)
         return repository
+
+    def _export_persona_manifests(self) -> List[Dict[str, Any]]:
+        """Return serialized persona manifests available to the application."""
+
+        manifests: List[Dict[str, Any]] = []
+        app_root = resolve_app_root(self._config_manager, logger=logger)
+
+        for persona_name, _path in iter_persona_manifest_paths(app_root, "Persona"):
+            snapshot = load_persona_definition(
+                persona_name,
+                config_manager=self._config_manager,
+            )
+            if snapshot is None:
+                continue
+            manifests.append({"name": persona_name, "definition": snapshot})
+
+        return manifests
 
     def _resolve_signing_key(self, asset_type: str) -> str:
         """Return the configured signing key for the given bundle asset."""
@@ -1973,6 +1994,15 @@ class AtlasServer:
                 resolved_context = self._resolve_request_context(context)
             return resolved_context
 
+        if path == "/backups/export":
+            return self.export_backup_bundle(context=_require_context())
+
+        if path == "/backups/import":
+            return self.import_backup_bundle(
+                bundle_base64=str(payload.get("bundle") or ""),
+                context=_require_context(),
+            )
+
         if path.startswith("/conversations/") and path.endswith("/reset"):
             components = [part for part in path.strip("/").split("/") if part]
             if len(components) != 3:
@@ -2902,6 +2932,91 @@ class AtlasServer:
 
         result.setdefault("success", True)
         return result
+
+    def export_backup_bundle(self, *, context: Any | None = None) -> Dict[str, Any]:
+        """Collect conversations and persona manifests for backup/export."""
+
+        request_context = self._require_tenant_context(context)
+        repository = self._conversation_repository or self._build_conversation_repository()
+        if repository is None:
+            raise RuntimeError("Conversation store repository is not configured")
+
+        conversations = repository.export_conversations(tenant_id=request_context.tenant_id)
+        persona_manifests = self._export_persona_manifests()
+
+        bundle = {
+            "version": 1,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "tenant_id": request_context.tenant_id,
+            "conversations": conversations.get("conversations", []),
+            "personas": persona_manifests,
+        }
+
+        encoded = base64.b64encode(json.dumps(bundle).encode("utf-8")).decode("ascii")
+        return {
+            "success": True,
+            "bundle": encoded,
+            "conversation_count": conversations.get("conversation_count", 0),
+            "persona_count": len(persona_manifests),
+        }
+
+    def import_backup_bundle(
+        self, *, bundle_base64: str, context: Any | None = None
+    ) -> Dict[str, Any]:
+        """Restore conversations and personas from a serialized backup."""
+
+        if not bundle_base64:
+            raise ValueError("Bundle payload is required for import")
+
+        request_context = self._require_tenant_context(context)
+        repository = self._conversation_repository or self._build_conversation_repository()
+        if repository is None:
+            raise RuntimeError("Conversation store repository is not configured")
+
+        try:
+            decoded = base64.b64decode(bundle_base64)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Backup payload is not valid base64 data") from exc
+
+        try:
+            payload = json.loads(decoded.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Backup payload is not valid JSON") from exc
+
+        persona_entries = payload.get("personas") if isinstance(payload, Mapping) else []
+        conversation_entries = payload if isinstance(payload, Mapping) else {}
+
+        conversation_result = repository.import_conversations(
+            conversation_entries, tenant_id=request_context.tenant_id
+        )
+
+        imported_personas = 0
+        if isinstance(persona_entries, list):
+            for entry in persona_entries:
+                if not isinstance(entry, Mapping):
+                    continue
+                persona_name = entry.get("name")
+                definition = entry.get("definition")
+                if not persona_name and isinstance(definition, Mapping):
+                    persona_name = definition.get("name")
+                if not persona_name or not isinstance(definition, Mapping):
+                    continue
+                try:
+                    persist_persona_definition(
+                        str(persona_name),
+                        definition,
+                        config_manager=self._config_manager,
+                        rationale="Imported from backup bundle",
+                    )
+                except PersonaValidationError:
+                    continue
+                imported_personas += 1
+
+        return {
+            "success": True,
+            "conversations": conversation_result,
+            "persona_count": imported_personas,
+        }
 
     # -- conversation routes -------------------------------------------------
 

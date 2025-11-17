@@ -1182,3 +1182,41 @@ async def import_job_bundle(request: Request) -> Any:
     except Exception as exc:  # noqa: BLE001
         raise _to_http_exception(exc) from exc
     return result
+
+
+@app.post("/backups/export")
+async def export_backup(request: Request) -> Any:
+    payload = await request.json()
+    atlas = _get_atlas(request)
+    server = _get_server(request)
+    context = await _build_request_context(request, atlas)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            "/backups/export",
+            method="POST",
+            query=payload,
+            context=context,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result
+
+
+@app.post("/backups/import")
+async def import_backup(request: Request) -> Any:
+    payload = await request.json()
+    atlas = _get_atlas(request)
+    server = _get_server(request)
+    context = await _build_request_context(request, atlas)
+    try:
+        result = await run_in_threadpool(
+            server.handle_request,
+            "/backups/import",
+            method="POST",
+            query=payload,
+            context=context,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _to_http_exception(exc) from exc
+    return result

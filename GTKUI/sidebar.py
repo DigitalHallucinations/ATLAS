@@ -18,6 +18,7 @@ from GTKUI.Chat.conversation_history_page import ConversationHistoryPage
 from GTKUI.Persona_manager.persona_management import PersonaManagement
 from GTKUI.Provider_manager.provider_management import ProviderManagement
 from GTKUI.Settings.Speech.speech_settings import SpeechSettings
+from GTKUI.Settings.backup_settings import BackupSettings
 from GTKUI.Tool_manager import ToolManagement
 from GTKUI.Skill_manager import SkillManagement
 from GTKUI.Job_manager import JobManagement
@@ -179,16 +180,7 @@ class MainWindow(AtlasWindow):
 
     def show_settings_page(self) -> None:
         def factory() -> Gtk.Widget:
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-            box.set_margin_top(24)
-            box.set_margin_bottom(24)
-            box.set_margin_start(24)
-            box.set_margin_end(24)
-            label = Gtk.Label(label="Settings workspaces are coming soon.")
-            label.set_wrap(True)
-            label.set_justify(Gtk.Justification.CENTER)
-            box.append(label)
-            return box
+            return BackupSettings(self.ATLAS)
 
         page = self._open_or_focus_page("settings", "Settings", factory)
         if page is not None:
