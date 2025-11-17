@@ -254,8 +254,12 @@ async def _build_request_context(request: Request, atlas: ATLAS) -> RequestConte
     headers = request.headers
     tenant_id = headers.get(_HEADER_TENANT)
     if tenant_id is None or not tenant_id.strip():
-        tenant_id = getattr(atlas, "tenant_id", None) or "default"
+        raise HTTPException(status_code=403, detail="X-Atlas-Tenant header is required")
     tenant_id = tenant_id.strip()
+
+    configured_tenant = _normalize_optional_text(getattr(atlas, "tenant_id", None))
+    if configured_tenant and tenant_id != configured_tenant:
+        raise HTTPException(status_code=403, detail="X-Atlas-Tenant does not match configured tenant")
 
     header_metadata = _parse_metadata(headers.get(_HEADER_METADATA))
     header_roles = _parse_roles(headers.get(_HEADER_ROLES))
