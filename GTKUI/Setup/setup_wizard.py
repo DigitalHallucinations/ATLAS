@@ -371,11 +371,11 @@ class SetupWizardWindow(AtlasWindow):
             center_column.add_css_class("setup-wizard-main")
         content.append(center_column)
 
-        form_heading = Gtk.Label(label="Active Form")
-        form_heading.set_xalign(0.0)
-        if hasattr(form_heading, "add_css_class"):
-            form_heading.add_css_class("heading")
-        center_column.append(form_heading)
+        self._form_heading = Gtk.Label(label="Active Form")
+        self._form_heading.set_xalign(0.0)
+        if hasattr(self._form_heading, "add_css_class"):
+            self._form_heading.add_css_class("heading")
+        center_column.append(self._form_heading)
 
         form_scroller = Gtk.ScrolledWindow()
         form_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -597,6 +597,9 @@ class SetupWizardWindow(AtlasWindow):
 
         self._build_steps()
         self._build_steps_sidebar()  # populate sidebar
+
+        if self._steps:
+            self._form_heading.set_text(self._steps[0].name)
 
         self._refresh_validation_states()
 
@@ -3270,6 +3273,7 @@ class SetupWizardWindow(AtlasWindow):
         current_page = self._get_current_page_index(self._current_index)
         self._show_subpage(self._current_index, current_page)
         step = self._steps[self._current_index]
+        self._form_heading.set_text(step.name)
         self._update_step_indicator(step.name)
         total_pages = self._get_total_pages()
         if total_pages:
@@ -3299,6 +3303,8 @@ class SetupWizardWindow(AtlasWindow):
         self._current_index = index
         current_page = self._get_current_page_index(index)
         self._show_subpage(index, current_page)
+        if 0 <= index < len(self._steps):
+            self._form_heading.set_text(self._steps[index].name)
         self._select_step_row(self._current_index)
 
     def _update_step_indicator(self, name: str) -> None:
