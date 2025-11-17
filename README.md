@@ -1,5 +1,6 @@
 
-# 🧠 ATLAS  
+# 🧠 ATLAS
+[![CI](https://github.com/Digital-Hallucinations/ATLAS/actions/workflows/ci.yml/badge.svg)](https://github.com/Digital-Hallucinations/ATLAS/actions/workflows/ci.yml)
 ### Modular, Multi-Provider, Multi-Persona Agentic Framework  
 *By Digital Hallucinations — Jeremy Shows*
 
