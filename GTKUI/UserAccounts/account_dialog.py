@@ -90,6 +90,7 @@ class AccountDialog(AtlasWindow):
         self._enterprise_upgrade_message = (
             "SSO, SCIM, and delegated admin controls are available on Enterprise plans."
         )
+        self._enterprise_plan_enabled = self._resolve_enterprise_flag()
         self._delegated_admin_enabled = self._resolve_delegated_admin_flag()
 
         self._build_ui()
@@ -104,6 +105,16 @@ class AccountDialog(AtlasWindow):
     # ------------------------------------------------------------------
     # UI construction helpers
     # ------------------------------------------------------------------
+    def _resolve_enterprise_flag(self) -> bool:
+        config_manager = getattr(self.ATLAS, "config_manager", None)
+        checker = getattr(config_manager, "is_enterprise_tenant", None)
+        if callable(checker):
+            try:
+                return bool(checker())
+            except Exception:  # pragma: no cover - permissive fallback for UI
+                return False
+        return False
+
     def _resolve_delegated_admin_flag(self) -> bool:
         config_manager = getattr(self.ATLAS, "config_manager", None)
         checker = getattr(config_manager, "delegated_admin_enabled", None)
@@ -113,6 +124,29 @@ class AccountDialog(AtlasWindow):
             except Exception:  # pragma: no cover - permissive fallback for UI
                 return True
         return True
+
+    def _create_enterprise_badge(self) -> Gtk.Widget:
+        badge = Gtk.Label(label="Enterprise")
+        badge.set_xalign(0.0)
+        if hasattr(badge, "add_css_class"):
+            badge.add_css_class("tag-badge")
+            badge.add_css_class("status-warning")
+        badge.set_tooltip_text("SSO, SCIM, and delegated admin live on Enterprise plans.")
+        return badge
+
+    def _update_enterprise_banner(self) -> None:
+        banner_label = getattr(self, "_enterprise_banner_label", None)
+        if isinstance(banner_label, Gtk.Label):
+            message = self._enterprise_upgrade_message
+            if self._enterprise_plan_enabled:
+                message = (
+                    "Enterprise controls are available here for SSO, SCIM, and delegated admin."
+                )
+            banner_label.set_text(message)
+
+        banner = getattr(self, "_enterprise_banner", None)
+        if isinstance(banner, Gtk.Widget):
+            banner.set_visible(True)
 
     def _render_delegated_admin_upgrade(self) -> None:
         self._set_account_summary_message(self._enterprise_upgrade_message)
@@ -126,6 +160,19 @@ class AccountDialog(AtlasWindow):
         self.status_label = Gtk.Label()
         self.status_label.set_xalign(0.0)
         container.append(self.status_label)
+
+        banner = create_box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        banner.set_halign(Gtk.Align.START)
+        badge = self._create_enterprise_badge()
+        banner.append(badge)
+        banner_label = Gtk.Label()
+        banner_label.set_wrap(True)
+        banner_label.set_xalign(0.0)
+        banner.append(banner_label)
+        self._enterprise_banner = banner
+        self._enterprise_banner_label = banner_label
+        self._update_enterprise_banner()
+        container.append(banner)
 
         self._account_rows: dict[str, dict[str, Gtk.Widget]] = {}
         self._forms_busy = False

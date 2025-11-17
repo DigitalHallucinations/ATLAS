@@ -548,6 +548,8 @@ class SetupWizardWindow(AtlasWindow):
         self._optional_widgets: Dict[str, Gtk.Widget] = {}
         self._optional_multi_tenant_widgets: list[Gtk.Widget] = []
         self._optional_personal_hint: Gtk.Label | None = None
+        self._optional_enterprise_badge: Gtk.Widget | None = None
+        self._optional_upgrade_label: Gtk.Label | None = None
         self._audit_template_intent_label: Gtk.Label | None = None
         self._personal_cap_hint: Gtk.Label | None = None
         self._setup_persisted = False
@@ -1191,6 +1193,16 @@ class SetupWizardWindow(AtlasWindow):
 
         self._register_instructions(container, instructions)
         return container
+
+    def _create_enterprise_badge(self, tooltip: str | None = None) -> Gtk.Widget:
+        badge = Gtk.Label(label="Enterprise")
+        badge.set_xalign(0.0)
+        if hasattr(badge, "add_css_class"):
+            badge.add_css_class("tag-badge")
+            badge.add_css_class("status-warning")
+        if tooltip and hasattr(badge, "set_tooltip_text"):
+            badge.set_tooltip_text(tooltip)
+        return badge
 
     def _update_guidance_for_widget(self, widget: Gtk.Widget | None) -> None:
         if widget is None:
@@ -1919,7 +1931,8 @@ class SetupWizardWindow(AtlasWindow):
 
     def _update_optional_field_visibility(self) -> None:
         mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
-        hide_multi_tenant = mode == "personal" and getattr(
+        is_personal = mode == "personal"
+        hide_multi_tenant = is_personal and getattr(
             self.controller.state.setup_type, "local_only", False
         )
 
@@ -1930,6 +1943,26 @@ class SetupWizardWindow(AtlasWindow):
                     setter(not hide_multi_tenant)
                 except Exception:  # pragma: no cover - GTK fallback
                     pass
+
+            sensitive_setter = getattr(widget, "set_sensitive", None)
+            if callable(sensitive_setter):
+                try:
+                    sensitive_setter(not is_personal)
+                except Exception:  # pragma: no cover - GTK fallback
+                    pass
+
+        if isinstance(self._optional_upgrade_label, Gtk.Label):
+            try:
+                self._optional_upgrade_label.set_visible(is_personal)
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+
+        badge = self._optional_enterprise_badge
+        if isinstance(badge, Gtk.Widget):
+            try:
+                badge.set_visible(True)
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
 
     def _get_identity_step_name(self) -> str:
         mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
@@ -1949,6 +1982,7 @@ class SetupWizardWindow(AtlasWindow):
         if index is None:
             return
 
+        mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
         name = self._get_identity_step_name()
         if 0 <= index < len(self._steps):
             self._steps[index].name = name
@@ -1964,7 +1998,9 @@ class SetupWizardWindow(AtlasWindow):
             return
 
         current_index = self._get_current_page_index(index)
-        if current_index >= len(pages):
+        if mode == "personal":
+            self._current_page_indices[index] = 0
+        elif current_index >= len(pages):
             self._current_page_indices[index] = len(pages) - 1
         self._show_subpage(index, self._current_page_indices.get(index, 0))
 
@@ -2092,12 +2128,21 @@ class SetupWizardWindow(AtlasWindow):
         box.set_hexpand(True)
         box.set_vexpand(True)
 
+        heading_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        heading_row.set_hexpand(True)
+
         heading = Gtk.Label(label="Company setup overview")
         heading.set_wrap(True)
         heading.set_xalign(0.0)
         if hasattr(heading, "add_css_class"):
             heading.add_css_class("heading")
-        box.append(heading)
+        heading_row.append(heading)
+
+        badge = self._create_enterprise_badge(
+            "Enterprise tenants can pre-stage retention, residency, and audit defaults."
+        )
+        heading_row.append(badge)
+        box.append(heading_row)
 
         summary_bullets = [
             "Seed tenancy defaults, retention expectations, and scheduler notes so ATLAS mirrors your policies.",
@@ -2811,6 +2856,29 @@ class SetupWizardWindow(AtlasWindow):
         grid.set_vexpand(True)
 
         row = 0
+
+        badge_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        badge_row.set_hexpand(True)
+        badge = self._create_enterprise_badge(
+            "Tenancy defaults, residency controls, and audit templates are Enterprise-only."
+        )
+        badge_row.append(badge)
+        upgrade_label = Gtk.Label(
+            label=(
+                "Enterprise tenants unlock shared tenancy, residency, and audit defaults "
+                "that apply across administrators."
+            )
+        )
+        upgrade_label.set_wrap(True)
+        upgrade_label.set_xalign(0.0)
+        upgrade_label.set_visible(False)
+        badge_row.append(upgrade_label)
+        grid.attach(badge_row, 0, row, 2, 1)
+
+        self._optional_enterprise_badge = badge
+        self._optional_upgrade_label = upgrade_label
+
+        row += 1
 
         personal_hint = Gtk.Label(label="Most people can keep the defaults.")
         personal_hint.set_wrap(True)
