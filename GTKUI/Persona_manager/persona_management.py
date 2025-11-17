@@ -10,7 +10,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from .General_Tab.general_tab import GeneralTab
 from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
@@ -84,6 +84,7 @@ class PersonaManagement:
         self._review_mark_complete_button: Optional[Gtk.Button] = None
         self._review_status: Optional[Dict[str, Any]] = None
         self._review_persona_name: Optional[str] = None
+        self._persona_metadata: Dict[str, Mapping[str, Any]] = {}
 
     # --------------------------- Helpers ---------------------------
 
@@ -655,6 +656,7 @@ class PersonaManagement:
         outer.append(list_box)
 
         persona_names = self.ATLAS.get_persona_names() or []
+        self._load_persona_metadata(persona_names)
 
         for persona_name in persona_names:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -667,13 +669,26 @@ class PersonaManagement:
             select_btn.set_halign(Gtk.Align.FILL)
             select_btn.set_tooltip_text(f"Select persona: {persona_name}")
 
+            label_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            label_box.set_hexpand(True)
+
             name_lbl = Gtk.Label(label=persona_name)
             name_lbl.set_xalign(0.0)
             name_lbl.set_yalign(0.5)
             name_lbl.get_style_context().add_class("provider-label")
             name_lbl.set_halign(Gtk.Align.START)
             name_lbl.set_hexpand(True)
-            select_btn.set_child(name_lbl)
+            label_box.append(name_lbl)
+
+            if self._is_personal_persona(persona_name):
+                badge = Gtk.Label(label="Personal")
+                badge.set_xalign(0.0)
+                badge.add_css_class("tag")
+                badge.add_css_class("success")
+                badge.set_tooltip_text("Curated for personal creative and productivity flows.")
+                label_box.append(badge)
+
+            select_btn.set_child(label_box)
 
             select_btn.connect("clicked", lambda _b, pname=persona_name: self.select_persona(pname))
 
@@ -2806,7 +2821,46 @@ class PersonaManagement:
         self._analytics_latency_chart = latency_chart
 
         self._ensure_theme_monitoring()
-        self._apply_chart_theme()
+            self._apply_chart_theme()
+
+    def _load_persona_metadata(self, persona_names: List[str]) -> None:
+        manager = getattr(self.ATLAS, "persona_manager", None)
+        loader = getattr(manager, "get_persona", None)
+
+        metadata: Dict[str, Mapping[str, Any]] = {}
+        if callable(loader):
+            for name in persona_names:
+                try:
+                    persona = loader(name)
+                except Exception:
+                    persona = None
+
+                if isinstance(persona, Mapping):
+                    metadata[name] = persona
+
+        self._persona_metadata = metadata
+
+    def _is_personal_persona(self, persona_name: str) -> bool:
+        metadata = self._persona_metadata.get(persona_name) or {}
+
+        tags = metadata.get("tags") or metadata.get("persona_tags")
+        if isinstance(tags, Mapping):
+            tags = tags.values()
+        if isinstance(tags, (list, tuple, set)):
+            if any(str(tag).strip().lower() == "personal" for tag in tags):
+                return True
+
+        audience = metadata.get("audience")
+        if isinstance(audience, str) and audience.strip().lower() == "personal":
+            return True
+
+        flags = metadata.get("flags")
+        if isinstance(flags, Mapping):
+            audience_flag = flags.get("audience")
+            if isinstance(audience_flag, str) and audience_flag.strip().lower() == "personal":
+                return True
+
+        return False
 
         self._refresh_persona_analytics(show_errors=False)
 
