@@ -150,6 +150,8 @@ class ATLAS:
             self._handle_active_user_change
         )
 
+        self._verify_background_workers()
+
     # ------------------------------------------------------------------
     # Task operations
     # ------------------------------------------------------------------
@@ -282,6 +284,17 @@ class ATLAS:
 
     def _ensure_user_identity(self) -> Tuple[str, str]:
         return self._require_user_account_facade().ensure_user_identity()
+
+    def _verify_background_workers(self) -> None:
+        getter = getattr(self.config_manager, "get_default_task_queue_service", None)
+        if not callable(getter):
+            return
+        try:
+            service = getter()
+            if service is not None and hasattr(service, "ensure_running"):
+                service.ensure_running()
+        except Exception as exc:  # pragma: no cover - advisory health check
+            self.logger.warning("Background worker health check failed: %s", exc)
 
     def get_user_display_name(self) -> str:
         return self._require_user_account_facade().get_user_display_name()

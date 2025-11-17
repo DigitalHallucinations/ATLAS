@@ -52,6 +52,7 @@ class JobScheduler:
         self._registrations: Dict[str, _Registration] = {}
         self._registrations_by_job_id: Dict[str, _Registration] = {}
         self._manifest_index: Dict[Tuple[Optional[str], str], str] = {}
+        self._last_event: dt.datetime | None = None
 
         self._task_queue.add_monitor(self._handle_task_event)
 
@@ -463,6 +464,7 @@ class JobScheduler:
     def _handle_task_event(self, event: TaskEvent) -> None:
         with self._lock:
             registration = self._registrations.get(event.job_id)
+            self._last_event = dt.datetime.now(dt.timezone.utc)
 
         if registration is None:
             return
@@ -498,6 +500,41 @@ class JobScheduler:
         )
 
         registration.metadata = metadata_payload
+
+    # ------------------------------------------------------------------
+    # Health
+    # ------------------------------------------------------------------
+    def get_health_snapshot(self) -> Dict[str, Any]:
+        """Return a serializable snapshot of scheduler state."""
+
+        queue_health = {}
+        try:
+            queue_health = self._task_queue.get_health_snapshot()
+        except Exception:  # pragma: no cover - defensive fallback
+            queue_health = {}
+
+        with self._lock:
+            registrations = list(self._registrations.values())
+
+        return {
+            "registered_jobs": len(registrations),
+            "registrations": [
+                {
+                    "job_id": entry.job_id,
+                    "manifest": entry.manifest_name,
+                    "persona": entry.persona,
+                    "schedule_type": entry.schedule_type,
+                    "expression": entry.expression,
+                    "timezone": entry.timezone,
+                }
+                for entry in registrations
+            ],
+            "task_queue": queue_health,
+            "last_event_at": self._last_event.isoformat()
+            if isinstance(self._last_event, dt.datetime)
+            else None,
+            "tenant_id": self._tenant_id,
+        }
         self._record_run(registration, event)
 
     # ------------------------------------------------------------------

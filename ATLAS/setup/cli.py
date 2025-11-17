@@ -151,6 +151,16 @@ class SetupUtility:
         self._apply_kv_env_overrides()
         self._apply_speech_env_overrides()
 
+    def _queue_defaults(self) -> tuple[int, int]:
+        resolver = getattr(self.controller, "_resolve_queue_defaults", None)
+        backend = getattr(self.controller.state.message_bus, "backend", "in_memory")
+        if callable(resolver):
+            return resolver(backend=backend)
+        normalized = (backend or "in_memory").strip().lower()
+        if normalized == "redis":
+            return 8, 500
+        return 4, 100
+
     def _build_admin_profile_from_env(self) -> AdminProfile:
         state = self.controller.state.user
         privileged_state = state.privileged_credentials
@@ -787,9 +797,14 @@ class SetupUtility:
 
         if enabled:
             job_store_url = self._ask("Job store DSN", job_store_url or "") or None
-            max_workers = self._ask_optional_int("Max worker count", max_workers)
+            default_workers, default_queue_size = self._queue_defaults()
+            max_workers = self._ask_required_positive_int(
+                "Max worker count", max_workers or default_workers
+            )
             timezone = self._ask("Scheduler timezone", timezone or "") or None
-            queue_size = self._ask_optional_int("Queue size", queue_size)
+            queue_size = self._ask_required_positive_int(
+                "Queue size", queue_size or default_queue_size
+            )
 
         retry = state.retry_policy
         max_attempts = self._ask_int("Retry attempts", retry.max_attempts)
@@ -942,7 +957,15 @@ class SetupUtility:
             "Conversation history limit", state.retention_history_limit
         )
         scheduler_timezone = self._ask("Scheduler timezone", state.scheduler_timezone or "") or None
-        scheduler_queue_size = self._ask_optional_int("Scheduler queue size", state.scheduler_queue_size)
+        if self.controller.state.setup_type.mode == "enterprise":
+            _, default_queue_size = self._queue_defaults()
+            scheduler_queue_size = self._ask_required_positive_int(
+                "Scheduler queue size", state.scheduler_queue_size or default_queue_size
+            )
+        else:
+            scheduler_queue_size = self._ask_optional_int(
+                "Scheduler queue size", state.scheduler_queue_size
+            )
         http_auto_start = self._confirm("Auto-start HTTP server? [y/N]: ", default=state.http_auto_start)
         new_state = dataclasses.replace(
             state,
@@ -1066,6 +1089,18 @@ class SetupUtility:
         except ValueError:
             self._print("Enter a valid integer or leave blank.")
             return self._ask_optional_int(prompt, default)
+
+    def _ask_required_positive_int(self, prompt: str, default: int) -> int:
+        while True:
+            try:
+                value = int(self._ask(prompt, default))
+            except (TypeError, ValueError):
+                self._print("Enter a valid integer.")
+                continue
+            if value <= 0:
+                self._print("Enter a positive integer.")
+                continue
+            return value
 
     def _ask_float(self, prompt: str, default: float) -> float:
         while True:

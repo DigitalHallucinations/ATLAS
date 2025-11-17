@@ -407,6 +407,8 @@ class PersistenceConfigMixin:
 
         try:
             service = get_default_task_queue_service(config_manager=self)
+            if hasattr(service, "ensure_running"):
+                service.ensure_running()
         except Exception as exc:  # pragma: no cover - defensive logging only
             self.logger.warning("Failed to initialize task queue service: %s", exc)
             return None

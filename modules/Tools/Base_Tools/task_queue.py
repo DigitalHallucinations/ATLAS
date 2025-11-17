@@ -224,6 +224,8 @@ class TaskQueueService:
         self._lock = threading.RLock()
         self._job_metadata: Dict[str, MutableMapping[str, Any]] = {}
         self._service_id = uuid.uuid4().hex
+        self._jobstore_url = settings["jobstore_url"]
+        self._max_workers = settings["max_workers"]
         self._jobstore_client = None
 
         job_defaults = {
@@ -258,6 +260,40 @@ class TaskQueueService:
             _SERVICE_REGISTRY[self._service_id] = self
 
         atexit.register(self.shutdown)
+
+    # ------------------------------------------------------------------
+    # Health
+    # ------------------------------------------------------------------
+    def get_health_snapshot(self) -> Dict[str, Any]:
+        """Return a serializable snapshot of scheduler health."""
+
+        running = bool(getattr(self._scheduler, "running", False))
+        try:
+            job_count = len(self._scheduler.get_jobs())
+        except Exception:  # pragma: no cover - defensive fallback
+            job_count = 0
+
+        try:
+            timezone_name = getattr(self._timezone, "key", None) or str(self._timezone)
+        except Exception:  # pragma: no cover - defensive fallback
+            timezone_name = None
+
+        return {
+            "running": running,
+            "jobstore_url": self._jobstore_url,
+            "jobstore_backend": (self._jobstore_url or "").split(":", 1)[0],
+            "max_workers": self._max_workers,
+            "timezone": timezone_name,
+            "scheduled_jobs": job_count,
+            "service_id": self._service_id,
+        }
+
+    def ensure_running(self) -> None:
+        """Raise when the underlying scheduler is unavailable."""
+
+        health = self.get_health_snapshot()
+        if not health.get("running"):
+            raise TaskQueueError("Task queue scheduler is not running")
 
     # ------------------------------------------------------------------
     # Configuration helpers

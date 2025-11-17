@@ -336,6 +336,14 @@ class SetupWizardController:
         self._staged_privileged_credentials = None
         self._load_defaults()
 
+    def _resolve_queue_defaults(self, *, backend: str | None) -> tuple[int, int]:
+        """Return scheduler sizing defaults tuned for the selected backend."""
+
+        normalized = (backend or "in_memory").strip().lower() or "in_memory"
+        if normalized == "redis":
+            return 8, 500
+        return 4, 100
+
     def _load_defaults(self) -> None:
         conversation_config = self.config_manager.get_conversation_database_config()
         database_url = conversation_config.get("url") if isinstance(conversation_config, Mapping) else None
@@ -499,6 +507,9 @@ class SetupWizardController:
                 redis_url=redis_url,
                 stream_prefix=stream_prefix,
             )
+            default_workers, default_queue_size = self._resolve_queue_defaults(
+                backend=self.state.message_bus.backend
+            )
             job_store_url = self.state.job_scheduling.job_store_url or (
                 "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
             )
@@ -506,10 +517,11 @@ class SetupWizardController:
                 self.state.job_scheduling,
                 enabled=True,
                 job_store_url=job_store_url,
-                max_workers=self.state.job_scheduling.max_workers or 4,
+                max_workers=self.state.job_scheduling.max_workers
+                or default_workers,
                 retry_policy=dataclasses.replace(self.state.job_scheduling.retry_policy),
                 timezone=self.state.job_scheduling.timezone or "UTC",
-                queue_size=self.state.job_scheduling.queue_size or 100,
+                queue_size=self.state.job_scheduling.queue_size or default_queue_size,
             )
             self.state.kv_store = dataclasses.replace(
                 self.state.kv_store,
@@ -525,6 +537,18 @@ class SetupWizardController:
                     self.state.optional.audit_template
                     or DEFAULT_ENTERPRISE_AUDIT_TEMPLATE
                 ),
+            )
+
+            default_workers, default_queue_size = self._resolve_queue_defaults(
+                backend=self.state.message_bus.backend
+            )
+            job_workers = self.state.job_scheduling.max_workers or default_workers
+            queue_size = self.state.job_scheduling.queue_size or default_queue_size
+
+            self.state.job_scheduling = dataclasses.replace(
+                self.state.job_scheduling,
+                max_workers=job_workers,
+                queue_size=queue_size,
             )
 
         setup_state = SetupTypeState(mode=normalized, applied=True)
