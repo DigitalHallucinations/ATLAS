@@ -76,6 +76,7 @@ from modules.store_common.manifest_utils import (
     iter_persona_manifest_paths,
     resolve_app_root,
 )
+from .dlp import DataLossPreventionEnforcer
 
 if TYPE_CHECKING:
     from modules.job_store.service import JobService
@@ -149,6 +150,7 @@ class AtlasServer:
         self._task_routes: TaskRoutes | None = None
         self._job_routes: JobRoutes | None = None
         self._signing_key_cache: Dict[str, str] = {}
+        self._dlp_enforcer = DataLossPreventionEnforcer(config_manager)
 
         audit_settings: Mapping[str, object] = {}
         if hasattr(self._config_manager, "get_audit_settings"):
@@ -3204,7 +3206,10 @@ class AtlasServer:
 
         routes = self._get_conversation_routes()
         request_context = self._coerce_context(context)
-        return routes.create_message(payload, context=request_context)
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            payload, request_context.tenant_id
+        )
+        return routes.create_message(sanitized_payload, context=request_context)
 
     def update_message(
         self,
@@ -3217,7 +3222,10 @@ class AtlasServer:
 
         routes = self._get_conversation_routes()
         request_context = self._coerce_context(context)
-        return routes.update_message(message_id, payload, context=request_context)
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            payload, request_context.tenant_id
+        )
+        return routes.update_message(message_id, sanitized_payload, context=request_context)
 
     def delete_message(
         self,

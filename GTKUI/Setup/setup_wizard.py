@@ -2832,6 +2832,48 @@ class SetupWizardWindow(AtlasWindow):
             self._optional_multi_tenant_widgets.append(tenant_label)
         self._optional_multi_tenant_widgets.append(tenant_entry)
         row += 1
+
+        region_combo = Gtk.ComboBoxText()
+        region_combo.append("", "Select a primary region…")
+        region_combo.append("us", "United States")
+        region_combo.append("eu", "European Union")
+        region_combo.append("apac", "Asia-Pacific")
+        if state.data_region:
+            try:
+                region_combo.set_active_id(state.data_region)
+            except Exception:  # pragma: no cover - GTK fallback
+                region_combo.set_active(0)
+        if hasattr(region_combo, "set_halign"):
+            region_combo.set_halign(Gtk.Align.FILL)
+        region_label = Gtk.Label(label="Primary data region")
+        region_label.set_wrap(True)
+        region_label.set_xalign(0.0)
+        grid.attach(region_label, 0, row, 1, 1)
+        grid.attach(region_combo, 1, row, 1, 1)
+        self._optional_widgets["data_region"] = region_combo
+        self._optional_multi_tenant_widgets.extend([region_label, region_combo])
+        row += 1
+
+        residency_combo = Gtk.ComboBoxText()
+        residency_combo.append("", "Describe residency expectations…")
+        residency_combo.append("in-region", "Keep data in-region")
+        residency_combo.append("regional-primary", "Prefer region; allow overflow")
+        residency_combo.append("global", "Global handling permitted")
+        if state.residency_requirement:
+            try:
+                residency_combo.set_active_id(state.residency_requirement)
+            except Exception:  # pragma: no cover - GTK fallback
+                residency_combo.set_active(0)
+        if hasattr(residency_combo, "set_halign"):
+            residency_combo.set_halign(Gtk.Align.FILL)
+        residency_label = Gtk.Label(label="Data residency requirements")
+        residency_label.set_wrap(True)
+        residency_label.set_xalign(0.0)
+        grid.attach(residency_label, 0, row, 1, 1)
+        grid.attach(residency_combo, 1, row, 1, 1)
+        self._optional_widgets["residency_requirement"] = residency_combo
+        self._optional_multi_tenant_widgets.extend([residency_label, residency_combo])
+        row += 1
         templates = list(get_audit_templates())
         audit_combo = Gtk.ComboBoxText()
         for template in templates:
@@ -2919,11 +2961,15 @@ class SetupWizardWindow(AtlasWindow):
         callout_box.set_margin_end(12)
 
         runbook_uri: str | None = None
+        export_controls_uri: str | None = None
         try:
             runbook_path = Path(__file__).resolve().parents[2] / "docs" / "conversation_retention.md"
             runbook_uri = GLib.filename_to_uri(str(runbook_path), None)
+            export_path = Path(__file__).resolve().parents[2] / "docs" / "export-controls.md"
+            export_controls_uri = GLib.filename_to_uri(str(export_path), None)
         except Exception:  # pragma: no cover - defensive fallback
             runbook_uri = None
+            export_controls_uri = None
 
         info_heading = Gtk.Label(label="Tips for larger teams")
         info_heading.set_wrap(True)
@@ -2990,12 +3036,32 @@ class SetupWizardWindow(AtlasWindow):
 
         safeguards_info = Gtk.Label(
             label=(
-                "Record shared safeguards like audit logging, residency requirements, and regular retention reviews."
+                "Record shared safeguards like audit logging, residency requirements, export controls, and regular retention reviews."
             )
         )
         safeguards_info.set_wrap(True)
         safeguards_info.set_xalign(0.0)
         callout_box.append(safeguards_info)
+
+        if export_controls_uri:
+            export_button_cls = getattr(Gtk, "LinkButton", None)
+            export_widget: Gtk.Widget | None = None
+            if export_button_cls is not None:
+                try:
+                    export_widget = export_button_cls.new_with_label(
+                        export_controls_uri, "Review export controls"
+                    )
+                except Exception:  # pragma: no cover - fallback
+                    export_widget = None
+            if export_widget is not None:
+                if hasattr(export_widget, "set_halign"):
+                    export_widget.set_halign(Gtk.Align.START)
+                callout_box.append(export_widget)
+            else:
+                fallback_export = Gtk.Label(label=f"Export controls: {export_controls_uri}")
+                fallback_export.set_wrap(True)
+                fallback_export.set_xalign(0.0)
+                callout_box.append(fallback_export)
 
         if hasattr(callout_frame, "set_child"):
             callout_frame.set_child(callout_box)
@@ -3006,6 +3072,7 @@ class SetupWizardWindow(AtlasWindow):
 
         instructions = (
             "• Set tenant defaults and retention expectations that fit your rollout.\n"
+            "• Choose a primary data region and residency stance to anchor compliance reviews.\n"
             "• Pick an audit template so SIEM/export sinks and retention match your compliance stance.\n"
             "• Default data lifecycle settings favor shorter retention for lower risk—adjust deliberately.\n"
             "• Share scheduler tweaks so background jobs line up with your policies.\n"
@@ -4106,6 +4173,8 @@ class SetupWizardWindow(AtlasWindow):
         scheduler_queue_entry = self._optional_widgets.get("scheduler_queue_size")
         http_toggle = self._optional_widgets.get("http_auto_start")
         audit_combo = self._optional_widgets.get("audit_template")
+        region_combo = self._optional_widgets.get("data_region")
+        residency_combo = self._optional_widgets.get("residency_requirement")
 
         if not all(
             isinstance(widget, Gtk.Entry)
@@ -4118,6 +4187,8 @@ class SetupWizardWindow(AtlasWindow):
             )
         ) or not isinstance(http_toggle, Gtk.CheckButton) or not isinstance(
             audit_combo, Gtk.ComboBoxText
+        ) or not isinstance(region_combo, Gtk.ComboBoxText) or not isinstance(
+            residency_combo, Gtk.ComboBoxText
         ):
             raise RuntimeError("Organization settings widgets are not configured correctly")
 
@@ -4128,6 +4199,8 @@ class SetupWizardWindow(AtlasWindow):
         assert isinstance(scheduler_queue_entry, Gtk.Entry)
         assert isinstance(http_toggle, Gtk.CheckButton)
         assert isinstance(audit_combo, Gtk.ComboBoxText)
+        assert isinstance(region_combo, Gtk.ComboBoxText)
+        assert isinstance(residency_combo, Gtk.ComboBoxText)
 
         tenant_id = tenant_entry.get_text().strip()
         if not tenant_id:
@@ -4151,6 +4224,8 @@ class SetupWizardWindow(AtlasWindow):
             scheduler_queue_size=scheduler_queue_size,
             http_auto_start=http_toggle.get_active(),
             audit_template=audit_combo.get_active_id() or None,
+            data_region=region_combo.get_active_id() or None,
+            residency_requirement=residency_combo.get_active_id() or None,
         )
 
         self.controller.apply_optional_settings(state)
