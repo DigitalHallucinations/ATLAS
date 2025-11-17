@@ -87,16 +87,38 @@ class AccountDialog(AtlasWindow):
         self._last_password_reset_message: Optional[str] = None
         self._account_summary: dict[str, object] = {}
         self._last_account_context: str = "list"
+        self._enterprise_upgrade_message = (
+            "SSO, SCIM, and delegated admin controls are available on Enterprise plans."
+        )
+        self._delegated_admin_enabled = self._resolve_delegated_admin_flag()
 
         self._build_ui()
         self._initialise_password_requirements()
         self._subscribe_to_active_user()
-        self._refresh_account_list()
+        if self._delegated_admin_enabled:
+            self._refresh_account_list()
+        else:
+            self._render_delegated_admin_upgrade()
         self.connect("close-request", self._on_close_request)
 
     # ------------------------------------------------------------------
     # UI construction helpers
     # ------------------------------------------------------------------
+    def _resolve_delegated_admin_flag(self) -> bool:
+        config_manager = getattr(self.ATLAS, "config_manager", None)
+        checker = getattr(config_manager, "delegated_admin_enabled", None)
+        if callable(checker):
+            try:
+                return bool(checker())
+            except Exception:  # pragma: no cover - permissive fallback for UI
+                return True
+        return True
+
+    def _render_delegated_admin_upgrade(self) -> None:
+        self._set_account_summary_message(self._enterprise_upgrade_message)
+        self._set_account_empty_message(self._enterprise_upgrade_message)
+        self._lock_account_forms()
+
     def _build_ui(self) -> None:
         container = create_box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=18)
         self.set_child(container)
@@ -567,6 +589,27 @@ class AccountDialog(AtlasWindow):
         if isinstance(label, Gtk.Label):
             label.set_text(message)
 
+    def _set_account_empty_message(self, message: str) -> None:
+        label = getattr(self, "account_empty_label", None)
+        if isinstance(label, Gtk.Label):
+            label.set_text(message)
+
+    def _lock_account_forms(self) -> None:
+        self._account_forms_locked = True
+        candidates = [
+            getattr(self, "account_refresh_button", None),
+            getattr(self, "account_search_entry", None),
+            getattr(self, "account_status_filter", None),
+            getattr(self, "account_list_box", None),
+        ]
+        for widget in candidates:
+            setter = getattr(widget, "set_sensitive", None)
+            if callable(setter):
+                try:
+                    setter(False)
+                except Exception:  # pragma: no cover - defensive UI guard
+                    continue
+
     def _format_account_summary(self, summary: dict[str, object]) -> str:
         total = int(summary.get("total_accounts", 0) or 0)
         parts = [f"Total accounts: {total}"]
@@ -615,6 +658,9 @@ class AccountDialog(AtlasWindow):
 
     def _request_account_summary(self) -> None:
         getter = getattr(self.ATLAS, "get_user_account_overview", None)
+        if not self._delegated_admin_enabled:
+            self._render_delegated_admin_upgrade()
+            return
         if not callable(getter):
             self._set_account_summary_message("Summary unavailable.")
             return
@@ -735,6 +781,10 @@ class AccountDialog(AtlasWindow):
         if self._account_busy:
             return
 
+        if not self._delegated_admin_enabled:
+            self._render_delegated_admin_upgrade()
+            return
+
         self._request_account_summary()
         self._set_account_busy(True, "Loading saved accounts…", disable_forms=False)
 
@@ -818,6 +868,10 @@ class AccountDialog(AtlasWindow):
         if future is self._active_account_task:
             self._active_account_task = None
         self._active_account_request = None
+
+        if isinstance(exc, PermissionError):
+            self._render_delegated_admin_upgrade()
+            return False
         self._account_rows.clear()
         self._visible_usernames = []
 

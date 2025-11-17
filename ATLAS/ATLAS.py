@@ -562,29 +562,47 @@ class ATLAS:
 
         self._update_persona_manager_user(username)
 
+    def _ensure_delegated_admin_enabled(self) -> None:
+        checker = getattr(self.config_manager, "delegated_admin_enabled", None)
+        allowed = True
+        if callable(checker):
+            try:
+                allowed = bool(checker())
+            except Exception:  # pragma: no cover - feature flags are advisory
+                allowed = True
+        if not allowed:
+            raise PermissionError(
+                "Delegated administrator controls require an Enterprise tenant."
+            )
+
     async def list_user_accounts(self) -> List[Dict[str, object]]:
         """Return stored user accounts without blocking the event loop."""
 
+        self._ensure_delegated_admin_enabled()
         return await self._require_user_account_facade().list_user_accounts()
 
     async def search_user_accounts(self, query_text: str) -> List[Dict[str, object]]:
         """Search stored user accounts using the service layer."""
 
+        self._ensure_delegated_admin_enabled()
         return await self._require_user_account_facade().search_user_accounts(query_text)
 
     async def get_user_account_details(self, username: str) -> Optional[Dict[str, object]]:
         """Retrieve a single account record for display purposes."""
 
+        self._ensure_delegated_admin_enabled()
         return await self._require_user_account_facade().get_user_account_details(username)
 
     async def get_user_account_overview(self) -> Dict[str, object]:
         """Return aggregated statistics for stored user accounts."""
 
+        self._ensure_delegated_admin_enabled()
         return await self._require_user_account_facade().get_user_account_overview()
 
     async def activate_user_account(self, username: str) -> None:
         """Activate an existing user account without credential prompts."""
 
+        self._ensure_delegated_admin_enabled()
         await self._require_user_account_facade().activate_user_account(username)
 
     async def register_user_account(
@@ -676,6 +694,7 @@ class ATLAS:
     async def delete_user_account(self, username: str) -> None:
         """Delete a stored user account via the service layer."""
 
+        self._ensure_delegated_admin_enabled()
         await self._require_user_account_facade().delete_user_account(username)
 
     def _require_provider_manager(self) -> ProviderManager:

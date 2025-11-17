@@ -85,6 +85,53 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
     def _create_logger(self):
         return setup_logger(__name__)
 
+    @staticmethod
+    def _coerce_feature_flag(value: Any, default: bool = False) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"1", "true", "yes", "on"}:
+                return True
+            if lowered in {"0", "false", "no", "off"}:
+                return False
+        try:
+            return bool(int(value))
+        except Exception:
+            return bool(value)
+
+    def _initialise_feature_flags(self) -> Dict[str, bool]:
+        raw_block = {}
+        raw_flags = self.config.get("feature_flags")
+        if isinstance(raw_flags, Mapping):
+            raw_block = dict(raw_flags)
+
+        plan_env = os.getenv("ATLAS_TENANT_PLAN", raw_block.get("plan", ""))
+        enterprise_plan = str(plan_env).strip().lower() == "enterprise"
+        enterprise_env = os.getenv("ATLAS_ENTERPRISE_TENANT")
+        if enterprise_env is not None:
+            enterprise_plan = self._coerce_feature_flag(enterprise_env, enterprise_plan)
+
+        enterprise_enabled = self._coerce_feature_flag(
+            raw_block.get("enterprise"), enterprise_plan
+        )
+
+        auth_enabled = self._coerce_feature_flag(
+            raw_block.get("auth_connectors"), enterprise_enabled
+        )
+        delegated_admin_enabled = self._coerce_feature_flag(
+            raw_block.get("delegated_admin"), enterprise_enabled
+        )
+
+        feature_flags = {
+            "enterprise": bool(enterprise_enabled),
+            "auth_connectors": bool(enterprise_enabled and auth_enabled),
+            "delegated_admin": bool(enterprise_enabled and delegated_admin_enabled),
+        }
+        return feature_flags
+
     def _load_dotenv(
         self,
         path: str | None = None,
@@ -110,6 +157,11 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         """Initialise configuration sections and cached collaborators."""
 
         super().__init__()
+
+        self._feature_flags = self._initialise_feature_flags()
+        self.config["feature_flags"] = dict(self._feature_flags)
+        self.yaml_config.setdefault("feature_flags", {})
+        self.yaml_config["feature_flags"].update(dict(self._feature_flags))
 
         # --- UI helpers ------------------------------------------------
         self.ui_config = UIConfig(
@@ -522,6 +574,33 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         except (TypeError, ValueError):
             return default
         return normalized if normalized > 0 else default
+
+    # ------------------------------------------------------------------
+    # Feature flag helpers
+    # ------------------------------------------------------------------
+
+    def get_feature_flags(self) -> Dict[str, bool]:
+        """Return a copy of the normalized feature flag block."""
+
+        flags = self.config.get("feature_flags")
+        return copy.deepcopy(flags if isinstance(flags, Mapping) else {})
+
+    def is_enterprise_tenant(self) -> bool:
+        """Return ``True`` when the tenant is marked as Enterprise."""
+
+        return bool(self.get_feature_flags().get("enterprise", False))
+
+    def auth_connectors_enabled(self) -> bool:
+        """Return ``True`` when Enterprise SSO/SCIM connectors are enabled."""
+
+        flags = self.get_feature_flags()
+        return bool(flags.get("enterprise") and flags.get("auth_connectors"))
+
+    def delegated_admin_enabled(self) -> bool:
+        """Return ``True`` when delegated admin controls are enabled."""
+
+        flags = self.get_feature_flags()
+        return bool(flags.get("enterprise") and flags.get("delegated_admin"))
 
 
 
