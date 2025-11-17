@@ -1110,6 +1110,16 @@ class SetupWizardWindow(AtlasWindow):
             mark = Gtk.Label()
             mark.set_text("✓" if idx in self._completed_steps else "•")
             mark.set_width_chars(2)
+            try:
+                mark.set_valign(Gtk.Align.BASELINE)
+            except Exception:  # pragma: no cover - GTK stubs in tests
+                pass
+            if hasattr(mark, "add_css_class"):
+                mark.add_css_class("setup-wizard-step-mark")
+                if idx in self._completed_steps:
+                    mark.add_css_class("setup-wizard-step-complete")
+                else:
+                    mark.add_css_class("setup-wizard-step-pending")
             row_box.append(mark)
 
             title = Gtk.Label(label=step.name)
