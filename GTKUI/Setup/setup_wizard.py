@@ -333,7 +333,7 @@ class SetupWizardWindow(AtlasWindow):
         steps_sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         steps_sidebar.set_hexpand(False)
         steps_sidebar.set_vexpand(True)
-        steps_sidebar.set_size_request(220, -1)  # keep form “slid” to the right
+        steps_sidebar.set_size_request(160, -1)  # keep form “slid” to the right
         if hasattr(steps_sidebar, "add_css_class"):
             steps_sidebar.add_css_class("setup-wizard-sidebar")
         content.append(steps_sidebar)
