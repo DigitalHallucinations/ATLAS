@@ -1169,6 +1169,19 @@ class UserAccountService:
         validated_domain = self._validate_domain(domain)
         validated_tenant = self._validate_tenant(tenant_id)
 
+        profile_limit = self.config_manager.get_local_profile_limit()
+        if profile_limit:
+            try:
+                existing_accounts = self._database.get_all_users()
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.logger.warning("Unable to enforce local profile cap: %s", exc)
+                existing_accounts = None
+            if existing_accounts is not None and len(existing_accounts) >= profile_limit:
+                raise RuntimeError(
+                    "Local profile limit reached. Personal setups allow up to "
+                    f"{profile_limit} accounts. Upgrade to Enterprise to add more."
+                )
+
         self._database.add_user(
             normalised_username,
             validated_password,
