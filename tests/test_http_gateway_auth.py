@@ -163,6 +163,9 @@ class _StubServer:
     def list_tasks(self, *, context: Any, params: Any = None) -> Dict[str, Any]:
         return self._record("list_tasks", context)
 
+    def list_jobs(self, *, context: Any, params: Any = None) -> Dict[str, Any]:
+        return self._record("list_jobs", context)
+
 
 @pytest.fixture()
 def http_client(monkeypatch: pytest.MonkeyPatch):
@@ -221,6 +224,7 @@ def http_client(monkeypatch: pytest.MonkeyPatch):
 
     try:
         with TestClient(http_gateway.app) as client:
+            client.headers.update({http_gateway._HEADER_TENANT: "tenant"})
             server = server_holder.get("server")
             atlas = atlas_holder.get("atlas")
             assert server is not None
@@ -351,3 +355,57 @@ def test_locked_account_returns_403(http_client) -> None:
 
     assert response.status_code == 403
     assert server.calls == []
+
+
+def test_missing_tenant_header_is_rejected(http_client) -> None:
+    client, service, _, server, _, http_gateway = http_client
+    service.add_user("tenantless", "pw")
+
+    original_headers = dict(client.headers)
+    client.headers.clear()
+
+    headers = {"Authorization": f"Basic {_encode_basic('tenantless', 'pw')}"}
+
+    response = client.get("/conversations", headers=headers)
+
+    client.headers.update(original_headers)
+
+    assert response.status_code == 403
+    assert server.calls == []
+
+
+def test_mismatched_tenant_header_is_rejected(http_client) -> None:
+    client, service, _, server, _, http_gateway = http_client
+    service.add_user("wrongtenant", "pw")
+
+    headers = {
+        "Authorization": f"Basic {_encode_basic('wrongtenant', 'pw')}",
+        http_gateway._HEADER_TENANT: "other",
+    }
+
+    response = client.get("/tasks", headers=headers)
+
+    assert response.status_code == 403
+    assert server.calls == []
+
+
+def test_tenant_header_required_across_routes(http_client) -> None:
+    client, service, _, server, _, http_gateway = http_client
+    service.add_user("tenantuser", "pw")
+
+    headers = {
+        "Authorization": f"Basic {_encode_basic('tenantuser', 'pw')}",
+        http_gateway._HEADER_TENANT: "tenant",
+    }
+
+    response = client.get("/conversations", headers=headers)
+    assert response.status_code == 200
+
+    response = client.get("/tasks", headers=headers)
+    assert response.status_code == 200
+
+    response = client.get("/jobs", headers=headers)
+    assert response.status_code == 200
+
+    recorded_routes = [call[0] for call in server.calls[-3:]]
+    assert recorded_routes == ["list_conversations", "list_tasks", "list_jobs"]
