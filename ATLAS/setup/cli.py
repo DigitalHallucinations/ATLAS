@@ -136,11 +136,11 @@ class SetupUtility:
         """Prompt for and apply the desired setup preset."""
 
         while True:
-            choice = self._ask("Setup type (personal/enterprise)", "personal")
+            choice = self._ask("Setup type (personal/enterprise/regulatory)", "personal")
             normalized = choice.strip().lower() or "personal"
-            if normalized in {"personal", "enterprise"}:
+            if normalized in {"personal", "enterprise", "regulatory"}:
                 return self.controller.apply_setup_type(normalized)
-            self._print("Please choose either 'personal' or 'enterprise'.")
+            self._print("Please choose 'personal', 'enterprise', or 'regulatory'.")
 
     def _apply_state_overrides_from_env(self) -> None:
         self._apply_provider_env_overrides()

@@ -1,0 +1,17 @@
+metadata:
+  title: Personal workstation
+  description: Optimized for local experimentation without external dependencies.
+retention:
+  days: null
+  history_limit: null
+auditing:
+  template: null
+  data_region: null
+  residency_requirement: null
+personas:
+  defaults: ["ATLAS"]
+  tenant: null
+providers:
+  default_provider: openai
+  default_model: gpt-4o-mini
+  recommended: [openai, anthropic]

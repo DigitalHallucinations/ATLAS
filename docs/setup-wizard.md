@@ -213,6 +213,21 @@ Launching `main.py` without an existing configuration automatically presents the
 GTK wizard. You can also start it manually by running the desktop shell and
 choosing **Run setup wizard** from the application menu.
 
+The first screen now asks you to choose a preset so the wizard can preload
+defaults from the curated profiles under `ATLAS/config/setup_presets/`:
+
+- **Personal** keeps everything local: in-memory queues, optional SQLite
+  storage, and light-touch retention for individual experimentation.【F:ATLAS/setup/controller.py†L453-L504】【F:ATLAS/config/setup_presets/personal.yaml†L1-L15】
+- **Enterprise** reuses shared Redis and PostgreSQL services, seeds 30-day
+  retention with SIEM-friendly auditing, and prefers multi-provider defaults
+  for production tenants.【F:ATLAS/setup/controller.py†L505-L559】【F:ATLAS/config/setup_presets/enterprise.yaml†L1-L17】
+- **Regulatory** mirrors enterprise infrastructure but pre-fills year-long
+  retention, in-region residency constraints, and Azure OpenAI defaults to
+  simplify export-controlled or data-sovereign deployments.【F:ATLAS/setup/controller.py†L560-L621】【F:ATLAS/config/setup_presets/regulatory.yaml†L1-L17】
+
+You can override any value later in the wizard; the preset simply establishes a
+sensible baseline for the target environment.
+
 When the final step succeeds the wizard now writes the completion marker and
 returns you to the shell immediately, so there's no longer a need to restart
 ATLAS before signing in with the administrator account.
