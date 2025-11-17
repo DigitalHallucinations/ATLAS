@@ -66,7 +66,8 @@ class PersistenceConfigSection:
     make_url: Callable[..., Any]
     sessionmaker_factory: Callable[..., Any]
     conversation_required_tables: Callable[[], set[str]]
-    default_conversation_dsn_map: Mapping[str, str]
+    default_conversation_dsn_map: Mapping[str, str] | None = None
+    default_conversation_dsn: str | None = None
     conversation_backend_options: Sequence[ConversationStoreBackendOption] | None = None
 
     kv_engine_cache: Dict[tuple[Any, ...], Any] = field(default_factory=dict)
@@ -78,6 +79,9 @@ class PersistenceConfigSection:
             else get_default_conversation_store_backends()
         )
         dsn_map = dict(self.default_conversation_dsn_map or {})
+        default_backend = default_conversation_store_backend_name()
+        if self.default_conversation_dsn and default_backend not in dsn_map:
+            dsn_map[default_backend] = self.default_conversation_dsn
         for option in backends:
             dsn_map.setdefault(option.name, option.dsn)
 
@@ -1241,6 +1245,7 @@ class ConversationStoreConfigSection:
     _conversation_session_factory: Any | None = None
     _backend_by_name: Dict[str, ConversationStoreBackendOption] = field(init=False, repr=False)
     _default_dsn_map: Dict[str, str] = field(init=False, repr=False)
+    _default_url_generated: bool = False
 
     def __post_init__(self) -> None:
         if not self.backend_options:
@@ -1251,6 +1256,7 @@ class ConversationStoreConfigSection:
             self._default_dsn_map.setdefault(option.name, option.dsn)
         if self.default_backend_name not in self._backend_by_name:
             self.default_backend_name = self.backend_options[0].name
+        self._default_url_generated = False
 
     RETENTION_WORKER_DEFAULTS: ClassVar[Mapping[str, Any]] = {
         "interval_seconds": 3600.0,
@@ -1293,6 +1299,7 @@ class ConversationStoreConfigSection:
             default_dsn = self._default_dsn_for_backend(normalized_backend)
             if default_dsn:
                 conversation_store_block["url"] = default_dsn
+                self._default_url_generated = True
 
         pool_block = conversation_store_block.get("pool")
         if not isinstance(pool_block, Mapping):
@@ -1465,8 +1472,9 @@ class ConversationStoreConfigSection:
         self._persist_backend(persisted_backend)
         self._persist_url(url)
 
-        if generated_default:
+        if generated_default or self._default_url_generated:
             self.write_yaml_callback()
+            self._default_url_generated = False
 
         self._conversation_store_verified = True
         return url

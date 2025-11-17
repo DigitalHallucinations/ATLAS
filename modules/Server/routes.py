@@ -169,6 +169,57 @@ class AtlasServer:
         if combined_settings:
             configure_audit_loggers_from_settings(combined_settings)
 
+    def _get_feature_flags(self) -> Mapping[str, Any]:
+        getter = getattr(self._config_manager, "get_feature_flags", None)
+        if callable(getter):
+            try:
+                flags = getter()
+            except Exception:  # pragma: no cover - feature flags are advisory
+                flags = {}
+        else:
+            flags = getattr(self._config_manager, "feature_flags", {})
+
+        return flags if isinstance(flags, Mapping) else {}
+
+    def _is_enterprise_tenant(self) -> bool:
+        checker = getattr(self._config_manager, "is_enterprise_tenant", None)
+        if callable(checker):
+            try:
+                return bool(checker())
+            except Exception:  # pragma: no cover - configuration access is best-effort
+                return False
+        flags = self._get_feature_flags()
+        return bool(flags.get("enterprise"))
+
+    def _auth_connectors_enabled(self) -> bool:
+        checker = getattr(self._config_manager, "auth_connectors_enabled", None)
+        if callable(checker):
+            try:
+                return bool(checker())
+            except Exception:  # pragma: no cover - configuration access is best-effort
+                return False
+        flags = self._get_feature_flags()
+        return bool(flags.get("enterprise") and flags.get("auth_connectors"))
+
+    def list_auth_connectors(self, *, context: Any | None = None) -> Dict[str, Any]:
+        """Return available SSO/SCIM connectors when permitted."""
+
+        if not self._is_enterprise_tenant():
+            raise ConversationAuthorizationError(
+                "SSO and SCIM connectors are only available to Enterprise tenants"
+            )
+        if not self._auth_connectors_enabled():
+            raise ConversationAuthorizationError(
+                "Authentication connectors are disabled for this tenant"
+            )
+
+        tenant_id = getattr(context, "tenant_id", None) if context else None
+        return {
+            "tenant_id": tenant_id,
+            "sso": [],
+            "scim": {"enabled": True},
+        }
+
     def _get_conversation_routes(self) -> ConversationRoutes:
         if self._conversation_routes is None:
             repository = self._conversation_repository or self._build_conversation_repository()

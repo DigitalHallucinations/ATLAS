@@ -490,6 +490,14 @@ async def health_check(request: Request) -> JSONResponse:
     return JSONResponse(payload)
 
 
+@app.get("/auth/connectors")
+async def list_auth_connectors(request: Request) -> Any:
+    atlas = _get_atlas(request)
+    server = _get_server(request)
+    context = await _build_request_context(request, atlas)
+    return await _call_route(server.list_auth_connectors, context=context)
+
+
 @app.get("/conversations")
 async def list_conversations(request: Request) -> Any:
     atlas = _get_atlas(request)

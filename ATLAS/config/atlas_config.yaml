@@ -105,6 +105,10 @@ MODEL_CACHE:
   - tts-1-hd-1106
   - whisper-1
 TTS_ENABLED: true
+feature_flags:
+  enterprise: false
+  auth_connectors: false
+  delegated_admin: false
 conversation_database:
   pool:
     max_overflow: 10
