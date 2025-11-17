@@ -150,6 +150,7 @@ class OptionalState:
 class SetupTypeState:
     mode: str = "custom"
     applied: bool = False
+    local_only: bool = False
 
 
 @dataclass
@@ -426,17 +427,19 @@ class SetupWizardController:
 
     # -- presets ------------------------------------------------------------
 
-    def apply_setup_type(self, mode: str) -> SetupTypeState:
+    def apply_setup_type(self, mode: str, *, local_only: Optional[bool] = None) -> SetupTypeState:
         normalized = (mode or "").strip().lower()
         if normalized not in {"personal", "enterprise"}:
             fallback_mode = normalized or "custom"
-            setup_state = SetupTypeState(mode=fallback_mode, applied=False)
+            setup_state = SetupTypeState(mode=fallback_mode, applied=False, local_only=False)
             self.state.setup_type = setup_state
             return setup_state
 
         current = self.state.setup_type
         if current.mode == normalized and current.applied:
             return current
+
+        local_flag = current.local_only if local_only is None else bool(local_only)
 
         if normalized == "personal":
             self.state.message_bus = dataclasses.replace(
@@ -465,6 +468,23 @@ class SetupWizardController:
                 retention_history_limit=None,
                 http_auto_start=True,
             )
+
+            if local_flag:
+                sqlite_dsn = "sqlite:///atlas.sqlite3"
+                self.state.database = DatabaseState(
+                    backend="sqlite",
+                    host="",
+                    port=0,
+                    database="atlas.sqlite3",
+                    user="",
+                    password="",
+                    dsn=sqlite_dsn,
+                    options="",
+                )
+                self.state.vector_store = dataclasses.replace(
+                    self.state.vector_store,
+                    adapter="in_memory",
+                )
         else:  # enterprise preset
             redis_url = self.state.message_bus.redis_url or "redis://localhost:6379/0"
             stream_prefix = self.state.message_bus.stream_prefix or "atlas"
@@ -499,6 +519,10 @@ class SetupWizardController:
             )
 
         setup_state = SetupTypeState(mode=normalized, applied=True)
+        if normalized == "personal":
+            setup_state = dataclasses.replace(setup_state, local_only=local_flag)
+        elif local_only is not None:
+            setup_state = dataclasses.replace(setup_state, local_only=False)
         self.state.setup_type = setup_state
         return setup_state
 

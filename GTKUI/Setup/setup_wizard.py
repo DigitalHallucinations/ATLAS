@@ -537,6 +537,7 @@ class SetupWizardWindow(AtlasWindow):
         self._provider_mask_buffer: Optional[Gtk.TextBuffer] = None
         self._provider_stack: Gtk.Stack | None = None
         self._provider_show_toggle: Gtk.CheckButton | None = None
+        self._local_only_toggle: Gtk.CheckButton | None = None
         self._user_entries: Dict[str, Gtk.Entry] = {}
         self._user_advanced_widgets: Dict[str, Gtk.Widget] = {}
         self._kv_widgets: Dict[str, Gtk.Widget] = {}
@@ -544,6 +545,7 @@ class SetupWizardWindow(AtlasWindow):
         self._message_widgets: Dict[str, Gtk.Widget] = {}
         self._speech_widgets: Dict[str, Gtk.Widget] = {}
         self._optional_widgets: Dict[str, Gtk.Widget] = {}
+        self._optional_multi_tenant_widgets: list[Gtk.Widget] = []
         self._optional_personal_hint: Gtk.Label | None = None
         self._personal_cap_hint: Gtk.Label | None = None
         self._setup_persisted = False
@@ -1624,6 +1626,18 @@ class SetupWizardWindow(AtlasWindow):
 
         box.append(table)
 
+        local_only_toggle = Gtk.CheckButton(
+            label="Keep data on this device (SQLite and in-memory queues)"
+        )
+        if hasattr(local_only_toggle, "set_tooltip_text"):
+            local_only_toggle.set_tooltip_text(
+                "Disable remote backends and external connectors for a single-device setup."
+            )
+        local_only_toggle.set_halign(Gtk.Align.START)
+        local_only_toggle.connect("toggled", self._on_local_mode_toggled)
+        self._local_only_toggle = local_only_toggle
+        box.append(local_only_toggle)
+
         instructions = (
             "Pick the preset that matches your rollout. You can always override fields later or"
             " switch presets if plans change."
@@ -1653,6 +1667,10 @@ class SetupWizardWindow(AtlasWindow):
             for key, button in self._setup_type_buttons.items():
                 if isinstance(button, Gtk.CheckButton):
                     button.set_active(key == normalized)
+            local_toggle = self._local_only_toggle
+            if isinstance(local_toggle, Gtk.CheckButton):
+                local_toggle.set_sensitive(normalized == "personal")
+                local_toggle.set_active(bool(state.local_only) if state else False)
         finally:
             self._setup_type_syncing = False
 
@@ -1661,6 +1679,13 @@ class SetupWizardWindow(AtlasWindow):
             if isinstance(button, Gtk.CheckButton) and button.get_active():
                 return key
         return None
+
+    def _get_local_mode_enabled(self) -> bool:
+        toggle = self._local_only_toggle
+        if isinstance(toggle, Gtk.CheckButton):
+            return toggle.get_active()
+        state = getattr(self.controller.state, "setup_type", None)
+        return bool(state.local_only) if state else False
 
     def _on_setup_type_toggled(
         self, button: Gtk.CheckButton, mode: str
@@ -1671,8 +1696,27 @@ class SetupWizardWindow(AtlasWindow):
             return
         self._apply_setup_type_selection(mode, update_status=True)
 
+    def _on_local_mode_toggled(self, button: Gtk.CheckButton) -> None:
+        if self._setup_type_syncing:
+            return
+        mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
+        if mode != "personal":
+            if button.get_active():
+                button.set_active(False)
+            return
+        message, applied = self._apply_setup_type_selection(
+            "personal", update_status=False, local_only=button.get_active()
+        )
+        if applied:
+            if button.get_active():
+                self._set_status("On-device mode enabled. Data stays on this device.")
+            else:
+                self._set_status("Personal preset updated.")
+        else:
+            self._set_status(message)
+
     def _apply_setup_type_selection(
-        self, mode: str | None, *, update_status: bool
+        self, mode: str | None, *, update_status: bool, local_only: bool | None = None
     ) -> tuple[str, bool]:
         selected = (mode or self._get_selected_setup_type() or "").strip().lower()
         if selected not in {"personal", "enterprise"}:
@@ -1685,7 +1729,8 @@ class SetupWizardWindow(AtlasWindow):
         before_mode = current_state.mode if current_state else ""
         before_applied = current_state.applied if current_state else False
 
-        new_state = self.controller.apply_setup_type(selected)
+        local_flag = self._get_local_mode_enabled() if local_only is None else local_only
+        new_state = self.controller.apply_setup_type(selected, local_only=local_flag)
         after_mode = new_state.mode
         after_applied = new_state.applied
         changed = (before_mode != after_mode) or (before_applied != after_applied)
@@ -1703,6 +1748,9 @@ class SetupWizardWindow(AtlasWindow):
                 message = f"{after_mode.title()} preset already applied."
         else:
             message = f"{after_mode.title()} preset saved."
+
+        if after_mode == "personal" and getattr(new_state, "local_only", False):
+            message = f"{message} On-device mode is keeping services local."
 
         if update_status:
             self._set_status(message)
@@ -1798,6 +1846,12 @@ class SetupWizardWindow(AtlasWindow):
         hint.set_visible((mode or "").strip().lower() == "personal")
         self._update_identity_step()
         self._update_user_field_visibility()
+        self._update_optional_field_visibility()
+        if (
+            (mode or "").strip().lower() == "personal"
+            and getattr(self.controller.state.setup_type, "local_only", False)
+        ):
+            self._set_status("Local-only personal setup keeps data on this device.")
 
     def _update_user_field_visibility(self) -> None:
         mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
@@ -1817,6 +1871,20 @@ class SetupWizardWindow(AtlasWindow):
                 hint.set_visible(is_personal)
             except Exception:  # pragma: no cover - GTK stubs
                 pass
+
+    def _update_optional_field_visibility(self) -> None:
+        mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
+        hide_multi_tenant = mode == "personal" and getattr(
+            self.controller.state.setup_type, "local_only", False
+        )
+
+        for widget in self._optional_multi_tenant_widgets:
+            setter = getattr(widget, "set_visible", None)
+            if callable(setter):
+                try:
+                    setter(not hide_multi_tenant)
+                except Exception:  # pragma: no cover - GTK fallback
+                    pass
 
     def _get_identity_step_name(self) -> str:
         mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
@@ -2692,6 +2760,7 @@ class SetupWizardWindow(AtlasWindow):
 
     def _build_optional_page(self) -> Gtk.Widget:
         state = self.controller.state.optional
+        self._optional_multi_tenant_widgets.clear()
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
         grid.set_hexpand(True)
         grid.set_vexpand(True)
@@ -2713,6 +2782,10 @@ class SetupWizardWindow(AtlasWindow):
         tenant_entry = self._optional_widgets["tenant_id"]
         if isinstance(tenant_entry, Gtk.Entry):
             self._tenant_id_suggestion = tenant_entry.get_text().strip()
+        tenant_label = grid.get_child_at(0, row)
+        if tenant_label is not None:
+            self._optional_multi_tenant_widgets.append(tenant_label)
+        self._optional_multi_tenant_widgets.append(tenant_entry)
         row += 1
         self._optional_widgets["retention_days"] = self._create_labeled_entry(
             grid, row, "Conversation retention days", self._optional_to_text(state.retention_days)
@@ -2728,6 +2801,10 @@ class SetupWizardWindow(AtlasWindow):
         self._optional_widgets["scheduler_timezone"] = self._create_labeled_entry(
             grid, row, "Scheduler timezone", state.scheduler_timezone or ""
         )
+        timezone_label = grid.get_child_at(0, row)
+        if timezone_label is not None:
+            self._optional_multi_tenant_widgets.append(timezone_label)
+        self._optional_multi_tenant_widgets.append(self._optional_widgets["scheduler_timezone"])
         row += 1
         self._optional_widgets["scheduler_queue_size"] = self._create_labeled_entry(
             grid,
@@ -2735,6 +2812,10 @@ class SetupWizardWindow(AtlasWindow):
             "Scheduler queue size",
             self._optional_to_text(state.scheduler_queue_size),
         )
+        queue_label = grid.get_child_at(0, row)
+        if queue_label is not None:
+            self._optional_multi_tenant_widgets.append(queue_label)
+        self._optional_multi_tenant_widgets.append(self._optional_widgets["scheduler_queue_size"])
         row += 1
 
         http_toggle = Gtk.CheckButton(label="Auto-start HTTP server")
