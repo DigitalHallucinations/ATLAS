@@ -924,6 +924,17 @@ class SetupWizardWindow(AtlasWindow):
         optional_intro = self._build_optional_intro_page()
         optional_form = self._build_optional_page()
 
+        self._identity_step_index = 2
+        self._identity_pages_by_mode = {
+            "personal": [administrator_intro, administrator_form],
+            "enterprise": [optional_intro, optional_form, administrator_form],
+        }
+        identity_pages: list[Gtk.Widget] = []
+        for pages in self._identity_pages_by_mode.values():
+            for page in pages:
+                if page not in identity_pages:
+                    identity_pages.append(page)
+
         provider_intro = self._build_provider_intro_page()
         provider_pages = [provider_intro, *provider_pages]
 
@@ -941,10 +952,10 @@ class SetupWizardWindow(AtlasWindow):
                 apply=self._apply_setup_type,
             ),
             WizardStep(
-                name="Administrator",
-                widget=administrator_intro,
-                subpages=[administrator_intro, administrator_form],
-                apply=self._apply_user,
+                name=self._get_identity_step_name(),
+                widget=identity_pages[0],
+                subpages=identity_pages,
+                apply=self._apply_identity,
             ),
             WizardStep(
                 name="Database",
@@ -981,12 +992,6 @@ class SetupWizardWindow(AtlasWindow):
                 widget=speech_intro,
                 subpages=[speech_intro, speech_form],
                 apply=self._apply_speech,
-            ),
-            WizardStep(
-                name="Organization",
-                widget=optional_intro,
-                subpages=[optional_intro, optional_form],
-                apply=self._apply_optional,
             ),
         ]
 
@@ -1080,6 +1085,8 @@ class SetupWizardWindow(AtlasWindow):
         if not (0 <= index < len(self._steps)):
             return []
         pages = self._steps[index].subpages or []
+        if index == getattr(self, "_identity_step_index", -1):
+            return list(self._get_identity_pages())
         return list(pages)
 
     def _format_page_status(self, step: WizardStep, page_index: int, total: int) -> str:
@@ -1787,6 +1794,44 @@ class SetupWizardWindow(AtlasWindow):
             return
         mode = getattr(self.controller.state.setup_type, "mode", "")
         hint.set_visible((mode or "").strip().lower() == "personal")
+        self._update_identity_step()
+
+    def _get_identity_step_name(self) -> str:
+        mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
+        if mode == "enterprise":
+            return "Company"
+        return "Admin"
+
+    def _get_identity_pages(self) -> list[Gtk.Widget]:
+        mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
+        pages = self._identity_pages_by_mode.get(mode)
+        if pages:
+            return pages
+        return self._identity_pages_by_mode.get("personal", [])
+
+    def _update_identity_step(self) -> None:
+        index = getattr(self, "_identity_step_index", None)
+        if index is None:
+            return
+
+        name = self._get_identity_step_name()
+        if 0 <= index < len(self._steps):
+            self._steps[index].name = name
+
+        if 0 <= index < len(self._step_row_labels):
+            try:
+                self._step_row_labels[index].set_text(name)
+            except Exception:  # pragma: no cover - defensive
+                pass
+
+        pages = self._get_identity_pages()
+        if not pages:
+            return
+
+        current_index = self._get_current_page_index(index)
+        if current_index >= len(pages):
+            self._current_page_indices[index] = len(pages) - 1
+        self._show_subpage(index, self._current_page_indices.get(index, 0))
 
     def _create_overview_callout(self, title: str, bullets: list[str]) -> Gtk.Widget:
         frame = Gtk.Frame()
@@ -1912,7 +1957,7 @@ class SetupWizardWindow(AtlasWindow):
         box.set_hexpand(True)
         box.set_vexpand(True)
 
-        heading = Gtk.Label(label="About the Organization")
+        heading = Gtk.Label(label="Company setup overview")
         heading.set_wrap(True)
         heading.set_xalign(0.0)
         if hasattr(heading, "add_css_class"):
@@ -1922,6 +1967,7 @@ class SetupWizardWindow(AtlasWindow):
         summary_bullets = [
             "Seed tenancy defaults, retention expectations, and scheduler notes so ATLAS mirrors your policies.",
             "Large teams often standardize retention workers, queue sizing, and namespaces before go-live.",
+            "Continue through this step to capture the first administrative account after saving company defaults.",
         ]
         for text in summary_bullets:
             bullet = Gtk.Label(label=f"• {text}")
@@ -3894,6 +3940,14 @@ class SetupWizardWindow(AtlasWindow):
     def _apply_setup_type(self) -> str:
         message, _ = self._apply_setup_type_selection(None, update_status=True)
         return message
+
+    def _apply_identity(self) -> str:
+        mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
+        if mode == "enterprise":
+            org_message = self._apply_optional()
+            admin_message = self._apply_user()
+            return f"{org_message} {admin_message}".strip()
+        return self._apply_user()
 
     def _apply_user(self) -> str:
         username = self._user_entries["username"].get_text().strip()

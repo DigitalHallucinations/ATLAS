@@ -652,34 +652,14 @@ def test_setup_wizard_happy_path(monkeypatch):
         "providers",
         "speech",
     ]
-    assert window._current_index == 9
-
-    window._optional_widgets["tenant_id"].set_text("tenant-123")
-    window._optional_widgets["retention_days"].set_text("30")
-    window._optional_widgets["retention_history_limit"].set_text("200")
-    window._optional_widgets["scheduler_timezone"].set_text("UTC")
-    window._optional_widgets["scheduler_queue_size"].set_text("10")
-    window._optional_widgets["http_auto_start"].set_active(True)
-
-    window._on_next_clicked(None)
-
-    assert [name for name, *_ in controller.calls] == [
-        "database",
-        "job_scheduling",
-        "message_bus",
-        "kv_store",
-        "providers",
-        "speech",
-        "optional",
-    ]
-    assert window._current_index == 9
+    assert window._current_index == 8
 
     assert on_success.calls
     assert marker_calls == [controller.summary]
     assert len(controller.register_calls) == 1
     assert (
         window._status_label.get_text()
-        == "Optional settings saved. Administrator account created. You can now sign in with the new administrator account."
+        == "Speech settings saved. Administrator account created. You can now sign in with the new administrator account."
     )
 
     window.close()
@@ -934,22 +914,16 @@ def test_setup_wizard_optional_settings_validation():
         controller=controller,
     )
 
-    _complete_setup_type_step(window)
-    _complete_user_step(window)
-    _complete_database_step(window)
-    _complete_job_step(window)
-    _complete_message_bus_step(window)
-    _complete_kv_step(window)
-    _complete_providers_step(window)
-    _complete_speech_step(window)
-
-    assert window._current_index == 9
-
-    window._optional_widgets["retention_days"].set_text("invalid")
+    _complete_setup_type_step(window, mode="enterprise")
 
     window._on_next_clicked(None)
+    window._optional_widgets["retention_days"].set_text("invalid")
+    window._on_next_clicked(None)
 
-    assert window._current_index == 9
+    _populate_user_entries(window)
+    window._on_next_clicked(None)
+
+    assert window._current_index == 2
     assert on_success.calls == []
     assert on_error.calls
     assert "Conversation retention days must be an integer" in window._status_label.get_text()
