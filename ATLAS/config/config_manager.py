@@ -195,6 +195,17 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         )
         self.conversation_summary.apply()
 
+        # --- Local profile defaults -----------------------------------
+        profile_cap = self.get_config("LOCAL_PROFILE_LIMIT", None)
+        try:
+            normalized_profile_cap = int(profile_cap) if profile_cap is not None else 5
+        except (TypeError, ValueError):
+            normalized_profile_cap = 5
+        if normalized_profile_cap <= 0:
+            normalized_profile_cap = 5
+        self.config["LOCAL_PROFILE_LIMIT"] = normalized_profile_cap
+        self.yaml_config.setdefault("LOCAL_PROFILE_LIMIT", normalized_profile_cap)
+
         # Provider-specific sections manage their own persistence concerns
         self.providers = ProviderConfigSections(manager=self)
         self.providers.apply()
@@ -500,6 +511,16 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         self.config['http_server'] = dict(block)
         self._write_yaml_config()
         return bool(enabled)
+
+    def get_local_profile_limit(self, default: int = 5) -> int:
+        """Return the configured cap on locally managed profiles."""
+
+        value = self.get_config("LOCAL_PROFILE_LIMIT", default)
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            return default
+        return normalized if normalized > 0 else default
 
 
 

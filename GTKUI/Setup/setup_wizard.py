@@ -538,12 +538,14 @@ class SetupWizardWindow(AtlasWindow):
         self._provider_stack: Gtk.Stack | None = None
         self._provider_show_toggle: Gtk.CheckButton | None = None
         self._user_entries: Dict[str, Gtk.Entry] = {}
+        self._user_advanced_widgets: Dict[str, Gtk.Widget] = {}
         self._kv_widgets: Dict[str, Gtk.Widget] = {}
         self._job_widgets: Dict[str, Gtk.Widget] = {}
         self._message_widgets: Dict[str, Gtk.Widget] = {}
         self._speech_widgets: Dict[str, Gtk.Widget] = {}
         self._optional_widgets: Dict[str, Gtk.Widget] = {}
         self._optional_personal_hint: Gtk.Label | None = None
+        self._personal_cap_hint: Gtk.Label | None = None
         self._setup_persisted = False
         self._privileged_credentials: Optional[Tuple[Optional[str], Optional[str]]] = None
         self._entry_pixel_width: Optional[int] = None
@@ -1795,6 +1797,26 @@ class SetupWizardWindow(AtlasWindow):
         mode = getattr(self.controller.state.setup_type, "mode", "")
         hint.set_visible((mode or "").strip().lower() == "personal")
         self._update_identity_step()
+        self._update_user_field_visibility()
+
+    def _update_user_field_visibility(self) -> None:
+        mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
+        is_personal = mode == "personal"
+
+        for widget in self._user_advanced_widgets.values():
+            setter = getattr(widget, "set_visible", None)
+            if callable(setter):
+                try:
+                    setter(not is_personal)
+                except Exception:  # pragma: no cover - GTK fallback
+                    pass
+
+        hint = self._personal_cap_hint
+        if isinstance(hint, Gtk.Label):
+            try:
+                hint.set_visible(is_personal)
+            except Exception:  # pragma: no cover - GTK stubs
+                pass
 
     def _get_identity_step_name(self) -> str:
         mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
@@ -2830,6 +2852,18 @@ class SetupWizardWindow(AtlasWindow):
         grid.set_vexpand(True)
 
         row = 0
+        cap_hint = Gtk.Label(
+            label=(
+                "Personal mode supports up to 5 local profiles. Upgrade to Enterprise to add "
+                "more seats and unlock tenancy controls."
+            )
+        )
+        cap_hint.set_wrap(True)
+        cap_hint.set_xalign(0.0)
+        cap_hint.set_visible(False)
+        grid.attach(cap_hint, 0, row, 2, 1)
+        self._personal_cap_hint = cap_hint
+        row += 1
         self._user_entries["full_name"] = self._create_labeled_entry(
             grid, row, "Full name", state.full_name
         )
@@ -2845,6 +2879,10 @@ class SetupWizardWindow(AtlasWindow):
             state.domain,
             placeholder="example.com",
         )
+        domain_label = grid.get_child_at(0, row)
+        if isinstance(domain_label, Gtk.Widget):
+            self._user_advanced_widgets["domain_label"] = domain_label
+        self._user_advanced_widgets["domain_entry"] = self._user_entries["domain"]
         row += 1
         dob_entry = self._create_labeled_entry(
             grid,
@@ -2861,6 +2899,10 @@ class SetupWizardWindow(AtlasWindow):
         elif hasattr(Gtk.InputPurpose, "FREE_FORM"):
             dob_entry.set_input_purpose(Gtk.InputPurpose.FREE_FORM)
         self._user_entries["date_of_birth"] = dob_entry
+        dob_label = grid.get_child_at(0, row)
+        if isinstance(dob_label, Gtk.Widget):
+            self._user_advanced_widgets["dob_label"] = dob_label
+        self._user_advanced_widgets["dob_entry"] = dob_entry
         row += 1
         self._user_entries["password"] = self._create_labeled_entry(
             grid, row, "Password", state.password, visibility=False
@@ -2880,12 +2922,17 @@ class SetupWizardWindow(AtlasWindow):
         if hasattr(privileged_label, "add_css_class"):
             privileged_label.add_css_class("heading")
         grid.attach(privileged_label, 0, row, 2, 1)
+        self._user_advanced_widgets["privileged_label"] = privileged_label
         row += 1
 
         privileged_state = state.privileged_credentials
         self._user_entries["sudo_username"] = self._create_labeled_entry(
             grid, row, "Sudo username", privileged_state.sudo_username
         )
+        sudo_username_label = grid.get_child_at(0, row)
+        if isinstance(sudo_username_label, Gtk.Widget):
+            self._user_advanced_widgets["sudo_username_label"] = sudo_username_label
+        self._user_advanced_widgets["sudo_username_entry"] = self._user_entries["sudo_username"]
         row += 1
         self._user_entries["sudo_password"] = self._create_labeled_entry(
             grid,
@@ -2895,6 +2942,10 @@ class SetupWizardWindow(AtlasWindow):
             visibility=False,
         )
         sudo_password_entry = self._user_entries["sudo_password"]
+        sudo_password_label = grid.get_child_at(0, row)
+        if isinstance(sudo_password_label, Gtk.Widget):
+            self._user_advanced_widgets["sudo_password_label"] = sudo_password_label
+        self._user_advanced_widgets["sudo_password_entry"] = sudo_password_entry
         row += 1
         self._user_entries["confirm_sudo_password"] = self._create_labeled_entry(
             grid,
@@ -2904,6 +2955,10 @@ class SetupWizardWindow(AtlasWindow):
             visibility=False,
         )
         confirm_sudo_entry = self._user_entries["confirm_sudo_password"]
+        confirm_sudo_label = grid.get_child_at(0, row)
+        if isinstance(confirm_sudo_label, Gtk.Widget):
+            self._user_advanced_widgets["sudo_confirm_label"] = confirm_sudo_label
+        self._user_advanced_widgets["sudo_confirm_entry"] = confirm_sudo_entry
 
         def _sudo_validator() -> tuple[bool, str | None]:
             sudo_password = sudo_password_entry.get_text()
@@ -2929,6 +2984,7 @@ class SetupWizardWindow(AtlasWindow):
         username_entry = self._user_entries["username"]
         self._register_required_text(username_entry, "Username")
         self._sync_user_entries_from_state()
+        self._update_user_field_visibility()
         return form
 
     def _sync_user_entries_from_state(self) -> None:
