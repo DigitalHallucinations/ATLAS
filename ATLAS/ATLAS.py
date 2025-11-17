@@ -1807,6 +1807,67 @@ class ATLAS:
             "message_count": result.message_count,
         }
 
+    def export_user_backup(self, directory: Union[str, Path]) -> Dict[str, Any]:
+        """Write conversations and personas to ``directory`` as a JSON backup."""
+
+        target_dir = Path(directory).expanduser()
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return {"success": False, "error": f"Unable to create backup directory: {exc}"}
+
+        try:
+            result = self.server.export_backup_bundle()
+        except Exception as exc:  # noqa: BLE001 - surface server errors to UI
+            return {"success": False, "error": str(exc)}
+
+        if not result.get("success"):
+            return result
+
+        bundle = result.get("bundle")
+        if not bundle:
+            return {"success": False, "error": "Server did not return a backup bundle."}
+
+        try:
+            decoded = base64.b64decode(bundle)
+            payload = json.loads(decoded.decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001 - user-facing failure message
+            return {"success": False, "error": f"Failed to decode backup bundle: {exc}"}
+
+        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        backup_path = target_dir / f"atlas-backup-{timestamp}.json"
+        try:
+            backup_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except OSError as exc:  # noqa: BLE001 - propagate as UI-visible error
+            return {"success": False, "error": f"Unable to write backup file: {exc}"}
+
+        result["path"] = str(backup_path)
+        result["file"] = str(backup_path)
+        return result
+
+    def import_user_backup(self, path: Union[str, Path]) -> Dict[str, Any]:
+        """Import a previously exported backup JSON file."""
+
+        source_path = Path(path).expanduser()
+        try:
+            raw = source_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            return {"success": False, "error": f"Unable to read backup file: {exc}"}
+
+        try:
+            payload = json.loads(raw)
+            encoded = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+        except Exception as exc:  # noqa: BLE001 - invalid payload formatting surfaced to UI
+            return {"success": False, "error": f"Backup file is not valid JSON: {exc}"}
+
+        try:
+            result = self.server.import_backup_bundle(bundle_base64=encoded)
+        except Exception as exc:  # noqa: BLE001 - surface server errors to UI
+            return {"success": False, "error": str(exc)}
+
+        result["path"] = str(source_path)
+        return result
+
     def send_chat_message_async(
         self,
         message: str,
