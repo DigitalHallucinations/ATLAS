@@ -264,6 +264,11 @@ class DummyController:
                 retention_history_limit=None,
                 http_auto_start=True,
             )
+            self.state.providers = dataclasses.replace(
+                self.state.providers,
+                default_provider="openai",
+                default_model="gpt-4o-mini",
+            )
             setup_state = SetupTypeState(mode="personal", applied=True)
         elif normalized == "enterprise":
             current_message_bus = self.state.message_bus
@@ -303,7 +308,58 @@ class DummyController:
                 retention_history_limit=500,
                 http_auto_start=False,
             )
+            self.state.providers = dataclasses.replace(
+                self.state.providers,
+                default_provider="openai",
+                default_model="gpt-4o",
+            )
             setup_state = SetupTypeState(mode="enterprise", applied=True)
+        elif normalized == "regulatory":
+            current_message_bus = self.state.message_bus
+            redis_url = current_message_bus.redis_url or "redis://localhost:6379/0"
+            stream_prefix = current_message_bus.stream_prefix or "atlas"
+            self.state.message_bus = dataclasses.replace(
+                current_message_bus,
+                backend="redis",
+                redis_url=redis_url,
+                stream_prefix=stream_prefix,
+            )
+            current_job = self.state.job_scheduling
+            job_store_url = current_job.job_store_url or (
+                "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
+            )
+            default_workers, default_queue_size = self._resolve_queue_defaults(
+                backend=self.state.message_bus.backend
+            )
+            self.state.job_scheduling = dataclasses.replace(
+                current_job,
+                enabled=True,
+                job_store_url=job_store_url,
+                max_workers=current_job.max_workers or default_workers,
+                retry_policy=dataclasses.replace(current_job.retry_policy),
+                timezone=current_job.timezone or "UTC",
+                queue_size=current_job.queue_size or default_queue_size,
+            )
+            self.state.kv_store = dataclasses.replace(
+                self.state.kv_store,
+                reuse_conversation_store=False,
+                url=self.state.kv_store.url
+                or "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_cache",
+            )
+            self.state.optional = dataclasses.replace(
+                self.state.optional,
+                retention_days=365,
+                retention_history_limit=2000,
+                http_auto_start=False,
+                data_region="eu-central-1",
+                residency_requirement="in-region",
+            )
+            self.state.providers = dataclasses.replace(
+                self.state.providers,
+                default_provider="azure_openai",
+                default_model="gpt-4o",
+            )
+            setup_state = SetupTypeState(mode="regulatory", applied=True)
         else:
             fallback_mode = normalized or "custom"
             setup_state = SetupTypeState(mode=fallback_mode, applied=False)
@@ -454,6 +510,30 @@ def test_choose_setup_type_switches_to_enterprise_defaults():
         == "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_cache"
     )
     assert controller.state.optional.http_auto_start is False
+
+
+def test_choose_setup_type_handles_regulatory_defaults():
+    controller = DummyController()
+
+    utility = SetupUtility(
+        controller=controller,
+        input_func=lambda prompt: "regulatory",
+        getpass_func=lambda prompt: "",
+        print_func=lambda message: None,
+    )
+
+    result = utility.choose_setup_type()
+
+    assert controller.applied_setup_modes == ["regulatory"]
+    assert result.mode == "regulatory"
+    assert controller.state.message_bus.backend == "redis"
+    assert controller.state.job_scheduling.enabled is True
+    assert controller.state.job_scheduling.timezone == "UTC"
+    assert controller.state.kv_store.reuse_conversation_store is False
+    assert controller.state.optional.retention_days == 365
+    assert controller.state.optional.retention_history_limit == 2000
+    assert controller.state.optional.residency_requirement == "in-region"
+    assert controller.state.providers.default_provider == "azure_openai"
 
 
 def test_configure_database_persists_dsn():

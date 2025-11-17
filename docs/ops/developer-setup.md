@@ -74,6 +74,12 @@ python scripts/setup_atlas.py
 
 Follow the prompts to supply PostgreSQL credentials, message-bus preferences, and any optional services. The CLI mirrors the GTK wizard’s state machine but is optimized for headless or automated environments.
 
+When prompted for a preset, pick the profile that matches your target:
+
+- **Personal** – local-only experimentation with minimal retention and in-memory queues.
+- **Enterprise** – shared Redis/PostgreSQL backends, 30-day retention, and SIEM-friendly auditing defaults.
+- **Regulatory** – in-region data residency with year-long retention and Azure OpenAI defaults for export-controlled environments.
+
 ### When to use the GTK setup wizard
 Launch the GTK setup wizard instead of the CLI when you:
 - Prefer a guided graphical workflow that validates each step inline.

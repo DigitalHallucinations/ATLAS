@@ -1,0 +1,17 @@
+metadata:
+  title: Regulated or in-region deployments
+  description: Prefills retention, auditing, and residency fields for restricted environments.
+retention:
+  days: 365
+  history_limit: 2000
+auditing:
+  template: regulatory_longhaul
+  data_region: eu-central-1
+  residency_requirement: in-region
+personas:
+  defaults: ["Compliance", "Analyst"]
+  tenant: regulated
+providers:
+  default_provider: azure_openai
+  default_model: gpt-4o
+  recommended: [azure_openai]

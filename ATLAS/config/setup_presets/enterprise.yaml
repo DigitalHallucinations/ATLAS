@@ -1,0 +1,17 @@
+metadata:
+  title: Enterprise shared services
+  description: Uses shared Redis and PostgreSQL services with SIEM-friendly auditing.
+retention:
+  days: 30
+  history_limit: 500
+auditing:
+  template: siem_30d
+  data_region: us-east-1
+  residency_requirement: regional
+personas:
+  defaults: ["ATLAS", "Operator", "Analyst"]
+  tenant: central
+providers:
+  default_provider: openai
+  default_model: gpt-4o
+  recommended: [openai, anthropic]

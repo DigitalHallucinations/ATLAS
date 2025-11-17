@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
+import yaml
+
 from ATLAS.config import (
     ConfigManager,
     get_default_conversation_store_backends,
@@ -446,7 +448,7 @@ class SetupWizardController:
 
     def apply_setup_type(self, mode: str, *, local_only: Optional[bool] = None) -> SetupTypeState:
         normalized = (mode or "").strip().lower()
-        if normalized not in {"personal", "enterprise"}:
+        if normalized not in {"personal", "enterprise", "regulatory"}:
             fallback_mode = normalized or "custom"
             setup_state = SetupTypeState(mode=fallback_mode, applied=False, local_only=False)
             self.state.setup_type = setup_state
@@ -503,7 +505,10 @@ class SetupWizardController:
                     self.state.vector_store,
                     adapter="in_memory",
                 )
-        else:  # enterprise preset
+            profile = self._load_setup_profile("personal")
+            self._apply_profile_overrides(profile)
+
+        elif normalized == "enterprise":
             redis_url = self.state.message_bus.redis_url or "redis://localhost:6379/0"
             stream_prefix = self.state.message_bus.stream_prefix or "atlas"
             self.state.message_bus = dataclasses.replace(
@@ -556,6 +561,67 @@ class SetupWizardController:
                 queue_size=queue_size,
             )
 
+            profile = self._load_setup_profile("enterprise")
+            self._apply_profile_overrides(profile)
+
+        else:  # regulatory preset
+            redis_url = self.state.message_bus.redis_url or "redis://localhost:6379/0"
+            stream_prefix = self.state.message_bus.stream_prefix or "atlas"
+            self.state.message_bus = dataclasses.replace(
+                self.state.message_bus,
+                backend="redis",
+                redis_url=redis_url,
+                stream_prefix=stream_prefix,
+            )
+            default_workers, default_queue_size = self._resolve_queue_defaults(
+                backend=self.state.message_bus.backend
+            )
+            job_store_url = self.state.job_scheduling.job_store_url or (
+                "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
+            )
+            self.state.job_scheduling = dataclasses.replace(
+                self.state.job_scheduling,
+                enabled=True,
+                job_store_url=job_store_url,
+                max_workers=self.state.job_scheduling.max_workers
+                or default_workers,
+                retry_policy=dataclasses.replace(self.state.job_scheduling.retry_policy),
+                timezone=self.state.job_scheduling.timezone or "UTC",
+                queue_size=self.state.job_scheduling.queue_size or default_queue_size,
+            )
+            self.state.kv_store = dataclasses.replace(
+                self.state.kv_store,
+                reuse_conversation_store=False,
+                url=self.state.kv_store.url
+                or "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_cache",
+            )
+            self.state.optional = dataclasses.replace(
+                self.state.optional,
+                retention_days=90,
+                retention_history_limit=1000,
+                http_auto_start=False,
+                audit_template=(
+                    self.state.optional.audit_template
+                    or DEFAULT_ENTERPRISE_AUDIT_TEMPLATE
+                ),
+                residency_requirement=self.state.optional.residency_requirement or "regional",
+            )
+
+            default_workers, default_queue_size = self._resolve_queue_defaults(
+                backend=self.state.message_bus.backend
+            )
+            job_workers = self.state.job_scheduling.max_workers or default_workers
+            queue_size = self.state.job_scheduling.queue_size or default_queue_size
+
+            self.state.job_scheduling = dataclasses.replace(
+                self.state.job_scheduling,
+                max_workers=job_workers,
+                queue_size=queue_size,
+            )
+
+            profile = self._load_setup_profile("regulatory")
+            self._apply_profile_overrides(profile)
+
         setup_state = SetupTypeState(mode=normalized, applied=True)
         if normalized == "personal":
             setup_state = dataclasses.replace(setup_state, local_only=local_flag)
@@ -563,6 +629,82 @@ class SetupWizardController:
             setup_state = dataclasses.replace(setup_state, local_only=False)
         self.state.setup_type = setup_state
         return setup_state
+
+    def _apply_profile_overrides(self, profile: Mapping[str, Any]) -> None:
+        retention = profile.get("retention") if isinstance(profile, Mapping) else None
+        auditing = profile.get("auditing") if isinstance(profile, Mapping) else None
+        personas = profile.get("personas") if isinstance(profile, Mapping) else None
+        providers = profile.get("providers") if isinstance(profile, Mapping) else None
+
+        optional_state = self.state.optional
+        if isinstance(retention, Mapping):
+            optional_state = dataclasses.replace(
+                optional_state,
+                retention_days=self._coalesce(
+                    retention.get("days"), retention.get("max_days"), optional_state.retention_days
+                ),
+                retention_history_limit=self._coalesce(
+                    retention.get("history_limit"),
+                    retention.get("history_message_limit"),
+                    optional_state.retention_history_limit,
+                ),
+            )
+
+        if isinstance(auditing, Mapping):
+            optional_state = dataclasses.replace(
+                optional_state,
+                audit_template=self._coalesce(
+                    auditing.get("template"), optional_state.audit_template
+                ),
+                data_region=self._coalesce(
+                    auditing.get("data_region"), optional_state.data_region
+                ),
+                residency_requirement=self._coalesce(
+                    auditing.get("residency_requirement"), optional_state.residency_requirement
+                ),
+            )
+
+        if isinstance(personas, Mapping):
+            tenant = personas.get("tenant") or personas.get("tenant_id")
+            if tenant:
+                optional_state = dataclasses.replace(optional_state, tenant_id=str(tenant))
+
+        self.state.optional = optional_state
+
+        provider_state = self.state.providers
+        if isinstance(providers, Mapping):
+            provider_state = dataclasses.replace(
+                provider_state,
+                default_provider=self._coalesce(
+                    providers.get("default_provider"), provider_state.default_provider
+                ),
+                default_model=self._coalesce(
+                    providers.get("default_model"), provider_state.default_model
+                ),
+            )
+        self.state.providers = provider_state
+
+    @staticmethod
+    def _coalesce(*values: Any) -> Any:
+        for value in values:
+            if value is not None:
+                return value
+        return None
+
+    def _load_setup_profile(self, mode: str) -> Mapping[str, Any]:
+        safe_mode = (mode or "").strip().lower() or "personal"
+        profile_dir = Path(__file__).resolve().parent.parent / "config" / "setup_presets"
+        profile_path = profile_dir / f"{safe_mode}.yaml"
+        if not profile_path.exists():
+            return {}
+        try:
+            with profile_path.open("r", encoding="utf-8") as handle:
+                loaded = yaml.safe_load(handle) or {}
+                if isinstance(loaded, Mapping):
+                    return loaded
+        except OSError:
+            return {}
+        return {}
 
     def _wrap_privileged_password_requester(
         self, callback: Callable[[], str | None] | None
