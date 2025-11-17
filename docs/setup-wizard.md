@@ -6,21 +6,19 @@ required to bring the platform online. The administrator profile now opens the
 wizard so that environment-specific defaults can be staged before any
 infrastructure settings are applied.
 
-### Administrator bootstrap
+### Introduction and branching
 
-The first screen captures the primary administrator's profile so the wizard can
-stage identity data before any infrastructure steps load. Full name, username,
-email address, organization domain, and birth date are written to a temporary
-state object that seeds later forms: the PostgreSQL step proposes the staged
-username for the database role, optional tenancy fields reuse the normalized
-domain, and password policy hints pull from the captured email address. The
-same staging process stores the administrator's chosen password and privileged
-sudo credentials so the database bootstrapper and follow-on CLI helpers can
-reuse them without asking the operator twice. Once the environment is ready,
-the staged profile is registered and the setup marker written. Review the
+The wizard opens with an introduction followed by a setup type choice. Picking
+**User (Personal)** advances directly to the **Admin** step, where you stage the
+first account. Choosing **Company (Enterprise)** routes you through a combined
+company step: tenancy, retention, and scheduler defaults are captured first,
+then the initial administrative account is staged. Either path retains the
+staged credentials so the remaining infrastructure pages can reuse them without
+repeated prompts. Once the environment is ready, the staged profile is
+registered and the setup marker written. Review the
 [user account management guide](./user-accounts.md) and the
-[developer setup runbook](./ops/developer-setup.md) for the onboarding
-material that follows this administrator bootstrap.
+[developer setup runbook](./ops/developer-setup.md) for the onboarding material
+that follows this branching step.
 
 ### Step-by-step configuration
 
@@ -30,14 +28,16 @@ material that follows this administrator bootstrap.
 > administrator in the GTK flow—see the [Standalone CLI utility](#standalone-cli-utility)
 > section for the full walkthrough.
 
-1. **Administrator** – Collect the profile for the first user. The form requires
-   a full name, username, email address, organization domain, date of birth,
-   password, and privileged sudo credentials. The wizard stages this
-   information instead of registering the account immediately. Subsequent pages
-   reuse the staged data; for example the database user defaults to the staged
-   username and the optional settings tenant field inherits the normalized
-   domain. Privileged database credentials captured later in the flow are also
-   stored so they can be reused by the CLI and GTK flows.
+1. **Admin or Company** – Personal setups land on the admin page to collect a
+   full name, username, email address, organization domain, date of birth,
+   password, and privileged sudo credentials. Enterprise setups route through a
+   company overview that captures tenant, retention, scheduler, and HTTP
+   defaults before presenting the same admin credentials form. The wizard stages
+   this information instead of registering the account immediately. Subsequent
+   pages reuse the staged data; for example the database user defaults to the
+   staged username and the tenant field inherits the normalized domain from the
+   earlier company page. Privileged database credentials captured later in the
+   flow are also stored so they can be reused by the CLI and GTK flows.
 2. **Database** – Collect PostgreSQL connection details and run the conversation
    store bootstrap helpers.
 3. **Job scheduling** – Enable durable scheduling, configure retry policy, and
@@ -50,8 +50,6 @@ material that follows this administrator bootstrap.
    keys that should be written to the configuration.
 7. **Speech** – Toggle text-to-speech and speech-to-text integrations and record
    provider defaults and API keys.
-8. **Optional settings** – Capture tenancy, retention, scheduler overrides, and
-   whether the HTTP server should auto-start.
 
 Progress and any validation errors are surfaced inline, and the wizard invokes
 the same controller methods used by the CLI to persist settings. The final step
@@ -127,20 +125,20 @@ Each step mirrors the questions asked by the CLI setup utility:
   a dedicated SQLAlchemy-compatible DSN.
 * **Speech** collects provider defaults and API keys for ElevenLabs, OpenAI, and
   Google, along with toggles for TTS and STT support.
-* **Optional settings** records tenant IDs, conversation retention limits,
-  scheduler overrides, and the HTTP auto-start flag.
+* **Company defaults (enterprise path)** capture tenant IDs, conversation
+  retention limits, scheduler overrides, and the HTTP auto-start flag before you
+  move into the admin credentials form.
 
-### Organization setup
+### Company setup for enterprise rollouts
 
-Larger rollouts often rely on the optional step to seed tenancy and retention
-defaults before fleets begin connecting. The **Tenant identifier** field writes
-directly to the root `tenant_id` setting so API calls inherit the same context
-enforced by server routes that require the `X-Atlas-Tenant` header for every
-request.【F:ATLAS/setup/controller.py†L433-L451】【F:docs/server/api.md†L34-L59】 Use
-the retention inputs to populate the `conversation_database.retention` block
-(`days` and `history_message_limit`), ensuring pruning behaviour is consistent
-with the retention worker documented in the [conversation retention
-runbook](./conversation_retention.md).【F:ATLAS/setup/controller.py†L433-L451】【F:ATLAS/config/atlas_config.yaml†L108-L118】【F:docs/conversation_retention.md†L1-L34】
+Selecting the **Company (Enterprise)** path front-loads tenancy, retention, and
+scheduler defaults before fleets begin connecting. The **Tenant identifier**
+field writes directly to the root `tenant_id` setting so API calls inherit the
+same context enforced by server routes that require the `X-Atlas-Tenant` header
+for every request.【F:ATLAS/setup/controller.py†L433-L451】【F:docs/server/api.md†L34-L59】 Use the retention inputs to populate the
+`conversation_database.retention` block (`days` and `history_message_limit`),
+ensuring pruning behaviour is consistent with the retention worker documented in
+the [conversation retention runbook](./conversation_retention.md).【F:ATLAS/setup/controller.py†L433-L451】【F:ATLAS/config/atlas_config.yaml†L108-L118】【F:docs/conversation_retention.md†L1-L34】
 Timezone and queue size controls map to `job_scheduling.timezone` and
 `job_scheduling.queue_size`, allowing operators to override the shared scheduler
 defaults that also drive task queue sizing.【F:ATLAS/setup/controller.py†L433-L451】【F:ATLAS/config/config_manager.py†L600-L720】
@@ -148,17 +146,16 @@ defaults that also drive task queue sizing.【F:ATLAS/setup/controller.py†L433
 For multi-tenant and auditing-heavy environments, complete the wizard and then
 review the configuration in `atlas_config.yaml` alongside the logging/audit
 modules. Tighten policies by setting stricter retention windows, enabling
-per-tenant limits (`tenant_limits`) through the conversation store, and
-configuring audit sinks via `modules.logging.audit` to capture persona, skill,
-and API activity with tenant context.【F:modules/conversation_store/repository.py†L2622-L2765】【F:modules/logging/audit.py†L33-L126】
-Server-side enforcement continues to require tenant-scoped contexts, so routing
+`tenant_limits` through the conversation store, and configuring audit sinks via
+`modules.logging.audit` to capture persona, skill, and API activity with tenant
+context.【F:modules/conversation_store/repository.py†L2622-L2765】【F:modules/logging/audit.py†L33-L126】 Server-side enforcement continues to require tenant-scoped contexts, so routing
 modules remain aligned with the staged identifier even as you expand to
 additional tenants.【F:modules/Server/conversation_routes.py†L30-L209】【F:modules/Server/task_routes.py†L33-L252】
 
 * **Shared safeguards** – Tenancy defaults, retention windows, and scheduler
-  overrides surfaced in the wizard write directly to the same configuration read
-  by CLI automation and background workers, keeping fleet and bootstrap flows in
-  lockstep as environments grow.【F:ATLAS/setup/controller.py†L433-L451】【F:ATLAS/config/config_manager.py†L600-L720】
+  overrides surfaced in the company step write directly to the same
+  configuration read by CLI automation and background workers, keeping fleet and
+  bootstrap flows in lockstep as environments grow.【F:ATLAS/setup/controller.py†L433-L451】【F:ATLAS/config/config_manager.py†L600-L720】
 * **Tighten retention and residency policies** – Increase
   `conversation_database.retention.days`, lower
   `conversation_database.retention.history_message_limit`, and align these
