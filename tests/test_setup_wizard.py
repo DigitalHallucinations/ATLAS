@@ -917,6 +917,10 @@ def test_setup_wizard_optional_settings_validation():
     _complete_setup_type_step(window, mode="enterprise")
 
     window._on_next_clicked(None)
+
+    assert "Tenant ID is required" in window._status_label.get_text()
+
+    window._optional_widgets["tenant_id"].set_text("enterprise.example")
     window._optional_widgets["retention_days"].set_text("invalid")
     window._on_next_clicked(None)
 

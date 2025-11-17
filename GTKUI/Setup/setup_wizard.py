@@ -2864,6 +2864,15 @@ class SetupWizardWindow(AtlasWindow):
         retention_info.set_xalign(0.0)
         callout_box.append(retention_info)
 
+        lifecycle_defaults = Gtk.Label(
+            label=(
+                "Enterprise defaults start with 30-day retention and 500-message history caps to reduce data exposure—tighten or extend only when policy allows."
+            )
+        )
+        lifecycle_defaults.set_wrap(True)
+        lifecycle_defaults.set_xalign(0.0)
+        callout_box.append(lifecycle_defaults)
+
         if runbook_uri:
             link_widget: Gtk.Widget | None = None
             link_button_cls = getattr(Gtk, "LinkButton", None)
@@ -2911,6 +2920,7 @@ class SetupWizardWindow(AtlasWindow):
 
         instructions = (
             "• Set tenant defaults and retention expectations that fit your rollout.\n"
+            "• Default data lifecycle settings favor shorter retention for lower risk—adjust deliberately.\n"
             "• Share scheduler tweaks so background jobs line up with your policies.\n"
             "• Decide whether ATLAS should auto-start its HTTP server for you."
         )
@@ -3371,6 +3381,12 @@ class SetupWizardWindow(AtlasWindow):
             return int(text)
         except ValueError as exc:
             raise ValueError(f"{field} must be an integer") from exc
+
+    def _parse_required_positive_int(self, entry: Gtk.Entry, field: str) -> int:
+        value = self._parse_required_int(entry, field)
+        if value <= 0:
+            raise ValueError(f"{field} must be a positive integer")
+        return value
 
     def _parse_required_float(self, entry: Gtk.Entry, field: str) -> float:
         text = entry.get_text().strip()
@@ -4022,16 +4038,22 @@ class SetupWizardWindow(AtlasWindow):
         assert isinstance(scheduler_queue_entry, Gtk.Entry)
         assert isinstance(http_toggle, Gtk.CheckButton)
 
-        retention_days = self._parse_optional_int(retention_days_entry, "Conversation retention days")
-        retention_history = self._parse_optional_int(
+        tenant_id = tenant_entry.get_text().strip()
+        if not tenant_id:
+            raise ValueError("Tenant ID is required for enterprise setups")
+
+        retention_days = self._parse_required_positive_int(
+            retention_days_entry, "Conversation retention days"
+        )
+        retention_history = self._parse_required_positive_int(
             retention_history_entry, "Conversation history limit"
         )
-        scheduler_queue_size = self._parse_optional_int(
+        scheduler_queue_size = self._parse_required_positive_int(
             scheduler_queue_entry, "Scheduler queue size"
         )
 
         state = OptionalState(
-            tenant_id=tenant_entry.get_text().strip() or None,
+            tenant_id=tenant_id,
             retention_days=retention_days,
             retention_history_limit=retention_history,
             scheduler_timezone=scheduler_timezone_entry.get_text().strip() or None,

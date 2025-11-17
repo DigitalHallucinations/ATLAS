@@ -7,7 +7,7 @@ import base64
 import binascii
 import json
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncIterator, Iterable, Mapping
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
@@ -401,24 +401,40 @@ class AtlasServer:
         raise TypeError("Unsupported request context type")
 
     def _resolve_request_context(self, context: Any = None) -> RequestContext:
+        configured_tenant = self._resolve_configured_tenant_id()
+
         if context is not None:
-            return self._coerce_context(context)
+            resolved = self._coerce_context(context)
+        else:
+            if configured_tenant:
+                raise ConversationAuthorizationError(
+                    "X-Atlas-Tenant header is required for enterprise tenants"
+                )
 
-        tenant_id = "default"
-        manager = self._config_manager
-        if manager is not None:
-            for source_name in ("config", "yaml_config"):
-                source = getattr(manager, source_name, None)
-                if not isinstance(source, Mapping):
-                    continue
-                candidate = source.get("tenant_id")
-                if isinstance(candidate, str):
-                    token = candidate.strip()
-                    if token:
-                        tenant_id = token
-                        break
+            tenant_id = "default"
+            manager = self._config_manager
+            if manager is not None:
+                for source_name in ("config", "yaml_config"):
+                    source = getattr(manager, source_name, None)
+                    if not isinstance(source, Mapping):
+                        continue
+                    candidate = source.get("tenant_id")
+                    if isinstance(candidate, str):
+                        token = candidate.strip()
+                        if token:
+                            tenant_id = token
+                            break
 
-        return RequestContext(tenant_id=tenant_id)
+            resolved = RequestContext(tenant_id=tenant_id)
+
+        normalized_tenant = self._normalize_tenant_id_value(resolved.tenant_id)
+        if not normalized_tenant:
+            raise ConversationAuthorizationError("A tenant scoped context is required")
+        if configured_tenant and normalized_tenant != configured_tenant:
+            raise ConversationAuthorizationError("Tenant mismatch for configured AtlasServer")
+        if normalized_tenant != resolved.tenant_id:
+            resolved = replace(resolved, tenant_id=normalized_tenant)
+        return resolved
 
     def _require_tenant_context(self, context: Any | None) -> RequestContext:
         if context is None:

@@ -566,7 +566,10 @@ class PersistenceConfigMixin:
             if queue_size in (None, ''):
                 updated.pop('queue_size', None)
             else:
-                updated['queue_size'] = int(queue_size)
+                normalized_queue = int(queue_size)
+                if normalized_queue <= 0:
+                    raise ValueError("Scheduler queue size must be a positive integer")
+                updated['queue_size'] = normalized_queue
 
         if retry_policy is not None:
             normalized_retry = {}
@@ -1530,11 +1533,15 @@ class ConversationStoreConfigSection:
             retention.pop("days", None)
             retention.pop("max_days", None)
         else:
+            if int(days) <= 0:
+                raise ValueError("Retention days must be a positive integer")
             retention["days"] = int(days)
 
         if history_limit is None:
             retention.pop("history_message_limit", None)
         else:
+            if int(history_limit) <= 0:
+                raise ValueError("Conversation history limit must be a positive integer")
             retention["history_message_limit"] = int(history_limit)
 
         if retention:
