@@ -2,6 +2,7 @@ import dataclasses
 from pathlib import Path
 
 import pytest
+from pathlib import Path
 
 from ATLAS.setup import AdminProfile, KvStoreState, SetupWizardController
 
@@ -24,6 +25,9 @@ class _StubConfigManager:
     def get_conversation_database_config(self):
         host = self.__class__.current_host
         return {"url": f"postgresql://{host}/atlas"}
+
+    def get_conversation_backend(self):
+        return "postgresql"
 
     def get_job_scheduling_settings(self):
         return {}
@@ -52,8 +56,14 @@ class _StubConfigManager:
     def get_conversation_retention_policies(self):
         return {}
 
+    def get_vector_store_settings(self):
+        return {"default_adapter": "in_memory", "adapters": {"in_memory": {}}}
+
     def _write_yaml_config(self):
         self.__class__.write_calls += 1
+
+    def get_audit_template(self):
+        return None
 
     def export_yaml_config(self, path):
         resolved = str(Path(path))
@@ -160,8 +170,9 @@ def test_apply_setup_type_switches_between_presets():
         controller.state.job_scheduling.job_store_url
         == "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
     )
-    assert controller.state.job_scheduling.queue_size == 100
+    assert controller.state.job_scheduling.queue_size == 500
     assert controller.state.job_scheduling.timezone == "UTC"
+    assert controller.state.job_scheduling.max_workers == 8
     assert controller.state.kv_store.reuse_conversation_store is False
     assert (
         controller.state.kv_store.url

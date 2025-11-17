@@ -444,6 +444,36 @@ class AtlasServer:
             raise RuntimeError("Job service is not configured")
         return routes
 
+    def get_worker_status(self) -> Dict[str, Any]:
+        """Return health snapshots for background worker services."""
+
+        payload: Dict[str, Any] = {}
+
+        queue_service = None
+        getter = getattr(self._config_manager, "get_default_task_queue_service", None)
+        if callable(getter):
+            try:
+                queue_service = getter()
+            except Exception:  # pragma: no cover - health checks are best-effort
+                queue_service = None
+
+        if queue_service is not None and hasattr(queue_service, "get_health_snapshot"):
+            try:
+                payload["task_queue"] = queue_service.get_health_snapshot()
+            except Exception:  # pragma: no cover - defensive guard
+                payload["task_queue"] = {"running": False}
+
+        scheduler = self._job_scheduler or self._build_job_scheduler()
+        if scheduler is not None:
+            self._job_scheduler = scheduler
+        if scheduler is not None and hasattr(scheduler, "get_health_snapshot"):
+            try:
+                payload["job_scheduler"] = scheduler.get_health_snapshot()
+            except Exception:  # pragma: no cover - defensive guard
+                payload["job_scheduler"] = {"running": False}
+
+        return payload
+
     @staticmethod
     def _coerce_context(context: Any) -> RequestContext:
         if isinstance(context, RequestContext):
@@ -1955,6 +1985,8 @@ class AtlasServer:
         query = query or {}
 
         if method_upper == "GET":
+            if path == "/status/workers":
+                return self.get_worker_status()
             if path == "/conversations":
                 if context is None:
                     raise ConversationAuthorizationError(

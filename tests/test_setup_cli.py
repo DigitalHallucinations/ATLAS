@@ -175,6 +175,12 @@ class DummyController:
         self.set_privileged_credentials_calls: list[tuple[str | None, str | None] | None] = []
         self.applied_setup_modes: list[str] = []
 
+    def _resolve_queue_defaults(self, *, backend: str | None) -> tuple[int, int]:
+        normalized = (backend or "in_memory").strip().lower()
+        if normalized == "redis":
+            return 8, 500
+        return 4, 100
+
     def apply_database_settings(
         self,
         state: DatabaseState,
@@ -273,14 +279,17 @@ class DummyController:
             job_store_url = current_job.job_store_url or (
                 "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
             )
+            default_workers, default_queue_size = self._resolve_queue_defaults(
+                backend=self.state.message_bus.backend
+            )
             self.state.job_scheduling = dataclasses.replace(
                 current_job,
                 enabled=True,
                 job_store_url=job_store_url,
-                max_workers=current_job.max_workers or 4,
+                max_workers=current_job.max_workers or default_workers,
                 retry_policy=dataclasses.replace(current_job.retry_policy),
                 timezone=current_job.timezone or "UTC",
-                queue_size=current_job.queue_size or 100,
+                queue_size=current_job.queue_size or default_queue_size,
             )
             self.state.kv_store = dataclasses.replace(
                 self.state.kv_store,
@@ -436,9 +445,9 @@ def test_choose_setup_type_switches_to_enterprise_defaults():
         controller.state.job_scheduling.job_store_url
         == "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
     )
-    assert controller.state.job_scheduling.max_workers == 4
+    assert controller.state.job_scheduling.max_workers == 8
     assert controller.state.job_scheduling.timezone == "UTC"
-    assert controller.state.job_scheduling.queue_size == 100
+    assert controller.state.job_scheduling.queue_size == 500
     assert controller.state.kv_store.reuse_conversation_store is False
     assert (
         controller.state.kv_store.url
