@@ -18,10 +18,10 @@ the gateway alongside other UI stacks:
    pip install -r requirements.txt
    ```
 
-2. Launch the FastAPI service with Uvicorn:
+2. Launch the FastAPI service with Uvicorn (bind to localhost unless a reverse proxy handles TLS and authentication):
 
    ```bash
-   uvicorn server.http_gateway:app --host 0.0.0.0 --port 8080
+   uvicorn server.http_gateway:app --host 127.0.0.1 --port 8080
    ```
 
    Startup creates a shared `ATLAS` instance, calls `await atlas.initialize()`, and
@@ -60,6 +60,102 @@ raise a 403-style `*AuthorizationError` otherwise.【F:modules/Server/conversati
 
 When building REST wrappers, convert these exceptions into the framework's
 response objects with the indicated status codes.
+
+### API keys and bearer tokens
+
+`server/http_gateway.py` includes an API-key/bearer-token middleware that blocks
+requests before FastAPI routes are executed. Configure valid tokens with
+environment variables:
+
+- `ATLAS_HTTP_API_KEYS` – comma-delimited list of shared secrets (for example
+  `ATLAS_HTTP_API_KEYS="key-1,key-2,key-3"`).
+- `ATLAS_HTTP_API_KEY_FILE` – optional newline-delimited file of valid keys for
+  teams that store secrets on tmpfs or mount them from an external secrets
+  manager; restart Uvicorn or reload the process after rotating the file.
+- `ATLAS_HTTP_API_KEY_PUBLIC_PATHS` – comma-delimited list of unauthenticated
+  paths (defaults to `/healthz`).
+
+When tokens are configured, requests missing `X-API-Key` or a bearer `Authorization`
+header receive a `401` response; invalid values return `403`. Use short-lived
+secrets and rotate them by updating the environment or mounted file and
+restarting the gateway. Because user-level authorization still occurs via Basic
+or bearer credentials, place API keys in a separate header from user credentials
+to avoid accidental reuse.
+
+### Transport security
+
+- Terminate TLS at a reverse proxy (Nginx, Traefik, Envoy) and forward traffic
+  to Uvicorn over `127.0.0.1`.
+- For direct deployments, Uvicorn can enable TLS with
+  `--ssl-keyfile /path/key.pem --ssl-certfile /path/cert.pem`; pair this with
+  `--proxy-headers` when running behind load balancers.
+
+### Production hardening checklist
+
+- Run the gateway behind an HTTPS reverse proxy; prefer private network bindings
+  and avoid exposing `0.0.0.0` without authentication.
+- Enforce API keys/bearer tokens as above and configure `X-Atlas-Tenant`/user
+  headers via trusted upstream services rather than end-user input.
+- Enable CORS only for trusted origins and apply rate limiting at the proxy
+  layer for REST and streaming endpoints.
+- Restrict streaming (`/conversations/{id}/events`, task/job event streams)
+  behind authenticated websockets or SSE gateways; apply idle timeouts and
+  connection caps.
+- Enable header validation and audit logging at the proxy (for example,
+  `add_header`/`proxy_set_header` directives) so tenant/user/session identifiers
+  are captured in access logs.
+- Disable auto-reload/dev flags in production and set explicit log levels (e.g.,
+  `uvicorn server.http_gateway:app --log-level info --workers 4`).
+
+#### Example Nginx front-end
+
+```
+server {
+    listen 443 ssl;
+    server_name atlas.example.com;
+
+    ssl_certificate /etc/ssl/certs/atlas.crt;
+    ssl_certificate_key /etc/ssl/private/atlas.key;
+
+    add_header X-Forwarded-Proto https;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header X-API-Key $http_x_api_key;
+        proxy_set_header X-Atlas-Tenant tenant-prod;
+        proxy_read_timeout 300;
+        limit_req zone=api burst=20 nodelay;
+    }
+}
+```
+
+#### Example Traefik static rules
+
+```yaml
+http:
+  routers:
+    atlas:
+      rule: "Host(`atlas.example.com`)"
+      entryPoints: ["websecure"]
+      service: atlas-svc
+      middlewares: ["ratelimit@file", "securityHeaders@file"]
+  services:
+    atlas-svc:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8080"
+  middlewares:
+    ratelimit:
+      rateLimit:
+        average: 50
+        burst: 20
+    securityHeaders:
+      headers:
+        sslRedirect: true
+        referrerPolicy: "same-origin"
+```
 
 ## Conversation endpoints
 

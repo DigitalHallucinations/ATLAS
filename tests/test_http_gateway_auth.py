@@ -409,3 +409,53 @@ def test_tenant_header_required_across_routes(http_client) -> None:
 
     recorded_routes = [call[0] for call in server.calls[-3:]]
     assert recorded_routes == ["list_conversations", "list_tasks", "list_jobs"]
+
+
+@pytest.fixture()
+def http_client_with_api_key(http_client):
+    client, service, repository, server, atlas, http_gateway = http_client
+    http_gateway.app.state.api_key_config = http_gateway.ApiKeyConfig(
+        enabled=True,
+        valid_tokens=frozenset({"super-secret"}),
+        public_paths=frozenset({"/healthz"}),
+    )
+    return client, service, repository, server, atlas, http_gateway
+
+
+def test_api_key_required_when_enabled(http_client_with_api_key) -> None:
+    client, _, __, server, _, __http_gateway = http_client_with_api_key
+
+    response = client.get("/conversations")
+
+    assert response.status_code == 401
+    assert server.calls == []
+
+
+def test_invalid_api_key_rejected(http_client_with_api_key) -> None:
+    client, _, __, server, _, __http_gateway = http_client_with_api_key
+
+    headers = {"X-API-Key": "not-correct"}
+
+    response = client.get("/conversations", headers=headers)
+
+    assert response.status_code == 403
+    assert server.calls == []
+
+
+def test_valid_api_key_allows_authenticated_request(http_client_with_api_key) -> None:
+    client, service, repository, server, atlas, http_gateway = http_client_with_api_key
+    service.add_user("api-user", "passw0rd", roles=("reader",))
+    repository.set_profile("api-user", profile={"department": "it"}, display_name="API User")
+
+    headers = {
+        "Authorization": f"Basic {_encode_basic('api-user', 'passw0rd')}",
+        "X-API-Key": "super-secret",
+        http_gateway._HEADER_METADATA: json.dumps({"audit": True}),
+    }
+
+    response = client.get("/conversations", headers=headers)
+
+    assert response.status_code == 200
+    context = server.calls[-1][1]
+    assert context.user_id == "api-user"
+    assert atlas.tenant_id == context.tenant_id

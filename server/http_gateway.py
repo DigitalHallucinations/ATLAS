@@ -7,6 +7,7 @@ import base64
 import binascii
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, Iterable, Mapping, Optional
@@ -36,6 +37,11 @@ _HEADER_SESSION = "x-atlas-session"
 _HEADER_ROLES = "x-atlas-roles"
 _HEADER_METADATA = "x-atlas-metadata"
 
+_HEADER_API_KEY = "x-api-key"
+_ENV_API_KEYS = "ATLAS_HTTP_API_KEYS"
+_ENV_API_KEY_FILE = "ATLAS_HTTP_API_KEY_FILE"
+_ENV_API_KEY_PUBLIC_PATHS = "ATLAS_HTTP_API_KEY_PUBLIC_PATHS"
+
 
 @dataclass(frozen=True)
 class AuthenticatedPrincipal:
@@ -44,6 +50,15 @@ class AuthenticatedPrincipal:
     username: str
     roles: tuple[str, ...]
     metadata: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ApiKeyConfig:
+    """Configuration for API key enforcement."""
+
+    enabled: bool
+    valid_tokens: frozenset[str]
+    public_paths: frozenset[str]
 
 
 def _parse_roles(raw_value: Optional[str]) -> tuple[str, ...]:
@@ -70,6 +85,41 @@ def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
         return None
     token = str(value).strip()
     return token or None
+
+
+def _read_api_key_file(file_path: str) -> set[str]:
+    tokens: set[str] = set()
+    try:
+        with open(file_path, "r", encoding="utf-8") as handle:
+            for line in handle.readlines():
+                normalized = line.strip()
+                if normalized:
+                    tokens.add(normalized)
+    except FileNotFoundError:
+        LOGGER.warning("API key file %s does not exist", file_path)
+    except OSError:
+        LOGGER.exception("Unable to read API key file %s", file_path)
+    return tokens
+
+
+def _load_api_key_config() -> ApiKeyConfig:
+    raw_tokens = os.getenv(_ENV_API_KEYS, "")
+    tokens = {token.strip() for token in raw_tokens.split(",") if token.strip()}
+
+    file_path = _normalize_optional_text(os.getenv(_ENV_API_KEY_FILE))
+    if file_path:
+        tokens.update(_read_api_key_file(file_path))
+
+    public_paths_env = os.getenv(_ENV_API_KEY_PUBLIC_PATHS, "/healthz")
+    public_paths = {
+        path.strip() for path in public_paths_env.split(",") if path.strip()
+    }
+
+    return ApiKeyConfig(
+        enabled=bool(tokens),
+        valid_tokens=frozenset(tokens),
+        public_paths=frozenset(public_paths),
+    )
 
 
 def _merge_roles(target: list[str], additional: Iterable[str]) -> None:
@@ -400,6 +450,37 @@ def _get_server(request: Request) -> AtlasServer:
 
 
 app = FastAPI(title="ATLAS HTTP Gateway", lifespan=lifespan)
+app.state.api_key_config = _load_api_key_config()  # type: ignore[attr-defined]
+
+
+@app.middleware("http")
+async def enforce_api_key(request: Request, call_next):
+    config: ApiKeyConfig | None = getattr(request.app.state, "api_key_config", None)
+    if config is None or not config.enabled:
+        return await call_next(request)
+
+    path = request.url.path
+    if path in config.public_paths:
+        return await call_next(request)
+
+    token = _normalize_optional_text(request.headers.get(_HEADER_API_KEY))
+    if token is None:
+        header_value = request.headers.get("Authorization")
+        if header_value:
+            scheme, _, credentials = header_value.partition(" ")
+            if scheme.lower() == "bearer" and credentials.strip():
+                token = credentials.strip()
+
+    if token is None:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "API key or bearer token is required"},
+        )
+
+    if token not in config.valid_tokens:
+        return JSONResponse(status_code=403, content={"detail": "Invalid API token"})
+
+    return await call_next(request)
 
 
 @app.get("/healthz")
