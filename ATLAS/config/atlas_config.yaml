@@ -109,6 +109,22 @@ feature_flags:
   enterprise: false
   auth_connectors: false
   delegated_admin: false
+data_residency:
+  region: us
+  residency_requirement: regional-primary
+dlp:
+  enabled: true
+  default:
+    enabled: true
+    replacement: "<redacted>"
+    patterns:
+      - (?i)ssn[^0-9]*\d{3}-\d{2}-\d{4}
+      - (?i)passport[^A-Za-z0-9]*[A-Za-z0-9]{6,9}
+      - (?i)secret_key\s*[:=]\s*\S+
+      - (?i)api_key\s*[:=]\s*\S+
+      - [A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
+      - \b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b
+  tenants: {}
 conversation_database:
   pool:
     max_overflow: 10

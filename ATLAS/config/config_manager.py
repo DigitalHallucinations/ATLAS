@@ -565,6 +565,58 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         self._write_yaml_config()
         return bool(enabled)
 
+    def get_data_residency_settings(self) -> Dict[str, Optional[str]]:
+        """Return normalized data residency preferences."""
+
+        block = self.config.get("data_residency")
+        if not isinstance(block, Mapping):
+            return {"region": None, "residency_requirement": None}
+
+        region = str(block.get("region")).strip() if block.get("region") else None
+        residency_requirement = (
+            str(block.get("residency_requirement")).strip()
+            if block.get("residency_requirement")
+            else None
+        )
+        return {
+            "region": region or None,
+            "residency_requirement": residency_requirement or None,
+        }
+
+    def set_data_residency(
+        self,
+        *,
+        region: Optional[str] = None,
+        residency_requirement: Optional[str] = None,
+    ) -> Dict[str, Optional[str]]:
+        """Persist data residency preferences for the deployment."""
+
+        normalized_region = region.strip() if isinstance(region, str) else None
+        normalized_residency = (
+            residency_requirement.strip()
+            if isinstance(residency_requirement, str)
+            else None
+        )
+
+        block: Dict[str, str] = {}
+        if normalized_region:
+            block["region"] = normalized_region
+        if normalized_residency:
+            block["residency_requirement"] = normalized_residency
+
+        if block:
+            self.yaml_config["data_residency"] = dict(block)
+            self.config["data_residency"] = dict(block)
+        else:
+            self.yaml_config.pop("data_residency", None)
+            self.config.pop("data_residency", None)
+
+        self._write_yaml_config()
+        return {
+            "region": block.get("region"),
+            "residency_requirement": block.get("residency_requirement"),
+        }
+
     def get_local_profile_limit(self, default: int = 5) -> int:
         """Return the configured cap on locally managed profiles."""
 
@@ -601,6 +653,61 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
 
         flags = self.get_feature_flags()
         return bool(flags.get("enterprise") and flags.get("delegated_admin"))
+
+    # ------------------------------------------------------------------
+    # Data loss prevention
+    # ------------------------------------------------------------------
+
+    def get_dlp_policy(self, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+        """Return merged DLP settings for the requested tenant."""
+
+        settings = self.config.get("dlp")
+        if not isinstance(settings, Mapping):
+            return {"enabled": False}
+
+        enabled = bool(settings.get("enabled", False))
+        default_policy = settings.get("default") if isinstance(settings.get("default"), Mapping) else {}
+        tenant_policy = {}
+        tenant_map = settings.get("tenants") if isinstance(settings.get("tenants"), Mapping) else {}
+        if tenant_id and isinstance(tenant_map, Mapping):
+            tenant_policy = tenant_map.get(str(tenant_id)) or {}
+
+        merged: Dict[str, Any] = {}
+        if isinstance(default_policy, Mapping):
+            merged.update(default_policy)
+        if isinstance(tenant_policy, Mapping):
+            merged.update(tenant_policy)
+
+        merged_enabled = bool(merged.get("enabled", True)) if merged else True
+        merged["enabled"] = bool(enabled and merged_enabled)
+        return merged
+
+    def set_dlp_policy(
+        self,
+        policy: Mapping[str, Any],
+        *,
+        tenant_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist default or tenant-specific DLP rules."""
+
+        settings = dict(self.config.get("dlp") or {})
+        enabled = bool(settings.get("enabled", policy.get("enabled", True)))
+        settings["enabled"] = enabled
+
+        if tenant_id:
+            tenants_block = settings.get("tenants")
+            if not isinstance(tenants_block, Mapping):
+                tenants_block = {}
+            tenants_block = dict(tenants_block)
+            tenants_block[str(tenant_id)] = dict(policy)
+            settings["tenants"] = tenants_block
+        else:
+            settings["default"] = dict(policy)
+
+        self.config["dlp"] = copy.deepcopy(settings)
+        self.yaml_config["dlp"] = copy.deepcopy(settings)
+        self._write_yaml_config()
+        return dict(settings)
 
 
 

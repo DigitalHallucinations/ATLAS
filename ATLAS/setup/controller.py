@@ -147,6 +147,8 @@ class OptionalState:
     scheduler_queue_size: Optional[int] = None
     http_auto_start: bool = False
     audit_template: Optional[str] = None
+    data_region: Optional[str] = None
+    residency_requirement: Optional[str] = None
 
 
 @dataclass
@@ -427,6 +429,7 @@ class SetupWizardController:
         tenant_value = self.config_manager.get_config("tenant_id") or self.config_manager.env_config.get("TENANT_ID")
         retention = self.config_manager.get_conversation_retention_policies()
         http_block = self.config_manager.get_config("http_server") or {}
+        residency = self.config_manager.get_data_residency_settings()
         self.state.optional = OptionalState(
             tenant_id=str(tenant_value).strip() if tenant_value else None,
             retention_days=retention.get("days") or retention.get("max_days"),
@@ -435,6 +438,8 @@ class SetupWizardController:
             scheduler_queue_size=self.state.job_scheduling.queue_size,
             http_auto_start=bool(http_block.get("auto_start")) if isinstance(http_block, Mapping) else False,
             audit_template=self.config_manager.get_audit_template(),
+            data_region=residency.get("region"),
+            residency_requirement=residency.get("residency_requirement"),
         )
 
     # -- presets ------------------------------------------------------------
@@ -769,6 +774,10 @@ class SetupWizardController:
                 queue_size=state.scheduler_queue_size if state.scheduler_queue_size is not None else ConfigManager.UNSET,
             )
         self.config_manager.set_http_server_autostart(state.http_auto_start)
+        self.config_manager.set_data_residency(
+            region=state.data_region,
+            residency_requirement=state.residency_requirement,
+        )
         self.state.optional = dataclasses.replace(state)
         return self.state.optional
 

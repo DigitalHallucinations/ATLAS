@@ -135,13 +135,21 @@ Selecting the **Company (Enterprise)** path front-loads tenancy, retention, and
 scheduler defaults before fleets begin connecting. The **Tenant identifier**
 field writes directly to the root `tenant_id` setting so API calls inherit the
 same context enforced by server routes that require the `X-Atlas-Tenant` header
-for every request.【F:ATLAS/setup/controller.py†L433-L451】【F:docs/server/api.md†L34-L59】 Use the retention inputs to populate the
-`conversation_database.retention` block (`days` and `history_message_limit`),
+for every request.【F:ATLAS/setup/controller.py†L433-L451】【F:docs/server/api.md†L34-L59】 Choose a **Primary data region** and **Residency
+requirement** so downstream services can honor regional handling expectations;
+both values are stored under the `data_residency` block for reuse by scheduling
+and storage modules.【F:ATLAS/setup/controller.py†L430-L453】【F:ATLAS/config/atlas_config.yaml†L100-L126】 Use the retention inputs to populate the
+ `conversation_database.retention` block (`days` and `history_message_limit`),
 ensuring pruning behaviour is consistent with the retention worker documented in
 the [conversation retention runbook](./conversation_retention.md).【F:ATLAS/setup/controller.py†L433-L451】【F:ATLAS/config/atlas_config.yaml†L108-L118】【F:docs/conversation_retention.md†L1-L34】
 Timezone and queue size controls map to `job_scheduling.timezone` and
 `job_scheduling.queue_size`, allowing operators to override the shared scheduler
 defaults that also drive task queue sizing.【F:ATLAS/setup/controller.py†L433-L451】【F:ATLAS/config/config_manager.py†L600-L720】
+
+Export controls and data residency considerations captured in this step are also
+summarised in the [export controls reference](./export-controls.md), which
+outlines regional handling expectations and how the HTTP gateway's DLP policies
+protect regulated data before it is stored.【F:docs/export-controls.md†L1-L34】【F:modules/Server/routes.py†L3177-L3240】
 
 For multi-tenant and auditing-heavy environments, complete the wizard and then
 review the configuration in `atlas_config.yaml` alongside the logging/audit
