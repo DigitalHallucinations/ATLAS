@@ -292,7 +292,7 @@ headerbar.setup-wizard-header button.setup-wizard-debug-button image {
 
 .setup-wizard-step-active,
 .setup-wizard-step-active .setup-wizard-step-label {
-    color: #f5f7fb;
+    color: #58a6ff;
     font-weight: 700;
 }
 
