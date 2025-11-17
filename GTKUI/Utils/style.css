@@ -300,6 +300,20 @@ headerbar.setup-wizard-header button.setup-wizard-debug-button image {
     color: #c8ceda;
 }
 
+.setup-wizard-step-mark {
+    font-weight: 700;
+    align-self: center;
+    min-width: 16px;
+}
+
+.setup-wizard-step-mark.setup-wizard-step-complete {
+    color: #6be49b;
+}
+
+.setup-wizard-step-mark.setup-wizard-step-pending {
+    color: #9aa6b8;
+}
+
 .setup-wizard-main {
     border-right: 1px solid rgba(255, 255, 255, 0.12);
     padding-right: 12px;
