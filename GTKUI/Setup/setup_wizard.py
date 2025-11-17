@@ -289,6 +289,7 @@ class SetupWizardWindow(AtlasWindow):
         # NEW: sidebar tracking
         self._completed_steps: set[int] = set()
         self._step_rows: list[Gtk.ListBoxRow] = []
+        self._step_row_labels: list[Gtk.Label] = []
         self._step_list: Gtk.ListBox | None = None
         self._toast_overlay: Gtk.Widget | None = None
         self._toast_history: list[tuple[str, str]] = []
@@ -344,7 +345,12 @@ class SetupWizardWindow(AtlasWindow):
         steps_sidebar.append(steps_title)
 
         self._step_list = Gtk.ListBox()
-        self._step_list.set_selection_mode(Gtk.SelectionMode.BROWSE)
+        self._step_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        if hasattr(self._step_list, "set_activate_on_single_click"):
+            try:
+                self._step_list.set_activate_on_single_click(True)
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
         self._step_list.connect("row-activated", self._on_step_row_activated)
         steps_scroller = Gtk.ScrolledWindow()
         steps_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -1092,6 +1098,7 @@ class SetupWizardWindow(AtlasWindow):
         for row in list(self._step_rows):
             self._step_list.remove(row)
         self._step_rows.clear()
+        self._step_row_labels.clear()
 
         for idx, step in enumerate(self._steps):
             row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -1108,13 +1115,18 @@ class SetupWizardWindow(AtlasWindow):
             title = Gtk.Label(label=step.name)
             title.set_xalign(0.0)
             title.set_hexpand(True)
+            if hasattr(title, "add_css_class"):
+                title.add_css_class("setup-wizard-step-label")
             row_box.append(title)
 
             row = Gtk.ListBoxRow()
             row.set_activatable(True)
+            if hasattr(row, "add_css_class"):
+                row.add_css_class("setup-wizard-step-row")
             row.set_child(row_box)
             self._step_list.append(row)
             self._step_rows.append(row)
+            self._step_row_labels.append(title)
 
         self._select_step_row(self._current_index)
 
@@ -2001,9 +2013,26 @@ class SetupWizardWindow(AtlasWindow):
     def _select_step_row(self, index: int) -> None:
         if not self._step_list:
             return
+
+        for row, label in zip(self._step_rows, self._step_row_labels):
+            for widget in (row, label):
+                if hasattr(widget, "remove_css_class"):
+                    try:
+                        widget.remove_css_class("setup-wizard-step-active")
+                    except Exception:  # pragma: no cover - GTK stubs
+                        pass
+
         if not (0 <= index < len(self._step_rows)):
             return
-        self._step_list.select_row(self._step_rows[index])
+
+        active_row = self._step_rows[index]
+        active_label = self._step_row_labels[index]
+        for widget in (active_row, active_label):
+            if hasattr(widget, "add_css_class"):
+                try:
+                    widget.add_css_class("setup-wizard-step-active")
+                except Exception:  # pragma: no cover - GTK stubs
+                    pass
 
     def _build_database_page(self) -> Gtk.Widget:
         state = self.controller.state.database
@@ -3383,8 +3412,6 @@ class SetupWizardWindow(AtlasWindow):
         except ValueError:
             return
         self._go_to_step(index)
-        if self._step_list:
-            self._step_list.select_row(row)
 
     def _on_next_clicked(self, *_: object) -> None:
         if not self._steps:
@@ -3406,8 +3433,8 @@ class SetupWizardWindow(AtlasWindow):
         # Mark current step as completed and refresh sidebar visuals
         self._completed_steps.add(self._current_index)
         self._build_steps_sidebar()
-        if self._step_list and 0 <= self._current_index < len(self._step_rows):
-            self._step_list.select_row(self._step_rows[self._current_index])
+        if 0 <= self._current_index < len(self._step_rows):
+            self._select_step_row(self._current_index)
 
         if self._current_index == len(self._steps) - 1:
             try:
