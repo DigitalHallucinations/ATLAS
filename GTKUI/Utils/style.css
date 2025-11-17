@@ -269,7 +269,7 @@ headerbar.setup-wizard-header button.setup-wizard-debug-button image {
 
 .setup-wizard-sidebar {
     border-right: 1px solid rgba(255, 255, 255, 0.12);
-    padding-right: 12px;
+    padding-right: 3px;
 }
 
 .setup-wizard-step-row {
