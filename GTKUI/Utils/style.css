@@ -272,6 +272,34 @@ headerbar.setup-wizard-header button.setup-wizard-debug-button image {
     padding-right: 12px;
 }
 
+.setup-wizard-step-row {
+    background: transparent;
+    border-radius: 8px;
+    box-shadow: none;
+}
+
+.setup-wizard-step-row:focus,
+.setup-wizard-step-row:focus-visible {
+    outline: none;
+    box-shadow: none;
+    background: transparent;
+}
+
+.setup-wizard-step-label {
+    color: #c8ceda;
+    font-weight: 500;
+}
+
+.setup-wizard-step-active,
+.setup-wizard-step-active .setup-wizard-step-label {
+    color: #f5f7fb;
+    font-weight: 700;
+}
+
+.setup-wizard-step-row:not(.setup-wizard-step-active) .setup-wizard-step-label {
+    color: #c8ceda;
+}
+
 .setup-wizard-main {
     border-right: 1px solid rgba(255, 255, 255, 0.12);
     padding-right: 12px;
