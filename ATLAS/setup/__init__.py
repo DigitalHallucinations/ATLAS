@@ -12,9 +12,13 @@ from .controller import (
     PrivilegedCredentialState,
     ProviderState,
     RetryPolicyState,
+    SetupTypeState,
+    SetupUserEntry,
+    SetupUsersState,
     SetupWizardController,
     SpeechState,
     UserState,
+    VectorStoreState,
 )
 
 __all__ = [
@@ -29,7 +33,11 @@ __all__ = [
     "PrivilegedCredentialState",
     "ProviderState",
     "RetryPolicyState",
+    "SetupTypeState",
+    "SetupUserEntry",
+    "SetupUsersState",
     "SetupWizardController",
     "SpeechState",
     "UserState",
+    "VectorStoreState",
 ]
