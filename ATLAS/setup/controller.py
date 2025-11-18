@@ -124,6 +124,8 @@ class UserState:
     full_name: str = ""
     domain: str = ""
     date_of_birth: str = ""
+    privileged_db_username: str = ""
+    privileged_db_password: str = ""
     privileged_credentials: PrivilegedCredentialState = field(default_factory=PrivilegedCredentialState)
 
 
@@ -944,8 +946,8 @@ class SetupWizardController:
     def _state_to_profile(self, state: UserState) -> AdminProfile:
         staged_privileged = self.get_privileged_credentials()
         privileged_state = state.privileged_credentials
-        db_username = ""
-        db_password = ""
+        db_username = (state.privileged_db_username or "").strip()
+        db_password = state.privileged_db_password
         if staged_privileged is not None:
             username, password = staged_privileged
             db_username = (username or "").strip()
@@ -978,6 +980,8 @@ class SetupWizardController:
             full_name=profile.full_name or "",
             domain=profile.domain or "",
             date_of_birth=profile.date_of_birth or "",
+            privileged_db_username=profile.privileged_db_username or "",
+            privileged_db_password=profile.privileged_db_password or "",
             privileged_credentials=privileged_state,
         )
         db_username = (profile.privileged_db_username or "").strip()
@@ -1028,6 +1032,8 @@ class SetupWizardController:
     ) -> None:
         if credentials is None:
             self._staged_privileged_credentials = None
+            self.state.user.privileged_db_username = ""
+            self.state.user.privileged_db_password = ""
             return
         username, password = credentials
         cleaned_username = (username or "").strip()
@@ -1043,6 +1049,8 @@ class SetupWizardController:
             cleaned_username or None,
             cleaned_password,
         )
+        self.state.user.privileged_db_username = cleaned_username
+        self.state.user.privileged_db_password = cleaned_password or ""
 
     def get_privileged_credentials(self) -> tuple[str | None, str | None] | None:
         return self._staged_privileged_credentials
